@@ -29,7 +29,13 @@ GAME_NODE_ROUTES = {
     "native-account-characters",
     "native-account-characters/watermark",
     "character-bootstrap-intents/read",
+    "character-commands/pending",
+    "character-commands/read",
+    "character-commands/receipt",
 }
+# Mounted by app/CharacterAuthority/Http/CharacterCommandRoutes.php from the CharacterCommandWire paths.
+CHARACTER_COMMAND_ROUTES = {"character-commands/pending", "character-commands/read", "character-commands/receipt"}
+WIRE = ROOT / "app" / "CharacterAuthority" / "CharacterCommandWire.php"
 STAGING_FILES = {
     "SERVER_CERT_FILE": "/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.fullchain.pem",
     "SERVER_KEY_FILE": "/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.key",
@@ -75,13 +81,14 @@ def test_client_certificate_values_reach_php_only_from_the_tls_session() -> None
     assert "fastcgi_param SSL_PROTOCOL $ssl_protocol;" in directives
     assert "fastcgi_param SSL_CLIENT_S_DN $ssl_client_s_dn;" in directives
     ssl_params = [d for d in directives if re.match(r"fastcgi_param (HTTP_)?SSL_", d)]
-    assert len(ssl_params) == 3, ssl_params
+    # One explicit parameter set per location (game-auth and game-public), never a shared include.
+    assert len(ssl_params) == 6, ssl_params
     assert not [d for d in directives if d.startswith("include")]
     assert not [d for d in directives if d.startswith(("proxy_pass", "proxy_set_header"))]
     for header in ("HTTP_PROXY", "HTTP_FORWARDED", "HTTP_X_FORWARDED_FOR", "HTTP_X_REAL_IP"):
         assert f'fastcgi_param {header} "";' in directives
     assert f"fastcgi_pass unix:{SOCKET};" in directives
-    assert len([d for d in directives if d.startswith("fastcgi_pass ")]) == 1
+    assert [d for d in directives if d.startswith("fastcgi_pass ")] == [f"fastcgi_pass unix:{SOCKET};"] * 2
 
 
 def test_only_game_node_routes_are_exposed() -> None:
@@ -89,18 +96,59 @@ def test_only_game_node_routes_are_exposed() -> None:
     locations = re.findall(r"^\s*location\s+([^{]+)\{", text, re.M)
     assert [loc.strip() for loc in locations] == [
         "~ ^/internal/v1/game-auth/(native-evidence|native-runtime-status|native-scope-assignments|"
-        "native-account-characters|native-account-characters/watermark|character-bootstrap-intents/read)$",
+        "native-account-characters|native-account-characters/watermark|character-bootstrap-intents/read|"
+        "character-commands/pending|character-commands/read|character-commands/receipt)$",
+        "~ ^/internal/v1/game-public/(highscores|character-profile|character-deaths|guild|house|world-online|"
+        "watermark)$",
         "/",
     ]
     exposed = set(re.search(r"game-auth/\(([^)]*)\)\$", locations[0]).group(1).split("|"))
     assert exposed == GAME_NODE_ROUTES
     assert "native-admissions" not in exposed
-    assert "limit_except POST { deny all; }" in text
+    assert text.count("limit_except POST { deny all; }") == 2
     assert re.search(r"location / \{\s*return 404;\s*\}", text)
 
     routes = ROUTES.read_text()
-    for route in GAME_NODE_ROUTES:
+    for route in GAME_NODE_ROUTES - CHARACTER_COMMAND_ROUTES:
         assert f"Route::post('/internal/v1/game-auth/{route}'," in routes, route
+    assert "CharacterCommandRoutes::register();" in routes
+    wire = set(re.findall(r"_PATH = '/internal/v1/game-auth/([a-z/-]+)';", WIRE.read_text()))
+    assert wire == CHARACTER_COMMAND_ROUTES, wire
+
+
+def test_game_public_projection_routes_match_platform_and_allow_their_body_bounds() -> None:
+    text = NGINX.read_text()
+    block = re.search(r"location ~ \^/internal/v1/game-public/\(([^)]*)\)\$ \{(.*?)\n        \}", text, re.S)
+    assert block, "game-public location missing"
+    exposed = set(block.group(1).split("|"))
+    family = (ROOT / "app" / "GameProjections" / "PublicProjectionFamily.php").read_text()
+    cases = set(re.findall(r"case \w+ = '([a-z_]+)';", family))
+    assert exposed == {case.replace("_", "-") for case in cases} | {"watermark"}
+    routes = ROUTES.read_text()
+    assert "Route::post('/internal/v1/game-public/'.$publicProjectionFamily->path()," in routes
+    assert "Route::post('/internal/v1/game-public/'.PublicProjectionFamily::WATERMARK_PATH," in routes
+
+    # The largest family body (world-online) must fit the location; every other route stays at 64k.
+    largest = max(int(n) for n in re.findall(r"=> (\d+),", family) if int(n) > 1000)
+    size = re.search(r"client_max_body_size (\d+)k;", block.group(2))
+    assert size and int(size.group(1)) * 1024 >= largest
+    assert "client_max_body_size 64k;" in text.split("server {")[0]
+    assert "client_max_body_size" not in text.split("location ~ ^/internal/v1/game-public")[0].split("server {")[1]
+
+
+def test_platform_forwards_public_projection_settings_with_fail_closed_defaults() -> None:
+    platform = _service_block(COMPOSE.read_text(), "platform")
+    assert "      GAME_PROJECTIONS_PUBLIC_ENABLED: ${GAME_PROJECTIONS_PUBLIC_ENABLED:-false}\n" in platform
+    assert "      GAME_PROJECTIONS_PUBLIC_IDENTITIES: ${GAME_PROJECTIONS_PUBLIC_IDENTITIES:-}\n" in platform
+    assert "      GAME_PROJECTIONS_PUBLIC_SOURCE_AUTHORITY: ${GAME_PROJECTIONS_PUBLIC_SOURCE_AUTHORITY:-}\n" in platform
+    assert "GAME_PROJECTIONS_PUBLIC_REQUESTS_PER_MINUTE: ${GAME_PROJECTIONS_PUBLIC_REQUESTS_PER_MINUTE:-1200}" in platform
+    assert "      PUBLIC_GAME_DATA_WORLD_ID: ${PUBLIC_GAME_DATA_WORLD_ID:-}\n" in platform
+
+    prepare = (ROOT / "deploy" / "oracle" / "prepare-platform.sh").read_text()
+    assert prepare.count("'GAME_PROJECTIONS_PUBLIC_ENABLED': 'false',") == 2
+    assert prepare.count("'GAME_PROJECTIONS_PUBLIC_IDENTITIES': '',") == 2
+    assert prepare.count("'GAME_PROJECTIONS_PUBLIC_SOURCE_AUTHORITY': 'oteryn:game:primary',") == 2
+    assert "GAME_PROJECTIONS_PUBLIC_ENABLED': 'true'" not in prepare
 
 
 def test_terminator_mounts_host_files_read_only_and_never_uses_tls_init() -> None:
@@ -234,7 +282,7 @@ def test_fast_deploy_path_reconciles_when_listener_inputs_change() -> None:
     assert 'want_mtls_fingerprint="$(oteryn_platform_mtls_fingerprint)"' in check
     assert '"$(oteryn_platform_mtls_fingerprint_of "$mtls_id")" != "$want_mtls_fingerprint"' in check
     assert "FAST_DEPLOY_REASON='platform mTLS listener configuration or certificate files changed'" in check
-    assert check.index("return 1") < check.index("FAST_MARIADB_ID")
+    assert check.index("return 1") < check.index("FAST_POSTGRES_ID")
 
 
 def test_entrypoint_supervises_the_fastcgi_pool_as_pid_1() -> None:
@@ -321,7 +369,7 @@ def test_listener_is_stopped_while_platform_is_replaced_and_migrated() -> None:
     deploy = DEPLOY.read_text()
     main = deploy[deploy.index("\nfinalize_previous_candidate_if_healthy\n"):]
     assert main.index(stop) < main.index('"${compose[@]}" up -d platform')
-    assert main.index(stop) < main.index("php artisan migrate --force")
+    assert main.index(stop) < main.index("oteryn_platform_migrate_postgres")
     assert main.index("oteryn_publish_native_admission_trust_or_stop") < main.index(reconcile)
 
     rollback = ROLLBACK.read_text()
@@ -508,6 +556,22 @@ ROUTE_SETTINGS = {
         "",
     ),
     "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS": ("OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_TTL_SECONDS", ""),
+    "CHARACTER_AUTHORITY_COMMANDS_ENABLED": ("OTERYN_STAGING_NATIVE_CHARACTER_COMMANDS_ENABLED", "false"),
+    "CHARACTER_AUTHORITY_COMMAND_IDENTITIES": ("OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_IDENTITIES", ""),
+    "CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY": ("OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_SOURCE_AUTHORITY", ""),
+    "CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": ("OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_MAX_PENDING_INTENTS", "40"),
+    "CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": ("OTERYN_STAGING_NATIVE_CHARACTER_WEB_CREATE_ENABLED", "false"),
+}
+# Platform settings of the Character Authority commands that the deploy leaves at the config default.
+CHARACTER_COMMAND_UNMAPPED = {
+    "CHARACTER_AUTHORITY_COMMAND_INTENT_TTL_SECONDS",
+    "CHARACTER_AUTHORITY_COMMAND_REQUESTS_PER_MINUTE",
+    # Game restore notices (U-CC7, PR #1631) are not wired by this packet: they keep the Platform
+    # config default, so the restore-notice route stays off in the deployment.
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_ENABLED",
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_IDENTITIES",
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_SOURCE_AUTHORITY",
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_REQUESTS_PER_MINUTE",
 }
 # Subject DN (RFC 2253) of the preprod node 1 [platform] client certificate, named by the Game manifest
 # deploy/synology-game/preprod-topology.toml (certificates.node_native_evidence).
@@ -523,6 +587,12 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
     platform = _service_block(COMPOSE.read_text(), "platform")
     mapped = set(re.findall(r"^      ((?:GAME_AUTH_NATIVE_EVIDENCE|GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT)_[A-Z_]+):", platform, re.M))
     assert read and read == mapped, read ^ mapped
+    # Character Authority commands and web creation: every setting is mapped except the two that keep
+    # the Platform config default (TTL 300 s, 600 requests per minute) and the unwired restore notices.
+    config = (ROOT / "config" / "character-authority.php").read_text()
+    read = set(re.findall(r"env\('(CHARACTER_AUTHORITY_[A-Z_]+)'", config))
+    mapped = set(re.findall(r"^      (CHARACTER_AUTHORITY_[A-Z_]+):", platform, re.M))
+    assert mapped and read == mapped | CHARACTER_COMMAND_UNMAPPED and not mapped & CHARACTER_COMMAND_UNMAPPED, read ^ mapped
     for name, (_, default) in ROUTE_SETTINGS.items():
         assert f"      {name}: ${{{name}:-{default}}}\n" in platform, name
     # The other Game-node routes: runtime status and scope assignment come from the rendered
@@ -537,17 +607,25 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
 
     # Deploy inputs: the committed defaults name the preprod node 1 [platform] client certificate for
     # both routes (the Game node presents one certificate for evidence and bootstrap-intent reads) and
-    # keep the one-way evidence activation off. Anything not committed resolves to its fail-closed value.
+    # retain the owner's 2026-10-15 one-way activation. Unconfigured stacks still fail closed.
     values = dict(line.split("=", 1) for line in DEFAULTS.read_text().splitlines() if line and not line.startswith("#"))
-    assert values["OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED"] == "false"
+    assert values["OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED"] == "true"
     committed = {
-        "OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED": "false",
+        "OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED": "true",
         "OTERYN_STAGING_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY": NODE_PLATFORM_CLIENT_IDENTITY,
         "OTERYN_STAGING_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE": "platform_security",
         "OTERYN_STAGING_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE": "fresh_admission",
         "OTERYN_STAGING_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS": "1",
         "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY": NODE_PLATFORM_CLIENT_IDENTITY,
         "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_TTL_SECONDS": "300",
+        # Character Authority commands are enabled for the preprod node 1 commands certificate, and
+        # web creation is on after the Game node's pending-list smoke check. The pending-intent bound
+        # is the enablement value 40 (CP decision 2026-10-15).
+        "OTERYN_STAGING_NATIVE_CHARACTER_COMMANDS_ENABLED": "true",
+        "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_IDENTITIES": '["CN=oteryn-preprod-node-1-character-commands"]',
+        "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_SOURCE_AUTHORITY": "oteryn:character-authority:primary",
+        "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_MAX_PENDING_INTENTS": "40",
+        "OTERYN_STAGING_NATIVE_CHARACTER_WEB_CREATE_ENABLED": "true",
     }
     for _, (default_name, _) in ROUTE_SETTINGS.items():
         assert values.get(default_name, "") == committed.get(default_name, ""), default_name
@@ -587,6 +665,53 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
     # Platform treats a non-boolean switch as a configuration error, so the run is refused.
     result, calls = _run_lib("oteryn_resolve_game_node_route_settings", GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED="yes")
     assert result.returncode == 1 and "must be true or false" in result.stderr and calls == []
+
+
+def test_character_command_settings_refuse_a_surface_that_cannot_work() -> None:
+    enabled = {
+        "CHARACTER_AUTHORITY_COMMANDS_ENABLED": "true",
+        "CHARACTER_AUTHORITY_COMMAND_IDENTITIES": '["CN=oteryn-preprod-character-commands"]',
+    }
+    # The committed source authority and bound complete an enabled surface; web creation follows it.
+    result, calls = _run_lib(
+        f"oteryn_resolve_game_node_route_settings || exit 1; {PRINT_ROUTE_SETTINGS}",
+        CHARACTER_AUTHORITY_WEB_CREATE_ENABLED="true",
+        **enabled,
+    )
+    assert result.returncode == 0 and calls == [], result.stderr
+    resolved = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert resolved["CHARACTER_AUTHORITY_COMMANDS_ENABLED"] == "true"
+    assert resolved["CHARACTER_AUTHORITY_COMMAND_IDENTITIES"] == '["CN=oteryn-preprod-character-commands"]'
+    assert resolved["CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY"] == "oteryn:character-authority:primary"
+    assert resolved["CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS"] == "40"
+    assert resolved["CHARACTER_AUTHORITY_WEB_CREATE_ENABLED"] == "true"
+
+    refused = [
+        ({"CHARACTER_AUTHORITY_COMMANDS_ENABLED": "1"}, "CHARACTER_AUTHORITY_COMMANDS_ENABLED must be true or false"),
+        ({"CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": "on"}, "CHARACTER_AUTHORITY_WEB_CREATE_ENABLED must be true or false"),
+        (
+            {"CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": "true", "CHARACTER_AUTHORITY_COMMANDS_ENABLED": "false"},
+            "needs CHARACTER_AUTHORITY_COMMANDS_ENABLED=true",
+        ),
+        (
+            {"CHARACTER_AUTHORITY_COMMANDS_ENABLED": "true", "OTERYN_NATIVE_DEFAULTS_FILE": "/dev/null"},
+            "needs CHARACTER_AUTHORITY_COMMAND_IDENTITIES",
+        ),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "41"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "256"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "0"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "040"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "40s"}, "from 1 to 40"),
+    ]
+    for env, message in refused:
+        result, calls = _run_lib("oteryn_resolve_game_node_route_settings", **env)
+        assert result.returncode == 1 and message in result.stderr and calls == [], (env, result.stderr)
+    # An enabled surface without a source authority (none committed) is refused too.
+    with tempfile.TemporaryDirectory() as tmp:
+        defaults = pathlib.Path(tmp) / "d.env"
+        defaults.write_text("OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_MAX_PENDING_INTENTS=40\n")
+        result, calls = _run_lib("oteryn_resolve_game_node_route_settings", OTERYN_NATIVE_DEFAULTS_FILE=str(defaults), **enabled)
+    assert result.returncode == 1 and "CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY" in result.stderr and calls == []
 
 
 def test_every_fail_closed_removal_also_removes_the_listener() -> None:

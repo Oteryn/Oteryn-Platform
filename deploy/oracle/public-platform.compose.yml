@@ -1,0 +1,16 @@
+# Apply together with the pinned deploy/synology/compose.yml. Keep database and
+# application listeners private; only the dedicated edge publishes HTTP/TLS.
+services:
+  internal-proxy:
+    networks:
+      private:
+        ipv4_address: 172.18.0.5
+  platform:
+    environment:
+      TRUSTED_PROXIES: 172.18.0.10,172.18.0.5
+      APP_URL: https://oteryn.com
+      SESSION_SECURE_COOKIE: 'true'
+  marketplace-scheduler:
+    environment:
+      APP_URL: https://oteryn.com
+      SESSION_SECURE_COOKIE: 'true'

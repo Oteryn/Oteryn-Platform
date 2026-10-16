@@ -262,7 +262,8 @@ def canonical_path(location):
     parts = urllib.parse.urlsplit(location)
     if parts.scheme != 'https' or parts.netloc != CANONICAL:
         raise SystemExit('a redirect left the canonical HTTPS origin')
-    return parts.path
+    # Laravel's url('/') is the bare origin, so an empty path is the root.
+    return parts.path or '/'
 
 
 browser = Browser()

@@ -130,8 +130,9 @@ class DeployWiringTest(unittest.TestCase):
     def test_health_check_fails_on_structure_and_warns_on_degraded_backups(self) -> None:
         health = HEALTH.read_text()
         self.assertIn('bash "$SCRIPT_DIR/backup-postgres.sh" check || backup_status=$?', health)
-        self.assertIn("        3) echo \"WARNING: PostgreSQL backups are degraded", health)
-        self.assertIn("        *) exit 1 ;;", health)
+        self.assertIn("\n    3) echo \"WARNING: PostgreSQL backups are degraded", health)
+        self.assertIn('case "$backup_status" in\n    0) ;;\n', health)
+        self.assertIn("\n    *) exit 1 ;;\nesac\n", health)
         script = BACKUP_POSTGRES.read_text()
         self.assertIn("        exit 3\n", script)
         # The deploy reconcile is strict when its backups finish within the budget: it ends with a check
@@ -280,10 +281,12 @@ class AutostartRepairTest(unittest.TestCase):
             "FAKE_CONTAINERS": f"{self.BASE} {containers}",
             "FAKE_RUNNING": running,
             "FAKE_LOG": str(self.log),
+            # No cutover recorded: the repair reads the state through lib.sh, sourced from the checkout root.
+            "OTERYN_STATE_DIR_INPUT": str(self.tmp / "state"),
         }
         for name in ("SUPERUSER", "OWNER", "APP", "BACKUP", "DUMP"):
             env[f"PLATFORM_POSTGRES_{name}_PASSWORD"] = "x" * 24 if secrets else ""
-        return run(["bash", str(self.script)], env=env)
+        return run(["bash", str(self.script)], env=env, cwd=ROOT)
 
     def started(self) -> str:
         return self.log.read_text() if self.log.exists() else ""
@@ -306,16 +309,26 @@ class AutostartRepairTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("start", self.started())
 
-    def test_a_running_sidecar_without_secrets_is_drift(self) -> None:
-        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "postgres-backup", secrets=False)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("A postgres-backup container is running", result.stderr)
-        self.assertNotIn("start", self.started())
-
-    def test_stopped_postgres_containers_without_secrets_stay_stopped(self) -> None:
-        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "", secrets=False)
+    def test_a_leftover_mariadb_container_is_never_repaired(self) -> None:
+        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "", secrets=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("c-pg", self.started())
+        self.assertNotIn("c-mariadb", self.started())
+
+    def test_missing_secrets_fail_before_any_container_is_touched(self) -> None:
+        for running in ("", "postgres postgres-backup"):
+            with self.subTest(running=running):
+                result = self.repair("postgres=c-pg postgres-backup=c-pgb", running, secrets=False)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("only 0 of its 5 secrets are configured", result.stderr)
+                self.assertEqual(self.started(), "")
+
+    def test_a_partial_secret_set_fails_before_any_container_is_touched(self) -> None:
+        env_script = self.script.read_text()
+        self.script.write_text("PLATFORM_POSTGRES_DUMP_PASSWORD=\n" + env_script)
+        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "", secrets=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("only 4 of its 5 secrets are configured", result.stderr)
+        self.assertEqual(self.started(), "")
 
 
 class SpoolTestCase(unittest.TestCase):
@@ -842,7 +855,7 @@ class DrillRpoTest(unittest.TestCase):
             f"target={target}; target_time=''; chosen=20261005T020000Z; archiver_healthy={str(archiver_healthy).lower()}",
             f"offline={str(offline).lower()}; target_label='the target'",
             f"archive_timeout=60; started_epoch=$(date +%s); base_end_epoch=$((started_epoch - {base_age}))",
-            "restore_seconds=5; checks_passed=3; RTO_SECONDS=14400; RPO_SECONDS=86400",
+            "restore_seconds=5; checks_passed=3; RTO_SECONDS=14400; RPO_SECONDS=300",
             tail,
             'for key in "${evidence_order[@]}"; do printf "%s=%s\\n" "$key" "${evidence[$key]}"; done',
         ])
@@ -900,7 +913,9 @@ case "$1" in
       *"df -Pk"*) echo unreadable ;;
     esac
     ;;
-  container | volume) exit 1 ;;
+  container) exit 1 ;;
+  # A spool restored from the off-NAS copy (offsite-postgres-backup.sh restore) is a named volume.
+  volume) [[ "$*" == "volume inspect offsite-copy" ]] || exit 1 ;;
 esac
 exit 0
 """
@@ -952,6 +967,21 @@ class DrillOfflineTest(unittest.TestCase):
         runbook = RUNBOOK.read_text()
         self.assertIn("restore-postgres-pitr.sh --offline --target latest", runbook)
         self.assertIn("docker compose --profile postgres stop postgres postgres-backup", runbook)
+
+    def test_a_spool_volume_restored_from_the_off_nas_copy_replaces_the_mounted_spool(self) -> None:
+        result, log = self.drill("--offline", "--target", "latest", "--spool-volume", "offsite-copy")
+        self.assertIn("cannot read the free space", result.stderr)
+        self.assertIn("SPOOL_VOLUME=offsite-copy (--spool-volume)\n", result.stdout)
+        create = next(call for call in log if call.startswith("create "))
+        self.assertIn("type=volume,source=offsite-copy,target=/var/lib/oteryn-postgres-backup,readonly", create)
+        self.assertNotIn("oteryn-staging_postgres_backup", create)
+        self.assert_live_server_untouched(log)
+        result, log = self.drill("--offline", "--target", "latest", "--spool-volume", "missing-copy")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no Docker volume missing-copy", result.stderr)
+        self.assertFalse(any(call.startswith("create ") for call in log))
+        result, _ = self.drill("--offline", "--target", "latest")
+        self.assertIn("SPOOL_VOLUME=oteryn-staging_postgres_backup\n", result.stdout)
 
     def test_a_missing_postgres_container_falls_back_to_the_sidecar_and_then_explains(self) -> None:
         result, log = self.drill("--offline", "--target", "latest", pg="none", sidecar="exited")
@@ -1093,6 +1123,11 @@ class DrillArgumentTest(unittest.TestCase):
             ["--offline", "--target", "latest", "--system-identifier", "74x"],
             ["--offline", "--target", "latest", "--target-time", "2026-10-12 02:00:00"],
             ["--evidence-dir", ""],
+            # A restored spool volume is for an offline restore only, and a volume name only.
+            ["--spool-volume", "offsite-copy"],
+            ["--offline", "--target", "latest", "--spool-volume", ""],
+            ["--offline", "--target", "latest", "--spool-volume", "-x"],
+            ["--offline", "--target", "latest", "--spool-volume", "a,readonly=false"],
             ["--unknown"],
         ):
             result = run(["bash", str(DRILL), *args], env={"PATH": "/usr/bin:/bin"})

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_budget": 53,
+  "workflow_budget": 54,
   "registered_workflows": [
     "acceptance-soak.yml",
     "acceptance-stability.yml",
@@ -12,13 +12,13 @@
     "character-bazaar-staging-control.yml",
     "character-bazaar-staging-validation.yml",
     "ci.yml",
-    "codeql.yml",
     "cloudflare-oteryn-edge-audit.yml",
     "cloudflare-oteryn-endpoint-main-operation.yml",
     "cloudflare-oteryn-endpoints.yml",
     "cloudflare-oteryn-hsts-stage1.yml",
     "cloudflare-oteryn-public-edge-repair.yml",
     "cloudflare-zone-edge-audit.yml",
+    "codeql.yml",
     "community-data-acceptance.yml",
     "content-scale-acceptance.yml",
     "deploy-synology-staging.yml",
@@ -34,6 +34,7 @@
     "historical-branch-audit.yml",
     "native-protocol-contract-audits.yml",
     "native-protocol-contract.yml",
+    "oracle-operations.yml",
     "oteryn-public-edge-validation.yml",
     "parallel-coordinator-prompt-eval.yml",
     "phase7-production-like-validation.yml",
@@ -65,7 +66,8 @@
     "native-auth-ephemeral-cutover-rehearsal.yml",
     "portal-exhaustive-acceptance.yml",
     "portal-exhaustive-audit.yml",
-    "portal-exhaustive-trigger-coupling.yml"
+    "portal-exhaustive-trigger-coupling.yml",
+    "stage-synology-deploy-runner-image.yml"
   ],
   "manual_only_workflows": [],
   "creation_policy": {
@@ -87,6 +89,7 @@
     "native-auth-ephemeral-cutover-rehearsal.yml": "terminal migration rehearsal proof preserved in Git/task provenance after native-auth production-verification closeout; current native protocol and product CI remain authoritative",
     "portal-exhaustive-acceptance.yml": "acceptance-validation.yml critical profile selected directly by relevant workflows or manual audit",
     "portal-exhaustive-audit.yml": "current strict coverage/product ledgers, focused domain workflows, and portal-e2e-audit.yml when comprehensive orchestration is explicitly requested",
-    "portal-exhaustive-trigger-coupling.yml": "workflow lifecycle registry and trigger-economy contract"
+    "portal-exhaustive-trigger-coupling.yml": "workflow lifecycle registry and trigger-economy contract",
+    "stage-synology-deploy-runner-image.yml": "oracle-operations.yml on repository-restricted ARM64 runners; NAS image staging retired with Oracle migration #1639"
   }
 }

@@ -41,6 +41,10 @@
       "rationale": "The MFA challenge is reached by the authenticated login continuation and is intentionally not exposed as a normal global or contextual navigation destination."
     },
     {
+      "exact": "account.characters.requests.show",
+      "rationale": "The character request result page is entered only by the redirect after the owner submits the creation form and is bound to that owner's opaque operation id, so it is not a normal navigation destination."
+    },
+    {
       "exact": "password.reset",
       "rationale": "The password reset form is entered through a bounded expiring notification token and must not be linked from ordinary portal navigation without that token."
     },

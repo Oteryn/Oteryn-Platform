@@ -77,7 +77,7 @@ jobs:
               'shell tracing': 'set -x',
               'full container environment inspection': '.Config.Env',
               'environment-file output': 'cat deploy/synology/.env',
-              'persistent database dump path': 'mariadb-dump >',
+              'persistent database dump path': 'pg_dump >',
           }
           failures = [label for label, marker in forbidden.items() if marker in script]
           if failures:
@@ -104,7 +104,6 @@ jobs:
     env:
       VALIDATION_SHA: ${{ github.sha }}
       OTERYN_GHCR_OWNER: ${{ github.repository_owner }}
-      MARIADB_ROOT_PASSWORD: ${{ secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD }}
       OTERYN_STATE_DIR: ${{ vars.OTERYN_STAGING_STATE_DIR }}
       OTERYN_RUN_RESTORE_DRILL: ${{ inputs.run_restore_drill }}
       OTERYN_PREFLIGHT_EVIDENCE_PATH: /tmp/synology-production-target-preflight-evidence.json

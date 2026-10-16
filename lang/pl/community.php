@@ -29,7 +29,7 @@ return [
     ],
     'profile' => [
         'title' => 'Profil postaci',
-        'description' => 'Publiczne dane serwerowe po zastosowaniu ustawień prywatności Platformy.',
+        'description' => 'Publiczne dane postaci opublikowane przez serwer gry.',
         'overview' => 'Podsumowanie',
         'magic_level' => 'Poziom magii',
         'boss_points' => 'Punkty bossów',

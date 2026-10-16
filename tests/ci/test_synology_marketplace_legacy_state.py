@@ -24,7 +24,7 @@ case "$*" in
     *"ps -a"*) ;;
     *"start "*) ;;
     *"stop platform"*) ;;
-    *information_schema.tables*) printf '%s\\n' "$OTERYN_TEST_TABLES" ;;
+    *pg_tables*) printf '%s\\n' "$OTERYN_TEST_TABLES" ;;
     *character_auctions*) printf '%s\\n' "$OTERYN_TEST_PENDING" ;;
     *) exit 9 ;;
 esac
@@ -55,7 +55,6 @@ def run_loader(state: str, *, pending: str = "0", tables: str = "1", call: str =
                 "OTERYN_TEST_TABLES": tables,
                 "ENV_FILE": str(env_file),
                 "COMPOSE_FILE": str(root / "compose.yml"),
-                "MARIADB_ROOT_PASSWORD": "root-not-a-secret",
                 "PLATFORM_DB_NAME": "oteryn_platform",
             }
         )

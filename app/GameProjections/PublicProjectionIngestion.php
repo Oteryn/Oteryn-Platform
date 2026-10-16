@@ -53,6 +53,7 @@ final class PublicProjectionIngestion
             $values = [
                 'world_id' => $snapshot->worldId,
                 'lookup_name' => $snapshot->lookupName,
+                'lookup_folded' => $snapshot->lookupName === null ? null : strtolower($snapshot->lookupName),
                 'present' => $snapshot->present,
                 'source_authority' => $snapshot->sourceAuthority,
                 'projection_epoch' => $snapshot->projectionEpoch,

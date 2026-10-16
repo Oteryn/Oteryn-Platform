@@ -102,4 +102,4 @@ PGSQL_INTEGRATION_HOST=127.0.0.1 PGSQL_INTEGRATION_USER=... PGSQL_INTEGRATION_PA
 
 - `production:verify-configuration` requires `APP_ENV=production`, while `publish-trust` runs only in `testing` or `preproduction`; Synology staging runs `preproduction`, so the script skips the former there and says so.
 - `health-check.sh` needs the full stack; the deploy after the bootstrap runs it, not this script.
-- `game-auth:native-topology:issue` refuses on PostgreSQL until the ADR 0044 amendment (P4) admits the PostgreSQL preproduction store; keep `OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED=false` until then.
+- `game-auth:native-topology:issue` and `game-auth:native-route:publish` run on PostgreSQL through the ADR 0044 Amendment P4 identity (accepted 2026-10-14): default connection `pgsql`, role `oteryn_platform_app`, host `postgres`, `sslmode=verify-full`.

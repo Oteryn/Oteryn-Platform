@@ -1,0 +1,27 @@
+name: oteryn-oracle-runners
+x-runner: &runner
+  image: oteryn-actions-runner:2.338.0-arm64
+  restart: unless-stopped
+  user: '1001:1001'
+  init: true
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  extra_hosts: ['oteryn-deploy-host:host-gateway']
+  # No Docker socket, runtime directories, host credentials or published ports.
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: '3'}
+services:
+  platform:
+    <<: *runner
+    volumes: [platform:/home/runner]
+  game:
+    <<: *runner
+    volumes: [game:/home/runner]
+volumes:
+  platform:
+    external: true
+    name: oteryn-oracle-runners_platform
+  game:
+    external: true
+    name: oteryn-oracle-runners_game

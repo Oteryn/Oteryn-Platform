@@ -2,9 +2,9 @@
 
 Plain checklist to bring native game login up end to end: Platform and Gateway on the Synology stack, the Game node on the same NAS, and the Windows client. Nothing here is a secret; the values you set are identifiers and addresses. Keys, certificates and passwords stay on their hosts. Examples use addresses already in the repository (`https://oteryn.molehill.cloud` Platform, `https://gateway.molehill.cloud` Gateway, Game port `7172`); use your NAS address.
 
-## Known limit that gates route publication
+## Route publication on the Synology store
 
-`game-auth:native-topology:issue` and `game-auth:native-route:publish` run only behind the disposable-store guard (`app/GameAuth/Worlds/DisposableNativeStore.php`, frozen design ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 section 2). It admits the retained per-run SQLite file or the loopback test database and refuses the Synology MariaDB. So the deploy step ships switched off (`OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED` unset). With the switch on and the guard unchanged, the deploy stops at that step with an error and nothing is written. Leave the switch off until the owner decides how the guard admits the Synology preproduction database.
+`game-auth:native-topology:issue` and `game-auth:native-route:publish` reach the deployed Synology store only through the preproduction-store mode (`app/GameAuth/Worlds/PreproductionNativeRouteStore.php`, ADR 0044). Since the PostgreSQL cutover the deployed store is PostgreSQL, and its code fence admits it only as the `pgsql` identity of ADR 0044 Amendment P4 (accepted 2026-10-14): host `postgres`, port `5432`, `sslmode=verify-full`, database `oteryn_platform`, connection `pgsql`, role `oteryn_platform_app`. The fence still also admits the retired `mysql` identity (host `mariadb`, port 3306) until the P7 follow-up removes it; no deployed store uses it. Staging turns the deploy step on in `deploy/synology/native-defaults.env` (`OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED=true`); the step refuses unless the Registry issues exactly the configured `OTERYN_STAGING_NATIVE_WORLD_ID`, and a refusal writes nothing.
 
 ## A. GitHub repository variables (Oteryn-Platform, Settings, Secrets and variables, Actions, Variables)
 
@@ -28,7 +28,7 @@ Plain checklist to bring native game login up end to end: Platform and Gateway o
    | `OTERYN_STAGING_NATIVE_ROUTE_PORT` | `7172` (descriptor `[route] port`) |
    | `OTERYN_STAGING_NATIVE_ROUTE_TLS_SERVER_NAME` | `node-1.preprod.oteryn.internal` (descriptor `[route] tls_server_name`; DNS name, equals the gameplay certificate SAN) |
    | `OTERYN_STAGING_NATIVE_ROUTE_LOGIN_ENABLED` | `true` (default when unset) or `false` |
-   | `OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED` | `true` to publish on deploy; leave unset until the limit above is resolved |
+   | `OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED` | `true` to publish on deploy (the committed staging default; see the section above) |
 
 ## B. Platform deploy
 
@@ -44,7 +44,7 @@ Plain checklist to bring native game login up end to end: Platform and Gateway o
 8. Fill `preprod-topology.toml` by Game manifest PR from step 5: `[scope] world_id`, `channel_id`, `channel_key`; `[route] host`, `port`, `tls_server_name`, `route_version`, `route_revision`; `[readiness] route_revision`. Install it as `ROOT_BASE/ops/preprod-topology.toml`, plus `scope.env`, `node.toml`, `report.toml`. Verify: `deploy-ops.sh check-setup` passes.
 9. First start, README steps 1 to 10, once by hand: install bundle, `oteryn-game-migrate`, launch authorization, S2 authorization, `character fresh-store` twice, `character interpretation` (and epoch fence F, step 6a), scope grants and `content activate`, record gameplay digest, `supervisor.sh start` and `health`, then within 120 s `ops assignment assign`. Verify: node log shows `readiness ready=true`.
 10. Create the tester character: on Platform `game-auth:character-bootstrap-intent:issue` (fresh UUIDv7 operation id, the four interpretation tokens), then on the node `ops character bootstrap`. Record the `character_id`. The bootstrap-intent read route is on from `deploy/synology/native-defaults.env` (node `[platform]` certificate `CN=oteryn-preprod-node-1-native-evidence`, TTL 300 s); a Platform deploy must have picked that up first.
-10a. Native login needs the native-evidence route. Its bindings are committed in `native-defaults.env`, but `OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED` stays `false` until the owner decides: activation is one-way (`docs/contracts/OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md`) and the Game node keeps evidence floors from then on, so a later Platform store or WorldId reset also needs a Game-side reset. Turn it on by a reviewed change to that file, then run step 4 again.
+10a. Native login and tester bootstrap need the native-evidence route. The owner authorized one-way preproduction activation on 2026-10-15 for client QA; `native-defaults.env` retains `OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED=true`. Never revert it after activation (`docs/contracts/OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md`). The Game node keeps evidence floors from then on, so a later Platform store or WorldId reset also needs a Game-side reset. Run step 4 with the activated defaults and verify an authenticated account-security observation before tester bootstrap.
 
 ## D. Windows client
 
