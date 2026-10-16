@@ -247,10 +247,14 @@ def mtls_bootstrap():
 
 
 def prepare_mtls(directory, sha):
-    staged = mtls_bootstrap() / ('internal-mtls-nginx.' + sha + '.conf')
+    bootstrap = mtls_bootstrap()
     candidate = (directory / 'deploy/synology/nginx/internal-mtls.conf').read_text()
-    staged.unlink(missing_ok=True)
-    fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    for stale in bootstrap.glob('internal-mtls-nginx.*.conf'):
+        if re.fullmatch(r'internal-mtls-nginx\.' + SHA + r'\.conf', stale.name):
+            stale.unlink()
+    staged = bootstrap / ('internal-mtls-nginx.' + sha + '.conf')
+    # Root-only like the rest of the bootstrap files; the nginx master reads it as root.
+    fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'w') as stream:
         stream.write(candidate)
         stream.flush()
@@ -263,14 +267,24 @@ def deploy_mtls(directory, sha):
     # Neither prepare-platform.sh nor this deploy otherwise refreshes the listener's
     # nginx configuration, so new internal routes would stay unreachable (404).
     candidate = (directory / 'deploy/synology/nginx/internal-mtls.conf').read_text()
-    staged = mtls_bootstrap() / ('internal-mtls-nginx.' + sha + '.conf')
-    if run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True) != candidate:
-        if staged.read_text() != candidate:
-            raise ValueError('staged internal mTLS configuration differs from qualified source')
-        os.replace(staged, staged.with_name(Path(MTLS_CONFIG).name))
-        run(['docker', 'exec', MTLS, 'nginx', '-t', '-q', '-c', MTLS_CONFIG])
-        run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
+    bootstrap = mtls_bootstrap()
+    staged = bootstrap / ('internal-mtls-nginx.' + sha + '.conf')
+    live = bootstrap / Path(MTLS_CONFIG).name
+    if staged.read_text() != candidate:
+        raise ValueError('staged internal mTLS configuration differs from qualified source')
+    previous = live.read_text()
+    if previous != candidate:
+        os.replace(staged, live)
+        try:
+            run(['docker', 'exec', MTLS, 'nginx', '-t', '-q', '-c', MTLS_CONFIG])
+        except subprocess.CalledProcessError:
+            # Never leave a file the listener cannot start with on its next restart.
+            atomic(live, previous)
+            raise
     staged.unlink(missing_ok=True)
+    # Reload even when the file already matches: an earlier attempt may have replaced
+    # it and failed before the running listener loaded it.
+    run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
     if run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True) != candidate:
         raise ValueError('internal mTLS listener did not acquire the qualified configuration')
     journal('platform', sha, 'schema_known', mtls_sha256=hashlib.sha256(candidate.encode()).hexdigest())

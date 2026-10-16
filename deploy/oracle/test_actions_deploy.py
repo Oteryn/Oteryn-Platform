@@ -139,6 +139,52 @@ class AuthorityBoundary(unittest.TestCase):
             self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-c', deploy.MTLS_CONFIG, '-s', 'reload'], calls)
             journal.assert_called_once()
 
+    def _mtls_fixture(self, root):
+        (root / 'deploy/synology/nginx').mkdir(parents=True)
+        (root / 'deploy/synology/nginx/internal-mtls.conf').write_text('new routes\n')
+        volume = root / 'volume'
+        volume.mkdir()
+        (volume / 'internal-mtls-nginx.conf').write_text('old routes\n')
+        (volume / ('internal-mtls-nginx.' + 'b' * 40 + '.conf')).write_text('aborted\n')
+        info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'volume',
+                            'Name': 'oteryn-oracle_bootstrap_files', 'Source': str(volume)}]}
+        return volume, info
+
+    def test_invalid_live_mtls_configuration_is_restored_and_never_reloaded(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume, info = self._mtls_fixture(root)
+            calls = []
+            def command(args, **kw):
+                calls.append(args)
+                if args[-3:] == ['-q', '-c', deploy.MTLS_CONFIG]:
+                    raise subprocess.CalledProcessError(1, args)
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal:
+                deploy.prepare_mtls(root, sha)
+                with self.assertRaises(subprocess.CalledProcessError):
+                    deploy.deploy_mtls(root, sha)
+            self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
+            self.assertFalse(any('reload' in args for args in calls))
+            journal.assert_not_called()
+
+    def test_unchanged_mtls_file_is_still_reloaded(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume, info = self._mtls_fixture(root)
+            (volume / 'internal-mtls-nginx.conf').write_text('new routes\n')
+            calls = []
+            def command(args, **kw):
+                calls.append(args)
+                if 'cat' in args:
+                    return (volume / 'internal-mtls-nginx.conf').read_text()
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal'):
+                deploy.prepare_mtls(root, sha)
+                deploy.deploy_mtls(root, sha)
+            self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-c', deploy.MTLS_CONFIG, '-s', 'reload'], calls)
+            self.assertEqual(sorted(p.name for p in volume.iterdir()), ['internal-mtls-nginx.conf'])
+
     def test_internal_mtls_refuses_an_unexpected_bootstrap_mount(self):
         info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'bind', 'Source': '/etc'}]}
         with patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'run') as command:
