@@ -248,6 +248,17 @@ final class CharacterProfilePreferenceTest extends TestCase
         self::assertSame(2, CharacterProfilePreference::query()->count());
     }
 
+    public function test_a_name_with_a_slash_reaches_its_preference_form(): void
+    {
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha/Knight']]);
+        $this->login($identity);
+
+        $this->get(route('account.characters.profile.edit', ['name' => 'Alpha/Knight']))->assertOk();
+        $this->put(route('account.characters.profile.update', ['name' => 'Alpha/Knight']), ['show_guild' => '1'])->assertRedirect();
+        self::assertSame(self::ALPHA, CharacterProfilePreference::query()->sole()->character_id);
+    }
+
     public function test_edit_form_starts_from_an_unbound_legacy_guild_opt_out(): void
     {
         $identity = $this->identity();

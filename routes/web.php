@@ -201,7 +201,7 @@ Route::get('/pages/{slug}', [PublicPageController::class, 'show'])->name('pages.
 
 Route::get('/highscores', [PublicGameDataController::class, 'highscores'])->middleware([NoStorePublicGameData::class, 'throttle:public-game-data'])->name('game.highscores.index');
 Route::get('/characters', [PublicGameDataController::class, 'characterSearch'])->name('game.characters.search');
-Route::get('/characters/{name}', [PublicGameDataController::class, 'character'])->middleware([NoStorePublicGameData::class, 'throttle:public-game-data'])->name('game.characters.show');
+Route::get('/characters/{name}', [PublicGameDataController::class, 'character'])->middleware([NoStorePublicGameData::class, 'throttle:public-game-data'])->where('name', '.+')->name('game.characters.show');
 Route::get('/guilds/{name}', [PublicGameDataController::class, 'guild'])->name('game.guilds.show');
 Route::get('/online', [PublicGameDataController::class, 'online'])->middleware([NoStorePublicGameData::class, 'throttle:public-game-data'])->name('game.online.index');
 Route::get('/servers', [PublicGameDataController::class, 'servers'])->name('game.servers.index');
