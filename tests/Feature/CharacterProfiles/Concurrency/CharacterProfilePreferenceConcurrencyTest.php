@@ -32,6 +32,16 @@ final class CharacterProfilePreferenceConcurrencyTest extends TestCase
         }
     }
 
+    protected function tearDown(): void
+    {
+        // Native-keyed rows are retained evidence: the rollback of the keying migration refuses while they exist.
+        if (DB::getSchemaBuilder()->hasTable('character_profile_preferences')) {
+            DB::table('character_profile_preferences')->delete();
+        }
+
+        parent::tearDown();
+    }
+
     public function test_concurrent_main_character_selection_preserves_single_main_invariant(): void
     {
         $identity = Identity::query()->create([
