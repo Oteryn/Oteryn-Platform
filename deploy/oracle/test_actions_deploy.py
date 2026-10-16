@@ -55,9 +55,12 @@ class AuthorityBoundary(unittest.TestCase):
             root = Path(temporary)
             (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
             calls = []
+            probes = []
             old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/synology/compose.yml'}}}
             def command(args, **kwargs):
                 calls.append(args)
+                if args[:2] == ['docker', 'run']:
+                    probes.append((args, kwargs))
                 # Model the observed PHP entry-script failure at either boundary:
                 # the new isolated image probe, or the old late migration command.
                 if args[:2] == ['docker', 'run'] or args[:2] == ['bash', '-euc']:
@@ -66,6 +69,19 @@ class AuthorityBoundary(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError):
                     deploy.platform_deploy(root, sha, 100, 1)
             self.assertFalse(any('dump' in args or 'stop' in args or 'down' in args for args in calls))
+            # The probe is the first docker run and is bounded, isolated and uses the image's own USER/WORKDIR.
+            self.assertEqual(len(probes), 1)
+            argv, kwargs = probes[0]
+            self.assertEqual(argv[:7], ['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'php'])
+            self.assertEqual(argv[7], 'oteryn-platform:' + sha + '-arm64')
+            self.assertEqual(argv[8], '-r')
+            self.assertEqual(len(argv), 10)
+            for flag in ('--user', '-u', '--workdir', '-w', '-v', '--volume', '--mount', '--env', '-e', '--env-file'):
+                self.assertNotIn(flag, argv)
+            for name in ('artisan', 'bootstrap/app.php', 'vendor/autoload.php'):
+                self.assertIn('"' + name + '"', argv[9])
+            self.assertIn('is_readable', argv[9])
+            self.assertEqual(kwargs.get('timeout'), 120)
 
     def test_receipt_cannot_accept_a_different_healthy_image(self):
         sha = 'a' * 40

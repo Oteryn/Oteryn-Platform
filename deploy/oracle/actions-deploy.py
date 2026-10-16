@@ -242,7 +242,8 @@ def platform_deploy(directory, sha, run_id, attempt):
     # Inherit the actual image USER and WORKDIR, with no keys, mounts or network.
     # Refuse an unreadable application before backup, maintenance or migration.
     run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'php', image,
-         '-r', 'foreach (["artisan", "bootstrap/app.php", "vendor/autoload.php"] as $file) { if (!is_readable($file)) { exit(1); } }'])
+         '-r', 'foreach (["artisan", "bootstrap/app.php", "vendor/autoload.php"] as $file) { if (!is_readable($file)) { exit(1); } }'],
+        timeout=120)
     reauthorize('platform', sha, run_id, attempt)
     schema = contract(directory)
     prepare_edge(directory, sha)
