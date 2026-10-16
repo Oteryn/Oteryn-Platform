@@ -69,7 +69,8 @@ Open point inside the slice: `highscores` is published per (World, category) fro
 
 - Disable the Game producer flag: the watermark stops, each family goes stale within S and the pages show unavailable. No data loss, because the read models are rebuildable by an operator resync.
 - Set `GAME_PROJECTIONS_PUBLIC_ENABLED=false` on Platform: ingest answers 503.
-- The Platform reader is read-only and has no migration; revert the PR. The C4 tables are untouched, and their rollback is already refused while Game-published rows exist.
+- The PR adds two migrations. Code rollback keeps the schema: revert the PR and do not run `migrate:rollback`. The reverted code ignores both additions (a nullable legacy player-id column and the `character_id` unique key on `character_profile_preferences`; the `lookup_folded` column and its index on `game_public_projection_snapshots`), so the pages keep working on the retained schema.
+- Schema rollback, only if required, is staged in reverse order. First `2026_10_16_090100_add_folded_lookup_to_game_public_projection_snapshots` (drops the index and column; safe at any time, it is derived from `lookup_name`). Then `2026_10_16_090000_key_character_profile_preferences_by_native_character`, whose `down()` refuses before any DDL while a native-keyed preference row (legacy player id null) exists. Those rows are owner choices that cannot be mapped back to a legacy id, so they are kept and the schema stays; deleting them to force the rollback needs an explicit owner decision. The C4 tables are untouched, and their rollback is already refused while Game-published rows exist.
 - Never roll back by reconnecting the legacy-engine database or by serving zero rows.
 
 ## Owner decisions
@@ -98,7 +99,7 @@ Decided by the owner on 2026-10-15 ("zbuduj to"):
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-16T12:00:00Z
-head: 3173b2df81f942fe9a1343df872ff20a9b479ccd
+head: 71ae1ad6710393ad26ea7733e18fdaae678adabc
 branch: fix/public-gamedata-native
 pr: 1645
 status: validating
