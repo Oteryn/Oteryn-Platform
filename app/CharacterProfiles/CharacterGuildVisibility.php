@@ -86,7 +86,7 @@ final class CharacterGuildVisibility
                 continue;
             }
             foreach ($view->characters as $character) {
-                if (strcasecmp($character->characterId, $characterId) === 0) {
+                if ($character->characterId === $characterId) {
                     $owners[] = $accountId;
                     break;
                 }

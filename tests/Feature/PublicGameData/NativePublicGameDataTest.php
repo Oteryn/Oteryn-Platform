@@ -83,6 +83,7 @@ final class NativePublicGameDataTest extends TestCase
 
         $this->get('/en/online')->assertOk()->assertSee('Online100')->assertDontSee('Online101')->assertSee('Page 1 of 2');
         $this->get('/en/online?page=2')->assertOk()->assertSee('Online101')->assertDontSee('Online001');
+        $this->get('/en/online?page=99999999999999999999')->assertOk()->assertSee('Online101')->assertSee('Page 2 of 2');
     }
 
     public function test_fresh_but_empty_online_list_is_200_with_the_empty_state(): void

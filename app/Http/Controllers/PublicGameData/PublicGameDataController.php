@@ -145,7 +145,9 @@ final class PublicGameDataController
      */
     private function paginate(Request $request, array $items, int $perPage): LengthAwarePaginator
     {
-        $page = max(1, $request->integer('page', 1));
+        // Clamp to the last page so an oversized ?page= cannot overflow the slice offset.
+        $lastPage = max(1, intdiv(count($items) + $perPage - 1, $perPage));
+        $page = min($lastPage, max(1, $request->integer('page', 1)));
 
         return (new LengthAwarePaginator(
             array_slice($items, ($page - 1) * $perPage, $perPage),
