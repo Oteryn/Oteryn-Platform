@@ -106,7 +106,10 @@ class CustodyTests(unittest.TestCase):
 
     def test_step_wait_marker_enables_only_exact_one(self):
         for data, expected in [(b'1', '1'), (b'1\n', '1'), (b'0', '0'), (b'11', '0'),
-                               (b'', '0'), (b' 1', '0'), (b'yes', '0'), (b'1' * 32, '0')]:
+                               (b'', '0'), (b' 1', '0'), (b'yes', '0'), (b'1' * 32, '0'),
+                               (b'1\n\n', '0'), (b'\n1', '0'), (b'1\ngarbage', '0'),
+                               (b'1\r\n', '0'), (b'1' + b'\n' * 4096, '0'),
+                               (b'1\n' + b'x' * (1 << 20), '0')]:
             self.marker(data)
             self.assertEqual(SUP.step_wait_receipts(), expected, data)
 

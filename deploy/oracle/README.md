@@ -116,8 +116,8 @@ Step-pacing receipts (Game `OTERYN_STEP_WAIT_RECEIPTS`) stay off by default.
 For each new incarnation the controller reads the owner marker
 `/opt/oteryn-game/run/step-wait-receipts` (Game `BASE/run/step-wait-receipts`)
 and exports `OTERYN_STEP_WAIT_RECEIPTS=1` to the `game` service only when that
-path is a regular, non-symlink file holding exactly `1` (a trailing newline is
-ignored); otherwise it exports `0`. The value is logged as
+path is a regular, non-symlink file whose entire content is exactly `1` or `1`
+plus one newline; otherwise it exports `0`. The value is logged as
 `oracle_game_step_wait_receipts=<0|1>` and visible as the container label
 `io.oteryn.step-wait-receipts`. Game reads the switch once per process, so enable
 or roll back by writing or removing the marker and then

@@ -102,9 +102,9 @@ def copy_certificate():
 
 
 def step_wait_receipts():
-    """Owner marker BASE/run/step-wait-receipts: on only for a regular file holding 1.
+    """Owner marker BASE/run/step-wait-receipts: on only for a regular file of exactly 1 or 1 newline.
 
-    Anything else (absent, symlink, directory, other bytes) keeps Game's default off.
+    Anything else (absent, symlink, directory, other or extra bytes) keeps Game's default off.
     """
     try:
         fd = os.open(BASE / 'run' / 'step-wait-receipts', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -113,10 +113,16 @@ def step_wait_receipts():
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             return '0'
-        data = os.read(fd, 16)
+        # Read the whole file (bounded): a prefix match must never enable the switch.
+        data = b''
+        while len(data) <= 2:
+            chunk = os.read(fd, 3 - len(data))
+            if not chunk:
+                break
+            data += chunk
     finally:
         os.close(fd)
-    return '1' if data.replace(b'\n', b'') == b'1' else '0'
+    return '1' if data in (b'1', b'1\n') else '0'
 
 
 def stop_game(*_):
