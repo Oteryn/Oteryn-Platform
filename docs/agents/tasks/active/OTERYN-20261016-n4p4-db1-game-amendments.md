@@ -48,7 +48,7 @@ checkpoint_version: 1
 updated_at: 2026-10-16T12:00:00Z
 head: UNKNOWN
 branch: claude/n4p4-db1-game-amendments
-pr: none
+pr: 1651
 status: validating
 context_routes:
   - docs
@@ -77,7 +77,7 @@ validation:
     evidence: see PR
 blockers:
   - none
-next_action: open draft PR and wait for exact-head CI
+next_action: wait for exact-head CI on draft PR #1651
 ```
 
 ## Source branch closeout
