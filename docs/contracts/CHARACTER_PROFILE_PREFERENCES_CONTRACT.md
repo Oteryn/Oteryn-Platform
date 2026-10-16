@@ -25,14 +25,14 @@ The Platform stores the native CharacterId only after this check. Every later up
 
 ## Preference model
 
-One row may exist per Platform Identity and native CharacterId (`character_id`, unique together with `identity_id`). Absence of a row means the default: the guild row is visible when Game allows it.
+One row may exist per Platform Identity and native CharacterId (`character_id`, unique together with `identity_id`). Absence of a row means the default: the guild row is visible when Game allows it, unless the Identity holds a legacy guild opt-out (below).
 
 A row stores:
 
 - `show_guild`, the only visibility the native page can honour;
 - an optional main-character flag used by the account overview.
 
-The legacy player-id column is optional history. Rows written before the native keying carry no `character_id`, are never read by the native page and stay inert; no backfill exists because no mapping from a legacy player id to a native CharacterId is published. The owner saves the native form once to bind a character. The public comment and the other `show_*` toggles are no longer collected or rendered, because the native page has nothing to attach them to.
+The legacy player-id column is optional history. Rows written before the native keying carry no `character_id`; no backfill exists because no mapping from a legacy player id to a native CharacterId is published. Such an unbound row with `show_guild = false` is a legacy guild opt-out of its Identity: until a character of that Identity has its own native row, the guild of that character stays hidden and the native form opens with `show_guild` off. Saving the native form once binds that character, and from then on its own row alone decides. The opt-out therefore lasts until every character of the Identity has been saved natively; operators must not delete or rewrite unbound rows, because doing so would reveal guilds the owner hid. The public comment and the other `show_*` toggles are no longer collected or rendered, because the native page has nothing to attach them to.
 
 ## Effective privacy
 
@@ -42,7 +42,7 @@ Resolution of the owner preference for a public page read:
 
 1. find the account bound to the native CharacterId through the live account-character read model: the consumer is enabled, the watermark is at the highest epoch and inside the freshness window, and the account's snapshot is valid and at that epoch and lists the character; a leftover row of an account whose snapshot is invalid or at a fenced epoch is not ownership;
 2. require exactly one such account and exactly one live Identity of that account;
-3. read the preference by `(identity_id, character_id)`; no row means visible.
+3. read the preference by `(identity_id, character_id)`; with no such row, the guild is hidden when the Identity holds an unbound legacy `show_guild = false` row and visible otherwise.
 
 A character that cannot be bound (no projected account, a disabled, stale or epoch-fenced feed, an invalid snapshot, more than one live owner, no live Identity, unreadable projection) fails closed: the guild is hidden. The preference can narrow Game's flag but never widen it.
 

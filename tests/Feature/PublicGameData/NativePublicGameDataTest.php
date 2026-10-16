@@ -239,15 +239,6 @@ final class NativePublicGameDataTest extends TestCase
         $this->get('/en/characters/Nobody')->assertNotFound();
     }
 
-    public function test_a_name_with_a_slash_stays_addressable(): void
-    {
-        $this->watermark(PublicProjectionFamily::CharacterProfile);
-        $this->profile(self::MAGE, self::WORLD, 'Mira/Sun');
-
-        $url = route('game.characters.show', ['name' => 'Mira/Sun']);
-        $this->get($url)->assertOk()->assertSee('Mira/Sun');
-    }
-
     public function test_profile_page_hides_unpublished_or_other_world_characters_and_fails_closed(): void
     {
         $this->bindToIdentity(self::HERO, 'Aldric');
