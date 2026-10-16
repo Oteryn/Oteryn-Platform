@@ -898,9 +898,10 @@ Steps run in this order. Each code step is `backward-compatible` and default off
    - `device_proof` on `/v1/recover`.
 7. **Step S: staging channels on the oteryn-vps preproduction store.** This is an operator-run deploy step.
    - **S1. Deploy support** (Platform paths):
-     - the oteryn-vps deploy script that publishes a list of channels instead of the current single-channel values;
-     - the oteryn-vps deploy defaults file holds the non-secret list: key, host, port and `tls_server_name` per channel, and each identity's scope list for runtime status, assignment and locator;
-     - the oteryn-vps deploy compose file passes the list through. These files live with the oteryn-vps host deploy (`deploy/oracle/` today); the step owner names the exact files, and `deploy/synology/*` is not used;
+     - The deploy target host is oteryn-vps, never a NAS. The oteryn-vps deploy (`deploy/oracle/prepare-platform.sh` and the `deploy/oracle/public-platform.compose.yml` overlay) consumes the pinned shared base under `deploy/synology/`. That base is a source directory name only, not a deploy target. The channel list is added there:
+       - `deploy/synology/scripts/lib.sh` (native-route publication logic) publishes a list of channels instead of the current single-channel values;
+       - `deploy/synology/native-defaults.env` holds the non-secret list: key, host, port and `tls_server_name` per channel, and each identity's scope list for runtime status, assignment and locator;
+       - `deploy/synology/compose.yml` (environment mapping) passes the list through, and the `deploy/oracle/public-platform.compose.yml` overlay keeps it unchanged;
      - `app/GameAuth/Worlds/PreproductionNativeRouteStore.php` carries the mode 34a widening from step 3.
      - The current single-channel values stay valid for `oteryn-staging-1`.
    - **S2. Topology.** `game-auth:native-topology:issue` in preproduction-store mode issues `antica`, `obscura` and `pythera` on the staging World. It is idempotent, and its receipts are audited under ADR 0044.
@@ -1139,7 +1140,7 @@ The path builds on the existing remembered-device family:
 | Current design | Change |
 |---|---|
 | Disabled by default and refused outside `testing`/`preproduction` | Unchanged as a switch. Wherever protocol 3 recovery runs with binding on, `game-auth.device_sessions.enabled` must be on. The issuer refuses to start otherwise. Production stays separately authorized. |
-| Opt-in only: an unchecked "Remember this device" choice, and enrollment requires `explicitConsent: true` | Two persistence classes. A **session** family is enrolled on every protocol 3 native login: its bearer is never written to disk, and its absolute and idle deadlines both equal H. The **remembered** family stays as it is, opt-in and default off. Explicit consent stays required for remembered only, because a session family keeps nothing beyond the process. |
+| Opt-in only: an unchecked "Remember this device" choice, and enrollment requires `explicitConsent: true` | Two persistence classes. A **session** family is enrolled on every protocol 3 native login unless the user opts into **remembered** on that login, which replaces it (one family per login): its bearer is never written to disk, and its absolute and idle deadlines both equal H. The **remembered** family stays as it is, opt-in and default off. Explicit consent stays required for remembered only, because a session family keeps nothing beyond the process. |
 | The credential is a rotating `otd1.` bearer, and a lost response costs a browser sign-in | The bearer keeps rotating for its own purposes (`NativeCharactersRead`, `NativeTicketIssue`). Recovery never presents it. Recovery proves possession of a new **device key** instead. The key does not rotate, so a retry with the same `attempt_ref` is safe. |
 | The family has no key, so the bearer is the whole credential | The family records one Ed25519 public key and its thumbprint at enrollment, fixed for the family's life. Enrollment requires a signature by that key (proof of possession). |
 | A ticket does not record a family | A ticket gains a nullable `device_family_id`. It is set by PKCE enrollment (the family the same OAuth access token enrolled, found through the unique `enrollment_access_token_id`) or by the `NativeTicketIssue` callback (the rotating family). |

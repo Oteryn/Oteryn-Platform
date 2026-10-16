@@ -345,7 +345,8 @@ Sources: ADR 0045 §2a, `OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md` §19.3, §1
 
 ### DB-1.2 Session class
 
-- It is enrolled at every protocol 3 login, with no consent and no "Remember this device" opt-in.
+- It is the default class of every protocol 3 login, enrolled with no consent and no "Remember this device" opt-in.
+- When the user opts into "Remember this device" on that login, the remembered class (DB-1.3) **replaces** the session class for that login. The login enrolls exactly one family, of exactly one class (DB-1.4). There is no two-family flow.
 - Absolute lifetime = idle lifetime = H = 12 h. There is no sliding window.
 - The key lives in process memory only.
 
@@ -358,7 +359,7 @@ Sources: ADR 0045 §2a, `OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md` §19.3, §1
 ### DB-1.4 Enrollment
 
 - The client sends a proof of possession as in §19.15.2. Platform verifies it inside the enrollment transaction.
-- One family is enrolled per access token.
+- One family is enrolled per access token. Its class is `session`, or `remembered` when the user opted in on that login (DB-1.2). The enrollment proof carries that one class.
 
 ### DB-1.5 Rotation
 
