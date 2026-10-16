@@ -244,8 +244,8 @@
       "domain": "character",
       "capability": "Owner-editable public character information or comment",
       "relevance": "required",
-      "delivery_status": "implemented",
-      "rationale": "Authenticated owners can store a bounded Platform-owned plain-text public comment after current read-only legacy engine ownership verification; public rendering is escaped and audited without updating players.comment.",
+      "delivery_status": "missing",
+      "rationale": "The native public profile renders only Game-published projection facts; the Platform-owned public comment was not migrated to native CharacterId keying and is no longer collected or rendered.",
       "oteryn_evidence": [
         {
           "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
@@ -267,15 +267,17 @@
         "https://www.tibia.com/community/?subtopic=characters",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": []
+      "gap_issues": [
+        "#277"
+      ]
     },
     {
       "id": "character.privacy",
       "domain": "character",
       "capability": "Character-level public visibility and account-association controls",
       "relevance": "required",
-      "delivery_status": "implemented",
-      "rationale": "Per-character controls independently narrow account association, status, guild, house, skills, deaths and kill statistics. Account-level privacy remains an upper bound and hidden sibling characters are excluded from related-character presentation.",
+      "delivery_status": "partial",
+      "rationale": "Per-character preferences are keyed by native CharacterId and narrow only the guild row as an upper bound over Game's guild_visible; account association, status, house, skills, deaths and kill toggles were removed because the native profile has no such facts to narrow.",
       "oteryn_evidence": [
         {
           "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
@@ -297,7 +299,9 @@
         "https://www.tibia.com/community/?subtopic=characters",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": []
+      "gap_issues": [
+        "#277"
+      ]
     },
     {
       "id": "character.achievement-display",
@@ -321,8 +325,8 @@
       "domain": "character",
       "capability": "Complete public character profile",
       "relevance": "required",
-      "delivery_status": "implemented",
-      "rationale": "The profile presents the approved server-backed read model plus an escaped Platform-owned owner comment, effective per-character privacy, related-character filtering and optional main-character presentation without exposing private identifiers.",
+      "delivery_status": "partial",
+      "rationale": "The native profile presents the Game-published name, level, vocation and privacy-bounded guild; owner comment, house, skills, deaths, kills, status, related characters and main-character presentation are not published by the native projection yet.",
       "oteryn_evidence": [
         {
           "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
@@ -344,7 +348,9 @@
         "https://www.tibia.com/community/?subtopic=characters",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": []
+      "gap_issues": [
+        "#277"
+      ]
     },
     {
       "id": "character.deletion-restore",
@@ -426,8 +432,8 @@
       "domain": "character",
       "capability": "Guild, house and account linkage with visibility rules",
       "relevance": "required",
-      "delivery_status": "implemented",
-      "rationale": "Guild/rank, house and related account characters are presented through explicit per-character visibility. Account association remains private unless both the account-level upper bound and the viewed/sibling character preferences permit disclosure.",
+      "delivery_status": "partial",
+      "rationale": "Guild and rank are presented under the owner's native guild preference and Game's guild_visible flag; house and account linkage are not published by the native projection, so they are not presented.",
       "oteryn_evidence": [
         {
           "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
@@ -449,7 +455,9 @@
         "https://www.tibia.com/community/?subtopic=characters",
         "https://www.tibia.com/community/?subtopic=guilds"
       ],
-      "gap_issues": []
+      "gap_issues": [
+        "#277"
+      ]
     },
     {
       "id": "commerce.premium-vip",
