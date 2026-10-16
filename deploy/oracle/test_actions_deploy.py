@@ -128,16 +128,30 @@ class AuthorityBoundary(unittest.TestCase):
                 calls.append(args)
                 if args[-1] == deploy.MTLS_CONFIG and 'cat' in args:
                     return (volume / 'internal-mtls-nginx.conf').read_text()
-            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal:
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize') as recheck:
                 deploy.prepare_mtls(root, sha)
                 self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
                 self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-t', '-q', '-c',
                                '/bootstrap/internal-mtls-nginx.' + sha + '.conf'], calls)
-                deploy.deploy_mtls(root, sha)
+                deploy.deploy_mtls(root, sha, '1', '1')
             self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'new routes\n')
             self.assertEqual(sorted(p.name for p in volume.iterdir()), ['internal-mtls-nginx.conf'])
             self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-c', deploy.MTLS_CONFIG, '-s', 'reload'], calls)
             journal.assert_called_once()
+            self.assertEqual(recheck.call_count, 2)
+
+    def test_canceled_workflow_never_changes_the_mtls_listener(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume, info = self._mtls_fixture(root)
+            calls = []
+            with patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal'), patch.object(deploy, 'reauthorize', side_effect=ValueError('workflow canceled')):
+                deploy.prepare_mtls(root, sha)
+                with self.assertRaisesRegex(ValueError, 'canceled'):
+                    deploy.deploy_mtls(root, sha, '1', '1')
+            self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
+            self.assertFalse(any('reload' in args for args in calls))
 
     def _mtls_fixture(self, root):
         (root / 'deploy/synology/nginx').mkdir(parents=True)
@@ -160,10 +174,10 @@ class AuthorityBoundary(unittest.TestCase):
                 calls.append(args)
                 if args[-3:] == ['-q', '-c', deploy.MTLS_CONFIG]:
                     raise subprocess.CalledProcessError(1, args)
-            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal:
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize'):
                 deploy.prepare_mtls(root, sha)
                 with self.assertRaises(subprocess.CalledProcessError):
-                    deploy.deploy_mtls(root, sha)
+                    deploy.deploy_mtls(root, sha, '1', '1')
             self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
             self.assertFalse(any('reload' in args for args in calls))
             journal.assert_not_called()
@@ -179,9 +193,9 @@ class AuthorityBoundary(unittest.TestCase):
                 calls.append(args)
                 if 'cat' in args:
                     return (volume / 'internal-mtls-nginx.conf').read_text()
-            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal'):
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal'), patch.object(deploy, 'reauthorize'):
                 deploy.prepare_mtls(root, sha)
-                deploy.deploy_mtls(root, sha)
+                deploy.deploy_mtls(root, sha, '1', '1')
             self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-c', deploy.MTLS_CONFIG, '-s', 'reload'], calls)
             self.assertEqual(sorted(p.name for p in volume.iterdir()), ['internal-mtls-nginx.conf'])
 

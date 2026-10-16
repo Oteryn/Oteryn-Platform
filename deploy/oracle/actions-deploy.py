@@ -108,7 +108,11 @@ def atomic(path, data):
         stream.write(data)
         stream.flush()
         os.fsync(stream.fileno())
-    os.replace(temporary, path)
+    durable_replace(temporary, path)
+
+
+def durable_replace(source, path):
+    os.replace(source, path)
     parent = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
         os.fsync(parent)
@@ -263,7 +267,7 @@ def prepare_mtls(directory, sha):
     return staged
 
 
-def deploy_mtls(directory, sha):
+def deploy_mtls(directory, sha, run_id, attempt):
     # Neither prepare-platform.sh nor this deploy otherwise refreshes the listener's
     # nginx configuration, so new internal routes would stay unreachable (404).
     candidate = (directory / 'deploy/synology/nginx/internal-mtls.conf').read_text()
@@ -274,7 +278,9 @@ def deploy_mtls(directory, sha):
         raise ValueError('staged internal mTLS configuration differs from qualified source')
     previous = live.read_text()
     if previous != candidate:
-        os.replace(staged, live)
+        # A canceled workflow must not change ingress state after the last recheck.
+        reauthorize('platform', sha, run_id, attempt)
+        durable_replace(staged, live)
         try:
             run(['docker', 'exec', MTLS, 'nginx', '-t', '-q', '-c', MTLS_CONFIG])
         except subprocess.CalledProcessError:
@@ -284,6 +290,7 @@ def deploy_mtls(directory, sha):
     staged.unlink(missing_ok=True)
     # Reload even when the file already matches: an earlier attempt may have replaced
     # it and failed before the running listener loaded it.
+    reauthorize('platform', sha, run_id, attempt)
     run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
     if run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True) != candidate:
         raise ValueError('internal mTLS listener did not acquire the qualified configuration')
@@ -343,7 +350,7 @@ def platform_deploy(directory, sha, run_id, attempt):
     run(current + ['up', '-d', '--no-deps', '--force-recreate', 'platform', 'gateway', 'marketplace-scheduler'])
     run(current + ['exec', '-T', 'platform', 'php', 'artisan', 'up'])
     deploy_edge(directory, sha, run_id, attempt)
-    deploy_mtls(directory, sha)
+    deploy_mtls(directory, sha, run_id, attempt)
     return {'oteryn-oracle-platform-1': inspect_image(image)['Id'],
             'oteryn-oracle-gateway-1': inspect_image(gateway)['Id'],
             'oteryn-oracle-marketplace-scheduler-1': inspect_image(image)['Id']}
