@@ -23,7 +23,7 @@ No Game write credential is required or permitted.
 4. The Platform commits the preference and bounded audit events atomically.
 5. The public character page shows the guild only when Game's `guild_visible` and the owner preference both allow it.
 
-A character with no saved row keeps the default (guild visible if Game allows it). A character the projection cannot bind to a live Identity hides the guild.
+A character with no saved row keeps the default (guild visible if Game allows it). A character the live projection cannot bind to exactly one live Identity hides the guild: a disabled consumer, a stale or epoch-fenced watermark, an invalid snapshot or two live accounts listing the character all hide it, even while old rows remain in `native_account_character_rows`.
 
 ## Failure diagnosis
 
@@ -47,7 +47,7 @@ Evaluate both layers:
 
 - Game's `guild_visible` in the `character_profile` snapshot (a hidden guild is Game's decision);
 - the owner row `(identity_id, character_id)` with `show_guild = 0`;
-- whether the character binds to a live Identity through the account-character projection (an unbound character hides the guild by design).
+- whether the character binds to exactly one live Identity through the live account-character projection (fresh watermark at the highest epoch, valid snapshot at that epoch); an unbound character hides the guild by design.
 
 ### Multiple main characters suspected
 

@@ -90,14 +90,15 @@ Decided by the owner on 2026-10-15 ("zbuduj to"):
 - The online page no longer shows the channel (the contract carries none).
 - Profile: `PublicProjectionReadModel::entryByName()` counts present holders of the case-folded name (`lookup_folded`, indexed per family) at the fresh epoch with no World filter, requires exactly one, and serves it only when its World is the served World (contract §7.3); otherwise 404. A configured World with no data is 503.
 - Round 4: owner preferences are keyed by the native CharacterId (`CharacterGuildVisibility`, `CharacterProfilePreferenceService` over `NativeAccountCharactersReadModel`); the form keeps only the guild toggle and main character. Legacy rows stay unbound (no mapping exists, so no backfill). The three pages carry `Cache-Control: no-store, private` and the `public-game-data` throttle (120 per minute per IP). The unused legacy repository methods are deleted. `PublicCharacterProfileService` and the legacy profile tests are removed.
+- Round 5 (Codex on 3173b2d): `CharacterGuildVisibility` proves ownership through `NativeAccountCharactersReadModel::viewForAccount()` (enabled consumer, fresh watermark at the highest epoch, valid snapshot at that epoch listing the character) and requires exactly one live owner and one live Identity; a disabled, stale or epoch-fenced feed, an invalid snapshot or an ambiguous mapping hides the guild even while old rows remain. The native account roster links each listed character to the preference form and shows the saved main-character marker (preferences keyed by `character_id`, only for listed characters); the legacy roster no longer links to the native-only form or reads preferences keyed by the legacy player id.
 - Deployment wiring is in this PR (compose, Oracle prepare script, mTLS listener). Remaining on oteryn-vps: certificate, secrets and the flag flip (see the PR comment).
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-16T09:00:00Z
-head: 67c336e1e89375cfcd314a85205c4cd8f1331b34
+updated_at: 2026-10-16T12:00:00Z
+head: 3173b2df81f942fe9a1343df872ff20a9b479ccd
 branch: fix/public-gamedata-native
 pr: 1645
 status: validating
@@ -147,6 +148,9 @@ owned_paths:
   - scripts/acceptance
   - tests
   - docs/agents/LEGACY_TOKEN_BASELINE.json
+  - app/Http/Controllers/Accounts/AccountOverviewController.php
+  - resources/views/identity/account/overview.blade.php
+  - resources/views/identity/account/partials/native-roster.blade.php
 proven:
   - Platform consumer and read model for Public Projections v1 exist on main (C4).
   - Game has no producer for game-public routes yet; the contract is CANDIDATE. The owner decided Q1-Q4 on 2026-10-15 and the producer is being built in parallel in Oteryn-Game.
@@ -189,6 +193,13 @@ changed_paths:
   - resources/views/game/character.blade.php
   - .env.example
   - docs/agents/LEGACY_TOKEN_BASELINE.json
+  - app/CharacterProfiles/CharacterGuildVisibility.php
+  - app/Http/Controllers/Accounts/AccountOverviewController.php
+  - resources/views/identity/account/overview.blade.php
+  - resources/views/identity/account/partials/native-roster.blade.php
+  - tests/Feature/Accounts/NativeAccountOverviewTest.php
+  - docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md
+  - docs/operations/CHARACTER_PROFILE_PREFERENCES.md
 validation:
   - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261015-public-gamedata-native-1.md --require-checkpoint
     result: PASS

@@ -40,11 +40,13 @@ Game's `guild_visible` flag in `character_profile` is the primary decision. The 
 
 Resolution of the owner preference for a public page read:
 
-1. find the account bound to the native CharacterId in the account-character projection;
-2. find the live Identity of that account;
+1. find the account bound to the native CharacterId through the live account-character read model: the consumer is enabled, the watermark is at the highest epoch and inside the freshness window, and the account's snapshot is valid and at that epoch and lists the character; a leftover row of an account whose snapshot is invalid or at a fenced epoch is not ownership;
+2. require exactly one such account and exactly one live Identity of that account;
 3. read the preference by `(identity_id, character_id)`; no row means visible.
 
-A character that cannot be bound (no projected account, no live Identity, unreadable projection) fails closed: the guild is hidden. The preference can narrow Game's flag but never widen it.
+A character that cannot be bound (no projected account, a disabled, stale or epoch-fenced feed, an invalid snapshot, more than one live owner, no live Identity, unreadable projection) fails closed: the guild is hidden. The preference can narrow Game's flag but never widen it.
+
+The account overview shows, for each character the live projection lists, a link to the preference form and the saved main-character marker; a main-character row for a character the projection no longer lists is not shown.
 
 ## Main-character concurrency
 

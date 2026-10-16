@@ -6,9 +6,16 @@
             @if (count($overview['characters']) > 0)
                 <div class="character-roster">
                     @foreach ($overview['characters'] as $character)
+                        @php($profilePreference = ($profilePreferences ?? collect())->get($character->characterId))
                         <article class="card character-roster-row">
                             <div class="character-monogram" aria-hidden="true">{{ mb_substr($character->name, 0, 1) }}</div>
-                            <div class="character-roster-identity"><h3>{{ $character->name }}</h3></div>
+                            <div class="character-roster-identity">
+                                <h3>{{ $character->name }}</h3>
+                                @if ($profilePreference?->is_main_character)<span class="badge badge-success" data-main-character>{{ __('character_profiles.main_badge') }}</span>@endif
+                            </div>
+                            <div class="action-row">
+                                <a class="button button-ghost" href="{{ route('account.characters.profile.edit', ['name' => $character->name, 'locale' => app()->getLocale()]) }}">{{ __('character_profiles.manage') }}</a>
+                            </div>
                         </article>
                     @endforeach
                 </div>

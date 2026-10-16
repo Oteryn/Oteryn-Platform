@@ -9,6 +9,7 @@ use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\SeedsNativeAccountCharacters;
 use Tests\TestCase;
 
@@ -128,6 +129,65 @@ final class CharacterProfilePreferenceTest extends TestCase
         // A disabled identity hides it too.
         $identity->forceFill(['disabled_at' => now()])->save();
         self::assertFalse($visibility->allows(self::ALPHA));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function unprovenOwnership(): iterable
+    {
+        foreach (['disabled', 'stale', 'watermark-behind', 'epoch-fenced', 'invalid-snapshot', 'ambiguous'] as $state) {
+            yield $state => [$state];
+        }
+    }
+
+    #[DataProvider('unprovenOwnership')]
+    public function test_guild_is_hidden_when_live_ownership_is_not_proven(string $state): void
+    {
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        CharacterProfilePreference::query()->create([
+            'identity_id' => $identity->id,
+            'character_id' => self::ALPHA,
+            'show_guild' => true,
+        ]);
+        $visibility = app(CharacterGuildVisibility::class);
+        self::assertTrue($visibility->allows(self::ALPHA));
+
+        match ($state) {
+            // The consumer is switched off while the old rows stay in the table.
+            'disabled' => config(['game-auth.native_account_characters.enabled' => false]),
+            'stale' => DB::table('native_account_character_projection_state')->where('id', 1)->update(['complete_through' => now()->getTimestamp() - 120]),
+            'watermark-behind' => DB::table('native_account_character_projection_state')->where('id', 1)->update(['highest_epoch' => '2']),
+            'epoch-fenced' => DB::table('native_account_character_projection_state')->where('id', 1)->update(['highest_epoch' => '2', 'watermark_epoch' => '2']),
+            'invalid-snapshot' => DB::table('native_account_character_snapshots')->where('account_id', $identity->account_id)->update(['invalid' => true]),
+            'ambiguous' => $this->bindAccountCharacters($this->identity()->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]),
+            default => throw new \LogicException('Unknown ownership state.'),
+        };
+
+        self::assertSame(1, DB::table('native_account_character_rows')->where('account_id', $identity->account_id)->where('character_id', self::ALPHA)->count());
+        self::assertFalse($visibility->allows(self::ALPHA));
+    }
+
+    public function test_leftover_row_at_a_fenced_epoch_does_not_block_the_live_owner(): void
+    {
+        $previous = $this->identity();
+        $this->bindAccountCharacters($previous->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        $owner = $this->identity();
+        $this->bindAccountCharacters($owner->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        DB::table('native_account_character_projection_state')->where('id', 1)->update(['highest_epoch' => '2', 'watermark_epoch' => '2']);
+        DB::table('native_account_character_snapshots')->where('account_id', $owner->account_id)->update(['projection_epoch' => '2']);
+        CharacterProfilePreference::query()->create([
+            'identity_id' => $previous->id,
+            'character_id' => self::ALPHA,
+            'show_guild' => true,
+        ]);
+        CharacterProfilePreference::query()->create([
+            'identity_id' => $owner->id,
+            'character_id' => self::ALPHA,
+            'show_guild' => false,
+        ]);
+
+        // Only the owner at the live epoch decides; the fenced account's preference is inert.
+        self::assertFalse(app(CharacterGuildVisibility::class)->allows(self::ALPHA));
     }
 
     public function test_non_owner_cannot_view_or_update_preferences(): void
