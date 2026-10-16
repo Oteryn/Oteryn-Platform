@@ -17,7 +17,7 @@ Scope is documentation only; no product rule, runtime, schema or Game change.
 - [x] Record observed account sections and accessible subforms.
 - [x] Separate observation, manual evidence and unavailable state-dependent flows.
 - [x] Exclude private account data and the withdrawn arbitrary policy proposal.
-- [ ] Publish as a draft PR for owner review; do not merge or deploy.
+- [x] Publish as draft PR #1650 for owner review; do not merge or deploy.
 
 ## Ownership
 
@@ -43,7 +43,7 @@ checkpoint_version: 1
 updated_at: 2026-10-16T11:11:58Z
 head: UNKNOWN
 branch: codex/draft-tibia-account-reference-20261016
-pr: none
+pr: 1650
 status: waiting
 context_routes:
   - web-cms
