@@ -347,7 +347,7 @@ final class NativePublicGameDataTest extends TestCase
     {
         $identity = $this->bindToIdentity(self::HERO, 'Aldric');
         $this->guildedHero();
-        CharacterProfilePreference::query()->create(['identity_id' => $identity->id, 'canary_player_id' => 7, 'character_id' => null, 'show_guild' => false]);
+        CharacterProfilePreference::query()->create(['identity_id' => $identity->id, 'character_id' => null, 'show_guild' => false]);
 
         $this->get('/en/characters/Aldric')->assertOk()->assertDontSee('Vanguard')->assertDontSee('Captain');
 

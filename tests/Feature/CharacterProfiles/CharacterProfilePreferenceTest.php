@@ -256,7 +256,7 @@ final class CharacterProfilePreferenceTest extends TestCase
 
         self::assertTrue($service->editState($identity, 'Alpha Knight')['preference']->show_guild);
 
-        CharacterProfilePreference::query()->create(['identity_id' => $identity->id, 'canary_player_id' => 7, 'character_id' => null, 'show_guild' => false]);
+        CharacterProfilePreference::query()->create(['identity_id' => $identity->id, 'character_id' => null, 'show_guild' => false]);
         self::assertFalse($service->editState($identity, 'Alpha Knight')['preference']->show_guild);
     }
 
