@@ -35,10 +35,10 @@ def parse(component, command):
     return 'deploy', match[1], int(match[2]), int(match[3])
 
 
-def run(args, *, output=False, env=None, cwd=None, timeout=1800):
+def run(args, *, output=False, env=None, cwd=None, timeout=1800, umask=-1):
     result = subprocess.run(args, check=True, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, env=env,
-                            cwd=cwd, timeout=timeout)
+                            cwd=cwd, timeout=timeout, umask=umask)
     if output:
         return result.stdout
 
@@ -88,9 +88,12 @@ def source(component, sha):
     if not directory.exists():
         run(['git', '-c', 'core.hooksPath=/dev/null', 'clone', '--no-checkout',
              '--filter=blob:none', '--depth=1',
-             'https://github.com/Oteryn/' + REPOS[component] + '.git', str(directory)])
-    run(['git', '-c', 'core.hooksPath=/dev/null', 'fetch', '--depth=1', 'origin', sha], cwd=directory)
-    run(['git', '-c', 'core.hooksPath=/dev/null', 'checkout', '--detach', sha], cwd=directory)
+             'https://github.com/Oteryn/' + REPOS[component] + '.git', str(directory)], umask=0o022)
+    # These are public tracked build inputs. Their copied image metadata must
+    # permit the non-root application to read them. Keep the operator process
+    # and every private state/configuration write at its owner-only umask.
+    run(['git', '-c', 'core.hooksPath=/dev/null', 'fetch', '--depth=1', 'origin', sha], cwd=directory, umask=0o022)
+    run(['git', '-c', 'core.hooksPath=/dev/null', 'checkout', '--detach', sha], cwd=directory, umask=0o022)
     if run(['git', 'rev-parse', 'HEAD'], cwd=directory, output=True).strip() != sha:
         raise ValueError('source identity differs')
     if run(['git', 'status', '--porcelain'], cwd=directory, output=True).strip():
@@ -236,6 +239,11 @@ def platform_deploy(directory, sha, run_id, attempt):
              '-t', name, '.'], cwd=directory)
         if inspect_image(name)['Architecture'] != 'arm64':
             raise ValueError('image architecture differs')
+    # Inherit the actual image USER and WORKDIR, with no keys, mounts or network.
+    # Refuse an unreadable application before backup, maintenance or migration.
+    run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'php', image,
+         '-r', 'foreach (["artisan", "bootstrap/app.php", "vendor/autoload.php"] as $file) { if (!is_readable($file)) { exit(1); } }'],
+        timeout=120)
     reauthorize('platform', sha, run_id, attempt)
     schema = contract(directory)
     prepare_edge(directory, sha)

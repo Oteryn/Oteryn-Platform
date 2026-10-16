@@ -193,3 +193,14 @@ through an unresolved candidate. Legacy NAS recovery workflows remain disabled.
 Main protection, aggregate success and the approved active workflow are rechecked
 after backup and before migration. A still-running old Game prevents migration.
 Platform readiness includes the scheduler as well as web/gateway/databases.
+
+
+Operator prerequisites for Actions deployment: host Git, curl, Python3, Docker
+and Compose must be installed. Runner tools do not install host packages.
+The adapter gives only public Git child processes umask022, so copied source is
+readable by the non-root PHP image USER; private operator writes retain077.
+Before maintenance it verifies application entry files in an isolated candidate
+container inheriting its real USER and WORKDIR. An unreadable image fails before
+backup, writer stop or migration. Preserve failed deployment records and reconcile
+against the predeployment backup/schema and actual runtime before retry; a PHP
+failure to open artisan is not evidence that a schema migration committed.

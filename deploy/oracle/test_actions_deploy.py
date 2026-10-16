@@ -4,6 +4,8 @@ import unittest
 import json
 import tempfile
 import subprocess
+import os
+import stat
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('oracle_deploy', Path(__file__).with_name('actions-deploy.py'))
@@ -11,7 +13,76 @@ deploy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deploy)
 
 
+class SourceArtifactPermissions(unittest.TestCase):
+    def test_private_operator_umask_does_not_make_public_build_inputs_unreadable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            origin = root / 'origin'
+            origin.mkdir()
+            def git(*args):
+                return subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', *args], cwd=origin, stderr=subprocess.DEVNULL, text=True).strip()
+            git('init', '-b', 'main')
+            (origin / 'artisan').write_text('<?php echo "application";')
+            (origin / 'artisan').chmod(0o755)
+            (origin / 'app.php').write_text('<?php echo "source";')
+            git('add', 'artisan', 'app.php')
+            git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'public fixture')
+            sha = git('rev-parse', 'HEAD')
+            original_run = deploy.run
+            def local_transport(args, **kwargs):
+                # Only replace the public transport with an isolated Git fixture;
+                # exercise the real clone, fetch, checkout and process umask.
+                args = [origin.as_uri() if arg == 'https://github.com/Oteryn/Oteryn-Platform.git' else arg for arg in args]
+                return original_run(args, **kwargs)
+            previous = os.umask(0o077)
+            try:
+                with patch.object(deploy, 'BUILD', root / 'build'), patch.object(deploy, 'run', side_effect=local_transport):
+                    checkout = deploy.source('platform', sha)
+                self.assertEqual(stat.S_IMODE((checkout / 'artisan').stat().st_mode), 0o755)
+                self.assertEqual(stat.S_IMODE((checkout / 'app.php').stat().st_mode), 0o644)
+                self.assertEqual(stat.S_IMODE(checkout.stat().st_mode), 0o755)
+                private = root / 'private-after'
+                private.write_text('operator state')
+                self.assertEqual(stat.S_IMODE(private.stat().st_mode), 0o600)
+            finally:
+                os.umask(previous)
+
+
 class AuthorityBoundary(unittest.TestCase):
+    def test_unreadable_application_image_fails_before_backup_or_disruption(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
+            calls = []
+            probes = []
+            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/synology/compose.yml'}}}
+            def command(args, **kwargs):
+                calls.append(args)
+                if args[:2] == ['docker', 'run']:
+                    probes.append((args, kwargs))
+                # Model the observed PHP entry-script failure at either boundary:
+                # the new isolated image probe, or the old late migration command.
+                if args[:2] == ['docker', 'run'] or args[:2] == ['bash', '-euc']:
+                    raise subprocess.CalledProcessError(1, args, output='Could not open input file: artisan')
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'journal'), patch.object(deploy, 'atomic'), patch.object(deploy, 'reauthorize'), patch.object(deploy, 'run', side_effect=command):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    deploy.platform_deploy(root, sha, 100, 1)
+            self.assertFalse(any('dump' in args or 'stop' in args or 'down' in args for args in calls))
+            # The probe is the first docker run and is bounded, isolated and uses the image's own USER/WORKDIR.
+            self.assertEqual(len(probes), 1)
+            argv, kwargs = probes[0]
+            self.assertEqual(argv[:7], ['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'php'])
+            self.assertEqual(argv[7], 'oteryn-platform:' + sha + '-arm64')
+            self.assertEqual(argv[8], '-r')
+            self.assertEqual(len(argv), 10)
+            for flag in ('--user', '-u', '--workdir', '-w', '-v', '--volume', '--mount', '--env', '-e', '--env-file'):
+                self.assertNotIn(flag, argv)
+            for name in ('artisan', 'bootstrap/app.php', 'vendor/autoload.php'):
+                self.assertIn('"' + name + '"', argv[9])
+            self.assertIn('is_readable', argv[9])
+            self.assertEqual(kwargs.get('timeout'), 120)
+
     def test_receipt_cannot_accept_a_different_healthy_image(self):
         sha = 'a' * 40
         with tempfile.TemporaryDirectory() as temporary:
