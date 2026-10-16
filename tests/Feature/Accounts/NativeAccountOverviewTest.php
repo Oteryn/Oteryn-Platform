@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Accounts;
 
+use App\CharacterProfiles\Models\CharacterProfilePreference;
 use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersIngestion;
 use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSettings;
 use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSnapshot;
@@ -73,6 +74,45 @@ final class NativeAccountOverviewTest extends TestCase
             ->assertDontSee('Private Other Hero')
             ->assertDontSee($owner->account_id)
             ->assertDontSee($other->account_id);
+    }
+
+    public function test_native_roster_links_each_character_to_its_profile_preferences_and_marks_the_main(): void
+    {
+        $identity = $this->identity();
+        $this->snapshot($identity, ['Alice Moon', 'Bob Star']);
+        CharacterProfilePreference::query()->create([
+            'identity_id' => $identity->id,
+            'character_id' => sprintf('01934f10-7c04-7001-805b-%012d', 2),
+            'show_guild' => true,
+            'is_main_character' => true,
+        ]);
+        $this->login($identity);
+
+        $response = $this->get('/account')->assertOk()
+            ->assertSee(route('account.characters.profile.edit', ['name' => 'Alice Moon', 'locale' => 'en']), false)
+            ->assertSee(route('account.characters.profile.edit', ['name' => 'Bob Star', 'locale' => 'en']), false)
+            ->assertSee('Manage public profile');
+        $html = $response->getContent();
+        self::assertIsString($html);
+        self::assertSame(1, substr_count($html, 'data-main-character'));
+        self::assertMatchesRegularExpression('#<h3>Bob Star</h3>\s*<span class="badge badge-success" data-main-character>Main character</span>#', $html);
+    }
+
+    public function test_native_roster_does_not_mark_a_main_character_the_projection_no_longer_lists(): void
+    {
+        $identity = $this->identity();
+        $this->snapshot($identity, ['Alice Moon']);
+        CharacterProfilePreference::query()->create([
+            'identity_id' => $identity->id,
+            'character_id' => '01934f10-7c04-7001-805b-3b1122334499',
+            'show_guild' => true,
+            'is_main_character' => true,
+        ]);
+        $this->login($identity);
+
+        $this->get('/account')->assertOk()
+            ->assertSee('Alice Moon')
+            ->assertDontSee('data-main-character', false);
     }
 
     public function test_authoritative_empty_snapshot_shows_first_character_action(): void

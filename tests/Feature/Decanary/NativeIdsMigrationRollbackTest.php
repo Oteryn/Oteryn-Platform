@@ -39,6 +39,7 @@ final class NativeIdsMigrationRollbackTest extends TestCase
     {
         $this->app['env'] = 'local';
         $this->app->maintenanceMode()->activate([]);
+        $this->rollBackKeying();
         try {
             $this->applyMigration('down');
 
@@ -51,6 +52,7 @@ final class NativeIdsMigrationRollbackTest extends TestCase
             $this->app->maintenanceMode()->deactivate();
             $this->app['env'] = 'testing';
             $this->applyMigration('up');
+            $this->restoreKeying();
         }
     }
 
@@ -80,6 +82,7 @@ final class NativeIdsMigrationRollbackTest extends TestCase
             self::markTestSkipped('LOCK TABLES applies to MariaDB/MySQL only.');
         }
 
+        $this->rollBackKeying();
         $statements = [];
         Event::listen(QueryExecuted::class, function (QueryExecuted $query) use (&$statements): void {
             $statements[] = $query->sql;
@@ -89,6 +92,7 @@ final class NativeIdsMigrationRollbackTest extends TestCase
             $this->applyMigration('down');
         } finally {
             $this->applyMigration('up');
+            $this->restoreKeying();
         }
 
         $unlock = array_search('UNLOCK TABLES', $statements, true);
@@ -106,6 +110,7 @@ final class NativeIdsMigrationRollbackTest extends TestCase
             self::markTestSkipped('LOCK TABLE ... IN ACCESS EXCLUSIVE MODE applies to PostgreSQL only.');
         }
 
+        $this->rollBackKeying();
         /** @var list<array{sql: string, level: int}> $statements */
         $statements = [];
         Event::listen(QueryExecuted::class, function (QueryExecuted $query) use (&$statements): void {
@@ -116,6 +121,7 @@ final class NativeIdsMigrationRollbackTest extends TestCase
             $this->applyMigration('down');
         } finally {
             $this->applyMigration('up');
+            $this->restoreKeying();
         }
 
         $down = array_slice($statements, 0, 11);
@@ -142,6 +148,26 @@ final class NativeIdsMigrationRollbackTest extends TestCase
     private function identityId(): int
     {
         return Identity::query()->create(['email' => 'native-ids@example.test', 'password' => Hash::make('Correct-Horse-9!Battery')])->id;
+    }
+
+    /** The later native-keying migration is rolled back first, as `migrate:rollback` orders it. */
+    private function rollBackKeying(): void
+    {
+        $this->applyKeying('down');
+    }
+
+    private function restoreKeying(): void
+    {
+        $this->applyKeying('up');
+    }
+
+    /** @param 'up'|'down' $direction */
+    private function applyKeying(string $direction): void
+    {
+        $migration = require database_path('migrations/2026_10_16_090000_key_character_profile_preferences_by_native_character.php');
+        self::assertInstanceOf(Migration::class, $migration);
+
+        (new ReflectionMethod($migration, $direction))->invoke($migration);
     }
 
     /** @param 'up'|'down' $direction */

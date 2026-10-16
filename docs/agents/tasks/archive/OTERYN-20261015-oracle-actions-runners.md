@@ -36,11 +36,10 @@ Dependencies: existing installed durable controller and coherent migration.
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-15T22:00:00Z
-head: b288effb76480ce58f55c834010814ddb0b961a6
+head: 156c9f73ecef3cf34cd908562508dc5cceb79cce
 branch: codex/fix-oracle-runner-context-20261015
 pr: 1646
-status: waiting
-terminal_pr_policy: archive_pending
+status: completed
 context_routes:
   - deployment
 owned_paths:
@@ -72,7 +71,7 @@ validation:
     result: PASS
     evidence: six retained custody and reconciliation tests
 blockers: []
-next_action: archive delivered source packet after protected Oracle workflow and native entry acceptance
+next_action: none; delivered by PR 1646 and archived; operational acceptance continues under Issue 1639
 ```
 
 ## Source branch closeout
@@ -80,7 +79,7 @@ next_action: archive delivered source packet after protected Oracle workflow and
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository delivery
-source_branch_evidence: verify after protected integration
+source_branch_evidence: PR 1646 merged as 156c9f73ecef3cf34cd908562508dc5cceb79cce; source ref readback belongs to operational closeout
 ```
 
 The component key additionally requires its exact active protected-main workflow
@@ -129,3 +128,7 @@ separately coordinated under Game2219.
 The actual GitHub dispatch parser and actionlint1.7.7 reproduce the job-env
 runner-context error on b288eff. Actionlint passes for both corrected sibling
 workflows; the existing endpoint guard and ten adapter regressions also pass.
+
+## Delivered PR closeout
+
+PR #1646 merged as 156c9f73ecef3cf34cd908562508dc5cceb79cce on 2026-10-15T23:34:53Z. Archived by PR #1645 because main still carried the record as active (checkpoint-validation terminal_pr_active_task). Operational acceptance stays under Issue 1639.

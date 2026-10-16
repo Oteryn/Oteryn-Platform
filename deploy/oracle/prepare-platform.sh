@@ -52,6 +52,11 @@ env = {
     'OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED': 'false',
     'CHARACTER_AUTHORITY_COMMANDS_ENABLED': 'false',
     'CHARACTER_AUTHORITY_WEB_CREATE_ENABLED': 'false',
+    'GAME_PROJECTIONS_PUBLIC_ENABLED': 'false',
+    'GAME_PROJECTIONS_PUBLIC_IDENTITIES': '',
+    'GAME_PROJECTIONS_PUBLIC_SOURCE_AUTHORITY': 'oteryn:game:primary',
+    'GAME_PROJECTIONS_PUBLIC_REQUESTS_PER_MINUTE': '1200',
+    'PUBLIC_GAME_DATA_WORLD_ID': '',
     'OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE': 'required',
 }
 for role in ('SUPERUSER', 'OWNER', 'APP', 'BACKUP', 'DUMP'):
@@ -64,6 +69,34 @@ with os.fdopen(fd, 'w') as f:
     os.fsync(f.fileno())
 PY
 fi
+# An existing environment file is never rewritten, but the Game Public Projections consumer keys are
+# appended when missing, with the fail-closed values: the consumer stays off until an operator sets
+# the enable flag and the dedicated certificate subject.
+python3 - "$OTERYN_ENV_FILE" <<'PY'
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+if path.is_symlink() or not path.is_file():
+    raise SystemExit('Unsafe environment file.')
+present = {line.split('=', 1)[0] for line in path.read_text().splitlines() if '=' in line and not line.lstrip().startswith('#')}
+defaults = {
+    'GAME_PROJECTIONS_PUBLIC_ENABLED': 'false',
+    'GAME_PROJECTIONS_PUBLIC_IDENTITIES': '',
+    'GAME_PROJECTIONS_PUBLIC_SOURCE_AUTHORITY': 'oteryn:game:primary',
+    'GAME_PROJECTIONS_PUBLIC_REQUESTS_PER_MINUTE': '1200',
+    'PUBLIC_GAME_DATA_WORLD_ID': '',
+}
+missing = [key for key in defaults if key not in present]
+if missing:
+    text = path.read_text()
+    with path.open('a') as f:
+        if text and not text.endswith('\n'):
+            f.write('\n')
+        for key in missing:
+            f.write(f'{key}={defaults[key]}\n')
+        f.flush()
+        __import__('os').fsync(f.fileno())
+PY
 [[ ! -L "$OTERYN_ENV_FILE" && $(stat -c '%u %a' "$OTERYN_ENV_FILE") == '0 600' ]] \
     || { echo 'Unsafe environment file.' >&2; exit 1; }
 DEPLOY_DIR="$SOURCE/deploy/synology"
