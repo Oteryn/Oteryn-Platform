@@ -268,8 +268,14 @@ def prepare_mtls(directory, sha):
 
 
 def mtls_workers():
-    # The listener's nginx master is PID 1; its children are the serving workers.
-    return set(run(['docker', 'exec', MTLS, 'pgrep', '-P', '1'], output=True).split())
+    # The listener's nginx master is PID 1; only its children still titled exactly
+    # 'nginx: worker process' serve requests (old ones become '... is shutting down').
+    workers = set()
+    for line in run(['docker', 'exec', MTLS, 'pgrep', '-a', '-P', '1'], output=True).splitlines():
+        pid, _, title = line.strip().partition(' ')
+        if title.strip() == 'nginx: worker process':
+            workers.add(pid)
+    return workers
 
 
 def deploy_mtls(directory, sha, run_id, attempt):
@@ -300,10 +306,12 @@ def deploy_mtls(directory, sha, run_id, attempt):
         raise ValueError('internal mTLS listener did not acquire the qualified configuration')
     before = mtls_workers()
     run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
-    # The master applies a reload asynchronously and keeps the old workers if it
-    # rejects the configuration; only a new worker generation proves it loaded.
+    # The master applies a reload asynchronously and keeps the old workers serving if
+    # it rejects the configuration. Accepted means every previously serving worker was
+    # told to shut down and new ones serve; a respawn after a crash keeps the others.
     for _ in range(30):
-        if mtls_workers() - before:
+        serving = mtls_workers()
+        if serving and not serving & before:
             break
         time.sleep(1)
     else:

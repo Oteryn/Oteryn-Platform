@@ -129,7 +129,8 @@ class AuthorityBoundary(unittest.TestCase):
                 if args[-1] == deploy.MTLS_CONFIG and 'cat' in args:
                     return (volume / 'internal-mtls-nginx.conf').read_text()
                 if 'pgrep' in args:
-                    return '112\n200\n' if any('reload' in c for c in calls) else '112\n'
+                    return ('112 nginx: worker process is shutting down\n200 nginx: worker process\n'
+                            if any('reload' in c for c in calls) else '112 nginx: worker process\n')
             with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize') as recheck:
                 deploy.prepare_mtls(root, sha)
                 self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
@@ -196,7 +197,8 @@ class AuthorityBoundary(unittest.TestCase):
                 if 'cat' in args:
                     return (volume / 'internal-mtls-nginx.conf').read_text()
                 if 'pgrep' in args:
-                    return '112\n200\n' if any('reload' in c for c in calls) else '112\n'
+                    return ('112 nginx: worker process is shutting down\n200 nginx: worker process\n'
+                            if any('reload' in c for c in calls) else '112 nginx: worker process\n')
             with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal'), patch.object(deploy, 'reauthorize'):
                 deploy.prepare_mtls(root, sha)
                 deploy.deploy_mtls(root, sha, '1', '1')
@@ -208,11 +210,15 @@ class AuthorityBoundary(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             volume, info = self._mtls_fixture(root)
+            reloaded = []
             def command(args, **kw):
                 if 'cat' in args:
                     return (volume / 'internal-mtls-nginx.conf').read_text()
                 if 'pgrep' in args:
-                    return '112\n'
+                    # A worker respawned by the old configuration is not acceptance.
+                    return '112 nginx: worker process\n200 nginx: worker process\n' if reloaded else '112 nginx: worker process\n'
+                if 'reload' in args:
+                    reloaded.append(True)
             with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize'), patch.object(deploy.time, 'sleep'):
                 deploy.prepare_mtls(root, sha)
                 with self.assertRaisesRegex(ValueError, 'did not start workers'):
