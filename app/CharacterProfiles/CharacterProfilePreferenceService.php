@@ -2,72 +2,66 @@
 
 namespace App\CharacterProfiles;
 
-use App\Accounts\Models\IdentityCanaryAccount;
 use App\CharacterProfiles\Models\CharacterProfilePreference;
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersAccountView;
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersReadModel;
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharacterSummary;
 use App\Identity\Models\Identity;
-use App\PublicGameData\CanaryGameDataRepository;
+use App\Identity\Support\CanonicalAccountId;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
-use stdClass;
+use UnexpectedValueException;
 
+/**
+ * Owner preferences of the native public character page, keyed by the native CharacterId. Ownership
+ * comes from the account-character projection of the identity's AccountId; Game owns the character
+ * data and Platform stores only what the owner chose.
+ */
 final class CharacterProfilePreferenceService
 {
     public function __construct(
-        private readonly CanaryGameDataRepository $gameData,
+        private readonly NativeAccountCharactersReadModel $characters,
         private readonly CharacterProfileEventRecorder $events,
     ) {}
 
     /**
-     * @return array{character: stdClass, preference: CharacterProfilePreference}
+     * @return array{character: NativeAccountCharacterSummary, preference: CharacterProfilePreference}
+     *
+     * @throws CharacterProfileNotOwned
+     * @throws CharacterProfileUnavailable
      */
     public function editState(Identity $identity, string $name): array
     {
-        $character = $this->ownedActiveCharacter($identity, $name);
-        $playerId = $this->positiveInteger($character->id);
-        if ($playerId === null) {
-            throw new CharacterProfileNotOwned;
-        }
-
-        $preference = CharacterProfilePreference::query()
-            ->where('identity_id', $identity->id)
-            ->where('canary_player_id', $playerId)
-            ->first();
+        $character = $this->ownedCharacter($identity, $name, false);
 
         return [
             'character' => $character,
-            'preference' => $preference ?? $this->newPreference($identity->id, $playerId),
+            'preference' => CharacterProfilePreference::query()
+                ->where('identity_id', $identity->id)
+                ->where('character_id', $character->characterId)
+                ->first() ?? $this->newPreference($identity->id, $character->characterId),
         ];
     }
 
     /**
-     * @param  array{
-     *     public_comment: string|null,
-     *     show_account_association: bool,
-     *     show_status: bool,
-     *     show_guild: bool,
-     *     show_house: bool,
-     *     show_skills: bool,
-     *     show_deaths: bool,
-     *     show_kills: bool,
-     *     is_main_character: bool
-     * }  $attributes
+     * @param  array{show_guild: bool, is_main_character: bool}  $attributes
+     *
+     * @throws CharacterProfileNotOwned
+     * @throws CharacterProfileUnavailable
      */
     public function update(Identity $identity, string $name, array $attributes): CharacterProfilePreference
     {
         return DB::transaction(function () use ($identity, $name, $attributes): CharacterProfilePreference {
             $lockedIdentity = Identity::query()->lockForUpdate()->find($identity->id);
-            if (! $lockedIdentity instanceof Identity || $lockedIdentity->isTerminated()) {
+            if (! $lockedIdentity instanceof Identity) {
                 throw new CharacterProfileNotOwned;
             }
 
-            $character = $this->ownedActiveCharacter($lockedIdentity, $name);
-            $playerId = $this->positiveInteger($character->id);
-            if ($playerId === null) {
-                throw new CharacterProfileNotOwned;
-            }
+            $character = $this->ownedCharacter($lockedIdentity, $name, true);
 
             $preference = CharacterProfilePreference::query()
                 ->where('identity_id', $lockedIdentity->id)
-                ->where('canary_player_id', $playerId)
+                ->where('character_id', $character->characterId)
                 ->lockForUpdate()
                 ->first();
             $wasMain = $preference instanceof CharacterProfilePreference
@@ -76,12 +70,12 @@ final class CharacterProfilePreferenceService
             if ($attributes['is_main_character']) {
                 CharacterProfilePreference::query()
                     ->where('identity_id', $lockedIdentity->id)
-                    ->where('canary_player_id', '!=', $playerId)
+                    ->where(fn ($query) => $query->whereNull('character_id')->orWhere('character_id', '!=', $character->characterId))
                     ->where('is_main_character', true)
                     ->update(['is_main_character' => false, 'updated_at' => now()]);
             }
 
-            $preference ??= $this->newPreference($lockedIdentity->id, $playerId);
+            $preference ??= $this->newPreference($lockedIdentity->id, $character->characterId);
             $preference->forceFill($attributes)->save();
 
             $this->events->recordPreferencesUpdated($lockedIdentity->id);
@@ -93,48 +87,41 @@ final class CharacterProfilePreferenceService
         }, 3);
     }
 
-    private function ownedActiveCharacter(Identity $identity, string $name): stdClass
+    private function ownedCharacter(Identity $identity, string $name, bool $lock): NativeAccountCharacterSummary
     {
-        $binding = IdentityCanaryAccount::query()->whereKey($identity->id)->first();
-        $accountId = $binding?->canary_account_id;
-        if ($binding === null || ! $binding->isReady() || ! is_int($accountId)) {
+        $accountId = $identity->getAttribute('account_id');
+        if (! is_string($accountId) || ! CanonicalAccountId::isValid($accountId)
+            || $identity->isTerminated() || $identity->disabled_at !== null) {
             throw new CharacterProfileNotOwned;
         }
 
-        $character = $this->gameData->findActiveCharacter($name);
-        if (! $character instanceof stdClass) {
+        try {
+            $view = $this->characters->viewForAccount($accountId, now()->getTimestamp(), $lock);
+        } catch (QueryException|UnexpectedValueException) {
+            throw new CharacterProfileUnavailable;
+        }
+        if ($view->state === NativeAccountCharactersAccountView::MISSING) {
             throw new CharacterProfileNotOwned;
         }
-
-        $characterAccountId = $this->positiveInteger($character->account_id);
-        $playerId = $this->positiveInteger($character->id);
-        if ($characterAccountId !== $accountId || $playerId === null) {
-            throw new CharacterProfileNotOwned;
+        if ($view->state !== NativeAccountCharactersAccountView::READY) {
+            throw new CharacterProfileUnavailable;
         }
 
-        return $character;
+        foreach ($view->characters as $character) {
+            if (strtolower($character->name) === strtolower($name)) {
+                return $character;
+            }
+        }
+
+        throw new CharacterProfileNotOwned;
     }
 
-    private function positiveInteger(mixed $value): ?int
-    {
-        if (is_int($value)) {
-            return $value > 0 ? $value : null;
-        }
-
-        if (is_string($value) && ctype_digit($value)) {
-            $parsed = (int) $value;
-
-            return $parsed > 0 ? $parsed : null;
-        }
-
-        return null;
-    }
-
-    private function newPreference(int $identityId, int $playerId): CharacterProfilePreference
+    private function newPreference(int $identityId, string $characterId): CharacterProfilePreference
     {
         return new CharacterProfilePreference([
             'identity_id' => $identityId,
-            'canary_player_id' => $playerId,
+            'character_id' => $characterId,
+            'canary_player_id' => null,
             'public_comment' => null,
             'show_account_association' => false,
             'show_status' => false,

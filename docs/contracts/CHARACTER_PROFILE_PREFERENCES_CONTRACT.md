@@ -2,53 +2,49 @@
 
 ## Status
 
-Implemented for the Platform-owned Issue #307 slice of parent Issue #277. This contract does not authorize legacy engine mutation or production deployment.
+Implemented for the Platform-owned Issue #307 slice of parent Issue #277 and re-keyed to the native CharacterId by the public game data packet. This contract does not authorize production deployment.
 
 ## Ownership
 
 Oteryn Platform is the primary owner of `character_profile_preferences` and its migration, validation, audit and presentation lifecycle.
 
-Legacy engine remains the primary owner of:
-
-- character identity, name and current `players.account_id` ownership;
-- level, vocation, skills, guild, house, deaths, kills and runtime status;
-- the legacy engine character comment.
-
-The Platform reads the approved legacy engine fields through the existing read-only principal. It does not update `players.comment`, `players.account_id` or any other legacy engine field in this contract.
+Game is the primary owner of the character: identity, name, level, vocation, guild, house, deaths and online status. The Platform never writes those facts. The public character page is built from the Game Public Projections `character_profile` family; the Platform contributes only what the owner chose.
 
 ## Ownership proof
 
-An authenticated browser request never proves ownership by supplying an Identity, account or player identifier.
+An authenticated browser request never proves ownership by supplying an Identity, account or character identifier.
 
 For each edit or update the server must:
 
-1. resolve the authenticated Platform Identity;
-2. load its ready immutable `IdentityCanaryAccount` binding;
-3. resolve the active character by name through the read-only legacy engine repository;
-4. compare the server-read `players.account_id` with the bound legacy engine account ID;
-5. fail closed with a public-safe not-found or unavailable state when any proof step is absent or unreadable.
+1. resolve the authenticated Platform Identity (not terminated, not disabled) and its canonical `account_id`;
+2. read the account-character projection for that account with a live watermark (`NativeAccountCharactersReadModel`);
+3. match the requested character name, case-insensitively, against the projected characters of that account;
+4. fail closed when any step is absent, stale or unreadable: an account without a projection or a character not in it is not found, a stale or unavailable projection is a sanitized unavailable state.
 
-The Platform stores the stable legacy engine player ID only after this check. Every later update repeats current ownership verification; stored preference rows are not ownership proof.
+The Platform stores the native CharacterId only after this check. Every later update repeats the proof; a stored row is never ownership proof.
 
 ## Preference model
 
-One row may exist per Platform Identity and legacy engine player ID. Absence of a row preserves the delivered public-profile behavior.
+One row may exist per Platform Identity and native CharacterId (`character_id`, unique together with `identity_id`). Absence of a row means the default: the guild row is visible when Game allows it.
 
-A row may store:
+A row stores:
 
-- a nullable Platform-owned public comment of at most 500 characters;
-- field visibility for account association, status, guild, house, skills, deaths and player-kill statistics;
-- an optional main-character flag.
+- `show_guild`, the only visibility the native page can honour;
+- an optional main-character flag used by the account overview.
 
-The Platform comment is plain text and is always escaped by the public template. Once a preference row exists, a null comment deliberately presents the public no-comment state rather than falling back to the legacy engine comment.
+The legacy player-id column is optional history. Rows written before the native keying carry no `character_id`, are never read by the native page and stay inert; no backfill exists because no mapping from a legacy player id to a native CharacterId is published. The owner saves the native form once to bind a character. The public comment and the other `show_*` toggles are no longer collected or rendered, because the native page has nothing to attach them to.
 
 ## Effective privacy
 
-Account-level `public_account_association` and `public_status_visible` remain upper bounds. A character preference can narrow those disclosures but cannot make them visible while the account-level flag is disabled.
+Game's `guild_visible` flag in `character_profile` is the primary decision. The owner preference is an upper bound over it: the guild name and rank are rendered only when both Game and the owner allow them.
 
-Guild, house, skills, deaths and kill statistics are independently suppressible per character. Suppressed sections render localized private states and avoid unnecessary legacy engine reads where practical.
+Resolution of the owner preference for a public page read:
 
-Related-character lists require the viewed character's effective account-association visibility and exclude sibling characters whose own preference disables association. Private account IDs and internal binding identifiers are never emitted.
+1. find the account bound to the native CharacterId in the account-character projection;
+2. find the live Identity of that account;
+3. read the preference by `(identity_id, character_id)`; no row means visible.
+
+A character that cannot be bound (no projected account, no live Identity, unreadable projection) fails closed: the guild is hidden. The preference can narrow Game's flag but never widen it.
 
 ## Main-character concurrency
 
@@ -57,36 +53,31 @@ Main character is optional. At most one preference row per Identity may have `is
 The update service:
 
 - starts a Platform database transaction;
-- locks the owning Identity row before reading or changing main-character state;
-- clears another current main row before selecting the requested character;
-- uses the `(identity_id, canary_player_id)` uniqueness constraint for idempotent row identity;
+- locks the owning Identity row and the account-character view before changing main-character state;
+- clears every other main row (including unbound rows) before selecting the requested character;
+- uses the `(identity_id, character_id)` unique key for idempotent row identity;
 - retries bounded transaction failures through the database transaction helper.
-
-The Community Data acceptance workflow runs two separate PHP processes against real MariaDB, selecting two characters for the same Identity concurrently, and fails unless exactly one main row remains.
 
 ## Authorization and audit
 
-The management routes require an authenticated Identity and current server-side ownership proof. Foreign, deleted, missing or unbound characters are not editable.
+The management routes require an authenticated Identity and current server-side ownership proof. Foreign, missing or unbound characters are not editable.
 
-Successful updates record `character.profile_preferences_updated`. A transition from non-main to main additionally records `character.main_character_selected`. Events contain the Identity reference and bounded event type only; public comments and character data are not copied into security-event metadata.
+Successful updates record `character.profile_preferences_updated`. A transition from non-main to main additionally records `character.main_character_selected`. Events contain the Identity reference and bounded event type only.
 
 ## Failure semantics
 
 - invalid input returns localized validation errors and does not write;
-- missing or foreign ownership returns not found without exposing account IDs;
-- Legacy engine read failure returns a generic unavailable response or form error without SQL details;
-- Platform writes are atomic; legacy engine is never mutated;
+- missing or foreign ownership returns not found without exposing account ids;
+- a stale or unreadable projection returns a generic unavailable response or form error without SQL details;
+- Platform writes are atomic; Game is never mutated;
 - deleting a Platform Identity cascades its preference rows;
-- a stale preference row for a character no longer owned is inert because every edit repeats current ownership proof and public projection joins through the current ready binding.
+- a stale preference row for a character the account no longer holds is inert because every edit repeats the ownership proof.
 
 ## Explicit exclusions
 
 This contract does not implement or authorize:
 
-- character rename;
-- deletion scheduling, restore or finalization;
-- world/channel transfer;
-- Bazaar ownership transfer changes;
-- selected achievements without an authoritative source;
-- guild, house, skills, deaths or comment mutation in legacy engine;
+- character rename, deletion scheduling, restore or finalization;
+- world transfer or Bazaar ownership transfer changes;
+- a Platform-owned public comment or per-section house, skills, deaths or kills toggles;
 - production activation or a `PRODUCTION_PROVEN` claim.

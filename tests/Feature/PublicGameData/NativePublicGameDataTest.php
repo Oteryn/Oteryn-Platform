@@ -2,17 +2,22 @@
 
 namespace Tests\Feature\PublicGameData;
 
+use App\CharacterProfiles\Models\CharacterProfilePreference;
 use App\GameProjections\PublicProjectionFamily;
+use App\Identity\Models\Identity;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Redis;
+use Tests\Support\SeedsNativeAccountCharacters;
 use Tests\TestCase;
 
 /** Online and highscores pages on the native public projections (removal plan packets C5 and C7). */
 final class NativePublicGameDataTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsNativeAccountCharacters;
 
     private const NOW = 1_790_000_020;
 
@@ -38,6 +43,20 @@ final class NativePublicGameDataTest extends TestCase
         $this->travelTo(CarbonImmutable::createFromTimestamp(self::NOW));
         DB::table('game_public_projection_state')->updateOrInsert(['id' => 1], ['highest_epoch' => '1']);
         Redis::shouldReceive('connection')->never();
+        $this->enableNativeAccountCharacters();
+        $this->nativeAccountCharactersLive();
+    }
+
+    /** Binds a native character to a live Platform identity through the account-character projection. */
+    private function bindToIdentity(string $characterId, string $name): Identity
+    {
+        $identity = Identity::query()->create([
+            'email' => uniqid('public-game-data-', true).'@example.com',
+            'password' => Hash::make('Correct-Horse-9!Battery'),
+        ]);
+        $this->bindAccountCharacters($identity->account_id, [[$characterId, self::WORLD, $name]]);
+
+        return $identity;
     }
 
     public function test_fresh_online_projection_lists_rows_without_channel_or_identifiers(): void
@@ -186,6 +205,7 @@ final class NativePublicGameDataTest extends TestCase
     public function test_profile_page_shows_only_the_carried_fields(): void
     {
         $guild = '01934f10-7c06-7001-805b-3b1122334401';
+        $this->bindToIdentity(self::HERO, 'Aldric');
         $this->watermark(PublicProjectionFamily::CharacterProfile);
         $this->watermark(PublicProjectionFamily::Guild);
         $this->snapshot(PublicProjectionFamily::CharacterProfile, self::HERO, self::WORLD, 'Aldric', true, [
@@ -210,7 +230,7 @@ final class NativePublicGameDataTest extends TestCase
             ->assertDontSee('Skills')
             ->assertDontSee('Recent deaths')
             ->assertDontSee('Magic level');
-        // Exact match first, then ASCII case-insensitive.
+        // The name resolves ASCII case-folded.
         $this->get('/en/characters/aldric')->assertOk()->assertSee('Aldric');
         $this->get('/pl/characters/Mira')->assertOk()->assertSee('Mira')->assertSee('Brak gildii');
         $this->get('/en/characters/Nobody')->assertNotFound();
@@ -218,6 +238,7 @@ final class NativePublicGameDataTest extends TestCase
 
     public function test_profile_page_hides_unpublished_or_other_world_characters_and_fails_closed(): void
     {
+        $this->bindToIdentity(self::HERO, 'Aldric');
         $this->watermark(PublicProjectionFamily::CharacterProfile);
         $this->profile(self::HERO, self::WORLD, 'Aldric');
         $this->profile(self::GHOST, self::WORLD, null);
@@ -269,6 +290,183 @@ final class NativePublicGameDataTest extends TestCase
 
         config(['public_game_data.world_id' => 'not-a-world']);
         $this->get('/en/online')->assertStatus(503);
+    }
+
+    private function guildedHero(): void
+    {
+        $guild = '01934f10-7c06-7001-805b-3b1122334401';
+        $this->watermark(PublicProjectionFamily::CharacterProfile);
+        $this->watermark(PublicProjectionFamily::Guild);
+        $this->snapshot(PublicProjectionFamily::CharacterProfile, self::HERO, self::WORLD, 'Aldric', true, [
+            'character_id' => self::HERO,
+            'profile' => [['guild' => [['guild_id' => $guild, 'rank_level' => 3]], 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD, 'guild_visible' => true]],
+        ]);
+        $this->snapshot(PublicProjectionFamily::Guild, $guild, self::WORLD, 'Vanguard', true, [
+            'guild' => [['founded_at' => '1', 'members' => [], 'name' => 'Vanguard', 'ranks' => [['level' => 1, 'name' => 'Recruit'], ['level' => 3, 'name' => 'Captain'], ['level' => 20, 'name' => 'Leader']], 'state' => 'ACTIVE', 'world_id' => self::WORLD]],
+            'guild_id' => $guild,
+        ]);
+    }
+
+    public function test_owner_preference_is_an_upper_bound_over_the_game_guild_flag(): void
+    {
+        $identity = $this->bindToIdentity(self::HERO, 'Aldric');
+        $this->guildedHero();
+
+        // Both allow (no saved preference keeps the default): shown.
+        $this->get('/en/characters/Aldric')->assertOk()->assertSee('Vanguard')->assertSee('Captain');
+
+        // The owner opts out: hidden, with no "No guild" either.
+        $preference = CharacterProfilePreference::query()->create(['identity_id' => $identity->id, 'character_id' => self::HERO, 'show_guild' => false]);
+        $this->get('/en/characters/Aldric')->assertOk()->assertDontSee('Vanguard')->assertDontSee('Captain')->assertDontSee('No guild');
+
+        // The owner opts in again: shown.
+        $preference->forceFill(['show_guild' => true])->save();
+        $this->get('/en/characters/Aldric')->assertOk()->assertSee('Vanguard');
+
+        // The preference never widens Game's flag: guild_visible=false stays hidden.
+        $this->snapshot(PublicProjectionFamily::CharacterProfile, self::HERO, self::WORLD, 'Aldric', true, [
+            'character_id' => self::HERO,
+            'profile' => [['guild' => [['guild_id' => '01934f10-7c06-7001-805b-3b1122334401', 'rank_level' => 3]], 'guild_visible' => false, 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD]],
+        ]);
+        $this->get('/en/characters/Aldric')->assertOk()->assertDontSee('Vanguard');
+    }
+
+    public function test_a_character_that_cannot_be_bound_to_an_identity_hides_the_guild(): void
+    {
+        $this->guildedHero();
+
+        $this->get('/en/characters/Aldric')->assertOk()->assertSee('Aldric')->assertDontSee('Vanguard')->assertDontSee('Captain');
+    }
+
+    public function test_name_held_in_two_worlds_or_by_a_case_variant_is_not_found(): void
+    {
+        $this->watermark(PublicProjectionFamily::CharacterProfile);
+        $this->profile(self::HERO, self::WORLD, 'Aldric');
+        $this->get('/en/characters/Aldric')->assertOk();
+
+        // The same name in another World: ambiguous even though the served World holds exactly one.
+        $this->profile(self::MAGE, self::OTHER_WORLD, 'Aldric');
+        config(['public_game_data.world_id' => self::WORLD]);
+        $this->get('/en/characters/Aldric')->assertNotFound();
+        $this->get('/en/characters/aldric')->assertNotFound();
+        // Without a configured World, two published Worlds fail closed instead of guessing.
+        config(['public_game_data.world_id' => null]);
+        $this->get('/en/characters/Aldric')->assertStatus(503);
+    }
+
+    public function test_case_variant_holder_makes_the_name_ambiguous(): void
+    {
+        $this->watermark(PublicProjectionFamily::CharacterProfile);
+        $this->profile(self::HERO, self::WORLD, 'Aldric');
+        $this->profile(self::MAGE, self::WORLD, 'ALDRIC');
+
+        $this->get('/en/characters/Aldric')->assertNotFound();
+        $this->get('/en/characters/ALDRIC')->assertNotFound();
+        $this->get('/en/characters/aldric')->assertNotFound();
+    }
+
+    public function test_the_only_holder_in_the_served_world_resolves_when_another_world_holds_the_name_hidden(): void
+    {
+        $this->watermark(PublicProjectionFamily::CharacterProfile);
+        $this->profile(self::HERO, self::WORLD, 'Aldric');
+        // A hidden profile is stored as absent and does not count as a holder.
+        $this->profile(self::GHOST, self::OTHER_WORLD, null);
+        config(['public_game_data.world_id' => self::WORLD]);
+
+        $this->get('/en/characters/Aldric')->assertOk();
+    }
+
+    public function test_unknown_name_and_hidden_profile_have_identical_bodies(): void
+    {
+        $this->watermark(PublicProjectionFamily::CharacterProfile);
+        $this->profile(self::HERO, self::WORLD, 'Aldric');
+        $this->profile(self::GHOST, self::WORLD, null);
+
+        $unknown = $this->get('/en/characters/Nobody')->assertNotFound();
+        $hidden = $this->get('/en/characters/Hidden%20Ghost')->assertNotFound();
+        self::assertSame($unknown->getContent(), $hidden->getContent());
+    }
+
+    public function test_entry_at_an_older_epoch_is_not_served_while_the_watermark_is_at_the_highest_epoch(): void
+    {
+        DB::table('game_public_projection_state')->where('id', 1)->update(['highest_epoch' => '2']);
+        foreach ([PublicProjectionFamily::WorldOnline, PublicProjectionFamily::Highscores, PublicProjectionFamily::CharacterProfile] as $family) {
+            DB::table('game_public_projection_watermarks')->updateOrInsert(['family' => $family->value], [
+                'source_authority' => 'oteryn:game:primary',
+                'projection_epoch' => '2',
+                'complete_through' => self::NOW,
+                'observed_at' => self::NOW,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+        // The rows were published at epoch 1 and never re-published after the epoch change.
+        $this->online(self::WORLD, [['Aldric', 4, '412']]);
+        $this->profile(self::HERO, self::WORLD, 'Aldric');
+        $this->highscores(self::WORLD, 1, 0, [[self::HERO, 'Aldric', 4, '412', '1']]);
+
+        $this->get('/en/online')->assertStatus(503)->assertDontSee('Aldric');
+        $this->get('/en/characters/Aldric')->assertStatus(503)->assertDontSee('412');
+        $this->get('/en/highscores')->assertStatus(503)->assertDontSee('Aldric');
+    }
+
+    public function test_configured_world_missing_from_the_data_is_503_not_404(): void
+    {
+        $this->watermark(PublicProjectionFamily::CharacterProfile);
+        $this->watermark(PublicProjectionFamily::WorldOnline);
+        $this->profile(self::HERO, self::WORLD, 'Aldric');
+        $this->online(self::WORLD, [['Aldric', 4, '412']]);
+        config(['public_game_data.world_id' => self::OTHER_WORLD]);
+
+        $this->get('/en/characters/Aldric')->assertStatus(503)->assertSee('community-unavailable', false);
+        $this->get('/en/characters/Nobody')->assertStatus(503);
+        $this->get('/en/online')->assertStatus(503);
+    }
+
+    public function test_highscores_and_profile_are_503_with_the_consumer_switched_off(): void
+    {
+        $this->watermark(PublicProjectionFamily::Highscores);
+        $this->watermark(PublicProjectionFamily::CharacterProfile);
+        $this->profile(self::HERO, self::WORLD, 'Aldric');
+        $this->highscores(self::WORLD, 1, 0, [[self::HERO, 'Aldric', 4, '412', '1']]);
+        $this->get('/en/highscores')->assertOk();
+        $this->get('/en/characters/Aldric')->assertOk();
+
+        config(['game-projections.public.enabled' => false]);
+        $this->get('/en/highscores')->assertStatus(503)->assertDontSee('Aldric');
+        $this->get('/en/characters/Aldric')->assertStatus(503)->assertDontSee('Druid');
+    }
+
+    public function test_pages_are_never_stored_by_a_cache_including_error_responses(): void
+    {
+        $this->watermark(PublicProjectionFamily::WorldOnline);
+        $this->watermark(PublicProjectionFamily::Highscores);
+        $this->watermark(PublicProjectionFamily::CharacterProfile);
+        $this->online(self::WORLD, [['Aldric', 4, '412']]);
+        $this->profile(self::HERO, self::WORLD, 'Aldric');
+        $this->highscores(self::WORLD, 1, 0, [[self::HERO, 'Aldric', 4, '412', '1']]);
+
+        foreach (['/en/online', '/en/highscores', '/en/characters/Aldric', '/en/characters/Nobody', '/pl/online'] as $url) {
+            $cache = (string) $this->get($url)->headers->get('Cache-Control');
+            self::assertStringContainsString('no-store', $cache, $url);
+            self::assertStringContainsString('private', $cache, $url);
+        }
+        // A 503 carries it too.
+        DB::table('game_public_projection_watermarks')->delete();
+        $cache = (string) $this->get('/en/online')->assertStatus(503)->headers->get('Cache-Control');
+        self::assertStringContainsString('no-store', $cache);
+    }
+
+    public function test_public_pages_are_rate_limited_per_ip(): void
+    {
+        for ($i = 0; $i < 120; $i++) {
+            $this->get('/en/online');
+        }
+        $this->get('/en/online')->assertStatus(429);
+        // The budget is shared by the three pages and keyed on the client IP.
+        $this->get('/en/highscores')->assertStatus(429);
+        $this->get('/en/characters/Aldric')->assertStatus(429);
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])->get('/en/online')->assertStatus(503);
     }
 
     private function watermark(PublicProjectionFamily $family, int $completeThrough = self::NOW): void
@@ -333,6 +531,7 @@ final class NativePublicGameDataTest extends TestCase
             [
                 'world_id' => $world,
                 'lookup_name' => $lookup,
+                'lookup_folded' => $lookup === null ? null : strtolower($lookup),
                 'present' => $present,
                 'source_authority' => 'oteryn:game:primary',
                 'projection_epoch' => '1',

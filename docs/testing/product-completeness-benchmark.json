@@ -254,7 +254,7 @@
         },
         {
           "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
-          "marker": "test_owner_can_update_escaped_comment_visibility_and_main_character",
+          "marker": "test_owner_saves_the_guild_toggle_and_main_character_by_native_character_id",
           "level": "feature_test"
         },
         {
@@ -284,7 +284,7 @@
         },
         {
           "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
-          "marker": "test_owner_can_update_escaped_comment_visibility_and_main_character",
+          "marker": "test_owner_saves_the_guild_toggle_and_main_character_by_native_character_id",
           "level": "feature_test"
         },
         {
@@ -331,7 +331,7 @@
         },
         {
           "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
-          "marker": "test_owner_can_update_escaped_comment_visibility_and_main_character",
+          "marker": "test_owner_saves_the_guild_toggle_and_main_character_by_native_character_id",
           "level": "feature_test"
         },
         {
@@ -436,7 +436,7 @@
         },
         {
           "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
-          "marker": "test_owner_can_update_escaped_comment_visibility_and_main_character",
+          "marker": "test_owner_saves_the_guild_toggle_and_main_character_by_native_character_id",
           "level": "feature_test"
         },
         {
@@ -859,8 +859,8 @@
       "rationale": "Read-only online players and configured server/channel runtime states include empty, unavailable and restoration coverage.",
       "oteryn_evidence": [
         {
-          "file": "app/PublicGameData/CanaryGameDataRepository.php",
-          "marker": "public function onlineCharacters",
+          "file": "app/PublicGameData/NativePublicGameData.php",
+          "marker": "public function online",
           "level": "repository_contract"
         },
         {

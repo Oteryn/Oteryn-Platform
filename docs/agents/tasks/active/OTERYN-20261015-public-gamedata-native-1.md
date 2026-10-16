@@ -26,7 +26,7 @@ Decision input first, then the Platform page readers (packets C5 and C7), approv
 - [x] The category and vocation filters select the published (World, category, filter) list; an unpublished list is unavailable, not empty.
 - [x] Feature tests cover fresh, stale, missing, empty, profile join and filters (`tests/Feature/PublicGameData/NativePublicGameDataTest.php`); the legacy online and highscores tests are removed.
 - [ ] Real HTTP check of both pages against the Oracle stack with live rows, and the unavailable state within S (30 s) after the producer stops (after the Game producer and the deployment steps).
-- [x] `/characters/{name}` is served only from `character_profile` (plus the `guild` family for the guild and rank names), with the carried fields only: name, level, vocation, guild. A stale or missing family is 503, an unknown, hidden or other-World character is 404. Skills, deaths, comment, status and house are not shown and have no placeholders. The per-character Platform preferences are keyed by the legacy player id and do not apply to a native character id; the guild shown is the one Game publishes.
+- [x] `/characters/{name}` is served only from `character_profile` (plus the `guild` family for the guild and rank names), with the carried fields only: name, level, vocation, guild. A stale or missing family is 503, an unknown, hidden or other-World character is 404. Skills, deaths, comment, status and house are not shown and have no placeholders. The guild row is shown only when Game's `guild_visible` and the owner preference (keyed by the native CharacterId through the account-character projection) both allow it; an unbindable character hides it.
 - [x] Deploy wiring in repo: `deploy/synology/compose.yml` forwards `GAME_PROJECTIONS_PUBLIC_*` and `PUBLIC_GAME_DATA_WORLD_ID` fail-closed, `deploy/oracle/prepare-platform.sh` seeds them off, and `deploy/synology/nginx/internal-mtls.conf` routes `/internal/v1/game-public/*` with its own 512 KiB body bound (`deploy/synology/tests/test_platform_mtls_contract.py`).
 
 ## Findings
@@ -88,15 +88,16 @@ Decided by the owner on 2026-10-15 ("zbuduj to"):
 - Category ids follow the contract (1 experience, 2 magic, 3-9 fist, club, sword, axe, distance, shielding, fishing). The `level` category reads category 1 and shows the level, `experience` shows the value.
 - Vocation ids: the contract only says `vocation` is the A13 build-state id (0..255) and `filter` 1..5 a base vocation, without numbers. Platform follows Game's reference enum (`apps/game-server/src/content/reference_playable.rs`): Druid 1, Knight 2, Monk 3, Paladin 4, Sorcerer 5, None 6; filter n lists base vocation n. The names are `CharacterPresentation::publishedVocationName()`; the legacy ids of `vocationName()` stay for the legacy pages. The producer must pin the same numbers.
 - The online page no longer shows the channel (the contract carries none).
-- Profile: `PublicProjectionReadModel::entryByName()` reads the indexed `lookup_name` in the served World (exact first, then ASCII case-insensitive; an ambiguous name serves nothing). `PublicCharacterProfileService` and the legacy profile tests are removed.
+- Profile: `PublicProjectionReadModel::entryByName()` counts present holders of the case-folded name (`lookup_folded`, indexed per family) at the fresh epoch with no World filter, requires exactly one, and serves it only when its World is the served World (contract §7.3); otherwise 404. A configured World with no data is 503.
+- Round 4: owner preferences are keyed by the native CharacterId (`CharacterGuildVisibility`, `CharacterProfilePreferenceService` over `NativeAccountCharactersReadModel`); the form keeps only the guild toggle and main character. Legacy rows stay unbound (no mapping exists, so no backfill). The three pages carry `Cache-Control: no-store, private` and the `public-game-data` throttle (120 per minute per IP). The unused legacy repository methods are deleted. `PublicCharacterProfileService` and the legacy profile tests are removed.
 - Deployment wiring is in this PR (compose, Oracle prepare script, mTLS listener). Remaining on oteryn-vps: certificate, secrets and the flag flip (see the PR comment).
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T15:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-16T09:00:00Z
+head: 67c336e1e89375cfcd314a85205c4cd8f1331b34
 branch: fix/public-gamedata-native
 pr: 1645
 status: validating
@@ -129,6 +130,22 @@ owned_paths:
   - tests/Feature/PublicGameData/CommunityDataCompletenessTest.php
   - tests/Feature/PublicGameData/OnlinePaginationTest.php
   - .env.example
+  - app/CharacterProfiles
+  - app/GameProjections/PublicProjectionIngestion.php
+  - app/Http/Controllers/CharacterProfiles
+  - app/Http/Middleware/NoStorePublicGameData.php
+  - app/Http/Requests/CharacterProfiles
+  - app/Providers/AppServiceProvider.php
+  - app/PublicGameData/CanaryGameDataRepository.php
+  - config/public_game_data.php
+  - database/migrations
+  - docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md
+  - docs/operations/CHARACTER_PROFILE_PREFERENCES.md
+  - docs/testing/product-completeness-benchmark.json
+  - resources/views/identity/account/character-profile-preferences.blade.php
+  - routes/web.php
+  - scripts/acceptance
+  - tests
   - docs/agents/LEGACY_TOKEN_BASELINE.json
 proven:
   - Platform consumer and read model for Public Projections v1 exist on main (C4).

@@ -2,6 +2,7 @@
 
 namespace App\PublicGameData;
 
+use App\CharacterProfiles\CharacterGuildVisibility;
 use App\GameProjections\PublicProjectionFamily;
 use App\GameProjections\PublicProjectionReadModel;
 use stdClass;
@@ -16,7 +17,10 @@ final class NativePublicGameData
 {
     private const UUID = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/D';
 
-    public function __construct(private readonly PublicProjectionReadModel $readModel) {}
+    public function __construct(
+        private readonly PublicProjectionReadModel $readModel,
+        private readonly CharacterGuildVisibility $guildVisibility,
+    ) {}
 
     /**
      * Coarse online presence (name, level, vocation), sorted by name; may be empty.
@@ -116,10 +120,18 @@ final class NativePublicGameData
     public function profile(string $name, int $now): ?stdClass
     {
         $world = $this->world(PublicProjectionFamily::CharacterProfile, $now);
-        $payload = $this->readModel->entryByName(PublicProjectionFamily::CharacterProfile, $world, $name, $now);
+        $found = $this->readModel->entryByName(PublicProjectionFamily::CharacterProfile, $name, $now);
+        $payload = $found['payload'] ?? [];
         $entries = $payload['profile'] ?? null;
         $profile = is_array($entries) ? ($entries[0] ?? null) : null;
-        if (! is_array($profile) || ($profile['world_id'] ?? null) !== $world || ! is_string($profile['name'] ?? null)) {
+        // The one case-folded holder must live in the served World; the family may have gone stale
+        // while the lookup ran.
+        if ($found === null || $found['world_id'] !== $world || ! is_array($profile)
+            || ($profile['world_id'] ?? null) !== $world || ! is_string($profile['name'] ?? null)) {
+            if ($this->readModel->hasWorld(PublicProjectionFamily::CharacterProfile, $world, $now) !== true) {
+                throw new PublicGameDataUnavailable('Public projection World is not available.');
+            }
+
             return null;
         }
 
@@ -129,7 +141,10 @@ final class NativePublicGameData
         $membership = is_array($memberships) ? ($memberships[0] ?? null) : null;
         // `guild_visible` is the owner's choice carried by Game: when it is not exactly true the
         // page learns nothing about the membership, not even that one exists.
-        $guildVisible = ($profile['guild_visible'] ?? false) === true;
+        // Game's flag and the owner's Platform preference must both allow the guild row.
+        $characterId = is_string($payload['character_id'] ?? null) ? $payload['character_id'] : '';
+        $guildVisible = ($profile['guild_visible'] ?? false) === true
+            && (! is_array($membership) || $this->guildVisibility->allows($characterId));
         if (! $guildVisible) {
             $membership = null;
         }
@@ -182,7 +197,7 @@ final class NativePublicGameData
                 throw new PublicGameDataUnavailable('Configured World is invalid.');
             }
             // Keep the freshness check even when the World is configured.
-            if ($this->readModel->worlds($family, $now) === null) {
+            if (! $this->readModel->fresh($family, $now)) {
                 throw new PublicGameDataUnavailable('Public projection is stale.');
             }
 

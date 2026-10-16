@@ -59,29 +59,27 @@ final class PublicProjectionReadModel
     }
 
     /**
-     * The stored content of the present entry of a family whose lookup name is `$name` in the
-     * World, matched exactly first and then ASCII case-insensitively, or null when the family is
-     * stale or no entry matches. Same epoch fence as {@see entry()}.
+     * Name resolution (contract §7.3): the present entry of the family whose lookup name is `$name`
+     * after ASCII case folding, counted over every World at the fresh epoch. Exactly one holder is
+     * served; none or several (a case variant, a second World) serve nothing rather than a guess.
+     * The caller compares the returned World with the served one. Same epoch fence as {@see entry()}.
      *
-     * @return array<string, mixed>|null
+     * @return array{world_id: string|null, payload: array<string, mixed>}|null
      */
-    public function entryByName(PublicProjectionFamily $family, string $worldId, string $name, int $now): ?array
+    public function entryByName(PublicProjectionFamily $family, string $name, int $now): ?array
     {
         $epoch = $this->freshEpoch($family, $now);
         if ($epoch === null) {
             return null;
         }
 
-        $query = fn () => DB::table('game_public_projection_snapshots')
+        $rows = DB::table('game_public_projection_snapshots')
             ->where('family', $family->value)
-            ->where('world_id', $worldId)
+            ->where('lookup_folded', strtolower($name))
             ->where('projection_epoch', $epoch)
-            ->where('present', true);
-        $rows = $query()->where('lookup_name', $name)->limit(2)->get();
-        if ($rows->isEmpty()) {
-            $rows = $query()->whereRaw('LOWER(lookup_name) = ?', [strtolower($name)])->limit(2)->get();
-        }
-        // An ambiguous name serves nothing rather than a guess.
+            ->where('present', true)
+            ->limit(2)
+            ->get();
         $row = $rows->first();
         if ($rows->count() !== 1 || $row === null || $this->highestEpoch() !== $epoch) {
             return null;
@@ -97,7 +95,29 @@ final class PublicProjectionReadModel
         }
 
         /** @var array<string, mixed> $payload */
-        return $payload;
+        return ['world_id' => PublicProjectionIngestion::nullableString($row, 'world_id'), 'payload' => $payload];
+    }
+
+    /**
+     * Whether the World has any present entry of the family at the fresh epoch, or null when the
+     * family is stale. Lets a configured World that is missing from the data answer unavailable
+     * instead of a misleading not-found.
+     */
+    public function hasWorld(PublicProjectionFamily $family, string $worldId, int $now): ?bool
+    {
+        $epoch = $this->freshEpoch($family, $now);
+        if ($epoch === null) {
+            return null;
+        }
+
+        $exists = DB::table('game_public_projection_snapshots')
+            ->where('family', $family->value)
+            ->where('world_id', $worldId)
+            ->where('projection_epoch', $epoch)
+            ->where('present', true)
+            ->exists();
+
+        return $this->highestEpoch() === $epoch ? $exists : null;
     }
 
     /**
