@@ -48,7 +48,9 @@
         <section class="realm-pulse production-hero-world" data-hero-world-state="{{ $homePage->world->state->value }}" aria-label="{{ __('public.home.world_activity') }}">
             <div class="realm-pulse-inner">
                 <span class="production-state-badge production-state-{{ strtolower($homePage->world->state->value) }}">{{ __('public.states.'.strtolower($homePage->world->state->value)) }}</span>
-                @if ($homePage->world->state === \App\PublicPortal\PublicContentState::AVAILABLE)
+                @if ($homePage->world->nativeWorlds !== null)
+                    @include('game.partials.native-home-worlds', ['worlds' => $homePage->world->nativeWorlds])
+                @elseif ($homePage->world->state === \App\PublicPortal\PublicContentState::AVAILABLE)
                     <strong>{{ trans_choice('public.home.players_online', $homePage->world->playersOnline ?? 0, ['count' => $localeFormatter->number($homePage->world->playersOnline ?? 0)]) }}</strong>
                 @else
                     <p>{{ __('portal.home.summary_'.strtolower($homePage->world->state->value)) }}</p>
@@ -94,6 +96,9 @@
                 <p class="eyebrow">{{ __('public.home.world_activity') }}</p>
                 <h2 id="realm-overview-heading">{{ __('public.home.world_status') }}</h2>
             </header>
+            @if ($homePage->world->nativeWorlds !== null)
+                @include('game.partials.native-home-worlds', ['worlds' => $homePage->world->nativeWorlds])
+            @else
             @switch($homePage->world->state)
                 @case(\App\PublicPortal\PublicContentState::AVAILABLE)
                     <p class="production-world-total"><strong>{{ $localeFormatter->number($homePage->world->playersOnline ?? 0) }}</strong><span>{{ __('public.game.players_online') }}</span></p>
@@ -108,6 +113,7 @@
                     <div class="notice" role="status">{{ __('public.home.world_unavailable') }}</div>
                     @break
             @endswitch
+            @endif
             <div class="production-world-list">
                 @foreach ($homePage->world->channels as $channel)
                     <section class="production-world-row" aria-label="{{ __('public.home.world_status_label', ['world' => $channel->name]) }}">

@@ -31,6 +31,8 @@ final class PreventSensitiveGameAuthResponseCaching
             || $request->is('internal/v1/game-auth/native-account-characters')
             || $request->is('internal/v1/game-auth/native-account-characters/watermark')
             || $request->is('api/v1/game-auth/native-characters')
+            || $request->is('api/v1/game-auth/device-sessions')
+            || $request->is('api/v1/game-auth/device-sessions/*')
             || $request->is('internal/v1/game-auth/native-admissions')
             || $request->is('internal/v1/game-auth/character-bootstrap-intents/read')
             || $request->is('internal/v1/products-entitlements/premium-snapshots/read');

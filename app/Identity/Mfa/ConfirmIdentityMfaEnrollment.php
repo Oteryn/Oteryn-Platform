@@ -3,6 +3,7 @@
 namespace App\Identity\Mfa;
 
 use App\Audit\SecurityEventRecorder;
+use App\Identity\Actions\RevokeIdentityGameAuthorizations;
 use App\Identity\Actions\RevokeIdentityWebSessions;
 use App\Identity\Models\Identity;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,7 @@ final class ConfirmIdentityMfaEnrollment
         private readonly Google2FA $google2fa,
         private readonly MfaRecoveryCodes $recoveryCodes,
         private readonly RevokeIdentityWebSessions $webSessions,
+        private readonly RevokeIdentityGameAuthorizations $gameAuthorizations,
         private readonly SecurityEventRecorder $securityEvents,
     ) {}
 
@@ -60,6 +62,7 @@ final class ConfirmIdentityMfaEnrollment
             ])->save();
 
             $this->webSessions->execute($lockedIdentity);
+            $this->gameAuthorizations->execute($lockedIdentity);
             $this->securityEvents->recordIdentityMfaEnrolled($lockedIdentity->id);
 
             return new MfaEnrollmentConfirmation(

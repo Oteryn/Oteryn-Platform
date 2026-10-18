@@ -2,6 +2,7 @@
 
 namespace App\GameAuth\OAuth;
 
+use App\GameAuth\NativeLogin\NativeGameLoginTickets;
 use App\GameAuth\Tickets\IssuedGameLoginTicket;
 use App\GameAuth\Tickets\IssueGameLoginTicket;
 use App\Identity\Models\Identity;
@@ -13,13 +14,16 @@ final class IssueGameLoginTicketFromOAuth
     public function __construct(
         private readonly IssueGameLoginTicket $tickets,
         private readonly VerifyNativeOAuthAccess $access,
+        private readonly NativeGameLoginTickets $nativeTickets,
     ) {}
 
     public function execute(Identity $identity, string $accessTokenId): IssuedGameLoginTicket
     {
         return DB::transaction(function () use ($identity, $accessTokenId): IssuedGameLoginTicket {
             $verified = $this->access->locked($identity, $accessTokenId);
-            $issued = $this->tickets->execute($verified->identity);
+            $issued = $verified->nativeTicket
+                ? $this->nativeTickets->issue($verified->identity)
+                : $this->tickets->execute($verified->identity);
 
             RefreshToken::query()
                 ->where('access_token_id', $verified->token->getKey())
