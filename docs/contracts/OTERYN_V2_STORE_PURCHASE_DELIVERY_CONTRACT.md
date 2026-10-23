@@ -234,7 +234,7 @@ Purchase initiation from Game (§14):
 16. lost response: Platform commits `ACCEPTED` and the answer is lost. Game retries the same `purchase_request_id` with the same binding. Platform returns the stored `ACCEPTED` answer byte-identical, debits nothing again and mints no new operation id. A retry under a new id is a conformance failure on the Game side;
 17. concurrent purchases overspending: two different `purchase_request_id`s, whose total exceeds the balance, arrive at the same time. The Wallet row lock serializes them: one is `ACCEPTED` and the other `INSUFFICIENT_BALANCE`. The balance never becomes negative and the ledger holds exactly one debit;
 18. stale quote: the offer's price, currency or `catalog_revision` differs from Platform's active import of the Game catalog. Platform answers `STALE_QUOTE` and writes no debit and no order line. A retry of the same id returns the same `STALE_QUOTE`. Game refreshes the offer, and the player's next confirmation uses a new id;
-19. disabled flag: with the purchase surface or the offer kind disabled, nothing is written and nothing is debited. The answer is `PURCHASE_DISABLED`, or `503` while the whole surface is off. Turning the flag on later does not commit an earlier refused request.
+19. disabled flag: with the offer kind disabled, Platform answers `PURCHASE_DISABLED` and stores only that answer: no debit, no order line, no entitlement, no intent. With the whole purchase surface off, Platform answers `503` and writes nothing at all. Turning a flag on later does not commit an earlier refused request.
 
 ## 12. Owner decisions
 
@@ -310,7 +310,7 @@ Steps 1 to 6 are **one Platform transaction**. Either all of it commits or nothi
 | `STALE_QUOTE` | the `catalog_revision`, price or currency differs from Platform's active import | stored answer only |
 | `OFFER_UNAVAILABLE` | the offer is unknown, not purchasable, not mapped to a product version, or its quantity is out of bounds | stored answer only |
 | `ACCOUNT_RESTRICTED` | the account is unknown to Platform's buying gate, locked (§8.3) or otherwise barred from buying | stored answer only |
-| `PURCHASE_DISABLED` | purchases or this offer kind are disabled | stored answer only |
+| `PURCHASE_DISABLED` | this offer kind is disabled (with the whole purchase surface off, the route answers `503` and stores nothing) | stored answer only |
 | `CONFLICT` | the `purchase_request_id` is already stored with a different binding | nothing; alarm |
 | `UNAVAILABLE` | a transient dependency failed (database, lock timeout, catalog import unavailable) | nothing |
 
