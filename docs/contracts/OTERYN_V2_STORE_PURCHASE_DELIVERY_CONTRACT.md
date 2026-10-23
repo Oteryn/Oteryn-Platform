@@ -2,7 +2,7 @@
 
 ## Status
 
-`PROPOSED — PLATFORM/GAME STORE PURCHASE DELIVERY CONTRACT — NOT ACCEPTED — BLOCKED BY OTERYN-GAME GAP REGISTER §32 (STORE-ENT-1)`
+`PROPOSED — PLATFORM/GAME STORE PURCHASE DELIVERY CONTRACT — NOT ACCEPTED — OTERYN-GAME GAP REGISTER §32 / Q4 RESOLVED BY OWNER DECISION S-1 (2026-10-15) — AWAITING EXACT-HEAD INDEPENDENT REVIEW`
 
 - Task: **STORE-DELIVERY-CONTRACT-1** (Sol supervising architect).
 - Subordinate to `OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md` (the generic contract). This document applies the generic contract to in-game Store purchases and fills the gaps listed in §1. It relaxes no generic rule.
@@ -13,7 +13,7 @@
   - `docs/architecture/ADR-0004-postgresql-and-data-ownership.md` §3-§5 (one owner per data set; cross-system effects through versioned API or outbox with idempotent consumers; no cross-database writes);
   - `docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md` §2, §4.3, §5 (Platform-authored intent keyed by `operation_id`, Game-initiated consumption, durable Game receipt, `recovery_generation`, restore reconciliation);
   - `docs/architecture/reviews/OTERYN_GAME_MECHANICS_COMPLETION_PLAN_2026-10-13.md` row STORE-ENT-1 and owner question Q4.
-- **Blocking rule.** STORE-ENT-1 is blocked on the §32 delivery decision. This contract does **not** take that decision. The owner decided S-1..S-9 on 2026-10-15 (§12); each is cited as `DECIDED` where it applies. Until this contract is accepted on an exact head, nothing here authorizes implementation.
+- **Blocking rule.** The open delivery question of Oteryn-Game gap register §32 (mechanics plan question Q4: who owns the Store inbox line) is **resolved** by owner decision S-1 (2026-10-15), which adopts option (a) of §4: Platform owns the "purchased, pending delivery" ledger, and Game only shows it and issues the item at claim. This contract records that decision; it does not take it. The owner decided S-1..S-9 on 2026-10-15 (§12); each is cited as `DECIDED` where it applies. The only step that remains before acceptance is an exact-head independent review of this document. Until this contract is accepted on an exact head, nothing here authorizes implementation, and STORE-ENT-1 stays blocked on that acceptance, no longer on §32.
 
 This contract authorizes no payment provider, real charge, Wallet credit or debit, Store activation, inbox, item mint, cosmetic unlock, Platform or Oteryn-Game runtime/schema change, deployment or production mutation.
 
@@ -38,7 +38,8 @@ It leaves open, and Oteryn-Game §32 lists as open, the following. This contract
 2. the shape and key of the Game-side delivery receipt (§5);
 3. the outbox and transport by which a Store delivery reaches Game and its receipt returns (§6);
 4. what a refund or chargeback does to in-game value that was already delivered, claimed, consumed or traded, without negative balances and with an audit trail (§8);
-5. how a Game or Platform restore interacts with delivered, reversed and reconciling Store deliveries (§9).
+5. how a Game or Platform restore interacts with delivered, reversed and reconciling Store deliveries (§9);
+6. how a purchase is started from the in-game Store Buy button, paid from the Wallet and answered (§14).
 
 ## 2. Authority (unchanged, restated for the Store)
 
@@ -109,13 +110,13 @@ Rules:
 - **Conflicting reuse.** The same key with a different binding writes nothing, publishes nothing new, keeps the stored receipt and alarms (generic contract: one operation ID cannot be reused for another entitlement, target, product version or intent).
 - **Byte identity.** Every publication of one receipt is byte-identical.
 - **Distinct identities.** In option (b) the Game claim has its own `operation_id`, correlated with, never equal to, the delivery `operation_id`. A Profile-D service keeps its Character Authority `operation_id` distinct, as the generic contract requires.
-- The exact member set, result codes, bounds and encoding are fixed by the wire contract that follows the §32 decision (transport `DECIDED` S-2: Game pulls); the semantic members above are binding.
+- The exact member set, result codes, bounds and encoding are fixed by the wire contract that follows this contract (§32/Q4 resolved by S-1; transport `DECIDED` S-2: Game pulls); the semantic members above are binding.
 
 ## 6. Outbox and transport: at least once, idempotent apply
 
 ### 6.1 Platform side
 
-- Platform writes the order line, the Wallet debit (Profile E mutator), the entitlement and a **delivery intent outbox row** in one Platform transaction. No intent exists without its purchase; no purchase with a Game effect exists without its intent.
+- Platform writes the order line, the Wallet debit (Profile E mutator), the entitlement and a **delivery intent outbox row** in one Platform transaction. For a purchase started in game, that transaction is the one of §14.3. No intent exists without its purchase; no purchase with a Game effect exists without its intent.
 - The intent is immutable once written. It stays `PENDING` until Platform holds a Game receipt for it. A timeout, a lost response, an expiry of a transport attempt or a missing receipt never marks it failed and never mints a new `operation_id` (generic contract: never mint X2 as a blind replacement).
 - Store delivery intents do **not** carry a short technical TTL that turns a paid delivery into a rejection. `DECIDED` S-6: a paid but unclaimed purchase never expires automatically; if it cannot be delivered, support reviews it and may refund it.
 
@@ -227,6 +228,14 @@ Inherited from the generic contract (Security boundary) and commands contract §
 13. dependency unavailable: no write, no receipt, intent stays `PENDING`;
 14. cosmetic unlock revoked: unusable at next use, fence not lowered by restore.
 
+Purchase initiation from Game (§14):
+
+15. double click: the same Buy confirmation is sent twice under one `purchase_request_id`, both concurrently and in sequence. Result: one Wallet debit, one order line, one set of entitlements and intents, and the two answers are byte-identical;
+16. lost response: Platform commits `ACCEPTED` and the answer is lost. Game retries the same `purchase_request_id` with the same binding. Platform returns the stored `ACCEPTED` answer byte-identical, debits nothing again and mints no new operation id. A retry under a new id is a conformance failure on the Game side;
+17. concurrent purchases overspending: two different `purchase_request_id`s, whose total exceeds the balance, arrive at the same time. The Wallet row lock serializes them: one is `ACCEPTED` and the other `INSUFFICIENT_BALANCE`. The balance never becomes negative and the ledger holds exactly one debit;
+18. stale quote: the offer's price, currency or `catalog_revision` differs from Platform's active import of the Game catalog. Platform answers `STALE_QUOTE` and writes no debit and no order line. A retry of the same id returns the same `STALE_QUOTE`. Game refreshes the offer, and the player's next confirmation uses a new id;
+19. disabled flag: with the purchase surface or the offer kind disabled, nothing is written and nothing is debited. The answer is `PURCHASE_DISABLED`, or `503` while the whole surface is off. Turning the flag on later does not commit an earlier refused request.
+
 ## 12. Owner decisions
 
 All nine questions were decided by the owner on 2026-10-15, approving the architect's recommendations. This section is the record; the body sections cite each decision.
@@ -245,10 +254,79 @@ All nine questions were decided by the owner on 2026-10-15, approving the archit
 
 ## 13. Acceptance and rollout
 
-- Status stays **Proposed** until an exact-head independent review accepts this contract; the owner decisions in §12 are recorded.
+- Oteryn-Game gap register §32 / mechanics plan Q4 (inbox line ownership) is resolved by owner decision S-1 (2026-10-15), which adopts option (a) of §4. No owner decision is open for this contract.
+- What remains before acceptance is only an exact-head independent review of this document. Status stays **Proposed** until that review accepts it; acceptance belongs to the owner and the independent reviewer, never to the author.
 - Rollout order (`DECIDED` S-9): Premium time and cosmetics first, items later; real sales stay gated until payments are approved.
-- After acceptance: a wire contract (members, codes, bounds), then Game and Platform implementations, disabled by default, then a shared-fixture `testing` stack, per offer kind, never globally.
-- STORE-ENT-1 stays blocked until then.
+- After acceptance, the steps are:
+  1. a wire contract: members, codes and bounds, including the purchase request of §14;
+  2. Game and Platform implementations, disabled by default;
+  3. a shared-fixture `testing` stack, enabled per offer kind, never globally.
+- STORE-ENT-1 stays blocked until this contract is accepted.
+
+## 14. Purchase initiation from Game (in-game Store Buy button)
+
+A player presses Buy in the in-game Store. This section fixes the semantics of that purchase; the members, codes, bounds and encoding belong to the wire contract.
+
+### 14.1 Direction and authority
+
+- Game sends a **Platform purchase request** over the existing Game→Platform mTLS client, in the same direction as the delivery feed (§6.2). `DECIDED` S-2 still holds: Platform never calls Game, and the native client never talks to Platform directly. The Game server forwards the player's confirmed Buy action.
+- Platform alone decides whether the purchase happens (§2). Game's quote is a claim to be checked, never a price authority: the price is the one in Platform's verbatim import of the Game catalog (`DECIDED` S-5).
+- Game asserts the account, character and world from its own authority: the current session and `AccountId`↔`CharacterId` ownership. Platform checks that the account exists and may buy. It records the character and world as Game-asserted purchase context and never treats them as ownership authority.
+
+### 14.2 What a request binds
+
+Every purchase request binds the members below, and Platform stores them with its answer:
+
+- `account_id`, the Platform `AccountId`, copied and never minted by Game;
+- `character_id` and `world_id` of the buying character;
+- `catalog_revision` and `offer_key` of the offer as Game showed it;
+- the quoted unit price and its currency: ordinary coins or transferable coins, from one closed set fixed by the wire contract;
+- `quantity`;
+- `purchase_request_id`: a client idempotency key. It is a UUIDv7 that Game creates once per confirmed Buy action and persists before it sends the first attempt.
+
+### 14.3 Platform processing: one transaction
+
+1. Look up `purchase_request_id`. If an answer is stored, compare the binding:
+   - an equal binding returns the stored answer bytes and writes nothing;
+   - a different binding is `CONFLICT`: Platform writes nothing, keeps the stored answer and raises an alarm.
+2. Check the gates: the purchase surface and the offer kind are enabled, and the account exists and is not restricted, including the locks of §8.3.
+3. Re-validate the offer against Platform's active import of the Game catalog:
+   - the `catalog_revision` is the active one;
+   - the offer exists, is purchasable and is mapped to a product version (§3);
+   - the quoted price and currency equal the imported ones;
+   - the total is `quantity × unit price`, without overflow.
+4. Lock the buyer's Wallet row with the Wallet mutator's row lock and debit the total, using an idempotency key derived from `purchase_request_id`. The balance never becomes negative: a balance that does not cover the total is `INSUFFICIENT_BALANCE`.
+5. Write the order line, the entitlement or entitlements of every fulfilment unit (§3) and every delivery intent outbox row (§6.1).
+6. Store the answer with the binding under `purchase_request_id`.
+
+Steps 1 to 6 are **one Platform transaction**. Either all of it commits or nothing does. No debit exists without its order line, entitlements and intents, and no intent exists without its debit.
+
+### 14.4 Closed result set
+
+| Result | Meaning | Written |
+|---|---|---|
+| `ACCEPTED` | the purchase committed; the answer carries the order id, the `delivery_operation_id` of every unit and the resulting balance | debit, order line, entitlements, intents, stored answer |
+| `INSUFFICIENT_BALANCE` | the balance of the quoted currency does not cover the total | stored answer only |
+| `STALE_QUOTE` | the `catalog_revision`, price or currency differs from Platform's active import | stored answer only |
+| `OFFER_UNAVAILABLE` | the offer is unknown, not purchasable, not mapped to a product version, or its quantity is out of bounds | stored answer only |
+| `ACCOUNT_RESTRICTED` | the account is unknown to Platform's buying gate, locked (§8.3) or otherwise barred from buying | stored answer only |
+| `PURCHASE_DISABLED` | purchases or this offer kind are disabled | stored answer only |
+| `CONFLICT` | the `purchase_request_id` is already stored with a different binding | nothing; alarm |
+| `UNAVAILABLE` | a transient dependency failed (database, lock timeout, catalog import unavailable) | nothing |
+
+- Every answer except `CONFLICT` and `UNAVAILABLE` is terminal for its `purchase_request_id`. An exact retry returns the same answer bytes and debits at most once, ever.
+- `UNAVAILABLE` and a lost response are not terminal. Game retries the **same** `purchase_request_id` with the same binding until it gets a terminal answer, and never mints a new id for a retry. A new id means a new purchase and is used only for a new confirmed Buy action.
+- A terminal refusal never turns into a purchase later. Re-enabling a flag, topping up the balance or a new catalog import does not commit an earlier refused request.
+
+### 14.5 Balance and history for in-game display
+
+- Game may read the buyer's current balance, per currency, to show it in the in-game Store.
+- Game may also read a paged history of Wallet and Store transactions, newest first.
+- Both reads are Platform-authoritative and read-only, and Game caches nothing as authority:
+  - a displayed balance may be stale;
+  - only the purchase answer of §14.4 decides a purchase;
+  - a Game copy of a balance or history entry never proves a purchase or a balance (§2).
+- History pages are bounded and cursor-based, so a page stays stable while new entries arrive. They carry no payment-provider payload, no secret and no data of another account.
 
 ## References
 
