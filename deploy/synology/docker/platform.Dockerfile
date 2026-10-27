@@ -5,7 +5,10 @@ FROM composer:2@sha256:af98f42dfff7c68ba8d53c2164fd9fde1087b7d449514baa38c418b1f
 # behind the Synology internal-mtls terminator (README: Platform internal mTLS listener).
 FROM php:8.5-fpm-alpine@sha256:fa01fb1645cd0fc566a5f146b099adace33b906571f972f71f2182a7c12d1cd7
 
-RUN apk add --no-cache \
+# curl/libcurl ship in the base image; upgrade them in place so a patched Alpine build clears
+# Trivy HIGH findings (CVE-2026-92392, fixed in 8.23.0-r0) before the base digest is bumped.
+RUN apk upgrade --no-cache curl libcurl \
+    && apk add --no-cache \
         freetype \
         icu-libs \
         libjpeg-turbo \
