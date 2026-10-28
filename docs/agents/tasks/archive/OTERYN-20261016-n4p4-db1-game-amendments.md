@@ -19,7 +19,7 @@ Docs only. Apply the Game architect decisions D1076–D1080 and owner decisions 
 - [x] ADR 0045 carries A1–A4.
 - [x] Login contract carries A1, A3, the session-generation fence and the migration-number wording.
 - [x] Remembered-device candidate carries the DB-1 amendment and stays CANDIDATE, default OFF, not approved for production.
-- [ ] Exact-head CI and Agent Governance gates pass.
+- [x] Exact-head CI and Agent Governance gates pass.
 
 ## Ownership
 
@@ -45,11 +45,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-16T12:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-28T14:30:00Z
+head: db6ba28f182b6760d824d12a4bff9569c2f21a34
 branch: claude/n4p4-db1-game-amendments
 pr: 1651
-status: validating
+status: completed
 context_routes:
   - docs
 owned_paths:
@@ -60,8 +60,7 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20261016-n4p4-db1-game-amendments.md
 proven: []
 derived: []
-unknown:
-  - exact-head CI result
+unknown: []
 conflicts: []
 first_failure:
   marker: none
@@ -77,7 +76,7 @@ validation:
     evidence: see PR
 blockers:
   - none
-next_action: wait for exact-head CI on draft PR #1651
+next_action: none; delivered by PR 1651 and archived
 ```
 
 ## Source branch closeout
@@ -85,7 +84,7 @@ next_action: wait for exact-head CI on draft PR #1651
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_evidence: PR 1651 merged as db6ba28f182b6760d824d12a4bff9569c2f21a34
 ```
 
 ## Notes
