@@ -19,7 +19,7 @@ Docs only. Apply the Game architect decisions D1076–D1080 and owner decisions 
 - [x] ADR 0045 carries A1–A4.
 - [x] Login contract carries A1, A3, the session-generation fence and the migration-number wording.
 - [x] Remembered-device candidate carries the DB-1 amendment and stays CANDIDATE, default OFF, not approved for production.
-- [x] Exact-head CI and Agent Governance gates pass (PR #1651 merged).
+- [x] Exact-head CI and Agent Governance gates pass.
 
 ## Ownership
 
@@ -45,8 +45,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-16T21:00:00Z
-head: 62f5962568aaf6a0656f95b77eb81008a90c9ef0
+updated_at: 2026-10-28T14:30:00Z
+head: db6ba28f182b6760d824d12a4bff9569c2f21a34
 branch: claude/n4p4-db1-game-amendments
 pr: 1651
 status: completed
@@ -58,12 +58,9 @@ owned_paths:
   - docs/contracts/NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md
   - docs/agents/tasks/active/OTERYN-20261016-n4p4-db1-game-amendments.md
   - docs/agents/tasks/archive/OTERYN-20261016-n4p4-db1-game-amendments.md
-proven:
-  - PR #1651 merged as db6ba28f182b6760d824d12a4bff9569c2f21a34 with exact-head CI green
-  - PR #1653 carries only the remaining docs delta (trust-publication gate scope and TTL maximums)
+proven: []
 derived: []
-unknown:
-  - none
+unknown: []
 conflicts: []
 first_failure:
   marker: none
@@ -75,11 +72,11 @@ changed_paths:
   - docs/contracts/NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md
 validation:
   - command: governance and documentation checks
-    result: PASS
-    evidence: PR #1651 CI and governance checks passed before merge
+    result: NOT_RUN
+    evidence: see PR
 blockers:
   - none
-next_action: none; delivered by PR 1651 and archived; the remaining docs delta is PR 1653
+next_action: none; delivered by PR 1651 and archived
 ```
 
 ## Source branch closeout
@@ -87,7 +84,7 @@ next_action: none; delivered by PR 1651 and archived; the remaining docs delta i
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: PR 1651 merged as db6ba28f182b6760d824d12a4bff9569c2f21a34; the branch is retained for PR 1653 and its ref readback belongs to that PR's closeout
+source_branch_evidence: PR 1651 merged as db6ba28f182b6760d824d12a4bff9569c2f21a34
 ```
 
 ## Notes

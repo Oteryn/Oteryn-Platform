@@ -13,6 +13,7 @@ services:
     init: true
     labels:
       io.oteryn.launch-cycle: ${OTERYN_GAME_CYCLE:-uninitialized}
+      io.oteryn.step-wait-receipts: ${OTERYN_STEP_WAIT_RECEIPTS:-0}
     command:
       - serve
       - --config
@@ -23,6 +24,8 @@ services:
       - 71e96ccf1c6b327df60e12abc6faa972f32ff9ff99260b86fcb8a7513a535685
     environment:
       OTERYN_NATIVE_GAMEPLAY_MANIFEST: /volume1/oteryn/game-preprod/gameplay/content/spells.manifest.json
+      # Set per incarnation by game-supervisor.py from BASE/run/step-wait-receipts.
+      OTERYN_STEP_WAIT_RECEIPTS: ${OTERYN_STEP_WAIT_RECEIPTS:-0}
     volumes: *game-mounts
     ports:
       - '0.0.0.0:7172:7172'
