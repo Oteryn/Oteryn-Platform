@@ -67,7 +67,7 @@ checkpoint_version: 1
 updated_at: 2026-10-23T20:46:58Z
 head: 12821f1d656a5829c7f729ee9d52f7ae9e91e27e
 branch: claude/happy-davinci-ijz3wy-store-foundation
-pr: none
+pr: 1669
 status: validating
 context_routes:
   - products-entitlements
