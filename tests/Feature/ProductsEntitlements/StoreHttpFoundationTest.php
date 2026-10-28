@@ -54,10 +54,10 @@ final class StoreHttpFoundationTest extends TestCase
         self::assertSame(0, DB::table('store_purchase_requests')->count());
     }
 
-    public function test_valid_requests_reach_separate_unimplemented_handlers_without_writes(): void
+    public function test_head_only_requests_are_rejected_by_implemented_handlers_without_writes(): void
     {
         foreach (self::ROUTES as $path => [$operation]) {
-            $this->emptyStatus($this->send($path, $this->body($operation)), 503);
+            $this->emptyStatus($this->send($path, $this->body($operation)), str_starts_with($path, 'operations/') ? 503 : 400);
         }
         foreach (['store_purchase_requests', 'store_orders', 'store_operations', 'store_receipts'] as $table) {
             self::assertSame(0, DB::table($table)->count());
