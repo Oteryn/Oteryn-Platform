@@ -59,7 +59,7 @@ checkpoint_version: 1
 updated_at: 2026-10-28T13:54:39Z
 head: b7d6df3e0aaef84a84757b8ceb3a058a88b2bbf2
 branch: claude/happy-davinci-ijz3wy-store-purchase
-pr: none
+pr: 1671
 status: waiting
 context_routes:
   - products-entitlements
