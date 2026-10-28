@@ -54,10 +54,10 @@ final class StoreHttpFoundationTest extends TestCase
         self::assertSame(0, DB::table('store_purchase_requests')->count());
     }
 
-    public function test_valid_requests_reach_separate_unimplemented_handlers_without_writes(): void
+    public function test_head_only_requests_leave_purchase_unavailable_and_delivery_requires_closed_members_without_writes(): void
     {
         foreach (self::ROUTES as $path => [$operation]) {
-            $this->emptyStatus($this->send($path, $this->body($operation)), 503);
+            $this->emptyStatus($this->send($path, $this->body($operation)), str_starts_with($path, 'operations/') ? 400 : 503);
         }
         foreach (['store_purchase_requests', 'store_orders', 'store_operations', 'store_receipts'] as $table) {
             self::assertSame(0, DB::table($table)->count());
@@ -183,12 +183,12 @@ final class StoreHttpFoundationTest extends TestCase
         }
     }
 
-    public function test_restore_can_open_delivery_validation_with_purchases_off_but_handlers_remain_unavailable(): void
+    public function test_restore_can_open_delivery_validation_with_purchases_off_and_closed_members_are_required(): void
     {
         config(['products-entitlements.store.purchase_enabled' => false, 'products-entitlements.store.delivery_enabled' => false,
             'character-authority.restore.enabled' => true]);
         self::assertNotNull(StoreSettings::current('delivery'));
-        $this->emptyStatus($this->send('operations/pending', $this->body('ListPendingStoreOperationsV1')), 503);
+        $this->emptyStatus($this->send('operations/pending', $this->body('ListPendingStoreOperationsV1')), 400);
         $this->emptyStatus($this->send('operations/pending', $this->body('ListPendingStoreOperationsV1'), ['SSL_PROTOCOL' => 'TLSv1.2']), 401);
         $this->emptyStatus($this->send('balance/read', $this->body('ReadStoreBalanceV1'), ['SSL_PROTOCOL' => 'TLSv1.2']), 503);
     }
