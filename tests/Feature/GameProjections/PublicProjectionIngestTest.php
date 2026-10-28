@@ -5,17 +5,21 @@ namespace Tests\Feature\GameProjections;
 use App\GameProjections\PublicProjectionFamily;
 use App\GameProjections\PublicProjectionReadModel;
 use App\GameProjections\PublicProjectionSettings;
+use App\Identity\Models\Identity;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\Support\SeedsNativeAccountCharacters;
 use Tests\TestCase;
 
 /** Game Public Projections v1 consumer ingest (removal plan packet C4, contract §3-§6, §9). */
 final class PublicProjectionIngestTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsNativeAccountCharacters;
 
     private const IDENTITY = 'CN=game-public-projection';
 
@@ -29,10 +33,10 @@ final class PublicProjectionIngestTest extends TestCase
 
     private const GUILD = '01934f10-7c06-7001-805b-3b1122334401';
 
-    /** Wire examples copied verbatim from the Game contract §4.1-§4.6 and §5.1. */
+    /** Mirrors the Game contract §4.2 as amended by the producer PR (guild_visible, vocation enum). */
     private const CONTRACT_FIXTURES = [
         'highscores' => '{"contract_version":1,"operation":"PublishWorldHighscoresV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","category":1,"filter":0,"projection_epoch":"1","projection_revision":"17","source_observed_at":"1790000000","computed_at":"1790000000","rows":[{"rank":"1","character_id":"01934f10-7c04-7001-805b-3b1122334401","name":"Aldric","vocation":4,"level":"412","value":"11400000000"}]}',
-        'character_profile' => '{"contract_version":1,"operation":"PublishCharacterProfileV1","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"9","source_observed_at":"1790000000","profile":[{"world_id":"01934f10-7c02-7001-805b-3b1122334401","name":"Aldric","vocation":4,"level":"412","guild":[{"guild_id":"01934f10-7c06-7001-805b-3b1122334401","rank_level":3}]}]}',
+        'character_profile' => '{"contract_version":1,"operation":"PublishCharacterProfileV1","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"9","source_observed_at":"1790000000","profile":[{"world_id":"01934f10-7c02-7001-805b-3b1122334401","name":"Aldric","vocation":4,"level":"412","guild":[{"guild_id":"01934f10-7c06-7001-805b-3b1122334401","rank_level":3}],"guild_visible":true}]}',
         'character_deaths' => '{"contract_version":1,"operation":"PublishCharacterDeathsV1","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"3","source_observed_at":"1790000000","deaths":[{"occurred_at":"1789990000","level":"413","pvp":true,"killers":["Beren","Mira"]}]}',
         'guild' => '{"contract_version":1,"operation":"PublishGuildV1","source_authority":"oteryn:game:primary","guild_id":"01934f10-7c06-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"5","source_observed_at":"1790000000","guild":[{"world_id":"01934f10-7c02-7001-805b-3b1122334401","name":"Red Rose","state":"ACTIVE","founded_at":"1789000000","ranks":[{"level":1,"name":"Leader"},{"level":2,"name":"Vice Leader"},{"level":3,"name":"Member"}],"members":[{"name":"Aldric","rank_level":1,"joined_at":"1789000000"}]}]}',
         'house' => '{"contract_version":1,"operation":"PublishHouseV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","house_key":"oteryn:content.house.example-street-1","projection_epoch":"1","projection_revision":"12","source_observed_at":"1790000000","house":[{"name":"Example Street 1","kind":"private_house","town":"oteryn:content.area.city.example","size_sqm":"24","beds":"2","rent_gold":"5000","status":"OWNED","owner_kind":"CHARACTER","owner_name":"Aldric","paid_until":"1792000000"}]}',
@@ -77,6 +81,30 @@ final class PublicProjectionIngestTest extends TestCase
         $online = $this->readModel()->entry(PublicProjectionFamily::WorldOnline, self::WORLD, now()->getTimestamp());
         self::assertIsArray($online);
         self::assertSame([['level' => '412', 'name' => 'Aldric', 'vocation' => 4]], $online['characters']);
+    }
+
+    public function test_published_snapshots_are_read_back_through_the_public_pages_end_to_end(): void
+    {
+        config(['public_game_data.world_id' => null]);
+        foreach ([PublicProjectionFamily::WorldOnline, PublicProjectionFamily::Highscores, PublicProjectionFamily::CharacterProfile, PublicProjectionFamily::Guild] as $family) {
+            $this->publish($family->path(), $this->snapshot($family))->assertOk();
+            $this->publish('watermark', $this->watermark($family))->assertOk();
+        }
+
+        $this->get('/en/online')->assertOk()->assertSee('Aldric')->assertSee('412');
+        $this->get('/en/highscores')->assertOk()->assertSee('Aldric')->assertSee('data-rank="1"', false);
+
+        // The character is not bound to a Platform identity yet: the guild fails closed.
+        $this->get('/en/characters/aldric')->assertOk()->assertSee('Aldric')->assertDontSee('Red Rose');
+
+        $identity = Identity::query()->create(['email' => 'e2e@example.com', 'password' => Hash::make('Correct-Horse-9!Battery')]);
+        $this->nativeAccountCharactersLive();
+        $this->bindAccountCharacters($identity->account_id, [[self::CHARACTER, self::WORLD, 'Aldric']]);
+        $this->get('/en/characters/aldric')->assertOk()->assertSee('Red Rose');
+
+        // A republication that withdraws the only character leaves the World without profile data: unavailable, not a guess.
+        $this->publish(PublicProjectionFamily::CharacterProfile->path(), $this->snapshot(PublicProjectionFamily::CharacterProfile, ['projection_revision' => '10'], []))->assertOk();
+        $this->get('/en/characters/Aldric')->assertStatus(503);
     }
 
     public function test_house_status_member_sets_and_zero_beds(): void
@@ -170,6 +198,8 @@ final class PublicProjectionIngestTest extends TestCase
             'online not sorted' => ['world-online', $this->snapshot(PublicProjectionFamily::WorldOnline, [], [['name' => 'Beren', 'vocation' => 1, 'level' => '2'], ['name' => 'Aldric', 'vocation' => 4, 'level' => '412']])],
             'online channel member' => ['world-online', $this->snapshot(PublicProjectionFamily::WorldOnline, [], [['name' => 'Aldric', 'vocation' => 4, 'level' => '412', 'channel_id' => self::WORLD]])],
             'profile twice' => ['character-profile', $this->snapshot(PublicProjectionFamily::CharacterProfile, [], [$this->profileEntry(), $this->profileEntry()])],
+            'profile without guild_visible' => ['character-profile', $this->snapshot(PublicProjectionFamily::CharacterProfile, [], [array_diff_key($this->profileEntry(), ['guild_visible' => true])])],
+            'profile guild_visible not boolean' => ['character-profile', $this->snapshot(PublicProjectionFamily::CharacterProfile, [], [['guild_visible' => 1] + $this->profileEntry()])],
             'profile account id' => ['character-profile', $this->snapshot(PublicProjectionFamily::CharacterProfile, [], [$this->profileEntry() + ['account_id' => self::WORLD]])],
             'rank not competition' => ['highscores', $this->snapshot(PublicProjectionFamily::Highscores, [], [$this->row(0, '1'), $this->row(1, '3')])],
             'character listed twice' => ['highscores', $this->snapshot(PublicProjectionFamily::Highscores, [], [$this->row(0, '1'), $this->row(0, '2')])],
@@ -424,6 +454,7 @@ final class PublicProjectionIngestTest extends TestCase
             'vocation' => 4,
             'level' => '412',
             'guild' => [['guild_id' => self::GUILD, 'rank_level' => 3]],
+            'guild_visible' => true,
         ];
     }
 

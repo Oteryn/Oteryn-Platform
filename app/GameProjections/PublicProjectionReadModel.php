@@ -59,6 +59,138 @@ final class PublicProjectionReadModel
     }
 
     /**
+     * Name resolution (contract §7.3): the present entry of the family whose lookup name is `$name`
+     * after ASCII case folding, counted over every World at the fresh epoch. Exactly one holder is
+     * served; none or several (a case variant, a second World) serve nothing rather than a guess.
+     * The caller compares the returned World with the served one. Same epoch fence as {@see entry()}.
+     *
+     * @return array{world_id: string|null, payload: array<string, mixed>}|null
+     */
+    public function entryByName(PublicProjectionFamily $family, string $name, int $now): ?array
+    {
+        $epoch = $this->freshEpoch($family, $now);
+        if ($epoch === null) {
+            return null;
+        }
+
+        $rows = DB::table('game_public_projection_snapshots')
+            ->where('family', $family->value)
+            ->where('lookup_folded', strtolower($name))
+            ->where('projection_epoch', $epoch)
+            ->where('present', true)
+            ->limit(2)
+            ->get();
+        $row = $rows->first();
+        if ($rows->count() !== 1 || $row === null || $this->highestEpoch() !== $epoch) {
+            return null;
+        }
+
+        try {
+            $payload = json_decode(PublicProjectionIngestion::string($row, 'payload'), true, 8, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            return null;
+        }
+        if (! is_array($payload) || array_is_list($payload)) {
+            return null;
+        }
+
+        /** @var array<string, mixed> $payload */
+        return ['world_id' => PublicProjectionIngestion::nullableString($row, 'world_id'), 'payload' => $payload];
+    }
+
+    /**
+     * Whether the World has any present entry of the family at the fresh epoch, or null when the
+     * family is stale. Lets a configured World that is missing from the data answer unavailable
+     * instead of a misleading not-found.
+     */
+    public function hasWorld(PublicProjectionFamily $family, string $worldId, int $now): ?bool
+    {
+        $epoch = $this->freshEpoch($family, $now);
+        if ($epoch === null) {
+            return null;
+        }
+
+        $exists = DB::table('game_public_projection_snapshots')
+            ->where('family', $family->value)
+            ->where('world_id', $worldId)
+            ->where('projection_epoch', $epoch)
+            ->where('present', true)
+            ->exists();
+
+        return $this->highestEpoch() === $epoch ? $exists : null;
+    }
+
+    /**
+     * The distinct world ids that have a present entry of the family at the fresh epoch, or null
+     * when the family is stale. Used to resolve the one served world; never shown on a page.
+     *
+     * @return list<string>|null
+     */
+    public function worlds(PublicProjectionFamily $family, int $now): ?array
+    {
+        $epoch = $this->freshEpoch($family, $now);
+        if ($epoch === null) {
+            return null;
+        }
+
+        $worlds = [];
+        $rows = DB::table('game_public_projection_snapshots')
+            ->where('family', $family->value)
+            ->where('projection_epoch', $epoch)
+            ->where('present', true)
+            ->whereNotNull('world_id')
+            ->distinct()
+            ->orderBy('world_id')
+            ->pluck('world_id');
+        foreach ($rows as $world) {
+            if (is_string($world) && $world !== '') {
+                $worlds[] = $world;
+            }
+        }
+
+        return $this->highestEpoch() === $epoch ? $worlds : null;
+    }
+
+    /**
+     * The stored content of the present entries with the given subject keys, keyed by subject key,
+     * or null when the family is stale. Keys without a servable entry are simply absent, so a
+     * caller joining on them leaves the row out.
+     *
+     * @param  list<string>  $subjectKeys
+     * @return array<string, array<string, mixed>>|null
+     */
+    public function entries(PublicProjectionFamily $family, array $subjectKeys, int $now): ?array
+    {
+        $epoch = $this->freshEpoch($family, $now);
+        if ($epoch === null) {
+            return null;
+        }
+
+        $found = [];
+        foreach (array_chunk(array_values(array_unique($subjectKeys)), 500) as $chunk) {
+            $rows = DB::table('game_public_projection_snapshots')
+                ->where('family', $family->value)
+                ->where('projection_epoch', $epoch)
+                ->where('present', true)
+                ->whereIn('subject_key', $chunk)
+                ->get();
+            foreach ($rows as $row) {
+                try {
+                    $payload = json_decode(PublicProjectionIngestion::string($row, 'payload'), true, 8, JSON_THROW_ON_ERROR);
+                } catch (JsonException) {
+                    continue;
+                }
+                if (is_array($payload) && ! array_is_list($payload)) {
+                    /** @var array<string, mixed> $payload */
+                    $found[PublicProjectionIngestion::string($row, 'subject_key')] = $payload;
+                }
+            }
+        }
+
+        return $this->highestEpoch() === $epoch ? $found : null;
+    }
+
+    /**
      * The highest epoch when the family's watermark is at that epoch and fresh, otherwise null.
      * The highest epoch only rises, so reading the same value before and after the watermark (and,
      * in entry(), after the row) proves every read in between saw that epoch as the highest.

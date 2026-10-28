@@ -119,6 +119,9 @@ final class NativeAccountCharactersWire
             || preg_match('//u', $value) !== 1
             || str_contains($value, '"')
             || str_contains($value, '\\')
+            || str_contains($value, '/')
+            || $value === '.'
+            || $value === '..'
             || preg_match('/[\p{Cc}\p{Cf}]/u', $value) === 1
             || Normalizer::normalize($value, Normalizer::FORM_C) !== $value) {
             throw new InvalidArgumentException('Native account-character display name is invalid.');

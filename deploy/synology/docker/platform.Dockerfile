@@ -5,7 +5,10 @@ FROM composer:2@sha256:af98f42dfff7c68ba8d53c2164fd9fde1087b7d449514baa38c418b1f
 # behind the Synology internal-mtls terminator (README: Platform internal mTLS listener).
 FROM php:8.5-fpm-alpine@sha256:fa01fb1645cd0fc566a5f146b099adace33b906571f972f71f2182a7c12d1cd7
 
-RUN apk add --no-cache \
+# curl/libcurl ship in the base image; upgrade them in place so a patched Alpine build clears
+# Trivy HIGH findings (CVE-2026-92392, fixed in 8.23.0-r0) before the base digest is bumped.
+RUN apk upgrade --no-cache curl libcurl \
+    && apk add --no-cache \
         freetype \
         icu-libs \
         libjpeg-turbo \
@@ -42,6 +45,8 @@ RUN chmod 0755 /usr/local/bin/oteryn-platform-entrypoint \
 # terminator (never on TCP), so no other container can speak FastCGI and forge the SSL_CLIENT_*
 # parameters the internal mTLS middleware trusts. The image default pools (TCP 9000) are removed.
 # clear_env=no keeps the entrypoint-exported runtime environment, exactly as `artisan serve` sees it.
+# Static workers: the Game node polls character commands about once a second through this pool, and a
+# native-evidence read queued behind those polls missed the node's 3 s exchange deadline with 4 ondemand workers.
 RUN rm -f /usr/local/etc/php-fpm.d/*.conf \
     && printf '%s\n' \
         '[global]' \
@@ -53,9 +58,8 @@ RUN rm -f /usr/local/etc/php-fpm.d/*.conf \
         '[internal-mtls]' \
         'listen = /run/oteryn-fastcgi/php-fpm.sock' \
         'listen.mode = 0666' \
-        'pm = ondemand' \
-        'pm.max_children = 4' \
-        'pm.process_idle_timeout = 30s' \
+        'pm = static' \
+        'pm.max_children = 12' \
         'pm.max_requests = 500' \
         'request_terminate_timeout = 30s' \
         'clear_env = no' \

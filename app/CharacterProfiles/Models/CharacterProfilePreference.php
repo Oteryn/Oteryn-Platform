@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * @property int $id
  * @property int $identity_id
- * @property int $canary_player_id
+ * @property int|null $canary_player_id
  * @property string|null $character_id
  * @property string|null $public_comment
  * @property bool $show_account_association
@@ -26,6 +26,7 @@ final class CharacterProfilePreference extends Model
     protected $fillable = [
         'identity_id',
         'canary_player_id',
+        'character_id',
         'public_comment',
         'show_account_association',
         'show_status',
@@ -36,6 +37,20 @@ final class CharacterProfilePreference extends Model
         'show_kills',
         'is_main_character',
     ];
+
+    /**
+     * Whether the identity hid its guild on a pre-native preference row. Such rows cannot be bound
+     * to a native CharacterId, so the opt-out keeps every character of the identity hidden until the
+     * owner saves the native form for that character.
+     */
+    public static function hasLegacyGuildOptOut(int $identityId): bool
+    {
+        return self::query()
+            ->where('identity_id', $identityId)
+            ->whereNull('character_id')
+            ->where('show_guild', false)
+            ->exists();
+    }
 
     /** @return BelongsTo<Identity, $this> */
     public function identity(): BelongsTo

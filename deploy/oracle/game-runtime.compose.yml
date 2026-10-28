@@ -1,0 +1,66 @@
+name: oteryn-oracle-runtime
+
+x-game-mounts: &game-mounts
+  - /opt/oteryn-game:/volume1/oteryn/game-preprod
+
+services:
+  game:
+    image: oteryn-game:77af046ce14c-arm64
+    # Each incarnation needs a new durable ops authorization and assignment.
+    # The host supervisor owns restart; Docker must not replay a spent file.
+    restart: 'no'
+    user: '1001:1001'
+    init: true
+    labels:
+      io.oteryn.launch-cycle: ${OTERYN_GAME_CYCLE:-uninitialized}
+      io.oteryn.step-wait-receipts: ${OTERYN_STEP_WAIT_RECEIPTS:-0}
+    command:
+      - serve
+      - --config
+      - /volume1/oteryn/game-preprod/node/node.toml
+      - --npc-data-project
+      - /volume1/oteryn/game-preprod/run/npc-data/content/world
+      - --npc-data-sha256
+      - 71e96ccf1c6b327df60e12abc6faa972f32ff9ff99260b86fcb8a7513a535685
+    environment:
+      OTERYN_NATIVE_GAMEPLAY_MANIFEST: /volume1/oteryn/game-preprod/gameplay/content/spells.manifest.json
+      # Set per incarnation by game-supervisor.py from BASE/run/step-wait-receipts.
+      OTERYN_STEP_WAIT_RECEIPTS: ${OTERYN_STEP_WAIT_RECEIPTS:-0}
+    volumes: *game-mounts
+    ports:
+      - '0.0.0.0:7172:7172'
+    networks:
+      platform_private:
+        ipv4_address: 172.18.0.11
+      game_private:
+        ipv4_address: 172.30.84.11
+    stop_grace_period: 60s
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '5'
+  ops:
+    image: oteryn-game:77af046ce14c-arm64
+    profiles: [operations]
+    restart: 'no'
+    user: '0:0'
+    entrypoint:
+      - /usr/local/bin/oteryn-game-ops
+      - --config
+      - /volume1/oteryn/game-preprod-root/ops/ops.toml
+    environment:
+      OTERYN_NATIVE_GAMEPLAY_MANIFEST: /volume1/oteryn/game-preprod/gameplay/content/spells.manifest.json
+    volumes:
+      - /opt/oteryn-game:/volume1/oteryn/game-preprod
+      - /opt/oteryn-game-ops:/volume1/oteryn/game-preprod-root/ops
+    networks: [platform_private, game_private]
+networks:
+  platform_private:
+    external: true
+    name: oteryn-oracle_private
+  game_private:
+    external: true
+    name: oteryn-oracle-game_game_private

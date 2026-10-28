@@ -25,7 +25,7 @@ final class GuardCharacterCommandPeer
 
     private function guarded(Request $request, Closure $next): Response
     {
-        $settings = CharacterCommandSettings::current();
+        $settings = CharacterCommandSettings::exchange();
         if ($settings === null) {
             return response('', 503);
         }
