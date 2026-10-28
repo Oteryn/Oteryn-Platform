@@ -24,6 +24,11 @@ return [
         'intro' => 'Porównaj światy, sprawdź liczbę graczy online i aktualną dostępność przed rozpoczęciem gry.',
     ],
     'account' => [
+        'native_missing' => 'Lista Twoich postaci oczekuje na aktualizację z gry.',
+        'native_invalid' => 'Lista Twoich postaci oczekuje na potwierdzenie z gry.',
+        'native_stale' => 'Lista Twoich postaci jest nieaktualna. Spróbuj ponownie za chwilę.',
+        'native_unavailable' => 'Lista Twoich postaci jest chwilowo niedostępna. Spróbuj ponownie później.',
+        'creation_unavailable' => 'Tworzenie postaci jest chwilowo niedostępne.',
         'title' => 'Centrum konta',
         'heading' => 'Przegląd konta',
         'intro' => 'Twoje postacie, Twoje bezpieczeństwo, Twoja kolejna przygoda.',
@@ -69,6 +74,7 @@ return [
         'world' => 'Świat',
         'request_title' => 'Zgłoszenie postaci',
         'request_heading' => 'Zgłoszenie postaci',
+        'request_check' => 'Sprawdź status zgłoszenia',
         'request_again' => 'Utwórz kolejną postać',
         'outcome' => [
             'pending' => 'Twoje zgłoszenie postaci jest przetwarzane. Odśwież tę stronę, aby zobaczyć wynik.',

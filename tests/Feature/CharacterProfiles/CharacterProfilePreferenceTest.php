@@ -2,103 +2,38 @@
 
 namespace Tests\Feature\CharacterProfiles;
 
-use App\Accounts\Models\IdentityCanaryAccount;
+use App\CharacterProfiles\CharacterGuildVisibility;
 use App\CharacterProfiles\CharacterProfileEventRecorder;
+use App\CharacterProfiles\CharacterProfilePreferenceService;
 use App\CharacterProfiles\Models\CharacterProfilePreference;
 use App\Identity\Models\Identity;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\SeedsNativeAccountCharacters;
 use Tests\TestCase;
 
+/** Preferences keyed by the native CharacterId, owned through the account-character projection. */
 final class CharacterProfilePreferenceTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsNativeAccountCharacters;
+
+    private const WORLD = '01934f10-7c02-7001-805b-3b1122334401';
+
+    private const ALPHA = '01934f10-7c04-7001-805b-3b1122334411';
+
+    private const BETA = '01934f10-7c04-7001-805b-3b1122334412';
+
+    private const STRANGER = '01934f10-7c04-7001-805b-3b1122334499';
 
     protected function setUp(): void
     {
         parent::setUp();
-
-        config()->set('database.connections.canary', [
-            'driver' => 'sqlite',
-            'database' => ':memory:',
-            'prefix' => '',
-            'foreign_key_constraints' => true,
-        ]);
-        DB::purge('canary');
-
-        Schema::connection('canary')->create('players', function (Blueprint $table): void {
-            $table->integer('id')->primary();
-            $table->string('name')->unique();
-            $table->unsignedInteger('account_id');
-            $table->integer('level');
-            $table->integer('vocation');
-            $table->bigInteger('experience')->default(0);
-            $table->integer('maglevel')->default(0);
-            $table->bigInteger('lastlogin')->default(0);
-            $table->bigInteger('lastlogout')->default(0);
-            $table->integer('boss_points')->default(0);
-            $table->string('comment')->default('');
-            $table->integer('skill_fist')->default(10);
-            $table->integer('skill_club')->default(10);
-            $table->integer('skill_sword')->default(10);
-            $table->integer('skill_axe')->default(10);
-            $table->integer('skill_dist')->default(10);
-            $table->integer('skill_shielding')->default(10);
-            $table->integer('skill_fishing')->default(10);
-            $table->bigInteger('deletion')->default(0);
-        });
-        Schema::connection('canary')->create('guilds', function (Blueprint $table): void {
-            $table->integer('id')->primary();
-            $table->string('name')->unique();
-            $table->integer('ownerid')->default(0);
-            $table->integer('level')->default(1);
-            $table->bigInteger('creationdata')->default(0);
-            $table->text('motd')->default('');
-            $table->integer('points')->default(0);
-        });
-        Schema::connection('canary')->create('guild_ranks', function (Blueprint $table): void {
-            $table->integer('id')->primary();
-            $table->integer('guild_id');
-            $table->string('name');
-            $table->integer('level');
-        });
-        Schema::connection('canary')->create('guild_membership', function (Blueprint $table): void {
-            $table->integer('player_id')->primary();
-            $table->integer('guild_id');
-            $table->integer('rank_id');
-            $table->string('nick')->default('');
-        });
-        Schema::connection('canary')->create('houses', function (Blueprint $table): void {
-            $table->integer('id');
-            $table->integer('channel_id')->default(1);
-            $table->integer('owner')->default(0);
-            $table->string('name');
-            $table->integer('size')->default(0);
-            $table->primary(['channel_id', 'id']);
-        });
-        Schema::connection('canary')->create('player_deaths', function (Blueprint $table): void {
-            $table->integer('player_id');
-            $table->bigInteger('time');
-            $table->integer('level');
-            $table->string('killed_by');
-            $table->boolean('is_player')->default(false);
-        });
-        Schema::connection('canary')->create('cluster_sessions', function (Blueprint $table): void {
-            $table->integer('id')->primary();
-            $table->integer('player_id');
-            $table->integer('channel_id');
-            $table->string('status');
-            $table->bigInteger('expires_at');
-        });
-    }
-
-    protected function tearDown(): void
-    {
-        DB::purge('canary');
-        parent::tearDown();
+        $this->enableNativeAccountCharacters();
+        $this->nativeAccountCharactersLive();
     }
 
     public function test_guest_cannot_manage_character_profile_preferences(): void
@@ -107,86 +42,35 @@ final class CharacterProfilePreferenceTest extends TestCase
         $this->put('/account/characters/Alpha/profile')->assertRedirect('/login');
     }
 
-    public function test_missing_preferences_preserve_existing_public_profile_behavior(): void
+    public function test_owner_saves_the_guild_toggle_and_main_character_by_native_character_id(): void
     {
-        $identity = $this->identityWithBinding(7001, true, true);
-        $this->seedCharacters();
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight'], [self::BETA, self::WORLD, 'Beta Druid']]);
+        $this->login($identity);
 
-        $this->get(route('game.characters.show', ['name' => 'Alpha Knight']))
+        $this->get(route('account.characters.profile.edit', ['name' => 'alpha knight']))
             ->assertOk()
-            ->assertSee('Canary comment')
-            ->assertSee('Beta Druid')
-            ->assertSee('Online')
-            ->assertDontSee('Main character');
-
-        self::assertSame(0, CharacterProfilePreference::query()->count());
-        self::assertTrue($identity->public_account_association);
-    }
-
-    public function test_owner_can_update_escaped_comment_visibility_and_main_character(): void
-    {
-        $identity = $this->identityWithBinding(7001, true, true);
-        $this->seedCharacters();
-        $this->loginAsCurrentIdentity($identity);
-
-        $this->get(route('account.characters.profile.edit', ['name' => 'Alpha Knight']))
-            ->assertOk()
-            ->assertSee('Alpha Knight')
-            ->assertSee('Public profile settings');
+            ->assertSee('Alpha Knight');
 
         $this->put(route('account.characters.profile.update', ['name' => 'Alpha Knight']), [
-            'public_comment' => '<script>alert(1)</script> Owner text',
-            'show_account_association' => '1',
-            'show_status' => '1',
             'is_main_character' => '1',
         ])->assertRedirect(route('account.characters.profile.edit', ['name' => 'Alpha Knight']));
 
-        $alpha = CharacterProfilePreference::query()->where('canary_player_id', 1)->firstOrFail();
-        self::assertSame('<script>alert(1)</script> Owner text', $alpha->public_comment);
+        $alpha = CharacterProfilePreference::query()->where('character_id', self::ALPHA)->sole();
+        self::assertSame($identity->id, $alpha->identity_id);
+        self::assertNull($alpha->canary_player_id);
         self::assertTrue($alpha->is_main_character);
         self::assertFalse($alpha->show_guild);
-        self::assertFalse($alpha->show_house);
-        self::assertFalse($alpha->show_skills);
-        self::assertFalse($alpha->show_deaths);
-        self::assertFalse($alpha->show_kills);
-
-        $public = $this->get(route('game.characters.show', ['name' => 'Alpha Knight']));
-        $public->assertOk()
-            ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt; Owner text', false)
-            ->assertDontSee('<script>alert(1)</script>', false)
-            ->assertSee('Main character')
-            ->assertSee('Guild details are private.')
-            ->assertSee('House details are private.')
-            ->assertSee('Skills are private.')
-            ->assertSee('Death history is private.')
-            ->assertSee('Player-kill statistics are private.')
-            ->assertSee('Beta Druid')
-            ->assertSee('Online');
 
         $this->put(route('account.characters.profile.update', ['name' => 'Beta Druid']), [
-            'public_comment' => 'Secondary',
             'show_guild' => '1',
-            'show_house' => '1',
-            'show_skills' => '1',
-            'show_deaths' => '1',
-            'show_kills' => '1',
             'is_main_character' => '1',
         ])->assertRedirect();
 
-        $alpha->refresh();
-        self::assertFalse($alpha->is_main_character);
-        self::assertTrue(CharacterProfilePreference::query()->where('canary_player_id', 2)->firstOrFail()->is_main_character);
-
-        $this->get(route('game.characters.show', ['name' => 'Alpha Knight']))
-            ->assertOk()
-            ->assertDontSee('Beta Druid')
-            ->assertDontSee('Main character');
-
-        $this->get(route('account.overview'))
-            ->assertOk()
-            ->assertSee('Manage public profile')
-            ->assertSee('Main character')
-            ->assertSee('Custom profile settings');
+        self::assertFalse($alpha->refresh()->is_main_character);
+        $beta = CharacterProfilePreference::query()->where('character_id', self::BETA)->sole();
+        self::assertTrue($beta->is_main_character);
+        self::assertTrue($beta->show_guild);
 
         self::assertSame(2, DB::table('identity_security_events')
             ->where('identity_id', $identity->id)
@@ -198,131 +82,205 @@ final class CharacterProfilePreferenceTest extends TestCase
             ->count());
     }
 
-    public function test_account_privacy_remains_the_upper_bound(): void
+    public function test_form_ignores_fields_that_no_longer_map_to_anything(): void
     {
-        $identity = $this->identityWithBinding(7001, false, false);
-        $this->seedCharacters();
-        $this->loginAsCurrentIdentity($identity);
-
-        $this->put(route('account.characters.profile.update', ['name' => 'Alpha Knight']), [
-            'public_comment' => 'Account privacy upper bound',
-            'show_account_association' => '1',
-            'show_status' => '1',
-            'show_guild' => '1',
-            'show_house' => '1',
-            'show_skills' => '1',
-            'show_deaths' => '1',
-            'show_kills' => '1',
-        ])->assertRedirect();
-
-        $this->get(route('game.characters.show', ['name' => 'Alpha Knight']))
-            ->assertOk()
-            ->assertSee('Account association is private.')
-            ->assertSee('Status details are private.')
-            ->assertDontSee('Beta Druid')
-            ->assertDontSee('<strong>Online</strong>', false);
-    }
-
-    public function test_ownership_dependency_failure_returns_sanitized_unavailable_state(): void
-    {
-        $identity = $this->identityWithBinding(7001, false, false);
-        $this->seedCharacters();
-        $this->loginAsCurrentIdentity($identity);
-        Schema::connection('canary')->drop('players');
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        $this->login($identity);
 
         $this->get(route('account.characters.profile.edit', ['name' => 'Alpha Knight']))
-            ->assertStatus(503)
-            ->assertDontSee('SQLSTATE')
-            ->assertDontSee('canary_account_id');
+            ->assertOk()
+            ->assertDontSee('name="public_comment"', false)
+            ->assertDontSee('name="show_skills"', false)
+            ->assertDontSee('name="show_deaths"', false)
+            ->assertDontSee('name="show_house"', false);
+
+        $this->put(route('account.characters.profile.update', ['name' => 'Alpha Knight']), [
+            'public_comment' => 'ignored',
+            'show_skills' => '1',
+            'show_guild' => '1',
+        ])->assertRedirect();
+
+        $row = CharacterProfilePreference::query()->where('character_id', self::ALPHA)->sole();
+        self::assertNull($row->public_comment);
+        self::assertTrue($row->show_guild);
+    }
+
+    public function test_guild_preference_is_an_upper_bound_and_unbound_characters_fail_closed(): void
+    {
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        $visibility = app(CharacterGuildVisibility::class);
+
+        // Bound, no saved preference: the default is visible.
+        self::assertTrue($visibility->allows(self::ALPHA));
+
+        $preference = CharacterProfilePreference::query()->create([
+            'identity_id' => $identity->id,
+            'character_id' => self::ALPHA,
+            'show_guild' => false,
+        ]);
+        self::assertFalse($visibility->allows(self::ALPHA));
+
+        $preference->forceFill(['show_guild' => true])->save();
+        self::assertTrue($visibility->allows(self::ALPHA));
+
+        // A character no account binds to hides the guild.
+        self::assertFalse($visibility->allows(self::STRANGER));
+
+        // A disabled identity hides it too.
+        $identity->forceFill(['disabled_at' => now()])->save();
+        self::assertFalse($visibility->allows(self::ALPHA));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function unprovenOwnership(): iterable
+    {
+        foreach (['disabled', 'stale', 'watermark-behind', 'epoch-fenced', 'invalid-snapshot', 'ambiguous'] as $state) {
+            yield $state => [$state];
+        }
+    }
+
+    #[DataProvider('unprovenOwnership')]
+    public function test_guild_is_hidden_when_live_ownership_is_not_proven(string $state): void
+    {
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        CharacterProfilePreference::query()->create([
+            'identity_id' => $identity->id,
+            'character_id' => self::ALPHA,
+            'show_guild' => true,
+        ]);
+        $visibility = app(CharacterGuildVisibility::class);
+        self::assertTrue($visibility->allows(self::ALPHA));
+
+        match ($state) {
+            // The consumer is switched off while the old rows stay in the table.
+            'disabled' => config(['game-auth.native_account_characters.enabled' => false]),
+            'stale' => DB::table('native_account_character_projection_state')->where('id', 1)->update(['complete_through' => now()->getTimestamp() - 120]),
+            'watermark-behind' => DB::table('native_account_character_projection_state')->where('id', 1)->update(['highest_epoch' => '2']),
+            'epoch-fenced' => DB::table('native_account_character_projection_state')->where('id', 1)->update(['highest_epoch' => '2', 'watermark_epoch' => '2']),
+            'invalid-snapshot' => DB::table('native_account_character_snapshots')->where('account_id', $identity->account_id)->update(['invalid' => true]),
+            'ambiguous' => $this->bindAccountCharacters($this->identity()->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]),
+            default => throw new \LogicException('Unknown ownership state.'),
+        };
+
+        self::assertSame(1, DB::table('native_account_character_rows')->where('account_id', $identity->account_id)->where('character_id', self::ALPHA)->count());
+        self::assertFalse($visibility->allows(self::ALPHA));
+    }
+
+    public function test_leftover_row_at_a_fenced_epoch_does_not_block_the_live_owner(): void
+    {
+        $previous = $this->identity();
+        $this->bindAccountCharacters($previous->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        $owner = $this->identity();
+        $this->bindAccountCharacters($owner->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        DB::table('native_account_character_projection_state')->where('id', 1)->update(['highest_epoch' => '2', 'watermark_epoch' => '2']);
+        DB::table('native_account_character_snapshots')->where('account_id', $owner->account_id)->update(['projection_epoch' => '2']);
+        CharacterProfilePreference::query()->create([
+            'identity_id' => $previous->id,
+            'character_id' => self::ALPHA,
+            'show_guild' => true,
+        ]);
+        CharacterProfilePreference::query()->create([
+            'identity_id' => $owner->id,
+            'character_id' => self::ALPHA,
+            'show_guild' => false,
+        ]);
+
+        // Only the owner at the live epoch decides; the fenced account's preference is inert.
+        self::assertFalse(app(CharacterGuildVisibility::class)->allows(self::ALPHA));
     }
 
     public function test_non_owner_cannot_view_or_update_preferences(): void
     {
-        $identity = $this->identityWithBinding(9001, false, false);
-        $this->seedCharacters();
-        $this->loginAsCurrentIdentity($identity);
+        $owner = $this->identity();
+        $this->bindAccountCharacters($owner->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        $other = $this->identity();
+        $this->bindAccountCharacters($other->account_id, [[self::BETA, self::WORLD, 'Beta Druid']]);
+        $this->login($other);
+
+        $this->get(route('account.characters.profile.edit', ['name' => 'Alpha Knight']))->assertNotFound();
+        $this->put(route('account.characters.profile.update', ['name' => 'Alpha Knight']), ['show_guild' => '1'])->assertNotFound();
+
+        self::assertSame(0, CharacterProfilePreference::query()->count());
+    }
+
+    public function test_identity_without_a_projection_snapshot_is_not_found(): void
+    {
+        $this->login($this->identity());
+
+        $this->get(route('account.characters.profile.edit', ['name' => 'Alpha Knight']))->assertNotFound();
+    }
+
+    public function test_stale_projection_is_a_sanitized_503_and_writes_nothing(): void
+    {
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        $this->login($identity);
+        DB::table('native_account_character_projection_state')->where('id', 1)->update(['complete_through' => now()->getTimestamp() - 120]);
 
         $this->get(route('account.characters.profile.edit', ['name' => 'Alpha Knight']))
-            ->assertNotFound();
-        $this->put(route('account.characters.profile.update', ['name' => 'Alpha Knight']), [
-            'public_comment' => 'Not allowed',
-        ])->assertNotFound();
+            ->assertStatus(503)
+            ->assertDontSee('SQLSTATE');
+        $this->put(route('account.characters.profile.update', ['name' => 'Alpha Knight']), ['show_guild' => '1'])
+            ->assertSessionHasErrors('profile');
 
         self::assertSame(0, CharacterProfilePreference::query()->count());
     }
 
-    public function test_comment_length_is_bounded(): void
+    public function test_case_variant_names_resolve_only_by_exact_name(): void
     {
-        $identity = $this->identityWithBinding(7001, false, false);
-        $this->seedCharacters();
-        $this->loginAsCurrentIdentity($identity);
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Aldric'], [self::BETA, self::WORLD, 'ALDRIC']]);
+        $this->login($identity);
 
-        $this->from(route('account.characters.profile.edit', ['name' => 'Alpha Knight']))
-            ->put(route('account.characters.profile.update', ['name' => 'Alpha Knight']), [
-                'public_comment' => str_repeat('a', 501),
-            ])
-            ->assertRedirect(route('account.characters.profile.edit', ['name' => 'Alpha Knight']))
-            ->assertSessionHasErrors('public_comment');
+        $this->put(route('account.characters.profile.update', ['name' => 'ALDRIC']), ['show_guild' => '1'])->assertRedirect();
+        self::assertSame(self::BETA, CharacterProfilePreference::query()->sole()->character_id);
 
-        self::assertSame(0, CharacterProfilePreference::query()->count());
+        $this->put(route('account.characters.profile.update', ['name' => 'Aldric']), ['is_main_character' => '1'])->assertRedirect();
+        self::assertTrue(CharacterProfilePreference::query()->where('character_id', self::ALPHA)->sole()->is_main_character);
+        self::assertTrue(CharacterProfilePreference::query()->where('character_id', self::BETA)->sole()->show_guild);
+
+        // A folded name matching both is ambiguous: not found, nothing written.
+        $this->get(route('account.characters.profile.edit', ['name' => 'aldric']))->assertNotFound();
+        $this->put(route('account.characters.profile.update', ['name' => 'aldric']), ['show_guild' => '1'])->assertNotFound();
+        self::assertSame(2, CharacterProfilePreference::query()->count());
     }
 
-    private function seedCharacters(): void
+    public function test_edit_form_starts_from_an_unbound_legacy_guild_opt_out(): void
     {
-        DB::connection('canary')->table('players')->insert([
-            [
-                'id' => 1,
-                'name' => 'Alpha Knight',
-                'account_id' => 7001,
-                'level' => 120,
-                'vocation' => 4,
-                'lastlogin' => 1_800_000_000,
-                'lastlogout' => 1_799_999_000,
-                'comment' => 'Canary comment',
-                'deletion' => 0,
-            ],
-            [
-                'id' => 2,
-                'name' => 'Beta Druid',
-                'account_id' => 7001,
-                'level' => 90,
-                'vocation' => 2,
-                'lastlogin' => 0,
-                'lastlogout' => 0,
-                'comment' => 'Sibling comment',
-                'deletion' => 0,
-            ],
-        ]);
-        DB::connection('canary')->table('cluster_sessions')->insert([
-            'id' => 1,
-            'player_id' => 1,
-            'channel_id' => 1,
-            'status' => 'ONLINE',
-            'expires_at' => ((int) floor(microtime(true) * 1000)) + 60_000,
-        ]);
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        $service = app(CharacterProfilePreferenceService::class);
+
+        self::assertTrue($service->editState($identity, 'Alpha Knight')['preference']->show_guild);
+
+        CharacterProfilePreference::query()->create(['identity_id' => $identity->id, 'character_id' => null, 'show_guild' => false]);
+        self::assertFalse($service->editState($identity, 'Alpha Knight')['preference']->show_guild);
     }
 
-    private function identityWithBinding(int $accountId, bool $association, bool $status): Identity
+    public function test_preference_read_failure_is_a_sanitized_503(): void
     {
-        $identity = Identity::query()->create([
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        $this->login($identity);
+        Schema::rename('character_profile_preferences', 'character_profile_preferences_gone');
+
+        $this->get(route('account.characters.profile.edit', ['name' => 'Alpha Knight']))
+            ->assertStatus(503)
+            ->assertDontSee('SQLSTATE');
+    }
+
+    private function identity(): Identity
+    {
+        return Identity::query()->create([
             'email' => uniqid('character-profile-', true).'@example.com',
             'password' => Hash::make('Correct-Horse-9!Battery'),
-            'public_account_association' => $association,
-            'public_status_visible' => $status,
         ]);
-        IdentityCanaryAccount::query()->create([
-            'identity_id' => $identity->id,
-            'canary_account_id' => $accountId,
-            'provisioning_name' => 'op'.substr(hash('sha256', (string) $identity->id), 0, 30),
-            'canary_creation_epoch' => 1_800_000_000 + $identity->id,
-            'status' => IdentityCanaryAccount::STATUS_READY,
-            'ready_at' => now(),
-        ]);
-
-        return $identity;
     }
 
-    private function loginAsCurrentIdentity(Identity $identity): void
+    private function login(Identity $identity): void
     {
         $this->post('/login', [
             'email' => $identity->email,

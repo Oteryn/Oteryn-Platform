@@ -24,6 +24,11 @@ return [
         'intro' => 'Compare worlds, see who is online and check current availability before you begin.',
     ],
     'account' => [
+        'native_missing' => 'Your character list is awaiting an update from the game.',
+        'native_invalid' => 'Your character list is awaiting confirmation from the game.',
+        'native_stale' => 'Your character list is out of date. Try again shortly.',
+        'native_unavailable' => 'Your character list is temporarily unavailable. Try again later.',
+        'creation_unavailable' => 'Character creation is temporarily unavailable.',
         'title' => 'Account center',
         'heading' => 'Account overview',
         'intro' => 'Your characters, your security, your next adventure.',
@@ -69,6 +74,7 @@ return [
         'world' => 'World',
         'request_title' => 'Character Request',
         'request_heading' => 'Character request',
+        'request_check' => 'Check request status',
         'request_again' => 'Create another character',
         'outcome' => [
             'pending' => 'Your character request is being processed. Refresh this page to see the result.',

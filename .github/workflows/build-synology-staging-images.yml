@@ -59,6 +59,8 @@ on:
       - deploy/synology/scripts/prepare-fresh-schema-baseline.sh
       - deploy/synology/scripts/recover-schema.sh
       - deploy/synology/scripts/release-state.sh
+      - deploy/synology/offsite-backup.env.example
+      - deploy/synology/scripts/offsite-postgres-backup.sh
       - deploy/synology/scripts/repository-ghcr-image.sh
       - deploy/synology/scripts/restore-postgres-pitr.sh
       - deploy/synology/scripts/rollback.sh
@@ -136,6 +138,8 @@ on:
       - deploy/synology/scripts/prepare-fresh-schema-baseline.sh
       - deploy/synology/scripts/recover-schema.sh
       - deploy/synology/scripts/release-state.sh
+      - deploy/synology/offsite-backup.env.example
+      - deploy/synology/scripts/offsite-postgres-backup.sh
       - deploy/synology/scripts/repository-ghcr-image.sh
       - deploy/synology/scripts/restore-postgres-pitr.sh
       - deploy/synology/scripts/rollback.sh
@@ -236,6 +240,7 @@ jobs:
             deploy/synology/scripts/backup-postgres.sh \
             deploy/synology/scripts/cutover-postgres.sh \
             deploy/synology/scripts/restore-postgres-pitr.sh \
+            deploy/synology/scripts/offsite-postgres-backup.sh \
             deploy/synology/postgres/backup/archive-wal.sh \
             deploy/synology/postgres/backup/restore-wal.sh \
             deploy/synology/postgres/backup/backup-job.sh \

@@ -4,7 +4,7 @@ namespace App\Http\Controllers\PublicGameData;
 
 use App\PublicGameData\CanaryGameDataRepository;
 use App\PublicGameData\CommunityDataPolicy;
-use App\PublicGameData\PublicCharacterProfileService;
+use App\PublicGameData\NativePublicGameData;
 use App\PublicGameData\PublicGameDataSource;
 use App\PublicGameData\PublicGameDataUnavailable;
 use Illuminate\Contracts\View\View;
@@ -12,13 +12,14 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Validation\Rule;
 
 final class PublicGameDataController
 {
     public function __construct(
         private readonly CanaryGameDataRepository $gameData,
-        private readonly PublicCharacterProfileService $profiles,
+        private readonly NativePublicGameData $native,
     ) {}
 
     public function highscores(Request $request): View|Response
@@ -35,12 +36,10 @@ final class PublicGameDataController
             ? $vocationInput
             : (is_string($vocationInput) && ctype_digit($vocationInput) ? (int) $vocationInput : null);
 
+        // Native projections are the only source; a stale or missing family answers 503.
         try {
-            PublicGameDataSource::assertAvailable();
-            $players = $this->gameData->highscores($category, $vocation);
-        } catch (PublicGameDataUnavailable) {
-            return $this->unavailable('community.highscores.title', Response::HTTP_OK);
-        } catch (QueryException) {
+            $players = $this->paginate($request, $this->native->highscores($category, $vocation, now()->getTimestamp()), 50);
+        } catch (PublicGameDataUnavailable|QueryException) {
             return $this->unavailable('community.highscores.title');
         }
 
@@ -49,7 +48,7 @@ final class PublicGameDataController
             'category' => $category,
             'vocation' => $vocation,
             'categories' => CommunityDataPolicy::highscoreCategories(),
-            'vocations' => CommunityDataPolicy::vocationIds(),
+            'vocations' => CommunityDataPolicy::highscoreVocationIds(),
         ]);
     }
 
@@ -72,18 +71,17 @@ final class PublicGameDataController
 
     public function character(string $name): View|Response
     {
+        // The native character_profile family is the only source; a stale or missing family
+        // answers 503 and an unknown or hidden character 404.
         try {
-            PublicGameDataSource::assertAvailable();
-            $profile = $this->profiles->find($name);
-        } catch (PublicGameDataUnavailable) {
-            return $this->unavailable('community.profile.title', Response::HTTP_OK);
-        } catch (QueryException) {
+            $character = $this->native->profile($name, now()->getTimestamp());
+        } catch (PublicGameDataUnavailable|QueryException) {
             return $this->unavailable('community.profile.title');
         }
 
-        abort_if($profile === null, 404);
+        abort_if($character === null, 404);
 
-        return view('game.character', $profile);
+        return view('game.character', ['character' => $character]);
     }
 
     public function deaths(): View|Response
@@ -130,18 +128,34 @@ final class PublicGameDataController
         return view('game.servers', ['channels' => $channels]);
     }
 
-    public function online(): View|Response
+    public function online(Request $request): View|Response
     {
         try {
-            PublicGameDataSource::assertAvailable();
-            $characters = $this->gameData->onlineCharacters();
-        } catch (PublicGameDataUnavailable) {
-            return $this->unavailable('public.game.online_title', Response::HTTP_OK);
-        } catch (QueryException) {
+            $characters = $this->paginate($request, $this->native->online(now()->getTimestamp()), 100);
+        } catch (PublicGameDataUnavailable|QueryException) {
             return $this->unavailable('public.game.online_title');
         }
 
         return view('game.online', ['characters' => $characters]);
+    }
+
+    /**
+     * @param  list<object>  $items
+     * @return LengthAwarePaginator<int, object>
+     */
+    private function paginate(Request $request, array $items, int $perPage): LengthAwarePaginator
+    {
+        // Clamp to the last page so an oversized ?page= cannot overflow the slice offset.
+        $lastPage = max(1, intdiv(count($items) + $perPage - 1, $perPage));
+        $page = min($lastPage, max(1, $request->integer('page', 1)));
+
+        return (new LengthAwarePaginator(
+            array_slice($items, ($page - 1) * $perPage, $perPage),
+            count($items),
+            $perPage,
+            $page,
+            ['path' => $request->url()],
+        ))->withQueryString();
     }
 
     private function unavailable(string $titleKey, int $status = Response::HTTP_SERVICE_UNAVAILABLE): Response

@@ -855,7 +855,7 @@ class DrillRpoTest(unittest.TestCase):
             f"target={target}; target_time=''; chosen=20261005T020000Z; archiver_healthy={str(archiver_healthy).lower()}",
             f"offline={str(offline).lower()}; target_label='the target'",
             f"archive_timeout=60; started_epoch=$(date +%s); base_end_epoch=$((started_epoch - {base_age}))",
-            "restore_seconds=5; checks_passed=3; RTO_SECONDS=14400; RPO_SECONDS=86400",
+            "restore_seconds=5; checks_passed=3; RTO_SECONDS=14400; RPO_SECONDS=300",
             tail,
             'for key in "${evidence_order[@]}"; do printf "%s=%s\\n" "$key" "${evidence[$key]}"; done',
         ])
@@ -913,7 +913,9 @@ case "$1" in
       *"df -Pk"*) echo unreadable ;;
     esac
     ;;
-  container | volume) exit 1 ;;
+  container) exit 1 ;;
+  # A spool restored from the off-NAS copy (offsite-postgres-backup.sh restore) is a named volume.
+  volume) [[ "$*" == "volume inspect offsite-copy" ]] || exit 1 ;;
 esac
 exit 0
 """
@@ -965,6 +967,21 @@ class DrillOfflineTest(unittest.TestCase):
         runbook = RUNBOOK.read_text()
         self.assertIn("restore-postgres-pitr.sh --offline --target latest", runbook)
         self.assertIn("docker compose --profile postgres stop postgres postgres-backup", runbook)
+
+    def test_a_spool_volume_restored_from_the_off_nas_copy_replaces_the_mounted_spool(self) -> None:
+        result, log = self.drill("--offline", "--target", "latest", "--spool-volume", "offsite-copy")
+        self.assertIn("cannot read the free space", result.stderr)
+        self.assertIn("SPOOL_VOLUME=offsite-copy (--spool-volume)\n", result.stdout)
+        create = next(call for call in log if call.startswith("create "))
+        self.assertIn("type=volume,source=offsite-copy,target=/var/lib/oteryn-postgres-backup,readonly", create)
+        self.assertNotIn("oteryn-staging_postgres_backup", create)
+        self.assert_live_server_untouched(log)
+        result, log = self.drill("--offline", "--target", "latest", "--spool-volume", "missing-copy")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no Docker volume missing-copy", result.stderr)
+        self.assertFalse(any(call.startswith("create ") for call in log))
+        result, _ = self.drill("--offline", "--target", "latest")
+        self.assertIn("SPOOL_VOLUME=oteryn-staging_postgres_backup\n", result.stdout)
 
     def test_a_missing_postgres_container_falls_back_to_the_sidecar_and_then_explains(self) -> None:
         result, log = self.drill("--offline", "--target", "latest", pg="none", sidecar="exited")
@@ -1106,6 +1123,11 @@ class DrillArgumentTest(unittest.TestCase):
             ["--offline", "--target", "latest", "--system-identifier", "74x"],
             ["--offline", "--target", "latest", "--target-time", "2026-10-12 02:00:00"],
             ["--evidence-dir", ""],
+            # A restored spool volume is for an offline restore only, and a volume name only.
+            ["--spool-volume", "offsite-copy"],
+            ["--offline", "--target", "latest", "--spool-volume", ""],
+            ["--offline", "--target", "latest", "--spool-volume", "-x"],
+            ["--offline", "--target", "latest", "--spool-volume", "a,readonly=false"],
             ["--unknown"],
         ):
             result = run(["bash", str(DRILL), *args], env={"PATH": "/usr/bin:/bin"})

@@ -53,6 +53,12 @@ jobs:
           python tests/ci/test_dependency_update_contract.py
           python tests/ci/test_synology_deploy_release_identity.py
 
+      - name: Validate Oracle deployment authority and recovery
+        run: |
+          python deploy/oracle/test_actions_deploy.py
+          python deploy/oracle/test_game_supervisor.py
+          python deploy/oracle/test_runner_boundary.py
+
       - name: Validate Integration execution registry
         run: |
           python tools/validation/test_verify_integration_test_registration.py

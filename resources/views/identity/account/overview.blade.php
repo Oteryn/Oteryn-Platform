@@ -14,6 +14,9 @@
             <a class="button" href="{{ route('account.characters.create', ['locale' => app()->getLocale()]) }}">{{ __('portal.account.create') }} <span aria-hidden="true">＋</span></a>
         @endif
     </header>
+    @if ($overview['native'] ?? false)
+        @include('identity.account.partials.native-roster')
+    @else
     @php
         $badgeClass = match ($overview['state']) {
             'ready' => 'badge-success',
@@ -52,18 +55,14 @@
         @if ($overview['characters_state'] === 'available')
             <div class="character-roster">
                 @foreach ($overview['characters'] as $character)
-                    @php($profilePreference = $profilePreferences->get((int) $character->id))
                     <article class="card character-roster-row">
                         <div class="character-monogram" aria-hidden="true">{{ mb_substr($character->name, 0, 1) }}</div>
                         <div class="character-roster-identity">
                             <h3><a href="{{ route('game.characters.show', ['name' => $character->name]) }}">{{ $character->name }}</a></h3>
                             <p>{{ $characterPresentation->vocationName((int) $character->vocation) }} <span aria-hidden="true">·</span> {{ __('portal.account.level') }} {{ $localeFormatter->number($character->level) }}</p>
-                            @if ($profilePreference?->is_main_character)<span class="badge badge-success">{{ __('character_profiles.main_badge') }}</span>@endif
-                            <p class="muted">{{ $profilePreference === null ? __('character_profiles.defaults') : __('character_profiles.customized') }}</p>
                         </div>
                         <div class="action-row">
                             <a class="button button-secondary" href="{{ route('game.characters.show', ['name' => $character->name]) }}">{{ __('portal.account.profile') }}</a>
-                            <a class="button button-ghost" href="{{ route('account.characters.profile.edit', ['name' => $character->name, 'locale' => app()->getLocale()]) }}">{{ __('character_profiles.manage') }}</a>
                         </div>
                     </article>
                 @endforeach
@@ -81,6 +80,7 @@
             <div class="notice alert-warning" role="status">{{ __('portal.account.limit', ['count' => $overview['character_limit']]) }}</div>
         @endif
     </section>
+    @endif
     @endif
     <div class="account-services">
         <section aria-labelledby="account-security-heading">

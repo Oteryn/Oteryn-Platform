@@ -58,6 +58,10 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
         $payload = json_decode($stored, true, 3, JSON_THROW_ON_ERROR);
         self::assertIsArray($payload);
         self::assertSame($identity->account_id, $payload['account_id']);
+        self::assertSame(3, $payload['contract_version']);
+        self::assertSame('Male', $payload['requested_sex']);
+        self::assertSame('Male', DB::table('character_bootstrap_intents')->value('requested_sex'));
+        $this->read($options['--operation-id'])->assertOk()->assertExactJson($payload);
         self::assertNotSame((string) $identity->id, $payload['account_id']);
         self::assertStringNotContainsString('Correct-Horse', Artisan::output());
         self::assertStringNotContainsString(self::PEER, Artisan::output());
@@ -81,10 +85,11 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
         self::assertSame(CharacterBootstrapIntentContract::VARIANT, $first['variant']);
         self::assertSame(array_keys($first), [
             'contract_version', 'variant', 'issuer_authority', 'issuer_decision_id', 'source_revision',
-            'operation_id', 'operation', 'account_id', 'target_world_id', 'requested_name',
+            'operation_id', 'operation', 'account_id', 'target_world_id', 'requested_name', 'requested_sex',
             'interpretation_context', 'issued_at_source', 'expires_at_source', 'audience',
         ]);
-        self::assertSame(2, $first['contract_version']);
+        self::assertSame(3, $first['contract_version']);
+        self::assertSame('Male', $first['requested_sex']);
         self::assertSame('Sir Aldric', $first['requested_name']);
 
         $otherIdentity = $this->identity('changed-account@example.test');
@@ -92,6 +97,7 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
             [$identity->id, array_merge($options, ['target_world_id' => strtolower((string) Str::uuid())])],
             [$identity->id, array_merge($options, ['content_revision' => 'content-92'])],
             [$identity->id, array_merge($options, ['requested_name' => 'Sir Aldrik'])],
+            [$identity->id, array_merge($options, ['requested_sex' => 'Female'])],
             [$otherIdentity->id, $options],
         ] as [$candidateIdentityId, $candidateBinding]) {
             try {
@@ -110,7 +116,7 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
         $issued = app(CharacterBootstrapIntentIssuer::class)->issue($identity->id, $operationId, $this->binding());
 
         $missingPeer = $this->postJson('/internal/v1/game-auth/character-bootstrap-intents/read', [
-            'contract_version' => 2,
+            'contract_version' => 3,
             'operation_id' => $operationId,
         ])->assertUnauthorized()->assertContent('');
         $this->assertPrivateNoStore($missingPeer);
@@ -118,7 +124,7 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
         $wrong = $this->peer();
         $wrong['SSL_CLIENT_S_DN'] = 'CN=native-evidence-only';
         $this->withServerVariables($wrong)->postJson('/internal/v1/game-auth/character-bootstrap-intents/read', [
-            'contract_version' => 2,
+            'contract_version' => 3,
             'operation_id' => $operationId,
         ])->assertUnauthorized()->assertContent('');
 
@@ -132,11 +138,11 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
 
         foreach ([
             '{}',
-            '{"contract_version":2,"operation_id":"'.$operationId.'","operation_id":"'.$operationId.'"}',
-            '{"contract_version":2,"operation_id":"'.$operationId.'","extra":"x"}',
-            '{"contract_version":2,"operation_id":{"nested":"'.$operationId.'"}}',
+            '{"contract_version":3,"operation_id":"'.$operationId.'","operation_id":"'.$operationId.'"}',
+            '{"contract_version":3,"operation_id":"'.$operationId.'","extra":"x"}',
+            '{"contract_version":3,"operation_id":{"nested":"'.$operationId.'"}}',
             '{"contract_version":1,"operation_id":"'.$operationId.'"}',
-            '{"contract_version":3,"operation_id":"'.$operationId.'"}',
+            '{"contract_version":2,"operation_id":"'.$operationId.'"}',
             str_repeat(' ', CharacterBootstrapIntentContract::MAX_REQUEST_BYTES + 1),
         ] as $raw) {
             $this->rawRead($raw)->assertStatus(400)->assertContent('');
@@ -253,6 +259,85 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
         $this->read($operationId)->assertStatus(503)->assertContent('');
     }
 
+    public function test_creation_sex_is_required_and_only_exact_game_values_are_issued(): void
+    {
+        $identity = $this->identity('sex-input@example.test');
+        $issuer = app(CharacterBootstrapIntentIssuer::class);
+        $missing = $this->binding();
+        unset($missing['requested_sex']);
+        foreach ([$missing, ...array_map(
+            fn (mixed $sex): array => array_merge($this->binding(), ['requested_sex' => $sex]),
+            [null, '', 'female', 'male', 'FEMALE', 'MALE', ' Female', 'Male ', 'Unknown', 1, 2, true, []],
+        )] as $binding) {
+            try {
+                $issuer->issue($identity->id, strtolower((string) Str::uuid()), $binding);
+                self::fail('Missing or invalid requested_sex must be refused.');
+            } catch (\InvalidArgumentException) {
+                self::assertSame(0, DB::table('character_bootstrap_intents')->count());
+                self::assertSame(0, DB::table('character_bootstrap_intent_authority')->value('last_source_revision'));
+            }
+        }
+
+        $options = $this->commandOptions($identity);
+        unset($options['--requested-sex']);
+        self::assertSame(1, Artisan::call('game-auth:character-bootstrap-intent:issue', $options));
+        self::assertSame(0, DB::table('character_bootstrap_intents')->count());
+
+        foreach (['', 'female', '2'] as $sex) {
+            $options['--requested-sex'] = $sex;
+            self::assertSame(1, Artisan::call('game-auth:character-bootstrap-intent:issue', $options));
+            self::assertSame(0, DB::table('character_bootstrap_intents')->count());
+        }
+
+        foreach (['Female', 'Male'] as $sex) {
+            $options['--requested-sex'] = $sex;
+            $operationId = strtolower((string) Str::uuid());
+            $options['--operation-id'] = $operationId;
+            self::assertSame(0, Artisan::call('game-auth:character-bootstrap-intent:issue', $options), Artisan::output());
+            self::assertSame($sex, DB::table('character_bootstrap_intents')->where('operation_id', $operationId)->value('requested_sex'));
+            $this->read($operationId)->assertOk()->assertJsonPath('contract_version', 3)->assertJsonPath('requested_sex', $sex);
+        }
+    }
+
+    public function test_stored_legacy_or_invalid_sex_is_unavailable_on_read_and_retry(): void
+    {
+        $identity = $this->identity('sex-stored@example.test');
+        $issuer = app(CharacterBootstrapIntentIssuer::class);
+        foreach (['version-two', 'missing', 'invalid', 'numeric', 'column-mismatch'] as $case) {
+            $operationId = strtolower((string) Str::uuid());
+            $payload = $issuer->issue($identity->id, $operationId, $this->binding());
+            $storedSex = 'Male';
+            if ($case === 'version-two' || $case === 'missing') {
+                unset($payload['requested_sex']);
+                $storedSex = null;
+                if ($case === 'version-two') {
+                    $payload['contract_version'] = 2;
+                }
+            } elseif ($case === 'invalid') {
+                $payload['requested_sex'] = 'male';
+                $storedSex = 'male';
+            } elseif ($case === 'numeric') {
+                $payload['requested_sex'] = 2;
+                $storedSex = '2';
+            } else {
+                $storedSex = 'Female';
+            }
+            $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            DB::table('character_bootstrap_intents')->where('operation_id', $operationId)->update([
+                'intent_json' => $json,
+                'intent_sha256' => hash('sha256', $json),
+                'requested_sex' => $storedSex,
+            ]);
+            $this->read($operationId)->assertStatus(503)->assertContent('');
+            try {
+                $issuer->issue($identity->id, $operationId, $this->binding());
+                self::fail('Corrupt or legacy sex binding must not reconcile.');
+            } catch (CharacterBootstrapIntentUnavailable|CharacterBootstrapIntentConflict) {
+                self::assertSame($json, DB::table('character_bootstrap_intents')->where('operation_id', $operationId)->value('intent_json'));
+            }
+        }
+    }
+
     public function test_native_evidence_contract_remains_exactly_four_operations(): void
     {
         self::assertSame([
@@ -276,12 +361,13 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
         ]);
     }
 
-    /** @return array{target_world_id:string,requested_name:string,profile_revision:string,ruleset_revision:string,content_revision:string,starter_template_revision:string} */
+    /** @return array{target_world_id:string,requested_name:string,requested_sex:string,profile_revision:string,ruleset_revision:string,content_revision:string,starter_template_revision:string} */
     private function binding(): array
     {
         return [
             'target_world_id' => '01890f4e-7c00-7000-8000-000000000002',
             'requested_name' => 'Sir Aldric',
+            'requested_sex' => 'Male',
             'profile_revision' => 'profile-17',
             'ruleset_revision' => 'ruleset-22',
             'content_revision' => 'content-91',
@@ -289,7 +375,7 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
         ];
     }
 
-    /** @return array<string, int|string> */
+    /** @return array<string, string> */
     private function commandOptions(Identity $identity): array
     {
         return [
@@ -297,6 +383,7 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
             '--operation-id' => '01890f4e-7c00-7000-8000-000000000001',
             '--target-world-id' => '01890f4e-7c00-7000-8000-000000000002',
             '--requested-name' => 'Sir Aldric',
+            '--requested-sex' => 'Male',
             '--profile-revision' => 'profile-17',
             '--ruleset-revision' => 'ruleset-22',
             '--content-revision' => 'content-91',
@@ -319,7 +406,7 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
     private function read(string $operationId): TestResponse
     {
         return $this->withServerVariables($this->peer())->postJson('/internal/v1/game-auth/character-bootstrap-intents/read', [
-            'contract_version' => 2,
+            'contract_version' => 3,
             'operation_id' => $operationId,
         ]);
     }
