@@ -51,10 +51,9 @@
           "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
           "markers": [
             "test_guest_cannot_manage_character_profile_preferences",
-            "test_missing_preferences_preserve_existing_public_profile_behavior",
-            "test_owner_can_update_escaped_comment_visibility_and_main_character",
+            "test_owner_saves_the_guild_toggle_and_main_character_by_native_character_id",
             "test_non_owner_cannot_view_or_update_preferences",
-            "test_comment_length_is_bounded"
+            "test_form_ignores_fields_that_no_longer_map_to_anything"
           ]
         },
         {

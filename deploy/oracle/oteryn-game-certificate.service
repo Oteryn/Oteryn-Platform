@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh Oteryn Game public TLS certificate
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/oteryn-oracle/game-supervisor.py --refresh-certificate

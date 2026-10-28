@@ -1,6 +1,9 @@
 <?php
 
 use App\CharacterAuthority\Http\CharacterCommandRoutes;
+use App\CharacterAuthority\Restore\GameRestoreNoticeWire;
+use App\CharacterAuthority\Restore\Http\GameRestoreNoticeController;
+use App\CharacterAuthority\Restore\Http\GuardGameRestoreNoticePeer;
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusReport;
 use App\GameProjections\Http\EnforcePublicProjectionHttpBounds;
 use App\GameProjections\Http\GuardPublicProjectionPeer;
@@ -110,9 +113,17 @@ Route::post('/internal/v1/game-public/'.PublicProjectionFamily::WATERMARK_PATH, 
 
 // Game Character Authority commands v1 (Game contract §4): the command consumer lists PENDING
 // intents, reads one and publishes its receipt. Every path answers 503 unless
-// character-authority.commands.enabled is true in testing or preproduction; the deployed mTLS
-// listener does not expose them until enablement (§14 step 4).
+// character-authority.commands.enabled, or restore.enabled for answering reopened intents, is true
+// in testing or preproduction; the deployed mTLS listener does not expose them until enablement
+// (§14 step 4).
 CharacterCommandRoutes::register();
+
+// Game restore notice (Platform contract oteryn-v2-game-restore-reconciliation-v1): Game repeats
+// its one restore notice until Platform answers ACKNOWLEDGED. Answers 503 unless
+// character-authority.restore.enabled is true with a dedicated identity list.
+Route::post(GameRestoreNoticeWire::PATH, GameRestoreNoticeController::class)
+    ->middleware(GuardGameRestoreNoticePeer::class)
+    ->name('internal.character-authority.restore.notice');
 
 // Store foundation: guarded, default off, with one handler per future implementation lane.
 Route::middleware(GuardStorePeer::class.':purchase')->group(function (): void {

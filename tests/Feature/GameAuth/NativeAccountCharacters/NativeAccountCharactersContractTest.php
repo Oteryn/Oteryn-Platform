@@ -129,7 +129,7 @@ final class NativeAccountCharactersContractTest extends TestCase
 
     public function test_names_refused_by_the_game_are_refused_and_the_largest_snapshot_fits(): void
     {
-        foreach (['', str_repeat('N', 65), 'Al"dric', 'Al\\dric', "Al\ndric", "Al\u{7f}dric", "Al\u{202e}dric", "Al\u{2066}dric", "Al\u{200b}dric", "Al\u{feff}dric", "Alde\u{301}ric"] as $name) {
+        foreach (['', str_repeat('N', 65), 'Al"dric', 'Al\\dric', 'Al/dric', '/', '.', '..', "Al\ndric", "Al\u{7f}dric", "Al\u{202e}dric", "Al\u{2066}dric", "Al\u{200b}dric", "Al\u{feff}dric", "Alde\u{301}ric"] as $name) {
             $this->assertRefusedWire(
                 fn (): mixed => NativeAccountCharactersWire::characterName($name),
                 'name '.bin2hex($name),
@@ -137,6 +137,7 @@ final class NativeAccountCharactersContractTest extends TestCase
         }
         self::assertSame('Al Dric', NativeAccountCharactersWire::characterName('Al Dric'));
         self::assertSame('Þórr', NativeAccountCharactersWire::characterName('Þórr'));
+        self::assertSame('Al.', NativeAccountCharactersWire::characterName('Al.'));
 
         $largest = $this->snapshotWithEntries(64, str_repeat('N', 64), 'UNAVAILABLE');
         self::assertLessThanOrEqual(NativeAccountCharactersWire::SNAPSHOT_MAX_BYTES, strlen($largest));

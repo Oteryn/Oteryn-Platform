@@ -2,6 +2,7 @@
 
 namespace App\CharacterAuthority;
 
+use App\CharacterAuthority\Restore\GameRestoreNoticeSettings;
 use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSettings;
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusSettings;
 use App\GameAuth\NativeRuntimeStatus\NativeScopeAssignmentReport;
@@ -23,13 +24,34 @@ final readonly class CharacterCommandSettings
         public int $requestsPerMinute,
     ) {}
 
+    /** Issuing new commands: only while the command switch itself is on. */
     public static function current(): ?self
     {
-        if (config('character-authority.commands.enabled') !== true || ! app()->environment(['testing', 'preproduction'])) {
+        return config('character-authority.commands.enabled') === true ? self::configured() : null;
+    }
+
+    /**
+     * The three Game-initiated exchange routes. They also stay open while issuance is off but Game
+     * restore notices are on, so Game can still answer every intent a restore reopened or that was
+     * PENDING when issuance was turned off; nothing new is issued through them (§5.4).
+     */
+    public static function exchange(): ?self
+    {
+        return config('character-authority.commands.enabled') === true || config('character-authority.restore.enabled') === true
+            ? self::configured()
+            : null;
+    }
+
+    private static function configured(): ?self
+    {
+        if (! app()->environment(['testing', 'preproduction'])) {
             return null;
         }
 
-        $identities = self::identities(config('character-authority.commands.identities'));
+        $identities = self::dedicatedIdentities(
+            config('character-authority.commands.identities'),
+            GameRestoreNoticeSettings::configuredIdentities(),
+        );
         $sourceAuthority = config('character-authority.commands.source_authority');
         $ttl = NativeRuntimeStatusSettings::bounded(config('character-authority.commands.intent_ttl_seconds'), 1, CharacterCommandWire::MAX_TTL_SECONDS);
         $backlog = NativeRuntimeStatusSettings::bounded(config('character-authority.commands.max_pending_intents'), 1, CharacterCommandWire::MAX_PENDING_BACKLOG);
@@ -47,8 +69,27 @@ final readonly class CharacterCommandSettings
         return in_array($identity, $this->identities, true);
     }
 
-    /** @return list<string>|null */
-    private static function identities(mixed $raw): ?array
+    /** @return list<string> the configured subjects, valid or not, for the overlap checks of other purposes */
+    public static function configuredIdentities(): array
+    {
+        return self::listedStrings(config('character-authority.commands.identities'));
+    }
+
+    /** @return list<string> */
+    public static function listedStrings(mixed $raw): array
+    {
+        $decoded = self::decoded($raw);
+
+        return is_array($decoded) && array_is_list($decoded) ? array_values(array_filter($decoded, 'is_string')) : [];
+    }
+
+    /**
+     * A non-empty JSON list of distinct mTLS subjects that no other internal purpose uses.
+     *
+     * @param  list<string>  $extraPurposes  subjects of further purposes that must not be shared
+     * @return list<string>|null
+     */
+    public static function dedicatedIdentities(mixed $raw, array $extraPurposes): ?array
     {
         $decoded = self::decoded($raw);
         if (! is_array($decoded) || $decoded === [] || ! array_is_list($decoded)) {
@@ -60,6 +101,8 @@ final readonly class CharacterCommandSettings
             config('game-auth.character_bootstrap_intent.mtls_client_identity'),
             config('products-entitlements.premium_snapshot.mtls_client_identity'),
             ...NativeAccountCharactersSettings::configuredPublisherIdentities(),
+            ...self::listedStrings(config('game-projections.public.identities')),
+            ...$extraPurposes,
         ];
         foreach (['native_runtime_status', 'native_scope_assignment'] as $section) {
             $other = self::decoded(config('game-auth.'.$section.'.identities'));

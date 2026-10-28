@@ -1,0 +1,5 @@
+# Keep the fresh qualification storage volume intact. The migrated authority
+# uses its own storage/witness volume; database backup jobs exclude that witness.
+volumes:
+  platform_storage:
+    name: oteryn-oracle_migrated_platform_storage

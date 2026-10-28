@@ -29,7 +29,7 @@ return [
     ],
     'profile' => [
         'title' => 'Character profile',
-        'description' => 'Public server-backed information with Platform privacy controls applied before presentation.',
+        'description' => 'Public character information published by the game server.',
         'overview' => 'Overview',
         'magic_level' => 'Magic level',
         'boss_points' => 'Boss points',

@@ -1,0 +1,11 @@
+[Unit]
+Description=Oteryn Game physical and logical backups
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/oteryn-oracle/game-backup.py
+TimeoutStartSec=3600

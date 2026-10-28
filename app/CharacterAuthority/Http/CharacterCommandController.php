@@ -57,7 +57,7 @@ final class CharacterCommandController
     /** @param Closure(CharacterCommandSettings, string): string $handler */
     private function handle(Request $request, int $maxBytes, Closure $handler): Response
     {
-        $settings = CharacterCommandSettings::current();
+        $settings = CharacterCommandSettings::exchange();
         if ($settings === null) {
             return response('', 503);
         }
