@@ -28,6 +28,15 @@ use App\Http\Middleware\GameAuth\RequireNativeEvidenceMtlsPeer;
 use App\Http\Middleware\GameAuth\ThrottleNativeEvidencePeer;
 use App\ProductsEntitlements\Http\GuardPremiumSnapshotPeer;
 use App\ProductsEntitlements\Http\PremiumSnapshotController;
+use App\ProductsEntitlements\Store\Http\GuardStorePeer;
+use App\ProductsEntitlements\Store\Http\StoreBalanceController;
+use App\ProductsEntitlements\Store\Http\StoreHistoryController;
+use App\ProductsEntitlements\Store\Http\StorePendingController;
+use App\ProductsEntitlements\Store\Http\StorePurchaseController;
+use App\ProductsEntitlements\Store\Http\StoreReadController;
+use App\ProductsEntitlements\Store\Http\StoreReceiptController;
+use App\ProductsEntitlements\Store\Http\StoreReconcileController;
+use App\ProductsEntitlements\Store\Http\ValidateStoreRequest;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/internal/v1/game-auth/native-admissions', NativeAdmissionController::class)
@@ -115,3 +124,23 @@ CharacterCommandRoutes::register();
 Route::post(GameRestoreNoticeWire::PATH, GameRestoreNoticeController::class)
     ->middleware(GuardGameRestoreNoticePeer::class)
     ->name('internal.character-authority.restore.notice');
+
+// Store foundation: guarded, default off, with one handler per future implementation lane.
+Route::middleware(GuardStorePeer::class.':purchase')->group(function (): void {
+    Route::post('/internal/v1/products-entitlements/store/balance/read', StoreBalanceController::class)
+        ->middleware(ValidateStoreRequest::class.':ReadStoreBalanceV1,512');
+    Route::post('/internal/v1/products-entitlements/store/history/read', StoreHistoryController::class)
+        ->middleware(ValidateStoreRequest::class.':ReadStoreHistoryPageV1,512');
+    Route::post('/internal/v1/products-entitlements/store/purchases', StorePurchaseController::class)
+        ->middleware(ValidateStoreRequest::class.':PurchaseStoreOfferV1,1024');
+});
+Route::middleware(GuardStorePeer::class.':delivery')->group(function (): void {
+    Route::post('/internal/v1/products-entitlements/store/operations/pending', StorePendingController::class)
+        ->middleware(ValidateStoreRequest::class.':ListPendingStoreOperationsV1,512');
+    Route::post('/internal/v1/products-entitlements/store/operations/read', StoreReadController::class)
+        ->middleware(ValidateStoreRequest::class.':ReadStoreOperationIntentV1,512');
+    Route::post('/internal/v1/products-entitlements/store/operations/receipt', StoreReceiptController::class)
+        ->middleware(ValidateStoreRequest::class.':PublishStoreDeliveryReceiptV1,1024');
+    Route::post('/internal/v1/products-entitlements/store/operations/reconcile', StoreReconcileController::class)
+        ->middleware(ValidateStoreRequest::class.':ListStoreOperationStatesV1,512');
+});
