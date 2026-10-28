@@ -352,7 +352,7 @@ Sources: ADR 0045 §2a, `OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md` §19.3, §1
 
 ### DB-1.3 Remembered class
 
-- Lifetime is 30 d absolute and 7 d idle, and it needs explicit consent.
+- Lifetime is at most 30 d absolute and 7 d idle (the default maximums of "Lifetime and concurrency semantics"; configuration may shorten either). It needs explicit consent.
 - The key is held in the OS vault or another non-exportable store.
 - **Owner decision Q2 (2026-10-16):** where no non-exportable store exists, the session-class key stays in process memory only, and the remembered class is unavailable on that device.
 
