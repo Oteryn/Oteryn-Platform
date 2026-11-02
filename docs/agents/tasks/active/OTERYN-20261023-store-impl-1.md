@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20261023-store-impl-1
-governing_issue: TBD
+governing_issue: 1674
 required_reads:
   - docs/contracts/OTERYN_V2_STORE_PURCHASE_DELIVERY_CONTRACT.md
   - docs/contracts/OTERYN_V2_STORE_WIRE_CONTRACT.md
