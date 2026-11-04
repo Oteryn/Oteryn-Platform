@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20261105-plat-loyalty-1
-governing_issue: 0
+governing_issue: 325
 required_reads: []
 search_first: []
 optional_reads: []
@@ -10,7 +10,7 @@ optional_reads: []
 
 ## Goal
 
-Governing owner task: PLAT-LOYALTY-1. No GitHub Issue was supplied or found during admission.
+Governing GitHub Issue: Oteryn/Oteryn-Platform#325 — canonical lifecycle authority for this task (owner task PLAT-LOYALTY-1).
 
 Add the default-off, mTLS-only Platform producer read for an account's consumed-Premium-day loyalty projection. This task performs no enablement or deployment, and the Game consumer remains separate.
 
@@ -64,8 +64,7 @@ proven:
   - producer remains default-off with no enablement or deployment
 derived:
   - lifecycle events reconstruct distinct consumed intervals without a migration
-unknown:
-  - GitHub Issue number was not supplied and no matching issue was found
+unknown: []
 conflicts: []
 first_failure:
   marker: none
