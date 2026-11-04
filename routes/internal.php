@@ -17,6 +17,7 @@ use App\Http\Controllers\GameAuth\NativeAdmissionController;
 use App\Http\Controllers\GameAuth\NativeEvidenceController;
 use App\Http\Controllers\GameAuth\NativeRuntimeStatusController;
 use App\Http\Controllers\GameAuth\NativeScopeAssignmentController;
+use App\Http\Controllers\GameAuth\NativeScopeRevocationController;
 use App\Http\Middleware\GameAuth\EnforceNativeAccountCharactersHttpBounds;
 use App\Http\Middleware\GameAuth\EnforceNativeEvidenceHttpBounds;
 use App\Http\Middleware\GameAuth\GuardNativeAccountCharactersPeer;
@@ -52,6 +53,13 @@ Route::post('/internal/v1/game-auth/native-runtime-status', NativeRuntimeStatusC
     ]);
 
 Route::post('/internal/v1/game-auth/native-scope-assignments', NativeScopeAssignmentController::class)
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        GuardNativeRuntimeStatusPeer::class.':assignment',
+        EnforceNativeEvidenceHttpBounds::class.':'.NativeRuntimeStatusReport::MAX_REQUEST_BYTES,
+    ]);
+
+Route::post('/internal/v1/game-auth/native-scope-revocations', NativeScopeRevocationController::class)
     ->middleware([
         PreventSensitiveGameAuthResponseCaching::class,
         GuardNativeRuntimeStatusPeer::class.':assignment',
