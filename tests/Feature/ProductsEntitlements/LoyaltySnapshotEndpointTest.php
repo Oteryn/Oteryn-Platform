@@ -86,11 +86,11 @@ final class LoyaltySnapshotEndpointTest extends TestCase
         $this->ledger()->grant($operator, $player, 30, self::REASON, $this->requestId());
 
         $this->assertPoints($player, 0);
-        Carbon::setTestNow($start + 10 * self::DAY - 1);
+        Carbon::setTestNow(Carbon::createFromTimestamp($start + 10 * self::DAY - 1));
         $this->assertPoints($player, 9);
-        Carbon::setTestNow($start + 10 * self::DAY);
+        Carbon::setTestNow(Carbon::createFromTimestamp($start + 10 * self::DAY));
         $this->assertPoints($player, 10);
-        Carbon::setTestNow($start + 45 * self::DAY);
+        Carbon::setTestNow(Carbon::createFromTimestamp($start + 45 * self::DAY));
         $this->assertPoints($player, 30);
     }
 
@@ -100,13 +100,13 @@ final class LoyaltySnapshotEndpointTest extends TestCase
         $player = $this->identity('player-intervals@example.test');
         $start = now()->getTimestamp();
         $this->ledger()->grant($operator, $player, 10, self::REASON, $this->requestId());
-        Carbon::setTestNow($start + 5 * self::DAY);
+        Carbon::setTestNow(Carbon::createFromTimestamp($start + 5 * self::DAY));
         $this->ledger()->grant($operator, $player, 10, self::REASON, $this->requestId());
 
-        Carbon::setTestNow($start + 25 * self::DAY);
+        Carbon::setTestNow(Carbon::createFromTimestamp($start + 25 * self::DAY));
         $this->assertPoints($player, 20);
         $this->ledger()->grant($operator, $player, 3, self::REASON, $this->requestId());
-        Carbon::setTestNow($start + 30 * self::DAY);
+        Carbon::setTestNow(Carbon::createFromTimestamp($start + 30 * self::DAY));
         $this->assertPoints($player, 23);
     }
 
@@ -116,11 +116,11 @@ final class LoyaltySnapshotEndpointTest extends TestCase
         $player = $this->identity('player-revoke@example.test');
         $start = now()->getTimestamp();
         $this->ledger()->grant($operator, $player, 30, self::REASON, $this->requestId());
-        Carbon::setTestNow($start + 7 * self::DAY + 3600);
+        Carbon::setTestNow(Carbon::createFromTimestamp($start + 7 * self::DAY + 3600));
         $this->ledger()->revoke($operator, $player, self::REASON, $this->requestId());
 
         $this->assertPoints($player, 7);
-        Carbon::setTestNow($start + 60 * self::DAY);
+        Carbon::setTestNow(Carbon::createFromTimestamp($start + 60 * self::DAY));
         $this->assertPoints($player, 7);
     }
 
