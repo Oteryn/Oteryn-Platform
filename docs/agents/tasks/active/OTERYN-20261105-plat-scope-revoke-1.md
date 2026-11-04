@@ -53,8 +53,8 @@ cross_repository_tasks:
 checkpoint_version: 1
 updated_at: 2026-11-04T00:00:00Z
 head: UNKNOWN
-branch: codex/plat-scope-revoke-1
-pr: none
+branch: claude/happy-davinci-ijz3wy-plat-scope-revoke-1-v2
+pr: 1676
 status: ready
 context_routes:
   - n/a
