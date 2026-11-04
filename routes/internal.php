@@ -26,7 +26,9 @@ use App\Http\Middleware\GameAuth\RequireCharacterBootstrapIntentMtlsPeer;
 use App\Http\Middleware\GameAuth\RequireGatewayServiceCredential;
 use App\Http\Middleware\GameAuth\RequireNativeEvidenceMtlsPeer;
 use App\Http\Middleware\GameAuth\ThrottleNativeEvidencePeer;
+use App\ProductsEntitlements\Http\GuardLoyaltySnapshotPeer;
 use App\ProductsEntitlements\Http\GuardPremiumSnapshotPeer;
+use App\ProductsEntitlements\Http\LoyaltySnapshotController;
 use App\ProductsEntitlements\Http\PremiumSnapshotController;
 use Illuminate\Support\Facades\Route;
 
@@ -82,6 +84,12 @@ Route::post('/internal/v1/products-entitlements/premium-snapshots/read', Premium
     ->middleware([
         PreventSensitiveGameAuthResponseCaching::class,
         GuardPremiumSnapshotPeer::class,
+    ]);
+
+Route::post('/internal/v1/products-entitlements/loyalty-snapshots/read', LoyaltySnapshotController::class)
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        GuardLoyaltySnapshotPeer::class,
     ]);
 
 // Game Public Projections v1 ingest (removal plan packet C4): one compiled path per family plus the
