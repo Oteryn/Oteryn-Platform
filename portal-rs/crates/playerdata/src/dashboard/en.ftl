@@ -1,0 +1,13 @@
+title = Account dashboard
+historical = Recorded observations only. Timers do not grant eligibility. Deadlines use Unix milliseconds.
+level = Level
+stamina = Stamina (minutes)
+premium = Observed premium deadline
+bosses = Recorded elapsed boss cooldowns
+rent = House rent
+balance = Last session balance
+unavailable = Unavailable
+online = Online at observation
+yes = Yes
+no = No
+observed = Observed at (Unix milliseconds)
