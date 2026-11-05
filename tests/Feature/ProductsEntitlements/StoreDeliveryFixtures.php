@@ -25,7 +25,9 @@ trait StoreDeliveryFixtures
 
     protected function configureDelivery(): void
     {
-        self::assertSame('pgsql', DB::getDriverName());
+        if (DB::getDriverName() !== 'pgsql') {
+            self::markTestSkipped('Store qualification requires the PostgreSQL test wrapper (phpunit.pgsql.xml).');
+        }
         config(['products-entitlements.store.purchase_enabled' => false,
             'products-entitlements.store.delivery_enabled' => true,
             'products-entitlements.store.mtls_client_identity' => self::PEER,
