@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ labels[0] }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack">
+<h1>{{ labels[0] }}</h1>{% if unavailable %}<p role="status">{{ labels[1] }}</p>{% else %}<form class="op-stack" method="get">
+<label for="world">{{ labels[2] }}</label>
+<select class="op-input" id="world" name="world">
+<option value="">{{ labels[3] }}</option>{% for id in ids %}<option value="{{ id }}"{% if filter.as_str() == id.as_str() %} selected{% endif %}>{{ id }}</option>{% endfor %}</select>
+<label for="sort">{{ labels[4] }}</label>
+<select class="op-input" id="sort" name="sort">
+<option value="name">{{ labels[5] }}</option>
+<option value="level"{% if by_level %} selected{% endif %}>{{ labels[6] }}</option>
+</select>
+<button class="op-button" type="submit">{{ labels[7] }}</button>
+</form>{% for world in worlds %}<section class="op-card op-stack">
+<h2>{{ world.id }}</h2>
+<p>{{ labels[8] }}: {{ world.characters.len() }}</p>
+<p>{{ labels[9] }}: {{ world.as_of }} UTC</p>{% if world.stale %}<p role="status">{{ labels[10] }}</p>{% endif %}<ul>{% for character in world.characters %}<li>{{ character.name }} · {{ labels[6] }}: {{ character.level }} · {{ labels[11] }}: {{ character.vocation }}</li>{% endfor %}</ul>
+</section>{% endfor %}{% endif %}</main>
+</body>
+</html>
