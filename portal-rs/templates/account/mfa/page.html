@@ -1,0 +1,39 @@
+{% extends "account/register_base.html" %}
+{% block title %}{{ self.text("mfa-title") }}{% endblock %}
+{% block content %}
+<h1>{{ self.text("mfa-title") }}</h1>
+{% if failed %}<p class="op-error" role="alert">{{ self.text("mfa-error") }}</p>{% endif %}
+{% if mode == "login" %}
+<form class="op-stack" method="post" action="/{{ lang }}/login">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="email">{{ self.text("mfa-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="username" maxlength="254" required></div>
+<div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
+<button class="op-button op-button--primary">{{ self.text("mfa-login") }}</button></form>
+{% else if mode == "challenge" %}
+<form class="op-stack" method="post" action="/{{ lang }}/mfa/challenge">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="code">{{ self.text("mfa-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" maxlength="64" required></div>
+<label><input type="checkbox" name="remember" value="yes"> {{ self.text("mfa-remember") }}</label>
+<button class="op-button op-button--primary">{{ self.text("mfa-verify") }}</button></form>
+<form method="post" action="/{{ lang }}/mfa/email"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button">{{ self.text("mfa-send-email") }}</button></form>
+{% else if mode == "enrollment" %}
+<p>{{ self.text("mfa-provision") }}</p><p class="op-prose">{{ secret }}</p>
+<form class="op-stack" method="post" action="/{{ lang }}/mfa/confirm">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
+<div class="op-field"><label for="code">{{ self.text("mfa-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div>
+<button class="op-button op-button--primary">{{ self.text("mfa-verify") }}</button></form>
+{% else if mode == "codes" %}
+<p>{{ self.text("mfa-save") }}</p>
+{% for code in codes %}<p><textarea class="op-input" readonly aria-label="{{ self.text("mfa-recovery") }}" rows="2">{{ code }}</textarea></p>{% endfor %}
+<a class="op-button" href="/{{ lang }}/login">{{ self.text("mfa-login") }}</a>
+{% else %}
+{% if mode == "settings" %}
+<form class="op-stack" method="post" action="/{{ lang }}/mfa/enroll"><input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
+<button class="op-button op-button--primary">{{ self.text("mfa-enroll") }}</button></form>
+{% endif %}
+<h2>{{ self.text("mfa-devices") }}</h2>
+{% for device in devices %}<form method="post" action="/{{ lang }}/mfa/devices"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="device" value="{{ device }}"><button class="op-button">{{ self.text("mfa-remove") }} {{ loop.index }}</button></form>{% endfor %}
+{% endif %}
+{% endblock %}

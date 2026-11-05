@@ -1,0 +1,17 @@
+mfa-title = Account security
+mfa-error = The request could not be verified. Check your details and try again.
+mfa-email = Email address
+mfa-password = Current password
+mfa-login = Sign in
+mfa-code = Authenticator, recovery or email code
+mfa-remember = Trust this device for 30 days
+mfa-verify = Verify code
+mfa-send-email = Send a fallback code by email
+mfa-provision = Add this secret to your authenticator using SHA-1, six digits and a 30-second period. Then confirm with a new code.
+mfa-save = Save these recovery codes privately. Each code works once and is shown only here. Sign in again to continue.
+mfa-recovery = Recovery code
+mfa-enroll = Set up two-factor authentication
+mfa-devices = Trusted devices
+mfa-remove = Remove device
+mfa-email-subject = Your Oteryn verification code
+mfa-email-body = Enter this code only on the Oteryn sign-in page. It expires in five minutes. Ignore this email if you did not request it.

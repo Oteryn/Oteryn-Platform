@@ -10,6 +10,7 @@ pub mod abuse;
 pub mod credentials;
 pub mod export;
 pub mod login;
+pub mod mfa;
 pub mod passkeys;
 pub mod reset;
 pub mod termination;
