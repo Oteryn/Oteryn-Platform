@@ -28,3 +28,11 @@ oteryn-downloads = { path = "../../crates/downloads" }
 
 oteryn-admin = { path = "../../crates/admin" }
 oteryn-payments = { path = "../../crates/payments" }
+oteryn-identity.workspace = true
+sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "uuid"] }
+askama = "0.16.1"
+fluent-bundle = "0.16"
+unic-langid = "0.9"
+tower-http = { version = "0.7.1", features = ["limit"] }
+tower = { version = "0.5.3", features = ["util"] }
+uuid = { version = "1", features = ["v7"] }
