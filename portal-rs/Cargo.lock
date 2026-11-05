@@ -2035,6 +2035,7 @@ dependencies = [
  "tower",
  "tower-http",
  "unic-langid",
+ "uuid",
 ]
 
 [[package]]
