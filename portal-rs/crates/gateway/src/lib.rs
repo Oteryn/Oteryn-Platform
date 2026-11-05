@@ -152,7 +152,7 @@ fn refuse(r: Refusal, echo: Option<&str>) -> Response {
     );
     let mut response = json(r.code.status(), &r.code.body(echo));
     if r.code == Code::RateLimited
-        && let Ok(value) = HeaderValue::from_str(&r.retry_after.max(1).to_string())
+        && let Ok(value) = HeaderValue::from_str(&r.retry_after.clamp(1, 30).to_string())
     {
         response.headers_mut().insert("retry-after", value);
     }
