@@ -2753,6 +2753,7 @@ dependencies = [
  "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-wallet",
+ "oteryn-web",
  "serde",
  "serde_json",
  "serde_urlencoded",

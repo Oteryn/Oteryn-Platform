@@ -233,3 +233,23 @@ fn rejection(cmd: &str, code: &str) -> bool {
         _ => false,
     }
 }
+
+// Public wire primitives for the companion service projection; the v1 parser stays closed.
+pub fn service_decode(raw: &[u8], max: usize) -> Result<Value, Error> {
+    decode(raw, max)
+}
+pub fn service_encode(v: &Value) -> Result<String, Error> {
+    encode(v)
+}
+pub fn service_exact(v: &Value, keys: &[&str]) -> Result<(), Error> {
+    exact(v, keys)
+}
+pub fn service_get<'a>(v: &'a Value, key: &str) -> Result<&'a str, Error> {
+    get(v, key)
+}
+pub fn service_counter(s: &str, zero: bool) -> Result<u64, Error> {
+    counter(s, zero)
+}
+pub fn service_uuid(s: &str) -> Result<Uuid, Error> {
+    uuid(s)
+}
