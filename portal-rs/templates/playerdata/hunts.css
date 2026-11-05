@@ -1,0 +1,7 @@
+.hunts { width: min(100% - 2rem, 60rem); margin-inline: auto; padding-block: 1rem; }
+.hunts *, .hunts *::before, .hunts *::after { box-sizing: border-box; }
+.hunts dd { margin-inline-start: 0; overflow-wrap: anywhere; }
+.hunts dt { font-weight: 700; margin-top: 1rem; }
+.hunts article { margin-block: 1rem; }
+.hunts input, .hunts select { max-width: 100%; }
+.hunt-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: 1rem; }

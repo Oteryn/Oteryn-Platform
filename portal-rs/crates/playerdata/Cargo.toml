@@ -1,0 +1,31 @@
+[package]
+name = "oteryn-playerdata"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+axum = "0.8.9"
+askama = "0.16.1"
+fluent-bundle = "0.16"
+unic-langid = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "json"] }
+uuid = { version = "1.29.0", features = ["v7", "serde"] }
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
+tower = { version = "0.5.3", features = ["util"] }
+
+[dependencies.oteryn-web]
+workspace = true
+
+[dev-dependencies.sha2]
+version = "0.10"
