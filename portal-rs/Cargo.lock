@@ -1124,6 +1124,15 @@ dependencies = [
 [[package]]
 name = "oteryn-store"
 version = "0.1.0"
+dependencies = [
+ "oteryn-internal-api",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "oteryn-support"
