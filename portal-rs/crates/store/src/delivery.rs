@@ -266,9 +266,9 @@ impl Delivery {
 const ACCEPTED: &[u8] = br#"{"contract_version":1,"result":"accepted"}"#;
 async fn lock_restore(tx: &mut Transaction<'_, Postgres>, exclusive: bool) -> Result<(), Error> {
     let found: Option<i32> = sqlx::query_scalar(if exclusive {
-        "SELECT id FROM character_restore_locks WHERE id=1 FOR UPDATE"
+        "SELECT id::integer FROM character_restore_locks WHERE id=1 FOR UPDATE"
     } else {
-        "SELECT id FROM character_restore_locks WHERE id=1 FOR SHARE"
+        "SELECT id::integer FROM character_restore_locks WHERE id=1 FOR SHARE"
     })
     .fetch_optional(&mut **tx)
     .await?;
