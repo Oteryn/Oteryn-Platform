@@ -37,6 +37,7 @@ Zasady projektu:
 | Gracz | Społeczność | Rankingi, profile, gildie, domy, zgony, online, status światów |
 | Gracz | Statystyki | Historia postaci (doświadczenie dzień po dniu, czas online, nazwy, światy, gildie), rankingi przyrostu, statystyki gildii i świata, porównania, obserwowanie z powiadomieniami (§5.7) |
 | Gracz | Wiedzieć, jak mu idzie | Prywatny dziennik gry: automatyczny analizator polowań z wyceną łupu, dropy i rekordy, przeglądarka przedmiotów („gdzie mam”), postęp i cele, recap zgonów, przypomnienia, historia logowań do gry, mapa łowisk, szukanie drużyny (§5.8) |
+| Gracz | Rozrywka poza grą | Pomocnik w domu wysyłany na wyprawy, przepustka sezonowa, kolekcja potworów z walkami, codzienne zagadki, rozgrywki gildii i typer; bez hazardu (§5.10, po pierwszym wydaniu) |
 | Gracz | Handel z graczami | Bazar: licytacje postaci, ogłoszenia i licytacje cennych przedmiotów, za coiny albo złoto z gry, z depozytem po obu stronach (§5.6) |
 | Gracz | Zakupy | Saldo coinów, doładowanie, sklep, status premium, historia, transfer coinów, płatności i rachunki |
 | Gracz | Pomoc | Zgłoszenia z załącznikami, zgłaszanie graczy, historia kar z potwierdzeniem i odwołaniem, FAQ, zgłoszenie błędu |
@@ -47,7 +48,7 @@ Zasady projektu:
 | Admin | Kontrola | Role i uprawnienia, audyt, flagi, cennik sklepu, zwroty |
 | Operacje | Działający system | Status światów, wydania klienta (TUF), zdrowie systemu, kolejki |
 
-Bazar postaci i przedmiotów jest w zakresie (§5.6, D13). Prywatny dziennik gry z automatycznym analizatorem polowań też jest w zakresie (§5.8, D17). Poza pierwszym wydaniem zostają: zarządzanie węzłami gry, obserwacja GM-a i aplikacja mobilna. Szablony strony głównej z obecnego portalu zastępuje jedna nowa strona główna (T39b).
+Bazar postaci i przedmiotów jest w zakresie (§5.6, D13). Prywatny dziennik gry z automatycznym analizatorem polowań też jest w zakresie (§5.8, D17). Rozrywka z §5.10 przychodzi zaraz po pierwszym wydaniu (D20). Poza pierwszym wydaniem zostają też: zarządzanie węzłami gry, obserwacja GM-a i aplikacja mobilna. Szablony strony głównej z obecnego portalu zastępuje jedna nowa strona główna (T39b).
 
 ## 3. Architektura
 
@@ -93,6 +94,8 @@ portal-rs/
     wallet/                  ledger coinów, transfer, blokady, idempotencja
     store/                   cennik, zakup, dostawa (wire sklepu), historia
     playerdata/              prywatny dziennik gry: sesje i analizator polowań, wycena, dropy, przedmioty, postęp, zgony, przypomnienia, mapa łowisk
+    hirelings/               pomocnicy w domach: zakup, wyprawy, zawody, komendy do gry
+    minigames/               przepustka sezonowa, kolekcja potworów, zagadki, rozgrywki i typer
     bazaar/                  bazar: licytacje postaci, ogłoszenia i licytacje przedmiotów, depozyt, rozliczenie, statystyki
     payments/                interfejs dostawcy, webhooki (provider za traitem)
     support/                 zgłoszenia, zgłoszenia graczy, kary, odwołania
@@ -147,6 +150,8 @@ Wszystkie identyfikatory to UUIDv7. Kwoty to `bigint` w najmniejszej jednostce. 
 | premium | `premium_ledger` (nadania, odebrania, zakupy; stan jako suma), `loyalty_state` |
 | store | `store_price_list_imports`, `store_active_catalog`, `store_offers`, `store_purchase_requests`, `store_orders`, `store_order_lines`, `store_fulfilment_units`, `store_operations` (outbox DELIVER), `store_receipts`, `store_reconcile_state` |
 | playerdata | `pd_sessions` (postać, odcinek, start, koniec, miejsca, doświadczenie, bilans, drużyna), `pd_session_items` (łup i zużycie per przedmiot), `pd_session_combat` (obrażenia zadane i otrzymane per typ i źródło, leczenie), `pd_session_kills`, `pd_drops`, `pd_records`, `pd_item_snapshots` (miejsce, `jsonb`, czas), `pd_trade_history`, `pd_progress`, `pd_goals`, `pd_deaths` (recap), `pd_pvp_events`, `pd_game_logins`, `pd_reminders`, `pd_notes`, `pd_price_overrides`, `pd_share_links` (hash tokenu, wygasa, odwołany), `pd_hunting_places_daily` (tylko agregaty), `pd_party_posts` |
+| hirelings | `hirelings` (konto, dom, imię, zawody, poziom), `hireling_expeditions` (cel, start, koniec, stan, receipt z gry), `hireling_commands` (outbox do gry) |
+| minigames | `pass_seasons`, `pass_challenges`, `pass_progress`, `pass_claims`; `collection_cards`, `collection_decks`, `collection_battles`, `collection_ratings`; `puzzles_daily`, `puzzles_answers`, `puzzles_streaks`; `league_events`, `league_picks` |
 | bazaar | `bazaar_listings` (rodzaj: postać lub przedmiot; forma: licytacja, ogłoszenie, kupno; waluta: coiny lub złoto; cena, „przyjmuję oferty”, stan, koniec), `bazaar_snapshots` (dane z gry, hash, czas), `bazaar_escrow` (stan depozytu w grze), `bazaar_bids` (oferta maksymalna, rezerwa portfela albo blokada złota w grze), `bazaar_offers` (oferty do ogłoszeń), `bazaar_settlements` (kwota, prowizja, komenda do gry, receipt), `bazaar_watches`, `bazaar_saved_searches`, `bazaar_reports` |
 | payments | `payment_intents`, `payment_events` (idempotencja po id dostawcy), `invoices` |
 | support | `tickets`, `ticket_messages` (też wewnętrzne), `ticket_attachments`, `player_reports`, `sanctions` (ostrzeżenie, ograniczenie, zawieszenie; potwierdzenie gracza), `appeals` |
@@ -540,6 +545,27 @@ Reguły z Atlasu obowiązują też portal:
 
 Mechaniki właściwe tylko dla Tibii (np. fiendish przez exivę, koło przeznaczenia, imbuementy) przenosimy tylko wtedy, gdy gra je ma. Kalkulatory (T71) dostają w takim przypadku odpowiedniki: obrażenia na bossach, koszt ulepszeń, miejsce na punkty bestiariusza.
 
+### 5.10 Rozrywka i dodatkowe przychody (bez hazardu)
+
+Zasada: gracz płaci za konkretną rzecz, którą widzi przed zakupem, a nie za szansę na cenną wygraną. Gry losowe o coiny, złoto lub zbywalne przedmioty to w Polsce hazard (ustawa o grach hazardowych; kasyno online to monopol państwa), więc portal ich nie ma. Przed startem tej sekcji właściciel konsultuje ją z prawnikiem (ochrona konsumentów, nieletni).
+
+| Funkcja | Opis | Przychód | Zadanie | Dane z gry |
+| --- | --- | --- | --- | --- |
+| Pomocnik w domu | Gracz kupuje pomocnika do swojego domu za stałą cenę w sklepie (jak hireling). Pomocnik ma zawody (np. górnik, zielarz, rybak, kupiec) i poziom. Gracz wysyła go na wyprawy (1–12 h) z portalu, telefonu albo w grze, rozmawiając z nim w domu. Po powrocie łup trafia do skrzyni pomocnika w domu. Powiadomienie o powrocie (T36) | Pomocnik, kolejne zawody, dodatkowy pomocnik (limit 3 na konto), wygląd pomocnika | T92 | G-14 |
+| Przepustka sezonowa | Sezon 6–8 tygodni, wyzwania w grze (z dziennika, §5.8) i na portalu, ścieżka darmowa i płatna, nagrody kosmetyczne | Płatna ścieżka za coiny | T89 | G-9, G-11 |
+| Kolekcja potworów | Karty potworów ze sprite'ami gry, odblokowywane postępem bestiariusza; talia, turowe walki PvE i PvP, rankingi, turnieje. Własna mechanika, bez nazwy i wyglądu Pokémona | Skórki kart, dodatkowe talie, zestawy o znanej zawartości | T90, T91 | G-11 |
+| Codzienne zagadki | „Zgadnij potwora” po sylwetce, „Gdzie to jest?” na kaflach Atlasu, quiz wiedzy o świecie; serie dni i odznaki | Brak; ruch na portalu | T93 | – |
+| Rozgrywki | Rankingi gildii w wyzwaniach sezonu, typer wydarzeń świata bez stawek | Brak | T94 | G-12 |
+
+Reguły:
+
+- Każdy zakup ma stałą cenę i znaną zawartość. Nie ma płatnych losowych skrzynek.
+- Losowość jest tylko w nagrodach, za które gracz nie płaci. Płatne rzeczy nie zwiększają liczby losowań zbywalnych nagród, więc pomocnik nie ma płatnego przyspieszania wypraw.
+- Cele wyprawy mają jawną tabelę nagród. Łup z wypraw ma tygodniowy limit na konto, a zakup pomocnika nie daje przewagi w walce, żeby nie było pay-to-win ani inflacji.
+- Waluty, karty, odznaki i nagrody minigier są niezbywalne: nie da się ich przekazać, wymienić na coiny lub złoto ani wystawić na Bazarze. Wyjątkiem jest łup pomocnika: to zwykłe przedmioty gry, objęte limitem.
+- Nic z minigier nie daje przewagi w walce w grze.
+- Nagrody kosmetyczne wymagają włączenia rodzaju COSMETIC w kontrakcie sklepu; dziś jest wyłączony (decyzja 2026-11-05), więc to osobna decyzja przed T89.
+
 ## 6. Integracja z grą
 
 | Przepływ | Kontrakt | Stan po stronie gry (Game main @60de8634) |
@@ -560,6 +586,7 @@ Mechaniki właściwe tylko dla Tibii (np. fiendish przez exivę, koło przeznacz
 | Bazar | Blokada i snapshot postaci, warunki wystawienia, depozyt i dostawa przedmiotów, blokada i przekazanie złota (G-7); przeniesienie postaci przez TransferCharacterOwnership z GAME-CHAR-CMD | G-7 w kolejce gry po G-5 (koordynator, 2026-11-05). Jest: bank konta i gildii, depot z transferami, market, TransferCharacterOwnership, pole `tradeable` w danych przedmiotów (bez egzekwowania). Brak: blokady złota, blokady postaci, podpisanego snapshotu. Gra przyśle kontrakt wire do akceptacji Platform przed implementacją |
 | Dziennik gry | Prywatny kanał per konto, oddzielony od projekcji publicznych: sesje, łup, zużycie, obrażenia i dropy (G-9); przedmioty i historia handlu (G-10); postęp, zgony, PvP, liczniki czasu i logowania do gry (G-11) | G-9…G-11 w kolejce gry po G-8 (koordynator, 2026-11-05); kolejność między nimi ustala właściciel. Jest: receipty zabójstw bossów i łup z pojemników (sesje); stan ekwipunku, depotu, skrzynki i domu, bank, market (przedmioty); bestiariusz, bosstiary z cooldownami, questy, osiągnięcia, umiejętności (postęp). Brak: dziennika odcinków sesji z obrażeniami, leczeniem i zużyciem; snapshotu przy wylogowaniu; recapu zgonu, historii logowań i zdarzeń premium, staminy i czynszu. Dziennik wymian do sprawdzenia. Gra przyśle kontrakt wire do akceptacji Platform |
 | Atlas i narzędzia | Spawny, kroki questów, łupy, bestiariusz i bosstiary z `content/**` (§6.1); wzmocnienia dnia i rajdy (G-12); klucze przedmiotów w questach (G-13) | Koordynator (Game main @9418ffb8): spawny są (31 plików, `Spawn.Source`); łupy z szansą ppm; `bestiary` i `bosstiary` w definicjach potworów. Polityka spawnów bossów (losowanie przy restarcie, stałe miejsca, szansa per boss) jest w realizacji. Osobnego typu „dostawa” nie ma; G-13 (w realizacji) dodaje klucze przedmiotów do kroków questów. Stare eksporty dla Oteryn-Atlas (`OTERYN_GAME_ATLAS_*_V1`) nie liczą z `content/**` i zostają historyczne (koordynator, Game main @dba9befb). Wzmocnienie dnia jest (mechanika 0351), rajdy z harmonogramu częściowo (0434), szans bossów brak |
+| Pomocnik w domu | Zakup jako uprawnienie przez wire sklepu; komendy wyprawy (start, odbiór) idempotentne przez outbox jak komendy postaci; wynik wyprawy i łup liczy gra, portal dostaje receipt (G-14) | Do potwierdzenia przez koordynatora |
 | Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
 | Dane świata (wiki, Atlas) | Odczyt `content/**` z przypiętego commita gry (§6.1) | Dane są; flaga widoczności brak (G-2); publikacja grafik: zgoda (D7) |
 | Granty admission | FND-04B-AMEND-1 | Pole status: ACCEPTED (2026-11-05), ale treść ma otwarte decyzje właściciela. Traktujemy jako propozycję i **nie implementujemy na jej podstawie**, dopóki decyzje nie zapadną |
@@ -799,6 +826,12 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T86 | Bestiariusz i bossowie na mapie: postęp postaci z dziennika, stany spawnów, punkty, rekomendacje | T84, T77 | `crates/atlas/src/bestiary*` |
 | T87 | Miejsca polowań, na bestiariusz i bossów: karty z danymi z mapy łowisk, opisy redakcji, raporty graczy | T81, T13 | `crates/wiki/src/places*` |
 | T88 | „Dziś na świecie”: wzmocnienia i ich historia, rajdy (po G-12) | T24 | `crates/community/src/today*` |
+| T89 | Przepustka sezonowa: sezony, wyzwania z dziennika gry i portalu, ścieżki darmowa i płatna, odbiór nagród przez wire sklepu | T72, T26, T29 | `crates/minigames/src/pass*` |
+| T90 | Kolekcja potworów: karty z danych świata i postępu bestiariusza, talie, walki turowe PvE | T14, T42, T77 | `crates/minigames/src/collection*` |
+| T91 | Kolekcja potworów: PvP, rankingi, turnieje, zestawy o znanej zawartości | T90 | `crates/minigames/src/collection_pvp*` |
+| T92 | Pomocnik w domu: zakup, zawody, wybór wyprawy z jawną tabelą nagród, stan i historia, limity, powiadomienia, komendy do gry przez outbox (po G-14) | T26, T29, T36 | `crates/hirelings` |
+| T93 | Codzienne zagadki: zgadnij potwora, „Gdzie to jest?” na kaflach Atlasu, quiz; serie i odznaki | T14, T40, T42 | `crates/minigames/src/puzzles*` |
+| T94 | Rozgrywki gildii w wyzwaniach sezonu i typer wydarzeń bez stawek | T89, T88 | `crates/minigames/src/league*` |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 | G-2 | (gra) Pole widoczności (public/hidden) w schematach questów, NPC i obszarów | – | Oteryn-Game, przez koordynatora |
 | G-3 | (gra) Komendy postaci: usunięcie i anulowanie, zmiana nazwy, płci i świata (rozszerzenie GAME-CHAR-CMD; płatne usługi rozlicza Platform) | – | Oteryn-Game, przez koordynatora |
@@ -812,13 +845,15 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | G-11 | (gra) Dziennik gry, postęp i zdarzenia: bestiariusz, cooldowny bossów, questy, osiągnięcia, umiejętności; recap zgonu; zabójstwa PvP i skull; stamina, koniec premium, czynsz domu; historia logowań do gry | – | Oteryn-Game, przez koordynatora |
 | G-12 | (gra) Dzienne dane świata jako rodzina publiczna: wzmocniony potwór i boss dnia, rajdy z harmonogramu | – | Oteryn-Game, przez koordynatora |
 | G-13 | (gra) Klucze przedmiotów (`oteryn:item.*`) w celach i nagrodach kroków questów zamiast nazw | – | Oteryn-Game, przez koordynatora |
+| G-14 | (gra) Pomocnik w domu: postać NPC w domu gracza, zawody i poziom, wyprawy liczone przez grę z jawnej tabeli nagród i tygodniowym limitem, skrzynia pomocnika, rozmowa w grze; komendy z portalu (start, odbiór) z kluczem idempotencji i receipt; zakup jako uprawnienie ze sklepu | – | Oteryn-Game, przez koordynatora |
 
 Kolejność startu:
 
 1. T00 jest gotowy w PR #1685 (kompilujący się szkielet i job CI).
 2. Potem jednocześnie: T01, T14, T15, T37, T39 i T52.
 3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45, T53–T54), gry (T16–T25), handlu (T26–T32, T47, T55–T56), bazaru (T57–T64), statystyk (T65–T71), dziennika gry (T72–T83), Atlasu i narzędzi (T84–T88) i panelu zespołu (T10–T10b, T49–T51).
-4. Zadania zależne od G-3…G-13 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
+4. Zadania zależne od G-3…G-14 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
+5. Po pierwszym wydaniu i konsultacji prawnej: rozrywka (T89–T94, D20).
 
 ### 10.1 Szablon zadania dla Codexa
 
@@ -867,6 +902,7 @@ Pozostałe warunki:
 | D17 | Prywatny dziennik gry z automatycznym analizatorem polowań | **Tak** (2026-11-05), §5.8; najpierw analizator i przeglądarka przedmiotów |
 | D18 | Atlas z mapą dostaw zadań i trackerami (wzór TibiaRoute) | **Tak** (2026-11-05), §5.9 |
 | D19 | Repozytorium Oteryn-Atlas (było Q11) | **Zgoda** (2026-11-05): Atlas w portalu je zastępuje. Repo zostaje zamrożone i trafia do archiwum po uruchomieniu Atlasu portalu (T41, T84–T86); archiwizuje je właściciel |
+| D20 | Rozrywka bez hazardu | **Tak** (2026-11-05), §5.10: pomocnik w domu zamiast wysyłania postaci, przepustka sezonowa, kolekcja potworów, zagadki; bez gier losowych o wartość; po pierwszym wydaniu, po konsultacji prawnej |
 
 ## 12. Otwarte pytania
 
