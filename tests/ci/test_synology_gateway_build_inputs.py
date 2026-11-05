@@ -74,15 +74,15 @@ class SynologyGatewayBuildInputsContractTest(unittest.TestCase):
 
     def test_gateway_base_images_are_verified_immutable_digests(self) -> None:
         self.assertIn(
-            "FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build",
+            "FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS build",
             self.dockerfile,
         )
         self.assertIn(
-            "FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6",
+            "FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a",
             self.dockerfile,
         )
-        self.assertNotIn("FROM golang:1.27.2-alpine AS build", self.dockerfile)
-        self.assertNotIn("\nFROM alpine:3.24.2\n", self.dockerfile)
+        self.assertNotIn("FROM golang:1.27.3-alpine AS build", self.dockerfile)
+        self.assertNotIn("\nFROM alpine:3.24.3\n", self.dockerfile)
 
     def test_gateway_context_excludes_non_runtime_files(self) -> None:
         self.assertEqual(self.dockerignore.splitlines()[0], "**")
