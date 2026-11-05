@@ -875,7 +875,7 @@ Pozostałe warunki:
 | Q3 | Aktualizacja locka gry: N4P (z `native-admissions`) i GAME-CHAR-CMD-0 (§6) | Koordynator, G-1 | Nic; portal implementuje według kodu |
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
 | Q5 | Akceptacja projektu | Właściciel | Start T01+ |
-| Q6 | Los repozytorium Oteryn-Atlas: Atlas w portalu je zastępuje, a repo zostaje zarchiwizowane (rekomendacja) albo zostaje osobnym trybem 3D | Właściciel | Nic; portal buduje swój Atlas (T40, T41, T84–T86) |
+| Q11 | Los repozytorium Oteryn-Atlas: Atlas w portalu je zastępuje, a repo zostaje zarchiwizowane (rekomendacja) albo zostaje osobnym trybem 3D | Właściciel | Nic; portal buduje swój Atlas (T40, T41, T84–T86) |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
