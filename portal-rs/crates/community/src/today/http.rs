@@ -1,4 +1,5 @@
 use super::{Config, Error, read, schema, store};
+use crate::v2_watermark::Part;
 use askama::Template;
 use axum::{
     Router,
@@ -38,6 +39,9 @@ fn now() -> i64 {
 }
 /// Only the private TLS adapter supplies VerifiedClient. Headers never authenticate ingest.
 pub fn router(db: PgPool, identities: Arc<IdentityMap>, config: Config) -> Router {
+    routes(db, identities, config, Part::All)
+}
+fn routes(db: PgPool, identities: Arc<IdentityMap>, config: Config, part: Part) -> Router {
     let mut router = Router::new();
     let rate = Arc::new(Mutex::new(Rate::default()));
     for watermark in [false, true] {
@@ -46,6 +50,9 @@ pub fn router(db: PgPool, identities: Arc<IdentityMap>, config: Config) -> Route
         } else {
             "world-daily"
         };
+        if !part.includes(path) {
+            continue;
+        }
         let route = Router::new()
             .route(&format!("/internal/v2/game-public/{path}"), post(ingest))
             .with_state(Ingest {
@@ -162,7 +169,28 @@ pub fn mount(app: Router, db: PgPool, config: Config) -> Router {
 }
 pub fn configured_mount(app: Router, db: PgPool) -> Router {
     let config = Config::configured();
-    let identities = std::env::var("PORTAL_PUBLIC_PROJECTIONS_SAN")
+    mount(
+        app.merge(routes(
+            db.clone(),
+            Arc::new(configured_identities()),
+            config.clone(),
+            Part::Payload,
+        )),
+        db,
+        config,
+    )
+}
+/// The guarded `world_daily` watermark route, mounted only through [`crate::v2_watermark`].
+pub fn configured_watermark_router(db: PgPool) -> Router {
+    routes(
+        db,
+        Arc::new(configured_identities()),
+        Config::configured(),
+        Part::Watermark,
+    )
+}
+fn configured_identities() -> IdentityMap {
+    std::env::var("PORTAL_PUBLIC_PROJECTIONS_SAN")
         .ok()
         .and_then(|s| guard::Identity::san(&s).ok())
         .and_then(|identity| {
@@ -172,12 +200,7 @@ pub fn configured_mount(app: Router, db: PgPool) -> Router {
             }])
             .ok()
         })
-        .unwrap_or_default();
-    mount(
-        app.merge(router(db.clone(), Arc::new(identities), config.clone())),
-        db,
-        config,
-    )
+        .unwrap_or_default()
 }
 #[derive(serde::Deserialize, Default)]
 #[serde(deny_unknown_fields)]

@@ -5,7 +5,7 @@ mod schema;
 mod store;
 mod view;
 
-pub use http::{configured_mount, mount, router};
+pub use http::{configured_mount, configured_watermark_router, mount, router};
 use std::collections::BTreeSet;
 pub use store::Retention;
 use uuid::Uuid;
