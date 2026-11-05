@@ -248,6 +248,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(email_change_http::configured_router(oteryn_db::lazy_pool(
                 config.database_url(),
             )?));
+            let app = app.merge(oteryn_admin::commerce::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
@@ -282,11 +285,11 @@ mod login_http;
 
 #[path = "../../../crates/identity/src/credentials_http.rs"]
 mod credentials_http;
+#[path = "../../../crates/identity/src/email_change_http.rs"]
+mod email_change_http;
 #[path = "../../../crates/identity/src/passkeys_http.rs"]
 mod passkeys_http;
 #[path = "../../../crates/identity/src/reset_delivery.rs"]
 mod reset_delivery;
 #[path = "../../../crates/identity/src/reset_http.rs"]
 mod reset_http;
-#[path = "../../../crates/identity/src/email_change_http.rs"]
-mod email_change_http;
