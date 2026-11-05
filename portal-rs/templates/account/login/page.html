@@ -1,0 +1,13 @@
+{% extends "account/register_base.html" %}
+{% block title %}{{ self.text("login-title") }}{% endblock %}
+{% block content %}
+<h1>{{ self.text("login-title") }}</h1>
+{% if failed %}<p class="op-error" role="alert" id="login-error">{{ self.text("login-error") }}</p>{% endif %}
+
+<form class="op-stack" method="post" action="/{{ lang }}/login">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="email">{{ self.text("login-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="username" required maxlength="254"{% if failed %} aria-describedby="login-error" aria-invalid="true"{% endif %}></div>
+<div class="op-field"><label for="password">{{ self.text("login-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024"{% if failed %} aria-describedby="login-error" aria-invalid="true"{% endif %}></div>
+<button class="op-button op-button--primary" type="submit">{{ self.text("login-submit") }}</button>
+</form>
+{% endblock %}
