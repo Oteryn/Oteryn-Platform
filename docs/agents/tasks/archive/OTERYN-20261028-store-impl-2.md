@@ -56,11 +56,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-28T13:54:39Z
-head: b7d6df3e0aaef84a84757b8ceb3a058a88b2bbf2
+updated_at: 2026-11-05T10:10:00Z
+head: cf6910fe9f47cbd8c13b035ce896f9a5c147c40b
 branch: claude/happy-davinci-ijz3wy-store-purchase
 pr: 1671
-status: waiting
+status: completed
 context_routes:
   - products-entitlements
 owned_paths:
@@ -167,15 +167,15 @@ validation:
 blockers:
   - Lifecycle readiness requires the coordinator to attach a governing Issue.
   - Full PHPStan has one unchanged out-of-scope wiki command error.
-next_action: Coordinator attaches the governing Issue, resolves the unrelated PHPStan blocker and qualifies this local candidate through live review and exact-head CI.
+next_action: none; delivered by PR 1671 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: local implementation only; owner prohibits commits and publication
-source_branch_evidence: current task instruction
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1671 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1671 merged as cf6910fe9f47cbd8c13b035ce896f9a5c147c40b
 ```
 
 ## Notes
