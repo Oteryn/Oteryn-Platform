@@ -1091,6 +1091,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "oteryn-bazaar"
+version = "0.1.0"
+dependencies = [
+ "oteryn-core",
+ "oteryn-db",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "oteryn-characters"
 version = "0.1.0"
 dependencies = [
