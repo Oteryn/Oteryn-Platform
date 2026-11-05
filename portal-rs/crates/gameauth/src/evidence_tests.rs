@@ -99,8 +99,7 @@ fn trust(recovery: bool) -> Value {
     ])
 }
 async fn sources(db: &Database) -> TestResult {
-    // Accounts come from the embedded migrations; public trust is fixture-only.
-    sqlx::raw_sql("CREATE TABLE native_game_signing_trust_profiles (id uuid PRIMARY KEY,issuer text,profile text,key_purpose text,profile_version bigint,issuer_revision bigint,revoked_at timestamptz); CREATE TABLE native_game_signing_trust_key_versions (profile_id uuid,key_id text,key_revision bigint,public_key text,trusted boolean);").execute(&db.pool).await?;
+    // Seed the account and public trust tables supplied by the embedded migrations.
     sqlx::query("INSERT INTO accounts (id, email, password_hash, status, locale, native_security_generation) VALUES ($1, 'evidence@example.test', 'fixture-not-a-hash', 'active', 'en', 1)")
         .bind(ACCOUNT.parse::<sqlx::types::Uuid>()?)
         .execute(&db.pool)
@@ -108,7 +107,7 @@ async fn sources(db: &Database) -> TestResult {
     for (suffix, recovery) in [(1, false), (2, true)] {
         let id = format!("019c0000-0000-7000-8000-{suffix:012}").parse::<sqlx::types::Uuid>()?;
         let value = trust(recovery);
-        sqlx::query("INSERT INTO native_game_signing_trust_profiles VALUES ($1,$2,$3,$4,1,1,NULL)")
+        sqlx::query("INSERT INTO native_game_signing_trust_profiles (id,issuer,profile,key_purpose,profile_version,issuer_revision,revoked_at) VALUES ($1,$2,$3,$4,1,1,NULL)")
             .bind(id)
             .bind(text(&value, "issuer")?)
             .bind(text(&value, "profile")?)
@@ -116,7 +115,7 @@ async fn sources(db: &Database) -> TestResult {
             .execute(&db.pool)
             .await?;
         sqlx::query(
-            "INSERT INTO native_game_signing_trust_key_versions VALUES ($1,'key-1',1,$2,true)",
+            "INSERT INTO native_game_signing_trust_key_versions (profile_id,key_id,key_revision,public_key,trusted,trusted_at) VALUES ($1,'key-1',1,$2,true,clock_timestamp())",
         )
         .bind(id)
         .bind(URL_SAFE_NO_PAD.encode([7; 32]))
@@ -277,7 +276,7 @@ async fn db_evidence_trust_fresh_recovery_revocation_and_bad_public_key() -> Tes
         assert_eq!(value.get("trusted"), Some(&Value::Bool(true)));
     }
     sqlx::query(
-        "UPDATE native_game_signing_trust_key_versions SET trusted=false WHERE profile_id='019c0000-0000-7000-8000-000000000001'",
+        "UPDATE native_game_signing_trust_key_versions SET trusted=false,revoked_at=clock_timestamp() WHERE profile_id='019c0000-0000-7000-8000-000000000001'",
     )
     .execute(&db.pool)
     .await?;
@@ -286,8 +285,9 @@ async fn db_evidence_trust_fresh_recovery_revocation_and_bad_public_key() -> Tes
         observe(&db.pool, &options, &req).await.get("trusted"),
         Some(&Value::Bool(false))
     );
+    // The encoded length is valid, but nonzero trailing bits make this invalid base64url.
     sqlx::query(
-        "UPDATE native_game_signing_trust_key_versions SET public_key='invalid' WHERE profile_id='019c0000-0000-7000-8000-000000000001'",
+        "UPDATE native_game_signing_trust_key_versions SET public_key=repeat('Z',43) WHERE profile_id='019c0000-0000-7000-8000-000000000001'",
     )
     .execute(&db.pool)
     .await?;
