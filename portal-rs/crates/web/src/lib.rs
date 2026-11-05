@@ -236,12 +236,44 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             state.db.clone(),
             oteryn_identity::abuse::http::protect,
         ))
+        .merge(oteryn_characters::create_web::configured_router(
+            state.db.clone(),
+            |session: session::BrowserSession, action| async move {
+                use oteryn_characters::create_web::{BrowserContext, Flash, SessionAction};
+                let key = || session::SessionKey::<Option<Flash>>::new("character-create-flash");
+                let flash = match action {
+                    SessionAction::Peek => None,
+                    SessionAction::Take => {
+                        let flash = session.get(key()).await?.flatten();
+                        if flash.is_some() {
+                            session.set(key(), &None::<Flash>).await?;
+                        }
+                        flash
+                    }
+                    SessionAction::Store(flash) => {
+                        session.set(key(), &Some(flash)).await?;
+                        None
+                    }
+                };
+                let account_id = session.account_id().await;
+                let csrf_token = if account_id.is_some() {
+                    session.csrf_token().await?
+                } else {
+                    String::new()
+                };
+                Ok(BrowserContext {
+                    account_id,
+                    csrf_token,
+                    flash,
+                })
+            },
+        ))
         .route_layer(axum::middleware::from_fn_with_state(
             session_layer,
             session::middleware,
         ))
         .method_not_allowed_fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
-        .fallback(|| async { StatusCode::NOT_FOUND })
+        .fallback(redirects::redirect)
         .merge(oteryn_gameauth::runtime::routes(state.db.clone()))
         .merge(oteryn_gameauth::scopes::routes(state.db.clone()))
         .merge(oteryn_gameauth::devices::routes(state.db.clone()))

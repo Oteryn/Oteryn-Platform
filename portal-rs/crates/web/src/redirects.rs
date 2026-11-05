@@ -49,7 +49,10 @@ pub const MAPPINGS: &[(&str, &str)] = &[
     ("/wiki/items/{slug}", "/wiki/items/{slug}"),
     ("/wiki/creatures/{slug}", "/wiki/creatures/{slug}"),
 ];
-async fn redirect(OriginalUri(uri): OriginalUri) -> Response {
+/// Fallback handler: answers a legacy path with a permanent redirect and any
+/// other unmatched path with 404. Used as the site fallback so that concrete
+/// module routes always take precedence over legacy aliases.
+pub async fn redirect(OriginalUri(uri): OriginalUri) -> Response {
     for (old, new) in MAPPINGS {
         let mut target = new.to_string();
         let matched = if let Some((prefix, parameter)) = old.split_once('{') {

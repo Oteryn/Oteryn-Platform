@@ -5,4 +5,6 @@ pub mod rbac;
 
 pub mod web;
 
+pub mod commerce;
 pub mod players;
+pub mod support;
