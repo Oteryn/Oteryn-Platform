@@ -7,9 +7,10 @@ Status: PROPOSED by Platform, pending acceptance by the game owner (coordinator)
 - Re-pinned all Game references to main `2253b997`; retained paths are unverified at this pin.
 - Clarified reuse as aligned with the proposed Store wire, pending acceptance.
 - Identified the private journal outbox/emitter as NEW game-side deliverables; existing `store/outbox.rs` is Store-only.
-- Replaced the ownership revision field with receipt `projection_revision` from §4.3.
+- Replaced the ownership revision field with receipt `projection_revision` from §4.3, with verified skull/premium source-revision exceptions.
 - Made death recap actions UNAVAILABLE in v1; deferred capture to Future versions.
-- Retained game_login, skull, stamina, premium and house_rent pending verification by the game owner.
+- Applied owner verification at `2253b997`: skull is producible; stamina and premium are partial, with corrected revisions, ordering and units.
+- Kept house_rent pending game-side work and reduced game_login to four fields for a NEW emitter; removed country/device data.
 
 ## 1. Purpose, owners and acceptance boundary
 
@@ -126,10 +127,11 @@ canonical member order, including nested objects. Bounds are inclusive.
 | `revision` | ASCII `[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}`, ≤128 bytes |
 | `authority` | ASCII `[A-Za-z0-9._:/-]{1,128}`, equals configured source |
 | `hex64` | 64 lowercase hexadecimal characters (SHA-256) |
+| `time_us` | `n64` Unix **microseconds**, range 0–253402300799999999; premium payload only, not ordering authority |
 | `time` | `n64` Unix **milliseconds**, range 0–253402300799999 (through year 9999); not ordering authority |
 | `bool` | JSON `true` or `false` |
 
-Milliseconds preserve existing boss `available_at_unix_ms` naming. Fields with
+Except for the explicitly microsecond premium payload, milliseconds preserve existing boss `available_at_unix_ms` naming. Fields with
 `_unix_ms` explicitly differ from command/Store Unix-second fields. Convert source
 microseconds conservatively: floor occurrence times, ceil future expiry deadlines;
 never reinterpret units. A timer observation never grants eligibility.
@@ -147,7 +149,7 @@ event. The envelope members, in order:
 | `account_id` | `id`, private recipient account fixed when the fact is committed |
 | `character_id` | `id?`; null only for account achievement grants, premium end or account login records as specified below |
 | `world_id` | `id?`; required for character-scoped facts, null for account-only facts |
-| `projection_revision` | `u64?`; ownership publication `projection_revision` taken from the §4.3 receipts of `docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md` (unverified reference in §12), required iff character_id non-null; not CharacterRevision or journal source_revision |
+| `projection_revision` | `u64?`; ownership publication `projection_revision` taken from the §4.3 receipts of `docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md` (unverified reference in §12), required for character records except the family-specific source mapping in §5.8; §5.10 instead requires account authority_revision; not CharacterRevision or journal source_revision |
 | `projection_epoch` | `u64`, producer-fenced generation shared with the accepted account ownership projection |
 | `recovery_generation` | `u64`, current Game restore fence |
 | `family` | exact enum from §5 |
@@ -163,8 +165,11 @@ REMOVE targets the identical family/entity/subject and removes its live presenta
 not source audit truth. It may remove a historical event for accepted correction or
 privacy erasure. Reinstating an event requires a later source revision, explicit
 Game correction and the same event identity. It never repeats gameplay effects.
-`character_id`, `world_id`, `projection_revision` and `character_revision` are all null for an
-account-only record; all non-null for a character record. Login may use either form.
+`character_id`, `world_id` and `character_revision` are null for account-only
+records and non-null for character records. `projection_revision` is null for
+account-only records except premium, which requires authority_revision. Skull uses
+the table revision instead of an ownership receipt revision; neither it nor premium
+proves ownership. Independent current ownership revalidation remains mandatory. Login may use either form.
 A removal obeys the same scope as the removed record.
 
 Watermark members, in order: `contract_version` (1), `operation`
@@ -290,38 +295,47 @@ killer for VICTIM, null if that singular identity cannot safely be established.
 
 ### 5.8 `skull` (T78)
 
-**Pending verification by the game owner.** Retained as a proposed family; mapping,
-units, bounds and producer availability are not verified.
+**Producible**, verified by the game owner at `2253b997`.
+Source: `durability/pvp_state.rs`, table `game_character_pvp_state`, and
+`pvp_skull_storage.rs`. Table skull values 0/1/2 map to NONE/RED/BLACK;
+`skull_until` and `kill_block_until` supply the deadlines, converted to wire
+milliseconds. Envelope `projection_revision` is the table's `revision` column.
 
 Character scope. Entity literal `skull`.
 Payload: `skull` (`NONE|RED|BLACK`), `skull_until_unix_ms` (`time?`),
 `kill_block_until_unix_ms` (`time?`). NONE requires null skull_until; RED/BLACK
-require a non-null deadline. These are proposed durable values pending owner verification;
-client-relative temporary skull colors are excluded. Game owns expiry/normalization; an elapsed
-deadline may be displayed as elapsed but must not fabricate a cleared source state.
+require a non-null deadline. Game owns expiry/normalization; an elapsed deadline
+must not fabricate a cleared source state. The private emitter remains NEW work.
 
 ### 5.9 `stamina` (T79)
 
-**Pending verification by the game owner.** Retained as a proposed family; mapping,
-units, bounds and producer availability are not verified.
+**Partial**, verified by the game owner at `2253b997`.
+Source: `hunting_stamina.rs`, `commit_hunting_stamina` / `commit_resting_stamina`,
+with stamina before/after in `game_character_build_receipts`.
 
 Character scope. Entity literal `stamina`.
-Payload: `stamina_minutes` (JSON integer 0–2520), `maximum_minutes` (JSON integer
-1–2520, ≥stamina_minutes), `full_at_unix_ms` (`time?`), `policy_revision` (`revision`).
-Minutes are whole Game storage units. full_at is a Game prediction under its current
-activity/rest policy, null if unknown; it is not authoritative future eligibility.
+Payload, in order: `stamina_minutes` (JSON integer 0–2520, committed after value),
+`content_revision` (`u64`), `build_occurrence_id` (`id`, receipt occurrence).
+Record ordering is `content_revision` then `build_occurrence_id`; the NEW emitter
+must preserve that order when allocating the envelope's contiguous source_revision.
+The maximum is the constant **2520 minutes**, not a source or payload field.
+The game does not store a full-time prediction; no such field is exported in v1.
 No Platform tick may replenish authoritative stamina. Any higher supported maximum
 requires a version change, not silent clamping.
 
 ### 5.10 `premium_end` (T79)
 
-**Pending verification by the game owner.** Retained as a proposed family; mapping,
-units, bounds and producer availability are not verified.
+**Partial**, verified by the game owner at `2253b997`.
+Source: `premium_fence.rs`, account-scoped `game_premium_evidence`, with monotonic
+`authority_revision`. Envelope `projection_revision` equals `authority_revision`.
 
 Account scope. Entity literal `premium`.
-Payload: `observed_state` (`ACTIVE|INACTIVE|UNKNOWN`), `effective_until_unix_ms`
-(`time?`), `authority_revision` (`u64?`). ACTIVE requires both non-null; INACTIVE
-requires non-null authority_revision and null end; UNKNOWN requires both null.
+Payload, in order: `observed_state`
+(`ACTIVE|NOT_YET_EFFECTIVE|EXPIRED|REVOKED|NONE`), `effective_until_unix_us`
+(`time_us?`), `authority_revision` (`u64`). No UNKNOWN state is accepted.
+Times in this payload are Unix **microseconds**, preserved from the source;
+null end means no evidenced deadline, never an inferred entitlement.
+The exact state/deadline mapping requires acceptance when implementing the NEW emitter.
 This is Game's observation of Platform premium evidence. Platform reminders must
 recheck its own ProductsEntitlements source, including commercial start/end and
 revocation; disagreement suppresses the reminder and raises reconciliation.
@@ -329,35 +343,30 @@ This record carries no usable entitlement lease and cannot activate a benefit.
 
 ### 5.11 `house_rent` (T79)
 
-**Pending verification by the game owner.** Retained as a proposed family; mapping,
-units, bounds and producer availability are not verified.
-
-Character scope. Entity `house_key`, additionally scoped by envelope world_id.
-Payload: `house_key` (`key`), `rent_period` (`daily|weekly|monthly|yearly|never`),
-`rent_gold` (`n64`, ≤999999999999), `next_rent_at_unix_ms` (`time?`), `warnings`
-(JSON integer 0–7), `last_payment_id` (`id?`). `never` requires null next rent;
-other periods require non-null next rent. Null payment means no retained linked
-payment. Rent currency is in-game gold, not Wallet coins. Eviction/ownership loss
-publishes REMOVE under the old owner boundary. Portal cannot pay rent through this feed.
+**Pending, game-side work; unverified.** The game owner confirms
+`advance_house_rent` in `house_rent.rs`, SQL `game_house_rent_tick` and a disposition
+audit. The fields `rent_period`, `rent_gold`, `next_rent_at`, `warnings` and
+`last_payment_id` are not confirmed. The owner will verify them when implementing
+the NEW emitter; no closed payload or golden is accepted for this family yet.
+Character scope and `house_key`/world mapping also require emitter acceptance.
+Keep the family disabled and unavailable until its schema is accepted.
+Portal cannot pay rent through this feed.
 
 ### 5.12 `game_login` (T80)
 
-**Pending verification by the game owner.** Retained as a proposed family; mapping,
-units, bounds and producer availability are not verified.
-
-Account scope, optionally character scope once admission binds a character. Entity
+**NEW game emitter required; no game-side login history exists.**
+`admission_journal.rs` handles reconnect/recovery, not login history.
+Account scope, optionally character scope once entry binds a character. Entity
 `login_event_id`.
-Payload: `login_event_id` (`id`, new non-secret audit occurrence), `event`
-(`ADMITTED|ENDED`), `admission_event_id` (`id`), `country_code` (two uppercase ASCII
-letters, or null), `device_class` (`DESKTOP|MOBILE|UNKNOWN`), `end_reason`
-(`LOGOUT|DISCONNECT|REVOKED|UNKNOWN`, nullable). ADMITTED requires null end_reason;
-ENDED requires non-null end_reason. ADMITTED uses its own login_event_id as
-admission_event_id; ENDED references that admission occurrence. Each occurrence is
-immutable. A failed login attempt is not an ADMITTED record; security failure
-telemetry remains in its existing security surface. Country is coarse server-side
-IP geolocation; null means unavailable. Device is coarse, untrusted presentation
-metadata, never authentication evidence. Missing ENDED is unknown continuity,
-not proof of an active session. Do not send GameSessionId or a reconnect capability.
+Payload, in order, contains only `login_event_id` (`id`, non-secret occurrence),
+`entered_at` (`time`, Unix milliseconds), `left_at` (`time?`, Unix milliseconds),
+`end_reason` (`LOGOUT|DISCONNECT|REVOKED|UNKNOWN`, nullable).
+An open entry has null left_at and end_reason; a closed entry has both non-null,
+with left_at ≥entered_at. Updates retain the same login_event_id and use a later
+source_revision. A missing exit is unknown continuity, not proof of an active session.
+Failed login attempts remain outside this history. Do not send GameSessionId or a
+reconnect capability. Country and device data are outside this contract; the portal
+may derive them only from its own web session, never from this game feed.
 
 ## 6. Ordering, outbox, watermarks and replay
 
@@ -378,7 +387,8 @@ owner acceptance; none is supplied by the existing Store-only `store/outbox.rs`:
 - Baseline enumeration, tombstones, acknowledgement validation, retries, watermarks,
   replay, retention and restore/ownership fencing for this private feed.
 - Dedicated descriptor purpose/route binding, default-off flags and family adapters;
-  the five families marked pending verification require the game owner's verification.
+  house_rent requires owner verification during emitter implementation; skull,
+  stamina and premium use the owner-verified sources above, and login needs new capture.
 
 ### 6.2 Proposed delivery behavior
 
@@ -395,6 +405,8 @@ Platform may durably stage out-of-order records but only exposes a contiguous
 prefix after an accepted complete baseline. An older revision cannot overwrite a
 newer entity; equal revision/different bytes conflicts. Snapshot current-state
 families replace entities; history families deduplicate immutable occurrences.
+Login entries are the explicit exception: later revisions may close the same entry
+with left_at/end_reason, without creating a second login occurrence.
 A watermark advances freshness only after every sequence through complete_through
 is durably accepted and applied and its baseline is proven. Ahead-of-data watermark
 → `409`, no advancement; Game retries after filling gaps. A regressing watermark,
@@ -496,7 +508,7 @@ Proposed Platform retention (coordinator must accept before enablement):
 | Current progress/timers | Latest entity while current ownership holds; superseded payloads ≤7 days |
 | Skill history, death receipts/losses, PvP events | 90 days from occurred_at |
 | Detailed recap actions | UNAVAILABLE in v1; no actions captured or retained |
-| Game login history, country/device class | 30 days |
+| Game login history | 30 days |
 | Raw acknowledged canonical payloads | ≤7 days, encrypted at rest and unavailable to ordinary application logs |
 | Minimal record digest, key/sequence and epoch/ownership fences | While stream exists, plus 90 days after closure; no payload; reset/rebootstrap required before accepting older replay after expiry |
 | Backups | Encrypted, bounded 35-day expiry; restore reapplies deletion/ownership fences before serving |
@@ -511,7 +523,7 @@ Never send passwords/hashes, tokens, cookies, certificates/private keys, raw IPs
 precise location, device identifiers/fingerprints, hardware IDs, user-agent strings,
 GameSessionId, admission/lease capabilities, runtime topology, chat, mail, trade
 notes, item inscriptions, counterpart AccountIds or unrestricted combat logs.
-Coarse country/device are nullable as specified; no raw source fallback. Counterpart
+Country/device data are excluded from this feed; no raw source fallback. Counterpart
 CharacterIds are minimized/redacted; names are resolved only through independently
 permitted presentation data. No telemetry is an authentication factor.
 
@@ -547,7 +559,7 @@ its trusted clock is fixed at Unix millisecond 1790000000000.
 Valid complete stamina record (character ownership projection_revision 12; sequence 1):
 
 ```json
-{"contract_version":1,"operation":"PublishGameJournalProgressV1","source_authority":"oteryn:journal:primary","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c04-7001-805b-3b1122334402","projection_revision":"12","projection_epoch":"1","recovery_generation":"3","family":"stamina","source_revision":"1","record_id":"01934f10-7c04-7001-805b-3b1122334403","entity_key":"stamina","character_revision":"9","occurred_at_unix_ms":"1790000000000","record_kind":"UPSERT","payload":{"stamina_minutes":2400,"maximum_minutes":2520,"full_at_unix_ms":null,"policy_revision":"stamina-v1"}}
+{"contract_version":1,"operation":"PublishGameJournalProgressV1","source_authority":"oteryn:journal:primary","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c04-7001-805b-3b1122334402","projection_revision":"12","projection_epoch":"1","recovery_generation":"3","family":"stamina","source_revision":"1","record_id":"01934f10-7c04-7001-805b-3b1122334403","entity_key":"stamina","character_revision":"9","occurred_at_unix_ms":"1790000000000","record_kind":"UPSERT","payload":{"stamina_minutes":2400,"content_revision":"9","build_occurrence_id":"01934f10-7c04-7001-805b-3b1122334411"}}
 ```
 
 Matching valid acknowledgement:
@@ -602,33 +614,31 @@ requests; envelope subject/scope/entity rules remain mandatory.
 ```
 
 ```json
-{"stamina_minutes":2400,"maximum_minutes":2520,"full_at_unix_ms":null,"policy_revision":"r1"}
+{"stamina_minutes":2400,"content_revision":"9","build_occurrence_id":"01934f10-7c04-7001-805b-3b1122334411"}
 ```
 
 ```json
-{"observed_state":"ACTIVE","effective_until_unix_ms":"1790086400000","authority_revision":"4"}
+{"observed_state":"ACTIVE","effective_until_unix_us":"1790086400000000","authority_revision":"4"}
 ```
 
-```json
-{"house_key":"house/example","rent_period":"monthly","rent_gold":"1000","next_rent_at_unix_ms":"1790086400000","warnings":0,"last_payment_id":null}
-```
+*house_rent golden deferred pending game-side schema verification.*
 
 ```json
-{"login_event_id":"01934f10-7c04-7001-805b-3b1122334413","event":"ADMITTED","admission_event_id":"01934f10-7c04-7001-805b-3b1122334413","country_code":null,"device_class":"UNKNOWN","end_reason":null}
+{"login_event_id":"01934f10-7c04-7001-805b-3b1122334413","entered_at":"1790000000000","left_at":null,"end_reason":null}
 ```
 
 Invalid full request: source_revision is a JSON number rather than a decimal string;
 expect 400 and no outbox acknowledgement, projection write or freshness update.
 
 ```json
-{"contract_version":1,"operation":"PublishGameJournalProgressV1","source_authority":"oteryn:journal:primary","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c04-7001-805b-3b1122334402","projection_revision":"12","projection_epoch":"1","recovery_generation":"3","family":"stamina","source_revision":1,"record_id":"01934f10-7c04-7001-805b-3b1122334403","entity_key":"stamina","character_revision":"9","occurred_at_unix_ms":"1790000000000","record_kind":"UPSERT","payload":{"stamina_minutes":2400,"maximum_minutes":2520,"full_at_unix_ms":null,"policy_revision":"stamina-v1"}}
+{"contract_version":1,"operation":"PublishGameJournalProgressV1","source_authority":"oteryn:journal:primary","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c04-7001-805b-3b1122334402","projection_revision":"12","projection_epoch":"1","recovery_generation":"3","family":"stamina","source_revision":1,"record_id":"01934f10-7c04-7001-805b-3b1122334403","entity_key":"stamina","character_revision":"9","occurred_at_unix_ms":"1790000000000","record_kind":"UPSERT","payload":{"stamina_minutes":2400,"content_revision":"9","build_occurrence_id":"01934f10-7c04-7001-805b-3b1122334411"}}
 ```
 
 Invalid family payload substitutions (400): above-maximum stamina; skull without
 its required deadline; raw IP field; quest integer encoded noncanonically.
 
 ```json
-{"stamina_minutes":2521,"maximum_minutes":2520,"full_at_unix_ms":null,"policy_revision":"r1"}
+{"stamina_minutes":2521,"content_revision":"9","build_occurrence_id":"01934f10-7c04-7001-805b-3b1122334411"}
 ```
 
 ```json
@@ -636,7 +646,7 @@ its required deadline; raw IP field; quest integer encoded noncanonically.
 ```
 
 ```json
-{"login_event_id":"01934f10-7c04-7001-805b-3b1122334413","event":"ADMITTED","admission_event_id":"01934f10-7c04-7001-805b-3b1122334413","country_code":null,"device_class":"UNKNOWN","end_reason":null,"ip_address":"192.0.2.1"}
+{"login_event_id":"01934f10-7c04-7001-805b-3b1122334413","entered_at":"1790000000000","left_at":null,"end_reason":null,"ip_address":"192.0.2.1"}
 ```
 
 ```json
@@ -688,13 +698,13 @@ Game acceptance:
       only in separately authorized Game work; no assumed producer completion here.
 - [ ] Restore/PITR, ownership publication cut and unsupported transfer consumer
       behavior tested against Platform's deny-on-ambiguity rule.
-- [ ] Never-sent fields absent; counterpart redaction, country/device minimization,
+- [ ] Never-sent fields absent; counterpart redaction, exclusion of country/device data,
       retention-compatible replay and synthetic preproduction E2E accepted.
 
 Open questions for the game owner (activation blockers for the affected family):
 
 1. **Producer coverage:** which owners will supply NEW
-   game admission/end audit, stamina/full-time predictions, premium observations and
+   game admission/end audit, stamina receipt exports, premium observations and
    rent exports? Which families can be accepted first without declaring G-11 complete?
 2. **Outbox cut:** can private streams share the existing account projection_epoch
    fence and allocate contiguous per-account/family export sequences transactionally?
@@ -710,12 +720,12 @@ Open questions for the game owner (activation blockers for the affected family):
 5. **Death/PvP privacy and bounds:** accept UNAVAILABLE recap actions in v1, 256 loss types,
    source redaction, Game-assigned KILL/ASSIST, and durable NONE/RED/BLACK skull only?
    What is the authoritative points_milli mapping? Action completeness is deferred.
-6. **Timers/premium:** accept milliseconds, conservative conversions, 2520-minute
-   stamina ceiling, nullable predictions and reminder suppression on stale evidence?
+6. **Timers/premium:** accept premium microseconds and other family milliseconds, conservative conversions, 2520-minute
+   stamina constant maximum, no exported full-time prediction and reminder suppression on stale evidence?
    Should premium reminders use only Platform commercial authority and omit this
    Game observation family entirely?
 7. **Login/security:** can Game mint non-secret admission audit occurrences without
-   exporting GameSessionId, and supply nullable coarse country/device? Which existing
+   exporting GameSessionId, and supply the four-field entry/exit history? Which existing
    accepted revocation capability supports T80, and what exact completion proof can
    Platform show? History must remain independently usable if revocation is absent.
 8. **Operational/privacy policy:** accept dedicated purpose/identity, route/depth/rate
@@ -726,7 +736,8 @@ Open questions for the game owner (activation blockers for the affected family):
 ## 12. Pinned source evidence and validation scope
 
 Game reference is read-only **Oteryn/Oteryn-Game main at
-`2253b997`**. Every Game path below is an **unverified** reference at
+`2253b997`**. Owner-verified source names in §5.8–§5.12 are reproduced as supplied above;
+no additional directory paths are inferred. Every older Game path below remains an **unverified** reference at
 that commit ([source tree](https://github.com/Oteryn/Oteryn-Game/tree/2253b997)).
 No Game mutation or push is part of this task.
 
