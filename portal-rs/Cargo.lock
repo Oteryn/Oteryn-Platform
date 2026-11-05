@@ -1020,6 +1020,19 @@ version = "0.1.0"
 [[package]]
 name = "oteryn-characters"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "oteryn-core",
+ "oteryn-internal-api",
+ "sha2 0.10.9",
+ "sqlx",
+ "subtle",
+ "tokio",
+ "tower",
+ "unicode-normalization",
+ "unicode-properties",
+ "uuid",
+]
 
 [[package]]
 name = "oteryn-community"
@@ -1118,7 +1131,9 @@ dependencies = [
  "axum",
  "fluent-bundle",
  "getrandom 0.4.3",
+ "oteryn-characters",
  "oteryn-db",
+ "oteryn-internal-api",
  "serde_json",
  "sqlx",
  "tokio",

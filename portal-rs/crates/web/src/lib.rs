@@ -165,3 +165,11 @@ mod tests {
 mod surface;
 
 pub use surface::{CspNonce, Language, WebOptions, module_router, router_with_options};
+
+/// Dedicated internal listener surface; the TLS adapter supplies verified peers.
+pub fn internal_character_router(
+    projection: oteryn_characters::lcfa::Projection,
+    identities: std::sync::Arc<oteryn_internal_api::guard::IdentityMap>,
+) -> Router {
+    oteryn_characters::lcfa::router(projection, identities)
+}
