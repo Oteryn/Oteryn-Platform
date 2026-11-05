@@ -1,0 +1,18 @@
+{% extends "account/register_base.html" %}
+{% block title %}{{ self.text("passkeys-title") }}{% endblock %}
+{% block content %}
+<h1>{{ self.text("passkeys-title") }}</h1>
+<div id="passkeys" data-base="/{{ lang }}/account/passkeys" data-csrf="{{ csrf }}">
+<p id="passkey-status" role="status" aria-live="polite" data-error="{{ self.text("passkeys-error") }}" data-success="{{ self.text("passkeys-success") }}">{{ self.text("passkeys-help") }}</p>
+{% if account %}
+<p>{{ self.text("passkeys-revoke") }}</p>
+<div class="op-field"><label for="passkey-password">{{ self.text("passkeys-password") }}</label><input class="op-input" id="passkey-password" type="password" autocomplete="current-password" required maxlength="1024"></div>
+<button class="op-button op-button--primary" type="button" data-passkey="register">{{ self.text("passkeys-register") }}</button>
+<ul>{% for id in ids %}<li><span>{{ loop.index }}.</span> <button class="op-button" type="button" data-remove="{{ id }}">{{ self.text("passkeys-remove") }}</button></li>{% endfor %}</ul>
+{% else %}
+<label for="passkey-username">{{ self.text("passkeys-username") }}</label><input class="op-input" id="passkey-username" autocomplete="username webauthn">
+<button class="op-button op-button--primary" type="button" data-passkey="authenticate">{{ self.text("passkeys-login") }}</button>
+{% endif %}
+</div>
+<script src="/static/passkeys.js" defer></script>
+{% endblock %}

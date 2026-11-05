@@ -1,0 +1,10 @@
+passkeys-title = Passkeys
+passkeys-help = Use your device screen lock or security key. Sign-in uses browser autofill after you select Sign in.
+passkeys-error = The request could not be completed. Reload the page and try again.
+passkeys-success = Completed. Reloading the page.
+passkeys-password = Confirm your current password
+passkeys-register = Add a passkey
+passkeys-remove = Remove passkey
+passkeys-login = Sign in with a passkey
+passkeys-username = Account autofill
+passkeys-revoke = Adding or removing a passkey signs out all browser sessions. Your password remains available for sign-in.

@@ -1,0 +1,10 @@
+passkeys-title = Klucze dostępu
+passkeys-help = Użyj blokady ekranu urządzenia lub klucza zabezpieczeń. Po wybraniu logowania skorzystaj z autouzupełniania przeglądarki.
+passkeys-error = Nie udało się wykonać żądania. Odśwież stronę i spróbuj ponownie.
+passkeys-success = Gotowe. Trwa odświeżanie strony.
+passkeys-password = Potwierdź obecne hasło
+passkeys-register = Dodaj klucz dostępu
+passkeys-remove = Usuń klucz dostępu
+passkeys-login = Zaloguj kluczem dostępu
+passkeys-username = Autouzupełnianie konta
+passkeys-revoke = Dodanie lub usunięcie klucza wyloguje wszystkie sesje przeglądarki. Nadal możesz logować się hasłem.
