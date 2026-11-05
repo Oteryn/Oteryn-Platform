@@ -44,13 +44,7 @@ final class InstallWikiLaunchContent extends Command
             return self::FAILURE;
         }
 
-        $publisher = $this->argument('publisher');
-
-        if (! is_string($publisher)) {
-            $this->components->error('The Wiki publisher email argument must be a string.');
-
-            return self::FAILURE;
-        }
+        $publisher = (string) $this->argument('publisher');
 
         $identity = Identity::query()
             ->where('email', CanonicalEmail::normalize($publisher))
