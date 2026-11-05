@@ -9,3 +9,4 @@ pub use accounts::AccountId;
 pub mod abuse;
 pub mod login;
 pub mod reset;
+pub mod passkeys;
