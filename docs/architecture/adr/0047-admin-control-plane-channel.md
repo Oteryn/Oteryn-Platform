@@ -13,11 +13,11 @@ Proposed — 2026-11-05
 
 The owner programme calls for one Platform console for Game operations and analytics while Game retains authority over runtime state, nodes, hosts and its database. Platform owns operator identity, authorization, approvals, durable requests and presentation. Platform never initiates a connection to Game and receives no Game database credentials or shell access.
 
-The normative inputs are the following files in `Oteryn/Oteryn-Game`, pinned to commit `5ff65ff759b5d5278d8531728ae604e865b1870e` (Game PR #2992):
+The normative inputs are the following files in `Oteryn/Oteryn-Game`, pinned to commit `7047e5d45af3e16e4cf49ab925c4f1e0bde8ef03` (Game PR #2992, merged):
 
-- [ADR-0023](https://github.com/Oteryn/Oteryn-Game/blob/5ff65ff759b5d5278d8531728ae604e865b1870e/docs/architecture/ADR-0023-admin-control-plane-and-analytics-console.md): accepted direction.
-- [ADM-01](https://github.com/Oteryn/Oteryn-Game/blob/5ff65ff759b5d5278d8531728ae604e865b1870e/docs/architecture/ADM-01_ADMIN_CONTROL_PLANE_CONTRACT.md): normative wire contract `oteryn.admin-control.v1`.
-- [ADM-02](https://github.com/Oteryn/Oteryn-Game/blob/5ff65ff759b5d5278d8531728ae604e865b1870e/docs/architecture/ADM-02_ADMIN_CONSOLE_DESIGN_AND_DELIVERY_PLAN.md): console and delivery plan.
+- [ADR-0023](https://github.com/Oteryn/Oteryn-Game/blob/7047e5d45af3e16e4cf49ab925c4f1e0bde8ef03/docs/architecture/ADR-0023-admin-control-plane-and-analytics-console.md): accepted direction.
+- [ADM-01](https://github.com/Oteryn/Oteryn-Game/blob/7047e5d45af3e16e4cf49ab925c4f1e0bde8ef03/docs/architecture/ADM-01_ADMIN_CONTROL_PLANE_CONTRACT.md): normative wire contract `oteryn.admin-control.v1`.
+- [ADM-02](https://github.com/Oteryn/Oteryn-Game/blob/7047e5d45af3e16e4cf49ab925c4f1e0bde8ef03/docs/architecture/ADM-02_ADMIN_CONSOLE_DESIGN_AND_DELIVERY_PLAN.md): console and delivery plan.
 
 ADM-02's Laravel/Blade description is historical Platform context. Implementation follows `../OTERYN_PORTAL_RUST_PLAN.md` §§1–4, 7, 8 and 10: axum, askama, PostgreSQL 18.6 in Platform's separate instance, existing RBAC in `portal-rs/crates/admin/src/rbac`, and the existing internal mTLS guard in `portal-rs/crates/internal-api/src/guard.rs`. This proposal introduces no Laravel implementation.
 
