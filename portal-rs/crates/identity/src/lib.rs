@@ -11,3 +11,4 @@ pub mod credentials;
 pub mod login;
 pub mod reset;
 pub mod passkeys;
+pub mod export;
