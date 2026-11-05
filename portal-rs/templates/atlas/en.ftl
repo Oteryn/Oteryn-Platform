@@ -1,0 +1,12 @@
+title = World atlas
+help = Use arrow keys or drag to pan. Use + and − to zoom. Select a floor and toggle layers below. Coordinates are saved in the URL.
+floor = Floor
+zoom-in = Zoom in
+zoom-out = Zoom out
+map = Map tiles
+markers = NPC markers
+missing = Some map tiles are unavailable.
+north = North
+south = South
+west = West
+east = East

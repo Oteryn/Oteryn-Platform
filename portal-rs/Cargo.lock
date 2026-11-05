@@ -1396,11 +1396,22 @@ dependencies = [
 name = "oteryn-atlas"
 version = "0.1.0"
 dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
+ "getrandom 0.4.3",
  "image",
  "lzma-rs",
+ "oteryn-db",
+ "oteryn-world",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tower",
+ "unic-langid",
 ]
 
 [[package]]
@@ -1596,6 +1607,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "oteryn-admin",
+ "oteryn-atlas",
  "oteryn-community",
  "oteryn-core",
  "oteryn-db",
