@@ -29,8 +29,14 @@ pub async fn require_game_access(
         return Err(Error::Denied);
     }
     let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sanctions WHERE account_id=$1 AND (category NOT IN ('warning','restriction','suspension') OR status NOT IN ('pending','active','expired','revoked') OR (category='suspension' AND status='active' AND effective_at <= clock_timestamp() AND (expires_at IS NULL OR expires_at > clock_timestamp()))))")
+        .bind(account).fetch_one(&mut *connection).await?;
+    let revised_ban: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM (SELECT DISTINCT ON (r.sanction_id) r.active,r.expires_at FROM support_sanction_revisions r JOIN support_sanction_identities i USING(sanction_id) WHERE r.account_id=$1 AND i.kind='ban' ORDER BY r.sanction_id,r.revision DESC) latest WHERE active AND (expires_at IS NULL OR expires_at > statement_timestamp()))")
         .bind(account).fetch_one(connection).await?;
-    if blocked { Err(Error::Denied) } else { Ok(()) }
+    if blocked || revised_ban {
+        Err(Error::Denied)
+    } else {
+        Ok(())
+    }
 }
 
 /// Narrow seam for the ticket task: bearer/scope validation remains with that
