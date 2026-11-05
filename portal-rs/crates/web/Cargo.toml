@@ -1,0 +1,22 @@
+[package]
+name = "oteryn-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+askama = "0.16.1"
+axum = "0.8.9"
+oteryn-db = { version = "0.1.0", path = "../db" }
+sqlx = { version = "0.9.0", default-features = false, features = ["postgres"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net"] }
+tower-http = { version = "0.7.1", features = ["trace", "set-header", "limit", "fs"] }
+tracing = "0.1.44"
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }

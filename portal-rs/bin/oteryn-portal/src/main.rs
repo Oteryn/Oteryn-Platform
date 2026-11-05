@@ -1,0 +1,87 @@
+//! Oteryn portal binary. One process role per invocation: serve, migrate or worker.
+
+use std::process::ExitCode;
+
+use oteryn_core::Config;
+use oteryn_web::AppState;
+use tracing_subscriber::EnvFilter;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    Serve,
+    Migrate,
+    Worker,
+}
+
+fn parse_role(arg: Option<&str>) -> Option<Role> {
+    match arg {
+        Some("serve") | None => Some(Role::Serve),
+        Some("migrate") => Some(Role::Migrate),
+        Some("worker") => Some(Role::Worker),
+        Some(_) => None,
+    }
+}
+
+#[tokio::main]
+async fn main() -> ExitCode {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .json()
+        .init();
+
+    let arg = std::env::args().nth(1);
+    let Some(role) = parse_role(arg.as_deref()) else {
+        tracing::error!(role = ?arg, "unknown role; expected serve, migrate or worker");
+        return ExitCode::from(2);
+    };
+    match run(role).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            tracing::error!(%error, ?role, "portal stopped");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::from_env()?;
+    let db = oteryn_db::lazy_pool(config.database_url())?;
+    match role {
+        Role::Migrate => {
+            oteryn_db::migrate(&db).await?;
+            tracing::info!("migrations applied");
+        }
+        Role::Worker => {
+            tracing::info!("worker started");
+            tokio::signal::ctrl_c().await?;
+        }
+        Role::Serve => {
+            let static_dir =
+                std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
+            let app = oteryn_web::router(AppState { db }, &static_dir);
+            let listener = tokio::net::TcpListener::bind(config.bind).await?;
+            tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = tokio::signal::ctrl_c().await;
+                })
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roles_parse_with_serve_as_default() {
+        assert_eq!(parse_role(None), Some(Role::Serve));
+        assert_eq!(parse_role(Some("migrate")), Some(Role::Migrate));
+        assert_eq!(parse_role(Some("worker")), Some(Role::Worker));
+        assert_eq!(parse_role(Some("drop-database")), None);
+    }
+}
