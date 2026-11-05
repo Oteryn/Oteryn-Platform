@@ -173,7 +173,7 @@ Dlatego portal serwuje base URL w korzeniu domeny, bez prefiksu.
 | --- | --- | --- |
 | `GET /oauth/authorize` | `response_type=code`, `scope=game:ticket`, PKCE S256, `state` | Jest (Passport) |
 | `POST /oauth/token` (form) | Tylko `authorization_code`; odpowiedź `{token_type:"bearer", access_token ≤8192 B}`; klient czyta tylko te dwa pola | Jest (Passport) |
-| `GET /v1/client/directory` | `{epoch:u64, worlds:[{id, name, channels:[{id,name}], characters:[{id,name}]}]}`; ≤1 MiB, ≤256 światów, ≤128 kanałów, ≤256 postaci, `name` ≤96 B | Brak w Platform i w locku |
+| `GET /v1/client/directory` | `{epoch:u64, worlds:[{id, name, channels:[{id,name}], characters:[{character_ref, display_name}]}]}` (pola postaci według `platform-contracts`; do potwierdzenia w G-1); ≤1 MiB, ≤256 światów, ≤128 kanałów, ≤256 postaci, `name` ≤96 B | Brak w Platform i w locku |
 | `POST /api/v1/game-auth/tickets` | Bearer, `{protocol_version:1}` → `{protocol_version:1, ticket ≤256 B, expires_in>0}`, `deny_unknown_fields`; 401/403 → AUTHENTICATION_REQUIRED | Jest; U1 w grze: NOT_IMPLEMENTED po stronie Platform |
 | `GET /api/v1/game-auth/native-characters` | `{protocol_version:2, characters:[{character_id, world_id, name, availability: AVAILABLE\|UNAVAILABLE}]}`, UUIDv7, ≤16384 B | Jest |
 | `POST /api/v1/game-auth/device-sessions` oraz `/native-characters`, `/tickets`, `/revoke` | Kontrakt tylko po stronie Platform; gra ich nie woła | Jest (Platform) |
@@ -182,19 +182,19 @@ Dlatego portal serwuje base URL w korzeniu domeny, bez prefiksu.
 Uwagi:
 
 - **Directory nie służy do odkrywania tras.** Klient odrzuca na każdej głębokości klucze `host`, `port`, `endpoint`, `protocol`, `ticket`, `credential`, `game_session`, `admission`, `route`, `address`. Nowe trasy klient zna z wersji kontraktu, nie z directory.
-- **`world.characters` w directory** kłóci się z zasadą LCFA „lista postaci konta nigdy nie jest publiczna”. Do rozstrzygnięcia w G-1, zanim T36 zbuduje directory. Do tego czasu portal zwraca `characters: []`.
+- **`world.characters` w directory.** Kontraktu directory w grze nie ma, jest tylko konsument (`platform-contracts`: `DirectoryCharacter{character_ref, display_name}`, ≤256 na świat). LCFA (Accepted rev 2) zabrania publicznej listy postaci konta. Reguła: `characters` tylko dla uwierzytelnionego właściciela konta, a anonimowo `characters: []`. G-1 zapisze kontrakt directory z tą regułą w locku; do tego czasu portal zawsze zwraca `[]`.
 - **Refresh token** jest nowym zachowaniem: dzisiejszy klient go nie używa. Portal może go wydawać (z rotacją i unieważnieniem rodziny przy ponownym użyciu), ale odpowiedź dla `authorization_code` musi pozostać zgodna z tym, co czyta klient.
 - Kontrakty „jak dziś” portal implementuje na własnych typach wire. Zgodność bajt w bajt sprawdzają testy z wektorami (golden) skopiowanymi z Game. Portal nie zależy od crate'ów gry: `platform-contracts` przypina tokio przez workspace gry, a `build.rs` w `protocol-oteryn` czyta docs repo gry.
 
 ### 5.3 Game API `/internal/v1` (mTLS)
 
-Wszystkie trasy: TLS 1.3, HTTP/1.1, osobna tożsamość mTLS per grupa, limit rozmiaru, kanoniczny JSON, porównania w stałym czasie, odpowiedzi 503 i 401 dokładnie jak w kontrakcie. Testy kontraktowe czytają fixtures z `docs/contracts/fixtures/` i wymagają identycznych bajtów.
+Wszystkie trasy poza `native-admissions` (token usługi gatewaya): TLS 1.3, HTTP/1.1, osobna tożsamość mTLS per grupa, limit rozmiaru, kanoniczny JSON, porównania w stałym czasie, odpowiedzi 503 i 401 dokładnie jak w kontrakcie. Testy kontraktowe czytają fixtures z `docs/contracts/fixtures/` i wymagają identycznych bajtów.
 
 **5.3.1 Trasy, które portal serwuje** (klientem jest gra albo gateway):
 
 | Grupa | Trasa | Kto woła | Kontrakt i stan |
 | --- | --- | --- | --- |
-| game-auth | `native-admissions` | Gateway logowania (Go, w tym repo) | Patrz uwaga o kierunku niżej |
+| game-auth | `native-admissions` | Gateway logowania (Go, w tym repo), token usługi | Kierunek potwierdzony; wpis w locku przez G-1 |
 | game-auth | `native-evidence`, `native-runtime-status`, `native-scope-assignments`, `native-scope-revocations` | Gra | Bez wpisu w locku |
 | game-auth | `native-account-characters`, `native-account-characters/watermark` (LCFA push) | Gra | Accepted rev2; snapshot `{contract_version:1, operation, source_authority, account_id, projection_epoch, projection_revision, source_observed_at, characters[0..64, posortowane]}`, watermark `{complete_through, observed_at}`; producent gotowy, wyłączony; konsumenta w Platform brak |
 | game-auth | `character-commands/{pending, read, receipt}` | Gra | GAME-CHAR-CMD-0 Accepted (D1004/D1007); CreateCharacter, TransferCharacterOwnership, kody CHAR_CMD_* |
@@ -206,7 +206,7 @@ Wszystkie trasy: TLS 1.3, HTTP/1.1, osobna tożsamość mTLS per grupa, limit ro
 
 **5.3.2 Trasy, które portal woła w grze:** dziś żadnej. Każdy przepływ z grą to pull albo push inicjowany przez grę, a portal tylko serwuje.
 
-**Kierunek `native-admissions`.** W kodzie Platform trasę serwuje portal, a woła ją gateway Go (`services/game-gateway`, `issuerPath`) z poświadczeniem usługi. Dokumenty gry (`OTERYN_GAME_ARCH_PLATFORM_PREPROD_TOPOLOGY_2026-10-06`, `tools/qualification/login_local/nginx.conf`) opisują ją jako trasę gry wołaną przez Platform. Do potwierdzenia w G-1. Do tego czasu portal zachowuje kierunek z kodu Platform.
+**Kierunek `native-admissions`** (potwierdzony przez grę, Game main @6a81df27). Trasę serwuje portal, a woła ją tylko gateway Go (`services/game-gateway`, `issuerPath`) tokenem usługi, nie mTLS, przez loopback lub upstream; trasa nie jest publiczna. Serwer gry jej nie serwuje i nie woła. Lock gry (wpis N4P) jeszcze jej nie wymienia; dopisze ją G-1.
 
 ### 5.4 Panel zespołu
 
@@ -218,10 +218,10 @@ Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwr
 
 | Przepływ | Kontrakt | Stan po stronie gry (Game main @60de8634) |
 | --- | --- | --- |
-| Logowanie: OAuth → ticket → gateway | N4-P (OAuth PKCE), U1 (ticket), V2_NATIVE_GATEWAY_LOGIN | N4-P LOCKED, tylko testing/preprod; klient gotowy, tryb Gateway domyślnie wyłączony |
+| Logowanie: OAuth → ticket → gateway | N4-P (OAuth PKCE), U1 (ticket), V2_NATIVE_GATEWAY_LOGIN | N4-P LOCKED, tylko testing/preprod; klient N4 częściowy (`native_login.rs`), pełne pokrycie do potwierdzenia w G-1; tryb Gateway domyślnie wyłączony |
 | Gateway logowania | Publiczne `POST /v1/login`, protokół 2 (poniżej) | Klient gotowy (`native_login.rs`, `gateway_login`) |
 | Postacie konta | LCFA (`native-account-characters`) | Producent gotowy, wyłączony |
-| Tworzenie postaci | GAME-CHAR-CMD-0 | `character_commands.rs` jest na main, a lock mówi ACCEPTED_NOT_IMPLEMENTED; sprzeczność do wyjaśnienia w locku |
+| Tworzenie postaci | GAME-CHAR-CMD-0 | Producent zaimplementowany, domyślnie wyłączony (`[platform.character_commands]`, `production_enabled=false`); lock mówi jeszcze ACCEPTED_NOT_IMPLEMENTED, poprawi G-1 |
 | Premium | V2_PREMIUM_TIME_SNAPSHOT | Kandydat; endpoint jest |
 | Sklep | V2_STORE_WIRE, V2_STORE_PURCHASE_DELIVERY | PROPOSED, domyślnie wyłączony |
 | Dane publiczne | GAME-PUBLIC-PROJ-0 | Kandydat rev1, nieakceptowany |
@@ -244,7 +244,7 @@ Zasady:
 - Funkcja bez danych z gry pokazuje „niedostępne” z czasem ostatniej aktualizacji, nigdy zmyślonych wartości.
 - Każda mutacja przez granicę gry jest idempotentna, ma klucz operacji, outbox i rekoncyliację. Timeout nie oznacza sukcesu ani porażki.
 - Gateway logowania (Go, `services/game-gateway`) zostaje bez zmian. Portal serwuje mu `native-admissions` bajt w bajt.
-- Lock kontraktów w grze jest nieaktualny (klient N4 i producent CharCmd istnieją już w kodzie). Przed każdym zadaniem z §5.2–§5.3 koordynator potwierdza aktualny stan kontraktu.
+- Lock kontraktów w grze jest nieaktualny dla N4 i CharCmd; poprawi go G-1. Przed każdym zadaniem z §5.2–§5.3 koordynator potwierdza aktualny stan kontraktu.
 
 ### 6.1 Treści świata gry (wiki i Atlas)
 
@@ -413,11 +413,10 @@ Pozostałe warunki:
 | # | Pytanie | Do kogo | Blokuje |
 | --- | --- | --- | --- |
 | Q1 | Publikacja grafik i mapy (D7) oraz klasyfikacje questów (D8) | Właściciel | T40, T42 |
-| Q2 | Kierunek `native-admissions` (§5.3) | Koordynator, G-1 | T19 |
-| Q3 | Kontrakt `client/directory` i `world.characters` vs LCFA (§5.2) | Koordynator, G-1 | T36 |
-| Q4 | Sprzeczność locka gry dla GAME-CHAR-CMD-0 i N4 (§6) | Koordynator | T22 |
-| Q5 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
-| Q6 | Akceptacja projektu, job CI (D2), sposób wysyłki zadań do Codexa | Właściciel | Start T01+ |
+| Q2 | Kontrakt `client/directory` w locku gry, z regułą postaci tylko dla właściciela (§5.2) | Koordynator, G-1 | Tylko pole `characters` w T36 |
+| Q3 | Aktualizacja locka gry: N4P (z `native-admissions`) i GAME-CHAR-CMD-0 (§6) | Koordynator, G-1 | Nic; portal implementuje według kodu |
+| Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
+| Q5 | Akceptacja projektu, job CI (D2), sposób wysyłki zadań do Codexa | Właściciel | Start T01+ |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
