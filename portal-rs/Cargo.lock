@@ -2913,6 +2913,7 @@ dependencies = [
  "fluent-bundle",
  "oteryn-admin",
  "oteryn-db",
+ "oteryn-gameauth",
  "oteryn-identity",
  "oteryn-notify",
  "oteryn-web",
