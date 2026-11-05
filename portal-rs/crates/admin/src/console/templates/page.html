@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme op-stack">
+<a class="op-button op-button--secondary" href="#content">{{ skip }}</a>
+<header class="op-panel op-stack"><nav class="op-tabs" aria-label="{{ title }}">{% for (url,label) in nav %}<a href="{{ url }}">{{ label }}</a>{% endfor %}</nav><nav class="op-row" aria-label="{{ language_label }}"><a class="op-button op-button--secondary" href="{{ path }}?lang=pl" lang="pl" hreflang="pl">Polski</a><a class="op-button op-button--secondary" href="{{ path }}?lang=en" lang="en" hreflang="en">English</a></nav></header>
+<main id="content" tabindex="-1" class="op-panel op-stack"><h1>{{ title }}</h1><p>{{ note }}</p>
+<form method="get" action="{{ path }}" class="op-stack"><input type="hidden" name="lang" value="{{ lang }}"><div class="op-field"><label for="agent">{{ agent_label }}</label><input id="agent" class="op-input" name="agent" value="{{ agent }}" maxlength="128" pattern="[A-Za-z0-9_.-]+"></div><div class="op-field"><label for="target">{{ target_label }}</label><input id="target" class="op-input" name="target" value="{{ target }}" maxlength="128" pattern="[A-Za-z0-9_.-]+"></div><button class="op-button">{{ select_label }}</button></form>
+<a class="op-button op-button--secondary" href="{{ poll }}">{{ poll_label }}</a>
+{% for section in sections %}<section class="op-card op-stack"><h2>{{ section.title }}</h2><p class="op-badge">R0 · {{ section.state }}</p><dl><dt>{{ source_label }}</dt><dd>{{ section.source }}</dd><dt>{{ freshness_label }}</dt><dd>{{ section.freshness }}</dd>{% if !section.revision.is_empty() %}<dt>{{ revision_label }}</dt><dd>{{ section.revision }}</dd>{% endif %}</dl>
+{% for record in section.records %}<article class="op-stack"><h3>{{ record.name }}</h3><dl>{% for (label,value) in record.fields %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl></article>{% endfor %}
+{% if section.can_query %}<form method="post" action="{{ path }}"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ section.operation }}"><input type="hidden" name="agent" value="{{ agent }}"><input type="hidden" name="target" value="{{ target }}"><input type="hidden" name="lang" value="{{ lang }}"><button class="op-button">{{ query_label }}</button></form>{% endif %}
+</section>{% endfor %}
+</main></body></html>
