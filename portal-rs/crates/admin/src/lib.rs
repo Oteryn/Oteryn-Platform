@@ -6,5 +6,7 @@ pub mod rbac;
 pub mod web;
 
 pub mod commerce;
+#[path = "control/controls.rs"]
+pub mod controls;
 pub mod players;
 pub mod support;
