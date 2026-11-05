@@ -1,0 +1,12 @@
+title = Atlas świata
+help = Przesuwaj mapę strzałkami lub przeciągaj. Użyj + i −, aby zmienić przybliżenie. Wybierz piętro i warstwy poniżej. Współrzędne są zapisywane w adresie URL.
+floor = Piętro
+zoom-in = Przybliż
+zoom-out = Oddal
+map = Kafle mapy
+markers = Znaczniki NPC
+missing = Niektóre kafle mapy są niedostępne.
+north = Północ
+south = Południe
+west = Zachód
+east = Wschód
