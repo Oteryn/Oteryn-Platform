@@ -2,7 +2,19 @@ Status: PROPOSED by Platform, pending acceptance by the game owner (coordinator)
 
 # Oteryn-v2 Bazaar contract proposal (G-7)
 
-Contract ID: `oteryn-v2-bazaar-v1`; proposal revision 1, 2026-11-05.
+Contract ID: `oteryn-v2-bazaar-v1`; proposal revision 2, 2026-11-05.
+
+## Revision 2 (review of 2026-11-05)
+
+- Re-pin all Game references to main `2253b997`; label unverified code paths.
+- Describe reused Store wire choices as aligned with the proposed Store wire.
+- Identify the missing Game journal/ingest outbox and emitters as NEW game-side deliverables; the existing Store outbox is Store-only.
+- Gate ownership transfer and every new Bazaar command on shipped Game decoders and advertised support; keep Portal Bazaar flags off meanwhile.
+- Reuse the character-authority §6.2 `locked` state and semantics for `LockBazaarCharacter`.
+- Treat the nine commands, new issuer and Bazaar routes as a new character-authority `contract_version` under §15, with Game building the consumer.
+- Mark Hold/Release/Payout as new bank-authority work and bound holds and incoming credits by the 999999999999 bank ceiling and available headroom.
+- Mark Ed25519 Character snapshot signing as a new Game deliverable.
+- Reuse only the existing §4.3 CHAR_CMD receipt; remove the separate Bazaar receipt operation/schema and its fixtures.
 
 ## 1. Purpose, ownership and acceptance boundary
 
@@ -26,7 +38,7 @@ T57 supplies the Bazaar domain; T22 supplies the Character command dependency. T
 
 Read together, without promoting a proposal to accepted authority:
 
-- [Store wire](OTERYN_V2_STORE_WIRE_CONTRACT.md): **PROPOSED**, reused canonical bytes, SHA-256 bindings, Game-initiated pull/read/receipt, bounded paging, dedicated peer guard and reconciliation conventions. Bazaar adds its own purpose and routes; it does not reuse Store credentials or pretend Store is accepted.
+- [Store wire](OTERYN_V2_STORE_WIRE_CONTRACT.md): **PROPOSED**; aligned with the proposed Store wire for canonical bytes, SHA-256 bindings, Game-initiated pull/read/receipt, bounded paging, dedicated peer guard and reconciliation conventions. Bazaar adds its own purpose and routes; it does not reuse Store credentials or pretend Store is accepted.
 - [Public game projections](OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md): accepted Platform authority/privacy/ordering semantics; transport deferred there. Reuse source epochs, per-subject revisions, high-watermarks, poison-record quarantine and privacy floors.
 - [Character authority commands](OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md): accepted semantic command/result/idempotency/ambiguity boundary. Its eventual wire is already fixed by the accepted Game document below; `COMMITTED` on that wire means semantic `COMPLETED`.
 - [Entitlement game delivery](OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md): accepted orchestration/saga and reserve-before-submit semantics; transport/signing deferred there. Bazaar custody is a move of existing assets, never an entitlement mint or a Store CLAIM.
@@ -35,36 +47,51 @@ Read together, without promoting a proposal to accepted authority:
 
 ### Pinned Game reference (read-only)
 
-All Game paths cited here are relative to [Oteryn/Oteryn-Game at `857f15f376907c592bb28d854fccff18a15cdf87`](https://github.com/Oteryn/Oteryn-Game/tree/857f15f376907c592bb28d854fccff18a15cdf87), inspected outside the Platform checkout. No Game changes or pushes are authorized.
+All Game paths cited here are relative to [Oteryn/Oteryn-Game main at `2253b997`](https://github.com/Oteryn/Oteryn-Game/tree/2253b997). These references incorporate the game owner's review; code paths not supplied in that review are marked **unverified** rather than claimed as inspected. No Game changes or pushes are authorized.
 
 | Game path | Fact relied on; limit of evidence |
 |---|---|
-| `docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md` §§2–7 | Accepted `oteryn-game-character-authority-commands-v1`: pull transport, exact `TransferCharacterOwnership` intent/receipt, three Bazaar purposes, TTL, recovery and deduplication |
-| `crates/gameplay/native-admission-source/src/character_commands.rs` | Existing `ListPendingCharacterCommandsV1`, `ReadCharacterCommandIntentV1`, `PublishCharacterCommandReceiptV1`, compiled paths, bounded mTLS consumer; its current consumer explicitly decides `CreateCharacter` only, so a declared transfer wire is not proof of enabled transfer execution |
-| `docs/contracts/OTERYN_GAME_LIST_CHARACTERS_FOR_ACCOUNT_PROJECTION_V1.md` §§3–5.1 | Accepted push/mTLS, transactional outbox, epoch fence, operator resync and completeness-time watermark |
-| `docs/contracts/OTERYN_GAME_PUBLIC_PROJECTIONS_V1.md` §§3–7; `crates/gameplay/native-admission-source/src/public_projections.rs` | Dedicated public-purpose identity; WorldId without placement, vocation IDs, source ordering and hiding locked/transferring profiles |
-| `crates/gameplay/durability/src/durability/character_authority.rs` | Canonical current Character owner/world/revision and recovery-fenced authority; no inference of a Bazaar lock API |
-| `apps/game-server/migrations/0071_account_bank.sql`; `crates/gameplay/economy/src/bank.rs` | Account/World bank, operation binding and immutable paired ledger, amount/balance ceiling 999999999999 gold; ordinary DEPOSIT/WITHDRAW/TRANSFER are not Bazaar holds |
-| `apps/game-server/migrations/0157_depot_transfers.sql`; `crates/gameplay/durability/src/durability/character_depot.rs` | Existing item move receipts/lines, exact instance, quantity, state revision and definition checks, Character/World depot custody; not a cross-account Bazaar escrow API |
-| `crates/gameplay/domain/src/domain/item_definition.rs` | `TypedDefinitionRef = (family, production_key, revision_ref)` and definition-specific stack maximum; weight unit centi-oz |
-| `crates/gameplay/content/src/content/reference_playable.rs`; `crates/gameplay/durability/src/durability/player_trade.rs` | `tradeable` exists as a known/unknown content fact. A market flag is not a substitute for live transferability; existing player-trade policy is not automatically Bazaar policy |
-| `crates/gameplay/durability/src/durability/store/codec.rs`; `crates/gameplay/durability/src/durability/store/outbox.rs` | Existing durable binding digest, stored receipt, recovery generation, unacknowledged receipt publication/ack pattern; Bazaar requires its own records and must not mint via Store |
+| `docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md` §§2–7, §15 | Accepted `oteryn-game-character-authority-commands-v1`: pull transport, exact `TransferCharacterOwnership` intent/receipt, three Bazaar purposes, TTL, recovery and deduplication |
+| `native-admission-source/src/character_commands.rs` | Existing `ListPendingCharacterCommandsV1`, `ReadCharacterCommandIntentV1`, `PublishCharacterCommandReceiptV1`, compiled paths, bounded mTLS consumer; its current consumer explicitly decides `CreateCharacter` only, so a declared transfer wire is not proof of enabled transfer execution |
+| `docs/contracts/OTERYN_GAME_LIST_CHARACTERS_FOR_ACCOUNT_PROJECTION_V1.md` §§3–5.1 | Declared push/mTLS, epoch fence, operator resync and completeness-time watermark; no existing Game journal/ingest outbox is established by this contract |
+| `docs/contracts/OTERYN_GAME_PUBLIC_PROJECTIONS_V1.md` §§3–7; `crates/gameplay/native-admission-source/src/public_projections.rs` (**unverified**) | Dedicated public-purpose identity; WorldId without placement, vocation IDs, source ordering and hiding locked/transferring profiles |
+| `crates/gameplay/durability/src/durability/character_authority.rs` (**unverified**) | Canonical current Character owner/world/revision and recovery-fenced authority; no inference of a Bazaar lock API |
+| `apps/game-server/migrations/0071_account_bank.sql` (**unverified**); `crates/gameplay/economy/src/bank.rs` (**unverified**) | Account/World bank, operation binding and immutable paired ledger, amount/balance ceiling 999999999999 gold; ordinary DEPOSIT/WITHDRAW/TRANSFER are not Bazaar holds |
+| `apps/game-server/migrations/0157_depot_transfers.sql` (**unverified**); `crates/gameplay/durability/src/durability/character_depot.rs` (**unverified**) | Existing item move receipts/lines, exact instance, quantity, state revision and definition checks, Character/World depot custody; not a cross-account Bazaar escrow API |
+| `crates/gameplay/domain/src/domain/item_definition.rs` (**unverified**) | `TypedDefinitionRef = (family, production_key, revision_ref)` and definition-specific stack maximum; weight unit centi-oz |
+| `crates/gameplay/content/src/content/reference_playable.rs` (**unverified**); `crates/gameplay/durability/src/durability/player_trade.rs` (**unverified**) | `tradeable` exists as a known/unknown content fact. A market flag is not a substitute for live transferability; existing player-trade policy is not automatically Bazaar policy |
+| `crates/gameplay/durability/src/durability/store/codec.rs` (**unverified**); `crates/gameplay/durability/src/durability/store/outbox.rs` (**unverified**) | Store-only durable binding digest, stored receipt, recovery generation and publication/ack pattern. Only `store/outbox.rs` exists; Game has no journal/ingest outbox. Bazaar records, outbox and emitters are NEW game-side work and must not mint via Store |
 
 The pinned reference proves building blocks, not G-7 lock, signed snapshot, gold hold or Bazaar escrow support. New names in §§3–7 are proposal names, not claims about existing Rust symbols.
+
+### Hard deployment gate
+
+At Game main `2253b997`, `native-admission-source/src/character_commands.rs` decodes only `CreateCharacter`; `durability/character_command.rs` `classify_intent` classifies every other intent as `CHAR_CMD_UNSUPPORTED`. A declared transfer contract is not executable support. `TransferCharacterOwnership` and every new Bazaar command **must not be issued until Game ships the corresponding decoder and consumer**. Portal must keep all Bazaar flags off until Game advertises support for the accepted version and required capabilities, backed by exact Game code/test revisions. No capability-advertisement endpoint or payload is assumed here; its accepted mechanism remains a rollout prerequisite.
+
+### Game-side deliverables
+
+All items below are **NEW game-side work**, built and qualified by Game rather than inferred from existing contracts:
+
+- Implement and advertise the ownership-transfer decoder and the nine Bazaar command decoders/consumer, including the new issuer and route integration under character-authority §15.
+- Implement the §6.2 `locked` state integration, atomic eligibility/snapshot capture, transfer bindings and item escrow/delivery/return authority.
+- Extend `bank.rs` / `BankResult`: there is currently no hold. Implement Hold/Release/Payout in the single bank authority, including ordinary-operation fencing, seller headroom reservations, fee burn and durable ledger/receipt binding.
+- Implement Ed25519 Character snapshot signing, canonical capture, stored signature replay and separate key provisioning/rotation/revocation. No such snapshot signature currently exists Game-side.
+- Build durable Bazaar command-decision and catalog/status/watermark outboxes, emitters, acknowledgements, replay/resync and restore fencing. Game has no journal/ingest outbox; `store/outbox.rs` is Store-only. Every Game-side outbox or emitter required below refers to this new work, not an existing generic facility.
+- Produce §4.3 CHAR_CMD receipts for the new commands and qualify one receipt schema across transfer and Bazaar operations.
 
 ## 2. Direction, transport and authenticated audience
 
 Logical **Platform → Game commands** are immutable Platform outbox intents returned to Game's pull consumer. All HTTP connections remain **Game → Platform**. Game effects, snapshots and receipts return as **Game → Platform ingest**. No new inbound Game listener, browser-to-internal call, broker, bearer token or shared database transport is introduced.
 
-Reuse HTTP/1.1 over TLS 1.3 with client certificates and the existing `http1_mtls::exchange` architecture. Dedicated proposed Bazaar certificate subjects, one per authority host, are allowlisted for the configured `source_authority` and these routes only. Identity must differ from Store, public projection, native evidence, runtime, account projection, character commands and restore identities. Existing transfer and restore routes keep their existing identities. Fields cannot select peer trust. Trust terminator-supplied `SSL_CLIENT_VERIFY=SUCCESS`, `SSL_PROTOCOL=TLSv1.3`, exact configured `SSL_CLIENT_S_DN` (1–128 printable ASCII bytes), never user-forwarded equivalents. Missing/overlapping identities or source scope make the surface unavailable.
+Reuse HTTP/1.1 over TLS 1.3 with client certificates and the proposed `http1_mtls::exchange` architecture (Game code path **unverified**), aligned with the proposed Store wire. Dedicated proposed Bazaar certificate subjects, one per authority host, are allowlisted for the configured `source_authority` and these routes only. Identity must differ from Store, public projection, native evidence, runtime, account projection, character commands and restore identities. Existing transfer and restore routes keep their existing identities. Fields cannot select peer trust. Trust terminator-supplied `SSL_CLIENT_VERIFY=SUCCESS`, `SSL_PROTOCOL=TLSv1.3`, exact configured `SSL_CLIENT_S_DN` (1–128 printable ASCII bytes), never user-forwarded equivalents. Missing/overlapping identities or source scope make the surface unavailable.
 
 Connect 1 s, handshake 2 s, command exchange 3 s, ingest exchange 5 s; one in-flight exchange per consumer, independent catalog/status publication lanes. Poll commands every 1 s, back off on 429/503 up to 10 s, honor `Retry-After` (positive integer seconds). Rescan from the start after eight full pages or 30 s, whichever comes first, skipping already known keys. A rescan is required because restore may reopen an old key. No HTTP timeout proves failure of an effect.
 
-All proposed routes are `POST`, return `Cache-Control: no-store`, use exact operation names below and the same closed-body guard as Store/Character commands. Failures have empty bodies. Status order: 503 disabled/misconfigured, 401 wrong TLS peer/source authority, 429 peer limit, then encoding/schema/handler. Proposed peer limit 120 requests/minute (60 s window, keyed by purpose plus SHA-256 of peer subject), owner-command issuance limit 20/minute/account and pending backlog 24 per issuer; exhaustion refuses new issuance without writing an intent. Operational tuning requires a reviewed compatibility revision. No account identifiers in limiter logs/metric labels.
+All proposed routes are `POST`, return `Cache-Control: no-store`, use exact operation names below and a closed-body guard aligned with the proposed Store wire and the Character command guard. Failures have empty bodies. Status order: 503 disabled/misconfigured, 401 wrong TLS peer/source authority, 429 peer limit, then encoding/schema/handler. Proposed peer limit 120 requests/minute (60 s window, keyed by purpose plus SHA-256 of peer subject), owner-command issuance limit 20/minute/account and pending backlog 24 per issuer; exhaustion refuses new issuance without writing an intent. Operational tuning requires a reviewed compatibility revision. No account identifiers in limiter logs/metric labels.
 
 ### Encoding and scalar types
 
-Each wire body is one UTF-8 JSON object, exact listed members in listed order, no BOM, duplicate keys, unknown members, insignificant whitespace, backslashes, trailing newline, floats or exponent notation. All members are required; only an explicit `| null` permits a present `null`. Arrays are ordered as stated and never silently truncated. Content-Type is `application/json`; Transfer-Encoding is absent, Content-Encoding absent or `identity`. Content-Length, if present, is canonical unsigned decimal at most the route byte limit; above limit is 413. Actual bodies above the limit are also 413; malformed/empty bodies or other encoding violations are 400. Proposed maximum JSON depth is 12 (needed for signed snapshot sections); this explicitly differs from Store's shallow messages. Byte ceilings include all nesting and signature envelope.
+Each wire body is one UTF-8 JSON object, exact listed members in listed order, no BOM, duplicate keys, unknown members, insignificant whitespace, backslashes, trailing newline, floats or exponent notation. All members are required; only an explicit `| null` permits a present `null`. Arrays are ordered as stated and never silently truncated. Content-Type is `application/json`; Transfer-Encoding is absent, Content-Encoding absent or `identity`. Content-Length, if present, is canonical unsigned decimal at most the route byte limit; above limit is 413. Actual bodies above the limit are also 413; malformed/empty bodies or other encoding violations are 400. Proposed maximum JSON depth is 12 (needed for signed snapshot sections); this explicitly differs from the proposed Store wire's shallow messages. Byte ceilings include all nesting and signature envelope.
 
 | Type | Exact form, units and inclusive bounds |
 |---|---|
@@ -89,29 +116,32 @@ Definition record `Definition`, exact order: `family` (`key`), `production_key` 
 
 ## 3. Closed routes and exchange records
 
-Prefix `B = /internal/v1/bazaar`. All requests start with `Head = contract_version` (JSON integer `1`), `operation` (exact route operation), `source_authority` (`authority`), in that order. `Head` and table composition are notation only: no JSON `head` member exists.
+The nine commands in §4, the new `OTERYN_PLATFORM_BAZAAR_AUTHORITY` issuer and all `/internal/v1/bazaar` routes are an extension requiring a **new `contract_version` of `OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1` under §15**. Game builds the consumer. This revision proposes `contract_version=2`, subject to the game owner's version allocation and acceptance; it is not a separately accepted Bazaar v1 contract. Operation-name suffixes do not select the contract version. Existing v1 ownership-transfer bytes remain unchanged on their existing route, but execution is gated above.
+
+Prefix `B = /internal/v1/bazaar`. All requests start with `Head = contract_version` (JSON integer `2`), `operation` (exact route operation), `source_authority` (`authority`), in that order. `Head` and table composition are notation only: no JSON `head` member exists.
 
 | Path after B | Operation | Request/200 response maximum bytes | Logical direction |
 |---|---|---|---|
 | `/commands/pending` | `ListPendingBazaarCommandsV1` | 512 / 8192 | Platform → Game intents index |
 | `/commands/read` | `ReadBazaarCommandIntentV1` | 512 / 4096 | Platform → Game exact command |
-| `/commands/receipt` | `PublishBazaarCommandReceiptV1` | 262144 / 256 | Game → Platform durable decision |
 | `/commands/reconcile` | `ListBazaarCommandStatesV1` | 512 / 12288 | Platform → Game durable receipt comparison |
 | `/transferability` | `PublishBazaarTransferabilityV1` | 262144 / 256 | Game → Platform full policy snapshot |
 | `/status` | `PublishBazaarListingStatusV1` | 2048 / 256 | Game → Platform full listing custody status |
 | `/watermark` | `PublishBazaarWatermarkV1` | 512 / 256 | Game → Platform completeness/liveness |
 
+Command decisions use the existing Character command receipt route and `PublishCharacterCommandReceiptV1`, with the §4.3 CHAR_CMD schema and its authenticated identity. There is no Bazaar receipt route or second receipt envelope. Any required version/issuer support on that route belongs to the §15 extension.
+
 ### Pull/list/read/reconcile
 
-Pending request: `Head`, `after_source_revision` (`z64`), `after_operation_id` (`id` or `nil`, nil iff revision is `"0"`), `max_entries` (`n[1,32]`). Response: `contract_version` (`1`), `pending` (0–32 entries). Entry exact order: `command` (§4 enum), `operation_id` (`id`), `source_revision` (`u64`). Strict ascending numeric revision then UUID byte order, unique IDs, above cursor. Cursor is last entry; short/empty page restarts at zero. PENDING means no current terminal receipt, even after expiry.
+Pending request: `Head`, `after_source_revision` (`z64`), `after_operation_id` (`id` or `nil`, nil iff revision is `"0"`), `max_entries` (`n[1,32]`). Response: `contract_version` (`2`), `pending` (0–32 entries). Entry exact order: `command` (§4 enum), `operation_id` (`id`), `source_revision` (`u64`). Strict ascending numeric revision then UUID byte order, unique IDs, above cursor. Cursor is last entry; short/empty page restarts at zero. PENDING means no current terminal receipt, even after expiry.
 
 Read request: `Head`, `issuer_authority` (constant `OTERYN_PLATFORM_BAZAAR_AUTHORITY`), `command` (§4 enum), `operation_id` (`id`). Response is the exact immutable intent (§4), verbatim. 404 absent key; 409 key bound to different command. Neither means the Game effect is absent.
 
-Reconcile request has the pending request shape with operation `ListBazaarCommandStatesV1`. Response: `contract_version` (`1`), `operations` (0–32 entries). Each entry: `command`, `operation_id`, `source_revision` as above, then `state` (`PENDING|REOPENED|COMMITTED|REJECTED`), `receipt_digest` (`hash | null`), `recovery_generation` (`u64 | null`). Last two are null iff PENDING/REOPENED. Includes every operation, same cursor/order, not just pending. This is a comparison feed, not permission to execute. Game republishes its original receipt if Platform is pending; different digests or a missing key with a Game receipt require operator reconciliation, never another mutation.
+Reconcile request has the pending request shape with operation `ListBazaarCommandStatesV1`. Response: `contract_version` (`2`), `operations` (0–32 entries). Each entry: `command`, `operation_id`, `source_revision` as above, then `state` (`PENDING|REOPENED|COMMITTED|REJECTED`), `receipt_digest` (`hash | null`), `recovery_generation` (`u64 | null`). Last two are null iff PENDING/REOPENED. Includes every operation, same cursor/order, not just pending. This is a comparison feed, not permission to execute. Game republishes its original receipt if Platform is pending; different digests or a missing key with a Game receipt require operator reconciliation, never another mutation.
 
 ### Receipt and ingest acknowledgements
 
-Receipt success and accepted ingests: exact `{"contract_version":1,"result":"accepted"}`. A strictly older catalog/status/watermark returns `{"contract_version":1,"result":"superseded"}` with no state change. No superseded result for command receipts. Identical current receipt bytes return accepted without another side effect. Only after this response may Game acknowledge its outbox row. A lost acknowledgement causes byte-identical publication.
+Command receipt acknowledgements follow character-authority §4.3 unchanged. For the proposed Bazaar ingests only, success is exact `{"contract_version":2,"result":"accepted"}`. A strictly older catalog/status/watermark returns `{"contract_version":2,"result":"superseded"}` with no state change. No superseded result for command receipts. Identical current receipt bytes return accepted without another side effect. Only after this response may Game acknowledge its outbox row. A lost acknowledgement causes byte-identical publication.
 
 Common statuses: 200 success as defined; 400 schema/bound/semantic echo violation; 401 wrong purpose/peer/source or unverifiable signature; 404 receipt without stored intent or missing exact read; 409 conflicting reuse/digest/generation; 413 byte excess; 429 limit with Retry-After; 503 disabled, unsafe authority, unknown signing trust or dependency unavailable. 404/409 receipt conflicts retain both records, stop that key's automatic publication and alarm. 400/401/413 require defect/configuration repair, not an unchanged busy retry. 429/503/network loss retry the same bytes/key. HTTP status alone never supplies a terminal Game refusal.
 
@@ -121,7 +151,7 @@ Intent common prefix, in order:
 
 | Member | Type / rule |
 |---|---|
-| `contract_version` | integer `1` |
+| `contract_version` | integer `2` |
 | `command` | one command in the table below |
 | `variant` | constant `PLATFORM_BAZAAR` |
 | `issuer_authority` | constant `OTERYN_PLATFORM_BAZAAR_AUTHORITY` |
@@ -134,7 +164,7 @@ Intent common prefix, in order:
 
 Then the exact command-specific members below, followed by common tail `issued_at_source` (`time`), `expires_at_source` (`time`), `audience` (constant `OTERYN_GAME_BAZAAR_AUTHORITY`). All members non-null unless specified. Technical attempt TTL is `0 < expires - issued ≤ 300` seconds; `issued` cannot exceed trusted Game time by more than 5 s. Check stored operation binding/receipt **before** expiry so a late retry returns the original result. An unexecuted expired attempt gets a durable rejection, not silent deletion. Asset custody and holds have no automatic TTL; listing lifetime (1–14 days for Character auction, 14 days for item notice) is Platform policy, not command expiry.
 
-| `command` | Exact additional members in order | Committed `facts` (§5) |
+| `command` | Exact additional members in order | Committed result data (§5) |
 |---|---|---|
 | `LockBazaarCharacter` | `character_id` (`id`), `expected_character_revision` (`u64`), `eligibility_revision` (`u64`), `snapshot_schema_version` (integer `1`) | `CharacterLockFacts` |
 | `BindBazaarCharacterTransfer` | `character_id` (`id`), `lock_id` (`id`), `expected_lock_revision` (`u64`), `transfer_operation_id` (`id`), `transfer_binding_digest` (`hash`), `purpose` (existing `BAZAAR_LISTING_ESCROW\|BAZAAR_SETTLEMENT\|BAZAAR_ESCROW_RETURN`), `sale_id` (`id \| null`), `funding` (`Funding \| null`), last two non-null iff SETTLEMENT | `TransferBindingFacts` |
@@ -156,7 +186,7 @@ For GOLD, DeliverBazaarItem atomically verifies/fences that hold before moving t
 
 Game determines eligibility atomically with the lock and signed snapshot: current seller owner, live Character, offline/no admission or session, lifecycle eligible, no conflicting service/transfer/delete/lock, supported snapshot, valid account, no blocking penalty, housing prepared, guild obligations resolved, no unhandled market/mail/depot obligations and any accepted cooldown. It returns typed reasons (§5), not private sanction detail. Existing transfer guards still run. The coordinator must accept the exact obligations matrix (Q1); unknown obligations deny listing. Platform enforces the accepted 30-day resale cooldown independently; Game must not certify a cooldown it cannot prove.
 
-A committed lock persists in Game and prevents login/admission, gameplay writes, rename/delete/world transfer, item/bank changes attributable to the Character and competing ownership mutations. It binds listing, original seller, world, Character revision and snapshot hash. Taking a snapshot before acquiring the lock is forbidden. Cross-account bank changes do not make a Character snapshot a bank-balance authority. Account-wide entitlements are excluded. If a supposedly frozen fact changes, Game marks listing status INVALID and fences sale pending reconciliation; it never silently substitutes snapshot bytes.
+A committed `LockBazaarCharacter` enters the existing **`locked`** state defined by `OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1` §6.2 and reuses its semantics; it does not create a parallel Bazaar lock state. The listing/lock IDs below are bindings on that state. Under that state Game prevents login/admission, gameplay writes, rename/delete/world transfer, item/bank changes attributable to the Character and competing ownership mutations. It binds listing, original seller, world, Character revision and snapshot hash. Taking a snapshot before acquiring the lock is forbidden. Cross-account bank changes do not make a Character snapshot a bank-balance authority. Account-wide entitlements are excluded. If a supposedly frozen fact changes, Game marks listing status INVALID and fences sale pending reconciliation; it never silently substitutes snapshot bytes.
 
 Use **existing** `TransferCharacterOwnership`, with its unchanged route, member set and result codes, for every ownership leg. Preserve the existing listing-escrow → settlement/escrow-return saga: original seller → configured native escrow AccountId (`BAZAAR_LISTING_ESCROW`), then escrow → buyer (`BAZAAR_SETTLEMENT`) or escrow → seller (`BAZAAR_ESCROW_RETURN`). Escrow AccountId is an accepted deployment allocation, never minted in this proposal. The Character lock survives listing-escrow transfer; it is released only by explicit unlock after final authoritative ownership receipt (or after proved no-transfer cancellation).
 
@@ -174,7 +204,9 @@ Deliver and return serialize on one escrow record: exactly one terminal move win
 
 ### Gold holds and payout
 
-Funds come exclusively from the buyer's **AccountId + WorldId bank**, as in the existing bank contract; no inventory gold, guild bank, other world or Portal coin conversion. Game must extend its single bank authority so ordinary withdrawals/transfers/fees also respect held funds. A second parallel balance in Bazaar is forbidden. Invariants: `0 ≤ held_total ≤ bank_total ≤ 999999999999`; available = bank_total − held_total; concurrent bank and Bazaar operations serialize on the same authority rows.
+**NEW game-side bank-authority work:** `bank.rs` / `BankResult` has no hold today. HoldBazaarGold, ReleaseBazaarGold and PayoutBazaarGold, including all following reservations and interlocks, must be implemented by Game. Funds come exclusively from the buyer's **AccountId + WorldId bank**, as in the existing bank contract; no inventory gold, guild bank, other world or Portal coin conversion. Game must extend its single bank authority so ordinary withdrawals/transfers/fees also respect held funds. A second parallel balance in Bazaar is forbidden. Invariants: `0 ≤ held_total ≤ bank_total ≤ 999999999999`; available = bank_total − held_total; concurrent bank and Bazaar operations serialize on the same authority rows.
+
+Each hold and replacement total is at most `999999999999` and its increase must be no greater than buyer available funds. Seller net proceeds must fit remaining same-world headroom: `seller_amount ≤ 999999999999 − seller_bank_total − other_reserved_incoming_net`. Reserve that capacity before handoff; ordinary credits must obey the same limit. Never clamp, overflow or credit above the ceiling.
 
 One hold per (`listing_id`, `offer_id`, buyer, world). `expected_hold_revision="0"` creates; later Hold with that key is an atomic **replacement total**, not an additive debit. It may increase the maximum while preserving existing held funds; it cannot lower the total or change OFFER/RESERVE. A RELEASED, payout-in-progress or paid hold cannot be replenished; a later offer needs a new offer_id and authorization. A decrease is an explicit partial Release; reserve selection is Platform saga state. OFFER holds secure a submitted maximum/negotiated offer; RESERVE secures a fixed-price or accepted buy-order match before handoff. Neither constitutes a payment. Full maximum must be held before an offer becomes eligible/visible as accepted. An increase that cannot be fully funded rejects with the old hold unchanged. Reserve the new winning bidder before releasing the old bidder, so failed funding never removes the funded winner.
 
@@ -184,11 +216,13 @@ Payout is one Game transaction: prove COMMITTED asset delivery/settlement for th
 
 Proposed exact rounding: `fee_amount = ceil(gross_amount × 250 / 10000)` in checked wide integer arithmetic, `seller_amount = gross_amount − fee_amount > 0`. Below-minimum net payout is refused before listing/bid acceptance, not discovered after handoff. No commission cap; never overflow, use floating point or charge commission on an unsold listing. Proposed headroom interlock: HoldBazaarGold also reserves same-world seller bank credit capacity for the maximum net proceeds, using the accepted fee formula, in that same Game transaction. A replacement increase reserves its full increased headroom or rejects unchanged; Release recomputes headroom from the remaining potential gross under the exact fee formula and reduces unused headroom only when no handoff can commit, and Payout consumes the exact net headroom while retaining the remainder until EXCESS release. Every ordinary seller bank credit must respect outstanding headroom reservations; they are not spendable gold and do not credit the seller. Multiple funded offers may therefore conservatively reserve multiple capacities. Seller balance plus all reserved incoming net credits must remain at/below the bank ceiling. This new interlock needs Game acceptance (Q4); a balance preflight alone cannot protect payout after delivery. The remaining maximum above gross stays held until an explicit EXCESS release after payout. Payout retries cannot credit/burn twice. Amount conservation is buyer debit = seller credit + burn.
 
-## 5. Game → Platform durable decision schemas
+## 5. Game → Platform CHAR_CMD decisions and proposed result data
 
-Receipt exact common fields in order: `Head` (operation `PublishBazaarCommandReceiptV1`), `issuer_authority` (Bazaar constant), `command` (intent command), `operation_id` (`id`), `binding_digest` (`hash`), `listing_id` (`id`), `outcome` (`COMMITTED|REJECTED`), `result_code` (below), `facts` (typed object for committed command, **null** for rejected), `recovery_generation` (`u64`), `decided_at` (`time`). Subject/echo values must match the bound intent. No accepted-pending HTTP acknowledgement is a terminal receipt. Transient dependency failure leaves an intent PENDING; optional internal retry state never changes this terminal wire.
+Use **exactly one receipt schema**: the existing CHAR_CMD receipt in `OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1` §4.3, published with `PublishCharacterCommandReceiptV1` on the existing Character receipt route. Its field set, canonical bytes, binding, outcomes, `CHAR_CMD_*` result codes, recovery and acknowledgement rules remain authoritative. No separate Bazaar envelope, `listing_id` echo or alternate result-code namespace is introduced. Terminal COMMITTED/REJECTED below denote that receipt's outcomes, never an HTTP acknowledgement. Transient dependency failure leaves the intent PENDING.
 
-Facts exact member order follows the table. Fields are non-null except where shown. Every returned revision is a Game monotone state revision; every `*_id` is `id`.
+The records below are proposed command-result data requirements for the §15 version extension, **not a second receipt schema**. Game must specify their representation using the existing §4.3 result facility in the accepted new version and pin shared receipt fixtures before enablement. If §4.3 cannot carry a detail, resolve it in that version review; do not add ad hoc receipt members. This proposal deliberately supplies no replacement receipt JSON.
+
+The table proposes result-data names, types and ordering for Game review; it does not add a `facts` field to the §4.3 receipt. Fields are non-null except where shown. Every returned revision is a Game monotone state revision; every `*_id` is `id`. Snapshot and item data may use a separately retained immutable record bound to the command decision if required by §4.3; that representation needs acceptance before enablement.
 
 | Record | Exact members and types |
 |---|---|
@@ -201,9 +235,9 @@ Facts exact member order follows the table. Fields are non-null except where sho
 | `GoldReleaseFacts` | `hold_id`, `hold_revision` (`u64`), `released_amount` (`gold+`), `remaining_held` (`gold`), `hold_state` (`ACTIVE\|RELEASED`, RELEASED iff zero) |
 | `GoldPayoutFacts` | `hold_id`, `hold_revision` (`u64`), `sale_id`, `gross_amount` (`gold+`), `fee_amount` (`gold`), `seller_amount` (`gold+`), `remaining_held` (`gold`), `buyer_ledger_entry_id` (`id`), `seller_ledger_entry_id` (`id`), `burn_entry_id` (`id`), `delivery_operation_id`, `delivery_receipt_digest` (`hash`) |
 
-`BAZAAR_OK` is the only COMMITTED code. Closed REJECTED set, applicable commands:
+Successful decisions use the existing §4.3 CHAR_CMD success semantics. The following `BAZAAR_*` labels are proposed semantic rejection reasons for the version review, not wire `result_code` values; the accepted extension must map them into the single CHAR_CMD result facility. Existing `CHAR_CMD_*` codes remain authoritative. Proposed reasons and applicable commands:
 
-| Code | Commands / guaranteed no-effect meaning |
+| Proposed semantic reason | Commands / guaranteed no-effect meaning |
 |---|---|
 | `BAZAAR_UNSUPPORTED` | All; unknown command/schema/profile/version, no attempt effect |
 | `BAZAAR_INTENT_INVALID` | All; bad semantic binding/audience; no attempt effect |
@@ -229,11 +263,13 @@ Facts exact member order follows the table. Fields are non-null except where sho
 | `BAZAAR_PAYOUT_INVALID` | Payout; arithmetic/fee/binding invalid, no gold effect |
 | `BAZAAR_SELLER_BANK_LIMIT` | Hold, Payout; protected seller headroom unavailable, no gold effect |
 
-A definitive REJECTED means this operation cannot later commit; any pre-existing lock/hold/escrow remains as before the attempt. Unknown codes are contract defects and deny progress. Only a durable terminal refusal permits a new attempt after current gates and bounded policy; it never implicitly releases another operation's assets/funds. Game stores the decision and outbox in the same transaction as the effect, including refusals. Existing character-transfer refusals stay `CHAR_CMD_*`, never translated on that wire; Platform maps them only in its saga.
+A definitive REJECTED means this operation cannot later commit; any pre-existing lock/hold/escrow remains as before the attempt. Unknown codes are contract defects and deny progress. Only a durable terminal refusal permits a new attempt after current gates and bounded policy; it never implicitly releases another operation's assets/funds. Game stores the decision and outbox in the same transaction as the effect, including refusals. All command receipts retain the §4.3 `CHAR_CMD_*` result contract; Platform maps typed refusal semantics only in its saga.
 
 ## 6. Signed Character snapshot and item attribute records
 
 ### Snapshot signing
+
+**NEW game-side deliverable:** the Ed25519 Character snapshot signature does not exist in Game at `2253b997`. The following profile proposes new Game signing/capture/key-lifecycle work, not reuse of an existing snapshot signer.
 
 `SignedSnapshot`, exact order: `snapshot` (`CharacterSnapshot`), `snapshot_hash` (`hash`), `alg` (constant `Ed25519`), `kid` (`key`, max 64 bytes), `signature` (`b64`, exactly 86 characters decoding to 64 bytes).
 
@@ -243,7 +279,7 @@ Game holds the private key outside repositories/images/database/logs; Platform h
 
 ### `CharacterSnapshot`
 
-Exact field order below. All sections are part of the hash/signature. Complete supported sections only: `null` means **unsupported/not exportable**, never zero/empty; an empty supported collection means known empty. If a required section exceeds a bound or a supported fact is unknown, refuse the lock with no listing effect, never truncate or invent zeros. Arrays hold no duplicate IDs/keys. This v1 deliberately omits unsupported future tabs rather than using an arbitrary JSON object.
+Its `contract_version=1` is the snapshot schema version, separate from the proposed character-authority extension version 2. Exact field order below. All sections are part of the hash/signature. Complete supported sections only: `null` means **unsupported/not exportable**, never zero/empty; an empty supported collection means known empty. If a required section exceeds a bound or a supported fact is unknown, refuse the lock with no listing effect, never truncate or invent zeros. Arrays hold no duplicate IDs/keys. This v1 deliberately omits unsupported future tabs rather than using an arbitrary JSON object.
 
 | Member | Type / units and bounds |
 |---|---|
@@ -288,7 +324,7 @@ Request exact order: `Head` (`PublishBazaarTransferabilityV1`), `world_id` (`id`
 
 ### Full listing custody status
 
-Request exact order: `Head` (`PublishBazaarListingStatusV1`), `listing_id`, `seller_account_id`, `world_id` (each `id`), `projection_epoch`, `projection_revision` (each `u64`), `source_observed_at` (`time`), `asset_kind` (`CHARACTER|ITEM`), `asset_id` (`id`, CharacterId or escrowed item_instance_id), `state` (`LOCKED|ESCROWED|DELIVERED|RETURNED|UNLOCKED|INVALID`), `custody_id` (`id`, lock or escrow ID), `custody_revision` (`u64`), `snapshot_hash` (`hash | null`, non-null iff CHARACTER), `last_operation_id` (`id | null`), `reason_code` (`null|POLICY_CHANGED|STATE_CHANGED|RESTORE_RECONCILING|AUTHORITY_UNAVAILABLE`). `last_operation_id` is non-null for DELIVERED/RETURNED/UNLOCKED and references the exact terminal command/transfer; INVALID requires a non-null reason; other states have null reason. Initial LOCKED/ESCROWED may reference their command or use null. ITEM cannot be LOCKED/UNLOCKED; CHARACTER cannot be ESCROWED (its lock remains LOCKED across the escrow-account transfer). Status is an owner-only projection/reconciliation signal; a DELIVERED row is **not** a substitute for the command receipt required to pay out.
+Request exact order: `Head` (`PublishBazaarListingStatusV1`), `listing_id`, `seller_account_id`, `world_id` (each `id`), `projection_epoch`, `projection_revision` (each `u64`), `source_observed_at` (`time`), `asset_kind` (`CHARACTER|ITEM`), `asset_id` (`id`, CharacterId or escrowed item_instance_id), `state` (`locked|ESCROWED|DELIVERED|RETURNED|UNLOCKED|INVALID`), `custody_id` (`id`, lock or escrow ID), `custody_revision` (`u64`), `snapshot_hash` (`hash | null`, non-null iff CHARACTER), `last_operation_id` (`id | null`), `reason_code` (`null|POLICY_CHANGED|STATE_CHANGED|RESTORE_RECONCILING|AUTHORITY_UNAVAILABLE`). `last_operation_id` is non-null for DELIVERED/RETURNED/UNLOCKED and references the exact terminal command/transfer; INVALID requires a non-null reason; other states have null reason. Initial `locked`/ESCROWED may reference their command or use null. ITEM cannot be `locked`/UNLOCKED; CHARACTER cannot be ESCROWED (its §6.2 state remains `locked` across the escrow-account transfer). Status is an owner-only projection/reconciliation signal; a DELIVERED row is **not** a substitute for the command receipt required to pay out.
 
 ### Completeness watermark
 
@@ -298,7 +334,7 @@ Request exact order: `Head` (`PublishBazaarWatermarkV1`), `projection_epoch` (`u
 
 Platform allocates one stable `listing_id`, distinct `offer_id`/`sale_id`, and one immutable `operation_id` per semantic step. Retrying the same step does not allocate another ID. Preserve the existing Platform transfer-step convention `bazaar:{auction}:{purpose}:{attempt}` for existing transfer callers; for proposed Rust G-7 steps, use `bazaar:{listing_id}:{command}:{step_id}:{attempt}` as a local unique issuance key, with `step_id` an `id` and attempt a positive decimal 1..8. The key maps transactionally to exactly one operation ID and full intent digest. It is not a wire credential. Different offers/releases have different step IDs; a timeout never increments attempt. Existing transfer operation IDs stay in their existing issuer namespace.
 
-Game uniqueness is (`issuer_authority`, `operation_id`) across commands. The first accepted binding is immutable. Exact duplicate returns the same stored result bytes, including revisions/signature/timestamps; conflicting reuse writes no new effect or receipt, retains the original and alarms. Receipt publication keys use the same pair, plus current recovery-generation evidence. All writes use transactional outboxes, at-least-once delivery, durable deduplication and receipts; there is no exactly-once network promise.
+Game uniqueness is (`issuer_authority`, `operation_id`) across commands. The first accepted binding is immutable. Exact duplicate returns the same stored result bytes, including revisions/signature/timestamps; conflicting reuse writes no new effect or receipt, retains the original and alarms. Receipt publication keys use the same pair, plus current recovery-generation evidence. All proposed writes require transactional outboxes (NEW game-side work as listed above), at-least-once delivery, durable deduplication and receipts; there is no exactly-once network promise.
 
 Platform assigns `source_revision` under the issuer lock and holds it to transaction commit, refusing fresh keys at/below its stored maximum. Intent order is a discovery order, not proof that another effect has committed. Game serializes by Character lock, escrow, hold and account/world bank authority. Cross-step prerequisites require matching authoritative receipts, never adjacent sequence numbers or timestamps. Pending feeds may have gaps because terminal rows are omitted; do not demand contiguous pending revisions.
 
@@ -331,36 +367,32 @@ Public Character sale facts require a separate Platform listing projection and e
 
 Never send credentials, private/public admission tokens, private signing keys, recovery keys, email/IP/device identifiers, chat/mail text, secret quests, private topology/placement, raw inventory database blobs, bank balance/history, other account Characters, free-form item inscriptions, provider data or session/lease/fencing secrets. Internal correlation IDs are pseudonymous operational identifiers, never metric labels or public ownership proof.
 
-Proposed retention: active/pending/reconciling operation bindings, receipts, outboxes, locks/escrows/holds and ledger references remain until terminal and reconciled; never age out unresolved value. Serving/projection copies of the full private snapshot/exported attributes expire 30 days after terminal close/return; owner access ends then (earlier on lawful deletion where no hold applies), and public listing removes optional detail then. The immutable receipt embedding those facts is a separate restricted replay/audit record: it is not a serving copy and stays under the approved financial evidence retention policy. Redacted operational audit expires after 90 days, subject to a documented legal hold. Amount ledger, request/receipt digests, operation identity tombstones and restore/high-water fences are retained durably for deduplication; retain only the minimal binding/digest necessary, restrict access and apply the approved financial retention policy before production. Detailed payload deletion never permits an old operation to execute again. If approved law/policy requires deleting embedded receipt facts as well, first accept a new wire version separating snapshot payload retention from immutable receipt references; v1 cannot both erase embedded facts and promise byte-identical full receipts. Until that choice is accepted, retention/production enablement stays blocked (Q6). Raw rejected poison payloads are encrypted/restricted, retained at most 7 days unless an incident hold applies; diagnostic reason/digest only remains. Backups must expire/redact consistently. These durations require both owners' privacy/financial approval (Q6); no runtime is authorized until that policy reconciles payload deletion with exact-retry evidence.
+Proposed retention: active/pending/reconciling operation bindings, receipts, outboxes, locks/escrows/holds and ledger references remain until terminal and reconciled; never age out unresolved value. Serving/projection copies of the full private snapshot/exported attributes expire 30 days after terminal close/return; owner access ends then (earlier on lawful deletion where no hold applies), and public listing removes optional detail then. The immutable CHAR_CMD receipt and any separately bound result evidence are restricted replay/audit records, separate from serving copies, and stay under the approved financial evidence retention policy. This proposal does not assume that §4.3 embeds snapshots or item facts. Redacted operational audit expires after 90 days, subject to a documented legal hold. Amount ledger, request/receipt digests, operation identity tombstones and restore/high-water fences are retained durably for deduplication; retain only the minimal binding/digest necessary, restrict access and apply the approved financial retention policy before production. Detailed payload deletion never permits an old operation to execute again. If approved law/policy requires deleting facts retained in immutable result evidence, first accept a representation and retention rule compatible with §4.3 exact receipt replay; erased embedded data cannot also be promised in byte-identical receipts. Until that choice is accepted, retention/production enablement stays blocked (Q6). Raw rejected poison payloads are encrypted/restricted, retained at most 7 days unless an incident hold applies; diagnostic reason/digest only remains. Backups must expire/redact consistently. These durations require both owners' privacy/financial approval (Q6); no runtime is authorized until that policy reconciles payload deletion with exact-retry evidence.
 
 ### Flags and compatibility
 
-Proposed flags `bazaar.ingest_enabled`, `bazaar.character_listing_enabled`, `bazaar.item_escrow_enabled`, `bazaar.gold_holds_enabled`, `bazaar.gold_payout_enabled`, `bazaar.public_listings_enabled` default **false** independently on both sides where applicable. Existing Character transfer command/saga flags remain off unless separately enabled. Missing identity, signer trust, escrow account allocation, policy, destination capability, recovery fence or accepted producer/consumer version returns unavailable; a broad Bazaar switch cannot override a missing dependency. Initial acceptance/qualification covers testing/preproduction only; production remains off pending its own evidence.
+Proposed flags `bazaar.ingest_enabled`, `bazaar.character_listing_enabled`, `bazaar.item_escrow_enabled`, `bazaar.gold_holds_enabled`, `bazaar.gold_payout_enabled`, `bazaar.public_listings_enabled` default **false** independently on both sides where applicable. Existing Character transfer command/saga flags remain off unless separately enabled after the decoder gate. Portal keeps every Bazaar flag off until Game advertises support for the accepted version and all required capabilities; acceptance alone is insufficient. Missing identity, signer trust, escrow account allocation, policy, destination capability, recovery fence or accepted producer/consumer version returns unavailable; a broad Bazaar switch cannot override a missing dependency. Initial acceptance/qualification covers testing/preproduction only; production remains off pending its own evidence.
 
 Stopping new listings/bids must not orphan existing value. Keep an explicitly authorized reconciliation/release/return lane under the same authentication, flags and fences until all outstanding operations resolve; do not silently enable it when a disabled surface returns 503. Emergency shutdown may pause even recovery, but retains records/funds and escalates. Rollback routes no uncertain operation through another authority and does not unlock/release by migration or direct SQL.
 
-Wire `contract_version=1` is distinct from proposal revision and snapshot schema version. Exact member sets, paths, enum additions, scalar bounds, canonicalization, meaning, signature input or result changes require a new wire version and owner acceptance; no tolerant unknown fields or best-effort downgrade. Unsupported optional snapshot sections use the explicitly specified null form, not invented members. Existing Character command and restore versions remain unchanged; adapters must validate their native receipts exactly. Pin golden fixtures, producer and consumer SHAs at acceptance. Accepting this proposal alone is not G-7 completion: require enabled-capability evidence and exact-revision cross-repository conformance before marking the gate satisfied.
+Proposed character-authority extension `contract_version=2` (§15) is distinct from proposal revision and snapshot schema version. Exact member sets, paths, enum additions, scalar bounds, canonicalization, meaning, signature input or result changes require a new wire version and owner acceptance; no tolerant unknown fields or best-effort downgrade. Unsupported optional snapshot sections use the explicitly specified null form, not invented members. Existing v1 Character command bytes and the restore version remain unchanged; the new issuer/commands/routes require the new character-authority version. Adapters must validate the single native §4.3 CHAR_CMD receipt exactly. Pin golden fixtures, producer and consumer SHAs at acceptance. Accepting this proposal alone is not G-7 completion: require enabled-capability evidence and exact-revision cross-repository conformance before marking the gate satisfied.
 
 ## 10. Golden payloads
 
-These blocks are complete JSON wire objects, not templates. Each line inside a block is canonical; the Markdown newline is not a wire byte. IDs and times are synthetic. Valid structural examples assume matching authenticated peers, configured authorities, current policy/recovery state and corresponding stored intents. Golden signing vector is specified immediately below; no private key belongs in this document.
+The blocks are complete proposed intent/ingest/snapshot wire objects, not templates. Receipt fixtures are deferred to the accepted §4.3 extension; no alternate receipt is shown. Each line inside a block is canonical; the Markdown newline is not a wire byte. IDs and times are synthetic. Valid structural examples assume matching authenticated peers, configured authorities, current policy/recovery state and corresponding stored intents. Golden signing vector is specified immediately below; no private key belongs in this document.
 
 ### Valid: full gold maximum hold intent
 
 ```json
-{"contract_version":1,"command":"HoldBazaarGold","variant":"PLATFORM_BAZAAR","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a1","source_revision":"17","operation_id":"0192a000-0000-7000-8000-000000000001","listing_id":"0192a000-0000-7000-8000-000000000010","seller_account_id":"0192a000-0000-7000-8000-000000000011","world_id":"0192a000-0000-7000-8000-000000000012","buyer_account_id":"0192a000-0000-7000-8000-000000000013","buyer_character_id":"0192a000-0000-7000-8000-000000000014","offer_id":"0192a000-0000-7000-8000-000000000015","hold_purpose":"OFFER","amount":"10000","expected_hold_revision":"0","issued_at_source":"1790000000","expires_at_source":"1790000300","audience":"OTERYN_GAME_BAZAAR_AUTHORITY"}
+{"contract_version":2,"command":"HoldBazaarGold","variant":"PLATFORM_BAZAAR","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a1","source_revision":"17","operation_id":"0192a000-0000-7000-8000-000000000001","listing_id":"0192a000-0000-7000-8000-000000000010","seller_account_id":"0192a000-0000-7000-8000-000000000011","world_id":"0192a000-0000-7000-8000-000000000012","buyer_account_id":"0192a000-0000-7000-8000-000000000013","buyer_character_id":"0192a000-0000-7000-8000-000000000014","offer_id":"0192a000-0000-7000-8000-000000000015","hold_purpose":"OFFER","amount":"10000","expected_hold_revision":"0","issued_at_source":"1790000000","expires_at_source":"1790000300","audience":"OTERYN_GAME_BAZAAR_AUTHORITY"}
 ```
 
-### Valid: hold receipt, SHA-256 bound to the preceding intent
-
-```json
-{"contract_version":1,"operation":"PublishBazaarCommandReceiptV1","source_authority":"oteryn:game:primary","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","command":"HoldBazaarGold","operation_id":"0192a000-0000-7000-8000-000000000001","binding_digest":"d7410d244496b996ec293ca23bd3b0b4fc7d32dc23d1a047c9cc49604d1bb90c","listing_id":"0192a000-0000-7000-8000-000000000010","outcome":"COMMITTED","result_code":"BAZAAR_OK","facts":{"hold_id":"0192a000-0000-7000-8000-000000000016","hold_revision":"1","buyer_account_id":"0192a000-0000-7000-8000-000000000013","offer_id":"0192a000-0000-7000-8000-000000000015","hold_purpose":"OFFER","held_amount":"10000"},"recovery_generation":"3","decided_at":"1790000002"}
-```
+The hold result must use the existing §4.3 CHAR_CMD receipt. A shared receipt fixture for the accepted version extension is a Game-side qualification deliverable.
 
 ### Valid: item escrow intent and item facts with attributes
 
 ```json
-{"contract_version":1,"command":"EscrowBazaarItem","variant":"PLATFORM_BAZAAR","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a2","source_revision":"18","operation_id":"0192a000-0000-7000-8000-000000000002","listing_id":"0192a000-0000-7000-8000-000000000020","seller_account_id":"0192a000-0000-7000-8000-000000000011","world_id":"0192a000-0000-7000-8000-000000000012","seller_character_id":"0192a000-0000-7000-8000-000000000021","item_instance_id":"0192a000-0000-7000-8000-000000000022","expected_state_revision":"7","quantity":1,"transferability_revision":"4","issued_at_source":"1790000000","expires_at_source":"1790000300","audience":"OTERYN_GAME_BAZAAR_AUTHORITY"}
+{"contract_version":2,"command":"EscrowBazaarItem","variant":"PLATFORM_BAZAAR","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a2","source_revision":"18","operation_id":"0192a000-0000-7000-8000-000000000002","listing_id":"0192a000-0000-7000-8000-000000000020","seller_account_id":"0192a000-0000-7000-8000-000000000011","world_id":"0192a000-0000-7000-8000-000000000012","seller_character_id":"0192a000-0000-7000-8000-000000000021","item_instance_id":"0192a000-0000-7000-8000-000000000022","expected_state_revision":"7","quantity":1,"transferability_revision":"4","issued_at_source":"1790000000","expires_at_source":"1790000300","audience":"OTERYN_GAME_BAZAAR_AUTHORITY"}
 ```
 
 This separate `Item` record is structurally valid; `attributes_hash` here is SHA-256 of the synthetic complete attribute state `{"tier":"2"}`. It is not a whole receipt.
@@ -390,15 +422,13 @@ Served on the existing character-command read route with its dedicated identity,
 These are structurally valid complete messages. The all-ones escrow receipt digest is a synthetic prerequisite: this scenario assumes Game and Platform hold the matching escrow receipt under that digest. A real digest mismatch denies the attempt. Delivery refusal commits no movement; escrow remains at revision 1, allowing this separately authorized return. The return intent alone does not prove a return completed.
 
 ```json
-{"contract_version":1,"command":"DeliverBazaarItem","variant":"PLATFORM_BAZAAR","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a3","source_revision":"20","operation_id":"0192a000-0000-7000-8000-000000000004","listing_id":"0192a000-0000-7000-8000-000000000020","seller_account_id":"0192a000-0000-7000-8000-000000000011","world_id":"0192a000-0000-7000-8000-000000000012","escrow_id":"0192a000-0000-7000-8000-000000000023","expected_escrow_revision":"1","buyer_account_id":"0192a000-0000-7000-8000-000000000013","buyer_character_id":"0192a000-0000-7000-8000-000000000014","escrow_receipt_digest":"1111111111111111111111111111111111111111111111111111111111111111","sale_id":"0192a000-0000-7000-8000-000000000024","funding":{"currency":"COINS","reservation_id":"0192a000-0000-7000-8000-000000000025","hold_revision":null,"gross_amount":"10000"},"issued_at_source":"1790000010","expires_at_source":"1790000310","audience":"OTERYN_GAME_BAZAAR_AUTHORITY"}
+{"contract_version":2,"command":"DeliverBazaarItem","variant":"PLATFORM_BAZAAR","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a3","source_revision":"20","operation_id":"0192a000-0000-7000-8000-000000000004","listing_id":"0192a000-0000-7000-8000-000000000020","seller_account_id":"0192a000-0000-7000-8000-000000000011","world_id":"0192a000-0000-7000-8000-000000000012","escrow_id":"0192a000-0000-7000-8000-000000000023","expected_escrow_revision":"1","buyer_account_id":"0192a000-0000-7000-8000-000000000013","buyer_character_id":"0192a000-0000-7000-8000-000000000014","escrow_receipt_digest":"1111111111111111111111111111111111111111111111111111111111111111","sale_id":"0192a000-0000-7000-8000-000000000024","funding":{"currency":"COINS","reservation_id":"0192a000-0000-7000-8000-000000000025","hold_revision":null,"gross_amount":"10000"},"issued_at_source":"1790000010","expires_at_source":"1790000310","audience":"OTERYN_GAME_BAZAAR_AUTHORITY"}
 ```
 
-```json
-{"contract_version":1,"operation":"PublishBazaarCommandReceiptV1","source_authority":"oteryn:game:primary","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","command":"DeliverBazaarItem","operation_id":"0192a000-0000-7000-8000-000000000004","binding_digest":"d5076e9f28cb4e630e5dd69a161aa7c1b2c01afc33517e31e3f15b5d9a9a6f59","listing_id":"0192a000-0000-7000-8000-000000000020","outcome":"REJECTED","result_code":"BAZAAR_DESTINATION_UNAVAILABLE","facts":null,"recovery_generation":"3","decided_at":"1790000011"}
-```
+The delivery refusal must be a terminal §4.3 CHAR_CMD receipt; no alternate Bazaar receipt is defined here.
 
 ```json
-{"contract_version":1,"command":"ReturnBazaarItem","variant":"PLATFORM_BAZAAR","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a4","source_revision":"21","operation_id":"0192a000-0000-7000-8000-000000000005","listing_id":"0192a000-0000-7000-8000-000000000020","seller_account_id":"0192a000-0000-7000-8000-000000000011","world_id":"0192a000-0000-7000-8000-000000000012","escrow_id":"0192a000-0000-7000-8000-000000000023","expected_escrow_revision":"1","seller_character_id":"0192a000-0000-7000-8000-000000000021","escrow_receipt_digest":"1111111111111111111111111111111111111111111111111111111111111111","issued_at_source":"1790000020","expires_at_source":"1790000320","audience":"OTERYN_GAME_BAZAAR_AUTHORITY"}
+{"contract_version":2,"command":"ReturnBazaarItem","variant":"PLATFORM_BAZAAR","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a4","source_revision":"21","operation_id":"0192a000-0000-7000-8000-000000000005","listing_id":"0192a000-0000-7000-8000-000000000020","seller_account_id":"0192a000-0000-7000-8000-000000000011","world_id":"0192a000-0000-7000-8000-000000000012","escrow_id":"0192a000-0000-7000-8000-000000000023","expected_escrow_revision":"1","seller_character_id":"0192a000-0000-7000-8000-000000000021","escrow_receipt_digest":"1111111111111111111111111111111111111111111111111111111111111111","issued_at_source":"1790000020","expires_at_source":"1790000320","audience":"OTERYN_GAME_BAZAAR_AUTHORITY"}
 ```
 
 ### Valid: empty full transferability snapshot and completeness watermark
@@ -406,23 +436,23 @@ These are structurally valid complete messages. The all-ones escrow receipt dige
 The empty definition list denies all new item escrow in that world; it is not an ingest outage.
 
 ```json
-{"contract_version":1,"operation":"PublishBazaarTransferabilityV1","source_authority":"oteryn:game:primary","world_id":"0192a000-0000-7000-8000-000000000012","projection_epoch":"3","projection_revision":"4","source_observed_at":"1790000002","eligibility_revision":"4","definitions":[]}
+{"contract_version":2,"operation":"PublishBazaarTransferabilityV1","source_authority":"oteryn:game:primary","world_id":"0192a000-0000-7000-8000-000000000012","projection_epoch":"3","projection_revision":"4","source_observed_at":"1790000002","eligibility_revision":"4","definitions":[]}
 ```
 
 ```json
-{"contract_version":1,"operation":"PublishBazaarWatermarkV1","source_authority":"oteryn:game:primary","projection_epoch":"3","complete_through":"1790000000","observed_at":"1790000003"}
+{"contract_version":2,"operation":"PublishBazaarWatermarkV1","source_authority":"oteryn:game:primary","projection_epoch":"3","complete_through":"1790000000","observed_at":"1790000003"}
 ```
 
 ### Invalid: future completeness (400; do not advance watermark)
 
 ```json
-{"contract_version":1,"operation":"PublishBazaarWatermarkV1","source_authority":"oteryn:game:primary","projection_epoch":"3","complete_through":"1790000004","observed_at":"1790000003"}
+{"contract_version":2,"operation":"PublishBazaarWatermarkV1","source_authority":"oteryn:game:primary","projection_epoch":"3","complete_through":"1790000004","observed_at":"1790000003"}
 ```
 
 ### Invalid: unknown operation member and noncanonical revision (400)
 
 ```json
-{"contract_version":1,"operation":"PublishBazaarTransferabilityV1","source_authority":"oteryn:game:primary","world_id":"0192a000-0000-7000-8000-000000000012","projection_epoch":"3","projection_revision":"04","source_observed_at":"1790000002","eligibility_revision":"4","definitions":[],"allow_unknown_items":true}
+{"contract_version":2,"operation":"PublishBazaarTransferabilityV1","source_authority":"oteryn:game:primary","world_id":"0192a000-0000-7000-8000-000000000012","projection_epoch":"3","projection_revision":"04","source_observed_at":"1790000002","eligibility_revision":"4","definitions":[],"allow_unknown_items":true}
 ```
 
 ### Invalid: tampered Character level with original hash and signature
@@ -438,7 +468,7 @@ Reject before publishing or settling: `snapshot_hash` no longer matches, and sig
 This complete intent reuses the first hold's operation ID but changes amount. With the first binding stored, it is a conflict: retain the first receipt, no additional hold, alarm; never overwrite with a new rejection receipt.
 
 ```json
-{"contract_version":1,"command":"HoldBazaarGold","variant":"PLATFORM_BAZAAR","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a1","source_revision":"17","operation_id":"0192a000-0000-7000-8000-000000000001","listing_id":"0192a000-0000-7000-8000-000000000010","seller_account_id":"0192a000-0000-7000-8000-000000000011","world_id":"0192a000-0000-7000-8000-000000000012","buyer_account_id":"0192a000-0000-7000-8000-000000000013","buyer_character_id":"0192a000-0000-7000-8000-000000000014","offer_id":"0192a000-0000-7000-8000-000000000015","hold_purpose":"OFFER","amount":"10001","expected_hold_revision":"0","issued_at_source":"1790000000","expires_at_source":"1790000300","audience":"OTERYN_GAME_BAZAAR_AUTHORITY"}
+{"contract_version":2,"command":"HoldBazaarGold","variant":"PLATFORM_BAZAAR","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a1","source_revision":"17","operation_id":"0192a000-0000-7000-8000-000000000001","listing_id":"0192a000-0000-7000-8000-000000000010","seller_account_id":"0192a000-0000-7000-8000-000000000011","world_id":"0192a000-0000-7000-8000-000000000012","buyer_account_id":"0192a000-0000-7000-8000-000000000013","buyer_character_id":"0192a000-0000-7000-8000-000000000014","offer_id":"0192a000-0000-7000-8000-000000000015","hold_purpose":"OFFER","amount":"10001","expected_hold_revision":"0","issued_at_source":"1790000000","expires_at_source":"1790000300","audience":"OTERYN_GAME_BAZAAR_AUTHORITY"}
 ```
 
 Additional required negative golden transformations of the signed vector: change `level` without rehashing → hash mismatch; recompute hash without re-signing → signature failure; change seller/listing/lock/world → binding failure even with another valid signature; unknown/revoked kid → unavailable/denied; replay below epoch floor → superseded and cannot publish. Changing hold amount to JSON number `10000`, string `"010000"`, null or `"1000000000000"` is invalid encoding/type/range, never coerced. Negative payout vector: gross `"10000"`, fee `"249"`, seller `"9751"` is `BAZAAR_PAYOUT_INVALID` because exact 250-bps fee is `"250"`.
@@ -447,7 +477,7 @@ Additional required negative golden transformations of the signed vector: change
 
 ### Game owner / coordinator
 
-- [ ] Accept/amend this exact proposal and lock the Game producer contract/revision; confirm new operation names and bounded wire capabilities, with runtime still off.
+- [ ] Ship and advertise the transfer/Bazaar decoders and consumer; accept the §15 character-authority version extension and §4.3 receipt mappings. Accept/amend this exact proposal and lock the Game producer contract/revision; confirm new operation names and bounded wire capabilities, with runtime still off.
 - [ ] Resolve Q1–Q7; accept eligibility/cooldown, escrow account and lock-to-existing-transfer interlock, supported snapshot tabs and surviving assets.
 - [ ] Prove offline/admission/write lock races and exact-snapshot capture atomicity; existing transfer requires the bound operation and conserves the lock across all three purposes.
 - [ ] Prove item split/nonstackable/attribute conservation, delivery-versus-return exclusion, unavailable destination and policy withdrawal behavior, including suspended/missing seller recovery.
@@ -477,4 +507,4 @@ Additional required negative golden transformations of the signed vector: change
 4. **Gold authority and economics:** Accept Account+World bank holds, OFFER/RESERVE meaning, replacement-total increases, explicit partial releases, 999999999999 ceiling and exact fee rounding? How will seller headroom be reserved before handoff, and how will Game validate cross-channel delivery receipts before payout? Resolve small gross amounts with zero net and existing junior/recipient restrictions before activation.
 5. **Trust and recovery operations:** Who provisions/rotates/revokes the separate Game snapshot keys, publishes trusted public-key evidence to Platform, and owns emergency suspension? Which existing restore scope/fence covers bank, item custody, lock and character-command receipts together? Confirm no proposed signature or transfer binding weakens existing admission/Character authority.
 6. **Privacy and retention:** Accept owner-only raw data, explicit seller publication projection, 30-day serving snapshot/90-day redacted audit/7-day poison retention, with separately restricted immutable receipt evidence and durable minimal deduplication evidence? What legal financial-retention policy and approved public fields constrain T59–T64 and deletion of exact-retry payloads?
-7. **Wire/rollout acceptance:** Accept the proposed route/command names, field sets, bounds, refusal taxonomy, per-world full policy list ceiling, polling/freshness/timeout limits and flags? What measured production limits, multi-host authority allocation and exact producer/consumer SHAs will be required? Until answered and accepted, G-7 remains pending and all affected capabilities remain off.
+7. **Wire/rollout acceptance:** Accept the §15 character-authority version extension, single §4.3 CHAR_CMD receipt mappings, proposed route/command names, field sets, bounds, refusal taxonomy, per-world full policy list ceiling, polling/freshness/timeout limits and flags? What measured production limits, multi-host authority allocation and exact producer/consumer SHAs will be required? Until answered and accepted, G-7 remains pending and all affected capabilities remain off.
