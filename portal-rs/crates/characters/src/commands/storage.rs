@@ -39,6 +39,14 @@ impl Commands {
             if row.try_get::<String,_>("command")? != intent.command() || row.try_get::<String,_>("binding_json")? != binding_json || row.try_get::<Uuid,_>("issuer_decision_id")? != decision { return Err(Error::Conflict); }
             return status(row);
         }
+        if let Intent::Transfer { character_id, .. } = &intent {
+            // V2 services and ownership transfer share one issuance fence. V1
+            // wire bytes and ordinary v1-only issuance keep their existing behavior.
+            let service_pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_commands WHERE state='PENDING' AND command IN ('ScheduleCharacterDeletion','CancelCharacterDeletion','RenameCharacter') AND binding_json::jsonb->>'character_id'=$1)").bind(character_id.to_string()).fetch_one(&mut *tx).await?;
+            if service_pending {
+                return Err(Error::Conflict);
+            }
+        }
         let count: i64 =
             sqlx::query_scalar("SELECT count(*) FROM character_commands WHERE state='PENDING'")
                 .fetch_one(&mut *tx)
@@ -123,7 +131,7 @@ impl Commands {
         };
         let mut entries = Vec::new();
         if let Ok(revision) = i64::try_from(revision) {
-            let rows=sqlx::query("SELECT id,command,source_revision FROM character_commands WHERE state='PENDING' AND (source_revision,id)>($1,$2) ORDER BY source_revision,id LIMIT $3").bind(revision).bind(id).bind(limit).fetch_all(&self.pool).await?;
+            let rows=sqlx::query("SELECT id,command,source_revision FROM character_commands WHERE state='PENDING' AND command IN ('CreateCharacter','TransferCharacterOwnership') AND (source_revision,id)>($1,$2) ORDER BY source_revision,id LIMIT $3").bind(revision).bind(id).bind(limit).fetch_all(&self.pool).await?;
             for row in rows {
                 entries.push(object(vec![
                     ("command", text(row.try_get::<String, _>("command")?)),
@@ -171,6 +179,9 @@ impl Commands {
             return Err(Error::NotFound);
         }
         let stored = self.load(id).await?;
+        if !matches!(stored.command.as_str(), CREATE | TRANSFER) {
+            return Err(Error::NotFound);
+        }
         if stored.command != cmd {
             return Err(Error::Conflict);
         }
@@ -218,4 +229,8 @@ impl Commands {
         tx.commit().await?;
         Ok(())
     }
+}
+
+pub(super) fn service_status(row: sqlx::postgres::PgRow) -> Result<CommandStatus, Error> {
+    status(row)
 }

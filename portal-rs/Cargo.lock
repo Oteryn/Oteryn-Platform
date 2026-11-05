@@ -2059,6 +2059,7 @@ dependencies = [
  "oteryn-core",
  "oteryn-internal-api",
  "oteryn-wallet",
+ "oteryn-web",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",

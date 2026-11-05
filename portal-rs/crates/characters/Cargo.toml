@@ -33,3 +33,5 @@ version = "0.16.1"
 version = "0.16.0"
 [dependencies.oteryn-wallet]
 workspace = true
+[dev-dependencies.oteryn-web]
+path = "../web"

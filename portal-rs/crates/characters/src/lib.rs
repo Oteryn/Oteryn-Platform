@@ -6,3 +6,5 @@ pub mod restore;
 
 pub mod bootstrap;
 pub mod overview;
+
+pub mod services;

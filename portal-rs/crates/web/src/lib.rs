@@ -120,6 +120,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                 },
             ),
         )
+        .route("/{lang}/account/characters/{character}/services", get(|State(state): State<AppState>, axum::extract::Path((lang, character)): axum::extract::Path<(String, String)>, axum::Extension(session): axum::Extension<session::BrowserSession>| async move { oteryn_characters::services::show(&state.db, session.account_id().await, &character, &lang, session.csrf_token().await.unwrap_or_default()).await }).post(|State(state): State<AppState>, axum::extract::Path((lang, character)): axum::extract::Path<(String, String)>, axum::Extension(session): axum::Extension<session::BrowserSession>, headers: axum::http::HeaderMap, axum::Form(fields): axum::Form<Vec<(String, String)>>| async move { let actor = session.account_id().await; let recent = oteryn_characters::services::recent(&state.db, actor, &headers).await; oteryn_characters::services::submit(&state.db, actor, &character, &lang, recent, fields).await }))
         .route_layer(axum::middleware::from_fn_with_state(
             state.db.clone(),
             oteryn_identity::abuse::http::protect,
@@ -219,3 +220,19 @@ pub mod register;
 pub mod seo;
 #[path = "routes/verify.rs"]
 pub mod verify;
+
+/// Compose both command versions and restore on the dedicated verified TLS listener.
+pub async fn internal_character_services_router(
+    services: oteryn_characters::services::Services,
+    restore_settings: oteryn_characters::restore::Settings,
+    command_settings: oteryn_characters::commands::Settings,
+    identities: std::sync::Arc<oteryn_internal_api::guard::IdentityMap>,
+) -> Router {
+    oteryn_characters::services::router_with_restore(
+        services,
+        restore_settings,
+        command_settings,
+        identities,
+    )
+    .await
+}
