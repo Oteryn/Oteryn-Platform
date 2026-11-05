@@ -55,3 +55,6 @@ workspace = true
 
 [dependencies.oteryn-world]
 path = "../../crates/world"
+
+[dependencies.serde_urlencoded]
+version = "0.7"
