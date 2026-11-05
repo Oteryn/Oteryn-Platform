@@ -1,0 +1,9 @@
+/* Plain document layout; visual design belongs to the design system. */
+body { margin: 0; color: #111; background: #fff; font-family: system-ui, sans-serif; line-height: 1.5; overflow-wrap: anywhere; }
+header, main, footer { max-width: 72rem; margin-inline: auto; padding: 1rem; }
+nav { display: flex; flex-wrap: wrap; gap: 1rem; }
+a { color: #003b80; }
+a:focus-visible, main:focus-visible { outline: 3px solid #003b80; outline-offset: 3px; }
+nav a, header > a { display: inline-block; padding-block: .5rem; }
+.skip-link { position: absolute; top: -10rem; left: 1rem; padding: .75rem; background: #fff; }
+.skip-link:focus { top: 0; }
