@@ -25,3 +25,5 @@ oteryn-internal-api = { path = "../../crates/internal-api" }
 oteryn-stats = { path = "../../crates/stats" }
 
 oteryn-admin = { path = "../../crates/admin" }
+
+oteryn-content.workspace = true
