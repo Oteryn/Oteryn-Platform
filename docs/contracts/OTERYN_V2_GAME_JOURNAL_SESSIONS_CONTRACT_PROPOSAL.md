@@ -2,6 +2,15 @@ Status: PROPOSED by Platform, pending acceptance by the game owner (coordinator)
 
 # G-9 private game journal and hunting sessions — contract proposal
 
+## Revision 2 (review of 2026-11-05)
+
+- Re-pinned all Oteryn-Game references to main `2253b997`; marked unverified game paths explicitly.
+- Clarified reuse as aligned with the proposed Store wire, without implying acceptance.
+- Listed the NEW journal emitter/outbox, durable logout event and replay pull consumer as game-side deliverables; Store outbox remains Store-only.
+- Defined entry-to-durable-logout sessions and hunting-area/15-minute kill-idle segments; updated closure rules and acceptance criteria.
+- Replaced ownership_revision with character_revision from character command receipts (§4.3 of the character authority contract), including fixtures and privacy requirements.
+- Distinguished journal session_id, GameSessionId and CharacterLease ownership, purpose and lifetimes; prohibited reuse.
+
 ## 1. Purpose, owners and authority
 
 Proposed contract identifier: `oteryn-v2-game-journal-sessions-v1`; wire `contract_version` is integer `1`.
@@ -31,31 +40,40 @@ Platform references read for this proposal:
 - `docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md`: durable idempotency and failure/authority separation; entitlement status never substitutes for game facts or ownership.
 - `app/CharacterAuthority/CharacterCommandWire.php`: existing Platform pull/read/receipt wire and `TransferCharacterOwnership` spelling.
 
-Read-only Game evidence is pinned to [857f15f376907c592bb28d854fccff18a15cdf87](https://github.com/Oteryn/Oteryn-Game/tree/857f15f376907c592bb28d854fccff18a15cdf87):
+Game references are pinned to Oteryn-Game main [2253b997](https://github.com/Oteryn/Oteryn-Game/tree/2253b997):
 
 | Game path at that commit | Fact relied on |
 | --- | --- |
-| `crates/gameplay/native-admission-source/src/character_commands.rs` | `ListPendingCharacterCommandsV1` / `ReadCharacterCommandIntentV1` / `PublishCharacterCommandReceiptV1` pattern; purpose-bound mTLS; revision + operation cursor; bounded rescans. This consumer declares `CreateCharacter`; Platform's transfer spelling does not prove Game transfer support here. |
-| `crates/gameplay/native-admission-source/src/store_wire.rs` | Closed member sets/order, decimal strings, `binding_digest`, `COMMITTED` / `REJECTED` receipts |
-| `crates/gameplay/durability/src/durability/store/outbox.rs` | `list_unacknowledged_store_receipts`, `mark_store_receipt_acknowledged`; persisted receipt retry until acknowledgement |
-| `crates/gameplay/durability/src/durability/character_command.rs` | Durable classification, canonical intent/receipt binding and authoritative commit boundary |
-| `apps/game-server/migrations/0532_bosstiary_kill_receipts.sql` | Character + occurrence keyed immutable boss-kill receipts; these are evidence, not an existing G-9 summary feed |
+| **unverified path**: `crates/gameplay/native-admission-source/src/character_commands.rs` | `ListPendingCharacterCommandsV1` / `ReadCharacterCommandIntentV1` / `PublishCharacterCommandReceiptV1` pattern; purpose-bound mTLS; revision + operation cursor; bounded rescans. This consumer declares `CreateCharacter`; Platform's transfer spelling does not prove Game transfer support here. |
+| **unverified path**: `crates/gameplay/native-admission-source/src/store_wire.rs` | Closed member sets/order, decimal strings, `binding_digest`, `COMMITTED` / `REJECTED` receipts |
+| **unverified path**: `crates/gameplay/durability/src/durability/store/outbox.rs` | `list_unacknowledged_store_receipts`, `mark_store_receipt_acknowledged`; persisted receipt retry until acknowledgement, Store-only; this is not a journal/ingest outbox |
+| **unverified path**: `crates/gameplay/durability/src/durability/character_command.rs` | Durable classification, canonical intent/receipt binding and authoritative commit boundary |
+| **unverified path**: `apps/game-server/migrations/0532_bosstiary_kill_receipts.sql` | Character + occurrence keyed immutable boss-kill receipts; these are evidence, not an existing G-9 summary feed |
 
 All journal operation names, routes, fields and limits below are **proposed additions**, not claims that Game has them.
 No broker, shared database, new signature scheme or synchronous website-to-runtime dependency is introduced.
+
+### 2.1 Game-side deliverables
+
+The game has no journal/ingest outbox or journal emitter. The existing `store/outbox.rs` is Store-only; it supplies no G-9 delivery capability. All of the following are **NEW game-side work**, with implementation paths unverified:
+
+- Add the durable logout event promised by the game owner, establishing the session end at the authoritative durability boundary.
+- Add game-entry/session and hunting-area/kill-idle segment capture, journal identities, metrics and character_revision binding from character command receipts (§4.3 of the character authority contract).
+- Add a journal emitter and durable journal/ingest outbox with atomic fact capture, immutable canonical bytes, retries, acknowledgements, retention and restore fencing.
+- Add a new pull consumer for `ReplayGameJournalRecords`: pending/read polling, authorization, durable decisions, retained-byte requeueing and receipt delivery. The existing Character Commands consumer does not implement this operation.
 
 ## 3. Direction, transport and authentication
 
 Logical flows:
 
-1. **Game → Platform ingest**: durable segment and rare-drop records, retried from Game's outbox.
+1. **Game → Platform ingest**: durable segment and rare-drop records, retried from a NEW game-side journal outbox (§2.1).
 2. **Platform → Game command**: only a request to replay retained journal records. Platform stores an intent; Game pulls it, decides it and publishes a receipt. Platform never opens an HTTP connection to Game. No start/stop hunt or gameplay mutation command is proposed.
 
-All physical requests are Game → Platform `POST` over the existing internal TLS 1.3 mTLS listener, with authenticated Platform server identity and purpose-bound Game client identity. Reuse the existing trusted-terminator guard: `SSL_CLIENT_VERIFY=SUCCESS`, `SSL_PROTOCOL=TLSv1.3`, constant-time comparison of `SSL_CLIENT_S_DN` (printable ASCII, 1–128 bytes). Ignore client-supplied equivalents. Journal identity must not overlap Store, Character Commands, public projection, admission or other internal-purpose identities. Bind one configured `source_authority` to the allowed producer account-stream partition; certificate authentication alone does not authorize arbitrary accounts.
+All physical requests are Game → Platform `POST` over the existing internal TLS 1.3 mTLS listener, with authenticated Platform server identity and purpose-bound Game client identity. The proposed journal guard is aligned with the proposed Store wire: `SSL_CLIENT_VERIFY=SUCCESS`, `SSL_PROTOCOL=TLSv1.3`, constant-time comparison of `SSL_CLIENT_S_DN` (printable ASCII, 1–128 bytes). Ignore client-supplied equivalents. Journal identity must not overlap Store, Character Commands, public projection, admission or other internal-purpose identities. Bind one configured `source_authority` to the allowed producer account-stream partition; certificate authentication alone does not authorize arbitrary accounts.
 
-Reuse purpose descriptors and approved certificate provisioning/rotation; never put credentials in records. As on the cited wire, mTLS authenticates the exchange; SHA-256 digests bind canonical bytes and are **not signatures**. No detached signature, HMAC key, bearer token or signing field is added. A later requirement for offline-verifiable signing needs an accepted contract revision, not ad hoc signing.
+Reuse purpose descriptors and approved certificate provisioning/rotation; never put credentials in records. Aligned with the proposed Store wire, mTLS authenticates the exchange; SHA-256 digests bind canonical bytes and are **not signatures**. No detached signature, HMAC key, bearer token or signing field is added. A later requirement for offline-verifiable signing needs an accepted contract revision, not ad hoc signing.
 
-For every body: UTF-8 object, `Content-Type: application/json`, no BOM/trailing newline, no whitespace/escapes/backslash, exact member order below, no missing/extra/duplicate members, depth ≤8. Wire bytes equal compact re-encoding in listed order. `Transfer-Encoding` absent; `Content-Encoding` absent or `identity`; `Content-Length`, if present, decimal without leading zero, at most route bound and matching actual bytes. Nonempty bodies only. This uses Store canonicalization with an explicitly proposed greater depth/size for nested telemetry.
+For every body: UTF-8 object, `Content-Type: application/json`, no BOM/trailing newline, no whitespace/escapes/backslash, exact member order below, no missing/extra/duplicate members, depth ≤8. Wire bytes equal compact re-encoding in listed order. `Transfer-Encoding` absent; `Content-Encoding` absent or `identity`; `Content-Length`, if present, decimal without leading zero, at most route bound and matching actual bytes. Nonempty bodies only. This is aligned with the proposed Store wire canonicalization with an explicitly proposed greater depth/size for nested telemetry.
 
 | Proposed route under `/internal/v1/playerdata/journal/` | Operation | Request / 200 response byte ceilings |
 | --- | --- | --- |
@@ -64,7 +82,7 @@ For every body: UTF-8 object, `Content-Type: application/json`, no BOM/trailing 
 | `commands/read` | `ReadGameJournalCommandIntentV1` | 512 / 4096 |
 | `commands/receipt` | `PublishGameJournalCommandReceiptV1` | 1024 / 64 |
 
-All responses use `Cache-Control: no-store`. Non-200 bodies are empty. Guard order follows Store: disabled/misconfigured →503; invalid peer →401; per-peer limiter →429 with `Retry-After` seconds ≥1; transport/shape validation; configured authority mismatch →401; handler. Proposed limit 120 requests/60 seconds/peer, burst no larger than 120; retries consume the same budget. Oversize →413; malformed/unsupported schema or operation →400; unknown intent →404; immutable-key conflict or stale stream generation →409; temporary dependency failure →503. An ingest 200 is exactly `{"contract_version":1,"result":"accepted"}` and means durable validated storage plus deduplication, not publication or complete session.
+All responses use `Cache-Control: no-store`. Non-200 bodies are empty. Guard order is aligned with the proposed Store wire: disabled/misconfigured →503; invalid peer →401; per-peer limiter →429 with `Retry-After` seconds ≥1; transport/shape validation; configured authority mismatch →401; handler. Proposed limit 120 requests/60 seconds/peer, burst no larger than 120; retries consume the same budget. Oversize →413; malformed/unsupported schema or operation →400; unknown intent →404; immutable-key conflict or stale stream generation →409; temporary dependency failure →503. An ingest 200 is exactly `{"contract_version":1,"result":"accepted"}` and means durable validated storage plus deduplication, not publication or complete session.
 
 ## 4. Shared types and canonical order
 
@@ -83,7 +101,21 @@ Every member is required. Only an explicit `null` union allows null. Bounds are 
 
 AccountId, CharacterId, WorldId and ChannelId use the canonical accepted native identity encodings (`uuid7` here); never display names or adapter IDs. `session_id` is a new Game-minted hunting-analysis identity, **never** GameSessionId, admission identity, lease or authentication material. `segment_id`, `event_id`, `operation_id`, `party_id` are separately minted UUIDv7 values, never reused. A proposed `party_id` identifies only this journal party incarnation, not a new canonical game party authority.
 
-Arrays have unique keys and ascending bytewise tuple order by the key columns specified below. Decimal indices compare numerically. Zero means measured zero; null means explicitly unknown where permitted. Empty arrays mean measured none, never failed collection. Total encoded bytes must also fit the route ceiling even when individual array counts fit; no truncation or pagination inside an immutable record is allowed. Capacity above these limits requires a separately accepted version or finer producer segmentation before sealing. Missing measurement makes the entire record unavailable; no fabricated zeros.
+Arrays have unique keys and ascending bytewise tuple order by the key columns specified below. Decimal indices compare numerically. Zero means measured zero; null means explicitly unknown where permitted. Empty arrays mean measured none, never failed collection. Total encoded bytes must also fit the route ceiling even when individual array counts fit; no truncation or pagination inside an immutable record is allowed. Capacity above these limits requires a separately accepted version; arbitrary extra segment boundaries are not authorized by this proposal. Missing measurement makes the entire record unavailable; no fabricated zeros.
+
+### 4.1 Session boundaries and identity separation
+
+A journal session runs from game entry to durable logout. Durable logout is a NEW game event to be added by the game owner (§2.1); a disconnect, transport timeout or expired lease alone does not prove logout. Reconnection handling must preserve this boundary using durable game evidence.
+
+| Identity | Owner | Lifetime and purpose |
+| --- | --- | --- |
+| Journal `session_id` | Game journal producer | Newly minted at game entry, ends at durable logout; groups private analysis segments |
+| GameSessionId | Game session authority | Game runtime/admission session lifecycle, independently defined; not an analysis identifier |
+| CharacterLease | Game character authority | Character access/authority lease lifetime, independently acquired, renewed and released; not a journal session |
+
+These are different identities with different owners and lifetimes. Never reuse or derive the journal identifier from GameSessionId or CharacterLease, and never transmit either as journal data. Any game-side correlation remains private to Game; exact GameSessionId/CharacterLease implementation paths and lifecycle details are unverified here.
+
+A segment starts on entering a hunting area and ends on leaving that area, or after 15 minutes without a kill (900 seconds from entry if no kill occurs, otherwise from the last authoritative credited kill). After an idle close, no new hunting segment starts until a new hunting-area entry; kill activity alone is not an entry. Durable logout closes an open segment and finalizes the session. Non-hunting time is not fabricated as hunting duration.
 
 ## 5. Exact record schemas
 
@@ -111,12 +143,12 @@ The envelope digest is SHA-256 of exact canonical request bytes, computed locall
 | `session_id`, `segment_id` | `uuid7`, immutable capture identities |
 | `segment_index` | integer 0–65535, contiguous per session |
 | `character_id`, `world_id`, `channel_id` | canonical IDs |
-| `ownership_revision` | `u64`, Game character ownership revision at capture |
+| `character_revision` | `u64`, character_revision from character command receipts (§4.3 of `docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md`), bound to the character at capture |
 | `catalog_revision` | `token`, exact content/ruleset revision resolving all keys |
 | `started_at`, `ended_at` | `time`; half-open interval [start,end), end ≥start |
-| `duration_seconds` | `counter`, elapsed active hunting seconds, 0–3600; ≤end−start |
-| `end_reason` | `HOURLY`, `SESSION_END`, `OWNERSHIP_CHANGE`, `RECOVERY_END` |
-| `final_segment` | boolean; false iff `HOURLY` |
+| `duration_seconds` | `counter`, elapsed active hunting seconds, ≤end−start |
+| `end_reason` | `AREA_EXIT`, `KILL_IDLE_TIMEOUT`, `CONTEXT_CHANGE`, `SESSION_END`, `RECOVERY_END` |
+| `final_segment` | boolean; true iff `SESSION_END` established by durable logout |
 | `experience_gained` | `counter`, positive awards in experience points, excludes losses |
 | `experience_lost` | `counter`, losses in experience points, separate from gains |
 | `level` | integer 1–65535 at segment end, aggregation cohort only |
@@ -133,7 +165,7 @@ Nested schemas (members appear in the following order):
 
 | Row | Members, types and semantics |
 | --- | --- |
-| Place | `place_key`: `key` or null for unclassified location; `duration_seconds`: `counter` ≤3600. At most one null row. Durations sum to segment active duration; sequential attribution, no overlapping places. |
+| Place | `place_key`: `key` or null for unclassified location; `duration_seconds`: `counter` ≤segment duration. At most one null row. Durations sum to segment active duration; sequential attribution, no overlapping places. |
 | Item | `item_key`: `key`; `quantity`: `u64` ≤9223372036854775807, units of items. Loot = acquired loot, supplies = consumed items; not inventory snapshots or currency valuation. |
 | Damage | `damage_type_key`: `key` from pinned damage taxonomy; `source_kind`: `SELF`, `MONSTER`, `PLAYER`, `ENVIRONMENT`, `UNKNOWN`; `source_key`: `key` or null; `amount`: positive `counter`, actual hit points removed after mitigation, excludes overkill. Source means actor causing damage in both arrays, never victim. Only MONSTER carries a catalogue source key; all other kinds require null. No other player's identity. |
 | Kill | `monster_key`: `key`; `count`: positive `counter`; authoritative credited kills under pinned ruleset, not inferred from damage |
@@ -141,19 +173,21 @@ Nested schemas (members appear in the following order):
 | Member | `member_slot`: integer 0–63, unique; `is_subject`: boolean; `active_seconds`: `counter` ≤segment duration |
 | PartyItem | `member_slot`: integer 0–63 referencing members; `item_key`: `key`; `quantity`: positive `counter` |
 
-Party slots are stable for this session's party incarnation and are anonymous to the receiving account. Exactly one member is the subject. Party loot is a separate distribution ledger: subject-slot totals equal personal `loot`; never add personal and party totals together. Capturing teammates' attributable loot requires game-owner acceptance of that privacy scope. Until then party capture stays disabled, not silently incomplete. Party/roster/world/channel/ownership changes close a segment early and start another; only session-ending reasons set final. Early non-final closure uses `HOURLY` even if shorter than an hour. Session-relative party slots alone support a private split calculation, not identification or automatic payments; named participants and public sharing need separate acceptance.
+Party slots are stable for this session's party incarnation and are anonymous to the receiving account. Exactly one member is the subject. Party loot is a separate distribution ledger: subject-slot totals equal personal `loot`; never add personal and party totals together. Capturing teammates' attributable loot requires game-owner acceptance of that privacy scope. Until then party capture stays disabled, not silently incomplete. Party/roster/world/channel/character-revision changes close an open segment as `CONTEXT_CHANGE`. A replacement segment requires a hunting-area entry under the new context. These changes do not end the journal session; only durable logout does. Session-relative party slots alone support a private split calculation, not identification or automatic payments; named participants and public sharing need separate acceptance.
 
-Emit every 3600 active hunting seconds and immediately on authoritative session end, including a zero-duration final segment if the prior hourly segment ended exactly at session end. Segments are **disjoint deltas**, never cumulative snapshots. Adjacent intervals meet, do not overlap, and keep the same account, character and ownership revision. Session duration and totals are sums of validated segments. A session ends before ownership, world or channel changes; an ownership transfer never appends into the previous owner's session. Crash recovery may seal the last durable interval as `RECOVERY_END`; lost measurement is an explicit gap, not a complete recap. No per-hit stream is sent.
+Emit a disjoint delta at each segment close defined in §4.1; there is no hourly emission boundary. Segments never overlap, and gaps outside hunting intervals are permitted. Each segment binds its capture account, character and character_revision; session duration and hunting totals are sums of validated segments, not entry-to-logout wall time. Ownership transfer fences the old owner's capture before the commit; no post-cutoff facts enter an old-owner segment. Capture for the new owner requires a new game entry and a separately minted journal session. If durable logout is not yet proven, the old session remains incomplete rather than being falsely finalized by transfer.
+
+If durable logout occurs without an open segment, emit a zero-duration, empty `SESSION_END` closure record at logout using the last captured context, or the entry context if there were no hunting segments. This record only marks finality, adds no hunting time or facts, and has the next contiguous segment index. A session without hunting therefore has only this closure record. Crash recovery may seal the last durable hunting interval as `RECOVERY_END` with `final_segment=false`; session completion still requires durable logout evidence. Lost measurement is an explicit gap, not a complete recap. No per-hit stream is sent.
 
 ### 5.3 `RARE_DROP` record
 
-Canonical members: `session_id` (`uuid7`), `segment_id` (`uuid7`), `event_id` (`uuid7`, one authoritative loot occurrence), `character_id` (CharacterId), `ownership_revision` (`u64`), `occurred_at` (`time` within referenced segment), `catalog_revision` (`token`), `item_key` (`key`), `quantity` (positive `counter`), `monster_key` (`key | null`), `place_key` (`key | null`), `rarity_rule_key` (`key`).
+Canonical members: `session_id` (`uuid7`), `segment_id` (`uuid7`), `event_id` (`uuid7`, one authoritative loot occurrence), `character_id` (CharacterId), `character_revision` (`u64`), `occurred_at` (`time` within referenced segment), `catalog_revision` (`token`), `item_key` (`key`), `quantity` (positive `counter`), `monster_key` (`key | null`), `place_key` (`key | null`), `rarity_rule_key` (`key`).
 
-One event per credited item line per occurrence; producer assigns distinct event IDs for distinct lines. The item/quantity is already included in segment loot and is never added again. Rule key resolves the pinned world's rare-drop threshold; Platform value-based highlighting is a separately labelled T74 derivation. Arrival before the segment is allowed but hidden pending validation. Unknown monster/place is null, never guessed. Bounds, owner and catalogue must match the referenced segment.
+One event per credited item line per occurrence; producer assigns distinct event IDs for distinct lines. The item/quantity is already included in segment loot and is never added again. Rule key resolves the pinned world's rare-drop threshold; Platform value-based highlighting is a separately labelled T74 derivation. Arrival before the segment is allowed but hidden pending validation. Unknown monster/place is null, never guessed. Bounds, owner, character_revision (the same receipt-derived revision as §5.2) and catalogue must match the referenced segment.
 
 ## 6. Identifiers, ordering, watermarks and replay
 
-Game commits measured facts, identities, canonical bytes and journal outbox atomically at its authoritative durability boundary; a publisher cannot reconstruct different bytes later. Delivery is at least once. Platform atomically stores validated records, digest, deduplication entries and projection work before acknowledging. A retry after response loss returns the same acknowledgement and has no second effect.
+The NEW game-side implementation must commit measured facts, identities, canonical bytes and journal outbox atomically at its authoritative durability boundary; a publisher cannot reconstruct different bytes later. Delivery is at least once. Platform atomically stores validated records, digest, deduplication entries and projection work before acknowledging. A retry after response loss returns the same acknowledgement and has no second effect.
 
 Idempotency scopes:
 
@@ -172,7 +206,7 @@ Restore fencing follows the existing game-restore reconciliation boundary: stop 
 
 ## 7. Exact replay-command exchange
 
-This follows pending/read/receipt, not a new push channel. Existing Character Commands and Store routes are unchanged. Replay has no gameplay or ownership mutation authority.
+This requires a NEW game-side pull consumer (§2.1), following the pending/read/receipt pattern. Existing Character Commands and Store routes are unchanged. Replay has no gameplay or ownership mutation authority.
 
 Common request head, in order: `contract_version` (1), `operation` (route literal), `source_authority` (configured Game `token`). Additional members:
 
@@ -193,9 +227,9 @@ Poll every second; rescan/retry ceilings follow existing consumer conventions (b
 
 ## 8. Privacy, retention and consumer truthfulness
 
-The authorization subject is authenticated Platform AccountId, resolved server-side. Every list, detail, export, cache and background job must enforce `record.account_id == authenticated_account_id` plus current accepted privacy and ownership-boundary evidence. Staff, support, guild and party membership confer no journal access. No shared public caches, search index or public projection receives journal rows. Deny access when account binding, ownership revision, transfer cutoff, retention or privacy evidence is unknown/ambiguous.
+The authorization subject is authenticated Platform AccountId, resolved server-side. Every list, detail, export, cache and background job must enforce `record.account_id == authenticated_account_id` plus current accepted privacy and ownership-boundary evidence. Staff, support, guild and party membership confer no journal access. No shared public caches, search index or public projection receives journal rows. Deny access when account binding, character revision, transfer cutoff, retention or privacy evidence is unknown/ambiguous.
 
-`TransferCharacterOwnership` must fence capture at the authoritative ownership commit: old records remain private to the original account, subject to retention, and never follow the character to the buyer. Buyer receives only post-cutoff records under a new session. Seller access to post-cutoff records is denied. Ambiguous/in-flight transfer freezes affected reads/ingest application pending authoritative reconciliation; stale public profiles cannot prove ownership. Final acceptance must specify how ownership revision/cutoff evidence is obtained; without it this feature stays off.
+`TransferCharacterOwnership` must fence capture at the authoritative ownership commit: old records remain private to the original account, subject to retention, and never follow the character to the buyer. Buyer receives only post-cutoff records under a new session. Seller access to post-cutoff records is denied. Ambiguous/in-flight transfer freezes affected reads/ingest application pending authoritative reconciliation; stale public profiles cannot prove ownership. Final acceptance must specify how character revision/cutoff evidence is obtained; without it this feature stays off.
 
 Proposed retention: Game replay bytes 30 days from capture; Platform private records, derived personal records and rare-drop history 90 days from segment end; operational payload quarantine at most 7 days and never beyond original retention; encrypted backup expiry at most 30 additional days. Minimal payload-free deduplication digests/keys and generation/ownership/privacy fences retained 120 days, then reject expired replay rather than resurrect it. Logical deletion immediately prevents serving and replay recreation; purge active stores within 24 hours, backups by expiry. Account erasure/opt-out suppresses ingest use and derived contributions immediately; retain only non-reversible minimum fences under accepted legal policy. No indefinite personal-record exemption. These values require owner/privacy acceptance before activation.
 
@@ -217,13 +251,13 @@ These are fictional fixtures. Canonical wire is compact re-encoding in the displ
 Valid final solo segment (measured zero damage is represented by empty arrays):
 
 ```json
-{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"game.test","stream_generation":"019a5000-0000-7000-8000-000000000001","account_id":"019a5000-0000-7000-8000-000000000002","source_revision":"1","record_kind":"HUNT_SEGMENT","record":{"session_id":"019a5000-0000-7000-8000-000000000003","segment_id":"019a5000-0000-7000-8000-000000000004","segment_index":0,"character_id":"019a5000-0000-7000-8000-000000000005","world_id":"019a5000-0000-7000-8000-000000000006","channel_id":"019a5000-0000-7000-8000-000000000007","ownership_revision":"1","catalog_revision":"fixture.v1","started_at":"1793836800","ended_at":"1793836860","duration_seconds":"60","end_reason":"SESSION_END","final_segment":true,"experience_gained":"100","experience_lost":"0","level":20,"vocation_key":"vocation:knight","places":[{"place_key":"place:cave","duration_seconds":"60"}],"loot":[{"item_key":"item:ruby","quantity":"1"}],"supplies":[],"damage_dealt":[],"damage_taken":[],"healing_done":"0","healing_received":"0","monsters_killed":[],"rare_drop_count":1,"party":null}}
+{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"game.test","stream_generation":"019a5000-0000-7000-8000-000000000001","account_id":"019a5000-0000-7000-8000-000000000002","source_revision":"1","record_kind":"HUNT_SEGMENT","record":{"session_id":"019a5000-0000-7000-8000-000000000003","segment_id":"019a5000-0000-7000-8000-000000000004","segment_index":0,"character_id":"019a5000-0000-7000-8000-000000000005","world_id":"019a5000-0000-7000-8000-000000000006","channel_id":"019a5000-0000-7000-8000-000000000007","character_revision":"1","catalog_revision":"fixture.v1","started_at":"1793836800","ended_at":"1793836860","duration_seconds":"60","end_reason":"SESSION_END","final_segment":true,"experience_gained":"100","experience_lost":"0","level":20,"vocation_key":"vocation:knight","places":[{"place_key":"place:cave","duration_seconds":"60"}],"loot":[{"item_key":"item:ruby","quantity":"1"}],"supplies":[],"damage_dealt":[],"damage_taken":[],"healing_done":"0","healing_received":"0","monsters_killed":[],"rare_drop_count":1,"party":null}}
 ```
 
 Valid rare drop referencing that segment (already counted in loot):
 
 ```json
-{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"game.test","stream_generation":"019a5000-0000-7000-8000-000000000001","account_id":"019a5000-0000-7000-8000-000000000002","source_revision":"2","record_kind":"RARE_DROP","record":{"session_id":"019a5000-0000-7000-8000-000000000003","segment_id":"019a5000-0000-7000-8000-000000000004","event_id":"019a5000-0000-7000-8000-000000000008","character_id":"019a5000-0000-7000-8000-000000000005","ownership_revision":"1","occurred_at":"1793836830","catalog_revision":"fixture.v1","item_key":"item:ruby","quantity":"1","monster_key":null,"place_key":"place:cave","rarity_rule_key":"rarity:rare"}}
+{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"game.test","stream_generation":"019a5000-0000-7000-8000-000000000001","account_id":"019a5000-0000-7000-8000-000000000002","source_revision":"2","record_kind":"RARE_DROP","record":{"session_id":"019a5000-0000-7000-8000-000000000003","segment_id":"019a5000-0000-7000-8000-000000000004","event_id":"019a5000-0000-7000-8000-000000000008","character_id":"019a5000-0000-7000-8000-000000000005","character_revision":"1","occurred_at":"1793836830","catalog_revision":"fixture.v1","item_key":"item:ruby","quantity":"1","monster_key":null,"place_key":"place:cave","rarity_rule_key":"rarity:rare"}}
 ```
 
 Valid replay intent (Platform → Game logical direction):
@@ -256,8 +290,8 @@ Conflict fixture: resend the valid final-segment payload above with only `experi
 
 Game owner/producer:
 
-- [ ] Accept names, native identity encodings, ruleset keys, ownership revision/cutoff evidence and hunting boundary definition.
-- [ ] Prove hourly/end capture, crash boundary and atomic facts/outbox; no claims of complete data across lost measurements.
+- [ ] Accept names, native identity encodings, ruleset keys, character revision/cutoff evidence and hunting boundary definition.
+- [ ] Implement and prove area-entry/exit, 15-minute kill-idle and durable-logout capture, crash boundary and atomic facts/outbox; no claims of complete data across lost measurements.
 - [ ] Prove durable IDs, byte-stable duplicate replay, conflict refusal, contiguous account revisions and restore generation fencing.
 - [ ] Prove actual damage/healing/kill/loot attribution, party privacy authorization and catalogue rarity resolution.
 - [ ] Accept payload bounds, capture capacity, replay retention and unavailable-range behavior; never silently truncate arrays.
@@ -278,11 +312,11 @@ Joint completion requires accepted contract revisions and exact-version integrat
 
 ## 12. Open questions for the game owner (coordinator)
 
-1. What starts/ends an analysis session, how is active hunting time measured, and should reconnect/party changes split the session or only segments? Can capture meet the hourly and end guarantees under crash/recovery?
-2. Which existing Game identity and authority APIs expose authoritative ownership revision and the exact `TransferCharacterOwnership` cutoff? How are in-flight records fenced during transfer and restore?
+1. How will the new durable logout event prove entry-to-logout boundaries across reconnect and crash/recovery, and how is active hunting time measured within the agreed area-entry/exit and 15-minute kill-idle segments?
+2. How will character command receipts (§4.3 of the character authority contract) supply authoritative character_revision and the exact `TransferCharacterOwnership` cutoff? How are in-flight records fenced during transfer and restore?
 3. Which catalogue revision and key namespaces cover items, places, vocation, damage types, monsters and rarity rules? Can attribution resolve every required metric without guesses?
-4. Can the existing durability/outbox model provide contiguous per-account revisions, immutable replay bytes and generation fencing with these size/rate bounds? What baseline/reconciliation evidence is available after a restore or expired replay range?
+4. Can the NEW journal durability/outbox implementation provide contiguous per-account revisions, immutable replay bytes and generation fencing with these size/rate bounds? What baseline/reconciliation evidence is available after a restore or expired replay range?
 5. Does the game owner accept anonymous party slots and per-slot loot disclosure to each party participant? What accepted policy would allow named settlement or sharing later?
 6. Are 30-day producer replay, 90-day private history, 120-day minimal fences and backup/purge deadlines acceptable? What opt-out/erasure capture policy and legal requirements apply?
-7. Are proposed replay-command-only control, certificate purpose, transport bounds, deadlines, rate limits and refusal codes compatible with the existing consumer? What capacity/backpressure behavior is safe for gameplay?
+7. Are proposed replay-command-only control, certificate purpose, transport bounds, deadlines, rate limits and refusal codes implementable by the NEW journal pull consumer? What capacity/backpressure behavior is safe for gameplay?
 8. Who signs off producer fixtures and exact-version joint qualification, and what further privacy acceptance is required for T81? Until answered and accepted, all journal features remain off.
