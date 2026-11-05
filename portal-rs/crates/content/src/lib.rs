@@ -2,3 +2,4 @@
 
 pub mod events;
 pub mod pages;
+pub mod news;
