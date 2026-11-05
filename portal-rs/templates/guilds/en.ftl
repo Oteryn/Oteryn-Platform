@@ -1,0 +1,14 @@
+title = Guilds
+unavailable = Guild information is unavailable.
+search = Guild name
+apply = Search
+members = Visible members
+founded = Founded
+rank = Rank
+joined = Joined
+empty = No guilds found.
+previous = Previous page
+next = Next page
+forming = Forming
+active = Active
+disbanding = Disbanding

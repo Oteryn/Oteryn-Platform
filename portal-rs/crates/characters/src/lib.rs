@@ -4,6 +4,7 @@ pub mod commands;
 pub mod lcfa;
 pub mod restore;
 
+pub mod badges;
 pub mod bootstrap;
 pub mod create_web;
 pub mod overview;

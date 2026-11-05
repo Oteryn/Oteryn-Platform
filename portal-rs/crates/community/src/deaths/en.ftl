@@ -1,0 +1,10 @@
+title = Recent deaths
+unavailable = Death records are currently unavailable.
+window = At most 20 deaths per character within the last 30 days. The world list shows the latest 50 visible records; this is not a complete death ledger.
+empty = No visible recorded deaths in this window.
+world = World name
+apply = Apply filter
+level = Level
+killers = Recorded character killers
+unrecorded = No public character killer recorded.
+pvp = PvP

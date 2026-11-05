@@ -10,3 +10,4 @@ pub mod fixtures;
 pub mod guard;
 
 pub mod bazaar;
+pub mod playerdata;

@@ -1,0 +1,13 @@
+title = Odznaki i osiągnięcia profilu
+introduction = Widoczne są wyłącznie Twoje jawne wybory. Wybierz profil i zapisz, zanim wybierzesz do pięciu zdobytych osiągnięć. Nieznane dane pozostają niedostępne.
+badges = Odznaki konta
+achievements = Zdobyte osiągnięcia (maksymalnie 5)
+profile = Profil pokazujący wybrane odznaki i osiągnięcia
+ranking = Widoczna postać do rankingu lojalności
+none = Brak
+save = Zapisz wybór
+unavailable = Niedostępne
+account-age = Wiek konta (pełne lata)
+loyalty = Punkty lojalności
+total-levels = Suma poziomów postaci
+all-professions = Najniższy poziom wśród wszystkich profesji

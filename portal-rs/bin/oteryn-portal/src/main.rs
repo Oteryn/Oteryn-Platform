@@ -78,6 +78,18 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_community::ingest::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let app = app.merge(oteryn_community::deaths::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_community::guilds::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_community::houses::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_community::v2_watermark::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let app = app.merge(oteryn_community::worlds::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
@@ -90,6 +102,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     downloads: std::env::var("OTERYN_DOWNLOADS_ENABLED")
                         .is_ok_and(|value| value == "true"),
                 },
+            ));
+            let app = app.merge(oteryn_community::profiles::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
             ));
             let app = app.merge(oteryn_community::rankings::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
@@ -140,10 +155,19 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_content::news::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             )?);
+            let app = app.merge(oteryn_stats::character::http::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_stats::watch::http::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let app = app.merge(oteryn_stats::rankings::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
             let app = app.merge(oteryn_stats::world::http::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_stats::guilds::http::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
             let app = app.merge(oteryn_content::media::configured_router(
@@ -322,6 +346,78 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_playerdata::logins::web::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let app = mfa_http::configured(app, oteryn_db::lazy_pool(config.database_url())?)?;
+            let app = app.merge(oteryn_web::search::routes(
+                oteryn_web::search::SearchState {
+                    pool: oteryn_db::lazy_pool(config.database_url())?,
+                    characters: None,
+                    world: Some(std::sync::Arc::new({
+                        let pool = oteryn_db::lazy_pool(config.database_url())?;
+                        move |lang, query, page| {
+                            let pool = pool.clone();
+                            Box::pin(async move {
+                                if std::env::var("PORTAL_WIKI_ENTITIES_ENABLED").as_deref()
+                                    != Ok("true")
+                                {
+                                    return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE);
+                                }
+                                let world = oteryn_world::WorldStore::new(
+                                    pool.clone(),
+                                    oteryn_world::WorldOptions { enabled: true },
+                                );
+                                oteryn_web::search::world_search(
+                                    &pool,
+                                    &lang,
+                                    &query,
+                                    page,
+                                    std::sync::Arc::new({
+                                        let lang = lang.clone();
+                                        move |kind, key| {
+                                            let world = world.clone();
+                                            let lang = lang.clone();
+                                            Box::pin(async move {
+                                                world
+                                                    .get_entity(&kind, &key)
+                                                    .await
+                                                    .map(|entity| {
+                                                        entity.map(|e| {
+                                                            oteryn_web::search::world_title(
+                                                                &e.data, &e.key, &lang,
+                                                            )
+                                                        })
+                                                    })
+                                                    .map_err(|_| {
+                                                        axum::http::StatusCode::SERVICE_UNAVAILABLE
+                                                    })
+                                            })
+                                        }
+                                    }),
+                                )
+                                .await
+                            })
+                        }
+                    })),
+                },
+            ));
+            let app = app.merge(oteryn_bazaar::moderation::web::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_admin::bazaar::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_playerdata::places::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_playerdata::reports::http::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_wiki::places::configured_router());
+            let app = app.merge(oteryn_minigames::pass::web::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_minigames::collection_pvp::http::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.merge(oteryn_atlas::delivery::configured_router(
@@ -373,3 +469,6 @@ mod reset_http;
 mod sessions_http;
 #[path = "../../../crates/store/src/web_payments.rs"]
 mod shop_web;
+
+#[path = "../../../crates/identity/src/mfa_http.rs"]
+mod mfa_http;

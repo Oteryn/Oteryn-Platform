@@ -1,0 +1,14 @@
+title = Przepustka sezonowa
+unavailable = Przepustka sezonowa jest obecnie niedostępna. Nie pobrano coinów ani nie wydano nagród.
+xp = Punkty sezonu
+price = Cena w coinach
+buy = Kup ścieżkę płatną
+claim = Odbierz nagrodę
+free = Ścieżka darmowa
+paid = Ścieżka płatna
+claimed = Zlecenie przyjęte
+journal = Wyzwanie z dziennika gry
+portal = Wyzwanie portalu
+challenges = Wyzwania
+rewards = Nagrody kosmetyczne
+ends = Koniec sezonu (UTC)

@@ -168,6 +168,11 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         registry.notifications(delivery)?;
     }
     registry.cleanup(
+        "cleanup.deaths",
+        3600,
+        Arc::new(oteryn_community::deaths::Cleanup { pool: pool.clone() }),
+    )?;
+    registry.cleanup(
         "stats.poll",
         60,
         Arc::new(oteryn_stats::worker::StatisticsJob {
@@ -189,6 +194,16 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         "cleanup.passkeys",
         300,
         Arc::new(oteryn_identity::passkeys::PasskeyCleanup { pool: pool.clone() }),
+    )?;
+    registry.cleanup(
+        "cleanup.mfa",
+        3600,
+        Arc::new(oteryn_identity::mfa::MfaCleanup { pool: pool.clone() }),
+    )?;
+    registry.cleanup(
+        "cleanup.hunting-places",
+        3600,
+        Arc::new(oteryn_playerdata::places::PlacesRetention { pool: pool.clone() }),
     )?;
     for kind in ["cleanup.tokens", "cleanup.support"] {
         registry.cleanup(kind, 3600, Arc::new(NoopCleanup))?;

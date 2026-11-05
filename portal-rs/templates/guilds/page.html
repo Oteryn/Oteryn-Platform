@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ labels[0] }}</title><link rel="stylesheet" href="/static/css/surface.css"><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-stack op-card"><h1>{{ labels[0] }}</h1>
+{% if unavailable %}<p role="status">{{ labels[1] }}</p>{% else %}
+{% if !detail %}<form method="get" class="op-field"><label for="guild-search">{{ labels[2] }}</label><input class="op-input" id="guild-search" name="q" value="{{ search }}" maxlength="80"><button class="op-button" type="submit">{{ labels[3] }}</button></form>{% endif %}
+{% for guild in guilds %}<article class="op-card op-stack"><h2><a href="{{ guild.href }}">{{ guild.name }}</a></h2><p>{{ guild.state }}</p><p>{{ labels[5] }}: {{ guild.founded }}</p>
+{% if detail %}<ul>{% for member in guild.members %}<li><strong>{{ member.name }}</strong> — {{ labels[6] }}: {{ member.rank }}; {{ labels[7] }}: {{ member.joined }}</li>{% endfor %}</ul>
+{% else %}<p>{{ labels[4] }}: {{ guild.members.len() }}</p>{% endif %}</article>{% else %}<p>{{ labels[8] }}</p>{% endfor %}
+<nav class="op-row" aria-label="{{ labels[0] }}">{% if !previous.is_empty() %}<a rel="prev" href="{{ previous }}">{{ labels[9] }}</a>{% endif %} {% if !next.is_empty() %}<a rel="next" href="{{ next }}">{{ labels[10] }}</a>{% endif %}</nav>
+{% endif %}</main></body></html>

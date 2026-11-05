@@ -1,0 +1,10 @@
+title = Ostatnie zgony
+unavailable = Dane o zgonach są obecnie niedostępne.
+window = Do 20 zgonów postaci z ostatnich 30 dni. Lista świata pokazuje 50 ostatnich widocznych wpisów; nie jest to pełna historia zgonów.
+empty = Brak widocznych zapisanych zgonów w tym okresie.
+world = Nazwa świata
+apply = Zastosuj filtr
+level = Poziom
+killers = Zapisani zabójcy postaci
+unrecorded = Brak zapisanego publicznego zabójcy postaci.
+pvp = PvP

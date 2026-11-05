@@ -3,5 +3,9 @@ pub mod rankings;
 pub mod store;
 #[cfg(test)]
 mod tests;
+pub mod watch;
 pub mod worker;
 pub mod world;
+
+pub mod character;
+pub mod guilds;

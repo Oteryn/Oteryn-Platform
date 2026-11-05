@@ -177,12 +177,13 @@ async fn postgres_login_observer_commits_before_cookie_and_denies_enqueue_failur
         ))
         .await?;
     assert_eq!(response.status(), StatusCode::FOUND);
-    let new_cookie = response.headers()[header::SET_COOKIE]
+    let rotated = response.headers()[header::SET_COOKIE]
         .to_str()?
         .split(';')
         .next()
         .ok_or("missing cookie")?
         .to_owned();
+    assert!(rotated.starts_with(session::COOKIE_NAME));
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM email_outbox")
         .fetch_one(&db.pool)
         .await?;
@@ -192,15 +193,17 @@ async fn postgres_login_observer_commits_before_cookie_and_denies_enqueue_failur
         .bind(account)
         .execute(&db.pool)
         .await?;
-    sqlx::query("UPDATE web_sessions SET session_id=uuidv7(),user_agent_summary='Changed browser' WHERE account_id=$1")
+    // The mailbox change revokes the account's sessions (credential-change trigger), so a
+    // fresh browser session for the same account observes the refusal.
+    let raw = "c".repeat(64);
+    let token = "d".repeat(64);
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at) VALUES($1,$2,'Changed browser',$3,now()+interval '1 hour',now()+interval '2 hours')")
+        .bind(Sha256::digest(raw.as_bytes()).to_vec())
         .bind(account)
+        .bind(&token)
         .execute(&db.pool)
         .await?;
-    let token: String =
-        sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE account_id=$1")
-            .bind(account)
-            .fetch_one(&db.pool)
-            .await?;
+    let new_cookie = format!("{}={raw}", session::COOKIE_NAME);
     let response = app
         .oneshot(request(
             "POST",

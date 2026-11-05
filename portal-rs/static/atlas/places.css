@@ -1,0 +1,11 @@
+body { background: #111820; color: #f1f5f9; font: 1rem/1.6 system-ui, sans-serif; margin: 0; }
+main { max-width: 60rem; margin: auto; padding: 1rem; }
+a { color: #8ed8ff; }
+button, label { display: block; min-height: 44px; padding: .5rem; }
+button { background: #f1f5f9; color: #111820; border: 2px solid #8ed8ff; cursor: pointer; }
+:focus-visible { outline: 3px solid #ffda70; outline-offset: 3px; }
+.places { list-style: none; padding: 0; display: grid; gap: 1rem; }
+.places li { border: 1px solid #8c9eaf; padding: 1rem; min-width: 0; overflow-wrap: anywhere; }
+dt { font-weight: 700; }
+dd { margin: 0 0 .75rem; }
+input { min-width: 24px; min-height: 24px; vertical-align: middle; }

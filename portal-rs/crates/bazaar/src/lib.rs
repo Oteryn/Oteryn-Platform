@@ -16,4 +16,5 @@ mod search;
 pub use search::*;
 mod notify;
 pub use notify::*;
+pub mod moderation;
 pub mod stats;

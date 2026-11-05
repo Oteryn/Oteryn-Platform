@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ self.t("title") }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-card op-stack"><h1>{{ self.t("title") }}</h1>
+<form class="op-stack" method="get" action="/{{ lang }}/search"><div class="op-field"><label for="q">{{ self.t("query") }}</label><input class="op-input" id="q" name="q" maxlength="80" value="{{ filters.q }}"></div>
+<div class="op-field"><label for="kind">{{ self.t("kind") }}</label><select class="op-input" id="kind" name="kind">
+<option value=""{% if filters.kind.is_empty() %} selected{% endif %}>{{ self.t("all") }}</option>
+{% for kind in ["news", "pages", "events", "wiki", "world", "characters"] %}<option value="{{ kind }}"{% if filters.kind == *kind %} selected{% endif %}>{{ self.t(kind) }}</option>{% endfor %}
+</select></div><button class="op-button" type="submit">{{ self.t("search") }}</button></form>
+{% if unavailable %}<p role="status">{{ self.t("unavailable") }}</p>{% else %}
+{% for hit in hits %}<article class="op-card"><p>{{ self.t(hit.kind) }}</p><h2><a href="{{ hit.href }}">{{ hit.title }}</a></h2></article>{% endfor %}
+{% if hits.is_empty() %}<p>{{ self.t("empty") }}</p>{% endif %}{% endif %}
+{% if more %}<form method="get"><input type="hidden" name="q" value="{{ filters.q }}"><input type="hidden" name="kind" value="{{ filters.kind }}"><input type="hidden" name="page" value="{{ next }}"><button class="op-button" type="submit">{{ self.t("next") }}</button></form>{% endif %}
+</main></body></html>

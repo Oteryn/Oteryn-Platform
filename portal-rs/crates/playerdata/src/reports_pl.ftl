@@ -1,0 +1,13 @@
+title = Raport tygodniowy
+sessions = Sesje
+duration = Czas polowania (sekundy)
+gained = Zdobyte doświadczenie
+lost = Utracone doświadczenie
+notes = Prywatna notatka
+save = Zapisz
+hint = Do 4000 bajtów. Pusty tekst usuwa notatkę.
+email = Twój prywatny raport tygodniowy jest dostępny po zalogowaniu:
+optin = Wyślij mi link do raportu tygodniowego (wymaga też zgody na e-maile z aktualnościami)
+preferences = Zapisz preferencję e-mail
+drops = Dropy
+character-note = Notatka do postaci

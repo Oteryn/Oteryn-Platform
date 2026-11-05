@@ -1,0 +1,15 @@
+title = Wyszukaj w portalu
+query = Szukana fraza
+search = Szukaj
+kind = Rodzaj treści
+all = Treści redakcyjne
+news = Aktualności
+pages = Strony
+events = Wydarzenia
+wiki = Poradniki wiki
+world = Encje świata
+characters = Postacie
+empty = Brak wyników.
+invalid = Wpisz 2–80 znaków i numer strony od 1 do 1000.
+unavailable = To źródło wyszukiwania jest niedostępne. Spróbuj ponownie później.
+next = Następna strona

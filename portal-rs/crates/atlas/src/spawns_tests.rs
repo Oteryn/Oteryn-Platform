@@ -270,7 +270,8 @@ async fn postgres_spawns_private_markers_and_reports() -> TestResult {
         )
         .await?
         .status(),
-        StatusCode::FORBIDDEN
+        // Suspension revokes the account's browser sessions (t06 credential-change trigger).
+        StatusCode::UNAUTHORIZED
     );
     sqlx::query(
         "UPDATE web_sessions SET idle_expires_at=now()-interval '1 second' WHERE account_id=$1",
