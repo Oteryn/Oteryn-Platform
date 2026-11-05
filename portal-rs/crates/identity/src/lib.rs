@@ -7,3 +7,4 @@ pub mod register;
 pub mod verify;
 pub use accounts::AccountId;
 pub mod login;
+pub mod sessions;
