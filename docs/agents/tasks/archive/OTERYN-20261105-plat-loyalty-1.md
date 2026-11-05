@@ -49,11 +49,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-04T00:00:00Z
-head: a0cc62d
+updated_at: 2026-11-05T08:30:00Z
+head: 8dd31f3553261bb2a8780b82428340cda73a764e
 branch: claude/happy-davinci-ijz3wy-plat-loyalty-1-v2
 pr: 1675
-status: ready
+status: completed
 context_routes:
   - owner-provided PLAT-LOYALTY-1 contract
 owned_paths:
@@ -87,15 +87,15 @@ validation:
     evidence: owner prohibited php artisan and database execution; left for CI
 blockers:
   - none
-next_action: review and integrate the prepared pull request through CI
+next_action: none; delivered by PR 1675 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository pull request branch
-source_branch_evidence: pending merge
+source_branch_reason: ordinary same-repository PR path; head branch deleted after merge
+source_branch_evidence: PR 1675 merged as 8dd31f3553261bb2a8780b82428340cda73a764e
 ```
 
 ## Notes

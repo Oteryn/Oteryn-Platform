@@ -51,11 +51,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-04T00:00:00Z
-head: UNKNOWN
+updated_at: 2026-11-05T08:30:00Z
+head: 1d093022c4be9654574c970d21a7541acd8cc099
 branch: claude/happy-davinci-ijz3wy-plat-scope-revoke-1-v2
 pr: 1676
-status: ready
+status: completed
 context_routes:
   - n/a
 owned_paths:
@@ -91,15 +91,15 @@ validation:
     evidence: validated against checkpoint contract v1
 blockers:
   - none
-next_action: run the focused PHPUnit feature test in CI and review the pull request
+next_action: none; delivered by PR 1676 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository task branch
-source_branch_evidence: pending PR merge
+source_branch_reason: ordinary same-repository PR path; head branch deleted after merge
+source_branch_evidence: PR 1676 merged as 1d093022c4be9654574c970d21a7541acd8cc099
 ```
 
 ## Notes
