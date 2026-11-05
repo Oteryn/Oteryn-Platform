@@ -5,3 +5,5 @@ pub mod store;
 mod tests;
 pub mod worker;
 pub mod world;
+
+pub mod character;
