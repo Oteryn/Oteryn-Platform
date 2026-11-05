@@ -1,4 +1,4 @@
-FROM composer:2@sha256:af98f42dfff7c68ba8d53c2164fd9fde1087b7d449514baa38c418b1f6bc4bac AS composer-bin
+FROM composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc AS composer-bin
 
 # The FPM variant of the same PHP 8.5.11 Alpine 3.24 release. It still ships the PHP CLI that runs
 # `php artisan serve` (the default command) and adds php-fpm for the optional mTLS FastCGI listener
