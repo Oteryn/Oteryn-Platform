@@ -17,6 +17,7 @@ use App\Http\Controllers\GameAuth\NativeAdmissionController;
 use App\Http\Controllers\GameAuth\NativeEvidenceController;
 use App\Http\Controllers\GameAuth\NativeRuntimeStatusController;
 use App\Http\Controllers\GameAuth\NativeScopeAssignmentController;
+use App\Http\Controllers\GameAuth\NativeScopeRevocationController;
 use App\Http\Middleware\GameAuth\EnforceNativeAccountCharactersHttpBounds;
 use App\Http\Middleware\GameAuth\EnforceNativeEvidenceHttpBounds;
 use App\Http\Middleware\GameAuth\GuardNativeAccountCharactersPeer;
@@ -26,7 +27,9 @@ use App\Http\Middleware\GameAuth\RequireCharacterBootstrapIntentMtlsPeer;
 use App\Http\Middleware\GameAuth\RequireGatewayServiceCredential;
 use App\Http\Middleware\GameAuth\RequireNativeEvidenceMtlsPeer;
 use App\Http\Middleware\GameAuth\ThrottleNativeEvidencePeer;
+use App\ProductsEntitlements\Http\GuardLoyaltySnapshotPeer;
 use App\ProductsEntitlements\Http\GuardPremiumSnapshotPeer;
+use App\ProductsEntitlements\Http\LoyaltySnapshotController;
 use App\ProductsEntitlements\Http\PremiumSnapshotController;
 use App\ProductsEntitlements\Store\Http\GuardStorePeer;
 use App\ProductsEntitlements\Store\Http\StoreBalanceController;
@@ -67,6 +70,13 @@ Route::post('/internal/v1/game-auth/native-scope-assignments', NativeScopeAssign
         EnforceNativeEvidenceHttpBounds::class.':'.NativeRuntimeStatusReport::MAX_REQUEST_BYTES,
     ]);
 
+Route::post('/internal/v1/game-auth/native-scope-revocations', NativeScopeRevocationController::class)
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        GuardNativeRuntimeStatusPeer::class.':assignment',
+        EnforceNativeEvidenceHttpBounds::class.':'.NativeRuntimeStatusReport::MAX_REQUEST_BYTES,
+    ]);
+
 Route::post('/internal/v1/game-auth/native-account-characters', NativeAccountCharactersController::class)
     ->middleware([
         PreventSensitiveGameAuthResponseCaching::class,
@@ -91,6 +101,12 @@ Route::post('/internal/v1/products-entitlements/premium-snapshots/read', Premium
     ->middleware([
         PreventSensitiveGameAuthResponseCaching::class,
         GuardPremiumSnapshotPeer::class,
+    ]);
+
+Route::post('/internal/v1/products-entitlements/loyalty-snapshots/read', LoyaltySnapshotController::class)
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        GuardLoyaltySnapshotPeer::class,
     ]);
 
 // Game Public Projections v1 ingest (removal plan packet C4): one compiled path per family plus the

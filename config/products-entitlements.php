@@ -23,4 +23,12 @@ return [
         // 40-character lower-case commit SHA of the running build, echoed as producer_revision.
         'producer_revision' => env('PLATFORM_BUILD_REVISION'),
     ],
+    // Default-off Game projection of whole Premium days already consumed by an account.
+    'loyalty_snapshot' => [
+        'enabled' => env('PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_ENABLED', false),
+        // Verified client-certificate subject dedicated to this one read.
+        'mtls_client_identity' => env('PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_MTLS_CLIENT_IDENTITY'),
+        'requests_per_minute' => env('PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_REQUESTS_PER_MINUTE', '1200'),
+        'producer_revision' => env('PLATFORM_BUILD_REVISION'),
+    ],
 ];

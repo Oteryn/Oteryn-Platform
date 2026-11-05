@@ -18,9 +18,17 @@ final class StorePersistenceTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if (DB::getDriverName() !== 'pgsql') {
+            self::markTestSkipped('Store qualification requires the PostgreSQL test wrapper (phpunit.pgsql.xml).');
+        }
+    }
+
     public function test_store_migrations_down_up_and_repeated_fresh_are_reversible_and_additive(): void
     {
-        self::assertSame('pgsql', DB::getDriverName());
         $catalog = require database_path('migrations/2026_10_23_000100_create_store_catalog.php');
         $ledger = require database_path('migrations/2026_10_23_000200_create_store_ledger.php');
         self::assertInstanceOf(Migration::class, $catalog);
