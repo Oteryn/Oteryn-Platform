@@ -522,6 +522,7 @@ Pozostałe warunki:
 | D9 | Autorytet kar | **Zgoda** (2026-11-05): Platform; zawieszenie konta przez odmowę logowania do gry; kary w grze po G-5 |
 | D10 | Zmiana płci, świata i nazwy postaci | **Płatne** (2026-11-05), jak w Tibii: zmiana płci to kosmetyka, transfer świata płatny. Dziś jest jeden świat, więc transfer czeka na drugi. Zmiana nazwy: do potwierdzenia, propozycja płatna |
 | D11 | Ostatnie logowanie i czas online na profilu | **Tak** (2026-11-05), z przełącznikiem prywatności gracza; wymaga danych z gry (G-4) |
+| D12 | Kolejność zadań gry G-3…G-6 | **G-4, G-3, G-6, G-5** (2026-11-05) |
 
 ## 12. Otwarte pytania
 
@@ -531,7 +532,6 @@ Pozostałe warunki:
 | Q3 | Aktualizacja locka gry: N4P (z `native-admissions`) i GAME-CHAR-CMD-0 (§6) | Koordynator, G-1 | Nic; portal implementuje według kodu |
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
 | Q5 | Akceptacja projektu | Właściciel | Start T01+ |
-| Q6 | Kolejność zadań gry G-3…G-6 (propozycja: G-4, G-3, G-6, G-5) | Właściciel | Tylko kolejność włączania T46, T24d–T24f, T09b i kar w grze |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
