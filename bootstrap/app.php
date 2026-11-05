@@ -13,11 +13,13 @@ use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetPublicLocale;
 use App\Http\Middleware\TrustConfiguredProxies;
 use App\Identity\Localization\SetIdentityLocale;
+use App\ProductsEntitlements\Store\Http\DeferStorePostSize;
 use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Http\Middleware\ValidatePostSize;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Route;
@@ -38,6 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->replace(TrustProxies::class, TrustConfiguredProxies::class);
+        $middleware->replace(ValidatePostSize::class, DeferStorePostSize::class);
         $middleware->append(DetectPublicLocaleFromPath::class);
         $middleware->append(RequestCorrelation::class);
         $middleware->append(PreventSensitiveGameAuthResponseCaching::class);
