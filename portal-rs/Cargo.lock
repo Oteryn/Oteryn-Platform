@@ -1088,11 +1088,14 @@ version = "0.1.0"
 name = "oteryn-community"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "axum",
  "oteryn-db",
  "oteryn-internal-api",
+ "oteryn-web",
  "regex",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "tokio",
  "tower",
