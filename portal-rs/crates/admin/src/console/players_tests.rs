@@ -455,6 +455,54 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
     .fetch_one(&db.pool)
     .await?;
     assert_eq!(count, 1);
+    let metadata = super::super::access::StoredMetadata::new(
+        db.pool.clone(),
+        Flags { console: true },
+        Accounts,
+        crate::control::Config { enabled: true },
+    );
+    // Platform admin is not a wildcard for Game permissions.
+    assert!(!metadata.permitted(actor, "game.player.read").await);
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_support'").bind(actor.account).execute(&db.pool).await?;
+    assert!(metadata.permitted(actor, "game.player.read").await);
+    let store =
+        crate::control::Store::new(db.pool.clone(), crate::control::Config { enabled: true });
+    store
+        .register_agent(&crate::control::AgentHello {
+            agent_id: "console-test-agent".into(),
+            build: "test-build".into(),
+            catalog_digest: vec![1; 32],
+            advertised_operations: vec![crate::control::AdvertisedOperation {
+                operation: "player.search".into(),
+                operation_version: 1,
+                kind: crate::control::Kind::Query,
+            }],
+            served_worlds: vec!["test-world".into()],
+            served_nodes: vec![],
+            owner_epoch: 1,
+        })
+        .await?;
+    assert!(metadata.advertised("player.search").await);
+    assert!(!metadata.advertised("player.inventory.get").await);
+    let agents = metadata
+        .access()
+        .await
+        .map_err(|e| format!("{e:?}"))?
+        .agents
+        .unwrap();
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].operations, vec!["player.search@1 (query)"]);
+    sqlx::query("UPDATE admin_control_agents SET last_seen_at=clock_timestamp()-interval '31 seconds' WHERE agent_id='console-test-agent'").execute(&db.pool).await?;
+    assert!(!metadata.advertised("player.search").await);
+    assert!(
+        metadata
+            .access()
+            .await
+            .map_err(|e| format!("{e:?}"))?
+            .agents
+            .unwrap()
+            .is_empty()
+    );
     let refused = super::super::access::router(
         db.pool.clone(),
         Flags { console: true },
