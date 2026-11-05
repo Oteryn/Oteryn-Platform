@@ -26,3 +26,9 @@ oteryn-web.workspace = true
 axum = "0.8.9"
 tower = { version = "0.5.3", features = ["util"] }
 serde_urlencoded = "0.7"
+[dependencies.aes-gcm]
+version = "0.10"
+[dependencies.totp-rs]
+version = "5.7"
+[dependencies.subtle]
+version = "2.6"
