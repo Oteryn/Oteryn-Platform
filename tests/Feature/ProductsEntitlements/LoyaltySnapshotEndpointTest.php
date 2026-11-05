@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 final class LoyaltySnapshotEndpointTest extends TestCase
@@ -69,7 +70,7 @@ final class LoyaltySnapshotEndpointTest extends TestCase
             'loyalty_points',
             'loyalty_revision',
             'computed_at',
-        ], array_keys($first->json()));
+        ], array_keys((array) $first->json()));
         $first->assertJsonPath('loyalty_points', 0)->assertJsonPath('loyalty_revision', 1);
 
         $second = $this->readLoyalty($account->account_id)->assertOk();
@@ -200,18 +201,25 @@ final class LoyaltySnapshotEndpointTest extends TestCase
         return app(PremiumTimeLedger::class);
     }
 
-    /** @param array<string, string> $server */
+    /**
+     * @param  array<string, string>  $server
+     * @return TestResponse<Response>
+     */
     private function readLoyalty(string $accountId, ?string $nonce = null, array $server = []): TestResponse
     {
         return $this->rawLoyalty($this->loyaltyBody($accountId, $nonce ?? $this->nonce()), $server);
     }
 
-    /** @param array<string, string> $server */
+    /**
+     * @param  array<string, string>  $server
+     * @return TestResponse<Response>
+     */
     private function rawLoyalty(string $raw, array $server = []): TestResponse
     {
         return $this->call('POST', self::PATH, [], [], [], array_replace($this->peer(), $server), $raw);
     }
 
+    /** @return TestResponse<Response> */
     private function readPremium(string $accountId): TestResponse
     {
         $body = json_encode([
@@ -248,6 +256,7 @@ final class LoyaltySnapshotEndpointTest extends TestCase
         ];
     }
 
+    /** @param TestResponse<Response> $response */
     private function assertFailure(TestResponse $response, int $status): void
     {
         $response->assertStatus($status);
@@ -255,6 +264,7 @@ final class LoyaltySnapshotEndpointTest extends TestCase
         $this->assertPrivateNoStore($response);
     }
 
+    /** @param TestResponse<Response> $response */
     private function assertPrivateNoStore(TestResponse $response): void
     {
         $value = (string) $response->headers->get('Cache-Control');
