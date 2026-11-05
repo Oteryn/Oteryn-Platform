@@ -95,7 +95,7 @@ validation:
     evidence: completed with warnings denied
 blockers:
   - none
-next_action: normal branch push and verify remote head
+next_action: owner reviews the published integration branch; no PR requested
 ```
 
 ## Source branch closeout
@@ -103,13 +103,14 @@ next_action: normal branch push and verify remote head
 ```yaml
 source_branch_disposition: retain
 source_branch_reason: owner requested a pushed integration branch without a PR; retain for owner review
-source_branch_evidence: remote verification pending
+source_branch_evidence: normal push succeeded; remote head verified at 1a709742f94be433ba8ef662b2761aa695b603b4 before this documentation-only closeout
 ```
 
 Product runtime E2E: NOT_APPLICABLE to this assembly task; existing module tests provide behavior verification. No product redesign or deployment is authorized.
 
 ## Final acceptance evidence
 
+- Publication: normal branch push succeeded and remote head matched locally; no PR was opened.
 - Base: main at 12c9f11c; all twelve module tips are ancestors of the integration head.
 - `cargo fmt --all --check`: PASS.
 - `cargo clippy --locked --all-targets -- -D warnings`: PASS.
