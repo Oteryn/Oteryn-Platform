@@ -45,16 +45,18 @@ struct Targets {
     deaths: Router,
     guilds: Router,
     houses: Router,
+    today: Router,
 }
 
 /// Mount once; each argument is a module router built with [`Part::Watermark`].
-pub fn router(deaths: Router, guilds: Router, houses: Router) -> Router {
+pub fn router(deaths: Router, guilds: Router, houses: Router, today: Router) -> Router {
     Router::new()
         .route(PATH, post(dispatch))
         .with_state(Arc::new(Targets {
             deaths,
             guilds,
             houses,
+            today,
         }))
 }
 
@@ -63,7 +65,8 @@ pub fn configured_router(db: sqlx::PgPool) -> Router {
     router(
         crate::deaths::configured_watermark_router(db.clone()),
         crate::guilds::configured_watermark_router(db.clone()),
-        crate::houses::configured_watermark_router(db),
+        crate::houses::configured_watermark_router(db.clone()),
+        crate::today::configured_watermark_router(db),
     )
 }
 
@@ -83,6 +86,7 @@ async fn dispatch(State(targets): State<Arc<Targets>>, request: Request) -> Resp
     let target = match family.as_deref() {
         Some("guild") => targets.guilds.clone(),
         Some("house") => targets.houses.clone(),
+        Some("world_daily") => targets.today.clone(),
         _ => targets.deaths.clone(),
     };
     let request = Request::from_parts(parts, Body::from(bytes));
@@ -119,9 +123,15 @@ mod tests {
 
     #[tokio::test]
     async fn routes_by_family_and_defaults_to_closed_deaths_check() -> TestResult<()> {
-        let app = router(tagged("deaths"), tagged("guilds"), tagged("houses"));
+        let app = router(
+            tagged("deaths"),
+            tagged("guilds"),
+            tagged("houses"),
+            tagged("today"),
+        );
         assert_eq!(send(&app, r#"{"family":"guild"}"#).await?.1, "guilds");
         assert_eq!(send(&app, r#"{"family":"house"}"#).await?.1, "houses");
+        assert_eq!(send(&app, r#"{"family":"world_daily"}"#).await?.1, "today");
         assert_eq!(
             send(&app, r#"{"family":"character_deaths"}"#).await?.1,
             "deaths"

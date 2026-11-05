@@ -1,0 +1,14 @@
+title = Dziś na świecie
+unavailable = Dzienne dane świata są teraz niedostępne.
+creature = Wzmocniony potwór
+boss = Wzmocniony boss
+boost = Okres wzmocnienia (UTC)
+history = Historia wzmocnień
+coverage = Pełna historia okresów rozpoczynających się od (UTC):
+raids = Opublikowane rajdy z harmonogramu
+raid-note = Wyłącznie zatwierdzone stałe terminy, od rozpoczęcia rajdu. Lista nie przewiduje przyszłych ani losowych rajdów.
+empty = Brak opublikowanych wpisów w tym zakresie.
+running = W trakcie
+done = Zakończony
+cancelled = Anulowany
+partial = Część źródeł jest niedostępna.

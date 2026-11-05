@@ -1,0 +1,14 @@
+title = Today in the world
+unavailable = World daily data is currently unavailable.
+creature = Boosted creature
+boss = Boosted boss
+boost = Boost interval (UTC)
+history = Boost history
+coverage = Complete history of intervals starting from (UTC):
+raids = Published scheduled raids
+raid-note = Committed fixed slots only, from running onward. This list does not predict future or random raids.
+empty = No published entries within this coverage.
+running = Running
+done = Done
+cancelled = Cancelled
+partial = Some sources are unavailable.

@@ -1,0 +1,10 @@
+<section class="op-theme op-card op-stack" aria-labelledby="world-daily-title">
+<h2 id="world-daily-title">{{ title }}</h2>
+{% if available %}
+<h3>{{ world }}</h3><p>{{ current }}</p>
+<h3>{{ history_label }}</h3><p>{{ coverage }}</p>
+{% if history.is_empty() %}<p>{{ empty }}</p>{% else %}<ul>{% for entry in history %}<li>{{ entry }}</li>{% endfor %}</ul>{% endif %}
+<h3>{{ raids_label }}</h3><p>{{ raid_note }}</p>
+{% if raids.is_empty() %}<p>{{ empty }}</p>{% else %}<ul>{% for raid in raids %}<li>{{ raid }}</li>{% endfor %}</ul>{% endif %}
+{% else %}<p role="status">{{ unavailable }}</p>{% endif %}
+</section>
