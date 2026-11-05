@@ -1,0 +1,10 @@
+outbid = Twoja oferta została przebita
+outbid-body = Inny licytujący prowadzi. Sprawdź ogłoszenie przed złożeniem kolejnej oferty.
+new-offer = Nowa oferta w Twoim ogłoszeniu
+new-offer-body = Otrzymano nową ofertę. Otwórz ogłoszenie, aby ją sprawdzić.
+ending-soon = Obserwowana licytacja kończy się w ciągu godziny
+ending-soon-body = Obserwowana licytacja wkrótce się kończy. Licytowanie może przedłużyć jej termin.
+won = Twój zakup został zakończony
+won-body = Rozliczenie licytacji i dostawa zostały potwierdzone. Szczegóły znajdziesz w ogłoszeniu.
+matching-search = Nowe ogłoszenie pasuje do zapisanego wyszukiwania
+matching-search-body = Nowe ogłoszenie pasuje do Twojego wyszukiwania. Otwórz je, aby sprawdzić aktualne szczegóły.

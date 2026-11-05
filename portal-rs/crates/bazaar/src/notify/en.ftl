@@ -1,0 +1,10 @@
+outbid = Your bid has been outbid
+outbid-body = Another bidder has taken the lead. Check the listing before placing another bid.
+new-offer = New offer on your listing
+new-offer-body = You have received a new offer. Open the listing to review it.
+ending-soon = Watched auction ends within an hour
+ending-soon-body = An auction you watch is ending soon. Its deadline may be extended by bidding.
+won = Your purchase is complete
+won-body = The auction settlement and delivery have been confirmed. Open the listing for details.
+matching-search = New listing matches your saved search
+matching-search-body = A new listing matches your saved search. Open it to review the current details.
