@@ -1,0 +1,17 @@
+title = Character journal
+drops = Rare drops
+records = Records in available history
+chronicle = Character chronicle
+unavailable = Unavailable
+empty = No confirmed data in the available history.
+experience = Best experience per hour
+profit = Best profit per hour
+loot = Largest loot
+duration = Longest active session in seconds
+boss = First boss kill
+quantity = Quantity
+occurred = Occurrence time (UTC, Unix seconds)
+started = Session start (UTC, Unix seconds)
+ended = Session end (UTC, Unix seconds)
+seconds = Active seconds
+basis = Valuation basis
