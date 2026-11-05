@@ -13,4 +13,5 @@ pub mod houses;
 pub mod party;
 pub mod profiles;
 pub mod referrals;
+pub mod today;
 pub mod v2_watermark;

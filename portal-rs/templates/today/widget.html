@@ -1,0 +1,5 @@
+<aside class="op-theme op-card op-stack" aria-label="{{ title }}">
+<strong>{{ title }}</strong>
+{% if available %}<dl><dt>{{ creature_label }}</dt><dd>{{ creature }}</dd><dt>{{ boss_label }}</dt><dd>{{ boss }}</dd></dl>
+{% else %}<p role="status">{{ unavailable }}</p>{% endif %}
+</aside>
