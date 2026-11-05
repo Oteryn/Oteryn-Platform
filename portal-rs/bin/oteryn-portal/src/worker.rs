@@ -150,6 +150,14 @@ async fn run_until(
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
     registry.cleanup(
+        "stats.poll",
+        60,
+        Arc::new(oteryn_stats::worker::StatisticsJob {
+            pool: pool.clone(),
+            enabled: std::env::var("PORTAL_STATS_ENABLED").as_deref() == Ok("true"),
+        }),
+    )?;
+    registry.cleanup(
         "cleanup.sessions",
         3600,
         Arc::new(oteryn_web::session::SessionCleanup { pool: pool.clone() }),

@@ -1128,10 +1128,23 @@ dependencies = [
  "oteryn-db",
  "oteryn-gateway",
  "oteryn-internal-api",
+ "oteryn-stats",
  "oteryn-web",
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "oteryn-stats"
+version = "0.1.0"
+dependencies = [
+ "oteryn-db",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
