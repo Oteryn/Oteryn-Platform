@@ -369,10 +369,7 @@ pub(crate) fn tr(lang: &str, key: &str) -> String {
         .into_owned()
 }
 #[derive(Template)]
-#[template(
-    path = "read.html",
-    config = "src/console/templates/askama.toml"
-)]
+#[template(path = "read.html", config = "src/console/templates/askama.toml")]
 pub(crate) struct Page {
     pub lang: &'static str,
     pub title: String,
