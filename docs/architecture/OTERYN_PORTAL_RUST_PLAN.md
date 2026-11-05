@@ -355,7 +355,7 @@ Przedmioty:
 
 Przepływ:
 
-1. Wystawienie w portalu wymaga potwierdzonego e-maila, 2FA i trybu sudo. Opłata za wystawienie: Q9. Gra sprawdza warunki (np. dom, gildia, aktywna kara) i podaje powód odmowy.
+1. Wystawienie w portalu wymaga potwierdzonego e-maila, 2FA i trybu sudo. Wystawienie jest darmowe (D13); prowizja od sprzedaży: Q9. Gra sprawdza warunki (np. dom, gildia, aktywna kara) i podaje powód odmowy.
 2. Gra blokuje postać albo przenosi przedmioty do depozytu bazaru i zwraca snapshot z hashem. Portal publikuje ofertę dopiero po tym potwierdzeniu.
 3. Licytacja:
    - gracz podaje swoją ofertę maksymalną, a system podbija cenę automatycznie o minimalny krok;
@@ -715,7 +715,7 @@ Pozostałe warunki:
 | D10 | Zmiana płci, świata i nazwy postaci | **Płatne** (2026-11-05), jak w Tibii: zmiana płci to kosmetyka, transfer świata płatny. Dziś jest jeden świat, więc transfer czeka na drugi. Zmiana nazwy też płatna |
 | D11 | Ostatnie logowanie i czas online na profilu | **Tak** (2026-11-05), z przełącznikiem prywatności gracza; wymaga danych z gry (G-4) |
 | D12 | Kolejność zadań gry G-3…G-6 | **G-4, G-3, G-6, G-5** (2026-11-05) |
-| D13 | Bazar | **Tak** (2026-11-05): nazwa „Bazar”; postacie na licytacji, cenne przedmioty w ogłoszeniu albo na licytacji; za coiny albo złoto z gry (§5.6). G-7 trafia do kolejki gry po G-5 |
+| D13 | Bazar | **Tak** (2026-11-05): nazwa „Bazar”; postacie na licytacji, cenne przedmioty w ogłoszeniu albo na licytacji; za coiny albo złoto z gry; wystawienie darmowe (§5.6). G-7 trafia do kolejki gry po G-5 |
 
 ## 12. Otwarte pytania
 
@@ -726,7 +726,7 @@ Pozostałe warunki:
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
 | Q5 | Akceptacja projektu | Właściciel | Start T01+ |
 | Q8 | Okres oczekiwania przy zmianie e-maila (Tibia: 30 dni i nowe hasło; dziś: potwierdzenie i link cofnięcia) | Właściciel | Tylko T08b |
-| Q9 | Opłaty bazaru: za wystawienie, prowizja od sprzedaży, cena wyróżnienia (Tibia pobiera opłatę za wystawienie i procent od sprzedaży) | Właściciel | Tylko wartości w konfiguracji T57 i T64 |
+| Q9 | Prowizja od sprzedaży i cena wyróżnienia (wystawienie darmowe, D13). Tibia: 50 TC za wystawienie postaci i 12% od ceny; Market w grze 2,5% od oferty (20–2 500 000 złota) | Właściciel | Tylko wartości w konfiguracji T57 i T64 |
 | Q10 | Parametry bazaru: czasy trwania, „kup teraz”, minimalny krok, przedłużenie przy ofercie na końcu, karencja ponownej sprzedaży postaci | Właściciel | Tylko wartości w konfiguracji T57 |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
