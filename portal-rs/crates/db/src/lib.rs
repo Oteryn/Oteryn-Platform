@@ -35,3 +35,5 @@ mod tests {
         assert_eq!(versions, sorted);
     }
 }
+
+pub mod outbox;

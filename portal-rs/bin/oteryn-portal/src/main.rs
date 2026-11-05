@@ -32,6 +32,15 @@ async fn main() -> ExitCode {
         .init();
 
     let arg = std::env::args().nth(1);
+    if arg.as_deref() == Some("gateway") {
+        return match gateway::run().await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                tracing::error!(%error, "gateway stopped");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let Some(role) = parse_role(arg.as_deref()) else {
         tracing::error!(role = ?arg, "unknown role; expected serve, migrate or worker");
         return ExitCode::from(2);
@@ -48,6 +57,9 @@ async fn main() -> ExitCode {
 async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     let db = oteryn_db::lazy_pool(config.database_url())?;
+    if matches!(role, Role::Worker) {
+        return worker::run(db).await;
+    }
     match role {
         Role::Migrate => {
             oteryn_db::migrate(&db).await?;
@@ -85,3 +97,6 @@ mod tests {
         assert_eq!(parse_role(Some("drop-database")), None);
     }
 }
+
+mod gateway;
+mod worker;
