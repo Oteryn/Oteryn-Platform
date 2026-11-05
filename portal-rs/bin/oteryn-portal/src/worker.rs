@@ -154,6 +154,11 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         3600,
         Arc::new(oteryn_web::session::SessionCleanup { pool: pool.clone() }),
     )?;
+    registry.cleanup(
+        "cleanup.rate-limits",
+        60,
+        Arc::new(oteryn_web::ratelimit::RateLimitCleanup { pool: pool.clone() }),
+    )?;
     for kind in ["cleanup.tokens", "cleanup.support"] {
         registry.cleanup(kind, 3600, Arc::new(NoopCleanup))?;
     }
