@@ -521,6 +521,23 @@ Wzór: TibiaRoute (przegląd 2026-11-05): mapa dostaw zadań, trackery bestiariu
 | Miejsca na bestiariusz i bossów | Karty: potwór lub boss, poziom, punkty, szacowany czas ukończenia z tempa zabójstw graczy | T87 | T81 |
 | Dziś na świecie | Na stronie „Dziś” i w nagłówku: wzmocniony dziś potwór i boss, historia wzmocnień, rajdy z harmonogramu | T88 | G-12 |
 
+Pierwowzór: repozytorium `Oteryn/Oteryn-Atlas` (przegląd 2026-11-05, main @0bbd188). Ma przeglądarkę WebGL całego świata, kafelek po kafelku. Publikacja ma 18,75 GB i powstała ze starego OTBM oraz klienta Tibii 15.32 z atestacją praw. Działa tylko jako podgląd w sieci domowej, a repozytorium jest w zamrożeniu. Portal nie przenosi tego renderera: kafle z minimapy gry (T40) są lżejsze i nie zależą od danych Tibii. Przenosi natomiast:
+
+- estymator farmy: oczekiwana liczba zabójstw oraz P50, P80 i P95 do zdobycia N sztuk z dokładnych szans ppm, wraz z kontraktem liczbowym i testami (`src/browser/farm-intelligence.mjs`, `docs/testing/ATLAS-FARM-ESTIMATOR-NUMERIC-CONTRACT.md`); w mapie dostaw zadań pokazuje na przykład „ok. 120 zabójstw, 80% szans przy 190”;
+- ranking wyszukiwania (NPC, potwory, miasta, miejsca, teleporty, domy, obszary questów);
+- odznaki ról NPC (bank, podróż, sklep, quest, błogosławieństwo, trener);
+- obszary i podobszary;
+- stan widoku w adresie URL;
+- szuflady na telefonie.
+
+Reguły z Atlasu obowiązują też portal:
+
+- portal nie wymyśla współrzędnych, pięter ani identyfikatorów należących do gry;
+- w czasie działania nie sięga po dane OTBM ani Tibii;
+- każdy artefakt niesie wersję treści gry;
+- brak danych pokazuje jako „niedostępne”;
+- wyliczenia z szans łupu oznacza jako szacunek, nigdy jako fakt.
+
 Mechaniki właściwe tylko dla Tibii (np. fiendish przez exivę, koło przeznaczenia, imbuementy) przenosimy tylko wtedy, gdy gra je ma. Kalkulatory (T71) dostają w takim przypadku odpowiedniki: obrażenia na bossach, koszt ulepszeń, miejsce na punkty bestiariusza.
 
 ## 6. Integracja z grą
@@ -778,7 +795,7 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T82 | Raport tygodniowy, notatki do sesji i postaci, eksport CSV i JSON | T73, T36, T09 | `crates/playerdata/src/reports*` |
 | T83 | Szukam drużyny: ogłoszenia, filtry, wygasanie, zgłoszenia, moderacja | T44, T33c, T10b | `crates/community/src/party*` |
 | T84 | Atlas: warstwa spawnów ze skupieniami, link do miejsca, prywatne znaczniki gracza, zgłoszenie błędu na mapie | T41, T33c | `crates/atlas/src/spawns*`, `static/atlas/` |
-| T85 | Mapa dostaw zadań i „gdzie wypada”: przedmiot → potwory → spawny, tiery źródeł, filtry, linki z wiki | T84, T14b | `crates/atlas/src/delivery*` |
+| T85 | Mapa dostaw zadań i „gdzie wypada”: przedmiot → potwory → spawny, tiery źródeł, estymator zabójstw (P50, P80, P95) przeniesiony z Oteryn-Atlas z jego testami, filtry, linki z wiki | T84, T14b | `crates/atlas/src/delivery*` |
 | T86 | Bestiariusz i bossowie na mapie: postęp postaci z dziennika, stany spawnów, punkty, rekomendacje | T84, T77 | `crates/atlas/src/bestiary*` |
 | T87 | Miejsca polowań, na bestiariusz i bossów: karty z danymi z mapy łowisk, opisy redakcji, raporty graczy | T81, T13 | `crates/wiki/src/places*` |
 | T88 | „Dziś na świecie”: wzmocnienia i ich historia, rajdy (po G-12) | T24 | `crates/community/src/today*` |
@@ -858,6 +875,7 @@ Pozostałe warunki:
 | Q3 | Aktualizacja locka gry: N4P (z `native-admissions`) i GAME-CHAR-CMD-0 (§6) | Koordynator, G-1 | Nic; portal implementuje według kodu |
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
 | Q5 | Akceptacja projektu | Właściciel | Start T01+ |
+| Q6 | Los repozytorium Oteryn-Atlas: Atlas w portalu je zastępuje, a repo zostaje zarchiwizowane (rekomendacja) albo zostaje osobnym trybem 3D | Właściciel | Nic; portal buduje swój Atlas (T40, T41, T84–T86) |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
@@ -869,6 +887,7 @@ Pozostałe zadania nie czekają na te odpowiedzi.
 - Przegląd od strony gry: koordynator, 2026-11-05; stan panelu gracza po stronie gry: Game main @00c01066.
 - Inwentarz obecnego portalu i niezależny przegląd kompletności panelu gracza, 2026-11-05.
 - Przegląd panelu konta Tibii, Char Bazaar Tibii, Exevopan, TibiaTrade i GuildStats, 2026-11-05.
+- `Oteryn/Oteryn-Atlas` (main @0bbd188), pierwowzór Atlasu, 2026-11-05.
 - TibiaRoute (mapa dostaw zadań, trackery bestiariusza i bossów, miejsca, kalkulatory), 2026-11-05.
 - Analizatory w kliencie Tibii (sesja, łup, zużycie, obrażenia, doświadczenie) jako wzór dla §5.8.
 - Szkic #1643: źródło pomysłów dla rozszerzeń (węzły, Atlas, obserwacja GM).
