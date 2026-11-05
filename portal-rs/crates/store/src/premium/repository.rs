@@ -131,6 +131,89 @@ impl Ledger {
         tx.commit().await?;
         Ok(next)
     }
+    /// Uses the caller transaction; the caller must roll back on any error.
+    pub async fn mutate_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        operator: &Operator,
+        mutation: &Mutation,
+    ) -> Result<Entitlement, Error> {
+        if !self.enabled {
+            return Err(Error::Disabled);
+        }
+        if !operator.confirmed_mfa || operator.permission != "products.premium.manage" {
+            return Err(Error::Denied);
+        }
+        let reason = mutation.reason.trim();
+        if !(10..=500).contains(&reason.chars().count())
+            || mutation.request.is_nil()
+            || operator.actor.get_version_num() != 7
+            || operator.actor.get_variant() != uuid::Variant::RFC4122
+            || matches!(mutation.change, Change::Grant(days) if !(1..=366).contains(&days))
+        {
+            return Err(Error::Invalid);
+        }
+        let hash = Sha256::digest(reason.as_bytes()).to_vec();
+        let (kind, days) = match mutation.change {
+            Change::Grant(days) => ("GRANT", Some(i32::from(days))),
+            Change::Revoke => ("REVOKE", None),
+        };
+        // A request lock precedes the account lock and also serializes conflicting
+        // reuses across different accounts. Hash collisions only serialize work.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 27))")
+            .bind(mutation.request.to_string())
+            .execute(&mut **tx)
+            .await?;
+        self.lock(tx, mutation.account).await?;
+        if let Some(row) = sqlx::query("SELECT * FROM premium_ledger WHERE request_id=$1")
+            .bind(mutation.request)
+            .fetch_optional(&mut **tx)
+            .await?
+        {
+            if row.try_get::<Uuid, _>("account_id")? != mutation.account
+                || row.try_get::<Uuid, _>("actor_id")? != operator.actor
+                || row.try_get::<String, _>("event_type")? != kind
+                || row.try_get::<Option<i32>, _>("duration_days")? != days
+                || row.try_get::<Vec<u8>, _>("reason_sha256")? != hash
+            {
+                return Err(Error::Conflict);
+            }
+            let result = recorded(&row)?;
+            return Ok(result);
+        }
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&mut **tx)
+            .await?;
+        let last: Option<OffsetDateTime> =
+            sqlx::query_scalar("SELECT last_issued_at FROM premium_authority WHERE account_id=$1")
+                .bind(mutation.account)
+                .fetch_one(&mut **tx)
+                .await?;
+        if last.is_some_and(|last| last.unix_timestamp() > now.unix_timestamp()) {
+            return Err(Error::Unavailable);
+        }
+        let existing = current(tx, mutation.account).await?;
+        if existing
+            .as_ref()
+            .is_some_and(|value| value.from > now.unix_timestamp())
+        {
+            return Err(Error::Unavailable);
+        }
+        let next = transition(existing.as_ref(), mutation.change, now.unix_timestamp())?;
+        // The sum of deltas is the current interval's duration. Expired or revoked
+        // time is cancelled when restarting; revocation removes the remainder.
+        let previous_duration = existing.as_ref().map_or(0, |e| e.until - e.from);
+        let delta = next.until - next.from - previous_duration;
+        sqlx::query("INSERT INTO premium_ledger(request_id, account_id, actor_id, event_type, duration_days, reason_sha256, entitlement_id, lifecycle_revision, delta_seconds, effective_from, effective_until) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
+            .bind(mutation.request).bind(mutation.account).bind(operator.actor).bind(kind).bind(days).bind(hash)
+            .bind(next.id).bind(next.revision).bind(delta).bind(timestamp(next.from)?).bind(timestamp(next.until)?)
+            .execute(&mut **tx).await?;
+        sqlx::query("INSERT INTO premium_audit(request_id,actor_id,account_id,event_name) VALUES ($1,$2,$3,$4)")
+            .bind(mutation.request).bind(operator.actor).bind(mutation.account)
+            .bind(if kind == "GRANT" { "products.premium_granted" } else { "products.premium_revoked" })
+            .execute(&mut **tx).await?;
+        Ok(next)
+    }
     /// Unknown ids are resolved before inserting an authority row. Issuance and
     /// mutations share the same lock, including NONE snapshots.
     pub async fn snapshot(
