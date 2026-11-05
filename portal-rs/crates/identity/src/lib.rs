@@ -12,3 +12,4 @@ pub mod login;
 pub mod reset;
 pub mod passkeys;
 pub mod export;
+pub mod termination;
