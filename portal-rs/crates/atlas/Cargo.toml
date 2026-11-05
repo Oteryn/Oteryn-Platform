@@ -37,3 +37,7 @@ path = "../web"
 [dev-dependencies.tower-http]
 version = "0.7.1"
 features = ["fs"]
+
+
+[dependencies.oteryn-playerdata]
+path = "../playerdata"

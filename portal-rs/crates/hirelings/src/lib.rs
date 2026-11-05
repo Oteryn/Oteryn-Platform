@@ -29,3 +29,5 @@ fn text(lang: &str, key: &str) -> Result<String> {
     Ok(result)
 }
 pub mod web;
+
+pub mod commands;

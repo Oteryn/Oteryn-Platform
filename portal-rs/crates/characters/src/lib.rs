@@ -8,3 +8,6 @@ pub mod badges;
 pub mod bootstrap;
 pub mod create_web;
 pub mod overview;
+
+pub mod profile;
+pub mod services;

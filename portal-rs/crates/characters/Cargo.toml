@@ -42,3 +42,7 @@ features = ["derive"]
 [dependencies.unic-langid]
 version = "0.9"
 features = ["macros"]
+[dependencies.serde_urlencoded]
+version = "0.7.1"
+[dev-dependencies.oteryn-web]
+path = "../web"

@@ -491,3 +491,85 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         Ok(())
     }
 }
+
+impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H> {
+    /// Reserve in the caller transaction. Roll back the entire transaction on error.
+    pub async fn reserve_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        key: Uuid,
+        account: Uuid,
+        amount: i64,
+    ) -> Result<Receipt, Error> {
+        self.enabled()?;
+        valid_key(key)?;
+        valid_id(account)?;
+        positive(amount)?;
+        lock(tx, account).await?;
+        self.active(tx, account).await?;
+        let operation = Operation {
+            key,
+            kind: "reserve",
+            account,
+            counterparty: None,
+            amount,
+            reference: None,
+            reason: None,
+        };
+        if claim(tx, &operation).await? {
+            return Ok(receipt(key, true));
+        }
+        entry(tx, key, account, -amount, amount).await?;
+        sqlx::query("INSERT INTO wallet_reservations (id, account_id, amount) VALUES ($1,$2,$3)")
+            .bind(key)
+            .bind(account)
+            .bind(amount)
+            .execute(&mut **tx)
+            .await?;
+        Ok(receipt(key, false))
+    }
+    /// Settle once in the caller transaction; capture and release are mutually exclusive.
+    /// Roll back the entire transaction on error. The key binds the settlement payload.
+    pub async fn settle_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        key: Uuid,
+        account: Uuid,
+        reservation: Uuid,
+        capture: bool,
+    ) -> Result<Receipt, Error> {
+        self.enabled()?;
+        valid_key(key)?;
+        valid_id(account)?;
+        valid_key(reservation)?;
+        lock(tx, account).await?;
+        self.active(tx, account).await?;
+        let row = sqlx::query("SELECT amount, status FROM wallet_reservations WHERE id=$1 AND account_id=$2 FOR UPDATE")
+            .bind(reservation).bind(account).fetch_optional(&mut **tx).await?.ok_or(Refusal::ReservationMissing)?;
+        let amount: i64 = row.try_get("amount")?;
+        let status: String = row.try_get("status")?;
+        let kind = if capture { "capture" } else { "release" };
+        let operation = Operation {
+            key,
+            kind,
+            account,
+            counterparty: None,
+            amount,
+            reference: Some(reservation),
+            reason: None,
+        };
+        if claim(tx, &operation).await? {
+            return Ok(receipt(key, true));
+        }
+        if status != "active" {
+            return Err(Refusal::ReservationSettled.into());
+        }
+        entry(tx, key, account, if capture { 0 } else { amount }, -amount).await?;
+        sqlx::query("UPDATE wallet_reservations SET status=$2, updated_at=now() WHERE id=$1")
+            .bind(reservation)
+            .bind(if capture { "captured" } else { "released" })
+            .execute(&mut **tx)
+            .await?;
+        Ok(receipt(key, false))
+    }
+}
