@@ -39,11 +39,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-05T00:00:00Z
-head: 836a6352
+updated_at: 2026-11-05T18:04:47Z
+head: 06103fdd
 branch: codex/portal-rs-pkg9
 pr: none
-status: validating
+status: ready
 context_routes: []
 owned_paths:
   - portal-rs/**
@@ -52,8 +52,7 @@ proven:
   - All 49 migration versions are unique; no renumbering required.
   - No SQLx offline cache exists.
 derived: []
-unknown:
-  - Final acceptance results.
+unknown: []
 conflicts:
   - Shared manifests and registrations resolved additively as detailed below.
 first_failure:
@@ -63,12 +62,21 @@ rejected_hypotheses: []
 changed_paths:
   - portal-rs/**
 validation:
-  - command: requested acceptance chain
-    result: NOT_RUN
-    evidence: Formatting passed; clippy in progress.
+  - command: cargo fmt --all --check
+    result: PASS
+    evidence: Final material candidate 06103fdd.
+  - command: cargo clippy --locked --all-targets -- -D warnings
+    result: PASS
+    evidence: All targets passed with warnings denied on final material candidate 06103fdd.
+  - command: cargo test --locked
+    result: PASS
+    evidence: PostgreSQL 18.6; 524 reported passing, 0 failed, 1 ignored; 318 tests actually used PostgreSQL.
+  - command: python3 tools/validation/legacy_token_ratchet.py
+    result: PASS
+    evidence: Printed ratchet ok.
 blockers:
   - none
-next_action: Complete strict clippy and PostgreSQL-backed acceptance tests.
+next_action: Publish normally and retain the package branch for downstream integration.
 ```
 
 ## Conflict resolution ledger
@@ -85,6 +93,8 @@ Paths are relative to `portal-rs/`.
 
 For each conflicted Cargo.lock, selected the current package base side and regenerated using `cargo metadata --format-version 1`; no lockfile hand edits. Ran metadata after the final clean lockfile merge as well. Formatting only reorders module declarations. No modules dropped and no behavior redesigned.
 
+PostgreSQL exposed a semantic shared-schema conflict: T30 attempted to create and seed `character_restore_locks`, already supplied by the earlier T23 migration. Removed only that duplicate DDL from the new T30 migration, preserving the earlier migration untouched. T30 expects an integer result while the existing lock key is smallint, so its two lock queries explicitly cast the selected key to integer. Both modules retain the same row, lock modes and transaction order. This is shared-schema conflict resolution, without a new lock design. Initial acceptance failed during migration with PostgreSQL error 42P07 before this resolution.
+
 ## Source branch closeout
 
 ```yaml
@@ -96,3 +106,22 @@ source_branch_evidence: Explicit owner instruction in this integration task.
 ## Notes
 
 Jira mapping is unknown; synchronization is pending for the programme coordinator. No external messages sent. Product runtime E2E is not applicable to this assembly task; the requested workspace tests cover the retained module behavior.
+
+
+## Final acceptance summary
+
+Final material candidate: `06103fdd`. Executed the requested acceptance chain with the local PostgreSQL 18.6 URL set transiently; no credentials printed or committed:
+
+```text
+cd portal-rs && cargo fmt --all --check && cargo clippy --locked --all-targets -- -D warnings && PORTAL_TEST_DATABASE_URL=<local PG 18.6 URL> cargo test --locked
+PASS: formatting
+PASS: strict clippy, all targets
+PASS: cargo test — 524 reported passing, 0 failed, 1 ignored
+PostgreSQL-backed tests actually run: 318
+python3 tools/validation/legacy_token_ratchet.py
+ratchet ok
+```
+
+The database count matches successful test names to their actual PostgreSQL fixture paths, including ten macro-generated online tests and the live readiness query. It excludes the explicitly ignored browser-layout test. The optional pinned content import and asset smoke test both returned early: each was checked directly with the built executable and output capture disabled, finished in 0.00s and printed an explicit skip notice. Neither is counted as executed PostgreSQL coverage. All 318 database inventory entries matched successful test results with the URL supplied.
+
+All 49 migration versions are unique. No migration renumbered. No SQLx offline cache. No workflow changes. No PR created. The final source comparison with each module branch found only the two documented T30 shared-lock integrations changed imported module files; other imported files are byte-identical. Shared declarations and registrations were composed additively. All five modules retained, none dropped. The final evidence-only commit preserves the tested material tree.
