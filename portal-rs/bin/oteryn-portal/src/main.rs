@@ -91,6 +91,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                         .is_ok_and(|value| value == "true"),
                 },
             ));
+            let app = app.merge(oteryn_community::profiles::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let app = app.merge(oteryn_community::rankings::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
