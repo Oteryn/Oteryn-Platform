@@ -97,6 +97,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_wiki::calculators::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let app = app.merge(oteryn_community::party::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
             let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")
                 .unwrap_or_else(|_| "http://localhost:3000".to_owned());
             let production = std::env::var("OTERYN_ENV").is_ok_and(|value| value == "production");
@@ -119,8 +122,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_atlas::web::configured_router(oteryn_db::lazy_pool(
                 config.database_url(),
             )?));
-            let app = app.merge(oteryn_atlas::spawns::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.layer(axum::middleware::from_fn(
-                oteryn_atlas::spawns::viewer_policy,
+
+#[path = "../../../crates/identity/src/privacy_web.rs"]
+mod privacy_web;
+#[path = "../../../crates/identity/src/sessions_http.rs"]
+mod sessions_http;
+#[path = "../../../crates/store/src/web_payments.rs"]
+mod shop_web;

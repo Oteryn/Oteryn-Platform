@@ -1997,10 +1997,14 @@ dependencies = [
  "askama",
  "axum",
  "fluent-bundle",
+ "oteryn-characters",
+ "oteryn-core",
  "oteryn-db",
+ "oteryn-identity",
  "oteryn-web",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
@@ -2031,6 +2035,7 @@ dependencies = [
  "tower",
  "tower-http",
  "unic-langid",
+ "uuid",
 ]
 
 [[package]]
@@ -2056,8 +2061,10 @@ dependencies = [
  "axum",
  "fluent-bundle",
  "oteryn-core",
+ "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-wallet",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
@@ -2065,6 +2072,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tower",
+ "unic-langid",
  "unicode-normalization",
  "unicode-properties",
  "uuid",
@@ -2077,8 +2085,11 @@ dependencies = [
  "askama",
  "axum",
  "fluent-bundle",
+ "oteryn-admin",
  "oteryn-db",
  "oteryn-internal-api",
+ "oteryn-notify",
+ "oteryn-wallet",
  "oteryn-web",
  "percent-encoding",
  "regex",
@@ -2236,14 +2247,22 @@ name = "oteryn-identity"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "axum",
  "email_address",
+ "fluent-bundle",
  "getrandom 0.4.3",
  "oteryn-db",
+ "oteryn-notify",
+ "oteryn-web",
  "serde",
  "serde_json",
+ "serde_urlencoded",
+ "sha1 0.10.7",
  "sha2 0.10.9",
  "sqlx",
  "tokio",
+ "tower",
+ "unic-langid",
  "uuid",
 ]
 
@@ -2259,6 +2278,32 @@ dependencies = [
  "subtle",
  "tokio",
  "tower",
+]
+
+[[package]]
+name = "oteryn-minigames"
+version = "0.1.0"
+dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
+ "image",
+ "oteryn-atlas",
+ "oteryn-db",
+ "oteryn-identity",
+ "oteryn-web",
+ "oteryn-world",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tower",
+ "tower-http",
+ "uuid",
 ]
 
 [[package]]
@@ -2311,6 +2356,9 @@ dependencies = [
  "oteryn-core",
  "oteryn-db",
  "oteryn-gameauth",
+ "oteryn-identity",
+ "oteryn-notify",
+ "oteryn-wallet",
  "serde",
  "serde_json",
  "sqlx",
@@ -2338,23 +2386,44 @@ dependencies = [
 name = "oteryn-portal"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "axum",
+ "fluent-bundle",
+ "getrandom 0.4.3",
  "oteryn-admin",
  "oteryn-atlas",
  "oteryn-community",
+ "oteryn-content",
  "oteryn-core",
  "oteryn-db",
  "oteryn-downloads",
  "oteryn-gameauth",
  "oteryn-gateway",
+ "oteryn-hirelings",
+ "oteryn-identity",
  "oteryn-internal-api",
+ "oteryn-minigames",
  "oteryn-notify",
  "oteryn-payments",
+ "oteryn-player-api",
  "oteryn-stats",
+ "oteryn-store",
+ "oteryn-support",
  "oteryn-web",
+ "oteryn-wiki",
+ "oteryn-world",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sha2 0.10.9",
+ "sqlx",
  "tokio",
+ "tower",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
+ "unic-langid",
+ "uuid",
 ]
 
 [[package]]
@@ -2380,19 +2449,26 @@ dependencies = [
 name = "oteryn-store"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "axum",
+ "fluent-bundle",
  "getrandom 0.4.3",
  "http",
+ "oteryn-db",
+ "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-wallet",
+ "oteryn-web",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sha2 0.10.9",
  "sqlx",
  "subtle",
  "time",
  "tokio",
  "tower",
+ "tracing",
  "uuid",
 ]
 
@@ -3093,6 +3169,17 @@ dependencies = [
 
 [[package]]
 name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "sha1"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
@@ -3352,7 +3439,7 @@ dependencies = [
  "log",
  "percent-encoding",
  "serde",
- "sha1",
+ "sha1 0.11.0",
  "sha2 0.11.1",
  "sqlx-core",
  "thiserror 2.0.21",

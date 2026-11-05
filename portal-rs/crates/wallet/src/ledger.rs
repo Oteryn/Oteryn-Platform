@@ -184,4 +184,3 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if reason.trim().is_empty() || reason.chars().count() > 1000 {
             return Err(Refusal::InvalidReason.into());
         }
-            kind: "adjustment",

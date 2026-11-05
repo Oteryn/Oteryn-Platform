@@ -212,5 +212,3 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .nest_service("/static", ServeDir::new(static_dir))
         .merge(surface::module_router())
         .merge(surface::module_routes())
-        .merge(register::routes())
-        .merge(verify::routes())

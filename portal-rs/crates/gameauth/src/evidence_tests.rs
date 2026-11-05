@@ -99,5 +99,3 @@ fn trust(recovery: bool) -> Value {
     ])
 }
 async fn sources(db: &Database) -> TestResult {
-    // Accounts come from the embedded migrations; public trust is fixture-only.
-    sqlx::raw_sql("CREATE TABLE native_game_signing_trust_profiles (id uuid PRIMARY KEY,issuer text,profile text,key_purpose text,profile_version bigint,issuer_revision bigint,revoked_at timestamptz); CREATE TABLE native_game_signing_trust_key_versions (profile_id uuid,key_id text,key_revision bigint,public_key text,trusted boolean);").execute(&db.pool).await?;
