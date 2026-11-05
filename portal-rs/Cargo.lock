@@ -1026,15 +1026,22 @@ version = "0.1.0"
 name = "oteryn-community"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "axum",
  "oteryn-db",
  "oteryn-internal-api",
+ "oteryn-web",
+ "percent-encoding",
  "regex",
+ "serde",
  "serde_json",
+ "serde_urlencoded",
  "sqlx",
+ "time",
  "tokio",
  "tower",
  "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]

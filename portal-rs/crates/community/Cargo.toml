@@ -21,3 +21,20 @@ unicode-normalization = "0.1"
 oteryn-db = { path = "../db" }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }
+
+[dependencies.askama]
+version = "0.16.1"
+[dependencies.oteryn-web]
+path = "../web"
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+[dependencies.serde_urlencoded]
+version = "0.7"
+[dependencies.uuid]
+version = "1"
+[dependencies.time]
+version = "0.3"
+features = ["formatting"]
+[dependencies.percent-encoding]
+version = "2"
