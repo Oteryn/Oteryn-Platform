@@ -1,0 +1,3 @@
+SOURCE: Oteryn/Oteryn-Game @ 857f15f376907c592bb28d854fccff18a15cdf87
+Path: crates/gameplay/native-admission-source/src/character_commands_tests.rs
+Test: receipt_responses_and_statuses

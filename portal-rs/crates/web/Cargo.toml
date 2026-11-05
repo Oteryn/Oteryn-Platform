@@ -35,3 +35,6 @@ version = "1"
 features = ["derive"]
 [dependencies.serde_urlencoded]
 version = "0.7"
+
+[dependencies.oteryn-gameauth]
+workspace = true
