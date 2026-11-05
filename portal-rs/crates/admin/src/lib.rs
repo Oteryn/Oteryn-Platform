@@ -10,5 +10,5 @@ pub mod commerce;
 pub mod players;
 pub mod support;
 
-pub mod control;
 pub mod console;
+pub mod control;
