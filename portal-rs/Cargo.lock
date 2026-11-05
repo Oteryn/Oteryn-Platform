@@ -1008,6 +1008,16 @@ version = "0.1.0"
 [[package]]
 name = "oteryn-internal-api"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tokio",
+ "tower",
+]
 
 [[package]]
 name = "oteryn-notify"
