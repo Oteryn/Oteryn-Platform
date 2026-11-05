@@ -41,3 +41,4 @@ oteryn-downloads = { path = "crates/downloads" }
 oteryn-notify = { path = "crates/notify" }
 oteryn-internal-api = { path = "crates/internal-api" }
 oteryn-player-api = { path = "crates/player-api" }
+oteryn-gateway = { path = "crates/gateway" }
