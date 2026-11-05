@@ -15,3 +15,4 @@ pub mod console {
     pub mod audit;
     pub mod players;
 }
+pub mod control;
