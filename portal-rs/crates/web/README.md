@@ -12,8 +12,8 @@ back to Polish. An explicit language prefix controls the displayed page.
 localized home page. These GET links change only the display preference.
 
 Handlers can extract `Extension<Language>` and call `Language::text()` for shared
-Fluent messages. Add matching keys to `i18n/pl.ftl` and `i18n/en.ftl`. The plain
-Askama layout is `surface-layout.html`; styling and components belong to T39.
+Fluent messages. Add matching keys to `../ui/i18n/pl.ftl` and `../ui/i18n/en.ftl`. The plain
+Askama layout is `layout.html`; styling and components belong to T39.
 
 Use `Extension<CspNonce>` if a page needs an inline script and place that value
 in its `nonce` attribute. Never use `unsafe-inline`, event-handler attributes or

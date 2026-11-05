@@ -445,6 +445,32 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 app,
                 oteryn_db::lazy_pool(config.database_url())?,
             );
+            let mut navigation = oteryn_ui::Registry::default();
+            navigation.registration = true; // register::routes is always mounted.
+            navigation.login = std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true");
+            navigation.account = true; // /account is always mounted.
+            oteryn_identity::navigation::register(&mut navigation);
+            oteryn_characters::navigation::register(&mut navigation);
+            oteryn_store::navigation::register(&mut navigation);
+            oteryn_content::navigation::register(&mut navigation);
+            oteryn_wiki::navigation::register(&mut navigation);
+            oteryn_community::navigation::register(&mut navigation);
+            oteryn_stats::navigation::register(&mut navigation);
+            oteryn_atlas::navigation::register(&mut navigation);
+            oteryn_minigames::navigation::register(&mut navigation);
+            oteryn_hirelings::navigation::register(&mut navigation);
+            oteryn_playerdata::navigation::register(&mut navigation);
+            oteryn_payments::navigation::register(&mut navigation);
+            oteryn_support::navigation::register(&mut navigation);
+            let app = app.layer(axum::middleware::from_fn_with_state(
+                oteryn_web::chrome::Shell {
+                    registry: navigation,
+                    sessions: oteryn_web::session::SessionLayer::new(oteryn_db::lazy_pool(
+                        config.database_url(),
+                    )?),
+                },
+                oteryn_web::chrome::middleware,
+            ));
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             axum::serve(listener, app)
                 .with_graceful_shutdown(async {

@@ -6,3 +6,6 @@ pub mod sanctions;
 pub mod tickets;
 
 pub mod reports;
+
+/// Shared portal navigation registration.
+pub mod navigation;

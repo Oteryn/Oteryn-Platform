@@ -116,9 +116,9 @@ struct Page {
 }
 fn labels(en: bool) -> Vec<String> {
     let source = if en {
-        include_str!("../../web/i18n/en.ftl")
+        include_str!("../../ui/i18n/en.ftl")
     } else {
-        include_str!("../../web/i18n/pl.ftl")
+        include_str!("../../ui/i18n/pl.ftl")
     };
     let mut bundle = fluent_bundle::FluentBundle::new(vec![if en {
         unic_langid::langid!("en")

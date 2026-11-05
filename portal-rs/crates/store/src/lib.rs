@@ -10,3 +10,6 @@ pub mod purchase;
 
 pub mod delivery;
 pub mod web;
+
+/// Shared portal navigation registration.
+pub mod navigation;

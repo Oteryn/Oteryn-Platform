@@ -15,3 +15,6 @@ pub mod profiles;
 pub mod referrals;
 pub mod today;
 pub mod v2_watermark;
+
+/// Shared portal navigation registration.
+pub mod navigation;

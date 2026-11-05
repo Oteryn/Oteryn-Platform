@@ -303,9 +303,10 @@ async fn browser_registration_refuses_bad_proof_and_breached_password() -> TestR
         response.status(),
         axum::http::StatusCode::UNPROCESSABLE_ENTITY
     );
-    let body = axum::body::to_bytes(response.into_body(), 4096).await?;
+    let body = axum::body::to_bytes(response.into_body(), 64 * 1024).await?;
     let html = String::from_utf8(body.to_vec())?;
     assert!(html.contains("data breach"));
+    assert!(html.contains("class=\"op-theme op-shell\""));
     assert!(!html.contains(password));
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM accounts")
         .fetch_one(&db.pool)

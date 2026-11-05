@@ -158,3 +158,5 @@
   --op-backdrop: #080c12;
   --op-shadow: 0 0.75rem 2rem #17212e20;
 }
+
+:root { --op-shell-width: 80rem; --op-copy-width: 48rem; --op-shell-card: 16rem; }

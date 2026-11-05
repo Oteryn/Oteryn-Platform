@@ -31,3 +31,6 @@ fn text(lang: &str, key: &str) -> Result<String> {
 pub mod web;
 
 pub mod commands;
+
+/// Shared portal navigation registration.
+pub mod navigation;
