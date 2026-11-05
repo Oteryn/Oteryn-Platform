@@ -1,0 +1,1 @@
+All files in this directory are synthetic importer fixtures. They are not game content, game schemas, or representations of actual game entities. The deliberately generic payload envelope and code/weight fields demonstrate configurable extraction and local schema references.

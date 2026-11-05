@@ -70,6 +70,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tokio::signal::ctrl_c().await?;
         }
         Role::Serve => {
+            let _admission_listener =
+                oteryn_gameauth::admission::start_private_listener(db.clone()).await?;
             let static_dir =
                 std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
             let app = oteryn_web::router(AppState { db }, &static_dir);
@@ -79,6 +81,18 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_community::online::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")
+                .unwrap_or_else(|_| "http://localhost:3000".to_owned());
+            let production = std::env::var("OTERYN_ENV").is_ok_and(|value| value == "production");
+            let mut seo = oteryn_web::seo::Seo::new(&origin, production)?;
+            seo.register(oteryn_web::seo::Entry {
+                pl: "/pl/".to_owned(),
+                en: "/en/".to_owned(),
+                lastmod: "2026-11-05".to_owned(),
+            })?;
+            let app = app
+                .merge(oteryn_web::seo::router(seo))
+                .merge(oteryn_web::redirects::router());
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
