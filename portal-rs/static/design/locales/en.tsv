@@ -1,0 +1,89 @@
+# Gallery-only i18n catalogue. Product partials receive Fluent-translated labels.
+eyebrow	Oteryn / Interface foundations
+gallery	A place for every detail.
+intro	A quiet, readable foundation for the portal. Explore the same components in dark and light. These are interface samples, with no account or game actions.
+dark	01 / Dark theme
+light	02 / Light theme
+palette	Palette & typography
+canvas	Canvas
+surface	Surface
+raised	Raised surface
+accent	Brand accent
+body	Clear words. Room to breathe.
+type_sample	Readable at every size, on every screen.
+actions	Actions & navigation
+primary	Primary action
+secondary	Secondary action
+disabled	Unavailable action
+text_link	Read component guidance
+crumb_label	Breadcrumb
+home	Gallery
+components	Components
+tabs_label	Component sections
+overview	Overview
+details	Details
+history	History
+pagination	Example pagination
+previous	Previous
+current	Page 1 of 2
+next	Next
+forms	Fields & feedback
+name	Display name (required)
+hint	Use 3–24 letters. This sample is not submitted.
+value	Explorer
+error	Enter at least 3 letters.
+success	Saved
+success_body	Your example preferences are up to date.
+warning	Review needed
+warning_body	Check the details before continuing.
+danger	Action refused
+danger_body	This example action is unavailable. No changes were made.
+info	Good to know
+info_body	Your work stays here while you review the details.
+content	Cards & data
+card_title	Built for the long read
+card_body	One clear title, a useful description and a visible next step. Content comes first.
+card_link	Explore the foundations
+table_title	Component inventory · sample data
+table_hint	On narrow screens, focus this table and scroll horizontally with arrow keys.
+column_name	Component
+column_status	Status
+column_updated	Updated
+row_form	Form fields
+row_navigation	Navigation
+ready	Ready
+draft	Draft
+blocked	Unavailable
+neutral	Reference
+panels	Panels & overlays
+panel_title	At a glance
+panel_label1	Language
+panel_value1	English
+panel_label2	Appearance
+panel_value2	System preference
+modal_trigger	Open example modal
+modal_title	A moment to review
+modal_body	A focused space for a short task. Close with the button or Escape. Without scripts, this opens as an inline disclosure.
+drawer_trigger	Open example drawer
+drawer_title	Keep the context
+drawer_body	Supporting details stay close to the page. Keyboard focus remains inside until you close this panel.
+close	Close
+frames	Frames & states
+map_title	Map frame
+map_body	Placeholder · no map or game data is loaded.
+chart_title	Chart frame
+chart_body	Placeholder · a chart will also provide a text summary and data table.
+empty_title	A fresh start
+empty_body	There is nothing here yet. Begin with the component guide.
+empty_action	View the guide
+loading	Loading example content…
+skip	Skip to components
+footer	System fonts. Local assets. Designed for small screens.
+theme_nav	Theme examples
+masthead	A shared world. Considered details.
+masthead_note	Interface foundations for Oteryn.
+system	Design system
+dark_link	Dark
+light_link	Light
+guide	Guide
+design	Design

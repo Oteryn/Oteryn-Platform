@@ -711,6 +711,7 @@ dependencies = [
  "pin-project-lite",
  "smallvec",
  "tokio",
+ "want",
 ]
 
 [[package]]
@@ -1037,6 +1038,17 @@ dependencies = [
 [[package]]
 name = "oteryn-community"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "oteryn-db",
+ "oteryn-internal-api",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tower",
+ "unicode-normalization",
+]
 
 [[package]]
 name = "oteryn-content"
@@ -1067,6 +1079,27 @@ version = "0.1.0"
 [[package]]
 name = "oteryn-gameauth"
 version = "0.1.0"
+
+[[package]]
+name = "oteryn-gateway"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-rustls",
+ "tower",
+ "tracing",
+ "url",
+ "uuid",
+ "webpki-roots",
+]
 
 [[package]]
 name = "oteryn-identity"
@@ -1103,8 +1136,11 @@ name = "oteryn-portal"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "oteryn-community",
  "oteryn-core",
  "oteryn-db",
+ "oteryn-gateway",
+ "oteryn-internal-api",
  "oteryn-web",
  "tokio",
  "tracing",
@@ -1134,8 +1170,12 @@ dependencies = [
  "oteryn-characters",
  "oteryn-db",
  "oteryn-internal-api",
+ "serde",
  "serde_json",
+ "serde_urlencoded",
+ "sha2 0.10.9",
  "sqlx",
+ "subtle",
  "tokio",
  "tower",
  "tower-http",
@@ -1267,6 +1307,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "regex"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
@@ -1869,6 +1921,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-rustls"
+version = "0.26.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9cc2678c2cdd569ef8215e2afd7954ada2ae20b4fdd2c5fe6139a3b02d105db"
+dependencies = [
+ "rustls",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-stream"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2020,6 +2082,12 @@ dependencies = [
  "tracing-log",
  "tracing-serde",
 ]
+
+[[package]]
+name = "try-lock"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "type-map"
@@ -2174,6 +2242,15 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "want"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec4cdd0dd910afe868b7ef477227d8d538b46b3075031afee8a9f2acb0a2ed0b"
+dependencies = [
+ "try-lock",
+]
 
 [[package]]
 name = "wasi"

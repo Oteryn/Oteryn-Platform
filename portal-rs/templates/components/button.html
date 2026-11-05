@@ -1,0 +1,1 @@
+{% macro button(label, secondary, disabled) %}<button class="op-button{% if secondary %} op-button--secondary{% endif %}" type="button"{% if disabled %} disabled{% endif %}>{{ label }}</button>{% endmacro %}

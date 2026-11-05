@@ -1,0 +1,1 @@
+{% macro badge(label, tone) %}<span class="op-badge{% if tone == "success" %} op-badge--success{% else if tone == "warning" %} op-badge--warning{% else if tone == "danger" %} op-badge--danger{% endif %}">{{ label }}</span>{% endmacro %}

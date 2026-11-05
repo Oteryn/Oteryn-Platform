@@ -1,0 +1,92 @@
+{% import "components/button.html" as button %}
+{% import "components/link.html" as link %}
+{% import "components/field.html" as field %}
+{% import "components/alert.html" as alert %}
+{% import "components/card.html" as card %}
+{% import "components/table.html" as table %}
+{% import "components/tabs.html" as tabs %}
+{% import "components/pagination.html" as pagination %}
+{% import "components/badge.html" as badge %}
+{% import "components/breadcrumbs.html" as breadcrumbs %}
+{% import "components/overlay.html" as overlay %}
+{% import "components/side-panel.html" as side_panel %}
+{% import "components/frame.html" as frame %}
+{% import "components/empty.html" as empty %}
+{% import "components/loading.html" as loading %}
+<!doctype html>
+<html lang="en">
+{% let en = themes[0].copy %}
+{% let pl = themes[1].copy %}
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="{{ en["eyebrow"] }} / {{ pl["eyebrow"] }}">
+  <title>Oteryn — {{ en["design"] }} / {{ pl["design"] }}</title>
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <link rel="stylesheet" href="gallery.css">
+  <script src="drawer.js" defer></script>
+</head>
+<body class="op-theme op-gallery">
+{% include "components/icons.html" %}
+<a class="op-skip" href="#dark">{{ en["skip"] }} / {{ pl["skip"] }}</a>
+<header class="op-gallery__header op-stack">
+  <a class="op-wordmark" href="#dark" aria-label="Oteryn">O<span aria-hidden="true">/</span> OTERYN</a>
+  <p class="op-eyebrow">{{ en["system"] }} / {{ pl["system"] }} · 01</p>
+  <h1>{{ en["masthead"] }}</h1>
+  <p class="op-muted" lang="pl">{{ pl["masthead"] }}</p>
+  <nav class="op-row" aria-label="{{ en["theme_nav"] }}"><a href="#dark">{{ en["dark_link"] }} / <span lang="pl">{{ pl["dark_link"] }}</span> <svg class="op-icon" aria-hidden="true"><use href="#op-icon-arrow-right"></use></svg></a><a href="#light">{{ en["light_link"] }} / <span lang="pl">{{ pl["light_link"] }}</span> <svg class="op-icon" aria-hidden="true"><use href="#op-icon-arrow-right"></use></svg></a><a href="README.md">{{ en["guide"] }} / <span lang="pl">{{ pl["guide"] }}</span> <svg class="op-icon" aria-hidden="true"><use href="#op-icon-arrow-right"></use></svg></a></nav>
+</header>
+<main class="op-gallery__themes">
+{% for theme in themes %}
+{% let c = theme.copy %}
+<section class="op-theme op-gallery__theme" id="{{ theme.name }}" data-theme="{{ theme.name }}" lang="{{ theme.lang }}" aria-labelledby="{{ theme.name }}-title">
+  <header class="op-stack op-gallery__intro"><p class="op-eyebrow">{{ c["eyebrow"] }}</p><p class="op-muted">{{ c[theme.name] }}</p><h2 id="{{ theme.name }}-title">{{ c["gallery"] }}</h2><p class="op-muted">{{ c["intro"] }}</p></header>
+  <section class="op-stack op-gallery__section" aria-labelledby="{{ theme.name }}-palette">
+    <h2 id="{{ theme.name }}-palette"><span class="op-eyebrow">01</span> {{ c["palette"] }}</h2>
+    <div class="op-swatches"><div class="op-swatch op-swatch--canvas">{{ c["canvas"] }}</div><div class="op-swatch op-swatch--surface">{{ c["surface"] }}</div><div class="op-swatch op-swatch--raised">{{ c["raised"] }}</div><div class="op-swatch op-swatch--accent">{{ c["accent"] }}</div></div>
+    <p class="op-type-specimen">{{ c["body"] }}</p><p>{{ c["type_sample"] }}</p><p class="op-hint">Aa Bb Cc · 0123456789 · Ą Ć Ę Ł Ń Ó Ś Ź Ż</p>
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="{{ theme.name }}-actions">
+    <h2 id="{{ theme.name }}-actions"><span class="op-eyebrow">02</span> {{ c["actions"] }}</h2>
+    {% call breadcrumbs::breadcrumbs(c["crumb_label"], [(c["home"].as_str(), "#dark")], c["components"]) %}{% endcall %}
+    {% call tabs::tabs(c["tabs_label"], [(c["overview"].as_str(), "#".to_owned() + theme.name + "-actions", true), (c["details"].as_str(), "#".to_owned() + theme.name + "-content", false), (c["history"].as_str(), "#".to_owned() + theme.name + "-frames", false)]) %}{% endcall %}
+    <div class="op-row">{% call button::button(c["primary"], false, false) %}{% endcall %}{% call button::button(c["secondary"], true, false) %}{% endcall %}{% call button::button(c["disabled"], false, true) %}{% endcall %}</div>
+    {% call link::link(c["text_link"], "README.md") %}{% endcall %}
+    {% call pagination::pagination(c["pagination"], c["previous"], "", c["current"], c["next"], "#".to_owned() + theme.name + "-content") %}{% endcall %}
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="{{ theme.name }}-forms">
+    <h2 id="{{ theme.name }}-forms"><span class="op-eyebrow">03</span> {{ c["forms"] }}</h2>
+    {% call field::field(theme.name.to_owned() + "-valid", c["name"], c["value"], c["hint"], "", true) %}{% endcall %}
+    {% call field::field(theme.name.to_owned() + "-invalid", c["name"], "x", c["hint"], c["error"], true) %}{% endcall %}
+    {% call alert::alert(c["success"], c["success_body"], "success") %}{% endcall %}
+    {% call alert::alert(c["warning"], c["warning_body"], "warning") %}{% endcall %}
+    {% call alert::alert(c["danger"], c["danger_body"], "danger") %}{% endcall %}
+    {% call alert::alert(c["info"], c["info_body"], "info") %}{% endcall %}
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="{{ theme.name }}-content">
+    <h2 id="{{ theme.name }}-content"><span class="op-eyebrow">04</span> {{ c["content"] }}</h2>
+    {% call card::card(c["card_title"], c["card_body"], c["card_link"], "README.md") %}{% endcall %}
+    <div class="op-row">{% call badge::badge(c["ready"], "success") %}{% endcall %}{% call badge::badge(c["draft"], "warning") %}{% endcall %}{% call badge::badge(c["blocked"], "danger") %}{% endcall %}{% call badge::badge(c["neutral"], "neutral") %}{% endcall %}</div>
+    {% call table::table(theme.name.to_owned() + "-table", c["table_title"], [c["column_name"].as_str(), c["column_status"].as_str(), c["column_updated"].as_str()], [[c["row_form"].as_str(), c["ready"].as_str(), "2026-11-05"], [c["row_navigation"].as_str(), c["ready"].as_str(), "2026-11-05"]], c["table_hint"]) %}{% endcall %}
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="{{ theme.name }}-panels">
+    <h2 id="{{ theme.name }}-panels"><span class="op-eyebrow">05</span> {{ c["panels"] }}</h2>
+    {% call side_panel::side_panel(theme.name.to_owned() + "-panel", c["panel_title"], [c["panel_label1"].as_str(), c["panel_label2"].as_str()], [c["panel_value1"].as_str(), c["panel_value2"].as_str()]) %}{% endcall %}
+    {% call overlay::overlay(theme.name.to_owned() + "-modal", c["modal_trigger"], c["modal_title"], c["modal_body"], c["close"], false) %}{% endcall %}
+    {% call overlay::overlay(theme.name.to_owned() + "-drawer", c["drawer_trigger"], c["drawer_title"], c["drawer_body"], c["close"], true) %}{% endcall %}
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="{{ theme.name }}-frames">
+    <h2 id="{{ theme.name }}-frames"><span class="op-eyebrow">06</span> {{ c["frames"] }}</h2>
+    {% call frame::frame(c["map_title"], c["map_body"], true) %}{% endcall %}
+    {% call frame::frame(c["chart_title"], c["chart_body"], false) %}{% endcall %}
+    {% call empty::empty(c["empty_title"], c["empty_body"], c["empty_action"], "README.md") %}{% endcall %}
+    {% call loading::loading(c["loading"]) %}{% endcall %}
+  </section>
+  <footer class="op-gallery__footer op-muted">{{ c["footer"] }}</footer>
+</section>
+{% endfor %}
+</main>
+</body>
+</html>
