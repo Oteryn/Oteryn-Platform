@@ -6,3 +6,4 @@ pub mod logins;
 pub mod progress;
 pub mod reminders;
 pub mod store;
+pub mod pricing;

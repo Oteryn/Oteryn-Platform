@@ -46,3 +46,4 @@ oteryn-bazaar = { path = "crates/bazaar" }
 oteryn-hirelings = { path = "crates/hirelings" }
 oteryn-playerdata = { path = "crates/playerdata" }
 oteryn-minigames = { path = "crates/minigames" }
+
