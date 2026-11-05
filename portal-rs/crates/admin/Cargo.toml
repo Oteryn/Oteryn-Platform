@@ -34,3 +34,6 @@ features = ["derive"]
 [dev-dependencies.tower]
 version = "0.5.3"
 features = ["util"]
+
+[dependencies.oteryn-bazaar]
+path = "../bazaar"
