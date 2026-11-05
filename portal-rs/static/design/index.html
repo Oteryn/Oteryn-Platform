@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="Oteryn / Interface foundations / Oteryn / Podstawy interfejsu">
+  <title>Oteryn — Design / Wzornictwo</title>
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <link rel="stylesheet" href="gallery.css">
+  <script src="drawer.js" defer></script>
+</head>
+<body class="op-theme op-gallery">
+<svg class="op-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><defs>
+  <symbol id="op-icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-7-7 7 7-7 7"/></symbol>
+  <symbol id="op-icon-check" viewBox="0 0 24 24"><path d="m9 12 2 2 4-4"/><circle cx="12" cy="12" r="10"/></symbol>
+  <symbol id="op-icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></symbol>
+  <symbol id="op-icon-alert-triangle" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4m0 4h.01"/></symbol>
+  <symbol id="op-icon-map" viewBox="0 0 24 24"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3Zm6-3v15m6-12v15"/></symbol>
+  <symbol id="op-icon-chart" viewBox="0 0 24 24"><path d="M3 3v18h18M7 14l4-4 4 3 6-8"/></symbol>
+  <symbol id="op-icon-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2m3.45-6.89L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/></symbol>
+  <symbol id="op-icon-loader" viewBox="0 0 24 24"><path d="M12 2v4m0 12v4m4.93-17.07-2.83 2.83m-4.2 8.48-2.83 2.83M22 12h-4M6 12H2m17.07 7.07-2.83-2.83M7.76 7.76 4.93 4.93"/></symbol>
+</defs></svg>
+<a class="op-skip" href="#dark">Skip to components / Przejdź do komponentów</a>
+<header class="op-gallery__header op-stack">
+  <a class="op-wordmark" href="#dark" aria-label="Oteryn">O<span aria-hidden="true">/</span> OTERYN</a>
+  <p class="op-eyebrow">Design system / System projektowy · 01</p>
+  <h1>A shared world. Considered details.</h1>
+  <p class="op-muted" lang="pl">Wspólny świat. Przemyślane detale.</p>
+  <nav class="op-row" aria-label="Theme examples"><a href="#dark">Dark / <span lang="pl">Ciemny</span> <svg class="op-icon" aria-hidden="true"><use href="#op-icon-arrow-right"></use></svg></a><a href="#light">Light / <span lang="pl">Jasny</span> <svg class="op-icon" aria-hidden="true"><use href="#op-icon-arrow-right"></use></svg></a><a href="README.md">Guide / <span lang="pl">Przewodnik</span> <svg class="op-icon" aria-hidden="true"><use href="#op-icon-arrow-right"></use></svg></a></nav>
+</header>
+<main class="op-gallery__themes">
+
+
+<section class="op-theme op-gallery__theme" id="dark" data-theme="dark" lang="en" aria-labelledby="dark-title">
+  <header class="op-stack op-gallery__intro"><p class="op-eyebrow">Oteryn / Interface foundations</p><p class="op-muted">01 / Dark theme</p><h2 id="dark-title">A place for every detail.</h2><p class="op-muted">A quiet, readable foundation for the portal. Explore the same components in dark and light. These are interface samples, with no account or game actions.</p></header>
+  <section class="op-stack op-gallery__section" aria-labelledby="dark-palette">
+    <h2 id="dark-palette"><span class="op-eyebrow">01</span> Palette &#38; typography</h2>
+    <div class="op-swatches"><div class="op-swatch op-swatch--canvas">Canvas</div><div class="op-swatch op-swatch--surface">Surface</div><div class="op-swatch op-swatch--raised">Raised surface</div><div class="op-swatch op-swatch--accent">Brand accent</div></div>
+    <p class="op-type-specimen">Clear words. Room to breathe.</p><p>Readable at every size, on every screen.</p><p class="op-hint">Aa Bb Cc · 0123456789 · Ą Ć Ę Ł Ń Ó Ś Ź Ż</p>
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="dark-actions">
+    <h2 id="dark-actions"><span class="op-eyebrow">02</span> Actions &#38; navigation</h2>
+
+<nav aria-label="Breadcrumb"><ol class="op-breadcrumbs"><li><a href="#dark">Gallery</a></li><li><span aria-current="page">Components</span></li></ol></nav>
+
+
+<nav class="op-tabs" aria-label="Component sections"><a href="#dark-actions" aria-current="page">Overview</a><a href="#dark-content">Details</a><a href="#dark-frames">History</a></nav>
+
+    <div class="op-row"><button class="op-button" type="button">Primary action</button><button class="op-button op-button--secondary" type="button">Secondary action</button><button class="op-button" type="button" disabled>Unavailable action</button></div>
+    <a class="op-link" href="README.md">Read component guidance</a>
+
+<nav class="op-pagination" aria-label="Example pagination">
+  <span aria-disabled="true">Previous</span>
+  <span aria-current="page">Page 1 of 2</span>
+  <a href="#dark-content" rel="next">Next</a>
+</nav>
+
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="dark-forms">
+    <h2 id="dark-forms"><span class="op-eyebrow">03</span> Fields &#38; feedback</h2>
+
+<div class="op-field">
+  <label for="dark-valid">Display name (required)</label>
+  <input class="op-input" id="dark-valid" name="dark-valid" type="text" value="Explorer" aria-describedby="dark-valid-hint" required>
+  <p class="op-hint" id="dark-valid-hint">Use 3–24 letters. This sample is not submitted.</p>
+
+</div>
+
+
+<div class="op-field">
+  <label for="dark-invalid">Display name (required)</label>
+  <input class="op-input" id="dark-invalid" name="dark-invalid" type="text" value="x" aria-describedby="dark-invalid-hint dark-invalid-error" required aria-invalid="true">
+  <p class="op-hint" id="dark-invalid-hint">Use 3–24 letters. This sample is not submitted.</p>
+  <p class="op-error" id="dark-invalid-error">Enter at least 3 letters.</p>
+</div>
+
+
+<div class="op-alert op-alert--success" role="status">
+  <svg class="op-icon" aria-hidden="true"><use href="#op-icon-check"></use></svg>
+  <div><strong>Saved</strong><p>Your example preferences are up to date.</p></div>
+</div>
+
+
+<div class="op-alert op-alert--warning" role="status">
+  <svg class="op-icon" aria-hidden="true"><use href="#op-icon-alert-triangle"></use></svg>
+  <div><strong>Review needed</strong><p>Check the details before continuing.</p></div>
+</div>
+
+
+<div class="op-alert op-alert--danger" role="alert">
+  <svg class="op-icon" aria-hidden="true"><use href="#op-icon-alert-triangle"></use></svg>
+  <div><strong>Action refused</strong><p>This example action is unavailable. No changes were made.</p></div>
+</div>
+
+
+<div class="op-alert" role="status">
+  <svg class="op-icon" aria-hidden="true"><use href="#op-icon-info"></use></svg>
+  <div><strong>Good to know</strong><p>Your work stays here while you review the details.</p></div>
+</div>
+
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="dark-content">
+    <h2 id="dark-content"><span class="op-eyebrow">04</span> Cards &#38; data</h2>
+
+<article class="op-card op-stack"><h3>Built for the long read</h3><p class="op-muted">One clear title, a useful description and a visible next step. Content comes first.</p><footer class="op-card__footer"><a class="op-link" href="README.md">Explore the foundations</a></footer></article>
+
+    <div class="op-row"><span class="op-badge op-badge--success">Ready</span><span class="op-badge op-badge--warning">Draft</span><span class="op-badge op-badge--danger">Unavailable</span><span class="op-badge">Reference</span></div>
+
+<p class="op-hint" id="dark-table-hint">On narrow screens, focus this table and scroll horizontally with arrow keys.</p>
+<div class="op-table-wrap" role="region" aria-labelledby="dark-table-caption" aria-describedby="dark-table-hint" tabindex="0">
+  <table class="op-table"><caption id="dark-table-caption">Component inventory · sample data</caption><thead><tr><th scope="col">Component</th><th scope="col">Status</th><th scope="col">Updated</th></tr></thead>
+  <tbody><tr><th scope="row">Form fields</th><td>Ready</td><td>2026-11-05</td></tr><tr><th scope="row">Navigation</th><td>Ready</td><td>2026-11-05</td></tr></tbody></table>
+</div>
+
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="dark-panels">
+    <h2 id="dark-panels"><span class="op-eyebrow">05</span> Panels &#38; overlays</h2>
+
+<aside class="op-panel op-stack" aria-labelledby="dark-panel-title"><h3 id="dark-panel-title">At a glance</h3><dl><dt class="op-muted">Language</dt><dd>English</dd><dt class="op-muted">Appearance</dt><dd>System preference</dd></dl></aside>
+
+
+<details class="op-disclosure" data-overlay="modal" id="dark-modal">
+  <summary>Open example modal</summary>
+  <section class="op-panel op-stack" aria-labelledby="dark-modal-title">
+    <h3 id="dark-modal-title">A moment to review</h3><p>A focused space for a short task. Close with the button or Escape. Without scripts, this opens as an inline disclosure.</p>
+    <button class="op-button op-button--secondary" type="button" data-close hidden>Close</button>
+  </section>
+</details>
+
+
+<details class="op-disclosure" data-overlay="drawer" id="dark-drawer">
+  <summary>Open example drawer</summary>
+  <section class="op-panel op-stack" aria-labelledby="dark-drawer-title">
+    <h3 id="dark-drawer-title">Keep the context</h3><p>Supporting details stay close to the page. Keyboard focus remains inside until you close this panel.</p>
+    <button class="op-button op-button--secondary" type="button" data-close hidden>Close</button>
+  </section>
+</details>
+
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="dark-frames">
+    <h2 id="dark-frames"><span class="op-eyebrow">06</span> Frames &#38; states</h2>
+
+<figure class="op-frame"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-map"></use></svg><strong>Map frame</strong><figcaption>Placeholder · no map or game data is loaded.</figcaption></figure>
+
+
+<figure class="op-frame"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-chart"></use></svg><strong>Chart frame</strong><figcaption>Placeholder · a chart will also provide a text summary and data table.</figcaption></figure>
+
+
+<div class="op-empty"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-inbox"></use></svg><h3>A fresh start</h3><p class="op-muted">There is nothing here yet. Begin with the component guide.</p><a class="op-button op-button--secondary" href="README.md">View the guide</a></div>
+
+    <div class="op-loading" role="status" aria-live="polite"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-loader"></use></svg><span>Loading example content…</span></div>
+  </section>
+  <footer class="op-gallery__footer op-muted">System fonts. Local assets. Designed for small screens.</footer>
+</section>
+
+
+<section class="op-theme op-gallery__theme" id="light" data-theme="light" lang="pl" aria-labelledby="light-title">
+  <header class="op-stack op-gallery__intro"><p class="op-eyebrow">Oteryn / Podstawy interfejsu</p><p class="op-muted">02 / Motyw jasny</p><h2 id="light-title">Miejsce dla każdego detalu.</h2><p class="op-muted">Spokojna, czytelna podstawa portalu. Poznaj te same komponenty w ciemnym i jasnym motywie. To przykłady interfejsu bez działań na koncie lub w grze.</p></header>
+  <section class="op-stack op-gallery__section" aria-labelledby="light-palette">
+    <h2 id="light-palette"><span class="op-eyebrow">01</span> Paleta i typografia</h2>
+    <div class="op-swatches"><div class="op-swatch op-swatch--canvas">Tło</div><div class="op-swatch op-swatch--surface">Powierzchnia</div><div class="op-swatch op-swatch--raised">Wyróżniona powierzchnia</div><div class="op-swatch op-swatch--accent">Akcent marki</div></div>
+    <p class="op-type-specimen">Jasne słowa. Przestrzeń na treść.</p><p>Czytelność w każdym rozmiarze, na każdym ekranie.</p><p class="op-hint">Aa Bb Cc · 0123456789 · Ą Ć Ę Ł Ń Ó Ś Ź Ż</p>
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="light-actions">
+    <h2 id="light-actions"><span class="op-eyebrow">02</span> Działania i nawigacja</h2>
+
+<nav aria-label="Ścieżka nawigacji"><ol class="op-breadcrumbs"><li><a href="#dark">Galeria</a></li><li><span aria-current="page">Komponenty</span></li></ol></nav>
+
+
+<nav class="op-tabs" aria-label="Sekcje komponentów"><a href="#light-actions" aria-current="page">Przegląd</a><a href="#light-content">Szczegóły</a><a href="#light-frames">Historia</a></nav>
+
+    <div class="op-row"><button class="op-button" type="button">Działanie główne</button><button class="op-button op-button--secondary" type="button">Działanie dodatkowe</button><button class="op-button" type="button" disabled>Działanie niedostępne</button></div>
+    <a class="op-link" href="README.md">Przeczytaj wskazówki</a>
+
+<nav class="op-pagination" aria-label="Przykładowe stronicowanie">
+  <span aria-disabled="true">Poprzednia</span>
+  <span aria-current="page">Strona 1 z 2</span>
+  <a href="#light-content" rel="next">Następna</a>
+</nav>
+
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="light-forms">
+    <h2 id="light-forms"><span class="op-eyebrow">03</span> Pola i komunikaty</h2>
+
+<div class="op-field">
+  <label for="light-valid">Nazwa wyświetlana (wymagana)</label>
+  <input class="op-input" id="light-valid" name="light-valid" type="text" value="Odkrywca" aria-describedby="light-valid-hint" required>
+  <p class="op-hint" id="light-valid-hint">Użyj 3–24 liter. Ten przykład nie jest wysyłany.</p>
+
+</div>
+
+
+<div class="op-field">
+  <label for="light-invalid">Nazwa wyświetlana (wymagana)</label>
+  <input class="op-input" id="light-invalid" name="light-invalid" type="text" value="x" aria-describedby="light-invalid-hint light-invalid-error" required aria-invalid="true">
+  <p class="op-hint" id="light-invalid-hint">Użyj 3–24 liter. Ten przykład nie jest wysyłany.</p>
+  <p class="op-error" id="light-invalid-error">Wpisz co najmniej 3 litery.</p>
+</div>
+
+
+<div class="op-alert op-alert--success" role="status">
+  <svg class="op-icon" aria-hidden="true"><use href="#op-icon-check"></use></svg>
+  <div><strong>Zapisano</strong><p>Przykładowe ustawienia są aktualne.</p></div>
+</div>
+
+
+<div class="op-alert op-alert--warning" role="status">
+  <svg class="op-icon" aria-hidden="true"><use href="#op-icon-alert-triangle"></use></svg>
+  <div><strong>Wymaga sprawdzenia</strong><p>Sprawdź szczegóły przed kontynuowaniem.</p></div>
+</div>
+
+
+<div class="op-alert op-alert--danger" role="alert">
+  <svg class="op-icon" aria-hidden="true"><use href="#op-icon-alert-triangle"></use></svg>
+  <div><strong>Odmowa działania</strong><p>To przykładowe działanie jest niedostępne. Nie wprowadzono zmian.</p></div>
+</div>
+
+
+<div class="op-alert" role="status">
+  <svg class="op-icon" aria-hidden="true"><use href="#op-icon-info"></use></svg>
+  <div><strong>Warto wiedzieć</strong><p>Twoja praca pozostaje tutaj podczas sprawdzania szczegółów.</p></div>
+</div>
+
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="light-content">
+    <h2 id="light-content"><span class="op-eyebrow">04</span> Karty i dane</h2>
+
+<article class="op-card op-stack"><h3>Z myślą o czytaniu</h3><p class="op-muted">Jeden jasny tytuł, przydatny opis i widoczny kolejny krok. Treść jest najważniejsza.</p><footer class="op-card__footer"><a class="op-link" href="README.md">Poznaj podstawy</a></footer></article>
+
+    <div class="op-row"><span class="op-badge op-badge--success">Gotowe</span><span class="op-badge op-badge--warning">Szkic</span><span class="op-badge op-badge--danger">Niedostępne</span><span class="op-badge">Wzorzec</span></div>
+
+<p class="op-hint" id="light-table-hint">Na wąskim ekranie ustaw fokus na tabeli i przewijaj poziomo klawiszami strzałek.</p>
+<div class="op-table-wrap" role="region" aria-labelledby="light-table-caption" aria-describedby="light-table-hint" tabindex="0">
+  <table class="op-table"><caption id="light-table-caption">Zestawienie komponentów · dane przykładowe</caption><thead><tr><th scope="col">Komponent</th><th scope="col">Stan</th><th scope="col">Aktualizacja</th></tr></thead>
+  <tbody><tr><th scope="row">Pola formularza</th><td>Gotowe</td><td>2026-11-05</td></tr><tr><th scope="row">Nawigacja</th><td>Gotowe</td><td>2026-11-05</td></tr></tbody></table>
+</div>
+
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="light-panels">
+    <h2 id="light-panels"><span class="op-eyebrow">05</span> Panele i okna</h2>
+
+<aside class="op-panel op-stack" aria-labelledby="light-panel-title"><h3 id="light-panel-title">W skrócie</h3><dl><dt class="op-muted">Język</dt><dd>Polski</dd><dt class="op-muted">Wygląd</dt><dd>Ustawienie systemowe</dd></dl></aside>
+
+
+<details class="op-disclosure" data-overlay="modal" id="light-modal">
+  <summary>Otwórz przykładowe okno</summary>
+  <section class="op-panel op-stack" aria-labelledby="light-modal-title">
+    <h3 id="light-modal-title">Chwila na sprawdzenie</h3><p>Miejsce na krótkie zadanie. Zamknij przyciskiem lub klawiszem Escape. Bez skryptów treść rozwija się na stronie.</p>
+    <button class="op-button op-button--secondary" type="button" data-close hidden>Zamknij</button>
+  </section>
+</details>
+
+
+<details class="op-disclosure" data-overlay="drawer" id="light-drawer">
+  <summary>Otwórz przykładowy panel</summary>
+  <section class="op-panel op-stack" aria-labelledby="light-drawer-title">
+    <h3 id="light-drawer-title">Zachowaj kontekst</h3><p>Dodatkowe szczegóły są blisko strony. Fokus klawiatury pozostaje wewnątrz do zamknięcia panelu.</p>
+    <button class="op-button op-button--secondary" type="button" data-close hidden>Zamknij</button>
+  </section>
+</details>
+
+  </section>
+  <section class="op-stack op-gallery__section" aria-labelledby="light-frames">
+    <h2 id="light-frames"><span class="op-eyebrow">06</span> Ramki i stany</h2>
+
+<figure class="op-frame"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-map"></use></svg><strong>Ramka mapy</strong><figcaption>Miejsce na mapę · bez danych mapy ani gry.</figcaption></figure>
+
+
+<figure class="op-frame"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-chart"></use></svg><strong>Ramka wykresu</strong><figcaption>Miejsce na wykres · wykres otrzyma też opis tekstowy i tabelę danych.</figcaption></figure>
+
+
+<div class="op-empty"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-inbox"></use></svg><h3>Nowy początek</h3><p class="op-muted">Jeszcze nic tu nie ma. Zacznij od przewodnika po komponentach.</p><a class="op-button op-button--secondary" href="README.md">Zobacz przewodnik</a></div>
+
+    <div class="op-loading" role="status" aria-live="polite"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-loader"></use></svg><span>Wczytywanie przykładowej treści…</span></div>
+  </section>
+  <footer class="op-gallery__footer op-muted">Czcionki systemowe. Lokalne zasoby. Projekt na małe ekrany.</footer>
+</section>
+
+</main>
+</body>
+</html>

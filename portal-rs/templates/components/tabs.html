@@ -1,0 +1,3 @@
+{% macro tabs(label, items) %}
+<nav class="op-tabs" aria-label="{{ label }}">{% for item in items %}<a href="{{ item.1 }}"{% if item.2 %} aria-current="page"{% endif %}>{{ item.0 }}</a>{% endfor %}</nav>
+{% endmacro %}

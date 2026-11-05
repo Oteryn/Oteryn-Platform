@@ -1,0 +1,8 @@
+{% macro field(id, label, value, hint, error, required) %}
+<div class="op-field">
+  <label for="{{ id }}">{{ label }}</label>
+  <input class="op-input" id="{{ id }}" name="{{ id }}" type="text" value="{{ value }}" aria-describedby="{{ id }}-hint{% if !error.is_empty() %} {{ id }}-error{% endif %}"{% if required %} required{% endif %}{% if !error.is_empty() %} aria-invalid="true"{% endif %}>
+  <p class="op-hint" id="{{ id }}-hint">{{ hint }}</p>
+  {% if !error.is_empty() %}<p class="op-error" id="{{ id }}-error">{{ error }}</p>{% endif %}
+</div>
+{% endmacro %}

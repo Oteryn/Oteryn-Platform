@@ -1,0 +1,9 @@
+{% macro overlay(id, trigger, title, body, close, drawer) %}
+<details class="op-disclosure" data-overlay="{% if drawer %}drawer{% else %}modal{% endif %}" id="{{ id }}">
+  <summary>{{ trigger }}</summary>
+  <section class="op-panel op-stack" aria-labelledby="{{ id }}-title">
+    <h3 id="{{ id }}-title">{{ title }}</h3><p>{{ body }}</p>
+    <button class="op-button op-button--secondary" type="button" data-close hidden>{{ close }}</button>
+  </section>
+</details>
+{% endmacro %}
