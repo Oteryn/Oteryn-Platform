@@ -6,3 +6,5 @@ pub mod premium;
 pub mod loyalty;
 
 pub mod purchase;
+
+pub mod delivery;
