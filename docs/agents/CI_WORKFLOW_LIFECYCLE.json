@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_budget": 54,
+  "workflow_budget": 55,
   "registered_workflows": [
     "acceptance-soak.yml",
     "acceptance-stability.yml",
@@ -42,6 +42,7 @@
     "playwright-runtime-validation.yml",
     "portal-acceptance-contract.yml",
     "portal-e2e-audit.yml",
+    "portal-rs-ci.yml",
     "recover-synology-staging-schema.yml",
     "repair-synology-autostart.yml",
     "repair-synology-compose-orphans.yml",
