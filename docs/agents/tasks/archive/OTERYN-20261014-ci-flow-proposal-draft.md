@@ -41,11 +41,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-16T16:00:00Z
-head: UNKNOWN
+updated_at: 2026-11-05T08:30:00Z
+head: 1cf609696435aa2c9e2b73de678298ded9fb0a31
 branch: codex/ci-flow-proposal-draft-20261014
 pr: 1610
-status: waiting
+status: completed
 context_routes:
   - docs
 owned_paths:
@@ -71,15 +71,15 @@ validation:
     evidence: docs=243 equals baseline
 blockers:
   - none
-next_action: Independent reviewer verifies measurements and recommendations; PR stays draft.
+next_action: none; delivered by PR 1610 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR path; head branch deleted after merge
+source_branch_evidence: PR 1610 merged as 1cf609696435aa2c9e2b73de678298ded9fb0a31
 ```
 
 ## Notes
