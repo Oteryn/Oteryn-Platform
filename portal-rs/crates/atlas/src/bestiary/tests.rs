@@ -351,17 +351,33 @@ async fn postgres_journal_baseline_and_owner_refusal() {
         .is_err()
     );
     // SOURCE: synthetic G-11 revision 2 bestiary envelope, no copied character data.
-    let record: oteryn_playerdata::progress::Record = serde_json::from_value(serde_json::json!({
-        "contract_version":1,"operation":"PublishGameJournalProgressV1",
-        "source_authority":trust.source(),"account_id":account,"character_id":character,
-        "world_id":Uuid::now_v7(),"projection_revision":"1","projection_epoch":"1",
-        "recovery_generation":"1","family":"bestiary","source_revision":"1",
-        "record_id":Uuid::now_v7(),"entity_key":"rat","character_revision":"1",
-        "occurred_at_unix_ms":"1000","record_kind":"UPSERT",
-        "payload":{"race_key":"rat","race_definition_revision":"r1","kill_count":10,
-            "final_kill_threshold":10,"charm_points_awarded":5}
-    }))
-    .expect("synthetic G-11 envelope");
+    let mut record: oteryn_playerdata::progress::Record =
+        serde_json::from_value(serde_json::json!({
+            "contract_version":1,"operation":"PublishGameJournalProgressV1",
+            "source_authority":trust.source(),"account_id":account,"character_id":character,
+            "world_id":Uuid::now_v7(),"projection_revision":"1","projection_epoch":"1",
+            "recovery_generation":"1","family":"bestiary","source_revision":"1",
+            "record_id":Uuid::now_v7(),"entity_key":"rat","character_revision":"1",
+            "occurred_at_unix_ms":"1000","record_kind":"UPSERT",
+            "payload":{"race_key":"rat","race_definition_revision":"r1","kill_count":10,
+                "final_kill_threshold":10,"charm_points_awarded":5}
+        }))
+        .expect("synthetic G-11 envelope");
+    assert!(matches!(
+        store
+            .ingest(
+                &serde_json::to_vec(&record).expect("noncanonical record"),
+                &trust
+            )
+            .await,
+        Err(oteryn_playerdata::progress::Error::BadInput)
+    ));
+    record.payload = Some(
+        serde_json::value::RawValue::from_string(
+            serde_json::to_string(&progress(10)).expect("canonical payload"),
+        )
+        .expect("raw payload"),
+    );
     store
         .ingest(&serde_json::to_vec(&record).expect("record"), &trust)
         .await
