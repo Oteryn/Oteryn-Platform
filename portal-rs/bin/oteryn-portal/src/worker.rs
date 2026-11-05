@@ -165,6 +165,7 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(oteryn_playerdata::logins::Retention(pool.clone())),
     )?;
     crate::reset_delivery::register(&mut registry, pool.clone())?;
+    crate::registration_delivery::register(&mut registry, pool.clone())?;
     registry.cleanup(
         "identity.finalize-terminations",
         60,

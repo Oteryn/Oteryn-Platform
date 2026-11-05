@@ -494,3 +494,5 @@ mod shop_web;
 
 #[path = "../../../crates/identity/src/mfa_http.rs"]
 mod mfa_http;
+
+mod registration_delivery;
