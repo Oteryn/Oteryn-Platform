@@ -1,10 +1,10 @@
 # Oteryn Portal w Ruście – projekt
 
-> **Status: PROJEKT, rewizja 4** (2026-11-05). Zastępuje rewizje 1–3. Rewizja 4 dodaje przegląd od strony gry i upraszcza wiki oraz Atlas: portal czyta dane świata gry bez nowego formatu eksportu.
+> **Status: PROJEKT, rewizja 4** (2026-11-05). Zastępuje rewizje 1–3. Rewizja 4 dodaje przegląd od strony gry, decyzje właściciela D2, D7, D8 i upraszcza wiki oraz Atlas: portal czyta dane świata gry bez nowego formatu eksportu.
 >
 > Ten dokument opisuje nową platformę Oteryn w Ruście, budowaną od zera według obecnych potrzeb graczy, zespołu i gry. Obecny portal Laravel służy tylko jako źródło wiedzy o potrzebach i kontraktach. Nie jest specyfikacją i nie jest przenoszony.
 >
-> Kod powstaje w `portal-rs/` w tym repozytorium. Pisze go Codex, zadaniami z sekcji 10, wysyłanymi przez koordynatora.
+> Kod powstaje w `portal-rs/` w tym repozytorium. Pisze go Codex, zadaniami z sekcji 10. Zadania Platform wysyła ta sesja przez środowisko Oteryn Platform; zadania po stronie gry (G-1, G-2) idą przez koordynatora.
 >
 > Dokument nie autoryzuje wdrożenia, zmian w kontraktach gry ani nowych jobów CI. Każda z tych rzeczy wymaga osobnej zgody właściciela.
 
@@ -228,7 +228,7 @@ Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwr
 | Status światów | V2_RUNTIME_STATUS_PROJECTION | PARTIAL |
 | Kary | Game: `PROD-ENTITLEMENTS-01_GAME_CONSUMER_ENFORCEMENT_CONTRACT_CANDIDATE.md` | Kandydat; wykonania w grze brak |
 | Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
-| Dane świata (wiki, Atlas) | Odczyt `content/**` z przypiętego commita gry (§6.1) | Dane są; flaga widoczności brak (G-2); licencja grafik PENDING (D7) |
+| Dane świata (wiki, Atlas) | Odczyt `content/**` z przypiętego commita gry (§6.1) | Dane są; flaga widoczności brak (G-2); publikacja grafik: zgoda (D7) |
 | Granty admission | FND-04B-AMEND-1 | Pole status: ACCEPTED (2026-11-05), ale treść ma otwarte decyzje właściciela. Traktujemy jako propozycję i **nie implementujemy na jej podstawie**, dopóki decyzje nie zapadną |
 
 **Gateway `POST /v1/login`** (serwuje gateway Go w tym repo, woła klient gry):
@@ -255,7 +255,7 @@ Zasada: **portal czyta te same dane, które ładuje serwer gry**, z przypiętego
 | Przedmioty, potwory, NPC, łupy, questy, czary, osiągnięcia, obszary | JSON w `content/`: `items/definitions/items-*.json`, `creatures/definitions/`, `npcs/definitions/npcs-*.json`, `loot/loot-*.json`, `quests/definitions/quests-*.json`, `abilities/`, `achievements/`, `world/`. Każdy plik ma postać `{"family":..,"records":[..]}`; schematy per domena w `tools/content-schema/*-authoring/*.schema.json` | Crate `world` czyta te pliki własnymi typami serde i sprawdza je tymi schematami. Wynik trafia do `world_entities` i `world_links`; wiki generuje z nich strony, listy, filtry i wyszukiwanie |
 | Pozycje na mapie | `content/world/` (`npc-placements` z komórką `{floor,x,y}`, obszary, obiekty) | Znaczniki Atlasu |
 | Mapa | Minimapa `content/assets/files/minimap-32-<x>-<y>-<z>-<sha>.bmp.lzma` | Worker rozpakowuje LZMA, skleja BMP i tnie piramidę kafli WebP per piętro |
-| Grafiki | `appearances-*.dat` (protobuf), `sprites-*.bmp.lzma`, manifest `content/assets/catalog/index.json` | Worker wycina miniatury PNG i WebP. **Tylko po decyzji D7** |
+| Grafiki | `appearances-*.dat` (protobuf), `sprites-*.bmp.lzma`, manifest `content/assets/catalog/index.json` | Worker wycina miniatury PNG i WebP (D7: zgoda) |
 
 Czego portal nie używa:
 
@@ -266,7 +266,7 @@ Czego portal nie używa:
 Jak to działa:
 
 1. Admin wybiera w panelu wersję gry (commit lub tag). Worker pobiera z niej tylko `content/**` i `tools/content-schema/**` kluczem tylko do odczytu (deploy key repo gry, trzymany na hoście jako sekret).
-2. `world` parsuje dane do nowej wersji w bazie i, jeśli D7 na to pozwala, renderuje kafle obok. Gdy wszystko się uda, przełącza aktywną wersję jedną transakcją. Błąd parsowania zatrzymuje import, a stara wersja dalej działa.
+2. `world` parsuje dane do nowej wersji w bazie i renderuje kafle obok. Gdy wszystko się uda, przełącza aktywną wersję jedną transakcją. Błąd parsowania zatrzymuje import, a stara wersja dalej działa.
 3. Wiki i Atlas pokazują wersję świata. Odnośniki wiki ↔ Atlas idą po kluczach encji, nie po nazwach.
 
 Co robi redakcja: pisze poradniki i opisy dopisane do encji (`wiki_guides`). Nie przepisuje statystyk ani łupów, bo te zawsze pochodzą z gry. Nowa wersja gry aktualizuje dane bez ruszania tekstów redakcji.
@@ -275,9 +275,9 @@ Ukryte treści:
 
 - Osiągnięcia mają flagę `secret`; portal jej nie pokazuje.
 - Questy, NPC, obszary i miejsca nie mają flagi widoczności. Gra doda pole w swoich schematach (osobny pakiet po stronie gry, G-2). Do tego czasu wiki pokazuje tylko encje, które admin zatwierdzi w panelu (`world_visibility` działa jako lista dopuszczonych), a domyślnie nic nie jest publiczne.
-- Rekordy questów mają `classification` (np. `OTS_HYPOTHESIS_ONLY`, `SCOPED_EVIDENCE_ONLY`, `OTERYN_AUTHORED_APPROXIMATION`). Wiki publikuje tylko `OTERYN_AUTHORED_APPROXIMATION`, chyba że właściciel zdecyduje inaczej.
+- Rekordy questów mają `classification` (np. `OTS_HYPOTHESIS_ONLY`, `SCOPED_EVIDENCE_ONLY`, `OTERYN_AUTHORED_APPROXIMATION`). Wiki publikuje wszystkie (D8) i pokazuje klasyfikację przy queście.
 
-Licencja: `LICENSE-ASSETS.md` gry zastrzega grafikę, mapy i metadane („all rights reserved”, poza użyciem referencyjnym), a `content/world/manifest.json` ma `licensing_metadata: PENDING`. Publikacja sprite'ów i mapy na stronie to decyzja właściciela (D7). Bez niej wiki działa bez grafik, a Atlas jest wyłączony.
+Licencja: `LICENSE-ASSETS.md` gry zastrzega grafikę, mapy i metadane („all rights reserved”, poza użyciem referencyjnym), a `content/world/manifest.json` ma `licensing_metadata: PENDING`. Właściciel zgodził się na publikację sprite'ów i mapy na stronie (D7, 2026-11-05).
 
 Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie część danych świata.
 
@@ -315,7 +315,7 @@ Każdy krok wymaga zgody właściciela („deploy”).
 
 ## 10. Zadania dla Codexa
 
-Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryterium akceptacji (`cargo test` i `cargo clippy` w `portal-rs/`) oraz zależności. Zadania wysyła koordynator. Zadania bez zależności między sobą idą równolegle.
+Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryterium akceptacji (`cargo test` i `cargo clippy` w `portal-rs/`) oraz zależności. Zadania Platform wysyła sesja Platform; zadania gry wysyła koordynator. Zadania bez zależności między sobą idą równolegle.
 
 | ID | Zadanie | Zależy od | Ścieżki |
 | --- | --- | --- | --- |
@@ -360,9 +360,9 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T37 | Worker: outbox, ponowienia, sprzątanie | T00 | `bin/oteryn-portal/src/worker*`, `crates/db/src/outbox*` |
 | T38 | `admin-cli import-legacy` z eksportu obecnej bazy | T03–T34 | `bin/oteryn-portal/src/import*` |
 | T39 | Projekt graficzny: tokeny CSS, komponenty, strona główna, „Jak zacząć” | T01 | `static/`, `templates/` |
-| T40 | Atlas: kafle WebP z minimapy gry (LZMA → BMP → piramida) i znaczniki z `npc-placements` (za flagą D7) | T14 | `crates/atlas/src/tiles*` |
+| T40 | Atlas: kafle WebP z minimapy gry (LZMA → BMP → piramida) i znaczniki z `npc-placements` | T14 | `crates/atlas/src/tiles*` |
 | T41 | Atlas: strona `/atlas` (przeglądarka kafli, warstwy, znaczniki, linki do wiki) | T40, T14 | `crates/atlas/src/web*`, `templates/atlas/`, `static/atlas/` |
-| T42 | Miniatury z `appearances-*.dat` i `sprites-*.bmp.lzma` do wiki i znaczników (za flagą D7) | T14 | `crates/world/src/sprites*` |
+| T42 | Miniatury z `appearances-*.dat` i `sprites-*.bmp.lzma` do wiki i znaczników | T14 | `crates/world/src/sprites*` |
 | G-2 | (gra) Pole widoczności (public/hidden) w schematach questów, NPC i obszarów | – | Oteryn-Game, przez koordynatora |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 
@@ -392,7 +392,7 @@ Wynik: PR draft z wynikiem komend akceptacji w opisie
 
 Pozostałe warunki:
 
-- **CI.** Testy Rusta w CI wymagają nowego joba w `.github/workflows`, a to potrzebuje zgody właściciela. Do tego czasu każde zadanie dołącza wynik `cargo test` i `cargo clippy` w PR.
+- **CI.** Job `Portal RS CI` (`.github/workflows/portal-rs-ci.yml`, zgoda właściciela 2026-11-05) uruchamia `cargo fmt --check`, `cargo clippy -D warnings` i `cargo test --locked` dla zmian w `portal-rs/**`. Dodaje go PR #1685 razem ze szkieletem.
 - **Zakres plików.** Zadania mają rozłączne ścieżki. Wspólne pliki (`Cargo.toml` workspace, router w `web`, migracje) zmienia się tylko przez dopisanie linii, a konflikty rozwiązuje koordynator przy merge.
 
 ## 11. Decyzje właściciela
@@ -400,23 +400,22 @@ Pozostałe warunki:
 | # | Decyzja | Domyślnie |
 | --- | --- | --- |
 | D1 | Zakres pierwszego wydania | Sekcja 2 bez bazaru, analizatora, węzłów i obserwacji GM |
-| D2 | Nowy job CI dla `portal-rs/` | Potrzebna zgoda |
+| D2 | Nowy job CI dla `portal-rs/` | **Zgoda** (2026-11-05), PR #1685 |
 | D3 | Dostawca płatności | Provider testowy do czasu wyboru (np. Stripe) |
 | D4 | Wygląd | Nowy projekt graficzny (T39) |
 | D5 | Gateway logowania | Zostaje w Go; portal zachowuje jego kontrakt |
 | D6 | Import danych | Konta, role, treści, wiki, portfel; reszta zaczyna od zera |
-| D7 | Publikacja sprite'ów i mapy gry na stronie (licencja `LICENSE-ASSETS.md`) | Wyłączona: wiki bez grafik, Atlas wyłączony |
-| D8 | Klasyfikacje questów publikowane w wiki | Tylko `OTERYN_AUTHORED_APPROXIMATION` |
+| D7 | Publikacja sprite'ów i mapy gry na stronie (licencja `LICENSE-ASSETS.md`) | **Wolno** (2026-11-05): wiki z grafikami, Atlas włączony |
+| D8 | Klasyfikacje questów publikowane w wiki | **Wszystkie** (2026-11-05); wiki pokazuje klasyfikację przy queście |
 
 ## 12. Otwarte pytania
 
 | # | Pytanie | Do kogo | Blokuje |
 | --- | --- | --- | --- |
-| Q1 | Publikacja grafik i mapy (D7) oraz klasyfikacje questów (D8) | Właściciel | T40, T42 |
 | Q2 | Kontrakt `client/directory` w locku gry, z regułą postaci tylko dla właściciela (§5.2) | Koordynator, G-1 | Tylko pole `characters` w T36 |
 | Q3 | Aktualizacja locka gry: N4P (z `native-admissions`) i GAME-CHAR-CMD-0 (§6) | Koordynator, G-1 | Nic; portal implementuje według kodu |
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
-| Q5 | Akceptacja projektu, job CI (D2), sposób wysyłki zadań do Codexa | Właściciel | Start T01+ |
+| Q5 | Akceptacja projektu | Właściciel | Start T01+ |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
