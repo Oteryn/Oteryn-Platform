@@ -36,3 +36,8 @@ features = ["macros"]
 [dev-dependencies.tower]
 version = "0.5.3"
 features = ["util"]
+
+[dependencies.oteryn-internal-api]
+workspace = true
+[dependencies.sha2]
+version = "0.10.9"

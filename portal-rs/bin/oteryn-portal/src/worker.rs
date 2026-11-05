@@ -204,6 +204,11 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(worker) = oteryn_identity::email_change::Worker::configured(pool.clone())? {
         registry.cleanup("identity.email-change", 60, Arc::new(worker))?;
     }
+    registry.cleanup(
+        "stats.v2-retention",
+        3600,
+        Arc::new(oteryn_stats::online::Retention { pool: pool.clone() }),
+    )?;
     #[cfg(unix)]
     let shutdown = {
         let mut terminate =
