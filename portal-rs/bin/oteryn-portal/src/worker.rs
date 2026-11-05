@@ -150,6 +150,15 @@ async fn run_until(
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
     registry.cleanup(
+        "identity.finalize-terminations",
+        60,
+        Arc::new(oteryn_identity::termination::Terminations::new(
+            pool.clone(),
+            oteryn_identity::termination::Config::from_env()?,
+            Arc::new(oteryn_identity::termination::UnavailableBoundary),
+        )?),
+    )?;
+    registry.cleanup(
         "stats.poll",
         60,
         Arc::new(oteryn_stats::worker::StatisticsJob {
