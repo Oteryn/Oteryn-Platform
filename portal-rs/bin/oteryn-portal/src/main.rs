@@ -304,6 +304,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_minigames::puzzles::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let app = app.merge(oteryn_minigames::pass::web::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.merge(oteryn_atlas::delivery::configured_router(
@@ -343,12 +346,12 @@ mod login_http;
 mod credentials_http;
 #[path = "../../../crates/identity/src/passkeys_http.rs"]
 mod passkeys_http;
+#[path = "../../../crates/identity/src/privacy_web.rs"]
+mod privacy_web;
 #[path = "../../../crates/identity/src/reset_delivery.rs"]
 mod reset_delivery;
 #[path = "../../../crates/identity/src/reset_http.rs"]
 mod reset_http;
-#[path = "../../../crates/identity/src/privacy_web.rs"]
-mod privacy_web;
 #[path = "../../../crates/identity/src/sessions_http.rs"]
 mod sessions_http;
 #[path = "../../../crates/store/src/web_payments.rs"]
