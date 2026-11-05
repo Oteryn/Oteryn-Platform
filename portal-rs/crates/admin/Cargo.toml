@@ -42,3 +42,15 @@ path = "../identity"
 path = "../characters"
 [dependencies.oteryn-core]
 path = "../core"
+[dependencies.oteryn-wallet]
+workspace = true
+[dependencies.oteryn-store]
+workspace = true
+[dependencies.oteryn-payments]
+workspace = true
+[dependencies.oteryn-db]
+workspace = true
+[dependencies.sha2]
+version = "0.10.9"
+[dev-dependencies.serde_urlencoded]
+version = "0.7"
