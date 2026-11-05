@@ -8,3 +8,5 @@
 pub mod canonical;
 pub mod fixtures;
 pub mod guard;
+
+pub mod playerdata;
