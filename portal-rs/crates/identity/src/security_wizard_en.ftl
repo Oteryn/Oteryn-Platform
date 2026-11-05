@@ -1,0 +1,13 @@
+title = Account security
+score = Verified protections
+explanation = Missing and unavailable steps do not count as completed. Review the steps below in security settings.
+email = Confirm your email address
+mfa = Enable two-factor authentication
+key = Save an active account recovery key
+backup = Confirm a backup email address
+complete = Completed
+missing = Action needed
+unknown = Unavailable — not verified
+password = Last password change (UTC)
+password-help = Change your password if it may have been compromised. Password age does not affect this assessment.
+manage = Open security settings

@@ -1,0 +1,8 @@
+/* Composition only; visual values come from T39 tokens. */
+body { margin: var(--op-space-0); }
+header, main, footer { max-width: var(--op-page); margin-inline: auto; padding: var(--op-space-5); }
+.layout { display: grid; align-items: start; gap: var(--op-space-5); }
+.intro { max-width: var(--op-measure); }
+nav a[aria-current="page"] { font-weight: var(--op-weight-bold); }
+footer a, header > a { min-height: var(--op-target); display: inline-flex; align-items: center; }
+@media (min-width: 60rem) { .layout { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }

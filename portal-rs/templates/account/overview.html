@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ title }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack op-panel">
+<h1>{{ title }}</h1>
+<dl>{% for row in facts %}<dt>{{ row.0 }}</dt><dd>{{ row.1 }}</dd>{% endfor %}</dl>
+<section class="op-stack" aria-labelledby="characters">
+<h2 id="characters">{{ characters_label }}</h2>
+<p role="status">{{ state }}</p>
+<ul class="op-stack">
+{% for character in characters %}
+<li class="op-panel op-stack">
+<a class="op-button op-button--secondary" href="/characters/{{ character.0 }}">{{ character.1 }}</a>
+<dl>
+<dt>{{ availability }}</dt><dd>{{ character.3 }}</dd>
+<dt>{{ world }}</dt><dd>{{ character.2 }}</dd>
+<dt>{{ level }}</dt><dd>{{ unavailable }}</dd>
+<dt>{{ profession }}</dt><dd>{{ unavailable }}</dd>
+</dl>
+</li>
+{% endfor %}
+</ul>
+</section>
+<nav aria-label="{{ shortcuts }}"><ul class="op-row">
+<li><a class="op-button op-button--secondary" href="/account/security">{{ security }}</a></li>
+<li><a class="op-button op-button--secondary" href="/{{ lang }}/panel/premium">{{ premium }}</a></li>
+<li><a class="op-button op-button--secondary" href="/{{ lang }}/panel/balance">{{ balance }}</a></li>
+</ul></nav>
+</main>
+</body>
+</html>
