@@ -48,3 +48,6 @@ features = ["softpasskey"]
 version = "0.22"
 [dependencies.oteryn-notify]
 workspace = true
+
+[dependencies.oteryn-wallet]
+workspace = true

@@ -8,6 +8,7 @@ pub mod verify;
 pub use accounts::AccountId;
 pub mod abuse;
 pub mod credentials;
+pub mod email_change;
 pub mod export;
 pub mod login;
 pub mod passkeys;

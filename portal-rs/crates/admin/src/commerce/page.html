@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{title}}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-panel op-stack"><h1>{{title}}</h1><p>{{note}}</p>
+{% for action in actions %}
+<section class="op-stack"><h2>{{action.title}}</h2><form class="op-stack" method="post" action="/admin/commerce/{{action.key}}">
+<input type="hidden" name="_csrf" value="{{csrf}}">
+<p class="op-field"><label>{{account}} <input class="op-input" name="target" required maxlength="36" size="24"></label></p>
+<p class="op-field"><label>{{request}} <input class="op-input" name="request_id" required value="{{action.request}}" maxlength="36" size="24"></label></p>
+{% if action.days %}<p class="op-field"><label>{{days}} <input class="op-input" name="days" type="number" min="1" max="366" required></label></p>{% endif %}
+{% if action.amount %}<p class="op-field"><label>{{amount}} <input class="op-input" name="amount" type="number" min="-1000000000" max="1000000000" required></label></p>{% endif %}
+<p class="op-field"><label>{{reason}} <textarea class="op-input" name="reason" rows="4" cols="24" minlength="10" maxlength="500" required></textarea></label></p>
+<button class="op-button" type="submit">{{submit}}</button></form></section>
+{% endfor %}
+<section class="op-stack"><h2>{{approvals}}</h2>{% if pending.is_empty() %}<p>{{empty}}</p>{% endif %}
+{% for item in pending %}
+<form class="op-stack" method="post" action="/admin/commerce/approvals/{{item.id}}"><input type="hidden" name="_csrf" value="{{csrf}}">
+<p class="op-field"><label>{{request}} <input class="op-input" readonly value="{{item.id}}" size="24"></label></p>
+<p class="op-field"><label>{{account}} <input class="op-input" readonly value="{{item.target}}" size="24"></label></p>
+<p>{{item.command}}</p><p>{{amount}}: {{item.amount}}</p><p><input class="op-input" readonly value="{{item.actor}}" size="24" aria-label="{{account}}"></p>
+{% if item.can_approve %}<button class="op-button" type="submit">{{approve}}</button>{% else %}<p>{{pending_label}}</p>{% endif %}</form>
+{% endfor %}</section></main></body></html>

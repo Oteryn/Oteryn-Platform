@@ -193,6 +193,9 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
             enabled: std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() == Ok("true"),
         }),
     )?;
+    if let Some(worker) = oteryn_identity::email_change::Worker::configured(pool.clone())? {
+        registry.cleanup("identity.email-change", 60, Arc::new(worker))?;
+    }
     #[cfg(unix)]
     let shutdown = {
         let mut terminate =
@@ -227,5 +230,25 @@ impl Registry {
     #[allow(dead_code)]
     pub fn notifications(&mut self, delivery: oteryn_notify::Delivery) -> Result<(), String> {
         self.register(oteryn_notify::EMAIL_JOB, Arc::new(delivery))
+    }
+}
+
+impl Handler for oteryn_admin::commerce::RefundDelivery {
+    fn run<'a>(&'a self, job: &'a Job) -> HandlerFuture<'a> {
+        Box::pin(async move {
+            self.run(job)
+                .await
+                .map_err(|_| "refund delivery refused".to_owned())
+        })
+    }
+}
+impl Registry {
+    /// Commerce supplies verified domain authority before refund dispatch is enabled.
+    #[allow(dead_code)]
+    pub fn commerce_refunds(
+        &mut self,
+        delivery: oteryn_admin::commerce::RefundDelivery,
+    ) -> Result<(), String> {
+        self.register("commerce.refund", Arc::new(delivery))
     }
 }
