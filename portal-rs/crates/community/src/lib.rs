@@ -12,3 +12,4 @@ pub mod referrals;
 pub mod profiles;
 pub mod deaths;
 pub mod guilds;
+pub mod houses;
