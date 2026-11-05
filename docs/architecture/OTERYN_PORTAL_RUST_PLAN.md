@@ -60,7 +60,7 @@ Bazar postaci i przedmiotów jest w zakresie (§5.6, D13). Prywatny dziennik gry
 | HTTP | axum, tower, tower-http (kompresja, limity, nagłówki bezpieczeństwa, trace) |
 | TLS i mTLS | rustls; mTLS dla `/internal/v1` terminowany w procesie |
 | Szablony | askama (sprawdzane przy kompilacji), htmx, ręczny CSS z tokenami |
-| Baza | PostgreSQL, sqlx (zapytania sprawdzane offline, `sqlx::migrate!`) |
+| Baza | PostgreSQL 18.6, ten sam obraz co gra (`postgres:18.6-bookworm@sha256:bbf83594798e144bff365a9c191c5d779f181fb3135902064ab8ff11918020fc`), osobna instancja portalu (D24); sqlx (zapytania sprawdzane offline, `sqlx::migrate!`) |
 | Hasła | argon2 (argon2id, zgodny z obecnymi hashami) |
 | 2FA i passkeys | totp-rs, webauthn-rs |
 | Tokeny | ed25519-dalek (granty admission), losowe tokeny nieprzezroczyste przechowywane jako SHA-256 |
@@ -909,6 +909,7 @@ Pozostałe warunki:
 | D21 | Rodzaj COSMETIC w sklepie (wyglądy, ramki, tytuły) | **Zgoda** (2026-11-05) na włączenie, wcześniej wyłączony; zmiana kontraktu wire sklepu z grą przed T89 |
 | D22 | Akceptacja projektu (było Q5) | **Akceptuję** (2026-11-05); start od T00 (PR #1685), potem kolejność z §10 |
 | D23 | Konsultacja prawna (bazar, sklep i coiny, regulamin i RODO, §5.10) | **Nie blokuje prac** (2026-11-05); właściciel zrobi ją później |
+| D24 | Wersja PostgreSQL | **18.6** (2026-11-05), jak w grze i w środowisku Codexa. Stara baza Laravela zostaje na 17.11 do wyłączenia, bez aktualizacji; dane przenosi import (T38) |
 
 ## 12. Otwarte pytania
 
