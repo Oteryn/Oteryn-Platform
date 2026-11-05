@@ -16,7 +16,8 @@ use url::Url;
 
 use crate::{Error, UpdaterPolicy, Upload, Versions};
 
-type TransportStream = Pin<Box<dyn futures::Stream<Item = Result<Bytes, TransportError>> + Send>>;
+type TransportStream =
+    Pin<Box<dyn futures::Stream<Item = Result<Bytes, TransportError>> + Send + Sync>>;
 
 const MAX_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_BUNDLE_BYTES: usize = 8 * MAX_METADATA_BYTES;
