@@ -1735,14 +1735,21 @@ dependencies = [
 name = "oteryn-bazaar"
 version = "0.1.0"
 dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
  "oteryn-core",
  "oteryn-db",
+ "oteryn-web",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sqlx",
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "tower",
+ "unic-langid",
  "uuid",
 ]
 
@@ -1964,6 +1971,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "oteryn-admin",
+ "oteryn-bazaar",
  "oteryn-community",
  "oteryn-core",
  "oteryn-db",
