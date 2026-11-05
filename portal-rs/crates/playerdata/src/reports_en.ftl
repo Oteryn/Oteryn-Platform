@@ -1,0 +1,13 @@
+title = Weekly report
+sessions = Sessions
+duration = Hunting time (seconds)
+gained = Experience gained
+lost = Experience lost
+notes = Private note
+save = Save
+hint = Up to 4000 bytes. Empty text deletes the note.
+email = Your private weekly report is available after signing in:
+optin = Email me a link to my weekly report (also requires news email consent)
+preferences = Save email preference
+drops = Drops
+character-note = Character note
