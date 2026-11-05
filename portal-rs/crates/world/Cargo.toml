@@ -11,16 +11,20 @@ workspace = true
 
 [dependencies]
 globset = "0.4.18"
+image = { version = "0.25.9", default-features = false, features = ["webp"] }
 jsonschema = { version = "0.60.2", default-features = false }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+lzma-rs = "0.3.0"
+prost = "0.14.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha2 = "0.10.9"
 sqlx = { version = "0.9.0", default-features = false, features = ["derive", "runtime-tokio", "tls-rustls", "postgres", "uuid", "json"] }
-thiserror = "2.0"
+tempfile = "3.27"
+thiserror = "2.0.18"
 tokio = { version = "1.54", features = ["rt", "sync"] }
 url = "2.5"
 uuid = { version = "1.29", features = ["v7", "serde"] }
 
 [dev-dependencies]
 oteryn-db = { path = "../db" }
-tempfile = "3.27"
 tokio = { version = "1.54", features = ["macros", "rt-multi-thread", "time"] }

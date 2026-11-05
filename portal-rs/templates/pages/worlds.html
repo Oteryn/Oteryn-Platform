@@ -1,0 +1,47 @@
+{% import "components/badge.html" as badge %}
+{% import "components/empty.html" as empty %}
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ language.text("worlds-title") }} · {{ language.text("brand") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme op-stack">
+{% include "components/icons.html" %}
+<a class="op-skip" href="#main">{{ language.text("skip") }}</a>
+<header class="op-panel op-row">
+  <a class="op-button op-button--secondary" href="/{{ lang }}/">{{ language.text("home-link") }}</a>
+  <nav aria-label="{{ language.text("language-switch") }}" class="op-row">
+    <a class="op-button op-button--secondary" href="/pl/worlds" lang="pl" hreflang="pl">{{ language.text("worlds-polish") }}</a>
+    <a class="op-button op-button--secondary" href="/en/worlds" lang="en" hreflang="en">{{ language.text("worlds-english") }}</a>
+  </nav>
+</header>
+<main id="main" tabindex="-1" class="op-panel op-stack">
+  <h1>{{ language.text("worlds-title") }}</h1>
+  <p class="op-muted">{{ language.text("worlds-description") }}</p>
+  {% if worlds.is_empty() %}
+    {% call empty::empty(language.text("worlds-empty"), language.text("worlds-empty-description"), language.text("home-link"), "/") %}{% endcall %}
+  {% else %}
+    {% for world in worlds %}
+    <article class="op-card op-stack">
+      <h2>{{ world.name }}</h2>
+      <dl>
+        {% if let Some(pvp) = world.pvp %}<dt>{{ language.text("worlds-pvp") }}</dt><dd>{{ pvp }}</dd>{% endif %}
+        {% if let Some(location) = world.location %}<dt>{{ language.text("worlds-location") }}</dt><dd>{{ location }}</dd>{% endif %}
+        <dt>{{ language.text("worlds-status") }}</dt>
+        <dd>{% if world.status == "online" %}{% call badge::badge(language.text("worlds-online"), "success") %}{% endcall %}{% else %}{% call badge::badge(language.text("worlds-unknown"), "warning") %}{% endcall %}{% endif %}</dd>
+        <dt>{{ language.text("worlds-players") }}</dt>
+        <dd>{% if let Some(count) = world.count %}{{ count }}{% else %}{{ language.text("worlds-unknown") }}{% endif %}</dd>
+        <dt>{{ language.text("worlds-as-of") }}</dt>
+        <dd>{% if let Some(as_of) = world.as_of %}{{ as_of }}{% else %}{{ language.text("worlds-unknown") }}{% endif %}</dd>
+      </dl>
+    </article>
+    {% endfor %}
+  {% endif %}
+</main>
+<footer class="op-panel">{{ language.text("footer") }}</footer>
+</body>
+</html>
