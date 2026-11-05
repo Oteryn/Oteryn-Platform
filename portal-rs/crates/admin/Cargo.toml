@@ -19,3 +19,18 @@ thiserror = "2"
 [dev-dependencies]
 oteryn-db = { version = "0.1.0", path = "../db" }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
+
+[dependencies.oteryn-web]
+path = "../web"
+[dependencies.askama]
+version = "0.16.1"
+[dependencies.fluent-bundle]
+version = "0.16"
+[dependencies.unic-langid]
+version = "0.9"
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+[dev-dependencies.tower]
+version = "0.5.3"
+features = ["util"]

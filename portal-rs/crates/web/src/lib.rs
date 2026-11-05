@@ -100,6 +100,8 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .nest_service("/static", ServeDir::new(static_dir))
         .merge(surface::module_router())
         .merge(surface::module_routes())
+        .merge(register::routes())
+        .merge(verify::routes())
         .route_layer(axum::middleware::from_fn_with_state(
             session_layer,
             session::middleware,
@@ -109,6 +111,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http());
+    let router = router.layer(axum::middleware::from_fn(verify::protect_token));
     security_headers(router)
 }
 
@@ -187,4 +190,8 @@ pub mod session;
 
 pub mod ratelimit;
 pub mod redirects;
+#[path = "routes/register.rs"]
+pub mod register;
 pub mod seo;
+#[path = "routes/verify.rs"]
+pub mod verify;

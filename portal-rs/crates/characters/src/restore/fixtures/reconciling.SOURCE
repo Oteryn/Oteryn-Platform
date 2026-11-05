@@ -1,0 +1,4 @@
+Repository: https://github.com/Oteryn/Oteryn-Game
+Commit: 857f15f376907c592bb28d854fccff18a15cdf87
+Path: crates/gameplay/native-admission-source/src/restore_notice_tests.rs
+Exact reconciling vector; no trailing newline.
