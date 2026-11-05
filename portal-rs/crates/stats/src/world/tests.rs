@@ -105,6 +105,11 @@ async fn world_postgres_observations_privacy_and_gaps() -> Result {
         let body = std::str::from_utf8(&body)?;
         assert!(body.contains(&format!("lang=\"{lang}\"")));
         assert!(body.contains("42"));
+        assert!(body.contains(if lang == "en" {
+            "Monster and boss deaths (UTC day)"
+        } else {
+            "Zgony potworów i bossów (dzień UTC)"
+        }));
         assert!(!body.contains(&id.to_string()));
     }
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
