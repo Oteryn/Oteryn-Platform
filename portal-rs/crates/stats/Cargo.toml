@@ -32,6 +32,7 @@ version = "0.7"
 version = "0.16"
 [dependencies.unic-langid]
 version = "0.9"
+features = ["macros"]
 [dev-dependencies.tower]
 version = "0.5.3"
 features = ["util"]
