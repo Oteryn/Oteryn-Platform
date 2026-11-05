@@ -1316,7 +1316,7 @@
                 "owner_familiar_look",
                 "invisible"
               ],
-              "description": "D16: owner_familiar_look shows the familiar look selected by the owner; asset_binding is the default look for a character without a selection. D24: invisible means the creature has no appearance at all (Canary lookType 0 without lookTypeEx) and forbids asset_binding."
+              "description": "D16: owner_familiar_look shows the familiar look selected by the owner; asset_binding is the default look for a character without a selection. D24: invisible means the creature has no appearance at all (legacy engine lookType 0 without lookTypeEx) and forbids asset_binding."
             },
             "palette_bindings": {
               "type": "array",
@@ -1927,7 +1927,7 @@
             "range_tiles",
             "backtracking"
           ],
-          "description": "D12: one cast hits the first creature and up to max_targets further creatures (Canary: the chain value callback count). target_filter players skips every creature that is not a player (the players-only chain picker); ranged_monsters keeps monsters that are not summons, not reward bosses and prefer a target distance above 1. Spell chains: OTERYN_SPELL_CHAIN_BEHAVIOUR_CANDIDATE_V1.md."
+          "description": "D12: one cast hits the first creature and up to max_targets further creatures (legacy engine: the chain value callback count). target_filter players skips every creature that is not a player (the players-only chain picker); ranged_monsters keeps monsters that are not summons, not reward bosses and prefer a target distance above 1. Spell chains: OTERYN_SPELL_CHAIN_BEHAVIOUR_CANDIDATE_V1.md."
         },
         "encounter": {
           "$ref": "#/$defs/EncounterRef",
@@ -2424,7 +2424,7 @@
         },
         "buff_spell": {
           "type": "boolean",
-          "description": "S17: the condition is a spell buff (Canary CONDITION_PARAM_BUFF_SPELL)."
+          "description": "S17: the condition is a spell buff (legacy engine CONDITION_PARAM_BUFF_SPELL)."
         }
       },
       "required": [
@@ -2601,7 +2601,7 @@
           },
           "minItems": 1,
           "uniqueItems": true,
-          "description": "Target defences that reduce this damage (Canary/Crystal blockedByArmor/blockedByShield); absent means neither. The reduction formula itself is a world combat rule."
+          "description": "Target defences that reduce this damage (legacy engine/Crystal blockedByArmor/blockedByShield); absent means neither. The reduction formula itself is a world combat rule."
         },
         "appearance_transform": {
           "type": "object",
@@ -2785,7 +2785,7 @@
             "items",
             "selection"
           ],
-          "description": "D18: remove_items over the ability area. first_listed_per_tile removes on every tile the first listed item present; top_item_first_tile removes the top item of the first tile where it is listed, then stops. Tiles are scanned column by column, west to east, each column north to south (Canary destroy_magic_walls.lua)."
+          "description": "D18: remove_items over the ability area. first_listed_per_tile removes on every tile the first listed item present; top_item_first_tile removes the top item of the first tile where it is listed, then stops. Tiles are scanned column by column, west to east, each column north to south (legacy engine destroy_magic_walls.lua)."
         },
         "summon": {
           "type": "object",
@@ -2833,7 +2833,7 @@
         },
         "removed_condition": {
           "$ref": "#/$defs/conditionType",
-          "description": "remove_condition: every condition of this type on the target ends (Canary/Crystal COMBAT_PARAM_DISPEL, Creature::removeCombatCondition)."
+          "description": "remove_condition: every condition of this type on the target ends (legacy engine/Crystal COMBAT_PARAM_DISPEL, Creature::removeCombatCondition)."
         },
         "presentation": {
           "type": "object",
