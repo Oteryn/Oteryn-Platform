@@ -2787,6 +2787,7 @@ dependencies = [
  "oteryn-notify",
  "oteryn-payments",
  "oteryn-stats",
+ "oteryn-support",
  "oteryn-web",
  "oteryn-wiki",
  "oteryn-world",
@@ -2846,6 +2847,24 @@ dependencies = [
 [[package]]
 name = "oteryn-support"
 version = "0.1.0"
+dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
+ "oteryn-admin",
+ "oteryn-db",
+ "oteryn-identity",
+ "oteryn-notify",
+ "oteryn-web",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.21",
+ "tokio",
+ "tower",
+ "uuid",
+]
 
 [[package]]
 name = "oteryn-wallet"
