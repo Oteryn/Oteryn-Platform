@@ -49,4 +49,3 @@ workspace = true
 
 [dependencies.oteryn-world]
 path = "../../crates/world"
-
