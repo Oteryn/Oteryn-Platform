@@ -1913,6 +1913,7 @@ dependencies = [
  "oteryn-downloads",
  "oteryn-gameauth",
  "oteryn-gateway",
+ "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-notify",
  "oteryn-payments",
