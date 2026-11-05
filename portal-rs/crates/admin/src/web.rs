@@ -53,26 +53,82 @@ pub struct PanelConfig {
 }
 struct Panel<I, A> {
     config: PanelConfig,
+    /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
+    required: Option<Permission>,
     identity: I,
     auth: Authorizer<A>,
     pool: PgPool,
 }
 
-pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
+fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
     let enabled = std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|v| v == "true");
     let host = std::env::var("OTERYN_ADMIN_HOST").unwrap_or_default();
     if enabled && (host.is_empty() || host.parse::<axum::http::uri::Authority>().is_err()) {
         return Err("invalid admin host".into());
     }
+    Ok(PanelConfig {
+        admin_panel: enabled,
+        host,
+    })
+}
+
+pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     Ok(router(
         pool,
-        PanelConfig {
-            admin_panel: enabled,
-            host,
-        },
+        config_from_env()?,
         PendingAuthentication,
         PendingAuthentication,
     ))
+}
+
+/// [`guarded`] with the panel's environment configuration and the server-side
+/// authentication adapters used by [`configured_router`].
+pub fn configured_guard(
+    routes: Router,
+    pool: PgPool,
+    permission: Permission,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(guarded(
+        routes,
+        pool,
+        config_from_env()?,
+        PendingAuthentication,
+        PendingAuthentication,
+        permission,
+    ))
+}
+
+/// Wrap feature routes mounted under `/admin/...` in the panel's guard: admin host,
+/// browser session with CSRF, staff MFA, `Permission::Access` and `permission`.
+/// Refusals are audited like panel refusals. Handlers read the checked
+/// [`CheckContext`] from request extensions.
+pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    permission: Permission,
+) -> Router {
+    let mut session = SessionLayer::new(pool.clone());
+    session.csrf.trusted_origins = vec![format!("https://{}", config.host)];
+    let state = Arc::new(Panel {
+        config,
+        required: Some(permission),
+        identity,
+        auth: Authorizer::new(pool.clone(), accounts),
+        pool,
+    });
+    routes
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            authenticate::<I, A>,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            session,
+            oteryn_web::session::middleware,
+        ))
+        .route_layer(middleware::from_fn_with_state(state, host::<I, A>))
 }
 /// Mount under `/admin`; host checks run before session or CSRF processing.
 pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
@@ -85,6 +141,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     session.csrf.trusted_origins = vec![format!("https://{}", config.host)];
     let state = Arc::new(Panel {
         config,
+        required: None,
         identity,
         auth: Authorizer::new(pool.clone(), accounts),
         pool,
@@ -163,11 +220,13 @@ async fn authenticate<I: StaffSession, A: AccountStateReader>(
         require_staff_mfa: true,
         mfa_verified: true,
     };
-    let permission = if request.uri().path() == "/admin/roles" {
-        Permission::ManageRoles
-    } else {
-        Permission::Access
-    };
+    let permission = s
+        .required
+        .unwrap_or(if request.uri().path() == "/admin/roles" {
+            Permission::ManageRoles
+        } else {
+            Permission::Access
+        });
     for required in [Permission::Access, permission] {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {

@@ -29,6 +29,20 @@ fn app(pool: PgPool, identity: Option<StaffIdentity>, enabled: bool) -> Router {
         Identity(identity),
     )
 }
+/// A feature route wrapped in the panel guard, requiring `ManageRoles`.
+fn feature(pool: PgPool, identity: Option<StaffIdentity>, enabled: bool) -> Router {
+    guarded(
+        Router::new().route("/admin/feature", get(|| async { "feature" })),
+        pool,
+        PanelConfig {
+            admin_panel: enabled,
+            host: "staff.test".into(),
+        },
+        Identity(identity),
+        Identity(identity),
+        Permission::ManageRoles,
+    )
+}
 async fn request(app: Router, path: &str, host: &str) -> Response {
     app.oneshot(
         Request::get(path)
@@ -56,6 +70,21 @@ async fn host_flag_session_and_mfa_boundaries() {
             .status(),
         StatusCode::NOT_FOUND
     );
+    for (host, enabled) in [("wrong.test", true), ("staff.test", false)] {
+        assert_eq!(
+            request(feature(pool.clone(), None, enabled), "/admin/feature", host)
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let response = request(
+        feature(pool.clone(), None, true),
+        "/admin/feature",
+        "staff.test",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let response = request(app(pool.clone(), None, true), "/admin", "staff.test").await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(response.headers()[header::LOCATION], "/login");
@@ -196,6 +225,17 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .await
     .unwrap();
     assert_eq!(count, 1);
+    // Feature routes require their own permission on top of panel access.
+    assert_eq!(
+        request(
+            feature(pool.clone(), identity, true),
+            "/admin/feature",
+            "staff.test"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
     sqlx::query(
         "INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.roles.manage')",
     )
@@ -210,6 +250,16 @@ async fn database_navigation_authorization_csrf_and_owner() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        request(
+            feature(pool.clone(), identity, true),
+            "/admin/feature",
+            "staff.test"
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
     let cookie = response.headers()[header::SET_COOKIE]
         .to_str()
         .unwrap()
@@ -311,6 +361,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     };
     let panel = Panel {
         config: PanelConfig::default(),
+        required: None,
         identity: Identity(identity),
         auth: Authorizer::new(pool.clone(), Identity(identity)),
         pool: pool.clone(),
