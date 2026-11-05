@@ -130,7 +130,7 @@ Wszystkie identyfikatory to UUIDv7. Kwoty to `bigint` w najmniejszej jednostce. 
 | gameauth | `oauth_clients`, `oauth_authorization_codes`, `oauth_tokens` (access i refresh jako hash, rodzina rotacji), `device_sessions`, `game_login_tickets` (jednorazowe, krótkie), `native_admissions`, `native_evidence`, `signing_keys` (Ed25519, rotacja), `scope_assignments` |
 | characters | `account_characters` (projekcja LCFA z watermarkiem), `character_create_intents` (outbox do gry), `character_profiles` (preferencje publiczne) |
 | content | `news`, `pages`, `events`, `announcements`, `media` (z wariantami), `translations` |
-| world | `world_versions` (wersja gry, SHA źródła, data, aktywna), `world_entities` (typ, klucz, dane `jsonb`, wersja), `world_links` (potwór → łup, NPC → quest, przedmiot → miejsce), `world_hidden` (ręczne ukrycie encji, jeśli gra nie ma flagi) |
+| world | `world_versions` (commit gry, data, aktywna), `world_entities` (rodzina, klucz, dane `jsonb`, wersja), `world_links` (potwór → łup, NPC → quest, przedmiot → miejsce), `world_visibility` (encje dopuszczone przez admina do czasu flagi w grze) |
 | wiki | `wiki_guides`, `wiki_revisions`, `wiki_reviews` (tylko teksty redakcji: poradniki i opisy dopisane do encji) |
 | atlas | `atlas_markers` (wyliczane z `world`: miasta, NPC, spawny, questy); kafle mapy jako pliki statyczne per wersja świata |
 | community | `public_snapshots` (rodzina, wersja, watermark, `jsonb`), `world_status` |
@@ -228,7 +228,7 @@ Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwr
 | Status światów | V2_RUNTIME_STATUS_PROJECTION | PARTIAL |
 | Kary | Game: `PROD-ENTITLEMENTS-01_GAME_CONSUMER_ENFORCEMENT_CONTRACT_CANDIDATE.md` | Kandydat; wykonania w grze brak |
 | Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
-| Dane świata (wiki, Atlas) | Odczyt danych gry z przypiętego wydania (§6.1); OTERYN-GAME-PLATFORM-CATALOG-V1 do sprawdzenia | CATALOG-V1 LOCKED |
+| Dane świata (wiki, Atlas) | Odczyt `content/**` z przypiętego commita gry (§6.1) | Dane są; flaga widoczności brak (G-2); licencja grafik PENDING (D7) |
 | Granty admission | FND-04B-AMEND-1 | Pole status: ACCEPTED (2026-11-05), ale treść ma otwarte decyzje właściciela. Traktujemy jako propozycję i **nie implementujemy na jej podstawie**, dopóki decyzje nie zapadną |
 
 **Gateway `POST /v1/login`** (serwuje gateway Go w tym repo, woła klient gry):
@@ -250,31 +250,36 @@ Zasady:
 
 Zasada: **portal czyta te same dane, które ładuje serwer gry**, z przypiętego wydania gry. Nie ma osobnego formatu eksportu, osobnego kontraktu ani ręcznie przepisywanych danych. Jedno źródło prawdy: repozytorium gry.
 
-| Co | Źródło | Co robi portal |
+| Co | Źródło w repo gry (Game main @6a81df27) | Co robi portal |
 | --- | --- | --- |
-| Encje świata: przedmioty, potwory, NPC, czary, questy, łupy, miejsca | Pliki danych serwera gry z przypiętego wydania | Crate `world` parsuje je do `world_entities` i `world_links`. Wiki generuje z nich strony, listy, filtry i wyszukiwanie |
-| Mapa świata | Plik mapy serwera gry | Worker renderuje kafle WebP per piętro i zoom. Jeśli gra lub klient ma już renderer, portal go używa zamiast własnego |
-| Grafiki | Sprite'y klienta | Worker wycina miniatury PNG i WebP do wiki i znaczników mapy |
+| Przedmioty, potwory, NPC, łupy, questy, czary, osiągnięcia, obszary | JSON w `content/`: `items/definitions/items-*.json`, `creatures/definitions/`, `npcs/definitions/npcs-*.json`, `loot/loot-*.json`, `quests/definitions/quests-*.json`, `abilities/`, `achievements/`, `world/`. Każdy plik ma postać `{"family":..,"records":[..]}`; schematy per domena w `tools/content-schema/*-authoring/*.schema.json` | Crate `world` czyta te pliki własnymi typami serde i sprawdza je tymi schematami. Wynik trafia do `world_entities` i `world_links`; wiki generuje z nich strony, listy, filtry i wyszukiwanie |
+| Pozycje na mapie | `content/world/` (`npc-placements` z komórką `{floor,x,y}`, obszary, obiekty) | Znaczniki Atlasu |
+| Mapa | Minimapa `content/assets/files/minimap-32-<x>-<y>-<z>-<sha>.bmp.lzma` | Worker rozpakowuje LZMA, skleja BMP i tnie piramidę kafli WebP per piętro |
+| Grafiki | `appearances-*.dat` (protobuf), `sprites-*.bmp.lzma`, manifest `content/assets/catalog/index.json` | Worker wycina miniatury PNG i WebP. **Tylko po decyzji D7** |
+
+Czego portal nie używa:
+
+- Crate'a `oteryn-gameplay-content`, bo nie działa bez reszty workspace gry.
+- `crates/renderer` gry, bo robi atlas tekstur klienta, a nie kafle mapy.
+- Katalogu CATALOG-V1 (`OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md`), bo ma status PROPOSED, producent ma tylko fixture i brakuje w nim pozycji na mapie. Czytanie `content/**` daje to samo bez drugiego formatu.
 
 Jak to działa:
 
-1. Admin wybiera w panelu wersję gry (tag lub SHA). Worker pobiera z tego wydania tylko katalogi danych, mapę i sprite'y, tylko do odczytu.
-2. `world` parsuje dane do nowej wersji w bazie i renderuje kafle obok. Gdy wszystko się uda, przełącza aktywną wersję jedną transakcją. Błąd parsowania zatrzymuje import, a stara wersja dalej działa.
+1. Admin wybiera w panelu wersję gry (commit lub tag). Worker pobiera z niej tylko `content/**` i `tools/content-schema/**` kluczem tylko do odczytu (deploy key repo gry, trzymany na hoście jako sekret).
+2. `world` parsuje dane do nowej wersji w bazie i, jeśli D7 na to pozwala, renderuje kafle obok. Gdy wszystko się uda, przełącza aktywną wersję jedną transakcją. Błąd parsowania zatrzymuje import, a stara wersja dalej działa.
 3. Wiki i Atlas pokazują wersję świata. Odnośniki wiki ↔ Atlas idą po kluczach encji, nie po nazwach.
 
 Co robi redakcja: pisze poradniki i opisy dopisane do encji (`wiki_guides`). Nie przepisuje statystyk ani łupów, bo te zawsze pochodzą z gry. Nowa wersja gry aktualizuje dane bez ruszania tekstów redakcji.
 
-Ukryte treści: jeśli gra ma flagę „ukryte” na encjach lub miejscach, portal ją respektuje. Jeśli nie ma, admin ukrywa encję w panelu (`world_hidden`) przed publikacją wersji. Sekrety questów nie trafiają na stronę.
+Ukryte treści:
+
+- Osiągnięcia mają flagę `secret`; portal jej nie pokazuje.
+- Questy, NPC, obszary i miejsca nie mają flagi widoczności. Gra doda pole w swoich schematach (osobny pakiet po stronie gry, G-2). Do tego czasu wiki pokazuje tylko encje, które admin zatwierdzi w panelu (`world_visibility` działa jako lista dopuszczonych), a domyślnie nic nie jest publiczne.
+- Rekordy questów mają `classification` (np. `OTS_HYPOTHESIS_ONLY`, `SCOPED_EVIDENCE_ONLY`, `OTERYN_AUTHORED_APPROXIMATION`). Wiki publikuje tylko `OTERYN_AUTHORED_APPROXIMATION`, chyba że właściciel zdecyduje inaczej.
+
+Licencja: `LICENSE-ASSETS.md` gry zastrzega grafikę, mapy i metadane („all rights reserved”, poza użyciem referencyjnym), a `content/world/manifest.json` ma `licensing_metadata: PENDING`. Publikacja sprite'ów i mapy na stronie to decyzja właściciela (D7). Bez niej wiki działa bez grafik, a Atlas jest wyłączony.
 
 Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie część danych świata.
-
-Do potwierdzenia z koordynatorem przed T40 (pytanie wysłane 2026-11-05):
-
-- format i położenie plików danych oraz czy istnieje parser do ponownego użycia bez reszty workspace gry;
-- czy gra lub klient ma renderer mapy;
-- format sprite'ów i czy istnieje eksport do PNG;
-- czy istnieje flaga „ukryte”;
-- czy OTERYN-GAME-PLATFORM-CATALOG-V1 (LOCKED) już daje te dane. Jeśli tak, portal czyta katalog zamiast surowych plików.
 
 ## 7. Bezpieczeństwo
 
@@ -328,7 +333,7 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T11 | Treści: newsy, strony, wydarzenia, ogłoszenia; CRUD w adminie; strony publiczne | T10 | `crates/content` |
 | T12 | Media: upload, warianty obrazów, walidacja | T11 | `crates/content/src/media*` |
 | T13 | Wiki: poradniki redakcji, wersje, przegląd, markdown i sanityzacja, wyszukiwanie (PG full text) | T10 | `crates/wiki` |
-| T14 | `world`: parser danych świata z przypiętego wydania gry, wersje, atomowe przełączenie, `world_hidden` | T00 | `crates/world` |
+| T14 | `world`: odczyt `content/**` JSON z przypiętego commita gry, walidacja schematami gry, wersje, atomowe przełączenie, lista dopuszczonych encji | T00 | `crates/world` |
 | T14b | Strony wiki generowane z `world`: listy per typ, strona encji, filtry, wyszukiwanie, opisy redakcji | T13, T14 | `crates/wiki/src/entities*`, `templates/wiki/` |
 | T15 | Guard mTLS `/internal/v1` (tożsamość per grupa), kanoniczny JSON, harness testów na wektorach golden z Game | T00 | `crates/internal-api` (wspólne) |
 | T16 | OAuth PKCE (`/oauth/authorize`, `/oauth/token` w korzeniu base URL, consent); odpowiedź `authorization_code` zgodna z klientem; refresh z rotacją jako nowe zachowanie | T04 | `crates/gameauth/src/oauth*` |
@@ -355,9 +360,10 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T37 | Worker: outbox, ponowienia, sprzątanie | T00 | `bin/oteryn-portal/src/worker*`, `crates/db/src/outbox*` |
 | T38 | `admin-cli import-legacy` z eksportu obecnej bazy | T03–T34 | `bin/oteryn-portal/src/import*` |
 | T39 | Projekt graficzny: tokeny CSS, komponenty, strona główna, „Jak zacząć” | T01 | `static/`, `templates/` |
-| T40 | Atlas: kafle WebP z mapy gry (albo z renderera gry, jeśli istnieje) i znaczniki z `world` | T14 | `crates/atlas/src/tiles*` |
+| T40 | Atlas: kafle WebP z minimapy gry (LZMA → BMP → piramida) i znaczniki z `npc-placements` (za flagą D7) | T14 | `crates/atlas/src/tiles*` |
 | T41 | Atlas: strona `/atlas` (przeglądarka kafli, warstwy, znaczniki, linki do wiki) | T40, T14 | `crates/atlas/src/web*`, `templates/atlas/`, `static/atlas/` |
-| T42 | Miniatury ze sprite'ów klienta do wiki i znaczników | T14 | `crates/world/src/sprites*` |
+| T42 | Miniatury z `appearances-*.dat` i `sprites-*.bmp.lzma` do wiki i znaczników (za flagą D7) | T14 | `crates/world/src/sprites*` |
+| G-2 | (gra) Pole widoczności (public/hidden) w schematach questów, NPC i obszarów | – | Oteryn-Game, przez koordynatora |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 
 Kolejność startu:
@@ -399,12 +405,14 @@ Pozostałe warunki:
 | D4 | Wygląd | Nowy projekt graficzny (T39) |
 | D5 | Gateway logowania | Zostaje w Go; portal zachowuje jego kontrakt |
 | D6 | Import danych | Konta, role, treści, wiki, portfel; reszta zaczyna od zera |
+| D7 | Publikacja sprite'ów i mapy gry na stronie (licencja `LICENSE-ASSETS.md`) | Wyłączona: wiki bez grafik, Atlas wyłączony |
+| D8 | Klasyfikacje questów publikowane w wiki | Tylko `OTERYN_AUTHORED_APPROXIMATION` |
 
 ## 12. Otwarte pytania
 
 | # | Pytanie | Do kogo | Blokuje |
 | --- | --- | --- | --- |
-| Q1 | Format danych świata, renderer mapy, sprite'y, flaga „ukryte”, rola CATALOG-V1 (§6.1) | Koordynator | T14, T40, T42 |
+| Q1 | Publikacja grafik i mapy (D7) oraz klasyfikacje questów (D8) | Właściciel | T40, T42 |
 | Q2 | Kierunek `native-admissions` (§5.3) | Koordynator, G-1 | T19 |
 | Q3 | Kontrakt `client/directory` i `world.characters` vs LCFA (§5.2) | Koordynator, G-1 | T36 |
 | Q4 | Sprzeczność locka gry dla GAME-CHAR-CMD-0 i N4 (§6) | Koordynator | T22 |
