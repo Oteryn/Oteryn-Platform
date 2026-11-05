@@ -1,0 +1,9 @@
+world-title = World statistics
+world-unavailable = Unavailable
+world-census = Observed census by level
+world-deaths = Daily deaths of characters observed in this world
+world-online = Online history
+world-note = Partial observations only. Missing days are unavailable. Profession, sex and privacy-safe online history are not available from the current statistics source. Deaths include only characters with a same-day world snapshot and public death permission; transfers within a day cannot be attributed precisely.
+world-level = Level
+world-day = UTC day
+world-count = Characters

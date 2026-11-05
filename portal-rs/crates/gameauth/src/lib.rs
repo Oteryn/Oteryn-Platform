@@ -3,3 +3,6 @@
 pub mod admission;
 pub mod evidence;
 pub mod runtime;
+
+pub mod keys;
+pub mod scopes;

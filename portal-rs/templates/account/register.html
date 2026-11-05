@@ -3,6 +3,9 @@
 <h1>{{ self.text("register-title") }}</h1>
 {% if !errors.is_empty() %}<p class="op-error" role="alert">{{ self.text("register-errors") }}</p>{% endif %}
 <form class="op-stack" method="post" action="/{{ lang }}/register">
+<input type="hidden" name="work_token" value="">
+<input type="hidden" name="work_nonce" value="">
+<script src="/register/abuse.js" defer></script>
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <div class="op-field"><label for="email">{{ self.text("register-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="email" required maxlength="254" value="{{ email }}" aria-describedby="email-error"{% if !self.error("email").is_empty() %} aria-invalid="true"{% endif %}><p class="op-error" id="email-error">{{ self.error("email") }}</p></div>
 <div class="op-field"><label for="password">{{ self.text("register-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="new-password" required aria-describedby="password-hint password-error"{% if !self.error("password").is_empty() %} aria-invalid="true"{% endif %}><p class="op-hint" id="password-hint">{{ self.text("register-password-hint") }}</p><p class="op-error" id="password-error">{{ self.error("password") }}</p></div>

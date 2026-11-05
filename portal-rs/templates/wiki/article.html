@@ -1,0 +1,2 @@
+{% extends "wiki/layout.html" %}
+{% block content %}<article class="op-stack"><h1>{{ value.title }}</h1><p>{{ value.summary }}</p><div class="op-table-wrap">{{ rendered|safe }}</div></article>{% endblock %}
