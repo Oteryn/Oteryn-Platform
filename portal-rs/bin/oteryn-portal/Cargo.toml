@@ -22,3 +22,5 @@ oteryn-gateway = { path = "../../crates/gateway" }
 oteryn-community = { path = "../../crates/community" }
 oteryn-internal-api = { path = "../../crates/internal-api" }
 oteryn-stats = { path = "../../crates/stats" }
+
+oteryn-admin = { path = "../../crates/admin" }
