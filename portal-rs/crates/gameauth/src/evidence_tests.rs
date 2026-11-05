@@ -99,9 +99,9 @@ fn trust(recovery: bool) -> Value {
     ])
 }
 async fn sources(db: &Database) -> TestResult {
-    // Fixture-only schemas for the separate account and public-trust owners.
-    sqlx::raw_sql("CREATE TABLE accounts (id uuid PRIMARY KEY, status text, native_security_generation bigint); CREATE TABLE native_game_signing_trust_profiles (id uuid PRIMARY KEY,issuer text,profile text,key_purpose text,profile_version bigint,issuer_revision bigint,revoked_at timestamptz); CREATE TABLE native_game_signing_trust_key_versions (profile_id uuid,key_id text,key_revision bigint,public_key text,trusted boolean);").execute(&db.pool).await?;
-    sqlx::query("INSERT INTO accounts VALUES ($1,'active',1)")
+    // Accounts come from the embedded migrations; public trust is fixture-only.
+    sqlx::raw_sql("CREATE TABLE native_game_signing_trust_profiles (id uuid PRIMARY KEY,issuer text,profile text,key_purpose text,profile_version bigint,issuer_revision bigint,revoked_at timestamptz); CREATE TABLE native_game_signing_trust_key_versions (profile_id uuid,key_id text,key_revision bigint,public_key text,trusted boolean);").execute(&db.pool).await?;
+    sqlx::query("INSERT INTO accounts (id, email, password_hash, status, locale, native_security_generation) VALUES ($1, 'evidence@example.test', 'fixture-not-a-hash', 'active', 'en', 1)")
         .bind(ACCOUNT.parse::<sqlx::types::Uuid>()?)
         .execute(&db.pool)
         .await?;
@@ -305,10 +305,17 @@ async fn db_evidence_failures_are_bounded_and_do_not_create_observations() -> Te
     let directory = Directory::new()?;
     let options = settings(&directory);
     let req = EvidenceRequest::decode(&account(FRESH_ACCOUNT))?;
+    // The accounts table is migrated; hide it to prove a missing source schema fails closed.
+    sqlx::query("ALTER TABLE accounts RENAME TO accounts_hidden")
+        .execute(&db.pool)
+        .await?;
     assert_eq!(
         observe(&db.pool, &options, &req).await,
         req.failure("unavailable")
     );
+    sqlx::query("ALTER TABLE accounts_hidden RENAME TO accounts")
+        .execute(&db.pool)
+        .await?;
     sources(&db).await?;
     let mut unsupported = account(FRESH_ACCOUNT);
     if let Value::Object(m) = &mut unsupported {
