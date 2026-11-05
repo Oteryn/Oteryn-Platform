@@ -2702,6 +2702,7 @@ dependencies = [
  "image",
  "lzma-rs",
  "oteryn-db",
+ "oteryn-playerdata",
  "oteryn-web",
  "oteryn-world",
  "serde",
