@@ -295,6 +295,14 @@ Zasady:
 - Ustawienia profilu (ukrycie, postać główna, komentarz, przełączniki) należą do portalu, bo to portal renderuje profile z projekcji. Gra nie musi nic zmieniać.
 - Każda mutacja przez granicę gry jest idempotentna, ma klucz operacji, outbox i rekoncyliację. Timeout nie oznacza sukcesu ani porażki.
 - Gateway logowania przechodzi z Go do Rusta (rola `gateway`, T52) z tym samym kontraktem bajt w bajt, więc klient gry nic nie zmienia. Obecny gateway w Go (`services/game-gateway`, ok. 900 linii, bezstanowy) działa do przełączenia. Portal serwuje `native-admissions` bajt w bajt obu wersjom.
+- Wymagania klienta wobec gatewaya (koordynator, Game main @7cdd69a7). Klient dekoduje odpowiedź ściśle: odrzuca nieznane i zduplikowane pola. Wymaga:
+  - zgodności trójki status HTTP + kod + `public_class` z tabelą błędów;
+  - `Content-Type: application/json`;
+  - echa `attempt_ref`;
+  - ALPN `oteryn-game/1`;
+  - żądania do 2048 B i odpowiedzi w limicie.
+  
+  `Retry-After` przy 429 to wyłącznie liczba całkowita sekund, najwyżej 30; format HTTP-date nie jest obsługiwany. Wybór świata i kanału zostaje po stronie portalu, w grancie. Przepisanie jest 1:1. Kolejka logowania i komunikat przerwy technicznej (np. `NATIVE_LOGIN_MAINTENANCE`) to późniejsze zmiany kontraktu z zadaniem dla gry. Do tego czasu nie wysyłamy nowych kodów.
 - Lock kontraktów w grze jest nieaktualny dla N4 i CharCmd; poprawi go G-1. Przed każdym zadaniem z §5.2–§5.3 koordynator potwierdza aktualny stan kontraktu.
 
 ### 6.1 Treści świata gry (wiki i Atlas)
@@ -468,7 +476,7 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T49 | Panel zespołu, gracze: wyszukiwanie, konto, sesje, postacie, wylogowanie wszędzie, notatki, reset MFA | T10b, T08 | `crates/admin/src/players*` |
 | T50 | Panel zespołu, handel: premium, korekta salda, rekoncyliacja płatności, zwroty | T10b, T26, T27, T31 | `crates/admin/src/commerce*` |
 | T51 | Panel zespołu, support i moderacja: zgłoszenia z notatkami wewnętrznymi, zgłoszenia graczy, kary, odwołania | T10b, T33c, T34b | `crates/admin/src/support*` |
-| T52 | Rola `gateway`: `POST /v1/login` (protokół 2, 11 kodów błędów, limiter), `/health`, `/ready`, `/version`; wektory golden z testów gatewaya Go; bez konfiguracji bazy | T00 | `crates/gateway`, `bin/oteryn-portal/src/gateway*` |
+| T52 | Rola `gateway`: `POST /v1/login` (protokół 2, 11 kodów błędów, limiter), `/health`, `/ready`, `/version`; wektory golden z testów gatewaya Go i fixtures klienta gry (`platform-client/src/native_login/tests.rs`, przez koordynatora), zgodność bajt w bajt; bez konfiguracji bazy | T00 | `crates/gateway`, `bin/oteryn-portal/src/gateway*` |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 | G-2 | (gra) Pole widoczności (public/hidden) w schematach questów, NPC i obszarów | – | Oteryn-Game, przez koordynatora |
 | G-3 | (gra) Komendy postaci: usunięcie i anulowanie, zmiana nazwy, płci i świata (rozszerzenie GAME-CHAR-CMD; płatne usługi rozlicza Platform) | – | Oteryn-Game, przez koordynatora |
@@ -515,7 +523,7 @@ Pozostałe warunki:
 | D2 | Nowy job CI dla `portal-rs/` | **Zgoda** (2026-11-05), PR #1685 |
 | D3 | Dostawca płatności | Provider testowy do czasu wyboru (np. Stripe) |
 | D4 | Wygląd | Nowy projekt graficzny (T39) |
-| D5 | Gateway logowania | **Zgoda** (2026-11-05): przepisany do Rusta jako rola `gateway` w tej samej binarce, osobny proces bez dostępu do bazy, kontrakt `POST /v1/login` bez zmian. Ewentualne rozszerzenia uzgadniamy z koordynatorem |
+| D5 | Gateway logowania | **Zgoda** (2026-11-05): przepisany do Rusta jako rola `gateway` w tej samej binarce, osobny proces bez dostępu do bazy, kontrakt `POST /v1/login` bez zmian. Koordynator potwierdził przepisanie 1:1; kolejka i kod przerwy technicznej dopiero później, jako zmiana kontraktu (§6) |
 | D6 | Import danych | Konta z bezpieczeństwem, role, treści, wiki, portfel, premium, support i kary, ustawienia profili (§9); sesje i tokeny w locie nie |
 | D7 | Publikacja sprite'ów i mapy gry na stronie (licencja `LICENSE-ASSETS.md`) | **Wolno** (2026-11-05): wiki z grafikami, Atlas włączony |
 | D8 | Klasyfikacje questów publikowane w wiki | **Wszystkie** (2026-11-05); wiki pokazuje klasyfikację przy queście |
