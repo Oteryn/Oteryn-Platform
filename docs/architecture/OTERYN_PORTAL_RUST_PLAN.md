@@ -486,7 +486,7 @@ Retencja: migawki dzienne przechowujemy bez limitu, a próbki co 5 minut przez 9
 | Rozszerzone dane publiczne | Zgony z zabójcą, gildie, domy, osiągnięcia, umiejętności, ekwipunek (G-4) | Zgony, gildie, domy CANDIDATE; reszta: dane są, projekcji brak |
 | Usunięcie konta | Co dzieje się z postaciami i projekcjami (G-6) | Brak |
 | Statystyki | Sesje online per postać (start, koniec) i dzienne liczniki zabitych potworów i bossów per świat (G-8); reszta z projekcji publicznych | Brak |
-| Bazar | Blokada i snapshot postaci, warunki wystawienia, depozyt i dostawa przedmiotów, blokada i przekazanie złota (G-7); przeniesienie postaci przez TransferCharacterOwnership z GAME-CHAR-CMD | Przeniesienie jest w kontrakcie komend; snapshot i depozyt brak |
+| Bazar | Blokada i snapshot postaci, warunki wystawienia, depozyt i dostawa przedmiotów, blokada i przekazanie złota (G-7); przeniesienie postaci przez TransferCharacterOwnership z GAME-CHAR-CMD | G-7 w kolejce gry po G-5 (koordynator, 2026-11-05). Jest: bank konta i gildii, depot z transferami, market, TransferCharacterOwnership, pole `tradeable` w danych przedmiotów (bez egzekwowania). Brak: blokady złota, blokady postaci, podpisanego snapshotu. Gra przyśle kontrakt wire do akceptacji Platform przed implementacją |
 | Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
 | Dane świata (wiki, Atlas) | Odczyt `content/**` z przypiętego commita gry (§6.1) | Dane są; flaga widoczności brak (G-2); publikacja grafik: zgoda (D7) |
 | Granty admission | FND-04B-AMEND-1 | Pole status: ACCEPTED (2026-11-05), ale treść ma otwarte decyzje właściciela. Traktujemy jako propozycję i **nie implementujemy na jej podstawie**, dopóki decyzje nie zapadną |
