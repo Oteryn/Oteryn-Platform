@@ -77,6 +77,8 @@ pub enum Error {
     IllegalTransition,
     #[error("requester cannot approve their own request")]
     SelfApproval,
+    #[error("admin control audit unavailable")]
+    Audit(#[from] crate::rbac::Error),
     #[error("admin control storage unavailable")]
     Storage(#[from] sqlx::Error),
 }
@@ -157,7 +159,7 @@ pub struct NewRequest {
     pub canonical_envelope: Vec<u8>,
     pub signature: Vec<u8>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 #[serde(deny_unknown_fields)]
 pub struct Approval {
     pub approval_id: Uuid,
@@ -376,6 +378,97 @@ impl Store {
         Ok(request)
     }
 
+    /// Request locks serialize evidence attachment against delivery and expiry.
+    pub(crate) async fn lock_control_request(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: Uuid,
+        preview: bool,
+    ) -> Result<Request, Error> {
+        let request: Request =
+            sqlx::query_as("SELECT * FROM admin_control_requests WHERE request_id=$1 FOR UPDATE")
+                .bind(id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .ok_or(Error::NotFound)?;
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&mut **tx)
+            .await?;
+        if request.issued_at > now
+            || request.expires_at <= now
+            || request.status
+                != if preview {
+                    Status::Succeeded
+                } else {
+                    Status::Queued
+                }
+        {
+            return Err(Error::IllegalTransition);
+        }
+        Ok(request)
+    }
+
+    pub(crate) async fn attach_control_evidence(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        request: &Request,
+        evidence: &super::controls::Evidence,
+    ) -> Result<(), Error> {
+        let replay: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM audit_log WHERE request_id=$1 AND action='admin.control.evidence.attached')")
+            .bind(request.request_id).fetch_one(&mut **tx).await?;
+        if replay {
+            return Err(Error::IllegalTransition);
+        }
+        crate::audit::AdminControlAuditWriter { enabled: true }
+            .append(
+                tx,
+                crate::audit::AdminControlAudit {
+                    context: crate::audit::AuditContext {
+                        actor: Some(request.actor),
+                        request_id: request.request_id,
+                    },
+                    admin_operation_id: request.admin_operation_id,
+                    operation: request.operation.clone(),
+                    risk_class: match request.risk_class {
+                        RiskClass::R0 => crate::audit::RiskClass::R0,
+                        RiskClass::R1 => crate::audit::RiskClass::R1,
+                        RiskClass::R2 => crate::audit::RiskClass::R2,
+                        RiskClass::R3 => crate::audit::RiskClass::R3,
+                        RiskClass::R4 => crate::audit::RiskClass::R4,
+                    },
+                    target: serde_json::to_value(&request.target)
+                        .map_err(|_| Error::InvalidInput)?,
+                    reason: evidence
+                        .reason
+                        .as_ref()
+                        .map(serde_json::to_value)
+                        .transpose()
+                        .map_err(|_| Error::InvalidInput)?,
+                    approvals: serde_json::to_value(&evidence.approvals)
+                        .map_err(|_| Error::InvalidInput)?,
+                    ip: None,
+                    user_agent: None,
+                    correlation_id: request.request_id,
+                    outcome: crate::audit::AuditOutcome::Accepted,
+                    game_ledger_id: None,
+                },
+            )
+            .await?;
+        crate::audit::append(
+            tx,
+            crate::audit::Entry {
+                context: crate::audit::AuditContext {
+                    actor: Some(request.actor),
+                    request_id: request.request_id,
+                },
+                action: "admin.control.evidence.attached",
+                target: &request.request_id.to_string(),
+                before: Value::Null,
+                after: serde_json::to_value(evidence).map_err(|_| Error::InvalidInput)?,
+            },
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Claims at most 32 once. Locks are held through delivery and audit commit;
     /// another channel skips locked rows, with no lease or silent re-enqueue.
     pub async fn claim_pending(
@@ -407,6 +500,8 @@ impl Store {
                 SELECT r.request_id FROM admin_control_requests r, admin_control_agents a
                 WHERE a.agent_id=$1 AND a.owner_epoch=$2 AND r.status='queued'
                 AND r.issued_at <= clock_timestamp() AND r.expires_at > clock_timestamp()
+                AND (r.risk_class NOT IN ('R3','R4') OR EXISTS (SELECT 1 FROM audit_log e
+                    WHERE e.request_id=r.request_id AND e.action='admin.control.evidence.attached'))
                 AND a.advertised_operations @> jsonb_build_array(jsonb_build_object(
                     'operation',r.operation,'operation_version',r.operation_version,'kind',r.kind))
                 AND ((r.target->>'world_id') IS NOT NULL OR (r.target->>'node_id') IS NOT NULL)

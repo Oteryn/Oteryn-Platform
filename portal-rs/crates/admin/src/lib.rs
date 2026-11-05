@@ -7,13 +7,11 @@ pub mod web;
 
 pub mod bazaar;
 pub mod commerce;
-#[path = "control/controls.rs"]
-pub mod controls;
+pub use control::controls;
 pub mod players;
 pub mod support;
 
 pub mod console;
 pub mod control;
 
-#[path = "control/http.rs"]
-pub mod control_http;
+pub use control::control_http;

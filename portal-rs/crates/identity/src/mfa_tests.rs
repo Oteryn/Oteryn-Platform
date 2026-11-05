@@ -354,3 +354,114 @@ async fn postgres_mfa_stale_generation_expiry_and_session_authorization()
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_staff_totp_verifier_consumes_only_fresh_totp()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let mfa = Mfa::new(db.pool.clone(), [7; 32]);
+    let id = account(&db.pool, "staff-step@example.test").await?;
+    let foreign = account(&db.pool, "foreign-step@example.test").await?;
+    let enrollment = mfa.enroll(id, "test password").await?.ok_or("enroll")?;
+    let confirmed = code(&enrollment.secret, 0)?;
+    let recovery = mfa
+        .confirm(id, "test password", &confirmed)
+        .await?
+        .ok_or("confirm")?;
+    assert!(!mfa.verify_totp(id, &confirmed).await?);
+    assert!(!mfa.verify_totp(id, &recovery[0]).await?);
+    assert!(!mfa.verify_totp(id, "bad").await?);
+    let fresh = code(&enrollment.secret, 30)?;
+    assert!(!mfa.verify_totp(foreign, &fresh).await?);
+    let (first, second) = tokio::join!(mfa.verify_totp(id, &fresh), mfa.verify_totp(id, &fresh));
+    assert_eq!(usize::from(first?) + usize::from(second?), 1);
+    assert!(!mfa.verify_totp(id, &fresh).await?);
+    let state = sqlx::query_as::<_, State>(
+        "SELECT secret,confirmed,last_step,generation FROM account_mfa_totp WHERE account_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&db.pool)
+    .await?;
+    let old = TOTP::new(Algorithm::SHA1, 6, 1, 30, mfa.decrypt(id, &state.secret)?)?
+        .generate(now()?.saturating_sub(120));
+    assert!(!mfa.verify_totp(id, &old).await?);
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+    assert!(!mfa.verify_totp(id, &fresh).await?);
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_grant_verifier_is_read_only_and_holds_revocation_lock()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let mfa = Mfa::new(db.pool.clone(), [7; 32]);
+    let id = account(&db.pool, "locked-grant@example.test").await?;
+    let codes = ready(&mfa, id).await?;
+    let challenge = mfa
+        .begin_login(&credentials("locked-grant@example.test", "test password"))
+        .await?
+        .ok_or("challenge")?;
+    let auth = mfa
+        .complete(&challenge.token, &codes[0], false)
+        .await?
+        .ok_or("grant")?;
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
+        .fetch_one(&db.pool)
+        .await?;
+    // Preserve the fixture's single-connection pool; a concurrent credential
+    // writer uses a separate connection to the same isolated schema.
+    use sqlx::Connection;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await?;
+    let mut connection =
+        sqlx::PgConnection::connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?).await?;
+    sqlx::query("SELECT set_config('search_path',$1,false)")
+        .bind(schema)
+        .execute(&mut connection)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(
+        mfa.satisfied_in_transaction(&mut tx, id, &auth.grant)
+            .await?
+    );
+    let mut revoke = connection.begin().await?;
+    sqlx::query("SET LOCAL lock_timeout='100ms'")
+        .execute(&mut *revoke)
+        .await?;
+    let blocked = sqlx::query("UPDATE accounts SET email='changed@example.test' WHERE id=$1")
+        .bind(id)
+        .execute(&mut *revoke)
+        .await;
+    assert!(
+        blocked
+            .as_ref()
+            .err()
+            .and_then(sqlx::Error::as_database_error)
+            .and_then(|e| e.code())
+            .is_some_and(|code| code == "55P03")
+    );
+    revoke.rollback().await?;
+    connection.close().await?;
+    tx.commit().await?;
+    let after: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(before, after);
+    assert!(mfa.satisfied(id, &auth.grant).await?);
+    sqlx::query("UPDATE accounts SET email='changed@example.test' WHERE id=$1")
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+    assert!(!mfa.satisfied(id, &auth.grant).await?);
+    db.close().await?;
+    Ok(())
+}
