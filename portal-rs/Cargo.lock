@@ -1905,7 +1905,9 @@ version = "0.1.0"
 name = "oteryn-portal"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "axum",
+ "fluent-bundle",
  "oteryn-admin",
  "oteryn-community",
  "oteryn-core",
@@ -1913,12 +1915,17 @@ dependencies = [
  "oteryn-downloads",
  "oteryn-gameauth",
  "oteryn-gateway",
+ "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-notify",
  "oteryn-payments",
  "oteryn-stats",
  "oteryn-web",
+ "serde",
+ "serde_urlencoded",
+ "sqlx",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
