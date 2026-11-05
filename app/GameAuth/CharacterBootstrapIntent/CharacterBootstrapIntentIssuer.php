@@ -11,7 +11,7 @@ final class CharacterBootstrapIntentIssuer
     private const AUTHORITY_ROW_ID = 1;
 
     /**
-     * @param  array{target_world_id:string,requested_name:string,profile_revision:string,ruleset_revision:string,content_revision:string,starter_template_revision:string}  $binding
+     * @param  array{target_world_id:string,requested_name:string,requested_sex?:mixed,profile_revision:string,ruleset_revision:string,content_revision:string,starter_template_revision:string}  $binding
      * @return array<string, int|string|array<string, string>>
      */
     public function issue(int $identityId, string $operationId, array $binding): array
@@ -22,6 +22,9 @@ final class CharacterBootstrapIntentIssuer
         CharacterBootstrapIntentContract::assertUuid($operationId, 'operation_id');
         CharacterBootstrapIntentContract::assertUuid($binding['target_world_id'], 'target_world_id');
         CharacterBootstrapIntentContract::assertRequestedName($binding['requested_name']);
+        $requestedSex = $binding['requested_sex'] ?? null;
+        CharacterBootstrapIntentContract::assertRequestedSex($requestedSex);
+        $binding['requested_sex'] = $requestedSex;
         foreach (['profile_revision', 'ruleset_revision', 'content_revision', 'starter_template_revision'] as $field) {
             CharacterBootstrapIntentContract::assertRevision($binding[$field], $field);
         }
@@ -75,6 +78,7 @@ final class CharacterBootstrapIntentIssuer
                 'account_id' => $identity->account_id,
                 'target_world_id' => $binding['target_world_id'],
                 'requested_name' => $binding['requested_name'],
+                'requested_sex' => $binding['requested_sex'],
                 'interpretation_context' => [
                     'profile_revision' => $binding['profile_revision'],
                     'ruleset_revision' => $binding['ruleset_revision'],
@@ -98,6 +102,7 @@ final class CharacterBootstrapIntentIssuer
                 'account_id' => $identity->account_id,
                 'target_world_id' => $binding['target_world_id'],
                 'requested_name' => $binding['requested_name'],
+                'requested_sex' => $binding['requested_sex'],
                 'profile_revision' => $binding['profile_revision'],
                 'ruleset_revision' => $binding['ruleset_revision'],
                 'content_revision' => $binding['content_revision'],
@@ -123,7 +128,7 @@ final class CharacterBootstrapIntentIssuer
     {
         $storedIdentityId = filter_var($row->identity_id ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         $stored = [];
-        foreach (['account_id', 'target_world_id', 'requested_name', 'profile_revision', 'ruleset_revision', 'content_revision', 'starter_template_revision'] as $field) {
+        foreach (['account_id', 'target_world_id', 'requested_name', 'requested_sex', 'profile_revision', 'ruleset_revision', 'content_revision', 'starter_template_revision'] as $field) {
             $value = $row->{$field} ?? null;
             if (! is_string($value)) {
                 throw new CharacterBootstrapIntentUnavailable('Stored Character bootstrap-intent binding is invalid.');
@@ -135,6 +140,7 @@ final class CharacterBootstrapIntentIssuer
             && hash_equals($stored['account_id'], $accountId)
             && hash_equals($stored['target_world_id'], $binding['target_world_id'])
             && hash_equals($stored['requested_name'], $binding['requested_name'])
+            && hash_equals($stored['requested_sex'], $binding['requested_sex'])
             && hash_equals($stored['profile_revision'], $binding['profile_revision'])
             && hash_equals($stored['ruleset_revision'], $binding['ruleset_revision'])
             && hash_equals($stored['content_revision'], $binding['content_revision'])

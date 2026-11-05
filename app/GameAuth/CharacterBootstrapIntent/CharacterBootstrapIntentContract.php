@@ -9,8 +9,8 @@ use stdClass;
 
 final class CharacterBootstrapIntentContract
 {
-    /** Version 2 (CHAR-NAME-1) adds the required requested_name; version 1 is no longer produced or read. */
-    public const CONTRACT_VERSION = 2;
+    /** Version 3 (APP-3) requires explicit creation sex; versions 1 and 2 are refused. */
+    public const CONTRACT_VERSION = 3;
 
     public const VARIANT = 'OPERATOR_CONTROL_PLANE_BOOTSTRAP';
 
@@ -66,6 +66,14 @@ final class CharacterBootstrapIntentContract
         }
     }
 
+    /** @phpstan-assert 'Female'|'Male' $value */
+    public static function assertRequestedSex(mixed $value): void
+    {
+        if (! in_array($value, ['Female', 'Male'], true)) {
+            throw new InvalidArgumentException('requested_sex must be exactly Female or Male.');
+        }
+    }
+
     /** @return array<string, int|string|array<string, string>> */
     public static function decodeStored(stdClass $row): array
     {
@@ -90,7 +98,7 @@ final class CharacterBootstrapIntentContract
 
         $expectedKeys = [
             'contract_version', 'variant', 'issuer_authority', 'issuer_decision_id', 'source_revision',
-            'operation_id', 'operation', 'account_id', 'target_world_id', 'requested_name',
+            'operation_id', 'operation', 'account_id', 'target_world_id', 'requested_name', 'requested_sex',
             'interpretation_context', 'issued_at_source', 'expires_at_source', 'audience',
         ];
         $keys = array_keys($payload);
@@ -107,6 +115,7 @@ final class CharacterBootstrapIntentContract
             || ! is_string($payload['account_id'] ?? null)
             || ! is_string($payload['target_world_id'] ?? null)
             || ! is_string($payload['requested_name'] ?? null)
+            || ! is_string($payload['requested_sex'] ?? null)
             || ! is_string($payload['source_revision'] ?? null)
             || ! is_string($payload['issued_at_source'] ?? null)
             || ! is_string($payload['expires_at_source'] ?? null)) {
@@ -131,6 +140,7 @@ final class CharacterBootstrapIntentContract
             self::assertUuid($payload['target_world_id'], 'target_world_id');
             self::assertAccountId($payload['account_id']);
             self::assertRequestedName($payload['requested_name']);
+            self::assertRequestedSex($payload['requested_sex']);
             foreach ($expectedContextKeys as $field) {
                 if (! is_string($context[$field] ?? null)) {
                     throw new InvalidArgumentException("{$field} is invalid.");
@@ -154,6 +164,7 @@ final class CharacterBootstrapIntentContract
             'account_id' => $payload['account_id'],
             'target_world_id' => $payload['target_world_id'],
             'requested_name' => $payload['requested_name'],
+            'requested_sex' => $payload['requested_sex'],
             'profile_revision' => $context['profile_revision'],
             'ruleset_revision' => $context['ruleset_revision'],
             'content_revision' => $context['content_revision'],

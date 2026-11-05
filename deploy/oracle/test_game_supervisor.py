@@ -97,5 +97,59 @@ class CustodyTests(unittest.TestCase):
         self.assertEqual(ops.call_args.args[1:3], ('assignment', 'reconcile'))
 
 
+    def marker(self, data):
+        (self.base / 'run').mkdir(exist_ok=True)
+        (self.base / 'run/step-wait-receipts').write_bytes(data)
+
+    def test_step_wait_marker_absent_keeps_default_off(self):
+        self.assertEqual(SUP.step_wait_receipts(), '0')
+
+    def test_step_wait_marker_enables_only_exact_one(self):
+        for data, expected in [(b'1', '1'), (b'1\n', '1'), (b'0', '0'), (b'11', '0'),
+                               (b'', '0'), (b' 1', '0'), (b'yes', '0'), (b'1' * 32, '0'),
+                               (b'1\n\n', '0'), (b'\n1', '0'), (b'1\ngarbage', '0'),
+                               (b'1\r\n', '0'), (b'1' + b'\n' * 4096, '0'),
+                               (b'1\n' + b'x' * (1 << 20), '0')]:
+            self.marker(data)
+            self.assertEqual(SUP.step_wait_receipts(), expected, data)
+
+    def test_step_wait_marker_refuses_symlink_and_directory(self):
+        target = self.root / 'elsewhere'
+        target.write_bytes(b'1')
+        (self.base / 'run').mkdir()
+        (self.base / 'run/step-wait-receipts').symlink_to(target)
+        self.assertEqual(SUP.step_wait_receipts(), '0')
+        (self.base / 'run/step-wait-receipts').unlink()
+        (self.base / 'run/step-wait-receipts').mkdir()
+        self.assertEqual(SUP.step_wait_receipts(), '0')
+
+    def launch_environment(self):
+        seen = {}
+
+        def record(args, **_):
+            if 'up' in args:
+                seen['value'] = SUP.os.environ.get(SUP.STEP_WAIT_ENV)
+            return self.result()
+        with patch.dict(SUP.os.environ, {SUP.STEP_WAIT_ENV: 'stale'}), \
+             patch.object(SUP, 'inspect', return_value=None), \
+             patch.object(SUP, 'invoke', side_effect=record), \
+             patch.object(SUP, 'wait_registration', return_value=False):
+            SUP.start(self.state('starting'), {})
+        return seen['value']
+
+    def test_new_incarnation_exports_marker_state(self):
+        self.assertEqual(self.launch_environment(), '0')
+        self.marker(b'1')
+        self.assertEqual(self.launch_environment(), '1')
+        self.marker(b'0')
+        self.assertEqual(self.launch_environment(), '0')
+
+    def test_compose_passes_switch_to_game_only_default_off(self):
+        text = Path(__file__).with_name('game-runtime.compose.yml').read_text()
+        game, ops = text.split('\n  ops:\n')
+        self.assertIn('      OTERYN_STEP_WAIT_RECEIPTS: ${OTERYN_STEP_WAIT_RECEIPTS:-0}\n', game)
+        self.assertIn('      io.oteryn.step-wait-receipts: ${OTERYN_STEP_WAIT_RECEIPTS:-0}\n', game)
+        self.assertNotIn('STEP_WAIT', ops)
+
 if __name__ == '__main__':
     unittest.main()

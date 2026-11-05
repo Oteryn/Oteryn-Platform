@@ -10,7 +10,7 @@
 
 The native login branch (protocol 2) issues one fresh-entry grant (`oteryn-pre-admission-v1`) for one Character on one channel. Two gaps remain.
 
-1. **Recovery.** When a client loses its game connection and its game-domain reconnect proof (FND-04B §9), Game accepts only a Platform `oteryn-reauth-recovery-v1` grant (FND-04B §17). Game already serves `ClientResume` with that grant on the Channel owner (FND-04B §20, #822). Platform already produces the matching evidence (`ReadRecoverySigningTrustV2`, `ReadRecoveryAccountSecurityV2`). However, Platform has no way to issue the grant. Ticket issuance consumes the OAuth token family, so today the only way back is a new browser sign-in, a new ticket and a fresh admission. That fresh admission is the wrong credential for an actor that still exists.
+1. **Recovery.** When a client loses its game connection and its game-domain reconnect proof (FND-04B §9), Game accepts only a Platform `oteryn-reauth-recovery-v1` grant (FND-04B §17). Game already serves protocol-oteryn `ClientResume` with that grant on the Channel owner (FND-04B §20, #822), and that is the resume target. Platform already produces the matching evidence (`ReadRecoverySigningTrustV2`, `ReadRecoveryAccountSecurityV2`). However, Platform has no way to issue the grant. Ticket issuance consumes the OAuth token family, so today the only way back is a new browser sign-in, a new ticket and a fresh admission. That fresh admission is the wrong credential for an actor that still exists.
 2. **Channels.** Route records, runtime status and selection are already keyed by `(WorldId, ChannelId)`. However, the preproduction store publishes exactly one route record (ADR 0044). The login response also does not say how the channel was chosen or which channels were eligible. A refused channel preference returns the same code as "nothing is ready".
 
 ADR 0009 rejected multichannel gameplay synchronization for the first release, but it required routing readiness for `channel_id`. ADR-0003 keeps route selection in the Platform Gateway and keeps the canonical `GameSessionId` in the game domain. ADR 0020 keeps one public Gateway hostname with `/v1/*` paths.
@@ -29,14 +29,14 @@ A committed protocol 3 fresh admission also returns a **recovery handle**. The h
 - held in client memory only;
 - bound to `AccountId`, `CharacterId`, `WorldId`, `native_security_generation`, a new per-account `native_play_generation` and an absolute expiry of 12 h (owner decision U20; configuration may only shorten it).
 
-By owner decision U21, a **device-bound** handle counts as Platform fresh authentication for the recovery profile, and Game records this as G2.
+By owner decision U21, a **device-bound** handle counts as Platform fresh authentication for the recovery profile, and Game records this as G2. The handle is created only in a committed fresh issuer transaction that redeemed a Game Login Ticket. The issuing device family must be live, and the handle expires at min(H, family absolute deadline). By owner decision Q1 (2026-10-16), a remembered-family rotation that issues a ticket without a browser sign-in counts as fresh while the family is live, under the same expiry rule.
 
 ### 2a. Device binding (required)
 
 The handle is bound to a device family, extending the existing remembered-device family (contract §19.15).
 
 - **Enrollment:**
-  - Every protocol 3 native login enrolls a family: a **session** family (in memory, lifetime H) or the opt-in **remembered** family.
+  - Every protocol 3 native login enrolls a family: a **session** family (in memory, lifetime H) or the **remembered** family. Session-class enrollment needs no "Remember this device" opt-in. Only the remembered class does.
   - The client generates an Ed25519 device key and proves it holds the key when it enrolls.
 - **Binding:** the Game Login Ticket records which family issued it. The handle binds that family and its key thumbprint.
 - **Using the handle:**
@@ -105,7 +105,7 @@ Contract §19.14 is the ready-to-dispatch Game packet. The release gate stays in
 - **Distinct endpoints (M1).** One route record per `(WorldId, ChannelId)`, as in contract §7.3. Two current records never share `(host, port)`.
 - **Response.** The protocol 3 login response adds `channel_selection` (`requested` or `automatic`) and `channels`, the eligible candidates as `{channel_id, key, label}` for display only.
 - **First multichannel World (owner decision U19).** Three channels with the keys `antica`, `obscura` and `pythera`, and the labels `Antica`, `Obscura` and `Pythera`. The label is the capitalised key, computed when the response is built, so a later label column needs no protocol change.
-- **Staging.** The three channels are added to the staging World as an explicit deploy step (contract §19.11 step S). Each gets its own route record on the NAS preproduction store, published by the native route command. Operators supply certificates and keys. `oteryn-staging-1` keeps its key and route.
+- **Staging.** The three channels are added to the staging World as an explicit deploy step (contract §19.11 step S). Each gets its own route record on the oteryn-vps preproduction store, published by the native route command. Operators supply certificates and keys. `oteryn-staging-1` keeps its key and route.
 - **Refusal.** A requested channel that is not eligible, while another is, returns `NATIVE_LOGIN_CHANNEL_UNAVAILABLE` with the eligible list. The ticket is unused, so the client retries with a new `attempt_ref`.
 - **Selection rule.** Unchanged: requested if eligible, otherwise the lowest canonical eligible `channel_id`.
 - **Preproduction store.** ADR 0044's one-record fence widens to every Channel of the one configured World. This replaces only ADR 0044's "exactly one route record" clause. Everything else in ADR 0044 stays: one World, the code allowlist and the audit.
@@ -131,7 +131,7 @@ Contract §19.14 is the ready-to-dispatch Game packet. The release gate stays in
 ## Game dependencies (not changed by this ADR)
 
 - **G1 (Game-node contract change, built now):** the recovery locator producer. Packet `OTV2-20261012-recovery-locator-producer` is in contract §19.14.
-- **G2 (Game profile clarification):** the recovery profile §1 phrase "Platform freshly authenticated AccountId" covers a Platform recovery handle (owner decision U21). The handle is created by a fresh sign-in in the same play session and checked against the current security generation at issuance.
+- **G2 (Game profile clarification):** the recovery profile §1 phrase "Platform freshly authenticated AccountId" covers a Platform recovery handle (owner decision U21). The handle is created only in a committed fresh issuer transaction that redeemed a Game Login Ticket, with the issuing device family live, and it expires at min(H, family absolute deadline). It is checked against the current security generation at issuance. A remembered-family rotation that issues a ticket counts as fresh under the same conditions (owner decision Q1, 2026-10-16). Game consumes only the Platform recovery grant and never reads a handle or a device key.
 - **Client:** protocol 3 support in the Game client (`crates/platform-client`). This is not a node change.
 
 ## Rollout and rollback
