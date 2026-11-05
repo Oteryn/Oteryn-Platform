@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ labels[0] }} · Oteryn</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/surface.css">
+</head>
+<body class="op-theme">
+<a class="skip-link" href="#main">{{ labels[1] }}</a>
+<header><nav aria-label="{{ labels[26] }}"><a href="/pl/wiki/calculators" lang="pl" hreflang="pl">Polski</a><a href="/en/wiki/calculators" lang="en" hreflang="en">English</a></nav></header>
+<main id="main" class="op-stack" tabindex="-1">
+<h1>{{ labels[0] }}</h1><p>{{ labels[23] }}</p>
+{% if !error.is_empty() %}<p role="alert">{{ error }}</p>{% endif %}
+{% if !result.is_empty() %}
+<section class="op-panel op-stack" aria-live="polite"><h2>{{ result_label }}</h2>
+<output>{% for value in result %}{{ value }}{% if !loop.last %}; {% endif %}{% endfor %}</output>
+{% if !version.is_empty() %}<p>{{ labels[22] }}: {{ version }}</p>{% endif %}</section>
+{% endif %}
+<section class="op-panel op-stack"><h2>{{ labels[2] }}</h2>
+<form method="get" class="op-stack">
+<input type="hidden" name="calculator" value="experience">
+<label for="experience-current">{{ labels[3] }}</label><input class="op-input" id="experience-current" name="current" type="number" min="0" max="9223372036854775807" step="1" required value="{{ input.current.as_deref().unwrap_or_default() }}">
+<label for="experience-target">{{ labels[4] }}</label><input class="op-input" id="experience-target" name="target" type="number" min="1" max="2000" step="1" required value="{{ input.target.as_deref().unwrap_or_default() }}">
+<button class="op-button" type="submit">{{ labels[5] }}</button></form></section>
+<section class="op-panel op-stack"><h2>{{ labels[6] }}</h2>
+<form method="get" class="op-stack">
+<input type="hidden" name="calculator" value="stamina">
+<label for="stamina-current">{{ labels[7] }}</label><input class="op-input" id="stamina-current" name="current" type="number" min="0" max="2520" step="1" required value="{{ input.current.as_deref().unwrap_or_default() }}">
+<label for="stamina-offline">{{ labels[8] }}</label><input class="op-input" id="stamina-offline" name="offline" type="number" min="0" step="1" required value="{{ input.offline.as_deref().unwrap_or_default() }}">
+<button class="op-button" type="submit">{{ labels[5] }}</button></form></section>
+<section class="op-panel op-stack"><h2>{{ labels[9] }}</h2><p id="training-help">{{ labels[24] }}</p>
+<form method="get" class="op-stack" aria-describedby="training-help">
+<input type="hidden" name="calculator" value="training">
+<label for="training-remaining">{{ labels[10] }}</label><input class="op-input" id="training-remaining" name="remaining" type="number" min="0" max="9223372036854775807" step="1" required value="{{ input.remaining.as_deref().unwrap_or_default() }}">
+<label for="training-family">{{ labels[11] }}</label><input class="op-input" id="training-family" name="family" type="number" min="0" max="6" step="1" required value="{{ input.family.as_deref().unwrap_or_default() }}">
+<label for="training-dummy">{{ labels[12] }}</label><input class="op-input" id="training-dummy" name="dummy" maxlength="512" required value="{{ input.dummy.as_deref().unwrap_or_default() }}">
+<button class="op-button" type="submit">{{ labels[5] }}</button></form></section>
+<section class="op-panel op-stack"><h2>{{ labels[13] }}</h2><p id="loot-help">{{ labels[25] }}</p>
+<form method="get" class="op-stack" aria-describedby="loot-help">
+<input type="hidden" name="calculator" value="loot">
+<label for="loot-total">{{ labels[14] }}</label><input class="op-input" id="loot-total" name="total" type="number" min="0" max="9223372036854775807" step="1" required value="{{ input.total.as_deref().unwrap_or_default() }}">
+<label for="loot-members">{{ labels[15] }}</label><input class="op-input" id="loot-members" name="members" type="number" min="1" max="1000" step="1" required value="{{ input.members.as_deref().unwrap_or_default() }}">
+<button class="op-button" type="submit">{{ labels[5] }}</button></form></section>
+</main></body></html>
