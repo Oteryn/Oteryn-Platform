@@ -1,0 +1,9 @@
+{% extends "wiki/entities_layout.html" %}
+{% block content %}
+<p><a class="op-button op-button--secondary" href="/{{ lang }}/wiki/{{ kind }}">{{ self.t(&kind) }}</a></p>
+<h1>{{ title }}</h1><p>{{ self.t("version") }}: {{ version }}</p><p>{{ self.t("key") }}: {{ key }}</p>
+{% if !classification.is_empty() %}<p>{{ self.t("classification") }}: {{ classification }}</p>{% endif %}
+<h2>{{ self.t("facts") }}</h2><dl>{% for (label, value) in facts %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+{% if facts.is_empty() %}<p>{{ self.t("unknown") }}</p>{% endif %}
+<h2>{{ self.t("editorial") }}</h2>{% if editorial.is_empty() %}<p>{{ self.t("no-editorial") }}</p>{% else %}<div class="op-prose">{{ editorial|safe }}</div>{% endif %}
+{% endblock %}
