@@ -192,6 +192,7 @@ pub fn build(
         || definitions.len() > 100_000
         || spawns.len() > 100_000
         || progress.len() > 100_000
+        || pace.len() > 100_000
     {
         return Err(Error::BadInput);
     }
@@ -202,6 +203,17 @@ pub fn build(
         {
             return Err(Error::Unavailable);
         }
+    }
+    let mut spawn_index: BTreeMap<&str, Vec<&Spawn>> = BTreeMap::new();
+    for spawn in spawns {
+        spawn_index.entry(&spawn.creature).or_default().push(spawn);
+    }
+    let mut pace_index: BTreeMap<&str, Vec<&Pace>> = BTreeMap::new();
+    for observation in pace {
+        pace_index
+            .entry(&observation.creature)
+            .or_default()
+            .push(observation);
     }
     let mut seen = BTreeSet::new();
     let mut entries = Vec::new();
@@ -271,7 +283,7 @@ pub fn build(
             ProgressState::NotStarted
         };
         let mut locations = Vec::new();
-        for spawn in spawns.iter().filter(|s| s.creature == d.key) {
+        for spawn in spawn_index.get(d.key.as_str()).into_iter().flatten() {
             let chance = match (&spawn.policy, d.points) {
                 (SpawnPolicy::Ordinary, Points::Charms(_)) => None,
                 (SpawnPolicy::FixedAtReset { chance }, Points::BossStages(_))
@@ -293,9 +305,11 @@ pub fn build(
         if locations.is_empty() {
             continue;
         }
-        let rates: Vec<_> = pace
-            .iter()
-            .filter(|p| p.creature == d.key && p.min_level <= level && level <= p.max_level)
+        let rates: Vec<_> = pace_index
+            .get(d.key.as_str())
+            .into_iter()
+            .flatten()
+            .filter(|p| p.min_level <= level && level <= p.max_level)
             .collect();
         let estimated_hours = if matches!(d.points, Points::Charms(_))
             && state != ProgressState::Completed
