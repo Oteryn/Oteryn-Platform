@@ -2341,6 +2341,7 @@ dependencies = [
  "askama",
  "axum",
  "fluent-bundle",
+ "oteryn-db",
  "oteryn-web",
  "serde",
  "serde_json",
