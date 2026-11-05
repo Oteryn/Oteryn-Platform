@@ -7,3 +7,6 @@ mod repository;
 pub use domain::*;
 pub use ports::*;
 pub use repository::Bazaar;
+
+mod search;
+pub use search::*;
