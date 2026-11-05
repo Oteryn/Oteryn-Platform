@@ -2,6 +2,16 @@ Status: PROPOSED by Platform, pending acceptance by the game owner (coordinator)
 
 # G-10 private game journal: items and economic history, v1 proposal
 
+## Revision 2 (review of 2026-11-05)
+
+- Re-pinned all Game evidence to main `2253b997`.
+- Clarified reuse is aligned with the proposed Store wire, pending acceptance.
+- Identified the journal emitter/outbox and durable logout event as NEW game-side work; the existing outbox is Store-only.
+- Replaced the ownership counter with the five-field §4.3 transfer-receipt cut throughout schemas, fences and examples.
+- Limited v1 BANK kinds to DEPOSIT, WITHDRAW and TRANSFER; deferred fee, market and held kinds to future versions.
+- Unified the gold ceiling at `999999999999`.
+- Marked `house_key` unverified; retained town/depot mappings backed by the cited game paths.
+
 ## Purpose, authority and scope
 
 This is a negotiation draft for G-10 in the gate table and §10 of
@@ -45,19 +55,19 @@ Read together with these Platform contracts:
   separation of commercial truth from game effects, at-least-once delivery and
   no inferred success from timeout. It deliberately defers exact transport.
 
-Game references below were inspected read-only at **857f15f376907c592bb28d854fccff18a15cdf87**
-in `Oteryn/Oteryn-Game`, outside the Platform checkout. Paths are relative to that
-repository and pinned to that revision, not claims about future main:
+Game references below are pinned to `Oteryn/Oteryn-Game` main **2253b997**.
+Paths are relative to that repository; this revision applies the game owner’s
+review and does not claim a fresh code inspection:
 
 | Game path | Fact relied on / mapping constraint |
 | --- | --- |
 | `docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md` | Existing command contract and ownership-transfer boundary; reuse `TransferCharacterOwnership`, not a new transfer command |
 | `crates/gameplay/native-admission-source/src/character_commands.rs` | `ListPendingCharacterCommandsV1`, `ReadCharacterCommandIntentV1`, `PublishCharacterCommandReceiptV1`, purpose-specific mTLS, `Key`, canonical UUIDv7 and decimal counters; Game initiates HTTP |
-| `crates/gameplay/durability/src/durability/store/outbox.rs` | `DeliveryReceipt`, `list_unacknowledged_store_receipts`, `mark_store_receipt_acknowledged`: durable outbox publication followed by acknowledgement |
+| `crates/gameplay/durability/src/durability/store/outbox.rs` | `DeliveryReceipt`, `list_unacknowledged_store_receipts`, `mark_store_receipt_acknowledged`: Store-only durable outbox publication followed by acknowledgement; no journal/ingest outbox exists |
 | `crates/gameplay/economy/src/bank.rs`; `apps/game-server/migrations/0071_account_bank.sql` | Account/world bank, not character balance; `operation_occurrence_id`, `event_id`, chained entries, typed refusals; only committed operations create audit events; existing audit retention P30D |
-| `crates/gameplay/economy/src/market.rs` | `TypedDefinitionRef`, offer identity, Buy/Sell, Filled/Cancelled/Expired, CreditHeld, amount bound 64,000 and gold total bound 999,999,999,999 |
+| `crates/gameplay/economy/src/market.rs` | `TypedDefinitionRef`, offer identity, Buy/Sell, Filled/Cancelled/Expired, CreditHeld, amount bound 64,000 and gold total bound 999999999999 |
 | `crates/gameplay/economy/src/player_trade.rs`; `apps/game-server/migrations/0147_player_trade.sql` | Atomic two-leaf exchange; `occurrence_id`, `transaction_id`, `event_id` and participant receipts exist; session/command proof and before-state blobs must stay in Game |
-| `crates/gameplay/items/src/depot.rs`; `crates/gameplay/durability/src/durability/character_depot.rs` | Town-partitioned custody, u16 town_id (including zero), 17 boxes and 15,000 hard entries; channel does not partition a depot |
+| `crates/gameplay/items/src/depot.rs`; `crates/gameplay/durability/src/durability/character_depot.rs` | Source reference for `depots`, `town_id` and `depot_box`: town-partitioned custody, u16 town_id (including zero), 17 boxes and 15,000 hard entries; channel does not partition a depot |
 | `apps/game-server/migrations/0076_character_inbox.sql` | Inbox custody and delivery evidence, rather than portal-created mail semantics |
 | `apps/game-server/migrations/0025_house_item_custody.sql` | House item custody must be mapped explicitly, not inferred from house access rights |
 | `crates/gameplay/domain/src/domain/item_definition.rs`; `apps/game-server/migrations/0010_item_mint_ground.sql` | Game-owned typed definition reference, rather than display name or client sprite as item identity |
@@ -76,7 +86,8 @@ complete export. No shared database access or new broker is proposed.
 | Platform → Game command | **No new G-10 gameplay command.** Existing character-command pull/read/receipt exchange remains unchanged | `TransferCharacterOwnership` changes ownership under its own accepted contract; G-10 observes/fences that result |
 | Platform → Game replay instruction | Cursor response on the Game-initiated connection | Requests resend after a watermark; cannot mutate gameplay or force a new logout |
 
-All network calls originate in Game, as in the existing command and Store wires.
+All network calls originate in Game, as in the existing command wire and aligned
+with the proposed Store wire.
 No browser calls an internal route. Normal portal reads use Platform storage and
 never synchronously call Game or read Game SQL. These proposed routes use the
 existing internal listener with TLS 1.3 mutual authentication and server identity
@@ -89,7 +100,7 @@ headers for TLS identity; use the existing trusted terminator's verified values
 (`SSL_CLIENT_VERIFY=SUCCESS`, `SSL_PROTOCOL=TLSv1.3`, exact constant-time match of
 `SSL_CLIENT_S_DN`, at most 128 printable ASCII bytes).
 
-Signing follows the concrete wire convention: mTLS authenticates the exchange;
+Aligned with the proposed Store wire, signing follows this proposed convention: mTLS authenticates the exchange;
 SHA-256 binds canonical stored bytes and **is not a signature**. No detached HMAC,
 JWT or signature field is invented. If a future accepted shared transport mandates
 signed envelopes, adopt it through a jointly versioned revision before activation;
@@ -98,7 +109,7 @@ Purpose identity and persisted stream/revision fences prevent cross-purpose and
 old-generation replay; business deduplication alone is insufficient.
 
 Both routes are POST with `Content-Type: application/json`; all responses carry
-`Cache-Control: no-store`. Reuse Store §2 canonical encoding: one UTF-8 object,
+`Cache-Control: no-store`. Aligned with the proposed Store wire §2, use this canonical encoding: one UTF-8 object,
 no BOM/newline/insignificant whitespace, no duplicate keys, no escapes/backslash,
 exact listed member order and no additional members at any depth. Arrays preserve
 source order. Integers are JSON integers only where specified; booleans are JSON
@@ -127,12 +138,12 @@ order. Closed enums are case-sensitive. Lengths are UTF-8 bytes; ranges inclusiv
 | `id` | Non-nil canonical lowercase UUIDv7, as existing command wire; 36 bytes |
 | `u64` | Decimal string `[1-9][0-9]{0,19}`, numeric value ≤18,446,744,073,709,551,615 |
 | `cursor` | `"0"` or `u64` |
-| `gold` | Decimal string `0` or nonzero decimal without leading zeros; ≤9,000,000,000,000,000; unit: one game gold piece, never Coins or fiat |
-| `positive_gold` | `gold` >0 and ≤999,999,999,999 |
+| `gold` | Decimal string `0` or nonzero decimal without leading zeros; ≤999999999999; unit: one game gold piece, never Coins or fiat |
+| `positive_gold` | `gold` >0 and ≤999999999999 |
 | `time` | `u64` Unix seconds UTC; source converts existing finer-grained timestamps by flooring; not ordering authority |
 | `key` | ASCII `[A-Za-z0-9._:/-]{1,128}` |
 | `definition_ref` | ASCII `[A-Za-z0-9._:/-]{1,512}`, exact source definition key/revision; a nonrepresentable source reference blocks export pending an accepted version |
-| `house_key` | ASCII `oteryn:content.house.` followed by one or more `[a-z0-9_]`, total ≤512 bytes; revision-free, scoped by envelope world_id |
+| `house_key` | **unverified (no game code reference yet)**; proposed ASCII `oteryn:content.house.` followed by one or more `[a-z0-9_]`, total ≤512 bytes; revision-free, scoped by envelope world_id |
 | `hex64` | Exactly 64 lowercase hexadecimal SHA-256 characters |
 | `int[a,b]` | JSON integer in inclusive bounds |
 | `family` | `ITEMS`, `BANK`, `MARKET`, `PLAYER_TRADE` |
@@ -154,9 +165,12 @@ Publish envelope:
 | `account_id` | `id`; recipient account, never inferred by joining a historical character name |
 | `world_id` | `id` |
 | `character_id` | `id` for ITEMS/MARKET/PLAYER_TRADE; `null` for BANK |
-| `ownership_epoch` | `u64` for character families; `null` for BANK; proposed monotone game-owned ownership incarnation, not runtime-scope generation |
+| `character_revision` | `u64` for character families; `null` for BANK; Character Authority revision bound to the accepted transfer-receipt cut |
+| `from_projection_revision` | `u64` for character families; `null` for BANK; prior-owner projection revision from the §4.3 transfer receipt |
+| `to_projection_revision` | `u64` for character families; `null` for BANK; new-owner projection revision from the same receipt |
+| `projection_epoch` | `u64` for character families; `null` for BANK; projection epoch from the same receipt |
 | `family` | `family` |
-| `recovery_generation` | `u64`, existing restore-reconciliation generation semantics |
+| `recovery_generation` | `u64`, existing restore-reconciliation generation semantics; for character families, must match the same §4.3 receipt cut |
 | `source_revision` | `u64`, contiguous per stream defined below |
 | `record_id` | `id`, fixed durably before first publication |
 | `occurred_at` | `time`, durable logout time for ITEMS, committed economic event time otherwise |
@@ -165,11 +179,29 @@ Publish envelope:
 | `payload` | Exactly the matching object below |
 
 Stream key is `(source_authority, account_id, world_id, character_id,
-ownership_epoch, family, recovery_generation)`. BANK is account/world scoped and
-must not be copied once per character. Character-family history is confined to
-one ownership incarnation. Proposed `ownership_epoch` requires game-owner
-agreement and a durable mapping to authoritative ownership transitions; existing
-`character_revision` alone cannot order all economic/item changes.
+character_revision, from_projection_revision, to_projection_revision,
+projection_epoch, family, recovery_generation)`. BANK is account/world scoped and
+must not be copied once per character. Character-family records bind to the
+transfer-receipt cut in §4.3 of
+`docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md` at **2253b997**:
+`character_revision`, `from_projection_revision`, `to_projection_revision`,
+`projection_epoch`, and `recovery_generation`. Validate these together against
+authoritative ownership evidence; none alone orders economic/item changes.
+`source_revision` orders records within that cut. Initial ownership without a
+transfer receipt requires an accepted baseline proving the equivalent cut; never
+invent receipt values. Unknown cuts deny ingestion and serving.
+
+## Game-side deliverables
+
+- **NEW game-side work:** add the durable logout event; the game owner will add it.
+  Its reproducible committed cut must cover every eligible custody root.
+- **NEW game-side work:** implement the journal/ingest emitter and durable outbox,
+  fixed export bytes/IDs, publication, ACK handling, cursor reconciliation and replay.
+  Game currently has no journal/ingest outbox. The cited `store/outbox.rs` is
+  Store-only and supplies no existing journal publisher.
+- **NEW game-side work:** bind exports and serving fences to the §4.3 transfer
+  receipts, implement initial/restore baselines and qualify completeness/privacy.
+  All exporter/outbox requirements below describe these new deliverables.
 
 ## Logout snapshot records
 
@@ -237,7 +269,7 @@ labels, enchantment secrets and arbitrary serialized attributes are not exported
 observed rows. Digest is SHA-256 of the concatenation of exact canonical
 ITEMS_PAGE **payload object** bytes in page_index order, with no separator;
 zero pages hashes the empty byte string. The authenticated envelope binds this
-digest to account, character, ownership epoch and source generation.
+digest to account, character, transfer-receipt cut and source generation.
 All BEGIN/PAGE/END envelopes must agree on snapshot ID, stream key, occurred_at
 and coverage_start_at. Only validated END atomically swaps T76's complete
 snapshot pointer. BEGIN or PAGE ACK means durable staging, never complete visibility.
@@ -264,14 +296,15 @@ by instance ID and contain no duplicate instance in one list.
 | `kind` | `DEPOSIT`, `WITHDRAW`, `TRANSFER` |
 | `direction` | `CREDIT` or `DEBIT`; DEPOSIT only CREDIT, WITHDRAW only DEBIT |
 | `amount` | `positive_gold`; DEPOSIT ≤20,000,000; WITHDRAW ≤1,009,999 |
-| `balance_before` | `gold`, ≤999,999,999,999 (existing account-bank ceiling) |
-| `balance_after` | `gold`, ≤999,999,999,999; exactly before plus/minus amount without overflow/underflow |
+| `balance_before` | `gold`, ≤999999999999 (existing account-bank ceiling) |
+| `balance_after` | `gold`, ≤999999999999; exactly before plus/minus amount without overflow/underflow |
 
 BANK shows this account's entry, not a character asset inherited by a buyer. Its
-ledger coverage is explicitly bounded by coverage_start_at; no preceding entry
-inside that interval may be absent. Existing additional debit causes, fees or
-held credits must not be mislabelled as DEPOSIT/WITHDRAW/TRANSFER: supporting
-those needs an accepted mapping extension before a complete-bank-history claim.
+ledger coverage is explicitly bounded by coverage_start_at; no supported entry
+inside that interval may be absent. Unsupported causes do not break the native
+previous_entry_id chain and must not be represented as a new ledger origin. Existing additional debit causes, fees or
+held credits must not be mislabelled as DEPOSIT/WITHDRAW/TRANSFER. V1 coverage
+claims cover only these three supported kinds, never all bank-affecting causes.
 
 `MARKET_EVENT` payload:
 
@@ -287,7 +320,7 @@ those needs an accepted mapping extension before a complete-bank-history claim.
 | `definition_revision_ref` | `definition_ref` |
 | `amount` | `int[1,64000]`, original offer units |
 | `remaining` | `int[0,64000]`, ≤amount; FILLED and CREDIT_HELD/FILLED require zero |
-| `piece_price` | `positive_gold`; amount × piece_price ≤999,999,999,999 |
+| `piece_price` | `positive_gold`; amount × piece_price ≤999999999999 |
 | `fee_gold` | `gold`, ≤2,500,000; fee actually recorded for this event, zero if none |
 | `held_credit_gold` | `gold`; zero unless CREDIT_HELD |
 
@@ -306,12 +339,19 @@ whether later supported trade shapes require a new version. Given and received
 IDs differ; each quantity is additionally ≤100, the pinned leaf-exchange bound. One committed occurrence yields one owner-scoped view for each side;
 not two swaps. No offered/cancelled UI negotiation is included.
 
+## Future versions
+
+BANK fee, market-settlement and held-credit kinds are outside v1. They require
+an accepted versioned mapping before export or broader bank-history claims.
+The separate v1 MARKET family does not add these kinds to BANK.
+
 ## Cursor, ordering, replay and failure
 
 `ReadGameJournalCursorV1` request has the ordered members `contract_version: 1`,
 `operation: "ReadGameJournalCursorV1"`, `source_authority: key`, `account_id: id`,
-`world_id: id`, `character_id: id|null`, `ownership_epoch: u64|null`, `family:
-family`, `recovery_generation: u64`. Null rules and stream authorization are exactly
+`world_id: id`, `character_id: id|null`, `character_revision: u64|null`,
+`from_projection_revision: u64|null`, `to_projection_revision: u64|null`,
+`projection_epoch: u64|null`, `family: family`, `recovery_generation: u64`. Null rules and stream authorization are exactly
 as on publish. An unknown or unregistered stream returns 409; only a proven
 registered stream with no stored records may return cursor zero. Response is `contract_version: 1`, `after_source_revision: cursor`,
 `last_record_id: id|null` (null iff cursor is zero). A cursor is a storage ACK,
@@ -393,9 +433,9 @@ current authenticated access to the account, independently of character ownershi
 Use private no-store responses; no browser-supplied AccountId can select a tenant.
 Internal ingest authentication does not authorize a portal user.
 
-A committed `TransferCharacterOwnership` must fence the prior ownership epoch
+A committed `TransferCharacterOwnership` must fence the prior transfer-receipt cut
 before it can serve again. Seller loses character-family access; buyer receives
-only a new complete snapshot and history from the new epoch, never seller's
+only a new complete snapshot and history from the new receipt cut, never seller's
 pre-sale history. Delayed seller records are rejected/fenced, not rebound to buyer.
 Bank history remains with the original account. During pending/ambiguous transfer,
 ownership evidence outage, house eligibility uncertainty or unapplied privacy fence,
@@ -466,24 +506,25 @@ not transmitted. UUID values illustrate shape only and confer no authority.
 Valid cursor request (known account/world bank stream):
 
 ```json
-{"contract_version":1,"operation":"ReadGameJournalCursorV1","source_authority":"OTERYN_GAME_JOURNAL","account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","character_id":null,"ownership_epoch":null,"family":"BANK","recovery_generation":"1"}
+{"contract_version":1,"operation":"ReadGameJournalCursorV1","source_authority":"OTERYN_GAME_JOURNAL","account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","character_id":null,"character_revision":null,"from_projection_revision":null,"to_projection_revision":null,"projection_epoch":null,"family":"BANK","recovery_generation":"1"}
 ```
 
-Valid empty snapshot pair (stream cursor initially zero, trusted owner epoch 1;
-equipment/inbox included, no eligible depots/houses). END proves empty, not BEGIN:
+Valid empty snapshot pair (stream cursor initially zero, trusted receipt cut 1;
+equipment/inbox included, no eligible depots/houses; synthetic cut fields require
+authoritative receipt/baseline evidence). END proves empty, not BEGIN:
 
 ```json
-{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"OTERYN_GAME_JOURNAL","account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","character_id":"019a0000-0000-7000-8000-000000000003","ownership_epoch":"1","family":"ITEMS","recovery_generation":"1","source_revision":"1","record_id":"019a0000-0000-7000-8000-000000000004","occurred_at":"1793836800","coverage_start_at":"1793836800","kind":"ITEMS_BEGIN","payload":{"snapshot_id":"019a0000-0000-7000-8000-000000000005","character_revision":"1","page_count":0,"item_count":0,"depots":[],"houses":[]}}
+{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"OTERYN_GAME_JOURNAL","account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","character_id":"019a0000-0000-7000-8000-000000000003","character_revision":"1","from_projection_revision":"1","to_projection_revision":"1","projection_epoch":"1","family":"ITEMS","recovery_generation":"1","source_revision":"1","record_id":"019a0000-0000-7000-8000-000000000004","occurred_at":"1793836800","coverage_start_at":"1793836800","kind":"ITEMS_BEGIN","payload":{"snapshot_id":"019a0000-0000-7000-8000-000000000005","character_revision":"1","page_count":0,"item_count":0,"depots":[],"houses":[]}}
 ```
 
 ```json
-{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"OTERYN_GAME_JOURNAL","account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","character_id":"019a0000-0000-7000-8000-000000000003","ownership_epoch":"1","family":"ITEMS","recovery_generation":"1","source_revision":"2","record_id":"019a0000-0000-7000-8000-000000000006","occurred_at":"1793836800","coverage_start_at":"1793836800","kind":"ITEMS_END","payload":{"snapshot_id":"019a0000-0000-7000-8000-000000000005","page_count":0,"item_count":0,"pages_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}
+{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"OTERYN_GAME_JOURNAL","account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","character_id":"019a0000-0000-7000-8000-000000000003","character_revision":"1","from_projection_revision":"1","to_projection_revision":"1","projection_epoch":"1","family":"ITEMS","recovery_generation":"1","source_revision":"2","record_id":"019a0000-0000-7000-8000-000000000006","occurred_at":"1793836800","coverage_start_at":"1793836800","kind":"ITEMS_END","payload":{"snapshot_id":"019a0000-0000-7000-8000-000000000005","page_count":0,"item_count":0,"pages_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}
 ```
 
 Valid committed account-bank entry; source ledger origin proven:
 
 ```json
-{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"OTERYN_GAME_JOURNAL","account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","character_id":null,"ownership_epoch":null,"family":"BANK","recovery_generation":"1","source_revision":"1","record_id":"019a0000-0000-7000-8000-000000000007","occurred_at":"1793836800","coverage_start_at":"1793836800","kind":"BANK_ENTRY","payload":{"operation_occurrence_id":"019a0000-0000-7000-8000-000000000008","event_id":"019a0000-0000-7000-8000-000000000009","entry_id":"019a0000-0000-7000-8000-00000000000a","previous_entry_id":null,"kind":"DEPOSIT","direction":"CREDIT","amount":"100","balance_before":"0","balance_after":"100"}}
+{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"OTERYN_GAME_JOURNAL","account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","character_id":null,"character_revision":null,"from_projection_revision":null,"to_projection_revision":null,"projection_epoch":null,"family":"BANK","recovery_generation":"1","source_revision":"1","record_id":"019a0000-0000-7000-8000-000000000007","occurred_at":"1793836800","coverage_start_at":"1793836800","kind":"BANK_ENTRY","payload":{"operation_occurrence_id":"019a0000-0000-7000-8000-000000000008","event_id":"019a0000-0000-7000-8000-000000000009","entry_id":"019a0000-0000-7000-8000-00000000000a","previous_entry_id":null,"kind":"DEPOSIT","direction":"CREDIT","amount":"100","balance_before":"0","balance_after":"100"}}
 ```
 
 Valid nonempty ITEMS_PAGE payload object (one carried container; the surrounding
@@ -506,10 +547,10 @@ Valid PLAYER_TRADE_EVENT payload object, one owner perspective:
 {"occurrence_id":"019a0000-0000-7000-8000-00000000000e","transaction_id":"019a0000-0000-7000-8000-00000000000f","event_id":"019a0000-0000-7000-8000-000000000010","given":[{"item_instance_id":"019a0000-0000-7000-8000-000000000011","definition_family":"ITEM","definition_production_key":"oteryn:content.item.gold_coin","definition_revision_ref":"rev-1","quantity":10}],"received":[{"item_instance_id":"019a0000-0000-7000-8000-000000000012","definition_family":"ITEM","definition_production_key":"oteryn:content.item.platinum_coin","definition_revision_ref":"rev-1","quantity":1}]}
 ```
 
-Invalid cursor request: BANK must use null character/epoch (400; no cursor change):
+Invalid cursor request: BANK must use null character and all four receipt-cut fields (400; no cursor change):
 
 ```json
-{"contract_version":1,"operation":"ReadGameJournalCursorV1","source_authority":"OTERYN_GAME_JOURNAL","account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","character_id":"019a0000-0000-7000-8000-000000000003","ownership_epoch":"1","family":"BANK","recovery_generation":"1"}
+{"contract_version":1,"operation":"ReadGameJournalCursorV1","source_authority":"OTERYN_GAME_JOURNAL","account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","character_id":"019a0000-0000-7000-8000-000000000003","character_revision":"1","from_projection_revision":"1","to_projection_revision":"1","projection_epoch":"1","family":"BANK","recovery_generation":"1"}
 ```
 
 Invalid economic payload object (for BANK_ENTRY): numeric amount instead of string,
@@ -521,7 +562,7 @@ and impossible credit arithmetic. Each defect independently rejects with 400:
 
 Additionally, exact replay of the valid bank envelope is 200 with one entry;
 changing its amount/balance to `"101"` under the same keys is 409; delivering revision
-3 before 2 is 409; replaying epoch 1 after a committed ownership epoch 2 is fenced
+3 before 2 is 409; replaying cut 1 after a committed transfer to cut 2 is fenced
 409 and cannot serve either owner's obsolete data. Authentication failures always
 precede content/existence disclosure.
 
@@ -530,8 +571,8 @@ precede content/existence disclosure.
 - [ ] Accept/amend this exact version; confirm existing facts versus new export work and identify producer owner and pinned implementation SHA.
 - [ ] Confirm canonical ID/TypedDefinitionRef/house/town/slot mappings, all bounds, nested inventory completeness and eligible house custody policy.
 - [ ] Prove one reproducible logout cut across all roots under concurrent delivery, market settlement, house changes, crash and disconnect; no partial snapshot END.
-- [ ] Confirm account/world bank semantics, fee/debit coverage, market partial-fill/held-credit mapping, player-trade two-leaf scope and history availability/retention.
-- [ ] Define durable ownership_epoch mapping and transfer cutoff notification/fence, including delayed export and buyer/seller races; no session proof exported.
+- [ ] Confirm account/world bank semantics and v1 three-kind coverage, market partial-fill/held-credit mapping, player-trade two-leaf scope and history availability/retention.
+- [ ] Define durable transfer-receipt cut mapping and transfer cutoff notification/fence, including delayed export and buyer/seller races; no session proof exported.
 - [ ] Prove source transaction/export-cut plus outbox durability, fixed identities/bytes, duplicate/conflict behavior, resend after lost ACK and bounded replay.
 - [ ] Accept the cursor, generation admission, initial baseline/empty-history proof and restore/baseline-plus-tail exchange; prove gaps outside replay window stay unavailable.
 - [ ] Qualify dedicated mTLS purpose/environment, canonical validators, limits, timeout, disabled paths and secret-safe diagnostics on exact producer/consumer revisions.
@@ -542,7 +583,7 @@ precede content/existence disclosure.
 - [ ] Accept exact producer contract and pin producer/consumer/fixture SHAs; implement nothing from an unresolved field or assumption.
 - [ ] T72 proves atomic ingest/watermark/dedup ACK, exact-byte conflicts, restart/restore replay, quarantine/gap handling and bounded staging/retention erasure.
 - [ ] T76 proves count/digest/root/graph validation and atomic END visibility, item search and clearly dated logout state; no mutation or guessed valuation.
-- [ ] Test owner versus foreign account, staff, sold character, delayed old epoch, pending/ambiguous transfer, unknown ownership and cache/download/search bypasses.
+- [ ] Test owner versus foreign account, staff, sold character, delayed old receipt cut, pending/ambiguous transfer, unknown ownership and cache/download/search bypasses.
 - [ ] Test account bank does not follow character sale, market held credit is not spendable, economic events deduplicate and cross-family records are not double-counted.
 - [ ] Test all valid/invalid fixtures, conflicting keys, reordered/unknown members, excessive size/depth, wrong version, timeout before/after commit, duplicate ACK and expired replay.
 - [ ] Prove initial baseline, empty-history evidence, replay-window exhaustion, restore generation fencing and rollback never restore older privacy/ownership authority.
@@ -552,8 +593,8 @@ precede content/existence disclosure.
 
 1. Can Game provide an atomic/reproducible logout cut across equipment, every town depot, inbox and house custody? What is the supported crash/disconnect path and maximum export size?
 2. Which house items are eligible private custody, including co-owners, guests and guild halls? Confirm town, house, equipment-slot and TypedDefinitionRef wire representations and UUID versions.
-3. Will Game accept a durable ownership_epoch and a synchronous serving fence at `TransferCharacterOwnership` cutoff? Which existing ownership evidence carries it, and how do restore and account erasure fence queued exports?
-4. Which bank ledger causes beyond DEPOSIT/WITHDRAW/TRANSFER must be covered (fees, market settlement, held credit), and are market partial-fill events and player-trade receipts complete and replayable for 30 days? Is the pinned two-leaf trade shape still the intended v1 scope?
+3. Will Game bind the §4.3 transfer-receipt cut to a synchronous serving fence at `TransferCharacterOwnership` cutoff? How will the receipt fields be validated, and how do restore and account erasure fence queued exports?
+4. Which future version should cover BANK fees, market settlement and held credit beyond v1 DEPOSIT/WITHDRAW/TRANSFER? Are market partial-fill events and player-trade receipts complete and replayable for 30 days? Is the pinned two-leaf trade shape still the intended v1 scope?
 5. Accept or amend the proposed limits, 30-day payload/replay window, snapshot staging/backup deletion limits, request rate/deadline and dedicated mTLS purpose. Who approves private-copy legal holds?
 6. What exact initial/replacement baseline exchange proves complete or empty retained history, admits recovery generations and supplies tail replay after either side restores? Until accepted and qualified, these states remain unavailable.
 

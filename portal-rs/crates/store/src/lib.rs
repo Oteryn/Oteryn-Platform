@@ -9,3 +9,4 @@ pub mod loyalty;
 pub mod purchase;
 
 pub mod delivery;
+pub mod web;

@@ -15,3 +15,6 @@ pub mod passkeys;
 pub mod reset;
 pub mod security_wizard;
 pub mod termination;
+
+pub mod privacy;
+pub mod sessions;
