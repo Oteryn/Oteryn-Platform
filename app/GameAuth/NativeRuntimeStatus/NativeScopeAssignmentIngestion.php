@@ -43,6 +43,7 @@ final class NativeScopeAssignmentIngestion
                 'ownership_generation' => $report->ownershipGeneration,
                 'node_identity' => $report->nodeIdentity,
                 'assigned_at' => $report->assignedAt,
+                'revoked_at' => null,
                 'updated_at' => now(),
             ];
             if ($current === null) {
@@ -62,7 +63,8 @@ final class NativeScopeAssignmentIngestion
                 return 'superseded';
             }
 
-            return hash_equals(NativeRuntimeStatusRow::string($current, 'node_identity'), $report->nodeIdentity)
+            return is_string($current->node_identity)
+                && hash_equals($current->node_identity, $report->nodeIdentity)
                 && NativeRuntimeStatusRow::int($current, 'assigned_at') === $report->assignedAt
                 ? 'accepted'
                 : self::CONFLICT;
@@ -73,5 +75,70 @@ final class NativeScopeAssignmentIngestion
             'superseded' => 'superseded',
             default => throw new NativeRuntimeStatusRefused(409),
         };
+    }
+
+    /** @return 'accepted'|'superseded' */
+    public function revoke(NativeScopeAssignmentSettings $settings, string $identity, NativeScopeRevocationReport $report): string
+    {
+        if (! $settings->allows($identity, $report->worldId, $report->channelId)) {
+            throw new NativeRuntimeStatusRefused(401);
+        }
+
+        $result = DB::transaction(function () use ($report): string {
+            $highest = $this->readModel->lockEpoch(exclusive: true);
+            if ($highest !== null && NativeRuntimeStatusReport::compare($report->assignmentEpoch, $highest) < 0) {
+                return 'superseded';
+            }
+
+            $scope = ['world_id' => $report->worldId, 'channel_id' => $report->channelId];
+            $assignments = DB::table('native_scope_assignments');
+            $current = (clone $assignments)->where($scope)->lockForUpdate()->first();
+            $row = [
+                'assignment_epoch' => $report->assignmentEpoch,
+                'ownership_generation' => $report->ownershipGeneration,
+                'node_identity' => null,
+                'assigned_at' => null,
+                'revoked_at' => $report->revokedAt,
+                'updated_at' => now(),
+            ];
+            if ($current === null) {
+                $assignments->insert($scope + $row + ['created_at' => now()]);
+                $this->invalidateRuntimeReport($scope);
+
+                return 'accepted';
+            }
+
+            $order = NativeRuntimeStatusReport::compare($report->assignmentEpoch, NativeRuntimeStatusRow::string($current, 'assignment_epoch'))
+                ?: NativeRuntimeStatusReport::compare($report->ownershipGeneration, NativeRuntimeStatusRow::string($current, 'ownership_generation'));
+            if ($order > 0) {
+                (clone $assignments)->where($scope)->update($row);
+                $this->invalidateRuntimeReport($scope);
+
+                return 'accepted';
+            }
+            if ($order < 0) {
+                return 'superseded';
+            }
+
+            return $current->revoked_at !== null
+                && NativeRuntimeStatusRow::int($current, 'revoked_at') === $report->revokedAt
+                ? 'accepted'
+                : self::CONFLICT;
+        });
+
+        return match ($result) {
+            'accepted' => 'accepted',
+            'superseded' => 'superseded',
+            default => throw new NativeRuntimeStatusRefused(409),
+        };
+    }
+
+    /** @param array{world_id: string, channel_id: string} $scope */
+    private function invalidateRuntimeReport(array $scope): void
+    {
+        DB::table('native_runtime_status_reports')->where($scope)->update([
+            'invalid' => true,
+            'updated_at' => now(),
+        ]);
     }
 }

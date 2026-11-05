@@ -61,11 +61,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-23T12:30:00Z
-head: df6cf9b669f42122b3a86511f025ae895d64cd61
+updated_at: 2026-11-05T08:30:00Z
+head: a04a7b3d628d0f195c306e1d689720aee36c553d
 branch: claude/happy-davinci-ijz3wy-store-wire-1
 pr: 1659
-status: validating
+status: completed
 context_routes:
   - products-entitlements
 owned_paths:
@@ -105,14 +105,13 @@ validation:
     evidence: see PR validation table
 blockers:
   - Acceptance of PR #1625 and exact-head independent review
-next_action: Owner and independent reviewer review the draft PR; answer contract §15 questions.
-terminal_pr_policy: archive_pending
+next_action: none; delivered by PR 1659 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR path; head branch deleted after merge
+source_branch_evidence: PR 1659 merged as a04a7b3d628d0f195c306e1d689720aee36c553d
 ```

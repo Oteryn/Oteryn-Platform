@@ -27,6 +27,7 @@ final class PreventSensitiveGameAuthResponseCaching
             || $request->is('internal/v1/game-auth/native-evidence')
             || $request->is('internal/v1/game-auth/native-runtime-status')
             || $request->is('internal/v1/game-auth/native-scope-assignments')
+            || $request->is('internal/v1/game-auth/native-scope-revocations')
             || $request->is('internal/v1/game-auth/native-account-characters')
             || $request->is('internal/v1/game-auth/native-account-characters/watermark')
             || $request->is('api/v1/game-auth/native-characters')
@@ -34,7 +35,8 @@ final class PreventSensitiveGameAuthResponseCaching
             || $request->is('api/v1/game-auth/device-sessions/*')
             || $request->is('internal/v1/game-auth/native-admissions')
             || $request->is('internal/v1/game-auth/character-bootstrap-intents/read')
-            || $request->is('internal/v1/products-entitlements/premium-snapshots/read');
+            || $request->is('internal/v1/products-entitlements/premium-snapshots/read')
+            || $request->is('internal/v1/products-entitlements/loyalty-snapshots/read');
     }
 
     public static function apply(Response $response): Response
