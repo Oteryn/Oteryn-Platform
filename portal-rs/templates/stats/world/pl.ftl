@@ -7,3 +7,4 @@ world-note = Tylko częściowe obserwacje. Brakujące dni są niedostępne. Prof
 world-level = Poziom
 world-day = Dzień UTC
 world-count = Postacie
+world-kills = Zgony potworów i bossów (dzień UTC)
