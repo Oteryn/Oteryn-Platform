@@ -29,3 +29,4 @@ oteryn-downloads = { path = "../../crates/downloads" }
 oteryn-admin = { path = "../../crates/admin" }
 oteryn-payments = { path = "../../crates/payments" }
 oteryn-content = { path = "../../crates/content" }
+oteryn-player-api.workspace = true

@@ -1915,6 +1915,17 @@ dependencies = [
 [[package]]
 name = "oteryn-player-api"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "oteryn-db",
+ "oteryn-identity",
+ "oteryn-notify",
+ "oteryn-wallet",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+]
 
 [[package]]
 name = "oteryn-portal"
@@ -1932,6 +1943,7 @@ dependencies = [
  "oteryn-internal-api",
  "oteryn-notify",
  "oteryn-payments",
+ "oteryn-player-api",
  "oteryn-stats",
  "oteryn-web",
  "tokio",
