@@ -36,3 +36,6 @@ tower = { version = "0.5.3", features = ["util"] }
 uuid = { version = "1", features = ["v7"] }
 
 oteryn-content.workspace = true
+
+[dependencies.oteryn-wiki]
+workspace = true
