@@ -24,29 +24,29 @@ The contrast manifest is embedded in `tokens.css` as `@contrast` comments. Ratio
 
 | Foreground / background | Dark | Light | Minimum |
 | --- | ---: | ---: | ---: |
-| text / canvas | 16.20 | 14.62 | 4.5 |
-| text / surface | 14.48 | 16.24 | 4.5 |
-| text / raised | 12.26 | 13.32 | 4.5 |
-| muted / canvas | 9.75 | 6.42 | 4.5 |
-| muted / surface | 8.71 | 7.13 | 4.5 |
-| muted / raised | 7.38 | 5.85 | 4.5 |
-| accent / canvas | 10.67 | 6.39 | 4.5 |
-| accent / surface | 9.53 | 7.09 | 4.5 |
-| accent / raised | 8.07 | 5.82 | 4.5 |
-| danger / canvas | 10.59 | 6.83 | 4.5 |
-| danger / surface | 9.46 | 7.58 | 4.5 |
-| danger / raised | 8.01 | 6.22 | 4.5 |
-| on-accent / accent | 10.67 | 7.09 | 4.5 |
-| success / success-bg | 8.97 | 7.09 | 4.5 |
-| warning / warning-bg | 9.10 | 7.36 | 4.5 |
-| danger / danger-bg | 8.63 | 6.50 | 4.5 |
-| info / info-bg | 8.76 | 6.94 | 4.5 |
-| focus / canvas | 10.67 | 6.39 | 3.0 |
-| focus / surface | 9.53 | 7.09 | 3.0 |
-| focus / raised | 8.07 | 5.82 | 3.0 |
-| border / canvas | 5.65 | 4.40 | 3.0 |
-| border / surface | 5.05 | 4.88 | 3.0 |
-| border / raised | 4.27 | 4.01 | 3.0 |
+| text / canvas | 17.46 | 12.29 | 4.5 |
+| text / surface | 16.13 | 13.67 | 4.5 |
+| text / raised | 14.61 | 10.73 | 4.5 |
+| muted / canvas | 9.85 | 7.09 | 4.5 |
+| muted / surface | 9.09 | 7.88 | 4.5 |
+| muted / raised | 8.24 | 6.18 | 4.5 |
+| accent / canvas | 13.72 | 5.89 | 4.5 |
+| accent / surface | 12.67 | 6.55 | 4.5 |
+| accent / raised | 11.47 | 5.14 | 4.5 |
+| danger / canvas | 9.95 | 6.01 | 4.5 |
+| danger / surface | 9.19 | 6.68 | 4.5 |
+| danger / raised | 8.33 | 5.24 | 4.5 |
+| on-accent / accent | 12.99 | 7.13 | 4.5 |
+| success / success-bg | 9.70 | 6.83 | 4.5 |
+| warning / warning-bg | 11.00 | 6.71 | 4.5 |
+| danger / danger-bg | 8.19 | 5.98 | 4.5 |
+| info / info-bg | 9.24 | 7.10 | 4.5 |
+| focus / canvas | 14.36 | 5.89 | 3.0 |
+| focus / surface | 13.26 | 6.55 | 3.0 |
+| focus / raised | 12.01 | 5.14 | 3.0 |
+| border / canvas | 4.36 | 3.83 | 3.0 |
+| border / surface | 4.03 | 4.26 | 3.0 |
+| border / raised | 3.65 | 3.35 | 3.0 |
 
 ## Icons and licensing
 

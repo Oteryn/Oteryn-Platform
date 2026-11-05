@@ -27,25 +27,25 @@
 */
 :root {
   color-scheme: dark;
-  --op-canvas: #11161d;
-  --op-surface: #19212b;
-  --op-raised: #232e3c;
-  --op-text: #f3f2ed;
-  --op-muted: #b4bfcd;
-  --op-accent: #f2be66;
-  --op-on-accent: #11161d;
-  --op-border: #8291a3;
-  --op-focus: #f2be66;
-  --op-success: #8fe0bb;
-  --op-success-bg: #17312b;
-  --op-warning: #f2cc85;
-  --op-warning-bg: #352b19;
-  --op-danger: #ffb1b9;
-  --op-danger-bg: #3a2029;
-  --op-info: #abd5ff;
-  --op-info-bg: #1c3047;
-  --op-backdrop: #080c12;
-  --op-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --op-canvas: #07090d;
+  --op-surface: #0f1420;
+  --op-raised: #171e2d;
+  --op-text: #eef0f4;
+  --op-muted: #aeb7c5;
+  --op-accent: #ffcf7a;
+  --op-on-accent: #1a0f02;
+  --op-border: #6b768c;
+  --op-focus: #ffd58a;
+  --op-success: #7ee2a0;
+  --op-success-bg: #0f2a1c;
+  --op-warning: #ffd58a;
+  --op-warning-bg: #2e2410;
+  --op-danger: #ff9d92;
+  --op-danger-bg: #35161a;
+  --op-info: #9cc8ff;
+  --op-info-bg: #122238;
+  --op-backdrop: #020305;
+  --op-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --op-font-mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
   --op-type-xs: 0.8125rem;
   --op-type-sm: 0.875rem;
@@ -93,70 +93,102 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --op-canvas: #f4f3ef;
-    --op-surface: #ffffff;
-    --op-raised: #e9e9e3;
-    --op-text: #17212e;
-    --op-muted: #4d5968;
-    --op-accent: #795000;
-    --op-on-accent: #ffffff;
-    --op-border: #677281;
-    --op-focus: #795000;
-    --op-success: #185a40;
-    --op-success-bg: #e3f3e9;
-    --op-warning: #694800;
-    --op-warning-bg: #fff0cd;
-    --op-danger: #a02138;
-    --op-danger-bg: #ffe8ec;
-    --op-info: #215382;
-    --op-info-bg: #e4f0ff;
-    --op-backdrop: #080c12;
+    --op-canvas: #f1e2bd;
+    --op-surface: #f9eed2;
+    --op-raised: #e8d3a2;
+    --op-text: #2e2010;
+    --op-muted: #5c4424;
+    --op-accent: #7d470c;
+    --op-on-accent: #fff8e6;
+    --op-border: #8f6a2c;
+    --op-focus: #7d470c;
+    --op-success: #1f5a2e;
+    --op-success-bg: #e1efd2;
+    --op-warning: #6b4706;
+    --op-warning-bg: #f8e6b4;
+    --op-danger: #9a2a1c;
+    --op-danger-bg: #f8ddd2;
+    --op-info: #1f4f73;
+    --op-info-bg: #dcebf2;
+    --op-backdrop: #050506;
     --op-shadow: 0 0.75rem 2rem #17212e20;
   }
 }
 [data-theme="dark"] {
   color-scheme: dark;
-  --op-canvas: #11161d;
-  --op-surface: #19212b;
-  --op-raised: #232e3c;
-  --op-text: #f3f2ed;
-  --op-muted: #b4bfcd;
-  --op-accent: #f2be66;
-  --op-on-accent: #11161d;
-  --op-border: #8291a3;
-  --op-focus: #f2be66;
-  --op-success: #8fe0bb;
-  --op-success-bg: #17312b;
-  --op-warning: #f2cc85;
-  --op-warning-bg: #352b19;
-  --op-danger: #ffb1b9;
-  --op-danger-bg: #3a2029;
-  --op-info: #abd5ff;
-  --op-info-bg: #1c3047;
-  --op-backdrop: #080c12;
+  --op-canvas: #07090d;
+  --op-surface: #0f1420;
+  --op-raised: #171e2d;
+  --op-text: #eef0f4;
+  --op-muted: #aeb7c5;
+  --op-accent: #ffcf7a;
+  --op-on-accent: #1a0f02;
+  --op-border: #6b768c;
+  --op-focus: #ffd58a;
+  --op-success: #7ee2a0;
+  --op-success-bg: #0f2a1c;
+  --op-warning: #ffd58a;
+  --op-warning-bg: #2e2410;
+  --op-danger: #ff9d92;
+  --op-danger-bg: #35161a;
+  --op-info: #9cc8ff;
+  --op-info-bg: #122238;
+  --op-backdrop: #020305;
   --op-shadow: 0 0.75rem 2rem #00000040;
 }
 [data-theme="light"] {
   color-scheme: light;
-  --op-canvas: #f4f3ef;
-  --op-surface: #ffffff;
-  --op-raised: #e9e9e3;
-  --op-text: #17212e;
-  --op-muted: #4d5968;
-  --op-accent: #795000;
-  --op-on-accent: #ffffff;
-  --op-border: #677281;
-  --op-focus: #795000;
-  --op-success: #185a40;
-  --op-success-bg: #e3f3e9;
-  --op-warning: #694800;
-  --op-warning-bg: #fff0cd;
-  --op-danger: #a02138;
-  --op-danger-bg: #ffe8ec;
-  --op-info: #215382;
-  --op-info-bg: #e4f0ff;
-  --op-backdrop: #080c12;
+  --op-canvas: #f1e2bd;
+  --op-surface: #f9eed2;
+  --op-raised: #e8d3a2;
+  --op-text: #2e2010;
+  --op-muted: #5c4424;
+  --op-accent: #7d470c;
+  --op-on-accent: #fff8e6;
+  --op-border: #8f6a2c;
+  --op-focus: #7d470c;
+  --op-success: #1f5a2e;
+  --op-success-bg: #e1efd2;
+  --op-warning: #6b4706;
+  --op-warning-bg: #f8e6b4;
+  --op-danger: #9a2a1c;
+  --op-danger-bg: #f8ddd2;
+  --op-info: #1f4f73;
+  --op-info-bg: #dcebf2;
+  --op-backdrop: #050506;
   --op-shadow: 0 0.75rem 2rem #17212e20;
 }
 
 :root { --op-shell-width: 80rem; --op-copy-width: 48rem; --op-shell-card: 16rem; }
+
+/* Oteryn identity (self-hosted OFL fonts, see static/fonts/OFL-*.txt).
+   Decorative values carry no text and are exempt from the contrast manifest. */
+@font-face { font-family: "Cinzel"; font-style: normal; font-weight: 400 900; font-display: swap; src: url("/static/fonts/cinzel-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Cinzel"; font-style: normal; font-weight: 400 900; font-display: swap; src: url("/static/fonts/cinzel-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/static/fonts/inter-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/static/fonts/inter-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+:root {
+  --op-font-display: Cinzel, Georgia, "Times New Roman", serif;
+  --op-font-caps: Cinzel, Georgia, "Times New Roman", serif;
+  --op-header-height: 4.75rem;
+  --op-gold-1: #fff1cf;
+  --op-gold-2: #ffcf7a;
+  --op-gold-3: #e08a1e;
+  --op-cta-hi: #ffe0a0;
+  --op-cta-lo: #f0a43a;
+  --op-cta-text: #1a0f02;
+  --op-night-1: #1b2244;
+  --op-night-2: #2a1f3d;
+  --op-night-3: #07090d;
+  --op-tile-hi: #121826;
+  --op-tile-lo: #0c1019;
+  --op-hairline: #ffffff17;
+  --op-hairline-strong: #ffffff29;
+  --op-glass: #0d111b9e;
+  --op-nav: #c9d0db;
+  --op-footer-text: #9aa4b4;
+  --op-footer-bg: #05070b;
+  --op-live: #4ade80;
+  --op-radius-tile: 1.25rem;
+  --op-radius-cta: 0.75rem;
+}

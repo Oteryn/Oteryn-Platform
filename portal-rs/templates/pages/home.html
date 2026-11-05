@@ -1,13 +1,58 @@
 {% extends "layout.html" %}
+{% block main_class %}op-home{% endblock %}
 {% block content %}
-<section class="op-shell__hero op-stack">
-  <p class="op-eyebrow">{{ chrome.text("shell-play") }}</p>
-  <h1>Oteryn</h1>
-  <p class="op-shell__intro">{{ chrome.text("shell-welcome") }}</p>
-  {% if chrome.registration_mounted && !chrome.signed_in() %}<div><a class="op-button" href="/{{ chrome.lang }}/register">{{ chrome.text("shell-register") }}</a></div>{% endif %}
+<section class="op-hero" aria-labelledby="hero-title">
+  {% include "components/night-scene.html" %}
+  <div class="op-hero__inner">
+    <p class="op-pill"><span class="op-pill__tag">{{ chrome.text("home-pill-tag") }}</span>{{ chrome.text("home-pill") }}</p>
+    <h1 id="hero-title">{{ chrome.text("home-hero-before") }} <span class="op-gold">{{ chrome.text("home-hero-gold") }}</span><br>{{ chrome.text("home-hero-after") }}</h1>
+    <p class="op-lead">{{ chrome.text("home-hero-lead") }}</p>
+    <div class="op-row op-hero__actions">
+      {% if chrome.signed_in() %}{% if chrome.account_mounted %}<a class="op-button op-button--play" href="/account">{{ chrome.text("shell-account") }}</a>{% endif %}
+      {% else %}{% if chrome.registration_mounted %}<a class="op-button op-button--play" href="/{{ chrome.lang }}/register">{{ chrome.text("home-play-free") }}<svg class="op-icon" aria-hidden="true"><use href="#op-icon-arrow-right"/></svg></a>{% endif %}
+      {% if chrome.login_mounted %}<a class="op-button op-button--secondary op-button--play" href="/{{ chrome.lang }}/login">{{ chrome.text("shell-login") }}</a>{% endif %}{% endif %}
+    </div>
+  </div>
 </section>
-<section class="op-stack" aria-labelledby="sections-title">
-  <h2 id="sections-title">{{ chrome.text("shell-explore") }}</h2>
-  <div class="op-shell__cards">{% for link in chrome.entries %}<article class="op-card op-stack"><h3><a href="{{ link.url }}">{{ link.label }}</a></h3><p class="op-muted">{{ chrome.text("shell-open-section") }}</p></article>{% endfor %}</div>
+<section class="op-wrap op-strip" aria-label="{{ chrome.text("home-facts-label") }}">
+  <dl class="op-glass op-facts">
+    {% for fact in facts %}<div><dt class="op-label">{{ chrome.text(fact.label) }}</dt><dd>{{ fact.value }}</dd></div>{% endfor %}
+  </dl>
+  <p class="op-source">{{ chrome.text("home-facts-source") }}</p>
+</section>
+<section class="op-wrap op-block" aria-labelledby="voc-title">
+  <header class="op-block__head"><p class="op-eyebrow">{{ chrome.text("home-voc-eyebrow") }}</p><h2 id="voc-title">{{ chrome.text("home-voc-title") }}</h2><p class="op-lead">{{ chrome.text("home-voc-lead") }}</p></header>
+  <ul class="op-paths">
+    {% for voc in vocations %}<li class="op-path op-path--{{ voc.key }}">
+      <div class="op-path__art">{% if let Some(sprite) = voc.sprite %}<img src="{{ sprite }}" alt="" width="128" height="128">{% endif %}</div>
+      <div class="op-path__body"><p class="op-label">{{ chrome.text(voc.role) }}</p><h3>{{ voc.name }}</h3><p>{{ chrome.text(voc.text) }}</p><p class="op-path__promo">{{ chrome.text("home-voc-promotion") }}: <strong>{{ voc.promotion }}</strong></p></div>
+    </li>{% endfor %}
+  </ul>
+</section>
+<section class="op-wrap op-block" aria-labelledby="world-title">
+  <header class="op-block__head"><p class="op-eyebrow">{{ chrome.text("home-world-eyebrow") }}</p><h2 id="world-title">{{ chrome.text("home-world-title") }}</h2><p class="op-lead">{{ chrome.text("home-world-lead") }}</p></header>
+  <div class="op-bento">
+    {% for group in chrome.groups %}<article class="op-tile op-tile--{{ loop.index }}">
+      <h3>{{ group.label }}</h3>
+      <ul>{% for link in group.links %}<li><a href="{{ link.url }}">{{ link.label }}<svg class="op-icon" aria-hidden="true"><use href="#op-icon-arrow-right"/></svg></a></li>{% endfor %}</ul>
+    </article>{% endfor %}
+  </div>
+</section>
+<section class="op-wrap op-block" aria-labelledby="cities-title">
+  <header class="op-block__head"><p class="op-eyebrow">{{ chrome.text("home-cities-eyebrow") }}</p><h2 id="cities-title">{{ chrome.text("home-cities-title") }}</h2></header>
+  <ul class="op-tags">{% for city in cities %}<li>{{ city }}</li>{% endfor %}</ul>
+</section>
+<section class="op-wrap op-block" aria-labelledby="steps-title">
+  <header class="op-block__head"><p class="op-eyebrow">{{ chrome.text("home-steps-eyebrow") }}</p><h2 id="steps-title">{{ chrome.text("home-steps-title") }}</h2></header>
+  <ol class="op-steps">
+    <li class="op-tile"><span class="op-steps__n" aria-hidden="true">1</span><h3>{{ chrome.text("home-step1-title") }}</h3><p>{{ chrome.text("home-step1-text") }}</p></li>
+    <li class="op-tile"><span class="op-steps__n" aria-hidden="true">2</span><h3>{{ chrome.text("home-step2-title") }}</h3><p>{{ chrome.text("home-step2-text") }}</p></li>
+    <li class="op-tile"><span class="op-steps__n" aria-hidden="true">3</span><h3>{{ chrome.text("home-step3-title") }}</h3><p>{{ chrome.text("home-step3-text") }}</p></li>
+  </ol>
+</section>
+<section class="op-wrap op-final" aria-labelledby="final-title">
+  <h2 id="final-title">{{ chrome.text("home-final-title") }}</h2>
+  <p class="op-lead">{{ chrome.text("home-final-lead") }}</p>
+  {% if !chrome.signed_in() && chrome.registration_mounted %}<a class="op-button op-button--play" href="/{{ chrome.lang }}/register">{{ chrome.text("home-play-free") }}</a>{% endif %}
 </section>
 {% endblock %}
