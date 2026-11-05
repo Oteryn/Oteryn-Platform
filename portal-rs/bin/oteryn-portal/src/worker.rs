@@ -170,6 +170,14 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     for kind in ["cleanup.tokens", "cleanup.support"] {
         registry.cleanup(kind, 3600, Arc::new(NoopCleanup))?;
     }
+    registry.cleanup(
+        "cleanup.support-tickets",
+        3600,
+        Arc::new(oteryn_support::tickets::Retention {
+            pool: pool.clone(),
+            enabled: std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() == Ok("true"),
+        }),
+    )?;
     #[cfg(unix)]
     let shutdown = {
         let mut terminate =
