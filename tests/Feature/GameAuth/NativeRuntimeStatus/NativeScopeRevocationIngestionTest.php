@@ -4,6 +4,7 @@ namespace Tests\Feature\GameAuth\NativeRuntimeStatus;
 
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusReadModel;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Migrations\Migration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -17,13 +18,21 @@ final class NativeScopeRevocationIngestionTest extends TestCase
     use RefreshDatabase;
 
     private const ASSIGN = '/internal/v1/game-auth/native-scope-assignments';
+
     private const REVOKE = '/internal/v1/game-auth/native-scope-revocations';
+
     private const RUNTIME = '/internal/v1/game-auth/native-runtime-status';
+
     private const OPS = 'CN=oteryn-game-ops.ownership-authority';
+
     private const NODE = 'CN=node-a.runtime-status';
+
     private const EVIDENCE = 'CN=node-a.native-evidence';
+
     private const WORLD = '01934f10-7c02-7001-805b-3b1122334401';
+
     private const CHANNEL = '01934f10-7c03-7001-805b-3b1122334401';
+
     private const OTHER_CHANNEL = '01934f10-7c03-7001-805b-3b1122334402';
 
     protected function setUp(): void
@@ -78,6 +87,7 @@ final class NativeScopeRevocationIngestionTest extends TestCase
         self::assertNull($this->readModel()->routable(self::WORLD, self::CHANNEL, 1_790_000_016));
         $row = DB::table('native_scope_assignments')->sole();
         self::assertNull($row->node_identity);
+        self::assertIsNumeric($row->revoked_at);
         self::assertSame(1_790_000_100, (int) $row->revoked_at);
         self::assertTrue((bool) DB::table('native_runtime_status_reports')->value('invalid'));
         $this->assertRefused($this->send(self::RUNTIME, $this->runtimeWire(), self::NODE), 409);
@@ -126,7 +136,9 @@ final class NativeScopeRevocationIngestionTest extends TestCase
     {
         $this->assertResult($this->send(self::REVOKE, $this->revocationWire(1, 4)), 'accepted');
         $migration = require database_path('migrations/2026_11_05_090000_add_native_scope_revocations.php');
-        self::assertIsObject($migration);
+        if (! $migration instanceof Migration || ! method_exists($migration, 'down')) {
+            self::fail('Scope revocation migration does not define down().');
+        }
 
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage('rollback refused: scope revocations exist');
@@ -173,7 +185,10 @@ final class NativeScopeRevocationIngestionTest extends TestCase
         return json_encode(array_merge($decoded, $changes), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     }
 
-    /** @param array<string, string> $server */
+    /**
+     * @param  array<string, string>  $server
+     * @return TestResponse<Response>
+     */
     private function send(string $path, string $body, string $identity = self::OPS, array $server = []): TestResponse
     {
         return $this->call('POST', $path, [], [], [], $server + [
@@ -184,12 +199,14 @@ final class NativeScopeRevocationIngestionTest extends TestCase
         ], $body);
     }
 
+    /** @param TestResponse<Response> $response */
     private function assertResult(TestResponse $response, string $result): void
     {
         self::assertSame('{"contract_version":1,"result":"'.$result.'"}', $response->getContent());
         $response->assertOk();
     }
 
+    /** @param TestResponse<Response> $response */
     private function assertRefused(TestResponse $response, int $status): void
     {
         self::assertSame($status, $response->getStatusCode());
