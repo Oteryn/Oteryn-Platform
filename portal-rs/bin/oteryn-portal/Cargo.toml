@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+sha2 = "0.10"
 axum = "0.8.9"
 oteryn-core = { version = "0.1.0", path = "../../crates/core" }
 oteryn-db = { version = "0.1.0", path = "../../crates/db" }

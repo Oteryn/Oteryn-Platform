@@ -1,0 +1,13 @@
+logins-title = Game login history
+logins-retention = Up to 100 most recent entries from the last 30 days. Times are UTC.
+logins-empty = No entries in the verified 30-day history.
+logins-stale = This history is stale. It cannot confirm a current session. Times are UTC.
+logins-entered = Entered
+logins-exit = Left
+logins-closed = Closed
+logins-unknown = Unknown; this does not confirm an active session
+logins-not-me = This was not me
+logins-security = Signing out everywhere is unavailable. Game-wide revocation is not supported here. No sessions have been revoked.
+logins-password = Password change is unavailable from this page. No password has been changed.
+logins-character = Character
+logins-account = Account entry; character unknown
