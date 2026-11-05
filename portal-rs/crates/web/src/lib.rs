@@ -100,8 +100,13 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .nest_service("/static", ServeDir::new(static_dir))
         .merge(surface::module_router())
         .merge(surface::module_routes())
+        .merge(oteryn_identity::abuse::http::routes(state.db.clone()))
         .merge(register::routes())
         .merge(verify::routes())
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.db.clone(),
+            oteryn_identity::abuse::http::protect,
+        ))
         .route_layer(axum::middleware::from_fn_with_state(
             session_layer,
             session::middleware,
