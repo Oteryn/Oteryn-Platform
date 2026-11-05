@@ -28,7 +28,7 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 30);
+    assert_eq!(Permission::ALL.len(), 62);
     let ids: BTreeSet<_> = Permission::ALL.iter().map(|p| p.as_str()).collect();
     assert_eq!(ids.len(), Permission::ALL.len());
     for permission in Permission::ALL {
@@ -48,6 +48,11 @@ fn permission_catalog_is_stable_unique_and_covered() {
         "ADMIN.ACCESS",
         "admin.roles.manage ",
         "unknown",
+        "game.*",
+        "game.db.*",
+        "game.node.unknown",
+        "GAME.OPS.READ",
+        "game.ops.read ",
     ] {
         assert!(invalid.parse::<Permission>().is_err());
     }
@@ -606,5 +611,273 @@ async fn db_grants_deny_unknown_targets_and_database_rejects_unknown_permissions
     )
     .await
     .unwrap();
+    db.close().await;
+}
+
+#[test]
+fn game_roles_have_exact_contract_permissions() {
+    let cases: &[(BuiltInRole, &str, &[&str])] = &[
+        (
+            BuiltInRole::GameViewer,
+            "game_viewer",
+            &[
+                "game.ops.read",
+                "game.ops.logs.read",
+                "game.world.read",
+                "game.node.read",
+                "game.db.read",
+                "game.economy.read",
+                "game.sanction.read",
+                "game.analytics.read",
+                "game.audit.read",
+            ],
+        ),
+        (
+            BuiltInRole::GameSupport,
+            "game_support",
+            &[
+                "game.ops.read",
+                "game.ops.logs.read",
+                "game.world.read",
+                "game.node.read",
+                "game.db.read",
+                "game.economy.read",
+                "game.sanction.read",
+                "game.analytics.read",
+                "game.audit.read",
+                "game.player.read",
+                "game.player.moderate",
+                "game.sanction.write",
+            ],
+        ),
+        (
+            BuiltInRole::GameMasterSenior,
+            "game_master_senior",
+            &[
+                "game.ops.read",
+                "game.ops.logs.read",
+                "game.world.read",
+                "game.node.read",
+                "game.db.read",
+                "game.economy.read",
+                "game.sanction.read",
+                "game.analytics.read",
+                "game.audit.read",
+                "game.player.read",
+                "game.player.moderate",
+                "game.sanction.write",
+                "game.player.manage",
+                "game.player.value.write",
+                "game.sanction.ban",
+                "game.world.events",
+                "game.economy.moderate",
+            ],
+        ),
+        (
+            BuiltInRole::GameOperator,
+            "game_operator",
+            &[
+                "game.ops.read",
+                "game.ops.logs.read",
+                "game.world.read",
+                "game.node.read",
+                "game.db.read",
+                "game.economy.read",
+                "game.sanction.read",
+                "game.analytics.read",
+                "game.audit.read",
+                "game.world.ops",
+                "game.world.config",
+                "game.node.ops",
+                "game.db.backup",
+                "game.ops.write",
+            ],
+        ),
+        (
+            BuiltInRole::GameAdmin,
+            "game_admin",
+            &[
+                "game.ops.read",
+                "game.ops.logs.read",
+                "game.world.read",
+                "game.node.read",
+                "game.db.read",
+                "game.economy.read",
+                "game.sanction.read",
+                "game.analytics.read",
+                "game.audit.read",
+                "game.world.ops",
+                "game.world.config",
+                "game.node.ops",
+                "game.db.backup",
+                "game.ops.write",
+                "game.world.admin",
+                "game.node.admin",
+                "game.db.admin",
+                "game.staff.admin",
+            ],
+        ),
+        (
+            BuiltInRole::GameDba,
+            "game_dba",
+            &[
+                "game.db.read",
+                "game.db.backup",
+                "game.db.query",
+                "game.analytics.sql",
+            ],
+        ),
+        (
+            BuiltInRole::GameAnalyst,
+            "game_analyst",
+            &[
+                "game.analytics.read",
+                "game.analytics.player",
+                "game.analytics.sql",
+                "game.analytics.export",
+            ],
+        ),
+        (
+            BuiltInRole::GameSecurity,
+            "game_security",
+            &[
+                "game.analytics.read",
+                "game.analytics.player",
+                "game.analytics.sql",
+                "game.analytics.export",
+                "game.analytics.relink",
+                "game.audit.read",
+                "game.sanction.read",
+            ],
+        ),
+        (
+            BuiltInRole::GameRelease,
+            "game_release",
+            &["game.node.deploy"],
+        ),
+    ];
+    for (role, key, expected) in cases {
+        assert_eq!(role.key(), *key);
+        let actual: BTreeSet<_> = role.permissions().iter().map(|p| p.as_str()).collect();
+        assert_eq!(actual.len(), role.permissions().len());
+        assert_eq!(actual, expected.iter().copied().collect());
+    }
+    for role in BuiltInRole::ALL {
+        assert!(role.permissions().iter().all(|p| !p.as_str().contains('*')));
+    }
+    assert!(
+        BuiltInRole::PlatformAdmin
+            .permissions()
+            .iter()
+            .all(|p| !p.as_str().starts_with("game."))
+    );
+    assert_eq!(
+        Permission::ALL
+            .iter()
+            .filter(|p| p.as_str().starts_with("game."))
+            .count(),
+        32
+    );
+}
+
+#[tokio::test]
+async fn game_flags_deny_without_database_access() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+        .unwrap();
+    let auth = Authorizer::new(pool, Accounts(Ok(AccountState::Active)));
+    for permission in Permission::ALL
+        .iter()
+        .filter(|p| p.as_str().starts_with("game."))
+    {
+        assert!(matches!(
+            auth.check(verified(Uuid::now_v7()), *permission).await,
+            Err(Error::Denied)
+        ));
+    }
+    for flags in [
+        GamePermissionFlags {
+            enabled: true,
+            deploy: false,
+        },
+        GamePermissionFlags {
+            enabled: false,
+            deploy: true,
+        },
+    ] {
+        let auth = auth.clone().with_game_flags(flags);
+        assert!(matches!(
+            auth.check(verified(Uuid::now_v7()), Permission::GameNodeDeploy)
+                .await,
+            Err(Error::Denied)
+        ));
+    }
+}
+
+#[tokio::test]
+async fn db_game_roles_authorize_only_explicit_grants_and_deploy_stays_dormant() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let manager = db.manager().await;
+    let auth = db.auth().with_game_flags(GamePermissionFlags {
+        enabled: true,
+        deploy: false,
+    });
+    let permissions: Vec<_> = Permission::ALL
+        .iter()
+        .copied()
+        .filter(|p| p.as_str().starts_with("game."))
+        .collect();
+    for role in BuiltInRole::ALL
+        .iter()
+        .filter(|r| r.key().starts_with("game_") || **r == BuiltInRole::PlatformAdmin)
+    {
+        let account = Uuid::now_v7();
+        auth.change(
+            manager,
+            Uuid::now_v7(),
+            Change::Grant {
+                account,
+                role: db.role(role.key()).await,
+            },
+        )
+        .await
+        .unwrap();
+        for permission in &permissions {
+            let result = auth.check(verified(account), *permission).await;
+            if role.permissions().contains(permission) && *permission != Permission::GameNodeDeploy
+            {
+                result.unwrap();
+            } else {
+                assert!(
+                    matches!(result, Err(Error::Denied)),
+                    "{}: {}",
+                    role.key(),
+                    permission.as_str()
+                );
+            }
+        }
+        if role.key().starts_with("game_") {
+            assert!(matches!(
+                auth.check(verified(account), Permission::ManageRoles).await,
+                Err(Error::Denied)
+            ));
+        }
+    }
+    let role = db.role("game_viewer").await;
+    for invalid in ["game.*", "game.db.*", "game.ops.unknown", "game.ops.read "] {
+        let error =
+            sqlx::query("INSERT INTO role_permissions (role_id, permission) VALUES ($1, $2)")
+                .bind(role)
+                .bind(invalid)
+                .execute(&db.pool)
+                .await
+                .unwrap_err();
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some("23514")
+        );
+    }
     db.close().await;
 }
