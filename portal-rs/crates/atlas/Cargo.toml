@@ -15,3 +15,13 @@ lzma-rs = "0.3.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.10.9"
+axum = "0.8.9"
+oteryn-world.workspace = true
+sqlx = { version = "0.9.0", features = ["runtime-tokio", "postgres", "uuid"] }
+uuid = { version = "1", features = ["v7", "serde"] }
+fluent-bundle = "0.16"
+unic-langid = "0.9"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tower = { version = "0.5", features = ["util"] }
