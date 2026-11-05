@@ -33,7 +33,7 @@ Zasady projektu:
 | Gracz | Bezpieczne konto | Logowanie, 2FA (TOTP), passkeys, kody odzyskiwania, lista sesji i urządzeń, zmiana e-maila i hasła, eksport i usunięcie danych |
 | Gracz w kliencie | Logowanie bez hasła w kliencie | OAuth PKCE z przeglądarki systemowej, sesje urządzeń, tickety do gry |
 | Gracz | Postacie | Lista postaci, tworzenie (intencja → gra), profil publiczny i jego ustawienia |
-| Gracz | Wiedza | Wiki z katalogu gry, artykuły, wyszukiwarka, Atlas |
+| Gracz | Wiedza o świecie | Wiki generowana z treści świata gry (przedmioty, potwory, NPC, czary, questy, łupy, miejsca) i uzupełniana przez redakcję; Atlas, czyli interaktywna mapa świata z warstwami i znacznikami; wyszukiwarka |
 | Gracz | Społeczność | Rankingi, profile, gildie, domy, zgony, online, status światów |
 | Gracz | Zakupy | Saldo coinów, doładowanie, sklep, premium, historia, transfer coinów |
 | Gracz | Pomoc | Zgłoszenia, odwołania od kar, FAQ |
@@ -83,6 +83,7 @@ portal-rs/
     characters/              projekcja postaci konta, intencje tworzenia, profile
     content/                 newsy, strony, wydarzenia, media, ogłoszenia
     wiki/                    artykuły, wersje, przegląd, import katalogu gry, wyszukiwanie
+    atlas/                   import eksportu mapy świata, budowa kafli, znaczniki, przeglądarka mapy
     community/               projekcje publiczne: rankingi, profile, gildie, domy, zgony, online, światy
     wallet/                  ledger coinów, transfer, blokady, idempotencja
     store/                   cennik, zakup, dostawa (wire sklepu), historia
@@ -128,7 +129,8 @@ Wszystkie identyfikatory to UUIDv7. Kwoty to `bigint` w najmniejszej jednostce. 
 | gameauth | `oauth_clients`, `oauth_authorization_codes`, `oauth_tokens` (access i refresh jako hash, rodzina rotacji), `device_sessions`, `game_login_tickets` (jednorazowe, krótkie), `native_admissions`, `native_evidence`, `signing_keys` (Ed25519, rotacja), `scope_assignments` |
 | characters | `account_characters` (projekcja LCFA z watermarkiem), `character_create_intents` (outbox do gry), `character_profiles` (preferencje publiczne) |
 | content | `news`, `pages`, `events`, `announcements`, `media` (z wariantami), `translations` |
-| wiki | `wiki_articles`, `wiki_revisions`, `wiki_reviews`, `catalog_imports` (paczka gry z wersją i hashem), `catalog_entries` |
+| wiki | `wiki_articles`, `wiki_revisions`, `wiki_reviews`, `catalog_imports` (paczka gry z wersją i hashem), `catalog_entries` (encja świata: typ, klucz, dane, wersja), `catalog_links` (relacje: potwór → łup, NPC → quest, przedmiot → miejsce) |
+| atlas | `atlas_imports` (wersja eksportu świata, hash), `atlas_floors`, `atlas_regions`, `atlas_markers` (miasta, NPC, spawny, questy, z odnośnikiem do wiki); kafle mapy jako pliki statyczne |
 | community | `public_snapshots` (rodzina, wersja, watermark, `jsonb`), `world_status` |
 | wallet | `wallet_accounts`, `wallet_entries` (niezmienne, saldo jako suma z blokadą wiersza konta), `wallet_transfers` |
 | store | `store_price_list_imports`, `store_active_catalog`, `store_offers`, `store_purchase_requests`, `store_orders`, `store_order_lines`, `store_fulfilment_units`, `store_operations` (outbox DELIVER), `store_receipts`, `store_reconcile_state` |
@@ -147,7 +149,8 @@ Schemat sklepu odpowiada kontraktowi wire sklepu (`docs/contracts/OTERYN_V2_STOR
 
 | Obszar | Trasy |
 | --- | --- |
-| Publiczne | `/`, `/start`, `/news`, `/news/{slug}`, `/events`, `/pages/{slug}`, `/download`, `/worlds`, `/rankings/{kind}`, `/characters/{name}`, `/guilds/{name}`, `/houses`, `/deaths`, `/online`, `/wiki`, `/wiki/{slug}`, `/wiki/search`, `/atlas` |
+| Publiczne | `/`, `/start`, `/news`, `/news/{slug}`, `/events`, `/pages/{slug}`, `/download`, `/worlds`, `/rankings/{kind}`, `/characters/{name}`, `/guilds/{name}`, `/houses`, `/deaths`, `/online` |
+| Świat gry | `/wiki`, `/wiki/{kind}` (np. `items`, `creatures`, `npcs`, `spells`, `quests`), `/wiki/{kind}/{key}`, `/wiki/articles/{slug}`, `/wiki/search`, `/atlas`, `/atlas/{floor}/{x}/{y}`, `/atlas/tiles/{version}/{floor}/{z}/{x}/{y}.webp` |
 | Konto | `/register`, `/login`, `/logout`, `/verify-email`, `/forgot-password`, `/reset-password`, `/account`, `/account/security` (hasło, 2FA, passkeys, kody), `/account/sessions`, `/account/devices`, `/account/characters`, `/account/privacy` (eksport, usunięcie) |
 | Sklep | `/shop`, `/shop/coins` (doładowanie), `/shop/history`, `/shop/transfer` |
 | Pomoc | `/support`, `/support/tickets/{id}`, `/support/appeals` |
@@ -219,6 +222,24 @@ Zasady:
 - Każda mutacja przez granicę gry jest idempotentna, ma klucz operacji, outbox i rekoncyliację. Timeout nie oznacza sukcesu ani porażki.
 - Gateway logowania (dziś w Go, `services/game-gateway`) zostaje bez zmian. Portal implementuje jego endpointy `/internal/v1` bajt w bajt.
 
+### 6.1 Treści świata gry (wiki i Atlas)
+
+Portal potrzebuje odczytu treści świata, żeby budować wiki i Atlas. Nie dostaje dostępu do bazy ani plików serwera gry. Gra publikuje wersjonowane eksporty, a portal je importuje.
+
+| Eksport z gry | Zawartość | Kontrakt | Co z tym robi portal |
+| --- | --- | --- | --- |
+| Paczka katalogu | Przedmioty, potwory, NPC, czary, questy, łupy, miejsca, z kluczami i relacjami | OTERYN-GAME-PLATFORM-CATALOG-V1 (LOCKED) | Generuje strony wiki per encja, listy, filtry i wyszukiwanie. Redakcja dopisuje opisy i poradniki jako nakładkę; dane z gry nadpisuje tylko nowy import |
+| Eksport mapy świata | Piętra, kafle terenu, regiony, miasta, spawny, NPC i questy z pozycjami | GC16 (do potwierdzenia z grą, zadanie G-2) | Worker buduje piramidę kafli (WebP) per wersja; strona `/atlas` pokazuje mapę z warstwami i znacznikami podlinkowanymi do wiki |
+| Grafiki | Sprite'y przedmiotów, potworów i NPC, ikony | Do ustalenia z grą (G-2), z licencją użycia na stronie | Miniatury w wiki i znaczniki na mapie, serwowane statycznie z cache |
+
+Zasady:
+
+- **Wersjonowanie.** Każdy eksport ma wersję, manifest i SHA-256. Portal importuje dokładnie przypiętą wersję, sprawdza hash i podmienia dane atomowo (nowa wersja albo żadna).
+- **Ścieżka dostarczenia.** CI gry publikuje eksport jako artefakt wydania. Worker portalu pobiera go po wersji, albo admin wgrywa plik w panelu. Import działa bez połączenia z serwerem gry.
+- **Ukryte treści.** Eksport zawiera tylko to, co gra oznaczy jako publiczne. Sekrety questów i ukryte miejsca nie trafiają do portalu.
+- **Spójność.** Wiki i Atlas pokazują wersję świata i datę eksportu. Odnośniki wiki ↔ Atlas idą po kluczach encji, nie po nazwach.
+- **Dane na żywo** (online, rankingi, status światów) to osobne projekcje z §6, nie część eksportu świata.
+
 ## 7. Bezpieczeństwo
 
 - Hasła: argon2id z rehashem; sprawdzanie haseł w wyciekach (k-anonymity); rate limity logowania, rejestracji i odzyskiwania; ochrona przed enumeracją kont.
@@ -271,7 +292,8 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T11 | Treści: newsy, strony, wydarzenia, ogłoszenia; CRUD w adminie; strony publiczne | T10 | `crates/content` |
 | T12 | Media: upload, warianty obrazów, walidacja | T11 | `crates/content/src/media*` |
 | T13 | Wiki: artykuły, wersje, przegląd, markdown i sanityzacja, wyszukiwanie (PG full text) | T10 | `crates/wiki` |
-| T14 | Import paczki katalogu gry do wiki (kontrakt CATALOG-V1) | T13 | `crates/wiki/src/catalog*` |
+| T14 | Import paczki katalogu gry (CATALOG-V1): weryfikacja hasha, atomowa podmiana, encje i relacje | T13 | `crates/wiki/src/catalog*` |
+| T14b | Strony wiki generowane z katalogu: listy per typ, strona encji, filtry, wyszukiwanie, nakładka redakcji | T14 | `crates/wiki/src/entities*`, `templates/wiki/` |
 | T15 | Guard mTLS `/internal/v1`, kanoniczny JSON i harness testów kontraktowych na fixtures | T00 | `crates/internal-api` (wspólne) |
 | T16 | OAuth PKCE (`/oauth/authorize`, `/oauth/token`, consent, refresh z rotacją) | T04 | `crates/gameauth/src/oauth*` |
 | T17 | Tickety do gry i `GET native-characters` (Player API, jak dziś) | T16, T18 | `crates/gameauth/src/tickets*`, `crates/player-api` |
@@ -297,12 +319,16 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T37 | Worker: outbox, ponowienia, sprzątanie | T00 | `bin/oteryn-portal/src/worker*`, `crates/db/src/outbox*` |
 | T38 | `admin-cli import-legacy` z eksportu obecnej bazy | T03–T34 | `bin/oteryn-portal/src/import*` |
 | T39 | Projekt graficzny: tokeny CSS, komponenty, strona główna, „Jak zacząć” | T01 | `static/`, `templates/` |
+| T40 | Atlas: import eksportu mapy, budowa piramidy kafli WebP, regiony i znaczniki | T00 | `crates/atlas/src/import*` |
+| T41 | Atlas: strona `/atlas` (przeglądarka kafli, warstwy, znaczniki, linki do wiki) | T40, T14 | `crates/atlas/src/web*`, `templates/atlas/`, `static/atlas/` |
+| T42 | Import grafik (sprite'y, ikony) i miniatury w wiki i na mapie | T14, T40 | `crates/wiki/src/assets*` |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` | – | Oteryn-Game, przez koordynatora |
+| G-2 | (gra) Kontrakt eksportu mapy świata i grafik (format, wersja, manifest, publiczność treści) | – | Oteryn-Game, przez koordynatora |
 
 Kolejność startu:
 
 1. Najpierw T00, bo daje wspólny szkielet. Ja mogę go przygotować i sprawdzić lokalnie, żeby Codex startował od kompilującej się bazy.
-2. Potem jednocześnie: T01, T15, T37 i T39.
+2. Potem jednocześnie: T01, T15, T37, T39 i T40.
 3. Potem gałęzie konta (T02–T10), gry (T16–T25) i handlu (T26–T32) równolegle.
 
 Pozostałe warunki:
