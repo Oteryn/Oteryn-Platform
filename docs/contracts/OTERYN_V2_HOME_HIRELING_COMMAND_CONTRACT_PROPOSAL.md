@@ -1,9 +1,22 @@
-Status: PROPOSED by Platform, pending acceptance by the game owner (coordinator).
+Status: PROPOSED revision 2 by Platform, pending acceptance by the game owner (coordinator).
 
 # Home hireling: private projection, expedition commands and Store delivery
 
 Contract ID: `oteryn-v2-home-hireling-v1`. Proposed wire `contract_version: 1`;
 command semantic version 1. Nothing here marks G-14 accepted or implemented.
+
+## Revision 2 changes
+
+Owner review verdict: **CHANGES-NEEDED**; this revision remains proposed.
+
+- Add character revision fencing and a typed in-session rejection for both commands.
+- Align house keys with Game migration 0038 and replace currency reward fixtures;
+  v1 rewards exclude currency.
+- Preserve ten existing identities per character; limit only concurrent expedition
+  hirelings to three per account. Expeditions, professions and chest need Game work.
+- Record owner answers on duration, professions, UTC weeks and lifecycle rules;
+  keep purchase blocked on the Store `unit_kind` fix.
+- Use HTTP 400 for oversize requests and preserve shared public-family/online-time boundaries.
 
 ## 1. Purpose, owners and authority
 
@@ -41,6 +54,11 @@ Reuse these Platform contracts within their stated status and scope:
 - [Public game projections](OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md):
   source-owned revisions, transactional evidence, watermarks, rebuilds, poison/gap
   handling and privacy floors. This helper feed is private and adds no public family.
+  New public families use `/internal/v2/game-public/*` and the V2 enum owned by
+  [G-4](OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md); the v1
+  watermark enum remains closed and unchanged. Online time comes only from the
+  G-8 online-interval family: owner-only intervals and public world totals. G-4
+  has no separate `character_activity` family; these helper feeds supply no online time.
 - [Character authority commands](OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md):
   stable operation identity, current Game revalidation, terminal versus ambiguous
   outcomes, no blind replacement operation and restore reconciliation.
@@ -61,6 +79,8 @@ Every Game path below refers to that commit, never floating `main`:
 | `crates/gameplay/dispatch/mechanics/0425-hireling.mechanic`, `0610-hireling-management.mechanic` | Existing mechanic registrations: command 220 / capability 165 and command 470 / capability 250 respectively |
 | `docs/contracts/protocol-oteryn/v1/hireling-v1.md`, `hireling-management-v1.md` | Summon/dismiss, identity list, return-to-lamp, appearance and transient actor projection; current session-derived authority, not portal authority |
 | `apps/game-server/migrations/0405_hireling.sql`, `0719_hireling_identity.sql`, `0720_store_hireling_delivery.sql` | Existing persistence lineage, UUIDv7 `hireling_id`, `owner_character_id`, optional `house_key`, Store reservations/effects and atomic receipt/outbox proof |
+| `apps/game-server/migrations/0038_house_spell_acl.sql` | `game_house_ownership.house_key` uses `^oteryn:content\.house\.[a-z0-9_]+$` (and a 512-byte ceiling), shared with G-4 |
+| `content/items/definitions/items-15000-15499.json` | `oteryn:item.tibia.i2674` is a wolf trophy, used here as a non-currency reward fixture; its reward eligibility still requires an approved Game table |
 | `crates/gameplay/durability/src/durability/house_hireling/model.rs` | `HirelingSnapshot`, `MAX_HIRELINGS = 10`, durable identity separate from NPC actor handles/positions |
 | `crates/gameplay/domain/src/domain/hireling.rs` | Existing `Skill::{Banker,Cook,Steward,Trader}` IDs 1001–1004 are service apprenticeships, not expedition professions |
 | `crates/gameplay/durability/src/durability/store/hireling_model.rs` | `HirelingStoreAction::{Hire,Unlock,Rename,SexChange}`, `HirelingStorePurchase`, `HirelingServiceDeliveryPlan`; existing character-wide unlocks and immutable customization |
@@ -68,9 +88,10 @@ Every Game path below refers to that commit, never floating `main`:
 The plan's references 0425/0610 denote mechanics, not SQL migration filenames at
 this pin. G-14's professions, levelled expeditions, reward/weekly accounting, chest
 and portal messages below are **new proposals**, not existing Game types. Existing
-service skill IDs and character-wide unlock scope retain their meaning. The plan's
-three helpers per account differs from the Game's ten identities per character:
-acceptance must resolve that discrepancy without deleting existing hirelings (Q1).
+service skill IDs and character-wide unlock scope retain their meaning. The owner's
+three-per-account limit applies only to hirelings on expeditions;
+the existing ten identities per character remain unchanged. Expeditions, professions
+and the chest require new Game mechanics; they are not implemented by this proposal.
 
 ## 3. Directions, transport, authentication and signing
 
@@ -133,7 +154,7 @@ float/exponent/boolean. All members are required; null is forbidden except the t
 explicit reconcile fields in §7. Pretty printing is not accepted on the wire.
 Maximum nesting depth 8 (the new nested helper snapshot bound, not a change to parent
 routes). `Content-Length`, if present, is canonical decimal, at most the route bound;
-over-bound is `413`. No `Transfer-Encoding`; `Content-Encoding` absent or `identity`.
+over-bound is `400`. No `Transfer-Encoding`; `Content-Encoding` absent or `identity`.
 Empty, malformed or otherwise over-bound bodies are refused with no state change.
 Digests are SHA-256 of exact canonical UTF-8 bytes, lowercase hex.
 
@@ -147,7 +168,7 @@ Digests are SHA-256 of exact canonical UTF-8 bytes, lowercase hex.
 | `int[a,b]` | JSON integer a through b |
 | `key` | `[a-z0-9][a-z0-9._-]{0,63}`, case sensitive, not a display label |
 | `item_key` | `oteryn:item.` followed by 1–116 of `[a-z0-9._-]`, total at most 128 ASCII bytes; must resolve in the pinned Game content revision |
-| `house_key` | 1–128 bytes `[A-Za-z0-9._:/-]`, Game catalogue key, paired with WorldId |
+| `house_key` | `^oteryn:content\.house\.[a-z0-9_]+$`, at most 512 bytes per migration 0038, paired with WorldId |
 | `authority` | 1–128 bytes `[A-Za-z0-9._:/-]`, exact configured source |
 | `hex64` | 64 lowercase hexadecimal digits |
 | `hireling_name` | 3–18 ASCII letters/spaces, copied from Game, never supplied in an expedition command; presentation only, escaped in HTML |
@@ -182,7 +203,13 @@ P subject fields: `world_id` (`uuid7`), `reward_table_key` (`key`),
 | `rows` | Array 1–32 of `RewardRow`, sorted unique `reward_row_key` |
 
 `ItemAmount`, exact order: `item_key` (`item_key`), `quantity` (`int[1,65535]`, item
-units, no currency conversion). `RewardRow`, exact order: `reward_row_key` (`key`),
+units, no currency conversion). Currency items are forbidden in v1 reward tables,
+weekly reward caps and expedition/chest reward publications; Game validates the
+approved non-currency reward allowlist against pinned content;
+an absent or unapproved entry denies reward eligibility. No gold or other
+currency reward may be minted by this feature.
+
+`RewardRow`, exact order: `reward_row_key` (`key`),
 `profession_key` (`key`), `minimum_level` (`int[1,100]`), `maximum_level`
 (`int[1,100]`, ≥ minimum), `destination_key` (`key`), `duration_seconds`
 (`int[3600,43200]`, 1–12 hours), `profession_xp` (`int[0,1000000]`, Game XP units),
@@ -326,6 +353,7 @@ Members in this exact order:
 | `source_revision` | `u64`, Platform outbox sequence, unique per issuer, allocated under commit-order lock |
 | `operation_id` | `uuid7`, Platform-minted once per confirmed semantic action |
 | `account_id`, `character_id`, `world_id`, `hireling_id` | `uuid7` each, authorized target, revalidated in Game |
+| `expected_character_revision` | `u64`, current Game character revision; rechecked atomically with offline/session authority |
 | `expected_hireling_revision` | `u64`, optimistic check, not final authority |
 | command binding | Fields below, inserted here |
 | `issued_at_source`, `expires_at_source` | `time` each; issued < expires ≤ issued + 300 seconds |
@@ -344,21 +372,29 @@ outside these portal commands. Q3 asks the owner to confirm this interpretation.
 
 Game checks existing receipt/binding before freshness or preconditions. For a new
 decision it proves current account/security evidence, AccountId↔CharacterId ownership,
-helper ownership, World/house authority, deployment/time/recovery fences, policy and
-content availability, table/level/profession eligibility and revision preconditions.
+helper ownership, expected character revision, World/house authority, deployment/
+time/recovery fences, policy and content availability, table/level/profession eligibility and revision preconditions.
 For new operations, an issued_at_source more than 5 seconds ahead of trusted
 Game time is INTENT_INVALID; expiry is checked conservatively inside the deciding
 transaction, never from a browser clock. Unavailable or ambiguous trusted time
 leaves the operation pending without effects. Unknown dependency/time/ownership **never grants**. Definitively foreign targets
 produce a generic NOT_ELIGIBLE receipt; unavailable evidence stays pending.
 
-Start requires placement in an eligible owned house, READY, no active expedition,
-active table, budget and account helper-slot eligibility. Collect requires the
-same current owner, correct expedition/helper/world, authoritative returned state
-and chest capacity. Game serializes these with dialogue, lamp return, house transfer/
-eviction, character transfer/deletion, Store changes and inventory writes. It may
-refuse with a typed conflict rather than project stale runtime placement. A helper
-cannot be silently duplicated or transported by a receipt. Details need Q1/Q4 acceptance.
+Start and collect require a hireling placed in a house owned by the character
+and the character offline. Game atomically checks `expected_character_revision`
+and serializes the offline/session check with admission and both command effects;
+a stale character revision yields HIRELING_STALE_PRECONDITION and a character in
+session yields HIRELING_CHARACTER_IN_SESSION. A portal projection cannot prove offline.
+Start additionally requires READY, no active expedition, active table, budget and
+fewer than three hirelings with unfinished expeditions across the account
+(RUNNING or READY_TO_COLLECT). The ten
+existing identities per character are preserved. Collect requires the same current
+owner, correct expedition/helper/world, authoritative returned state and chest capacity.
+Eviction or return to lamp cancels an uncollected expedition atomically, with no
+rewards/XP and release of undelivered reservations under §5.4. There is no portal
+cancel command. Game serializes decisions with dialogue, house transfer/eviction,
+character transfer/deletion, Store and inventory writes. Remaining transfer/deletion
+and former-owner history details require Q4 acceptance.
 
 ### 6.3 Idempotency keys and durable effects
 
@@ -404,14 +440,15 @@ in the pinned reward table/expedition projection, not a second grant instruction
 | --- | --- |
 | `HIRELING_OK` | COMMITTED, all effects durable |
 | `HIRELING_NOT_ELIGIBLE` | REJECTED, no owner/subject/house disclosure to foreign callers |
-| `HIRELING_STALE_PRECONDITION` | REJECTED, helper/expedition revision changed |
+| `HIRELING_STALE_PRECONDITION` | REJECTED, character/helper/expedition revision changed |
 | `HIRELING_TABLE_UNAVAILABLE` | REJECTED, definitive retired/unknown quote |
+| `HIRELING_CHARACTER_IN_SESSION` | REJECTED, character is in a Game session; no effect for either command |
 | `HIRELING_BUSY` | REJECTED, start conflicts with ongoing expedition |
 | `HIRELING_WEEKLY_LIMIT` | REJECTED, starts or reward cap exhausted |
 | `HIRELING_NOT_RETURNED` | REJECTED, collect too early under Game time |
 | `HIRELING_ALREADY_COLLECTED` | REJECTED, this expedition already credited by another action |
 | `HIRELING_CHEST_FULL` | REJECTED, no partial credit or XP award |
-| `HIRELING_STATE_CONFLICT` | REJECTED, definite lifecycle/session/house/inventory conflict |
+| `HIRELING_STATE_CONFLICT` | REJECTED, definite lifecycle/house/inventory conflict |
 | `HIRELING_INTENT_EXPIRED` | REJECTED, no prior receipt and technical TTL elapsed |
 | `HIRELING_INTENT_INVALID` | REJECTED, authenticated readable intent with invalid binding/time |
 | `HIRELING_UNSUPPORTED` | REJECTED, unsupported command or semantic version with readable identity |
@@ -432,10 +469,10 @@ Publication 200 body: `{"contract_version":1,"result":"accepted"}` for first
 stored or byte-identical current receipt. Platform validates intent, digest, echoes,
 command/outcome member set, code and generation in one transaction. `400` schema/
 echo error; `401` peer/source; `404` no intent; `409` binding/current receipt conflict
-or invalid recovery generation; `413` size; `429` limit; `503` unavailable/off.
+or invalid recovery generation; `400` size; `429` limit; `503` unavailable/off.
 All non-200 responses are empty and never acknowledge.
 All new routes share `400` malformed/canonical/version/schema failure, `401` wrong
-peer/source, `413` length ceiling, `429` limiter and `503` disabled/misconfigured/
+peer/source, `400` length ceiling, `429` limiter and `503` disabled/misconfigured/
 unavailable behavior. Ingest 200 is only accepted/superseded with the exact bodies
 in §8; schema refusals store nothing and do not advance a watermark. A receipt
 conflict preserves the first stored bytes. A read/list failure never decides a command. For `404`/`409` Game retains
@@ -521,6 +558,7 @@ arrival time and UI timestamps never order mutations.
 
 ## 9. Store entitlement delivery and in-game conversation
 
+Purchase stays blocked until the Store `unit_kind` fix is accepted and implemented.
 Purchase remains a Store purchase: product/version → order → EntitlementId → stable
 Store delivery operation → Game receipt. Reuse `PurchaseStoreOfferV1`,
 `ReadStoreOperationIntentV1`, `PublishStoreDeliveryReceiptV1` and the existing Store
@@ -544,8 +582,10 @@ profession/outfit offers need approved product policy. No automatic destructive
 clawback of a deployed helper or already credited rewards on a payment reversal.
 
 In-game conversation uses the existing hireling/NPC dialogue authority and fenced
-session. It offers the same approved profession/row choices and collection/chest
-semantics as portal commands, with Game-local command identity/receipt. It runs the
+session. Expedition dialogue remains blocked pending owner resolution of how it
+can satisfy the offline requirement; this proposal grants no session exception.
+If accepted, it must use the same approved profession/row choices and collection/
+chest semantics, with Game-local command identity/receipt, and run the
 same account-week budget, helper/expedition claim lock and chest transition. Dialogue
 receipts do not impersonate Platform issuer operations; their effects are exported
 with `origin: GAME_DIALOGUE` and empty portal start IDs. A collect by dialogue races
@@ -634,7 +674,7 @@ Platform acceptance checklist (future implementation; none claimed by this draft
 
 Game acceptance checklist (future implementation; none claimed by this draft):
 
-- [ ] Coordinator resolves Q1–Q7 and confirms existing hireling/service/Store type mapping.
+- [ ] Coordinator resolves remaining Q1–Q7 items and confirms existing hireling/service/Store type mapping.
 - [ ] Deterministic explicit table, professions/levels, account-week budgets and overflow/bound proofs.
 - [ ] Current account/character/helper/house authority, trusted-time and recovery fences; unknown denies.
 - [ ] Start/collect decision, XP, chest, quota, receipt and both outboxes atomic; no partial rewards.
@@ -652,53 +692,55 @@ These are synthetic, complete candidate messages; each fenced JSON block is comp
 canonical bytes except the Markdown newline, which is **not** part of the payload.
 Examples are not production identifiers or accepted gameplay/product policy.
 
-Valid reward table (one deterministic row; no chance field):
+Valid reward table (one deterministic row; no chance field). The wolf trophy
+fixture assumes future Game approval as a non-currency reward; pinned content alone
+does not approve its expedition eligibility:
 
 ```json
-{"contract_version":1,"operation":"PublishHirelingRewardTableV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","reward_table_key":"home-v1","reward_table_revision":"7","projection_epoch":"1","projection_revision":"7","source_observed_at":"1790000000","content_revision":"9","availability":"ACTIVE","weekly_policy_revision":"1","week_anchor_at":"1789948800","weekly_expedition_limit":7,"weekly_item_caps":[{"item_key":"oteryn:item.tibia.i2148","quantity":700}],"rows":[{"reward_row_key":"miner-1-short","profession_key":"miner","minimum_level":1,"maximum_level":10,"destination_key":"quarry","duration_seconds":3600,"profession_xp":10,"rewards":[{"item_key":"oteryn:item.tibia.i2148","quantity":100}]}]}
+{"contract_version":1,"operation":"PublishHirelingRewardTableV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","reward_table_key":"home-v1","reward_table_revision":"7","projection_epoch":"1","projection_revision":"7","source_observed_at":"1790000000","content_revision":"9","availability":"ACTIVE","weekly_policy_revision":"1","week_anchor_at":"1789948800","weekly_expedition_limit":7,"weekly_item_caps":[{"item_key":"oteryn:item.tibia.i2674","quantity":700}],"rows":[{"reward_row_key":"miner-1-short","profession_key":"miner","minimum_level":1,"maximum_level":10,"destination_key":"quarry","duration_seconds":3600,"profession_xp":10,"rewards":[{"item_key":"oteryn:item.tibia.i2674","quantity":100}]}]}
 ```
 
 Valid owner snapshot before start (weekly account state, empty provisioned chest):
 
 ```json
-{"contract_version":1,"operation":"PublishHirelingStateV1","source_authority":"oteryn:game:primary","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"20","source_observed_at":"1790000000","world_id":"01934f10-7c02-7001-805b-3b1122334401","hirelings":[{"hireling_id":"0192a000-0000-7000-8000-000000000010","owner_character_id":"01934f10-7c04-7001-805b-3b1122334401","name":"Alex","hireling_revision":"3","placement":[{"house_key":"home.17"}],"professions":[{"profession_key":"miner","level":1,"experience":"0","next_level_experience":"100"}],"availability":"READY","active_expedition_ids":[],"chest":[{"chest_id":"0192a000-0000-7000-8000-000000000030","chest_revision":"1","capacity_units":1000,"used_units":0,"items":[]}]}],"weekly":{"weekly_policy_revision":"1","week_start_at":"1789948800","week_end_at":"1790553600","weekly_expedition_limit":7,"started_count":0,"items":[{"item_key":"oteryn:item.tibia.i2148","cap_quantity":700,"reserved_quantity":0,"delivered_quantity":0}],"weekly_revision":"1"}}
+{"contract_version":1,"operation":"PublishHirelingStateV1","source_authority":"oteryn:game:primary","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"20","source_observed_at":"1790000000","world_id":"01934f10-7c02-7001-805b-3b1122334401","hirelings":[{"hireling_id":"0192a000-0000-7000-8000-000000000010","owner_character_id":"01934f10-7c04-7001-805b-3b1122334401","name":"Alex","hireling_revision":"3","placement":[{"house_key":"oteryn:content.house.home_17"}],"professions":[{"profession_key":"miner","level":1,"experience":"0","next_level_experience":"100"}],"availability":"READY","active_expedition_ids":[],"chest":[{"chest_id":"0192a000-0000-7000-8000-000000000030","chest_revision":"1","capacity_units":1000,"used_units":0,"items":[]}]}],"weekly":{"weekly_policy_revision":"1","week_start_at":"1789948800","week_end_at":"1790553600","weekly_expedition_limit":7,"started_count":0,"items":[{"item_key":"oteryn:item.tibia.i2674","cap_quantity":700,"reserved_quantity":0,"delivered_quantity":0}],"weekly_revision":"1"}}
 ```
 
 Valid start intent:
 
 ```json
-{"contract_version":1,"command":"StartHirelingExpedition","command_semantic_version":1,"issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a1","source_revision":"17","operation_id":"0192a000-0000-7000-8000-000000000001","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expected_hireling_revision":"3","reward_table_key":"home-v1","reward_table_revision":"7","reward_row_key":"miner-1-short","issued_at_source":"1790000000","expires_at_source":"1790000300","audience":"OTERYN_GAME_HIRELINGS"}
+{"contract_version":1,"command":"StartHirelingExpedition","command_semantic_version":1,"issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a1","source_revision":"17","operation_id":"0192a000-0000-7000-8000-000000000001","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expected_character_revision":"12","expected_hireling_revision":"3","reward_table_key":"home-v1","reward_table_revision":"7","reward_row_key":"miner-1-short","issued_at_source":"1790000000","expires_at_source":"1790000300","audience":"OTERYN_GAME_HIRELINGS"}
 ```
 
 Valid committed start receipt; binding_digest hashes the exact start block above:
 
 ```json
-{"contract_version":1,"operation":"PublishHirelingCommandReceiptV1","source_authority":"oteryn:game:primary","issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","command":"StartHirelingExpedition","command_semantic_version":1,"operation_id":"0192a000-0000-7000-8000-000000000001","binding_digest":"63b6e07ae0fb33daaa02f306618440169a6ae708cb53e3bc96aca181d5a01cba","outcome":"COMMITTED","result_code":"HIRELING_OK","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expedition_id":"0192a000-0000-7000-8000-000000000020","hireling_revision":"4","expedition_revision":"1","projection_epoch":"1","state_projection_revision":"21","expedition_projection_revision":"1","weekly_revision":"2","chest_ids":[],"chest_revisions":[],"recovery_generation":"3","decided_at":"1790000002"}
+{"contract_version":1,"operation":"PublishHirelingCommandReceiptV1","source_authority":"oteryn:game:primary","issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","command":"StartHirelingExpedition","command_semantic_version":1,"operation_id":"0192a000-0000-7000-8000-000000000001","binding_digest":"089c2b002d357da3743fcae5b0703a4d9efb630a6ee28fec5db041e7812b8538","outcome":"COMMITTED","result_code":"HIRELING_OK","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expedition_id":"0192a000-0000-7000-8000-000000000020","hireling_revision":"4","expedition_revision":"1","projection_epoch":"1","state_projection_revision":"21","expedition_projection_revision":"1","weekly_revision":"2","chest_ids":[],"chest_revisions":[],"recovery_generation":"3","decided_at":"1790000002"}
 ```
 
 Valid collect intent (after Game has published READY_TO_COLLECT revision 2):
 
 ```json
-{"contract_version":1,"command":"CollectHirelingExpedition","command_semantic_version":1,"issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a2","source_revision":"18","operation_id":"0192a000-0000-7000-8000-000000000002","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expected_hireling_revision":"5","expedition_id":"0192a000-0000-7000-8000-000000000020","expected_expedition_revision":"2","issued_at_source":"1790003610","expires_at_source":"1790003910","audience":"OTERYN_GAME_HIRELINGS"}
+{"contract_version":1,"command":"CollectHirelingExpedition","command_semantic_version":1,"issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a2","source_revision":"18","operation_id":"0192a000-0000-7000-8000-000000000002","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expected_character_revision":"12","expected_hireling_revision":"5","expedition_id":"0192a000-0000-7000-8000-000000000020","expected_expedition_revision":"2","issued_at_source":"1790003610","expires_at_source":"1790003910","audience":"OTERYN_GAME_HIRELINGS"}
 ```
 
 Valid committed collect receipt (same successful execution as the next record):
 
 ```json
-{"contract_version":1,"operation":"PublishHirelingCommandReceiptV1","source_authority":"oteryn:game:primary","issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","command":"CollectHirelingExpedition","command_semantic_version":1,"operation_id":"0192a000-0000-7000-8000-000000000002","binding_digest":"b12dff40a880f5b018789bcbdc47e05f1338a513594e9de26176ba145d36eda5","outcome":"COMMITTED","result_code":"HIRELING_OK","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expedition_id":"0192a000-0000-7000-8000-000000000020","hireling_revision":"6","expedition_revision":"3","projection_epoch":"1","state_projection_revision":"23","expedition_projection_revision":"3","weekly_revision":"3","chest_ids":["0192a000-0000-7000-8000-000000000030"],"chest_revisions":["2"],"recovery_generation":"3","decided_at":"1790003611"}
+{"contract_version":1,"operation":"PublishHirelingCommandReceiptV1","source_authority":"oteryn:game:primary","issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","command":"CollectHirelingExpedition","command_semantic_version":1,"operation_id":"0192a000-0000-7000-8000-000000000002","binding_digest":"f3a54b33b50f12101556feeeb78358efe3044da465cabaaa47b3c0de794f0a18","outcome":"COMMITTED","result_code":"HIRELING_OK","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expedition_id":"0192a000-0000-7000-8000-000000000020","hireling_revision":"6","expedition_revision":"3","projection_epoch":"1","state_projection_revision":"23","expedition_projection_revision":"3","weekly_revision":"3","chest_ids":["0192a000-0000-7000-8000-000000000030"],"chest_revisions":["2"],"recovery_generation":"3","decided_at":"1790003611"}
 ```
 
 Valid resulting expedition record (actual rewards credited once to chest):
 
 ```json
-{"contract_version":1,"operation":"PublishHirelingExpeditionV1","source_authority":"oteryn:game:primary","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","expedition_id":"0192a000-0000-7000-8000-000000000020","projection_epoch":"1","projection_revision":"3","source_observed_at":"1790003611","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expedition_revision":"3","reward_table_key":"home-v1","reward_row_key":"miner-1-short","reward_table_revision":"7","content_revision":"9","weekly_policy_revision":"1","profession_key":"miner","destination_key":"quarry","level_at_start":1,"state":"COLLECTED","started_at":"1790000002","returns_at":"1790003602","week_start_at":"1789948800","origin":"PORTAL","start_operation_ids":["0192a000-0000-7000-8000-000000000001"],"collect_operation_ids":["0192a000-0000-7000-8000-000000000002"],"rewards":[{"item_key":"oteryn:item.tibia.i2148","quantity":100}],"profession_xp_awarded":10,"collected_at":["1790003611"],"chest_ids":["0192a000-0000-7000-8000-000000000030"]}
+{"contract_version":1,"operation":"PublishHirelingExpeditionV1","source_authority":"oteryn:game:primary","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","expedition_id":"0192a000-0000-7000-8000-000000000020","projection_epoch":"1","projection_revision":"3","source_observed_at":"1790003611","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expedition_revision":"3","reward_table_key":"home-v1","reward_row_key":"miner-1-short","reward_table_revision":"7","content_revision":"9","weekly_policy_revision":"1","profession_key":"miner","destination_key":"quarry","level_at_start":1,"state":"COLLECTED","started_at":"1790000002","returns_at":"1790003602","week_start_at":"1789948800","origin":"PORTAL","start_operation_ids":["0192a000-0000-7000-8000-000000000001"],"collect_operation_ids":["0192a000-0000-7000-8000-000000000002"],"rewards":[{"item_key":"oteryn:item.tibia.i2674","quantity":100}],"profession_xp_awarded":10,"collected_at":["1790003611"],"chest_ids":["0192a000-0000-7000-8000-000000000030"]}
 ```
 
 Valid terminal refusal for that collect shape when the chest is full in an
 alternative execution; it cannot coexist with a committed outcome for the same ID:
 
 ```json
-{"contract_version":1,"operation":"PublishHirelingCommandReceiptV1","source_authority":"oteryn:game:primary","issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","command":"CollectHirelingExpedition","command_semantic_version":1,"operation_id":"0192a000-0000-7000-8000-000000000002","binding_digest":"b12dff40a880f5b018789bcbdc47e05f1338a513594e9de26176ba145d36eda5","outcome":"REJECTED","result_code":"HIRELING_CHEST_FULL","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","recovery_generation":"3","decided_at":"1790003611"}
+{"contract_version":1,"operation":"PublishHirelingCommandReceiptV1","source_authority":"oteryn:game:primary","issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","command":"CollectHirelingExpedition","command_semantic_version":1,"operation_id":"0192a000-0000-7000-8000-000000000002","binding_digest":"f3a54b33b50f12101556feeeb78358efe3044da465cabaaa47b3c0de794f0a18","outcome":"REJECTED","result_code":"HIRELING_CHEST_FULL","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","recovery_generation":"3","decided_at":"1790003611"}
 ```
 
 Valid private watermark:
@@ -718,7 +760,7 @@ Invalid collect intent: null revision and client-selected reward amount; schema
 refusal/quarantine, never a grant, even though IDs are well formed:
 
 ```json
-{"contract_version":1,"command":"CollectHirelingExpedition","command_semantic_version":1,"issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a2","source_revision":"18","operation_id":"0192a000-0000-7000-8000-000000000002","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expected_hireling_revision":null,"expedition_id":"0192a000-0000-7000-8000-000000000020","expected_expedition_revision":"2","reward_quantity":9999,"issued_at_source":"1790003610","expires_at_source":"1790003910","audience":"OTERYN_GAME_HIRELINGS"}
+{"contract_version":1,"command":"CollectHirelingExpedition","command_semantic_version":1,"issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a2","source_revision":"18","operation_id":"0192a000-0000-7000-8000-000000000002","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expected_character_revision":"12","expected_hireling_revision":null,"expedition_id":"0192a000-0000-7000-8000-000000000020","expected_expedition_revision":"2","reward_quantity":9999,"issued_at_source":"1790003610","expires_at_source":"1790003910","audience":"OTERYN_GAME_HIRELINGS"}
 ```
 
 Invalid conflicting reuse: this otherwise well-formed start uses the valid start's
@@ -726,29 +768,31 @@ operation_id but changes its quote row. Game keeps the first binding/receipt,
 executes nothing new and alarms; no replacement receipt:
 
 ```json
-{"contract_version":1,"command":"StartHirelingExpedition","command_semantic_version":1,"issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a1","source_revision":"17","operation_id":"0192a000-0000-7000-8000-000000000001","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expected_hireling_revision":"3","reward_table_key":"home-v1","reward_table_revision":"7","reward_row_key":"miner-1-long","issued_at_source":"1790000000","expires_at_source":"1790000300","audience":"OTERYN_GAME_HIRELINGS"}
+{"contract_version":1,"command":"StartHirelingExpedition","command_semantic_version":1,"issuer_authority":"OTERYN_PLATFORM_HIRELING_AUTHORITY","issuer_decision_id":"0192a000-0000-7000-8000-0000000000a1","source_revision":"17","operation_id":"0192a000-0000-7000-8000-000000000001","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","character_id":"01934f10-7c04-7001-805b-3b1122334401","world_id":"01934f10-7c02-7001-805b-3b1122334401","hireling_id":"0192a000-0000-7000-8000-000000000010","expected_character_revision":"12","expected_hireling_revision":"3","reward_table_key":"home-v1","reward_table_revision":"7","reward_row_key":"miner-1-long","issued_at_source":"1790000000","expires_at_source":"1790000300","audience":"OTERYN_GAME_HIRELINGS"}
 ```
 
 ## 13. Open questions for the Game owner (coordinator)
 
-1. **Identity, ownership and limits:** accept reusing character-owned HirelingId and
-   a shared AccountId budget? Is the plan's three-per-account cap for expedition-enabled
-   helpers only, or all existing identities? How do the existing ten-per-character
-   identities, character-wide service unlocks and transfers migrate without loss?
-2. **Gameplay table/progression:** accept fixed deterministic rewards/XP, 1–12-hour
-   rows, levels 1–100 and the proposed bound of 16 professions? Supply approved
-   profession/destination keys, content/row revisions, XP curves, weekly start/item
-   caps and confirm Monday UTC reset/policy changes at boundaries. Example numbers
-   are fixtures, not a requested economy decision.
+1. **Identity, ownership and limits — limit answered:** three applies only to
+   hirelings on expeditions; the existing ten identities per character stay.
+   Remaining open: accept the shared AccountId weekly budget and confirm transfer
+   mapping while preserving character-wide service unlocks.
+2. **Gameplay table/progression — answered in part:** expeditions last 1–12 h,
+   there are 16 professions, and weeks start Monday 00:00 UTC.
+   Remaining open: approved profession/destination keys, deterministic rewards/XP,
+   level/XP curves, content/row revisions and weekly start/item caps. Fixture values
+   do not approve an economy; currency rewards are excluded from v1.
 3. **Return versus collection:** confirm READY_TO_COLLECT followed by explicit
    collect-to-chest (rather than automatic chest credit at return and collect meaning
    withdrawal). Confirm chest capacity measured in item units, 32 item kinds, and
    Game-only withdrawal. Any different meaning must revise these schemas before acceptance.
-4. **Lifecycle/concurrency:** which house, placement and session conditions allow
-   portal start/collect? What happens during lamp return, eviction/house transfer,
-   character sale/deletion and uncollected returns? Who may cancel, and how are old
-   account-week reservations and former-owner private history resolved?
-5. **Store mapping blocker:** which approved product/grant profile and Store wire
+4. **Lifecycle/concurrency — answered in part:** start and collect require a
+   hireling placed in an owned house and the character offline. Eviction or lamp
+   return cancels the expedition; no cancellation from the portal.
+   Remaining open: house/character transfer or deletion behavior and former-owner
+   private history; compatibility of expedition dialogue with the offline rule
+   (dialogue stays blocked). Cancelled reservations follow §5.4, subject to final acceptance.
+5. **Store mapping blocker — purchase remains blocked until the Store `unit_kind` fix:** which approved product/grant profile and Store wire
    amendment carries `HirelingStoreAction` customization, new expedition-profession
    unlocks and resulting identity facts? Confirm Profile C, game-side reservation
    before debit, product limits and refund/reversal handling. No existing unit kind

@@ -1,14 +1,21 @@
-Status: PROPOSED by Platform, pending acceptance by the game owner (coordinator).
+Status: PROPOSED revision 2 by Platform, pending acceptance by the game owner (coordinator).
 
 # Oteryn-v2 statistics projection families — G-8
 
+## Revision 2 changes
+
+- Apply the game owner's **CHANGES-NEEDED** review: V2 routes and G-4's V2 family enum; leave v1 and its closed watermark enum unchanged.
+- Make G-8 intervals the single source of online time shared with G-4; owner-only intervals, public world totals, T67 public rankings deferred.
+- Confirm the ONLINE predicate and crash closure in the lease-expiry commit, deliberate UTC day buckets, and 30/400-day retention with resync qualification before activation.
+- Separate wire acceptance from new Game producer work after G-7; oversized requests return `400` throughout.
+
 ## 1. Purpose, authority and limits
 
-Proposal ID: `oteryn-v2-statistics-families-proposal-1`. This is a proposed extension of `oteryn-game-public-projections-v1`, not acceptance of new families or permission to implement them. It addresses G-8 in the gate table of [the Rust portal plan](../architecture/OTERYN_PORTAL_RUST_PLAN.md) and its §10 consumers T67 (online-time statistics/rankings) and T69 (daily world monster/boss totals). The game owner, through the coordinator, owns acceptance, scheduling after G-7, authoritative definitions and producer delivery. Platform owns ingestion, disposable read models, privacy, freshness and portal presentation. Neither side may infer G-8 completion from this document.
+Proposal ID: `oteryn-v2-statistics-families-proposal-2`. This is a proposed addition to `oteryn-game-public-projections-v2`, not acceptance of new families or permission to implement them. It addresses G-8 in the gate table of [the Rust portal plan](../architecture/OTERYN_PORTAL_RUST_PLAN.md) and its §10 consumers T67 (online-time statistics/rankings) and T69 (daily world monster/boss totals). The game owner, through the coordinator, owns acceptance, scheduling after G-7, authoritative definitions and producer delivery. Platform owns ingestion, disposable read models, privacy, freshness and portal presentation. Neither side may infer G-8 completion from this document.
 
-Scope is two new families: `character_online_sessions` and `world_daily_kills`. No experience/skill ranking inputs, runtime readiness/capacity, loot, damage, healing, private game journal (G-9..G-11), gameplay commands or entitlement effects are added. T67's other statistics and T69's online graph, population and deaths need their own existing sources. Existing bestiary progress and boss-credit receipts are not daily world totals.
+Scope is two new families: `character_online_sessions` and `world_daily_kills`. No experience/skill ranking inputs, runtime readiness/capacity, loot, damage, healing, private game journal (G-9..G-11), gameplay commands or entitlement effects are added. T67 online-duration statistics and any T69 online-duration graph use these intervals. T67's other statistics, current population and player deaths need their own sources. G-8 intervals are the single source of online time for G-4 and G-8; G-4 drops its separate `character_activity` family and refers to these intervals, with derived views preserving owner-only access. Existing bestiary progress and boss-credit receipts are not daily world totals.
 
-These are families of the public-projection pipeline, not a declaration that all fields are public. Raw character intervals are **owner-only**. Anonymous world aggregates may be public. T67 may consume owner-scoped online totals, but public online-time rankings remain disabled pending Q1; owner access is not consent to public ranking. This deliberately leaves that plan/privacy conflict for the owner rather than widening disclosure.
+These are families of the public-projection pipeline, not a declaration that all fields are public. Raw character intervals are **owner-only**. Anonymous world aggregates may be public. T67 may consume owner-scoped online totals, but public online-time rankings are deferred by the owner (answered Q1); owner access is not consent to public ranking.
 
 ## 2. Sources and compatibility baseline
 
@@ -27,6 +34,7 @@ Game evidence is read-only, pinned throughout to **857f15f376907c592bb28d854fccf
 | `docs/contracts/OTERYN_GAME_PUBLIC_PROJECTIONS_V1.md` §§2–8, 11–12 | Accepted testing/preproduction families are highscores, character profile, world online and watermark; snapshot/empty-list semantics, TLS, epoch fence, outbox, operator resync and privacy. G-8 families are absent. |
 | `crates/gameplay/native-admission-source/src/public_projections.rs` | Existing `Family`, `ProfileWire`, `OnlineWire`, `WatermarkWire`, `PublicStore`, `OutboxFacts`, `EXCHANGE_BOUND`, `DEFINITE_HOLD`, `BACKOFF_MIN/MAX`; compiled operations and exact bytes. New family/operation names below are proposed additions, not existing types. |
 | `crates/gameplay/durability/src/durability/public_projections.rs` | `PROFILE`, `CLEAR_PROFILES`, `ONLINE`, reconciled authority and committed online predicate: eligible World admission guard, session state 2, current transport, no control loss. Current scan has no interval history. |
+| `apps/game-server/migrations/0148_world_reset.sql` | World reset calendar is Berlin 10:00, distinct from the deliberately chosen UTC day buckets. |
 | `apps/game-server/migrations/0091_public_projections.sql` | Public epoch, revision/outbox persistence and operator resync foundation. |
 | `docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md` §§3–4; `crates/gameplay/native-admission-source/src/character_commands.rs` | Existing `ListPendingCharacterCommandsV1`, `ReadCharacterCommandIntentV1`, `PublishCharacterCommandReceiptV1`: Game polls Platform, not a new Platform-to-Game listener. |
 | `apps/game-server/migrations/0002_fresh_admission_authority.sql` | Admission/reconnect session and guard evidence contains private runtime identity; none is exported here. |
@@ -39,9 +47,9 @@ Game evidence is read-only, pinned throughout to **857f15f376907c592bb28d854fccf
 
 | Family | Proposed operation | POST path | Request ceiling |
 |---|---|---|---|
-| `character_online_sessions` | `PublishCharacterOnlineSessionV1` | `/internal/v1/game-public/character-online-session` | 2048 bytes |
-| `world_daily_kills` | `PublishWorldDailyKillsV1` | `/internal/v1/game-public/world-daily-kills` | 2048 bytes |
-| Either new family | existing `PublishPublicProjectionWatermarkV1` with extended family enum | `/internal/v1/game-public/watermark` | 512 bytes |
+| `character_online_sessions` | `PublishCharacterOnlineSessionV2` | `/internal/v2/game-public/character-online-session` | 2048 bytes |
+| `world_daily_kills` | `PublishWorldDailyKillsV2` | `/internal/v2/game-public/world-daily-kills` | 2048 bytes |
+| Either new family | `PublishPublicProjectionWatermarkV2` with G-4's V2 family enum | `/internal/v2/game-public/watermark` | 512 bytes |
 
 **Platform → Game command:** none for G-8. Platform never starts/stops a session, increments a kill, chooses an epoch or requests resync. HTTP acknowledgements are ingestion receipts, not gameplay commands. Recovery is Game's existing operator resync extended to these families after acceptance. If remote resync is requested later it needs a separate contract; do not add it to Character Authority's closed command set.
 
@@ -53,7 +61,7 @@ Connect ceiling 1 s, TLS handshake 2 s, whole exchange including setup 3 s (the 
 
 ## 4. Exact encoding and common fields
 
-All objects have exactly the listed members, in listed order for golden serialization; no missing, duplicate, unknown or null member, no floats or coercion. UTF-8 JSON, no BOM, escapes, insignificant whitespace or trailing newline; at most five nested containers. `Content-Type: application/json`. `Transfer-Encoding` absent; `Content-Encoding` absent or `identity`. Content length, if supplied, is canonical nonnegative decimal and within the route ceiling; empty, oversized or malformed input is `400`, following the public-projection vocabulary (Store's `413` is not imported).
+All objects have exactly the listed members, in listed order for golden serialization; no missing, duplicate, unknown or null member, no floats or coercion. UTF-8 JSON, no BOM, escapes, insignificant whitespace or trailing newline; at most five nested containers. `Content-Type: application/json`. `Transfer-Encoding` absent; `Content-Encoding` absent or `identity`. Content length, if supplied, is canonical nonnegative decimal and within the route ceiling; empty, oversized or malformed input is `400`, consistently with G-4 and the cross-contract oversize decision.
 
 | Type | Exact rule |
 |---|---|
@@ -66,7 +74,7 @@ All objects have exactly the listed members, in listed order for golden serializ
 
 Times use the Game wire's decimal **strings**, matching `ProfileWire`/`WatermarkWire`; do not copy the Platform PHP internal integer representation onto the wire. A missing value is represented by the bounded empty list described below; `null` is always invalid. No field is implicitly optional.
 
-Every snapshot starts with `contract_version` (JSON integer, exactly `1`), `operation` (exact route operation), `source_authority` (`authority`), followed by subject fields, then `projection_epoch` (`u64`), `projection_revision` (`u64`), `source_observed_at` (`time`), then the body. Observation is the revision-assignment time, immutable on retry; it does not order records or renew freshness. All IDs are join keys, not ownership or admission authority.
+Every snapshot starts with `contract_version` (JSON integer, exactly `2`), `operation` (exact route operation), `source_authority` (`authority`), followed by subject fields, then `projection_epoch` (`u64`), `projection_revision` (`u64`), `source_observed_at` (`time`), then the body. Observation is the revision-assignment time, immutable on retry; it does not order records or renew freshness. All IDs are join keys, not ownership or admission authority.
 
 ### 4.1 Character online interval snapshot
 
@@ -80,11 +88,13 @@ Subject fields, in order: `character_id` (`id`), `statistics_id` (`id`). Body me
 
 `started_at <= source_observed_at`. Zero-length closed intervals are permitted and contribute zero seconds. `statistics_id` is a newly minted Game statistics-only UUIDv7 persisted once at interval creation. It is neither `GameSessionId`, an admission receipt ID nor a derivation of either. A reconnect that breaks the committed online predicate closes the old interval and starts another; moving Channel without breaking it creates no new interval. A World transfer splits intervals at the authoritative boundary. Intervals for one character never overlap, including across Worlds. Time precision is whole seconds rounded down from persisted millisecond facts; duration is `end - start` in seconds, never time since receipt. Game must detect unsafe time/negative duration and reconcile rather than clamp or invent an end.
 
-Proposed online predicate is the existing `ONLINE` committed predicate cited above. Start/end must be captured at authoritative transitions, not inferred from the 10-second public scan. A crash, lost transport, control loss or lease expiry requires Game-authoritative closure; Platform never closes an interval from silence, timeout or wall-clock extrapolation. Open intervals contribute no completed duration and prove neither current online status nor total completeness. Reconnect/crash exact boundary policy is Q2.
+The owner-confirmed online predicate is the existing `ONLINE` committed predicate cited above. Start/end must be captured at authoritative transitions, not inferred from the 10-second public scan. A crash, lost transport, control loss or lease expiry requires Game-authoritative closure; Platform never closes an interval from silence, timeout or wall-clock extrapolation. Open intervals contribute no completed duration and prove neither current online status nor total completeness. The owner accepts the existing `ONLINE` predicate (answered Q2); a crash closes the interval in the lease-expiry commit, using its authoritative committed timestamp. Unsafe clocks or missing closure evidence remain reconciliation blockers, never invented duration.
 
 `sessions: []` is an explicit tombstone/suppression for this subject, including deletion, visibility removal and retention expiry. It is not a zero-length session. The publisher must enumerate all affected retained statistics subjects on a character removal; a profile removal independently fences serving immediately. Higher revisions replace the complete interval record, so an end arriving before its start snapshot is safe. Correction requires a higher revision; a closed interval cannot reopen implicitly. A genuinely unknown end remains unknown until corrected authoritative evidence exists.
 
-### 4.2 World/day aggregate snapshot
+### 4.2 World/UTC day aggregate snapshot
+
+T69 buckets deliberately mean **UTC day**, not the World reset day. Game migration `apps/game-server/migrations/0148_world_reset.sql` defines the World reset at 10:00 Europe/Berlin; seasonal UTC offsets make that a different boundary. This wire deliberately retains UTC midnight and 86400-second buckets and must label them "UTC day" in presentation.
 
 Subject fields: `world_id` (`id`), `day_start` (nonzero `time`, divisible by 86400, UTC midnight). Body member: `days` (array 0..1). Entry members, in order:
 
@@ -101,13 +111,13 @@ Proposed counting rule: exactly one count per committed physical creature death 
 
 ### 4.3 Watermark and acknowledgement records
 
-Exact existing watermark member order: `contract_version` (integer 1), `operation` (`PublishPublicProjectionWatermarkV1`), `source_authority` (`authority`), `family` (`character_online_sessions` or `world_daily_kills`), `projection_epoch` (`u64`), `complete_through` (`time`), `observed_at` (`time`). Required relation: `complete_through <= observed_at`; existing LCFA future-time/refusal checks apply with 1 s Platform clock uncertainty. No extra fields.
+V2 watermark member order, using the V2 family enum defined by [G-4](OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md) (including these two G-8 families): `contract_version` (integer 2), `operation` (`PublishPublicProjectionWatermarkV2`), `source_authority` (`authority`), `family` (`character_online_sessions` or `world_daily_kills`), `projection_epoch` (`u64`), `complete_through` (`time`), `observed_at` (`time`). Required relation: `complete_through <= observed_at`; existing LCFA future-time/refusal checks apply with 1 s Platform clock uncertainty. No extra fields.
 
-A successful snapshot or watermark response is exactly one of these existing records: `{"contract_version":1,"result":"accepted"}` or `{"contract_version":1,"result":"superseded"}`. No other result, members or nulls. HTTP 200 alone with malformed/truncated body is ambiguous, never an acknowledgement.
+A successful snapshot or watermark response is exactly one of these V2 records: `{"contract_version":2,"result":"accepted"}` or `{"contract_version":2,"result":"superseded"}`. No other result, members or nulls. HTTP 200 alone with malformed/truncated body is ambiguous, never an acknowledgement.
 
 ## 5. Ordering, outbox, watermark and replay
 
-Deduplication key: `(source_authority, family, subject, projection_epoch, projection_revision)`. Subject is `(character_id, statistics_id)` or `(world_id, day_start)` respectively. Revisions increase per subject, not globally. Do not introduce an operation UUID header or timestamp idempotency key. Game commits authoritative change, subject revision and outbox touch atomically, following `OutboxFacts`/`PublicStore` and migration 0091. Rejected fenced writes produce none. New G-8 transactional source capture is required; current sources do not prove it exists.
+Deduplication key: `(source_authority, family, subject, projection_epoch, projection_revision)`. Subject is `(character_id, statistics_id)` or `(world_id, day_start)` respectively. Revisions increase per subject, not globally. Do not introduce an operation UUID header or timestamp idempotency key. Game commits authoritative change, subject revision and outbox touch atomically, following `OutboxFacts`/`PublicStore` and migration 0091. Rejected fenced writes produce none. The pinned Game has no durable source of creature kills or online intervals today. Acceptance covers the wire only; durable source capture and the producer are new Game work scheduled after G-7, not existing functionality.
 
 Order lexicographically by numeric `(projection_epoch, projection_revision)`. Lower pair is `superseded`; equal pair/equal content is `accepted`; equal pair/different content is `409`, preserving the first record. Content is subject fields plus complete body, recursively sorted object keys with list order preserved, compact UTF-8, SHA-256 lowercase hex internally, as `PublicProjectionSnapshot` does. Envelope/observation/epoch/revision are excluded from the content digest; equal content keeps the first observation time. Wire retries preserve their original exact bytes. A higher pair replaces the subject atomically. Revision gaps are legal for replacement snapshots/outbox coalescing; never treat them as incremental-event continuity or infer missing intervals from them.
 
@@ -138,11 +148,11 @@ Unknown, stale, ambiguous, rebuilding or invalid source/ownership/privacy state 
 
 ## 7. Privacy, retention and presentation
 
-Current authoritative AccountId↔CharacterId ownership must be proven server-side for every owner interval read, using the accepted account/Character Authority path, independently of projection freshness. Browser IDs, names and these snapshots prove no ownership. No owner identifiers are sent in G-8. Foreign, unknown or ambiguously owned subjects return indistinguishable access denial. Account transfer immediately denies the former owner; proposed policy also withholds pre-transfer history from the new owner pending Q1, requiring an authoritative ownership boundary before access. Uncertain invalidation is denial, not a successful purge.
+Current authoritative AccountId↔CharacterId ownership must be proven server-side for every owner interval read, using the accepted account/Character Authority path, independently of projection freshness. Browser IDs, names and these snapshots prove no ownership. No owner identifiers are sent in G-8. Foreign, unknown or ambiguously owned subjects return indistinguishable access denial. Account transfer immediately denies the former owner; the conservative proposal also withholds pre-transfer history from the new owner pending a separate ownership-history decision, requiring an authoritative ownership boundary before access. Uncertain invalidation is denial, not a successful purge.
 
 Raw intervals and derived owner totals never enter public pages, search, CDN, anonymous APIs or public caches. Owner responses are private/no-store. No public cross-character grouping or account linkage. Restrictive visibility/lifecycle changes fence all affected caches and generations at the current independent Platform privacy floor; a fresh source revision never overrides it. Hidden/deleted/unclassifiable profiles deny interval serving regardless of an older interval record. Owner-only classification applies to the whole raw interval, including start/end and `statistics_id`, and to any derived output revealing the schedule. Public T67 rankings need a separate accepted aggregate exposure decision.
 
-Proposed retention, pending Q4: intervals for 30 days after authoritative end; unresolved open intervals have a 30-day hard retention ceiling after start and become unavailable pending Game reconciliation, never auto-closed. World/day aggregates for 400 days after day end. Both systems enforce serve-time expiry even during producer outage; Game publishes higher-revision tombstones and deletes eligible payloads, Platform purges raw payloads/derived caches within 24 hours, backups expire within 30 days of purge. Idempotency/epoch/privacy floors survive payload erasure for the supported replay window; minimal non-payload subject fences remain until their whole retained epoch is fenced out. Replays cannot resurrect expired data, and new-epoch rebuilds still apply retention. No body logging or payload-bearing diagnostic archives; quarantine stores only bounded reason and nonpublic reference for at most 7 days. Exact deletion/backup obligations require owner acceptance; these durations are proposal values, not a legal-policy decision.
+Owner-confirmed retention (answered Q4): intervals for 30 days after authoritative end; unresolved open intervals have a 30-day hard retention ceiling after start and become unavailable pending Game reconciliation, never auto-closed. World/day aggregates for 400 days after day end. Both systems enforce serve-time expiry even during producer outage; Game publishes higher-revision tombstones and deletes eligible payloads, Platform purges raw payloads/derived caches within 24 hours, backups expire within 30 days of purge. Idempotency/epoch/privacy floors survive payload erasure for the supported replay window; minimal non-payload subject fences remain until their whole retained epoch is fenced out. Replays cannot resurrect expired data, and new-epoch rebuilds still apply retention. No body logging or payload-bearing diagnostic archives; quarantine stores only bounded reason and nonpublic reference for at most 7 days. The owner confirms 30/400-day retention; open-interval handling and exact deletion/backup obligations remain proposed operational details, not a legal-policy decision. Full retained-set resync must be qualified before activation; acceptance of retention is not evidence that the 60 s bound is achievable.
 
 Never send AccountId, Identity ID, email, IP, device data, network address, credentials, GameSessionId, connection/reconnect/admission IDs, lease/fence/generation secrets, ChannelId, node/instance/position, private topology, receipt command bindings, names, loot, damage, payment or entitlement data. `statistics_id` is purpose-separated correlation only. Operational logs/metrics contain family, operation, result class and timings, without IDs or bodies, as the existing publisher does. Privacy audit evidence stays access-controlled and payload-free.
 
@@ -150,7 +160,7 @@ Never send AccountId, Identity ID, email, IP, device data, network address, cred
 
 Proposed per-family switches `character_online_sessions.enabled` and `world_daily_kills.enabled` exist on both producer and consumer, **false by default**, subordinate to Game `[platform.public_projections] enabled` and Platform `game-projections.public.enabled` (or equivalent Rust configuration). Separate owner presentation switches default false, including public T67 ranking exposure. Flags here name proposed configuration, not shipped keys. No environment/workflow/config changes are part of this document. Initial acceptance is testing/preproduction only; production needs its own PKI, measured limits, retention/privacy and exact-revision enablement packet.
 
-Existing v1 family and operation enums are closed. These new names are not accepted by old binaries; do not send them until an explicitly accepted extension and exact producer/consumer compatibility matrix exist. `contract_version:1` is proposed for new routes using the existing envelope; extending the watermark family set is a negotiated extension, requiring explicit owner acceptance under the Game contract's new-version rule. If the owner requires `contract_version:2`, revise all new golden payloads and compiled dispatch together before acceptance; never silently change existing accepted family bytes. Any later change of member/path/bound/counting/privacy/ordering meaning needs a new accepted version. Unknown versions fail `400`, never best-effort parsing. No down-conversion to existing `world_online`/profile bodies or mixed source authority.
+Existing v1 family and operation enums, including the v1 watermark family enum, stay closed and unchanged. These families use only `/internal/v2/game-public/*`, `contract_version:2`, V2 operations and the V2 family enum defined in [G-4](OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md). Do not send new families to v1 routes or extend its enum. No old binary accepts these new V2 names; an accepted exact producer/consumer compatibility matrix is required before activation. Any later change of member/path/bound/counting/privacy/ordering meaning needs a new accepted version. Unknown versions fail `400`, never best-effort parsing. No down-conversion to existing `world_online`/profile bodies or mixed source authority. G-4's separate `character_activity` family is dropped by the shared revision decision; G-8 intervals supply online time. This revision edits G-8 only.
 
 Rollback disables presentation first, then publishing/ingest as needed; retains outbox and monotonic floors. A previous projection generation may serve only if fresh, retention-eligible and composed under current ownership/privacy evidence. This proposal adds no runtime, schema, deployment, workflow or cross-repository write authority.
 
@@ -161,53 +171,53 @@ Each fenced line is the complete compact wire body; the enclosing Markdown newli
 Valid open interval (revision 1):
 
 ```json
-{"contract_version":1,"operation":"PublishCharacterOnlineSessionV1","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","statistics_id":"01934f10-7c08-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"1","source_observed_at":"1790000000","sessions":[{"world_id":"01934f10-7c02-7001-805b-3b1122334401","started_at":"1790000000","ended_at":[]}]}
+{"contract_version":2,"operation":"PublishCharacterOnlineSessionV2","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","statistics_id":"01934f10-7c08-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"1","source_observed_at":"1790000000","sessions":[{"world_id":"01934f10-7c02-7001-805b-3b1122334401","started_at":"1790000000","ended_at":[]}]}
 ```
 
 Valid closure; exact retry is accepted without adding duration again:
 
 ```json
-{"contract_version":1,"operation":"PublishCharacterOnlineSessionV1","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","statistics_id":"01934f10-7c08-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"2","source_observed_at":"1790003600","sessions":[{"world_id":"01934f10-7c02-7001-805b-3b1122334401","started_at":"1790000000","ended_at":["1790003600"]}]}
+{"contract_version":2,"operation":"PublishCharacterOnlineSessionV2","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","statistics_id":"01934f10-7c08-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"2","source_observed_at":"1790003600","sessions":[{"world_id":"01934f10-7c02-7001-805b-3b1122334401","started_at":"1790000000","ended_at":["1790003600"]}]}
 ```
 
 Valid explicit suppression:
 
 ```json
-{"contract_version":1,"operation":"PublishCharacterOnlineSessionV1","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","statistics_id":"01934f10-7c08-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"3","source_observed_at":"1790003700","sessions":[]}
+{"contract_version":2,"operation":"PublishCharacterOnlineSessionV2","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","statistics_id":"01934f10-7c08-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"3","source_observed_at":"1790003700","sessions":[]}
 ```
 
 Valid final world/day aggregate (UTC midnight; no double boss counting):
 
 ```json
-{"contract_version":1,"operation":"PublishWorldDailyKillsV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","day_start":"1789948800","projection_epoch":"1","projection_revision":"2","source_observed_at":"1790035201","days":[{"day_end":"1790035200","monsters_killed":"12345","bosses_killed":"12","complete":true}]}
+{"contract_version":2,"operation":"PublishWorldDailyKillsV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","day_start":"1789948800","projection_epoch":"1","projection_revision":"2","source_observed_at":"1790035201","days":[{"day_end":"1790035200","monsters_killed":"12345","bosses_killed":"12","complete":true}]}
 ```
 
 Valid watermark and acknowledgement (each is a separate message):
 
 ```json
-{"contract_version":1,"operation":"PublishPublicProjectionWatermarkV1","source_authority":"oteryn:game:primary","family":"world_daily_kills","projection_epoch":"1","complete_through":"1790035201","observed_at":"1790035203"}
+{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"oteryn:game:primary","family":"world_daily_kills","projection_epoch":"1","complete_through":"1790035201","observed_at":"1790035203"}
 ```
 
 ```json
-{"contract_version":1,"result":"accepted"}
+{"contract_version":2,"result":"accepted"}
 ```
 
 Invalid `400`: explicit null is not an unknown end list:
 
 ```json
-{"contract_version":1,"operation":"PublishCharacterOnlineSessionV1","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","statistics_id":"01934f10-7c08-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"1","source_observed_at":"1790000000","sessions":[{"world_id":"01934f10-7c02-7001-805b-3b1122334401","started_at":"1790000000","ended_at":null}]}
+{"contract_version":2,"operation":"PublishCharacterOnlineSessionV2","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","statistics_id":"01934f10-7c08-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"1","source_observed_at":"1790000000","sessions":[{"world_id":"01934f10-7c02-7001-805b-3b1122334401","started_at":"1790000000","ended_at":null}]}
 ```
 
 Invalid `400`: numeric count instead of canonical decimal string (all other members valid):
 
 ```json
-{"contract_version":1,"operation":"PublishWorldDailyKillsV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","day_start":"1789948800","projection_epoch":"1","projection_revision":"2","source_observed_at":"1790035201","days":[{"day_end":"1790035200","monsters_killed":12345,"bosses_killed":"12","complete":true}]}
+{"contract_version":2,"operation":"PublishWorldDailyKillsV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","day_start":"1789948800","projection_epoch":"1","projection_revision":"2","source_observed_at":"1790035201","days":[{"day_end":"1790035200","monsters_killed":12345,"bosses_killed":"12","complete":true}]}
 ```
 
 Invalid `409` **after** the valid final aggregate above was stored: same pair, changed count. Without that predecessor it is a structurally valid snapshot, demonstrating a stateful refusal:
 
 ```json
-{"contract_version":1,"operation":"PublishWorldDailyKillsV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","day_start":"1789948800","projection_epoch":"1","projection_revision":"2","source_observed_at":"1790035201","days":[{"day_end":"1790035200","monsters_killed":"12346","bosses_killed":"12","complete":true}]}
+{"contract_version":2,"operation":"PublishWorldDailyKillsV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","day_start":"1789948800","projection_epoch":"1","projection_revision":"2","source_observed_at":"1790035201","days":[{"day_end":"1790035200","monsters_killed":"12346","bosses_killed":"12","complete":true}]}
 ```
 
 Additional mandatory negatives: end before start, overlapping intervals, future end, unaligned day, day overflow, unknown family/version/member, duplicate JSON key, zero/numeric/malformed ID or revision, oversized request, forged peer, future watermark, stale epoch, premature `complete=true`, owner transfer/privacy outage, timeout after consumer commit and replay after retention expiry. These must be shared fixtures in the later implementation; this docs-only task introduces no tests or runtime code.
@@ -216,7 +226,7 @@ Additional mandatory negatives: end before start, overlapping intervals, future 
 
 Platform:
 
-- [ ] Coordinator accepts privacy scope/Q1 and exact wire version; preserve G-8 as unaccepted until then.
+- [ ] Record owner-confirmed privacy scope and V2 wire decision; obtain explicit wire acceptance. Producer delivery and activation remain separate gates.
 - [ ] Pin accepted Game producer revision and share byte-identical valid/invalid fixtures and compatibility matrix.
 - [ ] Validate bounds/types/exact keys, purpose mTLS, authority, empty refusal responses and rate limits.
 - [ ] Prove equal-content retry, conflict, superseded replacement, timeout-after-commit, epoch fencing and rebuild coverage.
@@ -227,8 +237,8 @@ Platform:
 
 Game:
 
-- [ ] Accept/revise Q1–Q6 through the coordinator and explicitly extend the closed family/watermark vocabulary/version.
-- [ ] Supply durable interval history and physical death dedup/count sources; existing online scans/bestiary/boss credits alone do not satisfy G-8.
+- [ ] Accept the V2 wire through the coordinator, resolve remaining open questions and use G-4's V2 family enum without changing v1.
+- [ ] After G-7, implement new durable interval history, physical death dedup/count sources and producer; existing online scans/bestiary/boss credits alone do not satisfy G-8.
 - [ ] Prove atomic source/revision/outbox capture under session/recovery fences; reconnect, crash, expiry and World boundaries produce nonoverlapping intervals.
 - [ ] Prove physical deaths count once across parties/Channels/retries, boss categories are disjoint, UTC boundaries and late corrections are deterministic.
 - [ ] Prove stable statistics-only IDs, no prohibited fields, tombstone enumeration, bounded payloads and no silent truncation.
@@ -237,9 +247,17 @@ Game:
 
 ## 11. Open questions for the game owner (coordinator)
 
-1. **Privacy/product:** accept owner-only raw intervals and anonymous public world totals? Should T67 public online-time rankings be deferred, or supplied by a separately approved aggregate/consent profile? Confirm whether a new owner may see any pre-transfer history; proposed answer is no.
-2. **Session definition:** accept the existing committed `ONLINE` predicate as the interval boundary, including reconnect/control-loss gaps? What authoritative timestamp closes crash/expiry intervals, and how are unsafe clocks and unclosed intervals reconciled without invented duration?
-3. **Counting:** accept physical deaths once per occurrence, disjoint non-boss/boss totals, UTC days and late correction semantics? Which authoritative source classifies bosses/summons and guarantees no multiplication by character credits or threshold saturation?
-4. **Retention/replay:** accept 30-day intervals, 400-day aggregates, open-interval ceiling, purge/backup windows and retained non-payload fences? Can full retained-set resync prove coverage within the current stopped-node 60 s bound, or is a separately versioned bounded resync needed?
-5. **Wire/operations:** accept new-route v1 plus negotiated watermark enum extension, or require v2 under the existing change rule? Confirm purpose identity, proposed bounds/rate, test freshness values and production PKI/SLA separately.
-6. **Delivery/acceptance:** confirm Game ownership and queue after G-7, exact implementation paths, cross-repository fixture/compatibility evidence and the coordinator decision that will close G-8. No new Platform → Game command is proposed; is operator-driven resync sufficient?
+### Answered owner questions
+
+- **Q1 — Answered:** intervals are owner-only; world totals are public; T67 public online-time rankings are deferred. This does not authorize disclosure of pre-transfer history.
+- **Q2 — Answered:** use the existing committed `ONLINE` predicate; a crash closes the interval in the lease-expiry commit. Platform never extrapolates an end.
+- **Q4 — Answered:** retain intervals for 30 days and world aggregates for 400 days. Resync must be qualified before activation; retention acceptance alone does not qualify capacity or the 60 s bound.
+- **Q5 version choice — Answered:** use V2 routes and G-4's V2 family enum. The closed v1 watermark enum remains unchanged. Oversized requests return `400`.
+
+### Remaining open questions
+
+- **Q1 ownership-history follow-up:** confirm the proposed denial of pre-transfer history to a new owner and the authoritative ownership boundary needed to enforce it.
+- **Q3 — Counting/source:** accept physical deaths once per occurrence, disjoint non-boss/boss totals and late correction semantics? Which new authoritative source classifies bosses/summons and avoids character-credit multiplication or threshold saturation? UTC day buckets are a deliberate wire decision, distinct from Berlin 10:00 World reset.
+- **Q4 operational follow-up:** confirm open-interval ceiling, purge/backup windows and retained non-payload fences; qualify retained-set resync coverage/capacity before activation or agree a separately versioned bounded resync.
+- **Q5 operations follow-up:** confirm purpose identity, bounds/rate, test freshness values and production PKI/SLA separately; the V2 version choice is closed.
+- **Q6 — Delivery/acceptance:** identify new Game implementation paths after G-7, exact producer revision, fixture/compatibility evidence and the coordinator decision for wire acceptance. No durable creature-kill or online-interval producer exists at the pinned revision. Wire acceptance does not close delivery, T67/T69 or G-8. Confirm whether operator-driven resync is sufficient.
