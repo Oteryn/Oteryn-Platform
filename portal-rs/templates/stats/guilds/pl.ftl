@@ -1,0 +1,15 @@
+guild-title = Statystyki gildii
+guild-unavailable = Niedostępne
+guild-note = Ranking obliczony według łącznego poziomu wyłącznie obecnie widocznych członków. Brak postępu oznacza brak danych. Próbki są obserwacjami, a nie pełną historią członkostwa. Wybierz dwie jednoznaczne nazwy gildii do porównania. Daty założenia podano w sekundach Unix UTC.
+guild-members = Widoczni członkowie
+guild-level = Łączny poziom
+guild-average = Średni poziom
+guild-experience = Doświadczenie
+guild-founded = Założona
+guild-history = Obserwacje członków
+guild-growth = Przyrost doświadczenia tej samej widocznej grupy na obu krańcach okresu
+guild-guild = Nazwa gildii
+guild-compare = Porównaj z gildią
+guild-submit = Pokaż
+guild-days = Dni (1–31)
+guild-extras = Punkty osiągnięć, wojny, rozwiązane gildie i ranking źródłowy: niedostępne

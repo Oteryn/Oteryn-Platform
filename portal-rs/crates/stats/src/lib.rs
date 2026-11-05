@@ -7,3 +7,4 @@ pub mod worker;
 pub mod world;
 
 pub mod character;
+pub mod guilds;
