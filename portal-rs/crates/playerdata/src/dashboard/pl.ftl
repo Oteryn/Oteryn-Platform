@@ -1,0 +1,13 @@
+title = Pulpit konta
+historical = Tylko zapisane obserwacje. Czas nie nadaje uprawnień. Terminy podano w milisekundach Unix.
+level = Poziom
+stamina = Stamina (minuty)
+premium = Zaobserwowany koniec premium
+bosses = Zapisane zakończone czasy oczekiwania na bossów
+rent = Czynsz domu
+balance = Bilans ostatniej sesji
+unavailable = Niedostępne
+online = Online w chwili obserwacji
+yes = Tak
+no = Nie
+observed = Czas obserwacji (milisekundy Unix)
