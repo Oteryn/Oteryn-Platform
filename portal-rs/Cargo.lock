@@ -1750,9 +1750,12 @@ dependencies = [
 name = "oteryn-characters"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "axum",
+ "fluent-bundle",
  "oteryn-core",
  "oteryn-internal-api",
+ "oteryn-wallet",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",

@@ -102,6 +102,23 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(surface::module_routes())
         .merge(register::routes())
         .merge(verify::routes())
+        .route(
+            "/account",
+            get(
+                |State(state): State<AppState>,
+                 axum::Extension(session): axum::Extension<session::BrowserSession>,
+                 axum::Extension(lang): axum::Extension<Language>| async move {
+                    oteryn_characters::overview::show(
+                        &state.db,
+                        session.account_id().await,
+                        lang.code(),
+                        std::env::var("OTERYN_ACCOUNT_OVERVIEW_ENABLED").as_deref() == Ok("true"),
+                        oteryn_characters::overview::configured_projection(),
+                    )
+                    .await
+                },
+            ),
+        )
         .route_layer(axum::middleware::from_fn_with_state(
             session_layer,
             session::middleware,
