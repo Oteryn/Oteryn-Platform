@@ -77,6 +77,11 @@ async fn consume(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if valid {
+        // Activating the account revokes its sessions through the credential-change
+        // trigger. Discard the request's stale session before writing flash state.
+        crate::session::rotate(&session, crate::session::PrivilegeChange::Logout)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         session
             .set(FLASH, &language.text("verify-success"))
             .await

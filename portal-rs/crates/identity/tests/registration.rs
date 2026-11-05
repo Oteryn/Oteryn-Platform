@@ -522,3 +522,39 @@ async fn verification_query_is_removed_before_request_tracing() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn verification_from_registration_session_rotates_revoked_session() -> Result {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let app = db.app();
+    let (cookie, csrf, _) = credentials(&app).await?;
+    let registered = submit(&app, &cookie, &csrf, &[]).await?;
+    assert_eq!(registered.status(), StatusCode::SEE_OTHER);
+    let cookie = registered.headers()[header::SET_COOKIE]
+        .to_str()?
+        .split(';')
+        .next()
+        .ok_or("cookie missing")?
+        .to_owned();
+    let raw = token(&db).await?;
+    let response = app
+        .oneshot(
+            Request::get(format!("/en/verify-email?token={raw}"))
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers().contains_key(header::SET_COOKIE));
+    let authenticated: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(authenticated, 0);
+    let body = String::from_utf8(to_bytes(response.into_body(), 1024 * 1024).await?.to_vec())?;
+    assert!(body.contains("Your e-mail has been verified"));
+    assert!(!body.contains(&raw));
+    db.close().await
+}
