@@ -23,7 +23,9 @@ abstract class StorePurchaseTestCase extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        self::assertSame('pgsql', DB::getDriverName());
+        if (DB::getDriverName() !== 'pgsql') {
+            self::markTestSkipped('Store qualification requires the PostgreSQL test wrapper (phpunit.pgsql.xml).');
+        }
         config(['products-entitlements.store.purchase_enabled' => true,
             'products-entitlements.store.delivery_enabled' => true,
             'products-entitlements.store.mtls_client_identity' => 'CN=purchase-test',
