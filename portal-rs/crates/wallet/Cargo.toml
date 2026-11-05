@@ -10,3 +10,11 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time"] }
+thiserror = "2.0.21"
+uuid = { version = "1.29.0", features = ["v7"] }
+time = "0.3.55"
+
+[dev-dependencies]
+oteryn-db = { path = "../db" }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }

@@ -1,0 +1,4 @@
+SOURCE: Oteryn/Oteryn-Game @ 857f15f376907c592bb28d854fccff18a15cdf87
+Path: docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md, section 4
+Consumer: crates/gameplay/native-admission-source/src/character_commands_tests.rs
+Receipt encoder: crates/gameplay/durability/src/durability/character_command/tests.rs
