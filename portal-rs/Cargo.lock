@@ -2084,6 +2084,8 @@ dependencies = [
  "fluent-bundle",
  "oteryn-db",
  "oteryn-internal-api",
+ "oteryn-notify",
+ "oteryn-wallet",
  "oteryn-web",
  "percent-encoding",
  "regex",

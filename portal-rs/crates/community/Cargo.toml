@@ -45,3 +45,7 @@ version = "0.16"
 [dependencies.unic-langid]
 version = "0.9"
 features = ["macros"]
+[dependencies.oteryn-wallet]
+path = "../wallet"
+[dependencies.oteryn-notify]
+path = "../notify"
