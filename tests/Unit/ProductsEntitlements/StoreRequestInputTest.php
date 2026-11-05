@@ -8,6 +8,7 @@ use App\ProductsEntitlements\Store\Purchase\StoreReadInput;
 use App\ProductsEntitlements\Store\StoreWire;
 use Illuminate\Cache\RateLimiter;
 use InvalidArgumentException;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 /** Driver-independent Store request parsing; runs on every test lane. */
@@ -64,9 +65,9 @@ final class StoreRequestInputTest extends TestCase
         $first = $input->decode($this->read('ReadStoreHistoryPageV1', ['before_entry_id' => '0', 'max_entries' => 2]), true);
         $next = $input->decode($this->read('ReadStoreHistoryPageV1', ['before_entry_id' => '41', 'max_entries' => 2]), true);
 
-        self::assertSame('0', $first['before_entry_id']);
-        self::assertSame('41', $next['before_entry_id']);
-        self::assertSame(2, $next['max_entries']);
+        self::assertSame('0', $first['before_entry_id'] ?? null);
+        self::assertSame('41', $next['before_entry_id'] ?? null);
+        self::assertSame(2, $next['max_entries'] ?? null);
     }
 
     public function test_history_input_rejects_missing_paging_members(): void
@@ -79,12 +80,13 @@ final class StoreRequestInputTest extends TestCase
     {
         $limiter = new StoreAccountLimiter($this->app->make(RateLimiter::class));
 
-        self::assertNull($limiter->refuse(self::ACCOUNT, 1, 'purchase'));
+        $first = $limiter->refuse(self::ACCOUNT, 1, 'purchase');
         $refused = $limiter->refuse(self::ACCOUNT, 1, 'purchase');
 
-        self::assertNotNull($refused);
+        self::assertNull($first);
+        self::assertInstanceOf(Response::class, $refused);
         self::assertSame(429, $refused->getStatusCode());
-        self::assertGreaterThanOrEqual(1, (int) $refused->headers->get('Retry-After'));
+        self::assertGreaterThanOrEqual(1, (int) $refused->headers->get('Retry-After', '0'));
         self::assertNull($limiter->refuse(self::ACCOUNT, 1, 'balance'));
     }
 
