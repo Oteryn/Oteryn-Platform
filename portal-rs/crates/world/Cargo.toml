@@ -27,6 +27,7 @@ uuid = { version = "1.29", features = ["v7", "serde"] }
 
 [dev-dependencies]
 oteryn-db = { path = "../db" }
+tempfile = "3.27"
 tokio = { version = "1.54", features = ["macros", "rt-multi-thread", "time"] }
 
 [dependencies.oteryn-admin]

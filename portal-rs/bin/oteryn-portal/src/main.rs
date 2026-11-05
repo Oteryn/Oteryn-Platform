@@ -182,6 +182,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_hirelings::web::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let app = app.merge(oteryn_bazaar::characters::http::configured_router());
             let app = app.merge(reset_http::configured_router(oteryn_db::lazy_pool(
                 config.database_url(),
             )?));
@@ -308,6 +309,17 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_atlas::spawns::viewer_policy,
             ));
             let app = app.merge(oteryn_minigames::puzzles::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_bazaar::items::web::configured_router());
+            let app = app.merge(oteryn_playerdata::hunts::web::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_playerdata::items::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_playerdata::dashboard::configured_router());
+            let app = app.merge(oteryn_playerdata::logins::web::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;

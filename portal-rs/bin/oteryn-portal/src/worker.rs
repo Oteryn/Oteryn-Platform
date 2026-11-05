@@ -149,6 +149,11 @@ async fn run_until(
 }
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
+    registry.cleanup(
+        "cleanup.game-logins",
+        3600,
+        Arc::new(oteryn_playerdata::logins::Retention(pool.clone())),
+    )?;
     crate::reset_delivery::register(&mut registry, pool.clone())?;
     registry.cleanup(
         "identity.finalize-terminations",

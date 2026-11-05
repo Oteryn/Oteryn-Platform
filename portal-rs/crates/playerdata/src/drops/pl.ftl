@@ -1,0 +1,17 @@
+title = Dziennik postaci
+drops = Rzadkie dropy
+records = Rekordy w dostępnej historii
+chronicle = Kronika postaci
+unavailable = Niedostępne
+empty = Brak potwierdzonych danych w dostępnej historii.
+experience = Najlepsze doświadczenie na godzinę
+profit = Najlepszy zysk na godzinę
+loot = Największy łup
+duration = Najdłuższy aktywny czas sesji w sekundach
+boss = Pierwsze zabicie bossa
+quantity = Liczba
+occurred = Czas zdarzenia (UTC, sekundy Unix)
+started = Początek sesji (UTC, sekundy Unix)
+ended = Koniec sesji (UTC, sekundy Unix)
+seconds = Aktywny czas w sekundach
+basis = Podstawa wyceny

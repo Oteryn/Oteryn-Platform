@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ self.text("title") }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><link rel="stylesheet" href="/static/css/surface.css"><link rel="stylesheet" href="/static/css/app.css"></head>
+<body class="op-theme"><a class="op-link" href="#main">{{ self.text("skip") }}</a><main id="main" class="op-container op-stack">
+<h1>{{ self.text("title") }}</h1><nav aria-label="{{ self.text("navigation") }}"><a class="op-link" href="/{{ lang }}/bazaar">{{ self.text("auctions") }}</a> · <a class="op-link" href="/{{ lang }}/account/bazaar/sell">{{ self.text("sell") }}</a></nav>
+{% if mode == "account" %}<h2>{{ self.text("my-listings") }}</h2><ul>{% for row in own_requests %}<li>{% if row.state == "draft" %}{{ self.text("pending") }}{% else %}{{ self.text(row.state) }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if mode == "sell" %}
+<p>{{ self.text("sale-rules") }}</p>
+{% if choices.is_empty() %}<p role="status">{{ self.text("no-characters") }}</p>{% else %}
+<form method="post" class="op-card op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="request_id" value="{{ request_id }}">
+<label for="character">{{ self.text("character") }}</label><select class="op-input" id="character" name="character_id" required>{% for choice in choices %}<option value="{{ choice.id }}">{{ choice.name }}</option>{% endfor %}</select>
+<label for="currency">{{ self.text("currency") }}</label><select class="op-input" id="currency" name="currency"><option value="coins">{{ self.text("coins") }}</option><option value="gold">{{ self.text("gold") }}</option></select>
+<label for="starting">{{ self.text("starting") }}</label><input class="op-input" id="starting" name="starting_bid" inputmode="numeric" pattern="[1-9][0-9]*" maxlength="19" required>
+<label for="duration">{{ self.text("duration") }}</label><input class="op-input" id="duration" name="duration_days" type="number" min="1" max="14" value="7" required>
+<label><input type="checkbox" name="publish_snapshot" value="yes" required> {{ self.text("consent") }}</label>
+<button class="op-button" type="submit">{{ self.text("submit-listing") }}</button></form>{% endif %}{% endif %}
+{% if mode == "list" && cards.is_empty() %}<p>{{ self.text("empty") }}</p>{% endif %}
+{% for card in cards %}
+<article class="op-card op-stack"><h2><a class="op-link" href="/{{ lang }}/bazaar/{{ card.id }}">{{ card.snapshot.name }}</a></h2>
+<dl><dt>{{ self.text("level") }}</dt><dd>{{ card.snapshot.level }}</dd><dt>{{ self.text("vocation") }}</dt><dd>{{ self.vocation(card.snapshot.vocation) }}</dd><dt>{{ self.text("world") }}</dt><dd>{{ card.snapshot.world }}</dd><dt>{{ self.text("price") }}</dt><dd>{{ card.price }} {{ self.currency(card.currency) }}</dd><dt>{{ self.text("ends") }}</dt><dd>{{ card.ends_at }} UTC</dd></dl>
+{% for skill in card.snapshot.skills %}<p>{{ self.text(skill.key) }}: {{ skill.level }} <meter min="0" max="10000" value="{{ skill.progress_bps }}" aria-label="{{ self.text(skill.key) }}">{{ skill.progress_bps }}/10000</meter></p>{% endfor %}
+{% if let Some(items) = card.snapshot.items %}<ul>{% for item in items.iter().take(4) %}<li>{{ item.key }} × {{ item.quantity }}</li>{% endfor %}</ul>{% endif %}
+{% if mode == "detail" %}
+<p>{{ self.text("captured") }}: {{ self.date(card.snapshot.captured_at) }} UTC</p><label for="snapshot-hash">{{ self.text("hash") }}</label><textarea class="op-input" id="snapshot-hash" readonly rows="2" cols="24">{{ card.snapshot.snapshot_hash }}</textarea>
+<nav aria-label="{{ self.text("sections") }}"><ul><li><a href="#general">{{ self.text("general") }}</a></li>
+{% if card.snapshot.items.is_some() %}<li><a href="#items">{{ self.text("items") }}</a></li>{% endif %}
+{% if card.snapshot.store_grants.is_some() %}<li><a href="#store">{{ self.text("store") }}</a></li>{% endif %}
+{% if card.snapshot.outfits.is_some() %}<li><a href="#outfits">{{ self.text("outfits") }}</a></li>{% endif %}
+{% if card.snapshot.mounts.is_some() %}<li><a href="#mounts">{{ self.text("mounts") }}</a></li>{% endif %}
+{% if card.snapshot.achievements.is_some() %}<li><a href="#achievements">{{ self.text("achievements") }}</a></li>{% endif %}
+{% if card.snapshot.quests.is_some() %}<li><a href="#quests">{{ self.text("quests") }}</a></li>{% endif %}</ul></nav>
+<section id="general"><h3>{{ self.text("general") }}</h3><dl><dt>{{ self.text("health") }}</dt><dd>{{ card.snapshot.health }} / {{ card.snapshot.health_max }}</dd><dt>{{ self.text("mana") }}</dt><dd>{{ card.snapshot.mana }} / {{ card.snapshot.mana_max }}</dd><dt>{{ self.text("capacity") }}</dt><dd>{{ card.snapshot.capacity_centi_oz }}</dd><dt>{{ self.text("speed") }}</dt><dd>{{ card.snapshot.speed }}</dd><dt>{{ self.text("experience") }}</dt><dd>{{ card.snapshot.experience }}</dd>{% if let Some(created) = card.snapshot.created_at %}<dt>{{ self.text("created") }}</dt><dd>{{ self.date(created) }} UTC</dd>{% endif %}
+{% if let Some(eligible) = card.snapshot.world_transfer_eligible %}<dt>{{ self.text("world-transfer") }}</dt><dd>{% if eligible %}{{ self.text("yes") }}{% else %}{{ self.text("no") }}{% endif %}</dd>{% endif %}
+<dt>{{ self.text("blessings") }}</dt><dd><ul>{% for blessing in card.snapshot.blessings %}<li>{{ blessing }}</li>{% endfor %}</ul></dd></dl></section>
+{% if let Some(items) = card.snapshot.items %}<section id="items"><h3>{{ self.text("items") }}</h3><form method="get"><label for="item-search">{{ self.text("search-items") }}</label><input class="op-input" id="item-search" name="item" value="{{ item }}" maxlength="128"><button class="op-button">{{ self.text("search") }}</button></form><ul>{% for value in items %}{% if value.key.contains(item.as_str()) %}<li>{{ value.key }} × {{ value.quantity }}</li>{% endif %}{% endfor %}</ul></section>{% endif %}
+{% if let Some(values) = card.snapshot.store_grants %}<section id="store"><h3>{{ self.text("store") }}</h3><ul>{% for value in values %}<li>{{ value }}</li>{% endfor %}</ul></section>{% endif %}
+{% if let Some(values) = card.snapshot.outfits %}<section id="outfits"><h3>{{ self.text("outfits") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}
+{% if let Some(values) = card.snapshot.mounts %}<section id="mounts"><h3>{{ self.text("mounts") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}
+{% if let Some(values) = card.snapshot.achievements %}<section id="achievements"><h3>{{ self.text("achievements") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}
+{% if let Some(values) = card.snapshot.quests %}<section id="quests"><h3>{{ self.text("quests") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}
+<p>{{ self.text("bid-rules") }}</p>
+{% if !csrf.is_empty() %}<form method="post" action="/{{ lang }}/account/bazaar/{{ card.id }}/bids" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="request_id" value="{{ request_id }}"><label for="maximum">{{ self.text("maximum") }}</label><input class="op-input" id="maximum" name="amount" inputmode="numeric" pattern="[1-9][0-9]*" maxlength="19" required><button class="op-button" type="submit">{{ self.text("bid") }}</button></form>{% else %}<p>{{ self.text("login-to-bid") }}</p>{% endif %}
+{% endif %}</article>{% endfor %}
+</main></body></html>

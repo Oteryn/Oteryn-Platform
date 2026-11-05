@@ -1,0 +1,13 @@
+logins-title = Historia logowań do gry
+logins-retention = Do 100 ostatnich wpisów z 30 dni. Czas w UTC.
+logins-empty = Brak wpisów w potwierdzonej historii z 30 dni.
+logins-stale = Historia jest nieaktualna i nie potwierdza bieżącej sesji. Czas w UTC.
+logins-entered = Wejście
+logins-exit = Wyjście
+logins-closed = Zakończone
+logins-unknown = Nieznane; nie potwierdza aktywnej sesji
+logins-not-me = To nie ja
+logins-security = Wylogowanie wszędzie jest niedostępne. Ta strona nie obsługuje unieważnienia sesji w grze. Żadna sesja nie została unieważniona.
+logins-password = Zmiana hasła z tej strony jest niedostępna. Hasło nie zostało zmienione.
+logins-character = Postać
+logins-account = Wpis konta; postać nieznana

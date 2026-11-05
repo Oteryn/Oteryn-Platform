@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><link rel="stylesheet" href="/static/playerdata/hunts.css"></head>
+<body class="op-theme"><main class="hunts"><h1>{{ title }}</h1><p>{{ unavailable }}</p>
+<form method="get" action="/{{ lang }}/account/hunts">
+<p><label for="character">{{ character }}</label><input id="character" name="character" class="op-input" type="text"></p>
+<p><label for="place">{{ place }}</label><input id="place" name="place" class="op-input" type="text"></p>
+<p><label for="from">{{ from }}</label><input id="from" name="from" type="number" min="1" class="op-input"></p>
+<p><label for="until">{{ until }}</label><input id="until" name="until" type="number" min="1" class="op-input"></p>
+<p><label for="party">{{ party }}</label><select class="op-input" id="party" name="party"><option value="">{{ all }}</option><option value="false">{{ no }}</option><option value="true">{{ yes }}</option></select></p>
+<p><label for="offset">{{ offset }}</label><input class="op-input" id="offset" name="offset" type="number" min="0" max="10000" step="50"></p>
+<button class="op-button" type="submit">{{ apply }}</button> <a href="/{{ lang }}/account/hunts">{{ all }}</a>
+</form>
+<form method="get" action="/{{ lang }}/account/hunts/compare"><label for="ids">{{ compare }}</label><input id="ids" name="ids" class="op-input" type="text" required><button class="op-button" type="submit">{{ compare }}</button></form>
+{% if cards.is_empty() %}<p>{{ empty }}</p>{% endif %}
+<section class="hunt-cards">{% for card in cards %}<article class="op-card"><h2><a href="/{{ lang }}/account/hunts/{{ card.id }}">{{ details }}</a></h2><dl>
+{% for line in card.lines %}<dt>{{ line.label }}</dt><dd>{{ line.value }}</dd>{% endfor %}
+</dl></article>{% endfor %}</section>
+<p>{{ split }}</p><p>{{ share }}</p></main></body></html>
