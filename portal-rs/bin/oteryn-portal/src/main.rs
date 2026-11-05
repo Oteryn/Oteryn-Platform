@@ -78,6 +78,12 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             ));
             let app = app.merge(oteryn_community::online::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
+            let app = app.merge(oteryn_downloads::router(
+                oteryn_db::lazy_pool(config.database_url())?,
+                oteryn_downloads::FeatureFlags {
+                    downloads: std::env::var("OTERYN_DOWNLOADS_ENABLED")
+                        .is_ok_and(|value| value == "true"),
+                },
             ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
