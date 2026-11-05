@@ -44,7 +44,7 @@ final class InstallWikiLaunchContent extends Command
             return self::FAILURE;
         }
 
-        $publisher = (string) $this->argument('publisher');
+        $publisher = $this->argument('publisher');
 
         $identity = Identity::query()
             ->where('email', CanonicalEmail::normalize($publisher))
