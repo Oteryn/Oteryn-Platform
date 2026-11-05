@@ -18,3 +18,4 @@ expertise = Expertise
 mastery = Mastery
 thresholds = Kill thresholds
 version = World version
+unavailable = No supported data is available.

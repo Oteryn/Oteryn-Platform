@@ -18,3 +18,4 @@ expertise = Doświadczenie
 mastery = Mistrzostwo
 thresholds = Progi zabójstw
 version = Wersja świata
+unavailable = Brak dostępnych, potwierdzonych danych.
