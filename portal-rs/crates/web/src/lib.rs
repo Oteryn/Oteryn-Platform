@@ -190,8 +190,8 @@ pub mod session;
 
 pub mod ratelimit;
 pub mod redirects;
-pub mod seo;
 #[path = "routes/register.rs"]
 pub mod register;
+pub mod seo;
 #[path = "routes/verify.rs"]
 pub mod verify;

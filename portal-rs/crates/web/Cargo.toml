@@ -45,5 +45,7 @@ features = ["derive"]
 version = "0.7"
 
 [dependencies.oteryn-gameauth]
+workspace = true
+
 [dependencies.oteryn-identity]
 workspace = true
