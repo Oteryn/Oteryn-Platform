@@ -33,3 +33,12 @@ version = "0.16.1"
 version = "0.16.0"
 [dependencies.oteryn-wallet]
 workspace = true
+
+[dependencies.oteryn-identity]
+workspace = true
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+[dependencies.unic-langid]
+version = "0.9"
+features = ["macros"]
