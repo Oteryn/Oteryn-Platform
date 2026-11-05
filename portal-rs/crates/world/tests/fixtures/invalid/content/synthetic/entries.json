@@ -1,0 +1,12 @@
+{
+  "payload": [
+    {
+      "code": "fixture.alpha",
+      "weight": "invalid-weight"
+    },
+    {
+      "code": "fixture.beta",
+      "weight": 2
+    }
+  ]
+}
