@@ -16,7 +16,7 @@
   - kontrakty z grą;
   - inwarianty bezpieczeństwa.
 
-  Nie przenosimy długu: Canary, równoległych ścieżek legacy, pustych modułów.
+  Nie przenosimy długu: starego silnika serwera i jego bazy, równoległych ścieżek legacy, pustych modułów.
 - **Integracja z grą jest pierwszorzędna.** Każda funkcja, która dotyka gry, ma nazwany kontrakt, właściciela danych, testy zgodności przeciw przypiętemu obrazowi gry i jawną semantykę błędów.
 - **Stos:**
   - Rust z axum, askama SSR i htmx;
@@ -107,7 +107,7 @@ Do przepisania jest ok. 80 tys. linii kodu produktu (bez testów, narzędzi i do
 | --- | --- | --- | --- |
 | Tożsamość | AccountId UUIDv7 (ADR 0028), hashe argon2id bez zmian, MFA TOTP, klucz odzyskiwania | Passkeys od startu, jeden ekran bezpieczeństwa konta | – |
 | Logowanie do gry | OAuth PKCE, tickety, natywne admission z grantem Ed25519, zaufanie do kluczy podpisu | Gateway logowania w Ruście (D5 z #1643), sesje urządzeń jako pełny kontrakt | Gateway w Go po przełączeniu fali 2 |
-| Dane publiczne | Projekcje gry (`/internal/v1/game-public/*`) | Czas aktualności widoczny przy każdej liczbie | Odczyty Canary (MySQL) |
+| Dane publiczne | Projekcje gry (`/internal/v1/game-public/*`) | Czas aktualności widoczny przy każdej liczbie | Odczyty starego silnika (MySQL) |
 | Treści | Model news, stron, wydarzeń, mediów; wiki z przeglądem; katalog gry z wersjami | Wiki generowana z paczki katalogu gry (M6 z #1643) | Szablony strony głównej |
 | Sklep i portfel | Ledger coinów, kontrakt sklepu (wire v1), decyzje właściciela z 2026-11-05 | Transfer coinów jako funkcja ledgera Platform | Testowy provider płatności w produkcji |
 | Support | Zgłoszenia, odwołania, egzekucja przez komendy | Kary wykonywane w grze, nie tylko jako rekordy webowe | – |
