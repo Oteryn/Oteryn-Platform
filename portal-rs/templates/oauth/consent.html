@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><a class="op-skip" href="#main">{{ skip }}</a><header class="op-card"><a href="/{{ lang }}/">Oteryn</a></header><main class="op-card op-stack" id="main" tabindex="-1">
+<h1>{{ title }}</h1>
+<p>{{ description }}</p>
+<form class="op-stack" method="post" action="/oauth/authorize">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="response_type" value="{{ request.response_type }}">
+<input type="hidden" name="client_id" value="{{ request.client_id }}">
+<input type="hidden" name="redirect_uri" value="{{ request.redirect_uri }}">
+<input type="hidden" name="scope" value="{{ request.scope }}">
+<input type="hidden" name="state" value="{{ request.state }}">
+<input type="hidden" name="code_challenge" value="{{ request.code_challenge }}">
+<input type="hidden" name="code_challenge_method" value="{{ request.code_challenge_method }}">
+<button class="op-button" type="submit" name="decision" value="approve">{{ approve }}</button>
+<button class="op-button op-button--secondary" type="submit" name="decision" value="deny">{{ deny }}</button>
+</form>
+</main></body></html>

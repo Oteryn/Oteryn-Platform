@@ -93,6 +93,118 @@ fn security_headers(router: Router) -> Router {
 /// Builds the public router. Module routers are merged here as their tasks land.
 pub fn router(state: AppState, static_dir: &str) -> Router {
     let session_layer = session::SessionLayer::new(state.db.clone());
+    let mut oauth_sessions = session_layer.clone();
+    oauth_sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
+        .ok()
+        .into_iter()
+        .collect();
+    let oauth_routes = oteryn_gameauth::oauth::browser_routes(
+        state.db.clone(),
+        oteryn_gameauth::oauth::Config::from_env(),
+    )
+    .route_layer(axum::middleware::from_fn(
+        |mut request: axum::extract::Request, next: axum::middleware::Next| async move {
+            use axum::response::IntoResponse;
+            let Some(session) = request
+                .extensions()
+                .get::<session::BrowserSession>()
+                .cloned()
+            else {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            };
+            let language = request
+                .headers()
+                .get(axum::http::header::ACCEPT_LANGUAGE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.split(',').next())
+                .filter(|v| v.trim().split(['-', ';']).next() == Some("en"))
+                .map_or("pl", |_| "en")
+                .to_owned();
+            let pending = session::SessionKey::<Option<String>>::new("oauth_return");
+            if request.method() == axum::http::Method::GET
+                && request.uri().to_string().len() <= 8192
+            {
+                let target = if session.account_id().await.is_none() {
+                    Some(request.uri().to_string())
+                } else {
+                    None
+                };
+                if session.set(pending, &target).await.is_err() {
+                    return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                }
+            }
+            let csrf = match session.csrf_token().await {
+                Ok(v) => v,
+                Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            };
+            request
+                .extensions_mut()
+                .insert(oteryn_gameauth::oauth::Browser {
+                    account: session.account_id().await,
+                    csrf,
+                    language,
+                });
+            next.run(request).await
+        },
+    ))
+    .route_layer(axum::middleware::from_fn_with_state(
+        oauth_sessions,
+        session::middleware,
+    ))
+    .merge(oteryn_gameauth::oauth::token_routes(
+        state.db.clone(),
+        oteryn_gameauth::oauth::Config::from_env(),
+    ))
+    .route_layer(axum::middleware::from_fn_with_state(
+        state.db.clone(),
+        |State(pool): State<PgPool>,
+         request: axum::extract::Request,
+         next: axum::middleware::Next| async move {
+            if matches!(request.uri().path(), "/oauth/authorize" | "/oauth/token") {
+                if !oteryn_gameauth::oauth::Config::from_env().enabled {
+                    return StatusCode::NOT_FOUND.into_response();
+                }
+                let limiter = ratelimit::RateLimiter::new(pool.clone());
+                let Some(peer) = request
+                    .extensions()
+                    .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                else {
+                    return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                };
+                let source = match limiter.trusted_proxies.client_ip(peer.0, request.headers()) {
+                    Ok(v) => v,
+                    Err(e) => return e.response(Language::Pl, true),
+                };
+                if let Err(e) = limiter
+                    .check(
+                        ratelimit::NamedPolicy::IdentityLoginSource,
+                        &[ratelimit::Keys::source(source)],
+                    )
+                    .await
+                {
+                    if oteryn_gameauth::oauth::audit(&pool, None, "oauth_rate_refused")
+                        .await
+                        .is_err()
+                    {
+                        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                    }
+                    return e.response(Language::Pl, true);
+                }
+            }
+            let response = next.run(request).await;
+            if (response.status().is_client_error() || response.status().is_server_error())
+                && oteryn_gameauth::oauth::audit(&pool, None, "oauth_http_refused")
+                    .await
+                    .is_err()
+            {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+            response
+        },
+    ))
+    .route_layer(axum::middleware::from_fn(
+        oteryn_gameauth::oauth::secure_response,
+    ));
     let router = Router::new()
         .route("/", get(home))
         .route("/healthz", get(healthz))
@@ -112,6 +224,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             session::middleware,
         ))
         .method_not_allowed_fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
+        .fallback(|| async { StatusCode::NOT_FOUND })
         .merge(oteryn_gameauth::runtime::routes(state.db.clone()))
         .merge(oteryn_gameauth::scopes::routes(state.db.clone()))
         .with_state(state)
@@ -119,6 +232,8 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .layer(TraceLayer::new_for_http());
     let router = router.layer(axum::middleware::from_fn(verify::protect_token));
     security_headers(router)
+        // OAuth keeps its protocol envelopes outside the site error renderer.
+        .merge(oauth_routes)
 }
 
 #[cfg(test)]

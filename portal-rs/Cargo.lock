@@ -2634,9 +2634,11 @@ name = "oteryn-gameauth"
 version = "0.1.0"
 dependencies = [
  "aes-gcm 0.10.3",
+ "askama",
  "axum",
  "base64 0.22.1",
  "ed25519-dalek",
+ "fluent-bundle",
  "getrandom 0.4.3",
  "oteryn-db",
  "oteryn-gateway",
@@ -2649,6 +2651,8 @@ dependencies = [
  "subtle",
  "tokio",
  "tower",
+ "unic-langid",
+ "url",
  "uuid",
  "zeroize",
 ]
