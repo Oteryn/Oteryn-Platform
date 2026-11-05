@@ -65,6 +65,7 @@ async fn readyz(State(state): State<AppState>) -> StatusCode {
 
 fn security_headers(router: Router) -> Router {
     let router = surface::finish(router);
+    let router = router.layer(axum::middleware::from_fn(ratelimit::api_errors));
     let headers: [(HeaderName, &'static str); 5] = [
         (
             header::CONTENT_SECURITY_POLICY,
@@ -174,3 +175,5 @@ pub use surface::{CspNonce, Language, WebOptions, module_router, router_with_opt
 
 pub mod csrf;
 pub mod session;
+
+pub mod ratelimit;
