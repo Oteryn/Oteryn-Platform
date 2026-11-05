@@ -31,3 +31,19 @@ tower = { version = "0.5.3", features = ["util"] }
 [dependencies.time]
 version = "0.3"
 features = ["formatting", "parsing", "serde"]
+
+[dependencies.image]
+version = "0.25.9"
+default-features = false
+features = ["jpeg", "png", "webp"]
+
+[dependencies.axum-extra]
+version = "0.12.5"
+features = ["multipart"]
+
+[dependencies.sha2]
+version = "0.10"
+
+[dependencies.tokio]
+version = "1.54.1"
+features = ["rt", "sync"]

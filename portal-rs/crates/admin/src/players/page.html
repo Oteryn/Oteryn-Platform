@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-panel op-stack"><h1>{{ title }}</h1>
+<form method="get" action="/admin/players" class="op-stack"><div class="op-field"><label for="q">{{ query_label }}</label><input class="op-input" id="q" name="q" maxlength="254" value="{{ query }}" required></div><button class="op-button">{{ search }}</button></form>
+<ul>{% for row in accounts %}<li><a href="/admin/players/{{ row.id }}">{{ row.id }}</a></li>{% endfor %}</ul>
+{% if let Some(row) = account %}
+<section class="op-stack"><h2>{{ row.id }}</h2><dl><dt>{{ status }}</dt><dd>{{ row.status }}</dd><dt>{{ locale }}</dt><dd>{{ row.locale }}</dd><dt>{{ verified }}</dt><dd>{% if row.email_verified %}{{ yes }}{% else %}{{ no }}{% endif %}</dd></dl></section>
+<section><h2>{{ sessions_label }}</h2>{% if sessions_unavailable %}<p>{{ unavailable }}</p>{% endif %}<ul>{% for session in sessions %}<li>{{ session.kind }} · {{ session.expires_at }}</li>{% endfor %}</ul></section>
+<section><h2>{{ characters_label }}</h2>{% if characters_unavailable %}<p>{{ unavailable }}</p>{% endif %}<ul>{% for character in characters %}<li>{{ character.name }} · {{ character.id }} · {{ character.world }}</li>{% endfor %}</ul></section>
+<section class="op-stack"><h2>{{ notes_label }}</h2><ul>{% for note in notes %}<li>{{ note }}</li>{% endfor %}</ul>
+<form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="note">{{ notes_label }}</label><textarea class="op-input" id="note" name="body" maxlength="4000" required></textarea></div><button class="op-button" name="action" value="note">{{ add_note }}</button></form></section>
+<form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="logout-reason">{{ reason }}</label><textarea class="op-input" id="logout-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="logout">{{ logout }}</button></form>
+<form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="evidence">{{ evidence }}</label><input class="op-input" id="evidence" name="evidence" required></div><div class="op-field"><label for="reset-reason">{{ reason }}</label><textarea class="op-input" id="reset-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="request-reset">{{ reset }}</button></form>
+{% if !result.is_empty() %}<p role="status">{{ request }}: {{ result }}</p>{% endif %}
+<form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="request">{{ request }}</label><input class="op-input" id="request" name="request" required></div><button class="op-button" name="action" value="approve-reset">{{ approve }}</button></form>
+{% endif %}</main></body></html>

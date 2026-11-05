@@ -1,0 +1,13 @@
+title = Bezpieczeństwo konta
+score = Potwierdzone zabezpieczenia
+explanation = Brakujące i niedostępne kroki nie są zaliczane jako ukończone. Sprawdź poniższe kroki w ustawieniach bezpieczeństwa.
+email = Potwierdź adres e-mail
+mfa = Włącz uwierzytelnianie dwuskładnikowe
+key = Zapisz aktywny klucz odzyskiwania konta
+backup = Potwierdź zapasowy adres e-mail
+complete = Ukończono
+missing = Wymagane działanie
+unknown = Niedostępne — niepotwierdzone
+password = Ostatnia zmiana hasła (UTC)
+password-help = Zmień hasło, jeśli mogło zostać przejęte. Wiek hasła nie wpływa na tę ocenę.
+manage = Otwórz ustawienia bezpieczeństwa

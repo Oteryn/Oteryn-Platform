@@ -5,4 +5,5 @@ pub mod news;
 pub mod pages;
 
 pub mod announcements;
+pub mod media;
 pub mod today;

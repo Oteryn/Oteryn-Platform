@@ -34,3 +34,11 @@ features = ["derive"]
 [dev-dependencies.tower]
 version = "0.5.3"
 features = ["util"]
+
+[dependencies.oteryn-identity]
+path = "../identity"
+
+[dependencies.oteryn-characters]
+path = "../characters"
+[dependencies.oteryn-core]
+path = "../core"
