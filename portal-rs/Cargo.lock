@@ -1124,14 +1124,19 @@ dependencies = [
 name = "oteryn-community"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "axum",
+ "fluent-bundle",
  "oteryn-db",
  "oteryn-internal-api",
  "regex",
+ "serde",
  "serde_json",
+ "serde_urlencoded",
  "sqlx",
  "tokio",
  "tower",
+ "unic-langid",
  "unicode-normalization",
 ]
 
