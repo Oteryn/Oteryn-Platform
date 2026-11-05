@@ -37,10 +37,52 @@ pub enum Points {
 #[derive(Debug, Clone)]
 pub enum SpawnPolicy {
     Ordinary,
-    FixedAtReset { chance: f64 },
+    FixedAtReset { chance: ResetChance },
     Room,
     Encounter,
     Unknown,
+}
+/// Exact Game content ratio; no floating point value crosses this boundary.
+// SOURCE: Oteryn/Oteryn-Game @857f15f376907c592bb28d854fccff18a15cdf87,
+// crates/world-bundle/src/spawn.rs, BossChance and BossPolicy::validate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResetChance {
+    pub numerator: u64,
+    pub denominator: u64,
+}
+impl ResetChance {
+    fn valid(self) -> bool {
+        self.denominator > 0
+            && self.numerator <= self.denominator
+            && self.denominator <= i64::MAX as u64
+    }
+}
+/// Decodes only the approved fixed-at-reset shape. Other boss scheduling kinds
+/// and unknown fields are withheld; fixed boss points need no ordinary respawn.
+pub fn spawn_policy(point: &serde_json::Value) -> SpawnPolicy {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "snake_case", deny_unknown_fields)]
+    enum FixedPolicy {
+        AtReset { chance: ResetChance },
+    }
+    let Some(value) = point.get("boss_policy") else {
+        return if point
+            .get("respawn_ms")
+            .and_then(serde_json::Value::as_u64)
+            .is_some_and(|n| n > 0 && n <= u64::from(u32::MAX))
+        {
+            SpawnPolicy::Ordinary
+        } else {
+            SpawnPolicy::Unknown
+        };
+    };
+    match serde_json::from_value::<FixedPolicy>(value.clone()) {
+        Ok(FixedPolicy::AtReset { chance }) if chance.valid() => {
+            SpawnPolicy::FixedAtReset { chance }
+        }
+        _ => SpawnPolicy::Unknown,
+    }
 }
 #[derive(Debug, Clone)]
 pub struct Spawn {
@@ -133,7 +175,7 @@ pub struct Entry {
 pub struct MapPoint {
     pub spawn: String,
     pub cell: super::spawns::Cell,
-    pub reset_chance: Option<f64>,
+    pub reset_chance: Option<ResetChance>,
 }
 #[derive(Debug, Serialize)]
 pub struct Map {
@@ -286,9 +328,7 @@ pub fn build(
         for spawn in spawn_index.get(d.key.as_str()).into_iter().flatten() {
             let chance = match (&spawn.policy, d.points) {
                 (SpawnPolicy::Ordinary, Points::Charms(_)) => None,
-                (SpawnPolicy::FixedAtReset { chance }, Points::BossStages(_))
-                    if chance.is_finite() && *chance > 0.0 && *chance <= 1.0 =>
-                {
+                (SpawnPolicy::FixedAtReset { chance }, Points::BossStages(_)) if chance.valid() => {
                     Some(*chance)
                 }
                 _ => continue,

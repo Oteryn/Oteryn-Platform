@@ -80,7 +80,12 @@ fn boss_stages_cooldowns_and_policy_privacy() {
     let mut d = definition();
     d.points = Points::BossStages([5, 10, 15]);
     let mut s = spawn();
-    s.policy = SpawnPolicy::FixedAtReset { chance: 0.25 };
+    s.policy = SpawnPolicy::FixedAtReset {
+        chance: ResetChance {
+            numerator: 1,
+            denominator: 4,
+        },
+    };
     let p = Payload::Boss(Boss {
         boss_key: "rat".into(),
         definition_revision: "r1".into(),
@@ -92,13 +97,24 @@ fn boss_stages_cooldowns_and_policy_privacy() {
     assert_eq!(m.entries[0].points, 15);
     assert_eq!(m.entries[0].stage, 2);
     assert_eq!(m.entries[0].cooldown_remaining_ms, None);
-    assert_eq!(m.entries[0].spawns[0].reset_chance, Some(0.25));
+    assert_eq!(
+        m.entries[0].spawns[0].reset_chance,
+        Some(ResetChance {
+            numerator: 1,
+            denominator: 4
+        })
+    );
     for policy in [
         SpawnPolicy::Room,
         SpawnPolicy::Encounter,
         SpawnPolicy::Unknown,
         SpawnPolicy::Ordinary,
-        SpawnPolicy::FixedAtReset { chance: f64::NAN },
+        SpawnPolicy::FixedAtReset {
+            chance: ResetChance {
+                numerator: 1,
+                denominator: 0,
+            },
+        },
     ] {
         s.policy = policy;
         assert!(
@@ -430,4 +446,56 @@ async fn postgres_journal_baseline_and_owner_refusal() {
         .await
         .expect("cleanup");
     pool.close().await;
+}
+
+#[test]
+fn fixed_boss_wire_ratios_are_exact_and_closed() {
+    // SOURCE: small policy shape from Game @857f15f376907c592bb28d854fccff18a15cdf87,
+    // content/world/spawns/spawns-boss-spawn1.json. No provenance or live state copied.
+    let p =
+        serde_json::json!({"boss_policy":{"at_reset":{"chance":{"numerator":1,"denominator":50}}}});
+    assert!(matches!(
+        spawn_policy(&p),
+        SpawnPolicy::FixedAtReset {
+            chance: ResetChance {
+                numerator: 1,
+                denominator: 50
+            }
+        }
+    ));
+    for chance in [
+        serde_json::json!({"numerator":1,"denominator":0}),
+        serde_json::json!({"numerator":2,"denominator":1}),
+        serde_json::json!({"numerator":1,"denominator":9223372036854775808_u64}),
+        serde_json::json!({"numerator":0.5,"denominator":1}),
+    ] {
+        assert!(matches!(
+            spawn_policy(&serde_json::json!({"boss_policy":{"at_reset":{"chance":chance}}})),
+            SpawnPolicy::Unknown
+        ));
+    }
+    assert!(matches!(
+        spawn_policy(
+            &serde_json::json!({"boss_policy":{"at_reset":{"chance":{"numerator":0,"denominator":1}}}})
+        ),
+        SpawnPolicy::FixedAtReset { .. }
+    ));
+    assert!(matches!(
+        spawn_policy(
+            &serde_json::json!({"boss_policy":{"at_reset":{"chance":{"numerator":1,"denominator":50},"spawned_today":true}}})
+        ),
+        SpawnPolicy::Unknown
+    ));
+    assert!(matches!(
+        spawn_policy(&serde_json::json!({"boss_policy":{"respawn":{"min_s":1,"max_s":2}}})),
+        SpawnPolicy::Unknown
+    ));
+    assert!(matches!(
+        spawn_policy(&serde_json::json!({"respawn_ms":1000})),
+        SpawnPolicy::Ordinary
+    ));
+    assert!(matches!(
+        spawn_policy(&serde_json::json!({})),
+        SpawnPolicy::Unknown
+    ));
 }

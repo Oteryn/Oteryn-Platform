@@ -258,7 +258,7 @@ fn render(lang: &str, map: Map, version: String) -> Result<String> {
         let mut locations = Vec::new();
         for p in e.spawns {
             let chance = match p.reset_chance {
-                Some(c) => format!("; {}: {}%", text("chance")?, c * 100.0),
+                Some(c) => format!("; {}: {}/{}", text("chance")?, c.numerator, c.denominator),
                 None => String::new(),
             };
             locations.push(Location {

@@ -18,9 +18,11 @@ path are independently testable with injected sources.
 SOURCE: docs/contracts/OTERYN_V2_GAME_JOURNAL_PROGRESS_CONTRACT_PROPOSAL.md,
 revision 2, sections 5.1 and 5.2; Game read-only reference
 857f15f376907c592bb28d854fccff18a15cdf87, monster authoring schema and
-content/world/spawns. The pinned spawn declaration has points but no approved
-boss policy in the inspected source. Only an explicitly approved fixed-at-reset
-policy can produce a boss marker. Held encounter bosses never appear. This
+content/world/spawns. The fixed policies in `spawns-54000-54673.json` and
+`spawns-boss-spawn1.json` use exact numerator/denominator ratios, validated against
+`crates/world-bundle/src/spawn.rs`. Fixed boss points have no ordinary respawn
+interval. `spawn_policy` decodes this closed shape without floating point values.
+Only an explicitly approved fixed-at-reset policy can produce a boss marker. Held encounter bosses never appear. This
 module neither invents policy probabilities nor exposes today's spawn result.
 Laravel has catalog bestiary fields but no corresponding private map route;
 there is no existing T86 response body to reproduce.
