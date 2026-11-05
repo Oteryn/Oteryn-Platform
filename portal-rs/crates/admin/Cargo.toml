@@ -54,3 +54,5 @@ workspace = true
 version = "0.10.9"
 [dev-dependencies.serde_urlencoded]
 version = "0.7"
+[dependencies.oteryn-bazaar]
+path = "../bazaar"

@@ -2662,6 +2662,7 @@ dependencies = [
  "askama",
  "axum",
  "fluent-bundle",
+ "oteryn-bazaar",
  "oteryn-characters",
  "oteryn-core",
  "oteryn-db",
