@@ -91,7 +91,7 @@ impl Database {
         for migration in [
             include_str!("../../../migrations/20261105151420_t26_wallet.sql"),
             include_str!("../../../migrations/20261105160000_t27_premium_ledger.sql"),
-            include_str!("../../../migrations/20261105210000_t55_codes.sql"),
+            include_str!("../../../migrations/20261105155204_t55_codes.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await.unwrap();
         }
