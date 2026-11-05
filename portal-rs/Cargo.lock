@@ -2024,6 +2024,7 @@ dependencies = [
  "image",
  "lzma-rs",
  "oteryn-db",
+ "oteryn-web",
  "oteryn-world",
  "serde",
  "serde_json",
@@ -2032,6 +2033,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tower",
+ "tower-http",
  "unic-langid",
 ]
 
