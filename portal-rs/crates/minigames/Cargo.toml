@@ -38,3 +38,8 @@ features = ["limit"]
 
 [dependencies.oteryn-wallet]
 workspace = true
+[dependencies.oteryn-playerdata]
+path = "../playerdata"
+
+[dependencies.getrandom]
+version = "0.4.3"
