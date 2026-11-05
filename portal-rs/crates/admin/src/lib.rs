@@ -14,3 +14,6 @@ pub mod support;
 
 pub mod console;
 pub mod control;
+
+#[path = "control/http.rs"]
+pub mod control_http;
