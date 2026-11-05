@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-stack"><nav class="op-row" aria-label="{{ title }}"><a class="op-button op-button--secondary" href="/{{ lang }}/panel/premium">{{ premium_label }}</a> <a class="op-button op-button--secondary" href="/{{ lang }}/panel/payments">{{ payments_label }}</a></nav>
+<h1>{{ title }}</h1>
+{% if premium %}<dl><dt>{{ status_label }}</dt><dd>{{ status }}</dd><dt>{{ end_label }}</dt><dd>{{ end }}</dd></dl>
+{% else %}
+{% if printable %}<p>{{ print_label }}</p>{% endif %}
+{% if rows.is_empty() %}<p>{{ empty_label }}</p>{% endif %}
+{% for row in rows %}<article class="op-card op-stack"><h2>{{ receipt_label }} {{ loop.index }}</h2><p><small>{{ row.id }}</small></p><dl><dt>{{ date_label }}</dt><dd>{{ row.date }}</dd><dt>{{ amount_label }}</dt><dd>{{ row.amount }}</dd>{% if !printable %}<dt>{{ status_label }}</dt><dd>{{ row.status }}</dd>{% endif %}</dl>{% if let Some(id) = row.receipt %}<a class="op-button op-button--secondary" href="/{{ lang }}/panel/payments/receipts/{{ id }}">{{ receipt_label }}</a>{% endif %}</article>{% endfor %}
+<nav class="op-row" aria-label="{{ paging_label }}">{% if let Some(number) = previous %}<a class="op-button op-button--secondary" href="?page={{ number }}" rel="prev">{{ previous_label }}</a>{% endif %} {% if let Some(number) = next %}<a class="op-button op-button--secondary" href="?page={{ number }}" rel="next">{{ next_label }}</a>{% endif %}</nav>
+{% endif %}</main></body></html>
