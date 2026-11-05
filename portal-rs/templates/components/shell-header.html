@@ -1,0 +1,45 @@
+{% include "components/icons.html" %}
+  <a class="op-skip" href="#main">{{ chrome.text("skip") }}</a>
+  <header class="op-shell__header">
+    <div class="op-shell__bar">
+      <a class="op-shell__brand" href="{{ chrome.home_url() }}" aria-label="Oteryn — {{ chrome.text("home-link") }}">{% include "components/compass.html" %}<span class="op-shell__word op-gold">OTERYN</span></a>
+      <nav class="op-shell__nav" aria-label="{{ chrome.text("navigation") }}">
+        <ul>
+          <li><a class="op-shell__top" href="{{ chrome.home_url() }}"{% if chrome.home_current %} aria-current="page"{% endif %}>{{ chrome.text("shell-start") }}</a></li>
+          {% for group in chrome.groups %}
+          <li><details class="op-shell__drop{% if group.current() %} is-current{% endif %}"><summary>{{ group.label }}<svg class="op-icon op-shell__caret" aria-hidden="true"><use href="#op-icon-chevron-down"/></svg></summary>
+            <div class="op-shell__dropmenu">{% for link in group.links %}<a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a>{% endfor %}</div>
+          </details></li>
+          {% endfor %}
+        </ul>
+      </nav>
+      <div class="op-shell__actions">
+        <a class="op-shell__lang" aria-label="{{ chrome.text("language-switch") }}" href="{{ chrome.alternate_url }}" lang="{{ chrome.alternate_lang }}" hreflang="{{ chrome.alternate_lang }}"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-globe"/></svg><span class="op-shell__lang-code">{{ chrome.alternate_lang|upper }}</span></a>
+        <div class="op-shell__auth-wide op-row" role="group" aria-label="{{ chrome.text("shell-account") }}">
+          {% if chrome.signed_in() %}
+            {% if chrome.account_mounted %}<a class="op-shell__login" href="/account"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-user"/></svg>{{ chrome.text("shell-account") }}</a>{% endif %}
+            {% if chrome.login_mounted %}<form action="/{{ chrome.lang }}/logout" method="post"><input type="hidden" name="_csrf" value="{{ chrome.csrf() }}"><button class="op-button op-button--secondary" type="submit">{{ chrome.text("shell-logout") }}</button></form>{% endif %}
+          {% else %}
+            {% if chrome.login_mounted %}<a class="op-shell__login" href="/{{ chrome.lang }}/login"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-user"/></svg>{{ chrome.text("shell-login") }}</a>{% endif %}
+            {% if chrome.registration_mounted %}<a class="op-button" href="/{{ chrome.lang }}/register">{{ chrome.text("home-play-free") }}</a>{% endif %}
+          {% endif %}
+        </div>
+        <details class="op-shell__menu">
+          <summary><svg class="op-icon" aria-hidden="true"><use href="#op-icon-menu"/></svg><span class="op-shell__lang-text">{{ chrome.text("shell-menu") }}</span></summary>
+          <nav class="op-shell__sheet" aria-label="{{ chrome.text("navigation") }}">
+            <section><a href="{{ chrome.home_url() }}"{% if chrome.home_current %} aria-current="page"{% endif %}>{{ chrome.text("shell-start") }}</a></section>
+            {% for group in chrome.groups %}<section><p class="op-eyebrow">{{ group.label }}</p>{% for link in group.links %}<a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a>{% endfor %}</section>{% endfor %}
+            <div class="op-row">
+              {% if chrome.signed_in() %}
+                {% if chrome.account_mounted %}<a class="op-button op-button--secondary" href="/account">{{ chrome.text("shell-account") }}</a>{% endif %}
+                {% if chrome.login_mounted %}<form action="/{{ chrome.lang }}/logout" method="post"><input type="hidden" name="_csrf" value="{{ chrome.csrf() }}"><button class="op-button op-button--secondary" type="submit">{{ chrome.text("shell-logout") }}</button></form>{% endif %}
+              {% else %}
+                {% if chrome.login_mounted %}<a class="op-button op-button--secondary" href="/{{ chrome.lang }}/login">{{ chrome.text("shell-login") }}</a>{% endif %}
+                {% if chrome.registration_mounted %}<a class="op-button" href="/{{ chrome.lang }}/register">{{ chrome.text("home-play-free") }}</a>{% endif %}
+              {% endif %}
+            </div>
+          </nav>
+        </details>
+      </div>
+    </div>
+  </header>

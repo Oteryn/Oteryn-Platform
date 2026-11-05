@@ -403,8 +403,8 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), MAX_BODY_BYTES).await?;
         let html = String::from_utf8(body.to_vec())?;
-        assert!(html.contains("<html lang=\"pl\">"));
-        assert!(html.contains("Odkrywaj Oteryn"));
+        assert!(html.contains("<html lang=\"pl\" data-theme=\"dark\">"));
+        assert!(html.contains("Wszystko w jednym miejscu"));
         Ok(())
     }
 
