@@ -22,10 +22,11 @@ fluent-bundle = "0.16"
 unic-langid = "0.9"
 pulldown-cmark = "0.13"
 ammonia = "4"
+thiserror = "2"
 [dev-dependencies]
 oteryn-db.workspace = true
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }
 [dependencies.time]
 version = "0.3"
-features = ["formatting", "parsing"]
+features = ["formatting", "parsing", "serde"]
