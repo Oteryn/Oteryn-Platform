@@ -11,3 +11,4 @@ pub mod players;
 pub mod support;
 
 pub mod control;
+pub mod console;
