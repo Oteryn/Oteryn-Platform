@@ -334,3 +334,5 @@ pub mod register;
 pub mod seo;
 #[path = "routes/verify.rs"]
 pub mod verify;
+
+pub mod search;

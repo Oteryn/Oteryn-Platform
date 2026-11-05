@@ -281,6 +281,58 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_db::lazy_pool(config.database_url())?,
                 oteryn_content::announcements::banner,
             ));
+            let app = app.merge(oteryn_web::search::routes(
+                oteryn_web::search::SearchState {
+                    pool: oteryn_db::lazy_pool(config.database_url())?,
+                    characters: None,
+                    world: Some(std::sync::Arc::new({
+                        let pool = oteryn_db::lazy_pool(config.database_url())?;
+                        move |lang, query, page| {
+                            let pool = pool.clone();
+                            Box::pin(async move {
+                                if std::env::var("PORTAL_WIKI_ENTITIES_ENABLED").as_deref()
+                                    != Ok("true")
+                                {
+                                    return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE);
+                                }
+                                let world = oteryn_world::WorldStore::new(
+                                    pool.clone(),
+                                    oteryn_world::WorldOptions { enabled: true },
+                                );
+                                oteryn_web::search::world_search(
+                                    &pool,
+                                    &lang,
+                                    &query,
+                                    page,
+                                    std::sync::Arc::new({
+                                        let lang = lang.clone();
+                                        move |kind, key| {
+                                            let world = world.clone();
+                                            let lang = lang.clone();
+                                            Box::pin(async move {
+                                                world
+                                                    .get_entity(&kind, &key)
+                                                    .await
+                                                    .map(|entity| {
+                                                        entity.map(|e| {
+                                                            oteryn_web::search::world_title(
+                                                                &e.data, &e.key, &lang,
+                                                            )
+                                                        })
+                                                    })
+                                                    .map_err(|_| {
+                                                        axum::http::StatusCode::SERVICE_UNAVAILABLE
+                                                    })
+                                            })
+                                        }
+                                    }),
+                                )
+                                .await
+                            })
+                        }
+                    })),
+                },
+            ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
