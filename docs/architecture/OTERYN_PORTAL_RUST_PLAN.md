@@ -1,6 +1,6 @@
 # Oteryn Portal w Ruście – projekt
 
-> **Status: PROJEKT, rewizja 5** (2026-11-05). Zastępuje rewizje 1–4. Rewizja 5 dodaje pełny panel gracza (§5.5) po przeglądzie kompletności względem obecnego portalu i stanu gry, uzupełnia panel zespołu, import i przekierowania oraz dzieli duże zadania na pojedyncze mechaniki. Rewizja 4 dodała przegląd od strony gry, decyzje D2, D7, D8 i odczyt danych świata wprost z gry.
+> **Status: ZAAKCEPTOWANY przez właściciela (D22, 2026-11-05), rewizja 5.** Zastępuje rewizje 1–4. Rewizja 5 dodaje pełny panel gracza (§5.5) po przeglądzie kompletności względem obecnego portalu i stanu gry, uzupełnia panel zespołu, import i przekierowania oraz dzieli duże zadania na pojedyncze mechaniki. Rewizja 4 dodała przegląd od strony gry, decyzje D2, D7, D8 i odczyt danych świata wprost z gry.
 >
 > Ten dokument opisuje nową platformę Oteryn w Ruście, budowaną od zera według obecnych potrzeb graczy, zespołu i gry. Obecny portal Laravel służy tylko jako źródło wiedzy o potrzebach i kontraktach. Nie jest specyfikacją i nie jest przenoszony.
 >
@@ -547,7 +547,7 @@ Mechaniki właściwe tylko dla Tibii (np. fiendish przez exivę, koło przeznacz
 
 ### 5.10 Rozrywka i dodatkowe przychody (bez hazardu)
 
-Zasada: gracz płaci za konkretną rzecz, którą widzi przed zakupem, a nie za szansę na cenną wygraną. Gry losowe o coiny, złoto lub zbywalne przedmioty to w Polsce hazard (ustawa o grach hazardowych; kasyno online to monopol państwa), więc portal ich nie ma. Przed startem tej sekcji właściciel konsultuje ją z prawnikiem (ochrona konsumentów, nieletni).
+Zasada: gracz płaci za konkretną rzecz, którą widzi przed zakupem, a nie za szansę na cenną wygraną. Gry losowe o coiny, złoto lub zbywalne przedmioty to w Polsce hazard (ustawa o grach hazardowych; kasyno online to monopol państwa), więc portal ich nie ma. Konsultacja prawna (ochrona konsumentów, nieletni) nie blokuje prac (D23).
 
 | Funkcja | Opis | Przychód | Zadanie | Dane z gry |
 | --- | --- | --- | --- | --- |
@@ -675,7 +675,9 @@ Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie cz�
 
 ## 8. Wygląd i jakość
 
-- Projekt graficzny od nowa: ciemny motyw z akcentem marki, czytelna typografia, komponenty w jednym pliku tokenów CSS.
+- Projekt graficzny od nowa (D4). Obecny wygląd Oteryn Platform jest tylko przykładem: nie kopiujemy go, bo portal ma dużo więcej powierzchni (bazar, Atlas, dziennik gry, statystyki, rozrywka).
+- Najpierw system projektowy (T39): ciemny motyw z akcentem marki, czytelna typografia, ikony i komponenty (tabele, karty, formularze, wykresy, mapa, panele boczne) w jednym pliku tokenów CSS, z galerią komponentów.
+- Potem makiety kluczowych ekranów na tych tokenach (T39b): strona główna, panel gracza, bazar, Atlas, dziennik gry, statystyki. Właściciel akceptuje makiety, zanim powstaną strony; do tego czasu strony korzystają tylko z komponentów T39.
 - Pełna obsługa telefonu i WCAG 2.2 AA.
 - Budżety: LCP poniżej 2 s na 4G, JS poza mapą poniżej 30 KB, p95 odpowiedzi poniżej 150 ms dla stron publicznych.
 - SEO: sitemap, `hreflang`, kanoniczne adresy, dane strukturalne.
@@ -775,7 +777,8 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T38c | Import: portfel, premium, płatności; kontrola braku otwartych aukcji | T26–T31 | `bin/oteryn-portal/src/import/commerce*` |
 | T38d | Import: zgłoszenia, zgłoszenia graczy, kary, odwołania | T33–T34b | `bin/oteryn-portal/src/import/support*` |
 | T38e | Import: ustawienia profili postaci | T45 | `bin/oteryn-portal/src/import/characters*` |
-| T39 | Projekt graficzny: tokeny CSS i komponenty | T01 | `static/`, `templates/components/` |
+| T39 | Projekt graficzny od nowa: tokeny CSS, typografia, ikony, komponenty i galeria komponentów | T01 | `static/`, `templates/components/` |
+| T39b | Makiety kluczowych ekranów na tokenach T39 do akceptacji właściciela (§8) | T39 | `docs/design/`, `templates/mockups/` |
 | T39b | Strona główna i „Jak zacząć” | T39, T11 | `templates/pages/` |
 | T40 | Atlas: kafle WebP z minimapy gry (LZMA → BMP → piramida) i znaczniki z `npc-placements` | T14 | `crates/atlas/src/tiles*` |
 | T41 | Atlas: strona `/atlas` (przeglądarka kafli, warstwy, znaczniki, linki do wiki) | T40, T14 | `crates/atlas/src/web*`, `templates/atlas/`, `static/atlas/` |
@@ -853,7 +856,7 @@ Kolejność startu:
 2. Potem jednocześnie: T01, T14, T15, T37, T39 i T52.
 3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45, T53–T54), gry (T16–T25), handlu (T26–T32, T47, T55–T56), bazaru (T57–T64), statystyk (T65–T71), dziennika gry (T72–T83), Atlasu i narzędzi (T84–T88) i panelu zespołu (T10–T10b, T49–T51).
 4. Zadania zależne od G-3…G-14 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
-5. Po pierwszym wydaniu i konsultacji prawnej: rozrywka (T89–T94, D20).
+5. Po pierwszym wydaniu: rozrywka (T89–T94, D20).
 
 ### 10.1 Szablon zadania dla Codexa
 
@@ -885,8 +888,8 @@ Pozostałe warunki:
 | --- | --- | --- |
 | D1 | Zakres pierwszego wydania | Sekcja 2 bez węzłów i obserwacji GM; bazar (D13) i dziennik gry z analizatorem (D17) w zakresie |
 | D2 | Nowy job CI dla `portal-rs/` | **Zgoda** (2026-11-05), PR #1685 |
-| D3 | Dostawca płatności | Provider testowy do czasu wyboru (np. Stripe) |
-| D4 | Wygląd | Nowy projekt graficzny (T39) |
+| D3 | Dostawca płatności | **Zgoda** (2026-11-05): dostawca testowy do czasu wyboru (np. Stripe); prawdziwy wybrany przed pierwszymi wpłatami |
+| D4 | Wygląd | **Od nowa** (2026-11-05): obecny portal jest tylko przykładem; system projektowy (T39) i makiety do akceptacji właściciela (T39b), §8 |
 | D5 | Gateway logowania | **Zgoda** (2026-11-05): przepisany do Rusta jako rola `gateway` w tej samej binarce, osobny proces bez dostępu do bazy, kontrakt `POST /v1/login` bez zmian. Koordynator potwierdził przepisanie 1:1; kolejka i kod przerwy technicznej dopiero później, jako zmiana kontraktu (§6) |
 | D6 | Import danych | Konta z bezpieczeństwem, role, treści, wiki, portfel, premium, support i kary, ustawienia profili (§9); sesje i tokeny w locie nie |
 | D7 | Publikacja sprite'ów i mapy gry na stronie (licencja `LICENSE-ASSETS.md`) | **Wolno** (2026-11-05): wiki z grafikami, Atlas włączony |
@@ -902,8 +905,10 @@ Pozostałe warunki:
 | D17 | Prywatny dziennik gry z automatycznym analizatorem polowań | **Tak** (2026-11-05), §5.8; najpierw analizator i przeglądarka przedmiotów |
 | D18 | Atlas z mapą dostaw zadań i trackerami (wzór TibiaRoute) | **Tak** (2026-11-05), §5.9 |
 | D19 | Repozytorium Oteryn-Atlas (było Q11) | **Zgoda** (2026-11-05): Atlas w portalu je zastępuje. Repo zostaje zamrożone i trafia do archiwum po uruchomieniu Atlasu portalu (T41, T84–T86); archiwizuje je właściciel |
-| D20 | Rozrywka bez hazardu | **Tak** (2026-11-05), §5.10: pomocnik w domu zamiast wysyłania postaci, przepustka sezonowa, kolekcja potworów, zagadki; bez gier losowych o wartość; po pierwszym wydaniu, po konsultacji prawnej |
+| D20 | Rozrywka bez hazardu | **Tak** (2026-11-05), §5.10: pomocnik w domu zamiast wysyłania postaci, przepustka sezonowa, kolekcja potworów, zagadki; bez gier losowych o wartość; po pierwszym wydaniu |
 | D21 | Rodzaj COSMETIC w sklepie (wyglądy, ramki, tytuły) | **Zgoda** (2026-11-05) na włączenie, wcześniej wyłączony; zmiana kontraktu wire sklepu z grą przed T89 |
+| D22 | Akceptacja projektu (było Q5) | **Akceptuję** (2026-11-05); start od T00 (PR #1685), potem kolejność z §10 |
+| D23 | Konsultacja prawna (bazar, sklep i coiny, regulamin i RODO, §5.10) | **Nie blokuje prac** (2026-11-05); właściciel zrobi ją później |
 
 ## 12. Otwarte pytania
 
@@ -912,7 +917,6 @@ Pozostałe warunki:
 | Q2 | Kontrakt `client/directory` w locku gry, z regułą postaci tylko dla właściciela (§5.2) | Koordynator, G-1 | Tylko pole `characters` w T36 |
 | Q3 | Aktualizacja locka gry: N4P (z `native-admissions`) i GAME-CHAR-CMD-0 (§6) | Koordynator, G-1 | Nic; portal implementuje według kodu |
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
-| Q5 | Akceptacja projektu | Właściciel | Start T01+ |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
