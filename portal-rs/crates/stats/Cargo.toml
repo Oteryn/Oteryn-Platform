@@ -36,3 +36,6 @@ features = ["macros"]
 [dev-dependencies.tower]
 version = "0.5.3"
 features = ["util"]
+
+[dependencies.oteryn-notify]
+workspace = true
