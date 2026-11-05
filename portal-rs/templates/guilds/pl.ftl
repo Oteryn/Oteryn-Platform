@@ -1,0 +1,14 @@
+title = Gildie
+unavailable = Informacje o gildiach są niedostępne.
+search = Nazwa gildii
+apply = Szukaj
+members = Widoczni członkowie
+founded = Data założenia
+rank = Ranga
+joined = Data dołączenia
+empty = Nie znaleziono gildii.
+previous = Poprzednia strona
+next = Następna strona
+forming = W trakcie tworzenia
+active = Aktywna
+disbanding = W trakcie rozwiązywania
