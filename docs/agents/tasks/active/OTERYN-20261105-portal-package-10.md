@@ -62,11 +62,11 @@ Main already contains `fix(portal-rs): pin the gateway TLS provider to ring` (c4
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-05T00:00:00Z
-head: 9ec36d5c
+updated_at: 2026-11-05T18:40:41Z
+head: cea3d86c
 branch: codex/portal-rs-pkg10
 pr: none
-status: validating
+status: ready
 context_routes:
   - testing
 owned_paths:
@@ -78,7 +78,6 @@ proven:
   - legacy token ratchet passed
 derived: []
 unknown:
-  - final acceptance results
   - Jira mapping unavailable; synchronization pending
 conflicts: []
 first_failure:
@@ -92,11 +91,11 @@ validation:
     result: PASS
     evidence: completed successfully
   - command: cargo clippy --locked --all-targets -- -D warnings
-    result: NOT_RUN
-    evidence: compiling
+    result: PASS
+    evidence: completed with warnings denied
 blockers:
   - none
-next_action: finish acceptance and verify normal branch push
+next_action: normal branch push and verify remote head
 ```
 
 ## Source branch closeout
@@ -108,3 +107,17 @@ source_branch_evidence: remote verification pending
 ```
 
 Product runtime E2E: NOT_APPLICABLE to this assembly task; existing module tests provide behavior verification. No product redesign or deployment is authorized.
+
+## Final acceptance evidence
+
+- Base: main at 12c9f11c; all twelve module tips are ancestors of the integration head.
+- `cargo fmt --all --check`: PASS.
+- `cargo clippy --locked --all-targets -- -D warnings`: PASS.
+- `PORTAL_TEST_DATABASE_URL=<local PostgreSQL 18.6 URL> cargo test --locked`: PASS, 576 passed, 0 failed, 1 ignored (existing Chromium accessibility/layout test requiring browser modules).
+- 312 PostgreSQL-backed test invocations actually ran. Inventory identified each guarded test by its explicit missing-database skip output, then matched all 312 against successful tests in the configured acceptance run. The missing-database inventory is excluded from acceptance counts. Database-backed suites took real execution time (for example Bazaar 4.35s, Playerdata 6.88s), rather than millisecond skip-only completion.
+- The environment's pre-populated default database initially caused two T58 migration failures (`wallet_accounts` already exists). A dedicated fresh local database, `portal_pkg10_acceptance`, resolved this without changing code; the entire acceptance command then passed.
+- PostgreSQL server verified: 18.6 (Debian 18.6-1.pgdg13+2). Connection credentials remain in process memory only.
+- `python3 tools/validation/legacy_token_ratchet.py`: PASS, printed `legacy token ratchet ok`.
+- `git diff --check` and task checkpoint validator: PASS.
+- All main migration files unchanged; all numeric versions unique; no SQLx offline data; no workflow changes; nothing dropped.
+- TLS provider option: retained main's existing explicit ring provider passed to `ClientConfig::builder_with_provider` (c4c6715d). Workspace tests confirm the implicit-provider failure is already fixed; no additional gateway or dependency change was necessary.
