@@ -57,6 +57,9 @@ async fn main() -> ExitCode {
 async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     let db = oteryn_db::lazy_pool(config.database_url())?;
+    if matches!(role, Role::Worker) {
+        return worker::run(db).await;
+    }
     match role {
         Role::Migrate => {
             oteryn_db::migrate(&db).await?;
@@ -96,3 +99,4 @@ mod tests {
 }
 
 mod gateway;
+mod worker;

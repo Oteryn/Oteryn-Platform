@@ -64,6 +64,7 @@ async fn readyz(State(state): State<AppState>) -> StatusCode {
 }
 
 fn security_headers(router: Router) -> Router {
+    let router = surface::finish(router);
     let headers: [(HeaderName, &'static str); 5] = [
         (
             header::CONTENT_SECURITY_POLICY,
@@ -95,6 +96,8 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .nest_service("/static", ServeDir::new(static_dir))
+        .merge(surface::module_router())
+        .merge(surface::module_routes())
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http());
@@ -136,6 +139,11 @@ mod tests {
         let response = app()?
             .oneshot(Request::get("/").body(Body::empty())?)
             .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        let location = response.headers()[header::LOCATION].to_str()?;
+        let response = app()?
+            .oneshot(Request::get(location).body(Body::empty())?)
+            .await?;
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), MAX_BODY_BYTES).await?;
         let html = String::from_utf8(body.to_vec())?;
@@ -153,3 +161,7 @@ mod tests {
         Ok(())
     }
 }
+
+mod surface;
+
+pub use surface::{CspNonce, Language, WebOptions, module_router, router_with_options};
