@@ -155,6 +155,27 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_admin::players::http::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             )?);
+            let wizard_pool = oteryn_db::lazy_pool(config.database_url())?;
+            let wizard = oteryn_identity::security_wizard::configured(wizard_pool.clone())
+                .layer(axum::middleware::from_fn(
+                    |mut request: axum::extract::Request, next: axum::middleware::Next| async move {
+                        if let Some(session) = request
+                            .extensions()
+                            .get::<oteryn_web::session::BrowserSession>()
+                            && let Some(id) = session.account_id().await
+                        {
+                            request
+                                .extensions_mut()
+                                .insert(oteryn_identity::security_wizard::Viewer(id));
+                        }
+                        next.run(request).await
+                    },
+                ))
+                .layer(axum::middleware::from_fn_with_state(
+                    oteryn_web::session::SessionLayer::new(wizard_pool),
+                    oteryn_web::session::middleware,
+                ));
+            let app = app.merge(wizard);
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
