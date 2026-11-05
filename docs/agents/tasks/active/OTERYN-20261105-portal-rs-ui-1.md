@@ -36,8 +36,8 @@ Small `oteryn-ui` crate owns Chrome, registry, the existing shared Fluent catalo
 checkpoint_version: 1
 updated_at: 2026-11-05T22:51:22Z
 head: b77e290a903a005714feb2951492a6fa4da3329c
-branch: codex/portal-rs-ui-1
-pr: none
+branch: claude/portal-rs-ui-1
+pr: 1747
 status: ready
 context_routes: []
 owned_paths:
