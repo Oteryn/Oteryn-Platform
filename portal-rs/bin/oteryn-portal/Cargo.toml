@@ -52,3 +52,6 @@ path = "../../crates/world"
 
 [dependencies.oteryn-bazaar]
 path = "../../crates/bazaar"
+
+[dependencies.oteryn-playerdata]
+workspace = true

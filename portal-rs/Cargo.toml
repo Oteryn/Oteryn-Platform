@@ -44,3 +44,4 @@ oteryn-player-api = { path = "crates/player-api" }
 oteryn-gateway = { path = "crates/gateway" }
 oteryn-bazaar = { path = "crates/bazaar" }
 oteryn-hirelings = { path = "crates/hirelings" }
+oteryn-playerdata = { path = "crates/playerdata" }
