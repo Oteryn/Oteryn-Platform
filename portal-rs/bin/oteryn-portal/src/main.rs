@@ -100,6 +100,80 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(login_http::configured_router(oteryn_db::lazy_pool(
                 config.database_url(),
             )?));
+            let mut oauth_login_sessions = oteryn_web::session::SessionLayer::new(
+                oteryn_db::lazy_pool(config.database_url())?,
+            );
+            oauth_login_sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
+                .ok()
+                .into_iter()
+                .collect();
+            let app = app
+                .layer(axum::middleware::from_fn(
+                    |request: axum::extract::Request, next: axum::middleware::Next| async move {
+                        use axum::response::IntoResponse;
+                        let login = request.method() == axum::http::Method::POST
+                            && matches!(request.uri().path(), "/login" | "/pl/login" | "/en/login");
+                        let pending = if login {
+                            if let Some(session) = request
+                                .extensions()
+                                .get::<oteryn_web::session::BrowserSession>()
+                            {
+                                match session
+                                    .get(oteryn_web::session::SessionKey::<Option<String>>::new(
+                                        "oauth_return",
+                                    ))
+                                    .await
+                                {
+                                    Ok(value) => value.flatten(),
+                                    Err(_) => {
+                                        return axum::http::StatusCode::SERVICE_UNAVAILABLE
+                                            .into_response();
+                                    }
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        let mut response = next.run(request).await;
+                        if login
+                            && response.status() == axum::http::StatusCode::FOUND
+                            && response
+                                .headers()
+                                .get(axum::http::header::LOCATION)
+                                .and_then(|v| v.to_str().ok())
+                                .is_some_and(|v| matches!(v, "/pl/" | "/en/"))
+                            && let Some(target) = pending
+                                .filter(|p| p.starts_with("/oauth/authorize?") && p.len() <= 8192)
+                            && let Ok(value) = axum::http::HeaderValue::from_str(&target)
+                        {
+                            response
+                                .headers_mut()
+                                .insert(axum::http::header::LOCATION, value);
+                        }
+                        response
+                    },
+                ))
+                .layer(axum::middleware::from_fn_with_state(
+                    oauth_login_sessions,
+                    |axum::extract::State(layer): axum::extract::State<
+                        oteryn_web::session::SessionLayer,
+                    >,
+                     request: axum::extract::Request,
+                     next: axum::middleware::Next| async move {
+                        if matches!(request.uri().path(), "/login" | "/pl/login" | "/en/login") {
+                            oteryn_web::session::middleware(
+                                axum::extract::State(layer),
+                                request,
+                                next,
+                            )
+                            .await
+                        } else {
+                            next.run(request).await
+                        }
+                    },
+                ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
