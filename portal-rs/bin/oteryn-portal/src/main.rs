@@ -73,8 +73,15 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let static_dir =
                 std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
             let app = oteryn_web::router(AppState { db }, &static_dir);
+            let app = app.merge(oteryn_community::ingest::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_community::online::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
+            let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             axum::serve(listener, app)
                 .with_graceful_shutdown(async {
                     let _ = tokio::signal::ctrl_c().await;

@@ -1,0 +1,3 @@
+{% macro frame(title, description, map) %}
+<figure class="op-frame"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-{% if map %}map{% else %}chart{% endif %}"></use></svg><strong>{{ title }}</strong><figcaption>{{ description }}</figcaption></figure>
+{% endmacro %}

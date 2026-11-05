@@ -25,3 +25,16 @@ serde_json = "1"
 
 [dev-dependencies]
 tower = { version = "0.5.3", features = ["util"] }
+
+[dependencies.sha2]
+version = "0.10"
+[dependencies.subtle]
+version = "2.6"
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+[dependencies.serde_urlencoded]
+version = "0.7"
+
+[dependencies.oteryn-gameauth]
+workspace = true

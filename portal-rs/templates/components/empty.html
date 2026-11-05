@@ -1,0 +1,3 @@
+{% macro empty(title, description, action, href) %}
+<div class="op-empty"><svg class="op-icon" aria-hidden="true"><use href="#op-icon-inbox"></use></svg><h3>{{ title }}</h3><p class="op-muted">{{ description }}</p><a class="op-button op-button--secondary" href="{{ href }}">{{ action }}</a></div>
+{% endmacro %}

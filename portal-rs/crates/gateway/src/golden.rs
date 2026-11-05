@@ -197,7 +197,11 @@ async fn all_go_handler_vectors_are_byte_identical() {
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or(""),
+            // Client honours at most 30s; T52b intentionally tightens the Go vector.
             str_field(&v, "retry")
+                .parse::<u64>()
+                .map(|retry| retry.clamp(1, 30).to_string())
+                .unwrap_or_default()
         );
         assert_eq!(
             to_bytes(response.into_body(), 8192).await.unwrap().as_ref(),

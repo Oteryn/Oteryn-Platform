@@ -1,0 +1,6 @@
+{% macro alert(title, message, tone) %}
+<div class="op-alert{% if tone == "success" %} op-alert--success{% else if tone == "warning" %} op-alert--warning{% else if tone == "danger" %} op-alert--danger{% endif %}" role="{% if tone == "danger" %}alert{% else %}status{% endif %}">
+  <svg class="op-icon" aria-hidden="true"><use href="#op-icon-{% if tone == "success" %}check{% else if tone == "warning" || tone == "danger" %}alert-triangle{% else %}info{% endif %}"></use></svg>
+  <div><strong>{{ title }}</strong><p>{{ message }}</p></div>
+</div>
+{% endmacro %}

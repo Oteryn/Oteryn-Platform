@@ -65,6 +65,7 @@ async fn readyz(State(state): State<AppState>) -> StatusCode {
 
 fn security_headers(router: Router) -> Router {
     let router = surface::finish(router);
+    let router = router.layer(axum::middleware::from_fn(ratelimit::api_errors));
     let headers: [(HeaderName, &'static str); 5] = [
         (
             header::CONTENT_SECURITY_POLICY,
@@ -91,6 +92,7 @@ fn security_headers(router: Router) -> Router {
 
 /// Builds the public router. Module routers are merged here as their tasks land.
 pub fn router(state: AppState, static_dir: &str) -> Router {
+    let session_layer = session::SessionLayer::new(state.db.clone());
     let router = Router::new()
         .route("/", get(home))
         .route("/healthz", get(healthz))
@@ -98,6 +100,12 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .nest_service("/static", ServeDir::new(static_dir))
         .merge(surface::module_router())
         .merge(surface::module_routes())
+        .route_layer(axum::middleware::from_fn_with_state(
+            session_layer,
+            session::middleware,
+        ))
+        .method_not_allowed_fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
+        .merge(oteryn_gameauth::runtime::routes(state.db.clone()))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http());
@@ -165,3 +173,8 @@ mod tests {
 mod surface;
 
 pub use surface::{CspNonce, Language, WebOptions, module_router, router_with_options};
+
+pub mod csrf;
+pub mod session;
+
+pub mod ratelimit;
