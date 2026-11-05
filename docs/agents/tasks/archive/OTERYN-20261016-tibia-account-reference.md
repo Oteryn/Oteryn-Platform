@@ -40,11 +40,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-16T11:11:58Z
-head: UNKNOWN
+updated_at: 2026-11-05T08:30:00Z
+head: 640f6615c22866e77f2536d64f2ffcb6f7f4fcad
 branch: codex/draft-tibia-account-reference-20261016
 pr: 1650
-status: waiting
+status: completed
 context_routes:
   - web-cms
 owned_paths:
@@ -74,13 +74,13 @@ validation:
     result: NOT_APPLICABLE
     evidence: Documentation-only draft; no application, schema, workflow or runtime changes.
 blockers: []
-next_action: Review the draft observations and classify Oteryn gaps under Issue 277.
+next_action: none; delivered by PR 1650 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: Owner requested a draft; retain until reviewed or explicitly closed.
-source_branch_evidence: Publication readback belongs to the live draft PR.
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR path; head branch deleted after merge
+source_branch_evidence: PR 1650 merged as 640f6615c22866e77f2536d64f2ffcb6f7f4fcad
 ```
