@@ -33,3 +33,6 @@ version = "0.16.1"
 version = "0.16.0"
 [dependencies.oteryn-wallet]
 workspace = true
+
+[dependencies.serde_urlencoded]
+version = "0.7.1"

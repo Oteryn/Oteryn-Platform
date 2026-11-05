@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ title }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+<h1>{{ title }}</h1>
+<p>{{ name }}</p>
+<form method="post" class="op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<label class="op-button op-button--secondary" for="show_guild">
+<input type="checkbox" id="show_guild" name="show_guild" value="1"{% if value.show_guild %} checked{% endif %}>
+<span>{{ guild }}</span>
+</label>
+<label class="op-button op-button--secondary" for="is_main_character">
+<input type="checkbox" id="is_main_character" name="is_main_character" value="1"{% if value.is_main_character %} checked{% endif %}>
+<span>{{ main }}</span>
+</label>
+<button type="submit" class="op-button">{{ save }}</button>
+</form>
+</main>
+</body>
+</html>
