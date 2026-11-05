@@ -7,6 +7,10 @@ pub mod register;
 pub mod verify;
 pub use accounts::AccountId;
 pub mod abuse;
+pub mod credentials;
+pub mod export;
 pub mod login;
-
+pub mod passkeys;
+pub mod reset;
 pub mod security_wizard;
+pub mod termination;

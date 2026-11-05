@@ -1,0 +1,11 @@
+reset-title = Zresetuj hasło
+reset-email = Adres e-mail
+reset-password = Nowe hasło
+reset-confirm = Potwierdź nowe hasło
+reset-policy = Użyj co najmniej 10 znaków (maksymalnie 256 bajtów).
+reset-submit = Kontynuuj
+reset-login = Zaloguj się
+reset-notice = Jeśli konto z tym adresem istnieje, wysłaliśmy link do zresetowania hasła.
+reset-error = Link jest nieprawidłowy lub wygasł albo hasła nie są identyczne. W razie potrzeby poproś o nowy link.
+reset-mail-subject = Zresetuj hasło do Oteryn
+reset-mail-body = Otwórz ten link w ciągu 60 minut, aby zresetować hasło. Jeśli nie prosisz o zmianę, zignoruj tę wiadomość.

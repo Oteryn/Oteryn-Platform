@@ -1,0 +1,16 @@
+{% extends "wiki/entities_layout.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<nav aria-label="{{ self.t("types") }}"><ul>{% for kind in crate::entities::KINDS %}<li><a class="op-button op-button--secondary" href="/{{ lang }}/wiki/{{ kind }}">{{ self.t(kind) }}</a></li>{% endfor %}</ul></nav>
+<p>{{ self.t("version") }}: {{ version }}</p>
+<form class="op-stack" method="get">
+<div class="op-field"><label for="q">{{ self.t("query") }}</label><input class="op-input" id="q" name="q" maxlength="80" value="{{ filters.q }}"></div>
+{% if per_type %}<input type="hidden" name="kind" value="{{ filters.kind }}">{% else %}<div class="op-field"><label for="kind">{{ self.t("types") }}</label><select class="op-input" id="kind" name="kind"><option value="">{{ self.t("all") }}</option>{% for kind in crate::entities::KINDS %}<option value="{{ kind }}"{% if self.selected(kind) %} selected{% endif %}>{{ self.t(kind) }}</option>{% endfor %}</select></div>{% endif %}
+<div class="op-field"><label for="category">{{ self.t("category") }}</label><input class="op-input" id="category" name="category" maxlength="80" value="{{ filters.category }}"></div>
+<div class="op-field"><label for="classification">{{ self.t("classification") }}</label><input class="op-input" id="classification" name="classification" maxlength="80" value="{{ filters.classification }}"></div>
+<button class="op-button" type="submit">{{ self.t("search") }}</button></form>
+{% for row in rows %}<article class="op-card"><h2><a href="{{ row.href }}">{{ row.title }}</a></h2>{% if !row.category.is_empty() %}<p>{{ self.t("category") }}: {{ row.category }}</p>{% endif %}{% if !row.classification.is_empty() %}<p>{{ self.t("classification") }}: {{ row.classification }}</p>{% endif %}</article>{% endfor %}
+{% for guide in guides %}<article class="op-card"><h2><a href="/{{ lang }}/wiki/articles/{{ guide.slug }}">{{ guide.title }}</a></h2><p>{{ guide.summary }}</p></article>{% endfor %}
+{% if rows.is_empty() && guides.is_empty() %}<p>{{ self.t("empty") }}</p>{% endif %}
+{% if next > 0 %}<form method="get"><input type="hidden" name="q" value="{{ filters.q }}"><input type="hidden" name="kind" value="{{ filters.kind }}"><input type="hidden" name="category" value="{{ filters.category }}"><input type="hidden" name="classification" value="{{ filters.classification }}"><input type="hidden" name="page" value="{{ next }}"><button class="op-button" type="submit">{{ self.t("next") }}</button></form>{% endif %}
+{% endblock %}

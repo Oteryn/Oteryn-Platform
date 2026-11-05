@@ -2,5 +2,6 @@
 
 pub mod calculators;
 pub mod domain;
+pub mod entities;
 pub mod repository;
 pub mod web;

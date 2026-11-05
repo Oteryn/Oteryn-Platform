@@ -6,5 +6,6 @@ pub mod evidence;
 pub mod runtime;
 
 pub mod keys;
+pub mod oauth;
 pub mod scopes;
 pub mod tickets;

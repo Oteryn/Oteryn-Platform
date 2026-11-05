@@ -149,6 +149,16 @@ async fn run_until(
 }
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
+    crate::reset_delivery::register(&mut registry, pool.clone())?;
+    registry.cleanup(
+        "identity.finalize-terminations",
+        60,
+        Arc::new(oteryn_identity::termination::Terminations::new(
+            pool.clone(),
+            oteryn_identity::termination::Config::from_env()?,
+            Arc::new(oteryn_identity::termination::UnavailableBoundary),
+        )?),
+    )?;
     registry.cleanup(
         "stats.poll",
         60,
@@ -167,9 +177,22 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         60,
         Arc::new(oteryn_web::ratelimit::RateLimitCleanup { pool: pool.clone() }),
     )?;
+    registry.cleanup(
+        "cleanup.passkeys",
+        300,
+        Arc::new(oteryn_identity::passkeys::PasskeyCleanup { pool: pool.clone() }),
+    )?;
     for kind in ["cleanup.tokens", "cleanup.support"] {
         registry.cleanup(kind, 3600, Arc::new(NoopCleanup))?;
     }
+    registry.cleanup(
+        "cleanup.support-tickets",
+        3600,
+        Arc::new(oteryn_support::tickets::Retention {
+            pool: pool.clone(),
+            enabled: std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() == Ok("true"),
+        }),
+    )?;
     #[cfg(unix)]
     let shutdown = {
         let mut terminate =

@@ -1,0 +1,11 @@
+reset-title = Reset password
+reset-email = Email address
+reset-password = New password
+reset-confirm = Confirm new password
+reset-policy = Use at least 10 characters (maximum 256 bytes).
+reset-submit = Continue
+reset-login = Sign in
+reset-notice = If an account exists for that email, a password reset link has been sent.
+reset-error = This password reset link is invalid or expired, or the passwords do not match. Request a new link if needed.
+reset-mail-subject = Reset your Oteryn password
+reset-mail-body = Open this link within 60 minutes to reset your password. If you did not request this, ignore this message.
