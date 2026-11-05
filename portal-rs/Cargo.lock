@@ -1119,13 +1119,17 @@ name = "oteryn-characters"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "oteryn-core",
  "oteryn-internal-api",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "subtle",
  "thiserror",
  "tokio",
  "tower",
+ "unicode-normalization",
+ "unicode-properties",
  "uuid",
 ]
 
@@ -1322,8 +1326,10 @@ dependencies = [
  "axum",
  "fluent-bundle",
  "getrandom 0.4.3",
+ "oteryn-characters",
  "oteryn-db",
  "oteryn-gameauth",
+ "oteryn-internal-api",
  "serde",
  "serde_json",
  "serde_urlencoded",
