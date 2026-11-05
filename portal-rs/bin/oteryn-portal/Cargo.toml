@@ -44,6 +44,7 @@ oteryn-content.workspace = true
 
 oteryn-identity.workspace = true
 
+
 [dependencies.oteryn-wiki]
 workspace = true
 
