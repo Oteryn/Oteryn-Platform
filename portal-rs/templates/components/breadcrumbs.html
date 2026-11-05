@@ -1,0 +1,3 @@
+{% macro breadcrumbs(label, items, current) %}
+<nav aria-label="{{ label }}"><ol class="op-breadcrumbs">{% for item in items %}<li><a href="{{ item.1 }}">{{ item.0 }}</a></li>{% endfor %}<li><span aria-current="page">{{ current }}</span></li></ol></nav>
+{% endmacro %}

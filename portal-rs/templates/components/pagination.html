@@ -1,0 +1,7 @@
+{% macro pagination(label, previous, previous_url, current, next, next_url) %}
+<nav class="op-pagination" aria-label="{{ label }}">
+  {% if previous_url.is_empty() %}<span aria-disabled="true">{{ previous }}</span>{% else %}<a href="{{ previous_url }}" rel="prev">{{ previous }}</a>{% endif %}
+  <span aria-current="page">{{ current }}</span>
+  {% if next_url.is_empty() %}<span aria-disabled="true">{{ next }}</span>{% else %}<a href="{{ next_url }}" rel="next">{{ next }}</a>{% endif %}
+</nav>
+{% endmacro %}

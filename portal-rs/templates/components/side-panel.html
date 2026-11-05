@@ -1,0 +1,3 @@
+{% macro side_panel(id, title, labels, values) %}
+<aside class="op-panel op-stack" aria-labelledby="{{ id }}-title"><h3 id="{{ id }}-title">{{ title }}</h3><dl>{% for label in labels %}<dt class="op-muted">{{ label }}</dt><dd>{{ values[loop.index0] }}</dd>{% endfor %}</dl></aside>
+{% endmacro %}
