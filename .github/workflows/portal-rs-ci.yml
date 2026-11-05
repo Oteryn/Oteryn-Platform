@@ -1,0 +1,48 @@
+name: Portal RS CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'portal-rs/**'
+      - '.github/workflows/portal-rs-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'portal-rs/**'
+      - '.github/workflows/portal-rs-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portal-rs-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: portal-rs
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --locked
