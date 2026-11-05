@@ -135,6 +135,105 @@ impl Backend for PendingBackend {
         Ok(None)
     }
 }
+/// Read-only bridge to merged RBAC and request-store metadata. Query results
+/// remain unavailable until a verified query service is supplied through Backend.
+#[derive(Debug, Clone)]
+pub struct StoredMetadata<A> {
+    auth: crate::rbac::Authorizer<A>,
+    store: crate::control::Store,
+}
+impl<A: crate::rbac::AccountStateReader> StoredMetadata<A> {
+    pub fn new(pool: PgPool, flags: Flags, accounts: A, config: crate::control::Config) -> Self {
+        Self {
+            auth: crate::rbac::Authorizer::new(pool.clone(), accounts).with_game_flags(
+                crate::rbac::GamePermissionFlags {
+                    enabled: flags.console,
+                    deploy: false,
+                },
+            ),
+            store: crate::control::Store::new(pool, config),
+        }
+    }
+}
+impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMetadata<A> {
+    async fn permitted(&self, actor: CheckContext, permission: &'static str) -> bool {
+        let Ok(permission) = permission.parse::<Permission>() else {
+            return false;
+        };
+        self.auth.check(actor, permission).await.is_ok()
+    }
+    async fn advertised(&self, operation: &str) -> bool {
+        let Ok(agents) = self.store.agents().await else {
+            return false;
+        };
+        // Without a target-specific query adapter, multiple live owners are ambiguous.
+        let mut live = agents.into_iter().filter(|a| a.connected);
+        let Some(agent) = live.next() else {
+            return false;
+        };
+        live.next().is_none()
+            && agent
+                .advertised_operations
+                .iter()
+                .any(|op| op.operation == operation && op.operation_version == 1)
+    }
+    async fn players(
+        &self,
+        _: CheckContext,
+        _: &super::players::Input,
+        _: &'static str,
+    ) -> Result<Option<super::players::Snapshot>, Error> {
+        Ok(None)
+    }
+    async fn ledger(
+        &self,
+        _: CheckContext,
+        _: &super::audit::Filter,
+    ) -> Result<Option<Vec<super::audit::LedgerRow>>, Error> {
+        Ok(None)
+    }
+    async fn access(&self) -> Result<AccessSnapshot, Error> {
+        let agents = match self.store.agents().await {
+            Ok(agents) => agents,
+            Err(crate::control::Error::Disabled) => return Ok(AccessSnapshot::default()),
+            Err(_) => return Err(Error::Unavailable),
+        };
+        Ok(AccessSnapshot {
+            signers: None,
+            agents: Some(
+                agents
+                    .into_iter()
+                    .filter(|agent| agent.connected)
+                    .map(|agent| AgentStatus {
+                        agent_id: agent.agent_id,
+                        observed_at: agent.last_seen_at.to_string(),
+                        operations: agent
+                            .advertised_operations
+                            .iter()
+                            .map(|op| {
+                                format!(
+                                    "{}@{} ({})",
+                                    op.operation,
+                                    op.operation_version,
+                                    op.kind.as_str()
+                                )
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            ),
+        })
+    }
+    async fn policy(&self, _: CheckContext) -> Result<Option<Vec<Policy>>, Error> {
+        Ok(None)
+    }
+    async fn approvals(
+        &self,
+        _: CheckContext,
+    ) -> Result<Option<Vec<super::approvals::Pending>>, Error> {
+        Ok(None)
+    }
+}
 pub(crate) struct Console<B> {
     pub pool: PgPool,
     pub flags: Flags,
@@ -218,13 +317,19 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     {
         return Err("invalid admin host".into());
     }
+    let backend = StoredMetadata::new(
+        pool.clone(),
+        flags,
+        crate::web::PendingAuthentication,
+        crate::control::Config::from_env(),
+    );
     Ok(router(
         pool,
         flags,
         panel,
         crate::web::PendingAuthentication,
         crate::web::PendingAuthentication,
-        PendingBackend,
+        backend,
     ))
 }
 #[derive(Debug, Default, Deserialize)]
