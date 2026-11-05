@@ -530,6 +530,9 @@ name = "deranged"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "digest"
@@ -1857,6 +1860,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "oteryn-minigames"
+version = "0.1.0"
+dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
+ "image",
+ "oteryn-atlas",
+ "oteryn-db",
+ "oteryn-identity",
+ "oteryn-web",
+ "oteryn-world",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tower",
+ "tower-http",
+ "uuid",
+]
+
+[[package]]
 name = "oteryn-notify"
 version = "0.1.0"
 dependencies = [
@@ -1914,6 +1943,7 @@ dependencies = [
  "oteryn-gameauth",
  "oteryn-gateway",
  "oteryn-internal-api",
+ "oteryn-minigames",
  "oteryn-notify",
  "oteryn-payments",
  "oteryn-stats",
