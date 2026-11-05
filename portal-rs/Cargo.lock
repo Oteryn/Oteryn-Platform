@@ -1906,6 +1906,7 @@ name = "oteryn-portal"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "getrandom 0.4.3",
  "oteryn-admin",
  "oteryn-community",
  "oteryn-core",
@@ -1913,14 +1914,19 @@ dependencies = [
  "oteryn-downloads",
  "oteryn-gameauth",
  "oteryn-gateway",
+ "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-notify",
  "oteryn-payments",
  "oteryn-stats",
+ "oteryn-store",
  "oteryn-web",
+ "serde_json",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -1939,14 +1945,19 @@ dependencies = [
 name = "oteryn-store"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "axum",
+ "fluent-bundle",
  "getrandom 0.4.3",
  "http",
  "oteryn-db",
+ "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-wallet",
+ "oteryn-web",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sha2 0.10.9",
  "sqlx",
  "subtle",
