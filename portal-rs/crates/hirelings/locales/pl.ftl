@@ -1,7 +1,7 @@
 returned-title = Pomocnik wrócił do domu
 returned-body = Wyprawa się zakończyła. Sprawdź skrzynię pomocnika w grze.
 title = Pomocnicy w domu
-limit = Możesz mieć do trzech pomocników. Nagrody wypraw mają wspólny tygodniowy limit na konto.
+limit = Do trzech pomocników na konto może uczestniczyć w niezakończonych wyprawach. Nagrody wypraw mają wspólny tygodniowy limit na konto.
 waiting = Wybór wypraw i zakupy czekają na zweryfikowane kontrakty sklepu i gry. Tutaj nie pobieramy coinów.
 helpers = Twoi pomocnicy
 history = Historia wypraw
