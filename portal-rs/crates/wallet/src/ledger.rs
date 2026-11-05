@@ -11,6 +11,7 @@ pub struct Ledger<A, B, H> {
     accounts: A,
     blocks: B,
     audit: H,
+    adjustment_kind: AdjustmentKind,
 }
 #[derive(Debug)]
 struct Operation<'a> {
@@ -30,6 +31,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             accounts,
             blocks,
             audit,
+            adjustment_kind: AdjustmentKind::Operator,
         }
     }
     fn enabled(&self) -> Result<(), Error> {
@@ -182,11 +184,16 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if reason.trim().is_empty() || reason.chars().count() > 1000 {
             return Err(Refusal::InvalidReason.into());
         }
+        if self.adjustment_kind == AdjustmentKind::StorePurchase
+            && (amount >= 0 || actor != account || reason != format!("store-purchase:{key}"))
+        {
+            return Err(Refusal::InvalidReason.into());
+        }
         lock(tx, account).await?;
         self.active(tx, account).await?;
         let operation = Operation {
             key,
-            kind: "adjustment",
+            kind: self.adjustment_kind.name(),
             account,
             counterparty: None,
             amount,
@@ -417,4 +424,70 @@ async fn claim(tx: &mut Transaction<'_, Postgres>, op: &Operation<'_>) -> Result
         return Err(Refusal::IdempotencyConflict.into());
     }
     Ok(true)
+}
+
+impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H> {
+    /// Opt in only the caller-owned adjustment transaction to a purchase debit.
+    /// Existing adjustment, transfer and reservation APIs keep their semantics.
+    pub fn with_adjustment_kind(mut self, kind: AdjustmentKind) -> Self {
+        self.adjustment_kind = kind;
+        self
+    }
+
+    /// Read without creating a wallet row. The caller owns authorization and
+    /// the transaction; account authority still has to be known.
+    pub async fn read_balance_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+    ) -> Result<Balance, Error> {
+        self.enabled()?;
+        valid_id(account)?;
+        self.known(tx, account).await?;
+        balance(tx, account).await
+    }
+
+    /// Numeric wire cursor, independent of the existing UUID history API.
+    /// Fetch one extra entry to determine whether an older page exists.
+    pub async fn numeric_history_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+        page: NumericHistoryPage,
+    ) -> Result<Vec<NumericHistoryEntry>, Error> {
+        self.enabled()?;
+        valid_id(account)?;
+        if !(1..=32).contains(&page.limit) {
+            return Err(Refusal::InvalidPage.into());
+        }
+        self.known(tx, account).await?;
+        let before = if page.before == 0 {
+            None
+        } else {
+            i64::try_from(page.before).ok()
+        };
+        let rows = sqlx::query("SELECT e.entry_sequence,e.operation_id,o.kind,e.available_delta,e.reserved_delta,e.created_at FROM wallet_entries e JOIN wallet_operations o ON o.id=e.operation_id WHERE e.account_id=$1 AND ($2::bigint IS NULL OR e.entry_sequence<$2) ORDER BY e.entry_sequence DESC LIMIT $3")
+            .bind(account).bind(before).bind(i64::from(page.limit)+1).fetch_all(&mut **tx).await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(NumericHistoryEntry {
+                    sequence: row.try_get("entry_sequence")?,
+                    operation_id: row.try_get("operation_id")?,
+                    kind: row.try_get("kind")?,
+                    available_delta: row.try_get("available_delta")?,
+                    reserved_delta: row.try_get("reserved_delta")?,
+                    created_at: row.try_get("created_at")?,
+                })
+            })
+            .collect()
+    }
+}
+
+impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H> {
+    async fn known(&self, connection: &mut PgConnection, account: Uuid) -> Result<(), Error> {
+        if self.accounts.state(connection, account).await == AccountState::Unknown {
+            return Err(Refusal::AccountDenied.into());
+        }
+        Ok(())
+    }
 }
