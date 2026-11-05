@@ -1,1 +1,1 @@
-//! Game world map: pinned world export import, tile pyramid build and the Atlas viewer (design T40, T41).
+//! Atlas: map tiles and markers derived from `world`, and the map viewer (design T40, T41).

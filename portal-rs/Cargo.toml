@@ -35,6 +35,7 @@ oteryn-store = { path = "crates/store" }
 oteryn-payments = { path = "crates/payments" }
 oteryn-support = { path = "crates/support" }
 oteryn-atlas = { path = "crates/atlas" }
+oteryn-world = { path = "crates/world" }
 oteryn-admin = { path = "crates/admin" }
 oteryn-downloads = { path = "crates/downloads" }
 oteryn-notify = { path = "crates/notify" }
