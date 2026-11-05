@@ -1958,6 +1958,12 @@ dependencies = [
 [[package]]
 name = "oteryn-support"
 version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "oteryn-wallet"
