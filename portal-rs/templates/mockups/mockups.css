@@ -1,0 +1,5 @@
+body { margin: var(--op-space-0); }
+header, main, footer { max-width: var(--op-page); margin-inline: auto; padding: var(--op-space-5); }
+nav a, footer a { min-height: var(--op-target); display: inline-flex; align-items: center; }
+.layout { display: grid; gap: var(--op-space-5); align-items: start; }
+@media (min-width: 60rem) { .layout { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }

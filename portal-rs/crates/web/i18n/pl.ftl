@@ -19,6 +19,19 @@ error-429-description = Poczekaj przed kolejną próbą.
 error-500-title = Wystąpił błąd
 error-500-description = Spróbuj ponownie później.
 
+online-title = Postacie online
+online-unavailable = Tymczasowo niedostępne.
+online-world = Świat
+online-all = Wszystkie światy
+online-sort = Sortuj według
+online-name = Nazwa
+online-level = Poziom
+online-apply = Zastosuj
+online-count = Widoczne postacie online
+online-as-of = Dane z
+online-stale = Dane są nieaktualne; to nie jest lista na żywo.
+online-vocation = Profesja
+
 rankings-title = Rankingi
 rankings-as-of = Dane na dzień
 rankings-world = Świat

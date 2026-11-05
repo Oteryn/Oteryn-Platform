@@ -38,3 +38,8 @@ version = "0.3"
 features = ["formatting"]
 [dependencies.percent-encoding]
 version = "2"
+[dependencies.fluent-bundle]
+version = "0.16"
+[dependencies.unic-langid]
+version = "0.9"
+features = ["macros"]
