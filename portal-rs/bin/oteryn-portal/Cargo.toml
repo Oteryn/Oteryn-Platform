@@ -28,3 +28,6 @@ oteryn-downloads = { path = "../../crates/downloads" }
 
 oteryn-admin = { path = "../../crates/admin" }
 oteryn-payments = { path = "../../crates/payments" }
+
+[dependencies.oteryn-wiki]
+workspace = true
