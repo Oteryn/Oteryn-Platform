@@ -1021,6 +1021,17 @@ version = "0.1.0"
 [[package]]
 name = "oteryn-characters"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "oteryn-internal-api",
+ "serde_json",
+ "sqlx",
+ "subtle",
+ "thiserror",
+ "tokio",
+ "tower",
+ "uuid",
+]
 
 [[package]]
 name = "oteryn-community"
