@@ -7,3 +7,5 @@ pub mod web;
 pub mod spawns;
 
 pub mod delivery;
+
+pub mod bestiary;

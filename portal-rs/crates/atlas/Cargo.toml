@@ -40,3 +40,6 @@ features = ["fs"]
 [dependencies.uuid]
 version = "1"
 features = ["v7", "serde"]
+
+[dependencies.oteryn-playerdata]
+path = "../playerdata"
