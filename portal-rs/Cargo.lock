@@ -2155,6 +2155,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "oteryn-hirelings"
+version = "0.1.0"
+dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
+ "oteryn-db",
+ "oteryn-notify",
+ "oteryn-web",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tower",
+]
+
+[[package]]
 name = "oteryn-identity"
 version = "0.1.0"
 dependencies = [
@@ -2265,6 +2282,7 @@ dependencies = [
  "oteryn-downloads",
  "oteryn-gameauth",
  "oteryn-gateway",
+ "oteryn-hirelings",
  "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-notify",

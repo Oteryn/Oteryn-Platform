@@ -176,6 +176,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     oteryn_web::session::middleware,
                 ));
             let app = app.merge(wizard);
+            let app = app.merge(oteryn_hirelings::web::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
