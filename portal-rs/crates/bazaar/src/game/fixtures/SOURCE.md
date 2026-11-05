@@ -1,0 +1,1 @@
+Synthetic golden bytes from docs/contracts/OTERYN_V2_BAZAAR_CONTRACT_PROPOSAL.md revision 2, base 3b05567d53bb02080035f0e5ce518b22ef8d8119, section 10. No trailing wire newline. The snapshot key is a disposable public verification fixture, never deployment trust.
