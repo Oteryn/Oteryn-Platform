@@ -1,0 +1,4 @@
+<div class="op-shell__groups">
+          <a class="op-shell__home" href="{{ chrome.home_url() }}"{% if chrome.home_current %} aria-current="page"{% endif %}>{{ chrome.text("home-link") }}</a>
+          {% for group in chrome.groups %}<div class="op-stack"><p class="op-eyebrow">{{ group.label }}</p><div class="op-row">{% for link in group.links %}<a href="{{ link.url }}"{% if chrome.current_section == link.section %} aria-current="page"{% endif %}>{{ link.label }}</a>{% endfor %}</div></div>{% endfor %}
+        </div>

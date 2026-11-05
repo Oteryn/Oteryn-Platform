@@ -10,3 +10,6 @@ pub mod progress;
 pub mod reminders;
 pub mod reports;
 pub mod store;
+
+/// Shared portal navigation registration.
+pub mod navigation;

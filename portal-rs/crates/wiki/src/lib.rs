@@ -7,3 +7,6 @@ pub mod repository;
 pub mod web;
 
 pub mod places;
+
+/// Shared portal navigation registration.
+pub mod navigation;

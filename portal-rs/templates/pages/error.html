@@ -1,0 +1,10 @@
+{% extends "layout.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="op-shell__hero op-stack">
+  <p class="op-eyebrow">{{ status }}</p>
+  <h1>{{ title }}</h1>
+  <p>{{ description }}</p>
+  <div><a class="op-button" href="{{ chrome.home_url() }}">{{ chrome.text("shell-back") }}</a></div>
+</section>
+{% endblock %}

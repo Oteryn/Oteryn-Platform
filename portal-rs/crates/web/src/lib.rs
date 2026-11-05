@@ -24,17 +24,17 @@ pub struct AppState {
     pub db: PgPool,
 }
 
-#[derive(Template)]
-#[template(path = "pages/home.html")]
-struct HomePage<'a> {
-    lang: &'a str,
-    tagline: &'a str,
-}
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RenderedPage;
 
 /// Renders a template, answering 500 without leaking details when rendering fails.
 pub fn render(template: &impl Template) -> Response {
     match template.render() {
-        Ok(body) => Html(body).into_response(),
+        Ok(body) => {
+            let mut response = Html(body).into_response();
+            response.extensions_mut().insert(RenderedPage);
+            response
+        }
         Err(error) => {
             tracing::error!(%error, "template rendering failed");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -43,10 +43,7 @@ pub fn render(template: &impl Template) -> Response {
 }
 
 async fn home() -> Response {
-    render(&HomePage {
-        lang: "pl",
-        tagline: "Portal w budowie.",
-    })
+    oteryn_ui::home(&oteryn_ui::Chrome::default())
 }
 
 async fn healthz() -> &'static str {
@@ -407,7 +404,7 @@ mod tests {
         let body = to_bytes(response.into_body(), MAX_BODY_BYTES).await?;
         let html = String::from_utf8(body.to_vec())?;
         assert!(html.contains("<html lang=\"pl\">"));
-        assert!(html.contains("Portal w budowie."));
+        assert!(html.contains("Odkrywaj Oteryn"));
         Ok(())
     }
 
@@ -460,3 +457,6 @@ pub async fn internal_character_services_router(
     )
     .await
 }
+
+/// Shared request chrome adapter for startup composition.
+pub mod chrome;

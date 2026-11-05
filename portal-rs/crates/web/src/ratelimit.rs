@@ -2,7 +2,6 @@
 //! an `Extension<RateLimiter>`. Identity routes supply `Keys` from verified state.
 //! Login checks both IdentityLogin (normalized email + IP) and IdentityLoginSource.
 use crate::Language;
-use askama::Template;
 use axum::{
     extract::{ConnectInfo, FromRequestParts, Request},
     http::{HeaderMap, HeaderValue, StatusCode, header, request::Parts},
@@ -278,12 +277,7 @@ impl Denial {
     /// Reuse the shared Fluent catalogs and accessible page template.
     pub fn response(self, language: Language, api: bool) -> Response {
         let status = self.status();
-        let code = if status == StatusCode::SERVICE_UNAVAILABLE {
-            500
-        } else {
-            status.as_u16()
-        };
-        let title = language.text(&format!("error-{code}-title"));
+        let title = language.text(&format!("error-{}-title", status.as_u16()));
         let mut response = if api {
             (
                 status,
@@ -291,10 +285,12 @@ impl Denial {
             )
                 .into_response()
         } else {
-            let page = ErrorPage::new(language, code, title);
-            let mut response = crate::render(&page);
-            *response.status_mut() = status;
-            response
+            let chrome = oteryn_ui::Registry::default().chrome(
+                language.code(),
+                "/",
+                oteryn_ui::Account::Anonymous,
+            );
+            oteryn_ui::error(&chrome, status)
         };
         let delay = match self {
             Self::Limited { retry_after } => Some(retry_after.max(1)),
@@ -314,42 +310,6 @@ impl Denial {
             HeaderValue::from_static(language.code()),
         );
         response
-    }
-}
-#[derive(Template)]
-#[template(path = "pages/surface.html")]
-struct ErrorPage {
-    lang: &'static str,
-    brand: String,
-    skip: String,
-    navigation: String,
-    home: String,
-    language: String,
-    switch: &'static str,
-    switch_lang: &'static str,
-    footer: String,
-    title: String,
-    description: String,
-}
-impl ErrorPage {
-    fn new(lang: Language, code: u16, title: String) -> Self {
-        Self {
-            lang: lang.code(),
-            brand: lang.text("brand"),
-            skip: lang.text("skip"),
-            navigation: lang.text("navigation"),
-            home: lang.text("home-link"),
-            language: lang.text("language-switch"),
-            switch: if lang == Language::Pl {
-                "/language/en"
-            } else {
-                "/language/pl"
-            },
-            switch_lang: if lang == Language::Pl { "en" } else { "pl" },
-            footer: lang.text("footer"),
-            title,
-            description: lang.text(&format!("error-{code}-description")),
-        }
     }
 }
 /// Place before body extractors. Mount `Extension<RateLimiter>` on opted-in routes.

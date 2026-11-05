@@ -11,3 +11,6 @@ pub mod overview;
 
 pub mod profile;
 pub mod services;
+
+/// Shared portal navigation registration.
+pub mod navigation;
