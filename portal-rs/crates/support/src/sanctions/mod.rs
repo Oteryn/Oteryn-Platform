@@ -90,6 +90,12 @@ pub enum Error {
     NotFound,
     #[error("sanction changed; reload before continuing")]
     Conflict,
+    #[error("sanction revision is stale")]
+    StaleRevision,
+    #[error("sanction revision has different intent")]
+    RevisionConflict,
+    #[error("sanction revision exhausted")]
+    RevisionExhausted,
     #[error("sanctions storage unavailable")]
     Storage(#[from] sqlx::Error),
     #[error("sanctions authorization unavailable")]
@@ -107,3 +113,48 @@ fn valid_id(id: Uuid) -> Result<(), Error> {
 mod tests;
 
 pub use access::admission_router;
+
+/// Largest ADM safe integer. Independent of session generation and lock_version.
+pub const MAX_SANCTION_REVISION: i64 = 9_007_199_254_740_991;
+
+/// Trusted, authorized decision input for the future ADM dispatcher. Times are UTC
+/// Unix milliseconds. The store supplies decision time from the database clock.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SanctionAction {
+    Ban {
+        expires_at_ms: Option<i64>,
+    },
+    Unban,
+    Namelock {
+        expires_at_ms: Option<i64>,
+    },
+    LiftNamelock,
+    /// Player-visible; delivery belongs to the dispatcher.
+    Warning,
+    /// Staff-only; never affects admission or effective restrictions.
+    Notation,
+}
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SanctionIntent {
+    pub account: Uuid,
+    pub sanction_id: Uuid,
+    pub character: Option<Uuid>,
+    pub action: SanctionAction,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SanctionReceipt {
+    pub sanction_id: Uuid,
+    pub revision: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectiveSanction {
+    pub sanction_id: Uuid,
+    pub revision: i64,
+    pub expires_at_ms: Option<i64>,
+}
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EffectiveState {
+    pub revision: i64,
+    pub bans: Vec<EffectiveSanction>,
+    pub namelocks: Vec<EffectiveSanction>,
+}
