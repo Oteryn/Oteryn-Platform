@@ -2277,6 +2277,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "oteryn-minigames"
+version = "0.1.0"
+dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
+ "image",
+ "oteryn-atlas",
+ "oteryn-db",
+ "oteryn-identity",
+ "oteryn-web",
+ "oteryn-world",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tower",
+ "tower-http",
+ "uuid",
+]
+
+[[package]]
 name = "oteryn-notify"
 version = "0.1.0"
 dependencies = [
@@ -2357,6 +2383,7 @@ dependencies = [
  "oteryn-hirelings",
  "oteryn-identity",
  "oteryn-internal-api",
+ "oteryn-minigames",
  "oteryn-notify",
  "oteryn-payments",
  "oteryn-player-api",
