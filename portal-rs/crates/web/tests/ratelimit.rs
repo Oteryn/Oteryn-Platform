@@ -197,12 +197,27 @@ async fn expired_window_rolls_over_and_keys_are_independent() -> TestResult {
         .check(NamedPolicy::IdentityRegistration, &[b])
         .await?;
     // Cross a real PostgreSQL clock boundary, preserving the expired counters.
-    let delay: f64 = sqlx::query_scalar(
-        "SELECT (60 - mod(extract(epoch FROM statement_timestamp()), 60))::double precision",
-    )
-    .fetch_one(&db.pool)
-    .await?;
-    tokio::time::sleep(Duration::from_secs_f64(delay)).await;
+    let window: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM statement_timestamp()) / 60)::bigint")
+            .fetch_one(&db.pool)
+            .await?;
+    // A host timer does not prove that the database clock crossed its boundary
+    // (notably with PostgreSQL in another VM). Observe the actual bucket clock.
+    tokio::time::timeout(Duration::from_secs(65), async {
+        loop {
+            let rolled: bool = sqlx::query_scalar(
+                "SELECT floor(extract(epoch FROM statement_timestamp()) / 60)::bigint > $1",
+            )
+            .bind(window)
+            .fetch_one(&db.pool)
+            .await?;
+            if rolled {
+                return Ok::<(), sqlx::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
     limiter
         .check(NamedPolicy::IdentityRegistration, &[a])
         .await?;
