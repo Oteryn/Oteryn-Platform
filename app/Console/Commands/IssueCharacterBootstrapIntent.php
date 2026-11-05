@@ -13,6 +13,7 @@ final class IssueCharacterBootstrapIntent extends Command
         {--operation-id= : Stable canonical UUID for this semantic operation}
         {--target-world-id= : Canonical target WorldId UUID}
         {--requested-name= : Requested Character name (Game naming policy revision 1; Game decides availability)}
+        {--requested-sex= : Explicit creation sex, exactly Female or Male}
         {--profile-revision= : Character interpretation profile revision}
         {--ruleset-revision= : Character ruleset revision}
         {--content-revision= : Character content revision}
@@ -32,11 +33,12 @@ final class IssueCharacterBootstrapIntent extends Command
         $operationId = $this->optionString('operation-id');
         $targetWorldId = $this->optionString('target-world-id');
         $requestedName = $this->optionString('requested-name');
+        $requestedSex = $this->optionString('requested-sex');
         $profileRevision = $this->optionString('profile-revision');
         $rulesetRevision = $this->optionString('ruleset-revision');
         $contentRevision = $this->optionString('content-revision');
         $starterTemplateRevision = $this->optionString('starter-template-revision');
-        if (in_array(null, [$operationId, $targetWorldId, $requestedName, $profileRevision, $rulesetRevision, $contentRevision, $starterTemplateRevision], true)) {
+        if (in_array(null, [$operationId, $targetWorldId, $requestedName, $requestedSex, $profileRevision, $rulesetRevision, $contentRevision, $starterTemplateRevision], true)) {
             return self::FAILURE;
         }
 
@@ -44,6 +46,7 @@ final class IssueCharacterBootstrapIntent extends Command
             $intent = $issuer->issue((int) $identity, $operationId, [
                 'target_world_id' => $targetWorldId,
                 'requested_name' => $requestedName,
+                'requested_sex' => $requestedSex,
                 'profile_revision' => $profileRevision,
                 'ruleset_revision' => $rulesetRevision,
                 'content_revision' => $contentRevision,
