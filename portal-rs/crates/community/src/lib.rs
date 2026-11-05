@@ -2,3 +2,5 @@
 
 pub mod ingest;
 pub mod online;
+
+pub mod rankings;

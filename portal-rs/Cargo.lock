@@ -1456,15 +1456,19 @@ dependencies = [
  "fluent-bundle",
  "oteryn-db",
  "oteryn-internal-api",
+ "oteryn-web",
+ "percent-encoding",
  "regex",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "sqlx",
+ "time",
  "tokio",
  "tower",
  "unic-langid",
  "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]
