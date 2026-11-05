@@ -64,11 +64,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-23T20:46:58Z
-head: 12821f1d656a5829c7f729ee9d52f7ae9e91e27e
+updated_at: 2026-11-05T08:40:00Z
+head: 22c4e69329bf232c203ee42b23f833b4eca344b0
 branch: claude/happy-davinci-ijz3wy-store-foundation
 pr: 1669
-status: validating
+status: completed
 context_routes:
   - products-entitlements
 owned_paths:
@@ -166,15 +166,15 @@ validation:
     evidence: no whitespace errors; all new files below 400 lines.
 blockers:
   - Issue TBD prevents lifecycle readiness; local implementation is owner-authorized.
-next_action: Coordinator attaches the governing foundation Issue and reviews this uncommitted local candidate before assigning the purchase and delivery lanes.
+next_action: none; delivered by PR 1669 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: local implementation only; owner prohibits commits and publication
-source_branch_evidence: current task instruction
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1669 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1669 merged as 22c4e69329bf232c203ee42b23f833b4eca344b0
 ```
 
 ## Notes
