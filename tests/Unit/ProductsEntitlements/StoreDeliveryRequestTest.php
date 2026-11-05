@@ -151,6 +151,7 @@ final class StoreDeliveryRequestTest extends TestCase
     {
         $data = $this->fixture($name);
         $last = array_key_last($data);
+        self::assertIsString($last);
         $value = $data[$last];
         unset($data[$last]);
 
