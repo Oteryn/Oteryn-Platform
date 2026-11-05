@@ -12,8 +12,9 @@ workspace = true
 [dependencies]
 oteryn-identity.workspace = true
 oteryn-db.workspace = true
+oteryn-internal-api.workspace = true
 async-trait = "0.1"
-sha2 = "0.10"
+sha2 = "0.10.9"
 time = { version = "0.3", features = ["formatting"] }
 axum = "0.8.9"
 askama = "0.16.1"
@@ -24,14 +25,11 @@ serde_json = { version = "1.0.154", features = ["raw_value"] }
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "json", "derive", "time"] }
 uuid = { version = "1.29.0", features = ["v7", "serde"] }
 thiserror = "2"
-
-[dev-dependencies]
-http-body-util = "0.1"
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
-tower = { version = "0.5.3", features = ["util"] }
+tokio = { version = "1.54.1", features = ["sync", "macros", "rt-multi-thread"] }
 
 [dependencies.oteryn-web]
 workspace = true
 
-[dev-dependencies.sha2]
-version = "0.10"
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5.3", features = ["util"] }

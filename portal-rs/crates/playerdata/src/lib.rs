@@ -5,3 +5,4 @@ pub mod items;
 pub mod logins;
 pub mod progress;
 pub mod reminders;
+pub mod store;

@@ -3067,6 +3067,7 @@ dependencies = [
  "http-body-util",
  "oteryn-db",
  "oteryn-identity",
+ "oteryn-internal-api",
  "oteryn-web",
  "serde",
  "serde_json",
