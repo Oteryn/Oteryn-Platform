@@ -158,40 +158,53 @@ Schemat sklepu odpowiada kontraktowi wire sklepu (`docs/contracts/OTERYN_V2_STOR
 
 Prefiks języka: `/pl/...` i `/en/...`, z przekierowaniem z `/` według `Accept-Language` i cookie.
 
-### 5.2 Player API `/api/v1` (klient gry i launcher)
+### 5.2 Player API (klient gry i launcher)
 
-| Endpoint | Cel |
-| --- | --- |
-| `POST /oauth/token` | Wymiana kodu PKCE i refresh z rotacją |
-| `GET /api/v1/client/directory` | Katalog usług dla klienta (jak `fetch_directory` w `platform-client`) |
-| `POST /api/v1/game-auth/tickets` | Ticket do gry (jak dziś) |
-| `GET /api/v1/game-auth/native-characters` | Postacie konta (jak dziś) |
-| `POST /api/v1/game-auth/device-sessions` oraz `.../native-characters`, `.../tickets`, `.../revoke` | Sesje urządzeń (jak dziś) |
-| `GET /api/v1/account/summary` | Saldo, premium, powiadomienia (nowe) |
-| `GET /api/v1/feed` | Newsy, wydarzenia, ogłoszenia w języku gracza (nowe) |
-| `GET /api/v1/worlds` | Status światów (nowe) |
+Klient ma jeden base URL portalu (np. `https://oteryn.pl/`). Od tego zależą bajty żądań:
 
-Trasy oznaczone „jak dziś” zachowują obecne kształty żądań i odpowiedzi. Nowe trasy klient odkrywa przez `client/directory`. Kontrakt nowych tras zapisujemy razem z grą (zadanie G-1 w sekcji 10).
+- `v1/client/directory` i `oauth/token` klient składa **względem base URL**;
+- tickety i postacie idą **ścieżką absolutną** `/api/v1/game-auth/...`, która ignoruje ścieżkę bazową.
 
-### 5.3 Game API `/internal/v1` (serwer gry i gateway; bajt w bajt)
+Dlatego portal serwuje base URL w korzeniu domeny, bez prefiksu.
 
-| Grupa | Trasy |
-| --- | --- |
-| game-auth | `native-admissions`, `native-evidence`, `native-runtime-status`, `native-scope-assignments`, `native-scope-revocations`, `native-account-characters`, `native-account-characters/watermark`, `character-bootstrap-intents/read` |
-| character-authority | komendy postaci (lista PENDING, odczyt, receipt), notatka restore |
-| products-entitlements | `premium-snapshots/read`, `loyalty-snapshots/read`, `store/balance/read`, `store/history/read`, `store/purchases`, `store/operations/{pending,read,receipt,reconcile}` |
-| game-public | snapshoty rodzin projekcji i watermark |
+| Endpoint | Kształt (Game main, `crates/platform-client`) | Stan |
+| --- | --- | --- |
+| `GET /oauth/authorize` | `response_type=code`, `scope=game:ticket`, PKCE S256, `state` | Jest (Passport) |
+| `POST /oauth/token` (form) | Tylko `authorization_code`; odpowiedź `{token_type:"bearer", access_token ≤8192 B}`; klient czyta tylko te dwa pola | Jest (Passport) |
+| `GET /v1/client/directory` | `{epoch:u64, worlds:[{id, name, channels:[{id,name}], characters:[{id,name}]}]}`; ≤1 MiB, ≤256 światów, ≤128 kanałów, ≤256 postaci, `name` ≤96 B | Brak w Platform i w locku |
+| `POST /api/v1/game-auth/tickets` | Bearer, `{protocol_version:1}` → `{protocol_version:1, ticket ≤256 B, expires_in>0}`, `deny_unknown_fields`; 401/403 → AUTHENTICATION_REQUIRED | Jest; U1 w grze: NOT_IMPLEMENTED po stronie Platform |
+| `GET /api/v1/game-auth/native-characters` | `{protocol_version:2, characters:[{character_id, world_id, name, availability: AVAILABLE\|UNAVAILABLE}]}`, UUIDv7, ≤16384 B | Jest |
+| `POST /api/v1/game-auth/device-sessions` oraz `/native-characters`, `/tickets`, `/revoke` | Kontrakt tylko po stronie Platform; gra ich nie woła | Jest (Platform) |
+| `GET /api/v1/account/summary`, `GET /api/v1/feed`, `GET /api/v1/worlds` | Nowe; kontrakt do uzgodnienia z grą (G-1) | Nowe |
 
-Każda trasa ma:
+Uwagi:
 
-- guard mTLS z allowlistą tożsamości per grupa;
-- TLS 1.3;
-- limit rozmiaru;
-- kanoniczny JSON;
-- porównania w stałym czasie;
-- odpowiedzi 503 i 401 dokładnie jak w kontrakcie.
+- **Directory nie służy do odkrywania tras.** Klient odrzuca na każdej głębokości klucze `host`, `port`, `endpoint`, `protocol`, `ticket`, `credential`, `game_session`, `admission`, `route`, `address`. Nowe trasy klient zna z wersji kontraktu, nie z directory.
+- **`world.characters` w directory** kłóci się z zasadą LCFA „lista postaci konta nigdy nie jest publiczna”. Do rozstrzygnięcia w G-1, zanim T36 zbuduje directory. Do tego czasu portal zwraca `characters: []`.
+- **Refresh token** jest nowym zachowaniem: dzisiejszy klient go nie używa. Portal może go wydawać (z rotacją i unieważnieniem rodziny przy ponownym użyciu), ale odpowiedź dla `authorization_code` musi pozostać zgodna z tym, co czyta klient.
+- Kontrakty „jak dziś” portal implementuje na własnych typach wire. Zgodność bajt w bajt sprawdzają testy z wektorami (golden) skopiowanymi z Game. Portal nie zależy od crate'ów gry: `platform-contracts` przypina tokio przez workspace gry, a `build.rs` w `protocol-oteryn` czyta docs repo gry.
 
-Testy kontraktowe czytają fixtures z `docs/contracts/fixtures/` i wymagają identycznych bajtów odpowiedzi.
+### 5.3 Game API `/internal/v1` (mTLS)
+
+Wszystkie trasy: TLS 1.3, HTTP/1.1, osobna tożsamość mTLS per grupa, limit rozmiaru, kanoniczny JSON, porównania w stałym czasie, odpowiedzi 503 i 401 dokładnie jak w kontrakcie. Testy kontraktowe czytają fixtures z `docs/contracts/fixtures/` i wymagają identycznych bajtów.
+
+**5.3.1 Trasy, które portal serwuje** (klientem jest gra albo gateway):
+
+| Grupa | Trasa | Kto woła | Kontrakt i stan |
+| --- | --- | --- | --- |
+| game-auth | `native-admissions` | Gateway logowania (Go, w tym repo) | Patrz uwaga o kierunku niżej |
+| game-auth | `native-evidence`, `native-runtime-status`, `native-scope-assignments`, `native-scope-revocations` | Gra | Bez wpisu w locku |
+| game-auth | `native-account-characters`, `native-account-characters/watermark` (LCFA push) | Gra | Accepted rev2; snapshot `{contract_version:1, operation, source_authority, account_id, projection_epoch, projection_revision, source_observed_at, characters[0..64, posortowane]}`, watermark `{complete_through, observed_at}`; producent gotowy, wyłączony; konsumenta w Platform brak |
+| game-auth | `character-commands/{pending, read, receipt}` | Gra | GAME-CHAR-CMD-0 Accepted (D1004/D1007); CreateCharacter, TransferCharacterOwnership, kody CHAR_CMD_* |
+| game-auth | `character-bootstrap-intents/read` | Gra | Kontrakt v3 (`requested_sex`, binding tag 3); v1 i v2 odrzucane |
+| game-auth | `game-restore/notice` | Gra | V2_GAME_RESTORE_RECONCILIATION; domyślnie wyłączony |
+| products-entitlements | `premium-snapshots/read` (≤256 B) | Gra | Kandydat (jedyna z tych tras w locku) |
+| products-entitlements | `store/balance/read`, `store/history/read`, `store/purchases`, `store/operations/{pending, read, receipt, reconcile}` | Gra | V2_STORE_WIRE, V2_STORE_PURCHASE_DELIVERY; domyślnie wyłączony |
+| game-public | `highscores`, `character-profile`, `world-online`, `watermark`; w kontrakcie dodatkowo `character-deaths` i `guild` | Gra | GAME-PUBLIC-PROJ-0 kandydat rev1, nieakceptowany |
+
+**5.3.2 Trasy, które portal woła w grze:** dziś żadnej. Każdy przepływ z grą to pull albo push inicjowany przez grę, a portal tylko serwuje.
+
+**Kierunek `native-admissions`.** W kodzie Platform trasę serwuje portal, a woła ją gateway Go (`services/game-gateway`, `issuerPath`) z poświadczeniem usługi. Dokumenty gry (`OTERYN_GAME_ARCH_PLATFORM_PREPROD_TOPOLOGY_2026-10-06`, `tools/qualification/login_local/nginx.conf`) opisują ją jako trasę gry wołaną przez Platform. Do potwierdzenia w G-1. Do tego czasu portal zachowuje kierunek z kodu Platform.
 
 ### 5.4 Panel zespołu
 
@@ -201,26 +214,35 @@ Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwr
 
 ## 6. Integracja z grą
 
-| Przepływ | Kontrakt | Stan po stronie gry |
+| Przepływ | Kontrakt | Stan po stronie gry (Game main @60de8634) |
 | --- | --- | --- |
-| Logowanie: ticket → gateway → admission | V2_NATIVE_GATEWAY_LOGIN, granty Ed25519 | Tylko testing/preprod (D721); FND-04B-AMEND-1 PROPOSED |
-| Postacie konta | LCFA (`native-account-characters`) | Producent zaimplementowany, niewłączony |
-| Tworzenie postaci | GAME-CHAR-CMD-0 | Zaakceptowany, niezaimplementowany |
-| Premium i loyalty | V2_PREMIUM_TIME_SNAPSHOT, V2_LOYALTY_SNAPSHOT | Premium: endpoint jest; loyalty: proposed |
+| Logowanie: OAuth → ticket → gateway | N4-P (OAuth PKCE), U1 (ticket), V2_NATIVE_GATEWAY_LOGIN | N4-P LOCKED, tylko testing/preprod; klient gotowy, tryb Gateway domyślnie wyłączony |
+| Gateway logowania | Publiczne `POST /v1/login`, protokół 2 (poniżej) | Klient gotowy (`native_login.rs`, `gateway_login`) |
+| Postacie konta | LCFA (`native-account-characters`) | Producent gotowy, wyłączony |
+| Tworzenie postaci | GAME-CHAR-CMD-0 | `character_commands.rs` jest na main, a lock mówi ACCEPTED_NOT_IMPLEMENTED; sprzeczność do wyjaśnienia w locku |
+| Premium | V2_PREMIUM_TIME_SNAPSHOT | Kandydat; endpoint jest |
 | Sklep | V2_STORE_WIRE, V2_STORE_PURCHASE_DELIVERY | PROPOSED, domyślnie wyłączony |
-| Dane publiczne | GAME-PUBLIC-PROJ-0 | Kandydat, niezaakceptowany |
+| Dane publiczne | GAME-PUBLIC-PROJ-0 | Kandydat rev1, nieakceptowany |
 | Status światów | V2_RUNTIME_STATUS_PROJECTION | PARTIAL |
-| Kary | V2_GAME_ENFORCEMENT_COMMAND | Wykonanie w grze brak |
+| Kary | Game: `PROD-ENTITLEMENTS-01_GAME_CONSUMER_ENFORCEMENT_CONTRACT_CANDIDATE.md` | Kandydat; wykonania w grze brak |
 | Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
 | Katalog i wiki | OTERYN-GAME-PLATFORM-CATALOG-V1 | LOCKED |
-| Klient | `platform-client` (PKCE, tickety, `gateway_login`, `owner_characters`, `fetch_directory`) | Działa po stronie klienta |
+| Granty admission | FND-04B-AMEND-1 | Pole status: ACCEPTED (2026-11-05), ale treść ma otwarte decyzje właściciela. Traktujemy jako propozycję i **nie implementujemy na jej podstawie**, dopóki decyzje nie zapadną |
+
+**Gateway `POST /v1/login`** (serwuje gateway Go w tym repo, woła klient gry):
+
+- Żądanie: `{protocol_version:2, game_login_ticket, attempt_ref (UUIDv7), character_id, channel_id|null, offer:{client_build, client_platform:"windows", transports:[{protocol_major:1, transport_profile:1, alpn:"oteryn-game/1"}]}}`.
+- Odpowiedź 200: `{protocol_version, attempt_ref, world_id, channel_id, endpoint:{host, port, tls_server_name, alpn, protocol_major, transport_profile}, grant:{profile:"oteryn-pre-admission-v1", token (JWS ≤4096 B), valid_for_seconds}}`.
+- Błąd: `{protocol_version, error:{code, public_class}, attempt_ref|null}`, 11 kodów z `GATEWAY_ERROR_ROWS`.
+- Ponowienia klienta: ≤6 żądań, backoff 1 s·2^(n-1), `Retry-After` ≤30 s.
 
 Zasady:
 
 - Portal implementuje wszystkie przepływy, ale każdy jest za flagą. Włączamy go, gdy gra ma swoją stronę.
 - Funkcja bez danych z gry pokazuje „niedostępne” z czasem ostatniej aktualizacji, nigdy zmyślonych wartości.
 - Każda mutacja przez granicę gry jest idempotentna, ma klucz operacji, outbox i rekoncyliację. Timeout nie oznacza sukcesu ani porażki.
-- Gateway logowania (dziś w Go, `services/game-gateway`) zostaje bez zmian. Portal implementuje jego endpointy `/internal/v1` bajt w bajt.
+- Gateway logowania (Go, `services/game-gateway`) zostaje bez zmian. Portal serwuje mu `native-admissions` bajt w bajt.
+- Lock kontraktów w grze jest nieaktualny (klient N4 i producent CharCmd istnieją już w kodzie). Przed każdym zadaniem z §5.2–§5.3 koordynator potwierdza aktualny stan kontraktu.
 
 ### 6.1 Treści świata gry (wiki i Atlas)
 
@@ -294,35 +316,35 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T13 | Wiki: artykuły, wersje, przegląd, markdown i sanityzacja, wyszukiwanie (PG full text) | T10 | `crates/wiki` |
 | T14 | Import paczki katalogu gry (CATALOG-V1): weryfikacja hasha, atomowa podmiana, encje i relacje | T13 | `crates/wiki/src/catalog*` |
 | T14b | Strony wiki generowane z katalogu: listy per typ, strona encji, filtry, wyszukiwanie, nakładka redakcji | T14 | `crates/wiki/src/entities*`, `templates/wiki/` |
-| T15 | Guard mTLS `/internal/v1`, kanoniczny JSON i harness testów kontraktowych na fixtures | T00 | `crates/internal-api` (wspólne) |
-| T16 | OAuth PKCE (`/oauth/authorize`, `/oauth/token`, consent, refresh z rotacją) | T04 | `crates/gameauth/src/oauth*` |
-| T17 | Tickety do gry i `GET native-characters` (Player API, jak dziś) | T16, T18 | `crates/gameauth/src/tickets*`, `crates/player-api` |
-| T18 | `native-account-characters` i watermark (LCFA, `/internal/v1`) | T15 | `crates/characters` |
-| T19 | Admission, evidence, runtime-status, granty Ed25519, rotacja kluczy | T15 | `crates/gameauth/src/admission*` |
+| T15 | Guard mTLS `/internal/v1` (tożsamość per grupa), kanoniczny JSON, harness testów na wektorach golden z Game | T00 | `crates/internal-api` (wspólne) |
+| T16 | OAuth PKCE (`/oauth/authorize`, `/oauth/token` w korzeniu base URL, consent); odpowiedź `authorization_code` zgodna z klientem; refresh z rotacją jako nowe zachowanie | T04 | `crates/gameauth/src/oauth*` |
+| T17 | `POST /api/v1/game-auth/tickets` i `GET /api/v1/game-auth/native-characters` (kształty z §5.2, wektory golden) | T16, T18 | `crates/gameauth/src/tickets*`, `crates/player-api` |
+| T18 | Konsument LCFA: `native-account-characters` i watermark (snapshot ≤64 postaci, epoka i rewizja) | T15 | `crates/characters` |
+| T19 | `native-admissions` dla gatewaya Go, evidence, runtime-status, granty Ed25519, rotacja kluczy (bez zmian z FND-04B-AMEND-1) | T15 | `crates/gameauth/src/admission*` |
 | T20 | Scope assignments i revocations | T19 | `crates/gameauth/src/scopes*` |
-| T21 | Sesje urządzeń (enroll, characters, tickets, revoke) | T17 | `crates/gameauth/src/devices*` |
-| T22 | Komendy postaci i character-bootstrap-intents, tworzenie postaci z konta | T18 | `crates/characters/src/commands*` |
-| T23 | Restore notice i rekoncyliacja | T22 | `crates/characters/src/restore*` |
-| T24 | Projekcje publiczne: snapshoty i watermark (`/internal/v1/game-public`) i strony społeczności | T15, T01 | `crates/community` |
+| T21 | Sesje urządzeń (enroll, characters, tickets, revoke); kontrakt po stronie Platform | T17 | `crates/gameauth/src/devices*` |
+| T22 | `character-commands/{pending, read, receipt}`, `character-bootstrap-intents/read` (v3), tworzenie postaci z konta | T18 | `crates/characters/src/commands*` |
+| T23 | `/internal/v1/game-auth/game-restore/notice` i rekoncyliacja | T22 | `crates/characters/src/restore*` |
+| T24 | Projekcje publiczne `/internal/v1/game-public/` (`highscores`, `character-profile`, `world-online`, `watermark`; `character-deaths` i `guild` po akceptacji kontraktu) i strony społeczności | T15, T01 | `crates/community` |
 | T25 | Status światów: strona i `GET /api/v1/worlds` | T24 | `crates/community/src/worlds*` |
 | T26 | Ledger portfela, saldo, historia, transfer coinów (blokady, idempotencja) | T04 | `crates/wallet` |
-| T27 | Premium i loyalty snapshoty (`/internal/v1`) | T15, T26 | `crates/store/src/snapshots*` |
+| T27 | `premium-snapshots/read` (≤256 B) | T15, T26 | `crates/store/src/snapshots*` |
 | T28 | Import i aktywacja cennika sklepu (S-5, `catalog_revision` = SHA-256) | T10 | `crates/store/src/catalog*` |
 | T29 | Zakup, saldo i historia przez wire sklepu | T26, T28, T15 | `crates/store/src/purchase*` |
 | T30 | Dostawa: operacje pending, read, receipt, reconcile | T29 | `crates/store/src/delivery*` |
 | T31 | Płatności: trait dostawcy, provider testowy, webhooki z idempotencją, doładowanie coinów | T26 | `crates/payments` |
 | T32 | Sklep web: oferty, doładowanie, historia, transfer | T29, T31 | `crates/store/src/web*`, szablony |
 | T33 | Support: zgłoszenia, wiadomości, odwołania | T10 | `crates/support` |
-| T34 | Kary: komenda do gry (enforcement), historia, cztery oczy | T33, T15 | `crates/support/src/sanctions*` |
+| T34 | Kary: historia, cztery oczy; przekazanie do gry według kandydata enforcement z Game (po akceptacji) | T33, T15 | `crates/support/src/sanctions*` |
 | T35 | Pobieranie i kanały TUF | T11 | `crates/downloads` |
-| T36 | Powiadomienia e-mail (outbox) i `GET /api/v1/account/summary`, `GET /api/v1/feed`, `client/directory` | T11, T26 | `crates/notify`, `crates/player-api` |
+| T36 | Powiadomienia e-mail (outbox), `GET /api/v1/account/summary`, `GET /api/v1/feed`, `GET /v1/client/directory` (po G-1) | T11, T26 | `crates/notify`, `crates/player-api` |
 | T37 | Worker: outbox, ponowienia, sprzątanie | T00 | `bin/oteryn-portal/src/worker*`, `crates/db/src/outbox*` |
 | T38 | `admin-cli import-legacy` z eksportu obecnej bazy | T03–T34 | `bin/oteryn-portal/src/import*` |
 | T39 | Projekt graficzny: tokeny CSS, komponenty, strona główna, „Jak zacząć” | T01 | `static/`, `templates/` |
 | T40 | Atlas: import eksportu mapy, budowa piramidy kafli WebP, regiony i znaczniki | T00 | `crates/atlas/src/import*` |
 | T41 | Atlas: strona `/atlas` (przeglądarka kafli, warstwy, znaczniki, linki do wiki) | T40, T14 | `crates/atlas/src/web*`, `templates/atlas/`, `static/atlas/` |
 | T42 | Import grafik (sprite'y, ikony) i miniatury w wiki i na mapie | T14, T40 | `crates/wiki/src/assets*` |
-| G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` | – | Oteryn-Game, przez koordynatora |
+| G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 | G-2 | (gra) Kontrakt eksportu mapy świata i grafik (format, wersja, manifest, publiczność treści) | – | Oteryn-Game, przez koordynatora |
 
 Kolejność startu:
@@ -351,5 +373,6 @@ Pozostałe warunki:
 
 - Obecny portal: trasy `routes/internal.php`, `routes/api.php`, `routes/modules/*`; moduły `app/*`.
 - Kontrakty: `docs/contracts/`, w tym wire sklepu i decyzje z 2026-11-05.
-- Gra: Oteryn-Game `docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json`, `crates/platform-client`, `crates/platform-contracts`, `crates/protocol-oteryn`.
+- Gra (main @60de8634): `docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json`, `crates/platform-client` (`lib.rs`, `native_login.rs`, `native_login/owner_characters.rs`), `crates/gameplay/native-admission-source` (`account_characters.rs`, `character_commands.rs`, `store.rs`, `restore_notice.rs`, `public_projections.rs`), `PROD-ENTITLEMENTS-01_GAME_CONSUMER_ENFORCEMENT_CONTRACT_CANDIDATE.md`.
+- Przegląd od strony gry: koordynator, 2026-11-05.
 - Szkic #1643: źródło pomysłów dla rozszerzeń (węzły, Atlas, obserwacja GM).
