@@ -137,7 +137,7 @@ impl Database {
             .await
             .unwrap();
         sqlx::raw_sql(include_str!(
-            "../../../migrations/20261105160000_t28_catalog.sql"
+            "../../../migrations/20261105160200_t28_catalog.sql"
         ))
         .execute(&pool)
         .await
