@@ -1,4 +1,4 @@
-//! Design checks compiled by check.py against the workspace's Askama artifact.
+//! Design-system integration tests discovered by the workspace test suite.
 use askama::Template;
 use std::{collections::BTreeMap, error::Error, fs, path::PathBuf};
 
@@ -221,6 +221,10 @@ fn catalogue(lang: &str) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
 
 #[test]
 fn partials_compile_and_bilingual_gallery_matches() -> Result<(), Box<dyn Error>> {
+    assert!(
+        fs::metadata(root().join("static/design/drawer.js"))?.len() < 5000,
+        "drawer script must stay below 5 KB"
+    );
     let en = catalogue("en")?;
     let pl = catalogue("pl")?;
     assert_eq!(en.keys().collect::<Vec<_>>(), pl.keys().collect::<Vec<_>>());
@@ -253,7 +257,7 @@ fn partials_compile_and_bilingual_gallery_matches() -> Result<(), Box<dyn Error>
     assert_eq!(
         html,
         fs::read_to_string(path)?,
-        "run check.py --update after changing partials or gallery copy"
+        "run UPDATE_DESIGN_GALLERY=1 cargo test --locked -p oteryn-web --test design_system partials_compile_and_bilingual_gallery_matches after changing partials or gallery copy"
     );
     for component in [
         "op-button",

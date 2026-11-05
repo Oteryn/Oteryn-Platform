@@ -57,16 +57,16 @@ The contrast manifest is embedded in `tokens.css` as `@contrast` comments. Ratio
 From `portal-rs/`, with the pinned toolchain on PATH:
 
 ```sh
-python3 static/design/check.py
-# After changing partials or gallery translations:
-python3 static/design/check.py --update
-rustfmt --edition 2024 --check static/design/tests.rs
 cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
+# Focused design checks:
+cargo test --locked -p oteryn-web --test design_system
+# After changing partials or gallery translations:
+UPDATE_DESIGN_GALLERY=1 cargo test --locked -p oteryn-web --test design_system partials_compile_and_bilingual_gallery_matches
 ```
 
-The runner builds the locked workspace's `oteryn-web`, locates its exact Askama artifact in Cargo's JSON output, and compiles `tests.rs` in a temporary directory against that artifact and the existing Askama template configuration. This keeps Rust tests and compile fixtures within T39's allowed paths without changing the workspace, router, manifests or lockfile. It runs five Rust tests plus strict lint checks: every declared color pair in both themes, refusal of insufficient contrast (including the 4.48 boundary), malformed/missing input, compilation/rendering of every partial with exact gallery parity and bilingual key parity, and escaped invalid input with accessible refusal/error states. These additional checks must be run explicitly; the workspace's `cargo test` does not discover tests under static assets. There are no database integration tests in this presentation-only task (0 DB tests); no SQL or database dependency was added.
+The five integration tests in `crates/web/tests/design_system.rs` are discovered by the workspace's `cargo test --locked` and covered by its formatting and Clippy checks. They use the web crate's existing Askama dependency and template configuration: every declared color pair in both themes, refusal of insufficient contrast (including the 4.48 boundary), malformed/missing input, compilation/rendering of every partial with exact gallery parity and bilingual key parity, and escaped invalid input with accessible refusal/error states. No separate runner or additional dependency is required. These presentation tests do not access a database.
 
 ## Browser verification
 
@@ -81,4 +81,4 @@ node portal-rs/static/design/browser-check.cjs
 
 The script defaults to `/usr/bin/chromium`; override `CHROMIUM_PATH`, `DESIGN_BROWSER_MODULES` or `DESIGN_GALLERY_URL` for another local installation/server. It checks both themes at 360 and 1280 px, no page overflow, keyboard entry/Tab containment/Escape and close-button dismissal/focus restoration for all overlays, keyboard table scrolling, invalid-field descriptions, disabled controls, reduced motion, native disclosures without JavaScript, and both system color preferences. It runs axe WCAG 2 A/AA, 2.1 AA and 2.2 AA checks on the gallery and each open overlay. Screenshots go to `/tmp/`, not the repository. A passing automated scan does not replace page-level accessibility review.
 
-T39 local result: five Rust design tests passed (23 pairs × two themes), strict design lint passed, 360/1280 px browser checks passed with zero axe violations, JavaScript-free disclosures passed, and system preference/explicit theme checks passed. The drawer script is 1,807 bytes. Workspace acceptance: fmt passed, Clippy passed with warnings denied, and eight unit tests passed with no failures; doc tests passed. `PORTAL_TEST_DATABASE_URL` was set for acceptance; zero DB integration tests exist in the T39/current-main suite. The requested environment bootstrap was attempted and stopped at the unavailable Docker socket; all presentation and workspace checks ran using the pinned native Rust 1.97.0 installation.
+T39 browser result: 360/1280 px checks passed with zero axe violations, JavaScript-free disclosures passed, and system preference/explicit theme checks passed. The drawer script is 1,807 bytes. The five Rust design tests (23 contrast pairs × two themes) now run in the normal workspace acceptance suite; see PR #1692 for the current merged-main test totals and database-test count. Browser verification remains an optional manual check.
