@@ -238,7 +238,8 @@ Panel obejmuje wszystko, co dziś ma Laravel, oraz to, czego tam brakuje lub co 
 | Przegląd konta | Postać pokazuje tylko nazwę i znacznik „main” | Postacie z poziomem, profesją, światem i linkiem do profilu; stan powiązania z grą; limit postaci; skróty do bezpieczeństwa, premium i salda | T44 | LCFA i profil publiczny (są) |
 | Tworzenie postaci | Jest, wyłączone | Formularz, reguły nazw i lista zastrzeżonych, status operacji | T22c | GAME-CHAR-CMD-0 (jest, wyłączony) |
 | Usunięcie postaci z anulowaniem | Brak | Jest, z karencją | T46 | G-3 |
-| Zmiana nazwy, płci i świata | Brak | Jest, każda akcja za własną flagą | T46 | G-3 |
+| Zmiana płci i transfer świata | Brak | Płatne coinami (D10); transfer włączony dopiero przy drugim świecie | T46 | G-3 |
+| Zmiana nazwy | Brak | Jest; cena według D10 | T46 | G-3 |
 | Ustawienia profilu postaci | 2 z 9 opcji | Postać główna, ukrycie, komentarz i 7 przełączników widoczności | T45 | Niepotrzebne: portal sam renderuje profile |
 | Profil publiczny | Świat, profesja, poziom, gildia | Dodatkowo zgony, osiągnięcia, umiejętności, ekwipunek i dom, według ustawień gracza | T24b | Podstawowy jest; reszta G-4 |
 | Hasło, 2FA, kody odzyskiwania | Jest (TOTP) | Dodatkowo passkeys | T06, T07, T08c | – |
@@ -258,7 +259,7 @@ Panel obejmuje wszystko, co dziś ma Laravel, oraz to, czego tam brakuje lub co 
 | Historia kar i odwołania | Jest (tylko zapis w Platform) | Jest; zawieszenie konta blokuje logowanie do gry | T34, T34b | Kary w grze: G-5 |
 | Postacie w kliencie (urządzenia) | Wyłączone | Jest, za flagą | T21 | – |
 | Bazar postaci, analizator sesji | Bazar wyłączony, analizator jest | Poza pierwszym wydaniem (D1) | – | – |
-| Ostatnie logowanie, czas online | Brak | Nie pokazujemy; kontrakt gry je wyklucza | – | Q7 |
+| Ostatnie logowanie, czas online | Brak | Na profilu, z przełącznikiem prywatności (D11) | T24b | G-4 (dziś kontrakt je wyklucza, LCFA:48) |
 
 ## 6. Integracja z grą
 
@@ -461,7 +462,7 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T43 | SEO i przejście: sitemap, robots, `hreflang`, przekierowania 301 ze starych adresów | T01 | `crates/web/src/seo*`, `crates/web/src/redirects*` |
 | T44 | Przegląd konta `/account`: postacie (poziom, profesja, świat, link do profilu), stan powiązania z grą, limit postaci, skróty do bezpieczeństwa, premium i salda | T18, T08 | `crates/characters/src/overview*`, `templates/account/` |
 | T45 | Ustawienia profilu postaci: postać główna, ukrycie, komentarz, 7 przełączników widoczności | T44 | `crates/characters/src/profile*` |
-| T46 | Zarządzanie postacią: usunięcie z anulowaniem, zmiana nazwy, płci i świata; każda akcja za flagą do czasu G-3 | T22, G-3 | `crates/characters/src/manage*` |
+| T46 | Zarządzanie postacią: usunięcie z anulowaniem, zmiana nazwy, płci i świata; usługi płatne coinami (D10): obciążenie portfela razem z komendą do gry, zwrot przy odrzuconym potwierdzeniu; każda akcja za flagą do czasu G-3 | T22, T26, G-3 | `crates/characters/src/manage*` |
 | T47 | Premium i płatności w panelu: status i data końca premium, historia płatności, rachunki | T27, T31 | `crates/store/src/account*`, `crates/payments/src/account*` |
 | T48 | Wyszukiwarka portalu: newsy, strony, wydarzenia, wiki, encje świata, postacie | T11, T14b, T24b | `crates/web/src/search*` |
 | T49 | Panel zespołu, gracze: wyszukiwanie, konto, sesje, postacie, wylogowanie wszędzie, notatki, reset MFA | T10b, T08 | `crates/admin/src/players*` |
@@ -470,8 +471,8 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T52 | Rola `gateway`: `POST /v1/login` (protokół 2, 11 kodów błędów, limiter), `/health`, `/ready`, `/version`; wektory golden z testów gatewaya Go; bez konfiguracji bazy | T00 | `crates/gateway`, `bin/oteryn-portal/src/gateway*` |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 | G-2 | (gra) Pole widoczności (public/hidden) w schematach questów, NPC i obszarów | – | Oteryn-Game, przez koordynatora |
-| G-3 | (gra) Komendy postaci: usunięcie i anulowanie, zmiana nazwy, płci i świata (rozszerzenie GAME-CHAR-CMD) | – | Oteryn-Game, przez koordynatora |
-| G-4 | (gra) Rodziny publiczne: zgony z zabójcą, gildie, domy, osiągnięcia, umiejętności, ekwipunek i outfit | – | Oteryn-Game, przez koordynatora |
+| G-3 | (gra) Komendy postaci: usunięcie i anulowanie, zmiana nazwy, płci i świata (rozszerzenie GAME-CHAR-CMD; płatne usługi rozlicza Platform) | – | Oteryn-Game, przez koordynatora |
+| G-4 | (gra) Rodziny publiczne: zgony z zabójcą, gildie, domy, osiągnięcia, umiejętności, ekwipunek i outfit, ostatnie logowanie i czas online (D11) | – | Oteryn-Game, przez koordynatora |
 | G-5 | (gra) Wykonywanie kar w grze (po D9) | – | Oteryn-Game, przez koordynatora |
 | G-6 | (gra) Usunięcie konta: los postaci i projekcji | – | Oteryn-Game, przez koordynatora |
 
@@ -514,12 +515,13 @@ Pozostałe warunki:
 | D2 | Nowy job CI dla `portal-rs/` | **Zgoda** (2026-11-05), PR #1685 |
 | D3 | Dostawca płatności | Provider testowy do czasu wyboru (np. Stripe) |
 | D4 | Wygląd | Nowy projekt graficzny (T39) |
-| D5 | Gateway logowania | Przepisany do Rusta jako rola `gateway` w tej samej binarce: osobny proces bez dostępu do bazy, kontrakt `POST /v1/login` bez zmian. Jeden język i jeden CI zamiast dwóch |
+| D5 | Gateway logowania | **Zgoda** (2026-11-05): przepisany do Rusta jako rola `gateway` w tej samej binarce, osobny proces bez dostępu do bazy, kontrakt `POST /v1/login` bez zmian. Ewentualne rozszerzenia uzgadniamy z koordynatorem |
 | D6 | Import danych | Konta z bezpieczeństwem, role, treści, wiki, portfel, premium, support i kary, ustawienia profili (§9); sesje i tokeny w locie nie |
 | D7 | Publikacja sprite'ów i mapy gry na stronie (licencja `LICENSE-ASSETS.md`) | **Wolno** (2026-11-05): wiki z grafikami, Atlas włączony |
 | D8 | Klasyfikacje questów publikowane w wiki | **Wszystkie** (2026-11-05); wiki pokazuje klasyfikację przy queście |
-| D9 | Autorytet kar | Platform; zawieszenie konta przez odmowę logowania do gry; kary w grze po G-5 |
-| D10 | Zmiana nazwy, płci i świata postaci | Bezpłatne, raz na 30 dni, do czasu decyzji o płatnych usługach w sklepie |
+| D9 | Autorytet kar | **Zgoda** (2026-11-05): Platform; zawieszenie konta przez odmowę logowania do gry; kary w grze po G-5 |
+| D10 | Zmiana płci, świata i nazwy postaci | **Płatne** (2026-11-05), jak w Tibii: zmiana płci to kosmetyka, transfer świata płatny. Dziś jest jeden świat, więc transfer czeka na drugi. Zmiana nazwy: do potwierdzenia, propozycja płatna |
+| D11 | Ostatnie logowanie i czas online na profilu | **Tak** (2026-11-05), z przełącznikiem prywatności gracza; wymaga danych z gry (G-4) |
 
 ## 12. Otwarte pytania
 
@@ -529,8 +531,7 @@ Pozostałe warunki:
 | Q3 | Aktualizacja locka gry: N4P (z `native-admissions`) i GAME-CHAR-CMD-0 (§6) | Koordynator, G-1 | Nic; portal implementuje według kodu |
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
 | Q5 | Akceptacja projektu | Właściciel | Start T01+ |
-| Q6 | Kolejność zadań gry G-3…G-6 (propozycja: G-4, G-3, G-6, G-5) | Właściciel, koordynator | Włączenie T46, T24d–T24f, T09b, kar w grze |
-| Q7 | Czy publikować ostatnie logowanie i czas online (kontrakt gry dziś je wyklucza) | Właściciel, koordynator | Nic |
+| Q6 | Kolejność zadań gry G-3…G-6 (propozycja: G-4, G-3, G-6, G-5) | Właściciel | Tylko kolejność włączania T46, T24d–T24f, T09b i kar w grze |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
