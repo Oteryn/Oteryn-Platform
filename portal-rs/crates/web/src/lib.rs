@@ -104,6 +104,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             session::middleware,
         ))
         .method_not_allowed_fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
+        .merge(oteryn_gameauth::runtime::routes(state.db.clone()))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http());
