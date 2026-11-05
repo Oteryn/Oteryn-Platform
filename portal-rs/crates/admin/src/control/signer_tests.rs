@@ -319,3 +319,224 @@ fn deserialization_cannot_restore_tampered_signed_members() {
     changed["request_id"] = json!("0193f0c2-abcd-7000-8000-000000000000".to_uppercase());
     assert!(serde_json::from_value::<RequestEnvelope>(changed).is_err());
 }
+
+const GOLDEN_VECTORS: &[(&str, Option<&str>)] = &[
+    ("busy.json", Some("ADM_BUSY")),
+    ("closed-params.json", Some("ADM_INVALID_PARAMS")),
+    ("disabled-operation.json", Some("ADM_FORBIDDEN")),
+    ("disabled-world.json", Some("ADM_FORBIDDEN")),
+    ("excessive-lifetime.json", Some("ADM_EXPIRED")),
+    ("expired-key.json", Some("ADM_SIGNER_UNTRUSTED")),
+    ("expired.json", Some("ADM_EXPIRED")),
+    ("future-issued.json", Some("ADM_EXPIRED")),
+    ("future-step-up.json", Some("ADM_CONTROL_MISSING")),
+    (
+        "idempotency-conflict.json",
+        Some("ADM_IDEMPOTENCY_CONFLICT"),
+    ),
+    ("idempotency-recorded.json", None),
+    ("internal.json", Some("ADM_INTERNAL")),
+    ("invalid-nonce.json", Some("ADM_INVALID_PARAMS")),
+    ("limit.json", Some("ADM_LIMIT_EXCEEDED")),
+    ("missing-reason.json", Some("ADM_CONTROL_MISSING")),
+    ("missing-step-up.json", Some("ADM_CONTROL_MISSING")),
+    ("permission.json", Some("ADM_FORBIDDEN")),
+    ("precondition.json", Some("ADM_PRECONDITION_FAILED")),
+    ("preview-mismatch.json", Some("ADM_PREVIEW_STALE")),
+    ("replay.json", Some("ADM_REPLAY")),
+    ("risk-downgrade.json", Some("ADM_RISK_CLASS_MISMATCH")),
+    ("rotated-out-key.json", Some("ADM_SIGNER_UNTRUSTED")),
+    ("rotation-next-key.json", None),
+    ("self-approval.json", Some("ADM_CONTROL_MISSING")),
+    ("stale-approval.json", Some("ADM_CONTROL_MISSING")),
+    ("stale-step-up.json", Some("ADM_CONTROL_MISSING")),
+    ("superseded.json", Some("ADM_AGENT_SUPERSEDED")),
+    ("tampered-field.json", Some("ADM_BAD_SIGNATURE")),
+    ("target-not-found.json", Some("ADM_TARGET_NOT_FOUND")),
+    ("unavailable.json", Some("ADM_TARGET_UNAVAILABLE")),
+    ("unknown-contract.json", Some("ADM_UNKNOWN_OPERATION")),
+    ("unknown-operation.json", Some("ADM_UNKNOWN_OPERATION")),
+    ("unknown-version.json", Some("ADM_UNKNOWN_OPERATION")),
+    ("valid.json", None),
+    ("wrong-key.json", Some("ADM_BAD_SIGNATURE")),
+];
+
+// Deliberately limited to the pinned schema vocabulary, rejecting new keywords.
+fn assert_schema(schema: &Value, root: &Value, value: &Value) {
+    for keyword in schema.as_object().unwrap().keys() {
+        assert!(
+            [
+                "$schema",
+                "$defs",
+                "$ref",
+                "title",
+                "description",
+                "type",
+                "properties",
+                "additionalProperties",
+                "required",
+                "items",
+                "enum",
+                "anyOf",
+                "format",
+                "minimum"
+            ]
+            .contains(&keyword.as_str()),
+            "unsupported schema keyword: {keyword}"
+        );
+    }
+    if let Some(reference) = schema["$ref"].as_str() {
+        assert_schema(
+            root.pointer(reference.strip_prefix('#').unwrap()).unwrap(),
+            root,
+            value,
+        );
+    }
+    if let Some(alternatives) = schema["anyOf"].as_array() {
+        assert_eq!(alternatives.len(), 2);
+        assert!(alternatives.iter().any(|s| s["type"] == "null"));
+        assert!(alternatives.iter().any(|s| s.get("$ref").is_some()));
+        let branch = alternatives
+            .iter()
+            .find(|s| (s["type"] == "null") == value.is_null())
+            .unwrap();
+        assert_schema(branch, root, value);
+    }
+    if let Some(kind) = schema.get("type") {
+        let matches = |kind: &str| match kind {
+            "object" => value.is_object(),
+            "array" => value.is_array(),
+            "string" => value.is_string(),
+            "null" => value.is_null(),
+            "boolean" => value.is_boolean(),
+            "integer" => value.as_u64().is_some() || value.as_i64().is_some(),
+            _ => panic!("unsupported schema type: {kind}"),
+        };
+        assert!(
+            if let Some(k) = kind.as_str() {
+                matches(k)
+            } else {
+                kind.as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|k| matches(k.as_str().unwrap()))
+            },
+            "schema type mismatch: {value}"
+        );
+    }
+    if let Some(options) = schema["enum"].as_array() {
+        assert!(options.contains(value));
+    }
+    if let Some(minimum) = schema["minimum"].as_f64() {
+        assert!(value.as_f64().unwrap() >= minimum);
+    }
+    if schema["format"] == "uint32" {
+        assert!(u32::try_from(value.as_u64().unwrap()).is_ok());
+    }
+    if let Some(required) = schema["required"].as_array() {
+        for key in required {
+            assert!(value.get(key.as_str().unwrap()).is_some());
+        }
+    }
+    if let Some(properties) = schema["properties"].as_object() {
+        for (key, member) in value.as_object().unwrap() {
+            if let Some(child) = properties.get(key) {
+                assert_schema(child, root, member);
+            } else {
+                assert_ne!(schema["additionalProperties"], false);
+            }
+        }
+    }
+    if let Some(items) = schema.get("items") {
+        for item in value.as_array().unwrap() {
+            assert_schema(items, root, item);
+        }
+    }
+}
+
+fn golden_signature(vector: &Value, request: &RequestEnvelope) -> Result<(), Error> {
+    let trusted = vector["trusted_signers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|key| key["key_id"].as_str() == Some(&request.signer_key_id))
+        .ok_or(Error::Untrusted)?;
+    let key: [u8; 32] = URL_SAFE_NO_PAD
+        .decode(trusted["public_key"].as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let parse_time = |text: &Value| {
+        time::OffsetDateTime::parse(
+            text.as_str().unwrap(),
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap()
+        .unix_timestamp()
+    };
+    verify_signature(
+        request,
+        &request.signature,
+        &VerifyingKey::from_bytes(&key).unwrap(),
+        Validity {
+            not_before: parse_time(&trusted["not_before"]),
+            not_after: parse_time(&trusted["not_after"]),
+        },
+        vector["clock"].as_i64().unwrap(),
+    )
+}
+
+#[test]
+fn adm_x1_game_golden_envelopes() {
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/control/fixtures/admin-control-v1");
+    let mut actual: Vec<_> = std::fs::read_dir(directory.join("vectors"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    actual.sort();
+    assert_eq!(
+        actual,
+        GOLDEN_VECTORS
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<Vec<_>>()
+    );
+    let schema: Value =
+        serde_json::from_slice(&std::fs::read(directory.join("request.schema.json")).unwrap())
+            .unwrap();
+    for &(name, expected_reason) in GOLDEN_VECTORS {
+        let vector: Value =
+            serde_json::from_slice(&std::fs::read(directory.join("vectors").join(name)).unwrap())
+                .unwrap();
+        assert_eq!(vector["expected_error"].as_str(), expected_reason, "{name}");
+        assert_schema(&schema, &schema, &vector["request"]);
+        let request: RequestEnvelope = serde_json::from_value(vector["request"].clone()).unwrap();
+        assert_eq!(
+            adm_x1_signing_bytes(&request).unwrap(),
+            vector["canonical_signed_utf8"].as_str().unwrap().as_bytes(),
+            "{name}"
+        );
+        let verified = golden_signature(&vector, &request);
+        match expected_reason {
+            Some("ADM_SIGNER_UNTRUSTED") => {
+                assert!(matches!(verified, Err(Error::Untrusted)), "{name}")
+            }
+            Some("ADM_BAD_SIGNATURE") => {
+                assert!(matches!(verified, Err(Error::BadSignature)), "{name}")
+            }
+            Some("ADM_INVALID_PARAMS") if name == "invalid-nonce.json" => {
+                assert!(
+                    matches!(validate_request(&request), Err(Error::Envelope)),
+                    "{name}"
+                );
+                verified.unwrap();
+            }
+            None => {
+                validate_request(&request).unwrap();
+                verified.unwrap();
+            }
+            _ => verified.unwrap(),
+        }
+    }
+}
