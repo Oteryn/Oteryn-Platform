@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = ["bin/oteryn-portal", "crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Proprietary"
+publish = false
+rust-version = "1.97"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+dbg_macro = "deny"
+
+[workspace.dependencies]
+oteryn-core = { path = "crates/core" }
+oteryn-db = { path = "crates/db" }
+oteryn-web = { path = "crates/web" }
+oteryn-identity = { path = "crates/identity" }
+oteryn-gameauth = { path = "crates/gameauth" }
+oteryn-characters = { path = "crates/characters" }
+oteryn-content = { path = "crates/content" }
+oteryn-wiki = { path = "crates/wiki" }
+oteryn-community = { path = "crates/community" }
+oteryn-wallet = { path = "crates/wallet" }
+oteryn-store = { path = "crates/store" }
+oteryn-payments = { path = "crates/payments" }
+oteryn-support = { path = "crates/support" }
+oteryn-atlas = { path = "crates/atlas" }
+oteryn-world = { path = "crates/world" }
+oteryn-admin = { path = "crates/admin" }
+oteryn-downloads = { path = "crates/downloads" }
+oteryn-notify = { path = "crates/notify" }
+oteryn-internal-api = { path = "crates/internal-api" }
+oteryn-player-api = { path = "crates/player-api" }
