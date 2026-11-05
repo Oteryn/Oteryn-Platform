@@ -65,6 +65,7 @@ async fn readyz(State(state): State<AppState>) -> StatusCode {
 
 fn security_headers(router: Router) -> Router {
     let router = surface::finish(router);
+    let router = router.layer(axum::middleware::from_fn(ratelimit::api_errors));
     let headers: [(HeaderName, &'static str); 5] = [
         (
             header::CONTENT_SECURITY_POLICY,
@@ -104,6 +105,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             session::middleware,
         ))
         .method_not_allowed_fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
+        .merge(oteryn_gameauth::runtime::routes(state.db.clone()))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http());
@@ -174,3 +176,5 @@ pub use surface::{CspNonce, Language, WebOptions, module_router, router_with_opt
 
 pub mod csrf;
 pub mod session;
+
+pub mod ratelimit;
