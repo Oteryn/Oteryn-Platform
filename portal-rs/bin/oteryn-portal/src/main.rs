@@ -94,6 +94,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_community::rankings::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let app = app.merge(oteryn_wiki::calculators::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")
                 .unwrap_or_else(|_| "http://localhost:3000".to_owned());
             let production = std::env::var("OTERYN_ENV").is_ok_and(|value| value == "production");
@@ -111,6 +114,33 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 config.database_url(),
             )?)?);
             let app = app.merge(oteryn_payments::account::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_atlas::web::configured_router(oteryn_db::lazy_pool(
+                config.database_url(),
+            )?));
+            let app = app.merge(login_http::configured_router(oteryn_db::lazy_pool(
+                config.database_url(),
+            )?));
+            let app = app.merge(oteryn_content::pages::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_content::events::web::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_wiki::web::configured_router(oteryn_db::lazy_pool(
+                config.database_url(),
+            )?)?);
+            let app = app.merge(oteryn_world::admin::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_content::news::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_stats::rankings::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_stats::world::http::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
@@ -141,3 +171,6 @@ mod tests {
 
 mod gateway;
 mod worker;
+
+#[path = "../../../crates/identity/src/login_http.rs"]
+mod login_http;

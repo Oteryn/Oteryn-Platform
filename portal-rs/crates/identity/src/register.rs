@@ -50,6 +50,9 @@ pub async fn register(
     {
         return Err(sqlx::Error::Protocol("invalid registration".into()));
     }
+    crate::abuse::check_password(pool, &input.password)
+        .await
+        .map_err(|_| sqlx::Error::Protocol("registration protection refused".into()))?;
     // Hash on both paths, outside the asynchronous executor and before checking uniqueness.
     let hash = tokio::task::spawn_blocking(move || password::hash(&input.password))
         .await

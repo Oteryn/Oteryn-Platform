@@ -4,12 +4,14 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use oteryn_identity::{
+    abuse,
     accounts::Accounts,
     consents::ConsentConfig,
     password,
     register::{self, Registration},
     verify,
 };
+use sha1::{Digest, Sha1};
 use sqlx::PgPool;
 use tower::ServiceExt;
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -45,6 +47,15 @@ impl Database {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
+        sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
+            .execute(&pool)
+            .await?;
+        // This fixture password has an authoritative empty breach range.
+        let digest = format!("{:X}", Sha1::digest(input().password.as_bytes()));
+        sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at) VALUES ($1,ARRAY[]::text[],now()+interval '1 hour')")
+            .bind(&digest[..5])
+            .execute(&pool)
+            .await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -121,6 +132,27 @@ async fn submit(
     csrf: &str,
     changes: &[(&str, &str)],
 ) -> Result<axum::response::Response> {
+    let mut proof = None;
+    if !csrf.is_empty() {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/register/abuse/challenge")
+                    .header(header::COOKIE, cookie)
+                    .header("x-csrf-token", csrf)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let challenge: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+        let token = challenge["token"].as_str().ok_or("work token missing")?;
+        let nonce = (0..u64::MAX)
+            .map(|nonce| nonce.to_string())
+            .find(|nonce| abuse::valid_solution(token, nonce))
+            .ok_or("work solution missing")?;
+        proof = Some((token.to_owned(), nonce));
+    }
     let mut fields = vec![
         ("email", "New@Example.test"),
         ("password", "registration test password"),
@@ -129,6 +161,10 @@ async fn submit(
         ("privacy", "2026-11-05"),
         ("_csrf", csrf),
     ];
+    if let Some((token, nonce)) = &proof {
+        fields.push(("work_token", token));
+        fields.push(("work_nonce", nonce));
+    }
     for (key, value) in changes {
         fields.retain(|(k, _)| k != key);
         if !value.is_empty() {

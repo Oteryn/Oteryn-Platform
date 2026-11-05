@@ -148,9 +148,8 @@ impl Database {
         }))
     }
     pub(crate) async fn assignments(&self) -> TestResult {
-        // Fixture-only authority. Production assignment schema and writers belong to T20.
-        sqlx::raw_sql("CREATE TABLE native_assignment_epoch_locks (id smallint PRIMARY KEY); INSERT INTO native_assignment_epoch_locks VALUES (1); CREATE TABLE native_scope_assignments (world_id uuid, channel_id uuid, assignment_epoch numeric(20,0), ownership_generation numeric(20,0), node_identity text, PRIMARY KEY(world_id,channel_id));").execute(&self.pool).await?;
-        sqlx::query("INSERT INTO native_scope_assignments VALUES ($1,$2,1,1,'node')")
+        // Seed the authority tables supplied by the T20 migration.
+        sqlx::query("INSERT INTO native_scope_assignments (world_id,channel_id,assignment_epoch,ownership_generation,node_identity,assigned_at) VALUES ($1,$2,1,1,'node',0)")
             .bind(WORLD.parse::<Uuid>()?)
             .bind(CHANNEL.parse::<Uuid>()?)
             .execute(&self.pool)
@@ -499,9 +498,9 @@ async fn db_runtime_http_success_replay_and_global_epoch_reset() -> TestResult {
             format!("{{\"contract_version\":1,\"result\":\"{expected}\"}}").as_bytes()
         );
     }
-    sqlx::query("INSERT INTO native_scope_assignments VALUES ($1,$2,2,1,'node')")
+    sqlx::query("INSERT INTO native_scope_assignments (world_id,channel_id,assignment_epoch,ownership_generation,node_identity,assigned_at) VALUES ($1,$2,2,1,'node',0)")
         .bind(ACCOUNT.parse::<Uuid>()?)
-        .bind(ACCOUNT.parse::<Uuid>()?)
+        .bind(CHANNEL.parse::<Uuid>()?)
         .execute(&db.pool)
         .await?;
     let report = Report::decode(&value("2", 21)?)?;

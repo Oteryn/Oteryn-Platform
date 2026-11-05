@@ -1,0 +1,7 @@
+{% extends "wiki/layout.html" %}
+{% block content %}<h1>{{ self.t("wiki") }}</h1>
+<form class="op-stack" method="get" action="/{{ lang }}/wiki/search"><div class="op-field"><label for="q">{{ self.t("query") }}</label><input class="op-input" id="q" name="q" maxlength="80" value="{{ query }}"></div><button class="op-button" type="submit">{{ self.t("search") }}</button></form>
+{% for row in rows %}<article class="op-card"><h2><a href="/{{ lang }}/wiki/articles/{{ row.slug }}">{{ row.title }}</a></h2><p>{{ row.summary }}</p></article>{% endfor %}
+{% if rows.is_empty() %}<p>{{ self.t("empty") }}</p>{% endif %}
+{% if rows.len() == 12 %}<form method="get"><input type="hidden" name="q" value="{{ query }}"><input type="hidden" name="page" value="{{ next }}"><button class="op-button" type="submit">{{ self.t("next") }}</button></form>{% endif %}
+{% endblock %}

@@ -5,3 +5,5 @@ pub mod codes;
 pub mod premium;
 
 pub mod loyalty;
+
+pub mod purchase;
