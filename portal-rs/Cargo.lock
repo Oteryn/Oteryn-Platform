@@ -1570,6 +1570,7 @@ dependencies = [
  "axum",
  "getrandom 0.4.3",
  "http",
+ "oteryn-db",
  "oteryn-internal-api",
  "oteryn-wallet",
  "serde",
@@ -1580,6 +1581,7 @@ dependencies = [
  "time",
  "tokio",
  "tower",
+ "tracing",
  "uuid",
 ]
 
