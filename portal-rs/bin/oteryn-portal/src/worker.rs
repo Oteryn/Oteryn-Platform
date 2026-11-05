@@ -150,6 +150,11 @@ async fn run_until(
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
     registry.cleanup(
+        "cleanup.deaths",
+        3600,
+        Arc::new(oteryn_community::deaths::Cleanup { pool: pool.clone() }),
+    )?;
+    registry.cleanup(
         "stats.poll",
         60,
         Arc::new(oteryn_stats::worker::StatisticsJob {

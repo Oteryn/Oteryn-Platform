@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ labels[0] }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-stack">
+<h1>{{ labels[0] }}{% if !character.is_empty() %}: {{ character }}{% endif %}</h1>
+{% if unavailable %}<p role="status">{{ labels[1] }}</p>{% else %}
+<p>{{ labels[2] }}</p>
+<form class="op-stack" method="get"><label for="world">{{ labels[4] }}</label><input class="op-input" id="world" name="world" maxlength="96" value="{{ filter }}"><button class="op-button" type="submit">{{ labels[5] }}</button></form>
+{% if entries.is_empty() %}<p role="status">{{ labels[3] }}</p>{% endif %}
+{% for entry in entries %}<article class="op-card op-stack"><h2><a href="{{ entry.href }}">{{ entry.name }}</a></h2><p>{{ entry.world }} · <time datetime="{{ entry.occurred }}">{{ entry.occurred }}</time></p><p>{{ labels[6] }}: {{ entry.level }}{% if entry.pvp %} · {{ labels[9] }}{% endif %}</p>{% if entry.killers.is_empty() %}<p>{{ labels[8] }}</p>{% else %}<p>{{ labels[7] }}: {{ entry.killers }}</p>{% endif %}</article>{% endfor %}
+{% endif %}</main></body></html>
