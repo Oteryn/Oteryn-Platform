@@ -18,3 +18,16 @@ error-429-title = Too many requests
 error-429-description = Please wait before trying again.
 error-500-title = Something went wrong
 error-500-description = Please try again later.
+
+online-title = Online characters
+online-unavailable = Temporarily unavailable.
+online-world = World
+online-all = All worlds
+online-sort = Sort by
+online-name = Name
+online-level = Level
+online-apply = Apply
+online-count = Visible characters online
+online-as-of = Data as of
+online-stale = Data is stale; this is not a live list.
+online-vocation = Vocation
