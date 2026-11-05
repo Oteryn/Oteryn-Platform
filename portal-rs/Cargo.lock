@@ -1716,6 +1716,7 @@ dependencies = [
  "oteryn-stats",
  "oteryn-web",
  "oteryn-wiki",
+ "oteryn-world",
  "sqlx",
  "tokio",
  "tower",
@@ -1828,15 +1829,22 @@ dependencies = [
 name = "oteryn-world"
 version = "0.1.0"
 dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
  "globset",
  "jsonschema",
+ "oteryn-admin",
  "oteryn-db",
+ "oteryn-web",
  "serde",
  "serde_json",
  "sqlx",
  "tempfile",
  "thiserror",
  "tokio",
+ "tower",
+ "unic-langid",
  "url",
  "uuid",
 ]
