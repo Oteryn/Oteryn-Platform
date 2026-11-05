@@ -1,10 +1,19 @@
-Status: PROPOSED by Platform, pending acceptance by the game owner (coordinator).
+Status: PROPOSED revision 2 by Platform, pending acceptance by the game owner (coordinator).
 
 # World daily public projection family — G-12
 
+## Revision 2 changes
+
+Owner review verdict: **CHANGES-NEEDED**. This revision applies the coordinator-relayed answers; acceptance and implementation evidence remain pending.
+
+- Move the new daily snapshot and watermark to the G-4 V2 profile; leave the v1 watermark family enum closed and unchanged.
+- Allow reset epoch zero and derive interval ends from the next slot in the same calendar revision.
+- Publish raids only from committed running onward; exclude future/skipped slots and random triggers. T94 stays blocked without an outcome source.
+- Record the owner’s answers on bounds, operations and operator-only resync. G-8 remains the sole online-time source (owner-only intervals, public world totals); G-4 drops its separate `character_activity` family.
+
 ## Purpose, ownership and acceptance boundary
 
-Proposal ID: `oteryn-v2-world-daily-family-v1`. This document proposes the producer/consumer boundary for G-12 in `docs/architecture/OTERYN_PORTAL_RUST_PLAN.md` (gate table and §10). T88 (`crates/community/src/today*`) consumes the boosted creature, boosted boss, their bounded history and scheduled raids. T94 (`crates/minigames/src/league*`, dependent on T89 and T88) may display those same facts for world-event predictions without stakes. This feed supplies neither prediction results nor settlement authority. Acceptance alone does not close G-12: compatible implementation and cross-repository evidence are still required.
+Proposal ID: `oteryn-v2-world-daily-family-v1`. This document proposes the producer/consumer boundary for G-12 in `docs/architecture/OTERYN_PORTAL_RUST_PLAN.md` (gate table and §10). T88 (`crates/community/src/today*`) consumes the boosted creature, boosted boss, their bounded history and raids published from running onward. T94 (`crates/minigames/src/league*`, dependent on T89 and T88) stays blocked: no accepted prediction outcome source exists. This feed supplies neither prediction results nor settlement authority. Acceptance alone does not close G-12: compatible implementation and cross-repository evidence are still required.
 
 Game owns committed boost selections, reset boundaries, raid scheduling, public-release decisions, producer revisions, outbox and recovery. Platform owns Registry `WorldId`, normalized disposable read models, freshness, public allowlisting, presentation and privacy restrictions. The coordinator accepts Game semantics and publication policy; Platform accepts its consumer obligations. Neither side may claim the other's acceptance.
 
@@ -27,6 +36,8 @@ Read-only Game evidence is pinned to [857f15f376907c592bb28d854fccff18a15cdf87](
 | `docs/contracts/OTERYN_GAME_LIST_CHARACTERS_FOR_ACCOUNT_PROJECTION_V1.md` §§3–5 | Underlying HTTP/1.1 mTLS convention, decimal encodings, external epoch fence and late-transaction watermark protection |
 | `crates/gameplay/native-admission-source/src/public_projections.rs` | `Family`, `HighscoresWire`, `ProfileWire`, `OnlineWire`, `WatermarkWire`, `PURPOSE = OTERYN_GAME_PUBLIC_PROJECTIONS`, compiled paths and bounded retries; no daily family yet |
 | `crates/gameplay/durability/src/durability/public_projections.rs` and `apps/game-server/migrations/0091_public_projections.sql` | Reconciled-authority reads, same-transaction revisions/outboxes, clear only through acknowledged revisions |
+| `apps/game-server/migrations/0148_world_reset.sql` and `apps/game-server/migrations/0333_daily_boost.sql` | Reset epochs and daily boost keys admit epoch zero (`CHECK >= 0`); reset history stores `calendar_revision` and activation, not `effective_until` |
+| `apps/game-server/migrations/0562_server_save_berlin_06.sql` and `crates/gameplay/durability/src/durability/world_reset/active_epoch.rs` | Revision-bound reset calendar and next-slot calculation at 06:00 Europe/Berlin, including DST; no stored interval-end field |
 | `crates/gameplay/durability/src/durability/daily_boost.rs` | `DailyBoostBinding`, `prepare_daily_boost`, `game_world_daily_boosts`; durable selection per World/reset, restart/concurrent-Channel reuse; reset epoch is not a calendar day |
 | `crates/protocol-oteryn/src/daily_boost.rs` | `DailyBoostView`, `reset_epoch`, `creature_key`, `boss_key`; query command 177, capability 151; keys bounded to 255 bytes by codec/durable preparation |
 | `crates/gameplay/durability/src/durability/raid_schedule.rs` | Metadata CAS with `RaidWrite::{Applied,Replayed,CompareFailed}`; metadata disposition is not a commit token |
@@ -40,10 +51,10 @@ These are source citations, not instructions to modify Game. Existing client bin
 
 | Semantic flow | Physical direction | Scope |
 |---|---|---|
-| Daily snapshot ingest | Game → Platform, proposed `POST /internal/v1/game-public/world-daily`, `PublishWorldDailyV1` | Complete World snapshot, not delta |
-| Liveness evidence | Game → Platform, existing `POST /internal/v1/game-public/watermark`, `PublishPublicProjectionWatermarkV1` | Proposed new closed enum value `family: world_daily` |
+| Daily snapshot ingest | Game → Platform, proposed `POST /internal/v2/game-public/world-daily`, `PublishWorldDailyV2` | Complete World snapshot, not delta |
+| Liveness evidence | Game → Platform, proposed `POST /internal/v2/game-public/watermark`, `PublishPublicProjectionWatermarkV2` | `family: world_daily` in the V2 family enum defined by [G-4](OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md); no v1 enum extension |
 | Ingest acknowledgement | Platform → Game HTTP response on the above exchange | Receipt of projection only; never gameplay success |
-| Platform → Game command | **None in v1** | No boost selection, raid start/cancel/reschedule, resync request, subscription or prediction command |
+| Platform → Game command | **None in this revision** | No boost selection, raid start/cancel/reschedule, resync request, subscription or prediction command |
 
 Rebuild requests go through the existing authorized Game operator process, not a new inbound Game service. Extending `oteryn-game-ops public-projection resync --family` to `world_daily` requires Game acceptance/implementation; it does not exist at the pinned revision.
 
@@ -51,7 +62,7 @@ Reuse the public-projection publisher's HTTP/1.1 over TLS 1.3, existing trusted 
 
 Signing: the reused publisher uses mTLS, not application-level JWS/HMAC. Add no signing header, bearer secret, nonce scheme or private key to JSON. SHA-256 content fingerprints are comparison evidence, never signatures or authorization. Preserve existing certificate rotation/revocation policy; inability to authenticate denies publication.
 
-Connect ≤1 s, TLS handshake ≤2 s, whole cold exchange ≤3 s (inside the public contract's 5 s ceiling), `Connection: close`. One daily publication in flight per publisher/family. Snapshot ≤131072 UTF-8 bytes; watermark ≤512 bytes; response ≤256 bytes. `Content-Type: application/json`, no BOM, no trailing newline, no insignificant whitespace or string escapes, exact table member order, maximum JSON nesting depth 5. Reject duplicate, unknown, missing or null members. No transfer encoding; content encoding absent or `identity`; if present Content-Length is canonical nonnegative decimal and within bound. Refuse oversized actual bodies too, without unbounded reads. Public-family malformed/oversized requests return empty `400`, rather than importing Store's `413` response.
+Connect ≤1 s, TLS handshake ≤2 s, whole cold exchange ≤3 s (inside the public contract's 5 s ceiling), `Connection: close`. One daily publication in flight per publisher/family. Snapshot ≤131072 UTF-8 bytes; watermark ≤512 bytes; response ≤256 bytes. `Content-Type: application/json`, no BOM, no trailing newline, no insignificant whitespace or string escapes, exact table member order, maximum JSON nesting depth 5. Reject duplicate, unknown, missing or null members. No transfer encoding; content encoding absent or `identity`; if present Content-Length is canonical nonnegative decimal and within bound. Refuse oversized actual bodies too, without unbounded reads. Malformed and oversized requests return empty `400` everywhere, including over-limit Content-Length and actual bodies.
 
 All responses use `Cache-Control: no-store`. Rate limit by authenticated publisher under the existing public-projection guard; proposed daily allowance is 120 requests/minute, watermark allowance 60/minute, burst no larger than those limits. Return `429`, with positive integral `Retry-After` seconds when supplied; never spin on retry.
 
@@ -62,6 +73,7 @@ Every table is ordered; all fields are required and non-null. Empty arrays repre
 | Alias | Exact type and bounds |
 |---|---|
 | `u64+` | JSON string matching `[1-9][0-9]{0,19}`, numeric value ≤18446744073709551615; compare as integers, never floating point |
+| `u64` | JSON string `0` or `u64+`, unsigned integer ≥0 and ≤18446744073709551615 |
 | `seconds` | JSON string `0` or `u64+`, Unix UTC seconds ≤9223372036854775, safely convertible to Game signed milliseconds |
 | `uuid7` | Lowercase non-nil UUIDv7, `^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` |
 | `authority` | ASCII `[A-Za-z0-9._:/-]{1,128}`, exact configured namespace |
@@ -71,8 +83,8 @@ Snapshot members:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `contract_version` | JSON integer `1` | Daily wire version |
-| `operation` | literal string `PublishWorldDailyV1` | Route-bound operation |
+| `contract_version` | JSON integer `2` | G-4 V2 public-projection wire version |
+| `operation` | literal string `PublishWorldDailyV2` | Route-bound operation |
 | `source_authority` | `authority` | Game publisher namespace |
 | `world_id` | `uuid7` | Registered World, shared across its Channels |
 | `projection_epoch` | `u64+` | Existing public-family recovery epoch, not reset epoch |
@@ -84,46 +96,48 @@ Daily record members:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `reset_epoch` | `u64+` | Current committed World server-save epoch |
+| `reset_epoch` | `u64` | Current committed World server-save epoch |
 | `effective_from` | `seconds` | Inclusive current reset interval start |
-| `effective_until` | `seconds` | Exclusive authoritative interval end; strictly after start |
+| `effective_until` | `seconds` | Derived exclusive end: next reset slot within the same `calendar_revision`; strictly after start |
 | `creature_key` | `content_key(255)` | Boosted monster; retains Game's creature terminology |
 | `boss_key` | `content_key(255)` | Boosted boss |
 | `history_complete_from` | `seconds` | Inclusive source coverage floor for history |
 | `history` | array 0..32 of history records | All completed boost intervals within coverage; descending `reset_epoch`, unique |
-| `raids` | array 0..256 of raid records | Complete public fixed-slot schedule within current interval; sorted by (`scheduled_at`, `raid_key`), unique pair |
+| `raids` | array 0..256 of raid records | Complete publishable fixed-slot raid records from running onward within current interval; sorted by (`scheduled_at`, `raid_key`), unique pair |
 
-History record members, in order: `reset_epoch` (`u64+`), `effective_from` (`seconds`), `effective_until` (`seconds`), `creature_key` (`content_key(255)`), `boss_key` (`content_key(255)`). Each epoch is less than current; each interval has start < end ≤ current start; intervals do not overlap and starts are within `[history_complete_from,effective_from)`. The coverage floor is ≤ current start and no earlier than current start minus 2592000 seconds (30 days, clamped to zero). If there are more than 32 intervals in 30 days, raise the floor to the earliest fully retained interval; never claim complete history after silently truncating it. Empty history with floor equal to current start explicitly claims no older coverage. Epoch gaps are permitted; epochs are not days. Coverage contains every selection interval beginning within it, including multiple resets on one date. Missing older history is outside coverage, not proof of no boost.
+`effective_until` is a producer-derived value, not a Game column: calculate the next reset slot after the interval start using that reset's authoritative calendar and the same `calendar_revision`. Apply the same rule to historical intervals. Do not assume a fixed 86400-second day, infer the end from a different calendar revision or substitute the next observed boost selection. The pinned calendar is 06:00 Europe/Berlin and must account for DST. The calendar revision remains producer-side derivation evidence, not an extra wire member. A missing/ambiguous next slot withholds publication and completeness. Calendar changes must transactionally revise the projected interval before affected claims are served.
+
+History record members, in order: `reset_epoch` (`u64`), `effective_from` (`seconds`), `effective_until` (`seconds`), `creature_key` (`content_key(255)`), `boss_key` (`content_key(255)`). Each epoch is less than current; each interval has start < end ≤ current start; intervals do not overlap and starts are within `[history_complete_from,effective_from)`. The coverage floor is ≤ current start and no earlier than current start minus 2592000 seconds (30 days, clamped to zero). If there are more than 32 intervals in 30 days, raise the floor to the earliest fully retained interval; never claim complete history after silently truncating it. Empty history with floor equal to current start explicitly claims no older coverage. Epoch gaps are permitted; epochs are not days. Coverage contains every selection interval beginning within it, including multiple resets on one date. Missing older history is outside coverage, not proof of no boost.
 
 Raid record members:
 
 | Field | Type | Meaning |
 |---|---|---|
 | `raid_key` | `content_key(128)` | Game raid definition key; narrowed to existing client raid key bound |
-| `scheduled_at` | `seconds` | Fixed calendar slot in `[effective_from,effective_until)` |
-| `state` | enum string `scheduled`, `running`, `done`, `cancelled` | Public scheduling state only |
+| `scheduled_at` | `seconds` | Fixed calendar slot in `[effective_from,effective_until)`, no later than `source_observed_at` |
+| `state` | enum string `running`, `done`, `cancelled` | Public scheduling state only |
 
-Only Game-approved fixed slots appear. `scheduled` means a published opportunity, not guaranteed execution: eligibility can consume/skip a slot. `running`, `done`, `cancelled` require committed corresponding Game evidence; metadata `Applied` or time passing alone never proves runtime effects or completion. No undisclosed random draw, source-scheduled future trigger or `next_check_at_ms` is converted to a predicted firing time. A consumed slot that did not run maps to `cancelled` only when Game proves it cannot later fire for that slot. Unsupported/ambiguous source classification withholds the family watermark rather than inventing state. Subsecond fixed slots cannot be rounded: refuse until an accepted representation exists. `raids: []` means no publishable fixed slots in this interval, not no possible random raids. There is no running-creature/player count, participant list, reward, score or prediction outcome.
+Only Game-approved fixed-slot raids with committed runtime evidence appear, starting at `Running`, mapped to `running`; `Done` maps to `done` and `Cancelled` to `cancelled`. Game has no `scheduled` state or source for skipped slots. This first daily profile exposes no future slots; time passing, metadata `Applied` or slot consumption never fabricates a raid or cancellation. No random trigger, source-scheduled future trigger or `next_check_at_ms` becomes a predicted firing time. Unsupported/ambiguous source classification withholds the family watermark rather than inventing state. Subsecond fixed slots cannot be rounded: refuse until an accepted representation exists. `raids: []` means no publishable raids in this interval, not no possible random raids. There is no running-creature/player count, participant list, reward, score or prediction outcome.
 
-A daily record requires both committed boost keys and a fully classified public schedule. Unknown boosts, uncertain interval end or an over-bound schedule must not become `daily: []` or `raids: []`. Hold publication and freshness instead. `daily: []` is reserved for an explicit committed withdrawal/no-public-view decision and removes current facts and history from public serving. Static catalogue names/artwork resolve through separately accepted content snapshots; an unresolved key is shown as unavailable, never guessed.
+A daily record requires both committed boost keys and a fully classified set of publishable raid records. Unknown boosts, uncertain interval end or an over-bound schedule must not become `daily: []` or `raids: []`. Hold publication and freshness instead. `daily: []` is reserved for an explicit committed withdrawal/no-public-view decision and removes current facts and history from public serving. Static catalogue names/artwork resolve through separately accepted content snapshots; an unresolved key is shown as unavailable, never guessed.
 
-Watermark members in order: `contract_version` (integer `1`), `operation` (literal `PublishPublicProjectionWatermarkV1`), `source_authority` (`authority`), `family` (literal `world_daily`), `projection_epoch` (`u64+`), `complete_through` (`seconds`), `observed_at` (`seconds`). Require `complete_through ≤ observed_at`; neither may exceed Platform now +1 second. No other member or null is valid.
+Watermark members in order: `contract_version` (integer `2`), `operation` (literal `PublishPublicProjectionWatermarkV2`), `source_authority` (`authority`), `family` (literal `world_daily`), `projection_epoch` (`u64+`), `complete_through` (`seconds`), `observed_at` (`seconds`). Require `complete_through ≤ observed_at`; neither may exceed Platform now +1 second. No other member or null is valid.
 
 Success responses are exactly one of:
 
 ```json
-{"contract_version":1,"result":"accepted"}
+{"contract_version":2,"result":"accepted"}
 ```
 
 ```json
-{"contract_version":1,"result":"superseded"}
+{"contract_version":2,"result":"superseded"}
 ```
 
 ## Identifiers, ordering, outbox and replay
 
 Subject key is (`source_authority`, `world_daily`, `world_id`). Idempotency key is that subject plus (`projection_epoch`, `projection_revision`); no independent HTTP idempotency header or random event ID. Content is canonical `world_id` plus `daily` in that order. Internally a SHA-256 fingerprint of those exact canonical object bytes may accelerate comparisons; retain exact content for conflict verification. Envelope and `source_observed_at` are not content, following the public contract. Producers retry identical bytes; an equal pair with equal content is `accepted` and retains the first timestamp, even if a defective retry changes only the timestamp. An equal pair with changed content returns `409` and preserves the first snapshot.
 
-Game transactionally advances the World revision and records its outbox touch with every projected change: reset activation, boost selection, history coverage change, public fixed-slot/status change or withdrawal. A publisher reads one committed consistent snapshot under reconciled authority. Acknowledgement follows Platform's durable atomic content+revision commit. Only `accepted` or `superseded` clears Game outbox rows through the sent pair; concurrent newer rows remain. Crash before/after acknowledgement therefore safely repeats delivery. No projection failure rolls back a gameplay change.
+Game transactionally advances the World revision and records its outbox touch with every projected change: reset activation, calendar/derived interval change, boost selection, history coverage change, publishable raid/status change or withdrawal. A publisher reads one committed consistent snapshot under reconciled authority. Acknowledgement follows Platform's durable atomic content+revision commit. Only `accepted` or `superseded` clears Game outbox rows through the sent pair; concurrent newer rows remain. Crash before/after acknowledgement therefore safely repeats delivery. No projection failure rolls back a gameplay change.
 
 Compare epoch/revision pairs lexicographically. Lower pairs are `superseded`; higher pairs replace the complete subject. Because these are complete snapshots, skipped revision numbers do not imply missing deltas. Completeness comes from the outbox and watermark, not sequence contiguity or arrival time. Persist the highest public epoch across all participating public families; first sight of a higher epoch invalidates all entries below it. A snapshot/watermark from an older epoch cannot restore freshness.
 
@@ -149,7 +163,7 @@ Transient failures back off 1, 2, 4…60 seconds, reset on acknowledged delivery
 
 Proposed testing/preproduction freshness reuses public-family `S=30` seconds and clock uncertainty 1 second. At every serve/cache hit require `Platform_now - complete_through + 1 ≤ 30`, no future watermark beyond uncertainty, highest epoch, valid subject, current privacy evidence and current time provably inside the daily half-open interval. Unsafe clocks deny current-day claims. No stale serving window: family stale/unavailable/invalid/rebuilding means no authoritative daily entries; T88 answers unavailable (503 for its data endpoint), never zero/no raids, and T94 disables dependent predictions. A cached object cannot outlive any of these gates. Unknown or ambiguous state denies disclosure/actions that require current evidence. Production freshness values require owner acceptance and measured evidence; no automatic production enablement.
 
-History is presentation evidence within its stated coverage, not proof that any current boost remains active. Public projections never authorize admission, ownership, rewards or gameplay benefits. Prediction locking/outcome rules require a separate accepted contract before T94 can do more than display this schedule.
+History is presentation evidence within its stated coverage, not proof that any current boost remains active. Public projections never authorize admission, ownership, rewards or gameplay benefits. T94 stays blocked: this family provides no prediction outcome source. Prediction locking and closure require a separately accepted authoritative outcome contract.
 
 ## Privacy, retention and rollout
 
@@ -163,53 +177,53 @@ Proposed switches `world_daily.publish_enabled`, `world_daily.ingest_enabled`, `
 
 ## Versioning and compatibility
 
-This is a proposed additive family of the existing public-projection protocol, with daily `contract_version: 1`. Existing family payloads and responses remain unchanged. Both peers must explicitly support the new operation and watermark enum before activation; an older consumer's `400` must stall this family, not suppress it or enable a fallback. Adding a field, changing its order/type/nullability/bound, changing identity, public release, coverage or response semantics requires a new accepted wire version and coordinated rollout. No ignore-unknown-fields rule, version negotiation downgrade or mixed-version read model. Source revisions, reset epochs, recovery epochs and wire versions are different dimensions.
+This is a proposed additive family of `oteryn-game-public-projections-v2`, with `contract_version: 2`, `PublishWorldDailyV2` at `/internal/v2/game-public/world-daily` and `PublishPublicProjectionWatermarkV2` at `/internal/v2/game-public/watermark`. The V2 family enum is defined in [G-4](OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md) and includes `world_daily`; the v1 watermark enum stays closed and unchanged. Both peers must explicitly support the new V2 operation and family before activation; an older consumer's `400` stalls this family. Existing v1 payloads and responses remain unchanged, with no downgrade or redirect. G-8 supplies the single source of online time: owner-only online intervals and public world totals. G-4 drops its own `character_activity` family; this daily family supplies no online time. Adding a field, changing its order/type/nullability/bound, changing identity, public release, coverage or response semantics requires a new accepted wire version and coordinated rollout. No ignore-unknown-fields rule or mixed-version read model. Source revisions, reset epochs, recovery epochs and wire versions are different dimensions.
 
 ## Golden proposed payloads
 
 Synthetic keys below illustrate wire syntax, not catalogue membership. In a deployed fixture they must resolve to the pinned Game content. Fenced bodies are exact single-line JSON; the newline before the closing fence is documentation only.
 
-Valid complete snapshot with a current boost, one historical interval and one fixed raid slot:
+Valid complete snapshot with a current boost, one historical interval and one committed running fixed-slot raid (observation is after its slot):
 
 ```json
-{"contract_version":1,"operation":"PublishWorldDailyV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":"17","source_observed_at":"1790000010","daily":[{"reset_epoch":"42","effective_from":"1790000000","effective_until":"1790086400","creature_key":"rat","boss_key":"ferumbras","history_complete_from":"1789913600","history":[{"reset_epoch":"41","effective_from":"1789913600","effective_until":"1790000000","creature_key":"dragon","boss_key":"orshabaal"}],"raids":[{"raid_key":"raid:badger","scheduled_at":"1790003600","state":"scheduled"}]}]}
+{"contract_version":2,"operation":"PublishWorldDailyV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":"17","source_observed_at":"1790003610","daily":[{"reset_epoch":"42","effective_from":"1790000000","effective_until":"1790086400","creature_key":"rat","boss_key":"ferumbras","history_complete_from":"1789913600","history":[{"reset_epoch":"41","effective_from":"1789913600","effective_until":"1790000000","creature_key":"dragon","boss_key":"orshabaal"}],"raids":[{"raid_key":"raid:badger","scheduled_at":"1790003600","state":"running"}]}]}
 ```
 
 Valid explicit withdrawal (not a producer outage):
 
 ```json
-{"contract_version":1,"operation":"PublishWorldDailyV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":"18","source_observed_at":"1790000020","daily":[]}
+{"contract_version":2,"operation":"PublishWorldDailyV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":"18","source_observed_at":"1790003620","daily":[]}
 ```
 
-Valid watermark, assuming Platform now is at least 1790000022 and every earlier change was acknowledged:
+Valid watermark, assuming Platform now is at least 1790003622 and every earlier change was acknowledged:
 
 ```json
-{"contract_version":1,"operation":"PublishPublicProjectionWatermarkV1","source_authority":"oteryn:game:primary","family":"world_daily","projection_epoch":"2","complete_through":"1790000020","observed_at":"1790000023"}
+{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"oteryn:game:primary","family":"world_daily","projection_epoch":"2","complete_through":"1790003620","observed_at":"1790003623"}
 ```
 
 Invalid `400`: numeric revision instead of decimal string and nullable body:
 
 ```json
-{"contract_version":1,"operation":"PublishWorldDailyV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":19,"source_observed_at":"1790000030","daily":null}
+{"contract_version":2,"operation":"PublishWorldDailyV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":19,"source_observed_at":"1790003630","daily":null}
 ```
 
 Invalid `400`: completeness later than observation; no stored watermark change:
 
 ```json
-{"contract_version":1,"operation":"PublishPublicProjectionWatermarkV1","source_authority":"oteryn:game:primary","family":"world_daily","projection_epoch":"2","complete_through":"1790000040","observed_at":"1790000030"}
+{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"oteryn:game:primary","family":"world_daily","projection_epoch":"2","complete_through":"1790003640","observed_at":"1790003630"}
 ```
 
 Invalid `409` after accepting the first complete example: exact same pair now withdraws different content. First snapshot remains stored but affected serving is blocked for reconciliation:
 
 ```json
-{"contract_version":1,"operation":"PublishWorldDailyV1","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":"17","source_observed_at":"1790000010","daily":[]}
+{"contract_version":2,"operation":"PublishWorldDailyV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":"17","source_observed_at":"1790003610","daily":[]}
 ```
 
 ## Acceptance checklist — Game owner/producer
 
-- [ ] Coordinator accepts this exact proposal revision, public fixed-slot disclosure and the answers below; confirms Game source mapping and content-key bounds.
-- [ ] Add daily family/watermark enum under the existing purpose-bound publisher, without changing gameplay query opcodes or granting Platform mutations.
-- [ ] Prove committed World/reset interval and durable boost selection mapping; same-day restarts and concurrent Channels do not redraw or duplicate.
+- [ ] Coordinator accepts this exact proposal revision, disclosure only from committed running onward and the answers below; confirms Game source mapping and content-key bounds.
+- [ ] Add V2 daily family and watermark using the G-4 V2 family enum under the existing purpose-bound publisher; preserve the closed v1 enum, without changing gameplay query opcodes or granting Platform mutations.
+- [ ] Prove next-slot derivation within the same calendar revision, committed World/reset interval and durable boost selection mapping (including epoch zero); same-day restarts and concurrent Channels do not redraw or duplicate.
 - [ ] Prove fixed-slot state mappings against runtime commit evidence; skipped, random and source-scheduled raids cannot become fabricated promises/results.
 - [ ] Transactional revision/outbox covers every projected field, withdrawal and coverage change; exact retry, changed-content conflict and ACK races are exercised.
 - [ ] Restore external fence, higher-epoch full resync, deleted-World inventory, late transaction watermark and poison/oversize withholding are tested.
@@ -222,17 +236,19 @@ Invalid `409` after accepting the first complete example: exact same pair now wi
 - [ ] Guard identity/authority/World scope, TLS, closed schema, canonical encoding, bounds, unsupported versions and disabled/misconfigured surfaces.
 - [ ] Atomic snapshot+watermark/fence storage; duplicate, conflicting pair, superseded pair, cross-family epoch raise and post-restore replay tests pass.
 - [ ] Verify completeness, interval edges, history coverage, empty versus unknown, withheld poison row, timeout-after-commit and lost ACK recovery.
-- [ ] T88 current/history/cache/API paths and T94 dependencies fail closed on stale or ambiguous evidence; no page-render call to Game.
+- [ ] T88 current/history/cache/API paths fail closed and T94 stays blocked without an outcome source; dependent paths fail closed on stale or ambiguous evidence; no page-render call to Game.
 - [ ] Current privacy floor fences every public cache/search/SSR generation, including rollback and withdrawal; owner-only diagnostics and retention are verified.
 - [ ] Baseline/resync/tail rebuild proves all configured Worlds and watermark before switching; flags remain off until exact-revision cross-repository E2E succeeds.
 - [ ] Game and Platform independently record acceptance; production activation remains a separate authorized decision. Runtime E2E is not applicable to this docs-only draft and is mandatory for later implementation.
 
 ## Open questions for the game owner (coordinator)
 
-1. Accept `world_daily` as one World snapshot family with the proposed route/operation and existing public-projection identity, epoch and watermark? Which exact producer child will own it?
-2. What authoritative reset source provides a finite interval end, including extra saves, postponed saves and early resets? If the next end can change, how will the update reach Platform before the old interval becomes false?
-3. May fixed raid slots be publicly disclosed before execution? Which content qualifies, and what durable evidence maps skipped slots and actual runtime completion to the proposed public states? Should raids instead be a separately gated family if their source cannot be complete with boosts?
-4. Accept excluding random/source-scheduled future triggers, internal firing IDs and detailed gameplay progress? Which separately accepted outcome source, if any, should eventually support T94 prediction closure?
-5. Accept 30-day/32-interval boost history with explicit coverage, 256 slots and 131072-byte snapshot bound, including multiple resets per day? Confirm exact content-key grammar and the narrowed 128-byte raid key bound against actual content.
-6. Accept the retention and owner-only diagnostic policy, 30-second freshness/1-second uncertainty in testing/preproduction, rate limits and no stale display? Production cadence, maximum transaction bound, durable external fence location and load evidence remain to be named.
-7. Accept extending operator-only resync and exported-World withdrawal inventory under the existing public epoch fence, with no Platform → Game command in v1? Identify rollout environments, exact peer revisions and acceptance evidence before G-12 closure.
+Closed questions are recorded below as answered; they no longer request an owner decision. Implementation qualifications in the acceptance checklists remain open and do not imply acceptance of this revision.
+
+1. **Answered — V2 compatibility:** use `/internal/v2/game-public/*` and the V2 family enum defined in G-4, as for G-8. The v1 watermark enum remains closed and unchanged. Exact producer allocation/revision remains implementation evidence for acceptance.
+2. **Answered — interval end and epoch:** `reset_epoch` is an unsigned integer ≥0. Game does not store `effective_until`; derive it from the next reset slot within the same `calendar_revision`, never across revisions. If that next slot cannot be established, withhold publication/freshness. Calendar changes require a new consistent snapshot/revision before affected interval claims are served.
+3. **Answered — raid disclosure:** Game has only `Running`, `Done` and `Cancelled`. Publish fixed-slot raids from running onward; expose no future or skipped slots and invent no cancellation for a skipped slot.
+4. **Answered — exclusions and T94:** no random triggers. Internal firing IDs and detailed gameplay progress remain excluded. There is no T94 outcome source; T94 stays blocked pending a separately accepted authoritative source.
+5. **Answered — yes:** accept 30-day/32-interval boost history with explicit coverage, 256 raid records and the 131072-byte snapshot bound, including multiple resets per day, and the proposed content-key grammar/128-byte raid key bound.
+6. **Answered — yes:** accept retention, owner-only diagnostics, testing/preproduction freshness of 30 seconds with 1-second uncertainty, rate limits and no stale display. Production cadence, transaction bound, external fence location and measured load evidence remain implementation/activation qualifications.
+7. **Answered — operator resync only:** rebuild through the authorized Game operator process, with exported-World withdrawal inventory under the existing public epoch fence. No Platform → Game resync command. Rollout environments, exact peer revisions and acceptance evidence are still required before G-12 closure.
