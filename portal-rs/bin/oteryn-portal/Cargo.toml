@@ -21,3 +21,4 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 oteryn-gateway = { path = "../../crates/gateway" }
 oteryn-community = { path = "../../crates/community" }
 oteryn-internal-api = { path = "../../crates/internal-api" }
+oteryn-payments = { path = "../../crates/payments" }

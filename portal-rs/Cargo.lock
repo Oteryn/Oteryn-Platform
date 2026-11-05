@@ -1197,15 +1197,23 @@ version = "0.1.0"
 name = "oteryn-payments"
 version = "0.1.0"
 dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
  "hmac 0.12.1",
  "oteryn-core",
  "oteryn-db",
+ "oteryn-store",
+ "oteryn-web",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
  "thiserror",
+ "time",
  "tokio",
+ "tower",
+ "unic-langid",
  "uuid",
 ]
 
@@ -1223,6 +1231,7 @@ dependencies = [
  "oteryn-db",
  "oteryn-gateway",
  "oteryn-internal-api",
+ "oteryn-payments",
  "oteryn-web",
  "tokio",
  "tracing",
