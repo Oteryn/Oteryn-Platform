@@ -3,3 +3,5 @@
 pub mod events;
 pub mod news;
 pub mod pages;
+
+pub mod media;
