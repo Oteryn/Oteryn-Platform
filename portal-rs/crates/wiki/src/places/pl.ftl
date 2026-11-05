@@ -1,0 +1,9 @@
+title = Miejsca polowań, bestiariusza i bossów
+unavailable = Brak zatwierdzonych danych.
+reports = Raporty graczy są obecnie niedostępne. Moderatorzy sprawdzają raporty przed publikacją.
+level = Poziom
+party = Liczba graczy
+experience = Doświadczenie na godzinę
+profit = Zysk na godzinę
+points = Punkty
+completion = Szacowany czas ukończenia (sekundy)

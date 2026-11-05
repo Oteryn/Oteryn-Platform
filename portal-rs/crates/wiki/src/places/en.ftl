@@ -1,0 +1,9 @@
+title = Hunting, bestiary and boss places
+unavailable = No qualified data available.
+reports = Player reports are currently unavailable. Reports are reviewed by moderators before publication.
+level = Level
+party = Party size
+experience = Experience per hour
+profit = Profit per hour
+points = Points
+completion = Estimated completion time (seconds)
