@@ -1,0 +1,14 @@
+title = Season pass
+unavailable = The season pass is currently unavailable. No coins were charged and no rewards were issued.
+xp = Season points
+price = Price in coins
+buy = Buy paid track
+claim = Claim reward
+free = Free track
+paid = Paid track
+claimed = Request accepted
+journal = Game journal challenge
+portal = Portal challenge
+challenges = Challenges
+rewards = Cosmetic rewards
+ends = Season ends (UTC)

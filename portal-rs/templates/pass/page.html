@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><link rel="stylesheet" href="/static/css/app.css"></head><body class="op-theme" data-theme="dark"><main class="op-container op-stack"><h1>{{ title }}</h1>
+{% match overview %}{% when Some with (view) %}
+<p>{{ end_label }}: {{ view.ends_at }}</p><p>{{ xp_label }}: {{ view.progress.xp }}</p>
+<section class="op-card op-stack"><h2>{{ paid_label }}</h2><p>{{ price_label }}: {{ view.price }}</p>
+{% if view.progress.paid %}<p>{{ claimed_label }}</p>{% else if view.can_buy %}
+<form method="post" action="/{{ lang }}/pass/{{ view.season }}/buy"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ operation }}"><button class="op-button" type="submit">{{ buy_label }}</button></form>{% endif %}</section>
+<section class="op-stack"><h2>{{ challenges_label }}</h2>{% for challenge in view.challenges %}<article class="op-card"><h3>{% if challenge.definition.source.key() == "journal" %}{{ journal_label }}{% else %}{{ portal_label }}{% endif %}</h3><p>{{ challenge.definition.metric }}</p><p>{{ challenge.amount }} / {{ challenge.definition.target }}</p><p>{{ xp_label }}: {{ challenge.definition.xp }}</p></article>{% endfor %}</section>
+<section class="op-stack"><h2>{{ rewards_label }}</h2>{% for reward in view.rewards %}<article class="op-card"><h3>{{ reward.definition.grant_key }}</h3><p>{% if reward.definition.paid %}{{ paid_label }}{% else %}{{ free_label }}{% endif %} · {{ xp_label }}: {{ reward.definition.xp }}</p>{% if reward.claimed %}<p>{{ claimed_label }}</p>{% else if reward.eligible %}<form method="post" action="/{{ lang }}/pass/{{ view.season }}/claim"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ reward.operation }}"><input type="hidden" name="reward" value="{{ reward.definition.id }}"><button class="op-button" type="submit">{{ claim_label }}: {{ reward.definition.grant_key }}</button></form>{% endif %}</article>{% endfor %}</section>
+{% when None %}<p role="status">{{ unavailable }}</p>{% endmatch %}
+</main></body></html>

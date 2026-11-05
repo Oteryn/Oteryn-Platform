@@ -2980,6 +2980,7 @@ dependencies = [
  "oteryn-atlas",
  "oteryn-db",
  "oteryn-identity",
+ "oteryn-wallet",
  "oteryn-web",
  "oteryn-world",
  "serde",
