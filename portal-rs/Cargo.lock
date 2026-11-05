@@ -1827,8 +1827,10 @@ name = "oteryn-identity"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "askama",
  "axum",
  "email_address",
+ "fluent-bundle",
  "getrandom 0.4.3",
  "oteryn-db",
  "oteryn-web",
@@ -1837,8 +1839,10 @@ dependencies = [
  "serde_urlencoded",
  "sha2 0.10.9",
  "sqlx",
+ "subtle",
  "tokio",
  "tower",
+ "unic-langid",
  "uuid",
 ]
 

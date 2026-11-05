@@ -6,3 +6,5 @@ pub mod password;
 pub mod register;
 pub mod verify;
 pub use accounts::AccountId;
+pub mod recovery_key;
+pub mod recovery_key_http;
