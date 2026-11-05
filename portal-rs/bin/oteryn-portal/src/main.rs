@@ -32,6 +32,15 @@ async fn main() -> ExitCode {
         .init();
 
     let arg = std::env::args().nth(1);
+    if arg.as_deref() == Some("gateway") {
+        return match gateway::run().await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                tracing::error!(%error, "gateway stopped");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let Some(role) = parse_role(arg.as_deref()) else {
         tracing::error!(role = ?arg, "unknown role; expected serve, migrate or worker");
         return ExitCode::from(2);
@@ -85,3 +94,5 @@ mod tests {
         assert_eq!(parse_role(Some("drop-database")), None);
     }
 }
+
+mod gateway;

@@ -17,3 +17,5 @@ oteryn-web = { version = "0.1.0", path = "../../crates/web" }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "signal"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+
+oteryn-gateway = { path = "../../crates/gateway" }
