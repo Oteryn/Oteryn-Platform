@@ -4,5 +4,6 @@ pub mod tiles;
 
 pub mod web;
 
-pub mod delivery;
 pub mod spawns;
+
+pub mod delivery;

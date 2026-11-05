@@ -212,3 +212,125 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .nest_service("/static", ServeDir::new(static_dir))
         .merge(surface::module_router())
         .merge(surface::module_routes())
+        .merge(oteryn_identity::abuse::http::routes(state.db.clone()))
+        .merge(register::routes())
+        .merge(verify::routes())
+        .route(
+            "/account",
+            get(
+                |State(state): State<AppState>,
+                 axum::Extension(session): axum::Extension<session::BrowserSession>,
+                 axum::Extension(lang): axum::Extension<Language>| async move {
+                    oteryn_characters::overview::show(
+                        &state.db,
+                        session.account_id().await,
+                        lang.code(),
+                        std::env::var("OTERYN_ACCOUNT_OVERVIEW_ENABLED").as_deref() == Ok("true"),
+                        oteryn_characters::overview::configured_projection(),
+                    )
+                    .await
+                },
+            ),
+        )
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.db.clone(),
+            oteryn_identity::abuse::http::protect,
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            session_layer,
+            session::middleware,
+        ))
+        .method_not_allowed_fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
+        .fallback(|| async { StatusCode::NOT_FOUND })
+        .merge(oteryn_gameauth::runtime::routes(state.db.clone()))
+        .merge(oteryn_gameauth::scopes::routes(state.db.clone()))
+        .merge(oteryn_gameauth::devices::routes(state.db.clone()))
+        .with_state(state)
+        .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
+        .layer(TraceLayer::new_for_http());
+    let router = router.layer(axum::middleware::from_fn(verify::protect_token));
+    security_headers(router)
+        // OAuth keeps its protocol envelopes outside the site error renderer.
+        .merge(oauth_routes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{Body, to_bytes};
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    fn app() -> Result<Router, sqlx::Error> {
+        let db = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+        Ok(router(AppState { db }, "static"))
+    }
+
+    #[tokio::test]
+    async fn health_answers_ok_with_security_headers() -> Result<(), Box<dyn std::error::Error>> {
+        let response = app()?
+            .oneshot(Request::get("/healthz").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+            "nosniff"
+        );
+        assert!(
+            response
+                .headers()
+                .contains_key(header::CONTENT_SECURITY_POLICY)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn home_renders_the_layout() -> Result<(), Box<dyn std::error::Error>> {
+        let response = app()?
+            .oneshot(Request::get("/").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        let location = response.headers()[header::LOCATION].to_str()?;
+        let response = app()?
+            .oneshot(Request::get(location).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), MAX_BODY_BYTES).await?;
+        let html = String::from_utf8(body.to_vec())?;
+        assert!(html.contains("<html lang=\"pl\">"));
+        assert!(html.contains("Portal w budowie."));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unknown_route_is_not_found() -> Result<(), Box<dyn std::error::Error>> {
+        let response = app()?
+            .oneshot(Request::get("/missing").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        Ok(())
+    }
+}
+
+mod surface;
+
+pub use surface::{CspNonce, Language, WebOptions, module_router, router_with_options};
+
+/// Dedicated internal listener surface; the TLS adapter supplies verified peers.
+pub fn internal_character_router(
+    projection: oteryn_characters::lcfa::Projection,
+    identities: std::sync::Arc<oteryn_internal_api::guard::IdentityMap>,
+) -> Router {
+    oteryn_characters::lcfa::router(projection, identities)
+}
+
+pub mod csrf;
+pub mod session;
+
+pub mod ratelimit;
+pub mod redirects;
+#[path = "routes/register.rs"]
+pub mod register;
+pub mod seo;
+#[path = "routes/verify.rs"]
+pub mod verify;
