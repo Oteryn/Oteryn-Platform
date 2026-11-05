@@ -36,3 +36,6 @@ version = "0.16.1"
 [dev-dependencies.tower]
 version = "0.5.3"
 features = ["util"]
+
+[dependencies.sha2]
+version = "0.10"

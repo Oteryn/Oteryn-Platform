@@ -1,4 +1,4 @@
-use oteryn_db::outbox::{self, OffsetDateTime, PgPool, Uuid};
+use oteryn_db::outbox::{PgPool, Uuid};
 use serde::{Deserialize, Serialize};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -18,16 +18,6 @@ pub enum Profession {
     Herbalist,
     Fisher,
     Merchant,
-}
-impl Profession {
-    fn key(self) -> &'static str {
-        match self {
-            Self::Miner => "miner",
-            Self::Herbalist => "herbalist",
-            Self::Fisher => "fisher",
-            Self::Merchant => "merchant",
-        }
-    }
 }
 /// Supplied by a reviewed catalogue; never inferred from existing house services.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,45 +101,15 @@ pub struct Expedition {
     pub reward_table: String,
 }
 impl<E: Eligibility> Hirelings<E> {
-    /// Projects a committed store entitlement, never debits a wallet locally.
+    /// Purchase is blocked until the Store grant mapping is accepted and implemented.
     pub async fn purchase(
         &self,
-        account: Uuid,
-        house: Uuid,
-        entitlement: Uuid,
-        profession: Profession,
-    ) -> Result<Uuid> {
-        if !self.flags.enabled
-            || !self.eligibility.active_account(account)
-            || [account, house, entitlement].iter().any(Uuid::is_nil)
-            || !self
-                .eligibility
-                .allowed(account, house, entitlement, profession)
-        {
-            return Err(refused());
-        }
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,92))")
-            .bind(account.to_string())
-            .execute(&mut *tx)
-            .await?;
-        let old: Option<(Uuid, Uuid, Uuid, String)> = sqlx::query_as(
-            "SELECT id,account_id,house_id,profession FROM hirelings WHERE entitlement_id=$1",
-        )
-        .bind(entitlement)
-        .fetch_optional(&mut *tx)
-        .await?;
-        if let Some((id, owner, old_house, old_profession)) = old {
-            if owner != account || house != old_house || old_profession != profession.key() {
-                return Err(refused());
-            }
-            return Ok(id);
-        }
-        let slot: Option<i16> = sqlx::query_scalar("SELECT s::smallint FROM generate_series(1,3) s WHERE NOT EXISTS(SELECT 1 FROM hirelings WHERE account_id=$1 AND slot=s) ORDER BY s LIMIT 1").bind(account).fetch_optional(&mut *tx).await?;
-        let id = Uuid::now_v7();
-        sqlx::query("INSERT INTO hirelings(id,account_id,house_id,entitlement_id,profession,slot) VALUES($1,$2,$3,$4,$5,$6)").bind(id).bind(account).bind(house).bind(entitlement).bind(profession.key()).bind(slot.ok_or_else(refused)?).execute(&mut *tx).await?;
-        tx.commit().await?;
-        Ok(id)
+        _account: Uuid,
+        _house: Uuid,
+        _entitlement: Uuid,
+        _profession: Profession,
+    ) -> std::result::Result<Uuid, crate::commands::Reject> {
+        Err(crate::commands::Reject::PurchaseBlocked)
     }
     pub async fn state(&self, account: Uuid) -> Result<Vec<Hireling>> {
         if !self.flags.enabled || !self.eligibility.active_account(account) || account.is_nil() {
@@ -168,66 +128,15 @@ impl<E: Eligibility> Hirelings<E> {
         }
         Ok(sqlx::query_as("SELECT id,hireling_id,destination,state,reward_table::text AS reward_table FROM hireling_expeditions WHERE account_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100").bind(account).fetch_all(&self.pool).await?)
     }
-    /// Caller supplies a trusted catalogue entry, never client-controlled rewards.
-    /// Reserves one account-wide weekly slot; game receipts will govern actual loot.
+    /// The legacy local model cannot authorize a contract command; use `Commands`.
     pub async fn start(
         &self,
-        account: Uuid,
-        hireling: Uuid,
-        request: Uuid,
-        destination: &Destination,
+        _account: Uuid,
+        _hireling: Uuid,
+        _request: Uuid,
+        _destination: &Destination,
     ) -> Result<Uuid> {
-        destination.validate()?;
-        if self.account_weekly_limit <= 0 || destination.weekly_limit != self.account_weekly_limit {
-            return Err(refused());
-        }
-        if !self.flags.enabled
-            || !self.eligibility.active_account(account)
-            || !self.flags.command_outbox
-            || [account, hireling, request].iter().any(Uuid::is_nil)
-        {
-            return Err(refused());
-        }
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,92))")
-            .bind(account.to_string())
-            .execute(&mut *tx)
-            .await?;
-        let (house, entitlement, profession): (Uuid,Uuid,String) = sqlx::query_as("SELECT house_id,entitlement_id,profession FROM hirelings WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(hireling).bind(account).fetch_optional(&mut *tx).await?.ok_or_else(refused)?;
-        if profession != destination.profession.key()
-            || !self
-                .eligibility
-                .allowed(account, house, entitlement, destination.profession)
-        {
-            return Err(refused());
-        }
-        let table = serde_json::to_string(destination)?;
-        let old: Option<(Uuid,Uuid,String)> = sqlx::query_as("SELECT account_id,hireling_id,reward_table::text FROM hireling_expeditions WHERE id=$1").bind(request).fetch_optional(&mut *tx).await?;
-        if let Some((owner, target, rewards)) = old {
-            if owner != account
-                || target != hireling
-                || serde_json::from_str::<serde_json::Value>(&rewards)?
-                    != serde_json::from_str::<serde_json::Value>(&table)?
-            {
-                return Err(refused());
-            }
-            return Ok(request);
-        }
-        let reserved: Option<i32> = sqlx::query_scalar("INSERT INTO hireling_weekly_limits(account_id,week,reserved) VALUES($1,date_trunc('week',now() AT TIME ZONE 'UTC')::date,1) ON CONFLICT(account_id,week) DO UPDATE SET reserved=hireling_weekly_limits.reserved+1,updated_at=now() WHERE hireling_weekly_limits.reserved<$2 RETURNING reserved").bind(account).bind(destination.weekly_limit).fetch_optional(&mut *tx).await?;
-        reserved.ok_or_else(refused)?;
-        sqlx::query("INSERT INTO hireling_expeditions(id,account_id,hireling_id,destination,reward_table,duration_hours,state) VALUES($1,$2,$3,$4,$5::text::jsonb,$6,'pending')").bind(request).bind(account).bind(hireling).bind(&destination.key).bind(table).bind(i32::from(destination.hours)).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO hireling_commands(id,account_id,expedition_id,kind) VALUES($1,$2,$1,'start')").bind(request).bind(account).execute(&mut *tx).await?;
-        outbox::enqueue(
-            &mut tx,
-            "hirelings.command",
-            &serde_json::json!({"command_id":request,"kind":"start"}).to_string(),
-            &request.to_string(),
-            OffsetDateTime::now_utc(),
-            1,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(request)
+        Err(crate::commands::Reject::LegacyBoundaryUnavailable.into())
     }
 }
 
@@ -244,95 +153,19 @@ impl ReceiptVerifier for DenyReceipts {
     }
 }
 impl<E: Eligibility> Hirelings<E> {
-    /// No portal timer can mark an expedition returned or award an item.
+    /// Legacy return evidence is insufficient for the accepted command boundary.
     pub async fn record_return(
         &self,
-        account: Uuid,
-        expedition: Uuid,
-        receipt: Uuid,
-        verifier: &impl ReceiptVerifier,
-        notifications: &oteryn_notify::Notifications,
+        _account: Uuid,
+        _expedition: Uuid,
+        _receipt: Uuid,
+        _verifier: &impl ReceiptVerifier,
+        _notifications: &oteryn_notify::Notifications,
     ) -> Result<()> {
-        if !self.flags.enabled
-            || !self.flags.command_outbox
-            || !self.eligibility.active_account(account)
-            || receipt.is_nil()
-            || !verifier.returned(account, expedition, receipt)
-        {
-            return Err(refused());
-        }
-        let mut tx = self.pool.begin().await?;
-        let old: Option<(String,Option<Uuid>)> = sqlx::query_as("SELECT state,receipt_id FROM hireling_expeditions WHERE id=$1 AND account_id=$2 FOR UPDATE")
-            .bind(expedition).bind(account).fetch_optional(&mut *tx).await?;
-        let (state, previous) = old.ok_or_else(refused)?;
-        if previous == Some(receipt) && state == "returned" {
-            return Ok(());
-        }
-        if previous.is_some() || !matches!(state.as_str(), "pending" | "running") {
-            return Err(refused());
-        }
-        sqlx::query("UPDATE hireling_expeditions SET state='returned',receipt_id=$2,updated_at=now() WHERE id=$1").bind(expedition).bind(receipt).execute(&mut *tx).await?;
-        // Existing T36 preferences use the optional News category for this notice.
-        let locale = notifications
-            .accounts
-            .active_verified(account)
-            .await?
-            .ok_or_else(refused)?
-            .locale;
-        let lang = if matches!(locale, oteryn_notify::Locale::Pl) {
-            "pl"
-        } else {
-            "en"
-        };
-        notifications
-            .enqueue(
-                &mut tx,
-                account,
-                &oteryn_notify::EmailTemplate::News {
-                    title: crate::text(lang, "returned-title")?,
-                    body: crate::text(lang, "returned-body")?,
-                },
-            )
-            .await?;
-        tx.commit().await?;
-        Ok(())
+        Err(crate::commands::Reject::LegacyBoundaryUnavailable.into())
     }
-    /// Claim remains an intent; only the game may place loot in a house chest.
-    pub async fn claim(&self, account: Uuid, expedition: Uuid) -> Result<Uuid> {
-        if !self.flags.enabled
-            || !self.flags.command_outbox
-            || !self.eligibility.active_account(account)
-        {
-            return Err(refused());
-        }
-        let mut tx = self.pool.begin().await?;
-        let row: Option<(String,Uuid,Uuid,String)> = sqlx::query_as("SELECT e.state,h.house_id,h.entitlement_id,h.profession FROM hireling_expeditions e JOIN hirelings h ON h.id=e.hireling_id WHERE e.id=$1 AND e.account_id=$2 AND h.account_id=$2 FOR UPDATE OF e,h").bind(expedition).bind(account).fetch_optional(&mut *tx).await?;
-        let (state, house, entitlement, profession) = row.ok_or_else(refused)?;
-        let profession = match profession.as_str() {
-            "miner" => Profession::Miner,
-            "herbalist" => Profession::Herbalist,
-            "fisher" => Profession::Fisher,
-            "merchant" => Profession::Merchant,
-            _ => return Err(refused()),
-        };
-        if state != "returned"
-            || !self
-                .eligibility
-                .allowed(account, house, entitlement, profession)
-        {
-            return Err(refused());
-        }
-        let id:Uuid=sqlx::query_scalar("INSERT INTO hireling_commands(id,account_id,expedition_id,kind) VALUES($1,$2,$3,'claim') ON CONFLICT(expedition_id,kind) DO UPDATE SET updated_at=hireling_commands.updated_at RETURNING id").bind(Uuid::now_v7()).bind(account).bind(expedition).fetch_one(&mut *tx).await?;
-        outbox::enqueue(
-            &mut tx,
-            "hirelings.command",
-            &serde_json::json!({"command_id":id,"kind":"claim"}).to_string(),
-            &id.to_string(),
-            OffsetDateTime::now_utc(),
-            1,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(id)
+    /// Collection requires the typed boundary and authoritative expedition evidence.
+    pub async fn claim(&self, _account: Uuid, _expedition: Uuid) -> Result<Uuid> {
+        Err(crate::commands::Reject::LegacyBoundaryUnavailable.into())
     }
 }

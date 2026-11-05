@@ -1,7 +1,7 @@
 returned-title = Your house helper has returned
 returned-body = Your expedition has ended. Check your helper's chest in the game.
 title = House helpers
-limit = You may own up to three helpers. Expedition rewards have an account-wide weekly limit.
+limit = Up to three helpers per account may be on unfinished expeditions. Expedition rewards have an account-wide weekly limit.
 waiting = Expedition selection and purchases await verified store and game contracts. No coins will be charged here.
 helpers = Your helpers
 history = Expedition history
