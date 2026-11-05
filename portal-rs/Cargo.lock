@@ -2754,6 +2754,7 @@ dependencies = [
  "axum",
  "fluent-bundle",
  "oteryn-admin",
+ "oteryn-content",
  "oteryn-db",
  "oteryn-internal-api",
  "oteryn-notify",

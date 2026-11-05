@@ -327,6 +327,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_atlas::delivery::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let app = oteryn_community::today::configured_mount(
+                app,
+                oteryn_db::lazy_pool(config.database_url())?,
+            );
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             axum::serve(listener, app)
                 .with_graceful_shutdown(async {
