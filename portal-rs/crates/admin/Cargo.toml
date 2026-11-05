@@ -81,3 +81,6 @@ features = ["time"]
 [dependencies.tower]
 version = "0.5.3"
 features = ["util"]
+
+[dev-dependencies.totp-rs]
+version = "5.7.2"

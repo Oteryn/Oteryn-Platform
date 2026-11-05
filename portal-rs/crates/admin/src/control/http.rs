@@ -81,6 +81,7 @@ impl From<store::Error> for HttpError {
             }
             store::Error::SelfApproval => Self::forbidden(),
             store::Error::Storage(e) => e.into(),
+            store::Error::Audit(_) => Self(StatusCode::SERVICE_UNAVAILABLE, "ADM_INTERNAL"),
         }
     }
 }

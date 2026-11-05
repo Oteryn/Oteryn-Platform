@@ -538,9 +538,49 @@ impl Mfa {
     /// Denies absent, revoked, expired, foreign and stale credential proofs.
     pub async fn satisfied(&self, id: AccountId, grant: &str) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
-        Ok(Self::valid(&mut tx, grant, "grant")
+        self.satisfied_in_transaction(&mut tx, id, grant).await
+    }
+    /// Read-only grant verification under the caller's transaction. The account
+    /// lock is retained through domain/audit commit to serialize revocation.
+    pub async fn satisfied_in_transaction(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: AccountId,
+        grant: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let valid = Self::valid(tx, grant, "grant")
             .await?
-            .is_some_and(|v| v.0 == id))
+            .is_some_and(|v| v.0 == id);
+        if !valid {
+            return Ok(false);
+        }
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_mfa_tokens WHERE token_hash=$1 AND expires_at>clock_timestamp() AND created_at<=clock_timestamp())")
+            .bind(digest(grant)).fetch_one(&mut **tx).await
+    }
+    /// Consumes a fresh TOTP counter for an active, verified, enrolled account.
+    /// Recovery/email/device proofs are deliberately not accepted for staff elevation.
+    pub async fn verify_totp(&self, id: AccountId, code: &str) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let active = Self::lock(&mut tx, id).await?.is_some();
+        let state = Self::state(&mut tx, id).await?;
+        let step = match state.as_ref() {
+            Some(state) if active && state.confirmed => self.step(id, state, code, now()?)?,
+            _ => None,
+        };
+        let Some(step) = step else {
+            Self::refuse(tx, Some(id)).await?;
+            return Ok(false);
+        };
+        sqlx::query(
+            "UPDATE account_mfa_totp SET last_step=$2,updated_at=now() WHERE account_id=$1",
+        )
+        .bind(id)
+        .bind(step)
+        .execute(&mut *tx)
+        .await?;
+        Self::audit(&mut tx, Some(id), "mfa.step_up.totp").await?;
+        tx.commit().await?;
+        Ok(true)
     }
     /// Safe identifiers only; bearer material is never listed.
     pub async fn devices(&self, id: AccountId) -> Result<Vec<String>, sqlx::Error> {
