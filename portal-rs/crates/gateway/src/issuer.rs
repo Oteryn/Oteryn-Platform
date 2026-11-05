@@ -36,9 +36,15 @@ impl IssuerClient {
         crate::config::validate_url(base_url)?;
         let roots =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let tls = rustls::ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
+        // Pin the provider: other crates in the workspace enable a second rustls
+        // backend, so the process-wide default cannot be inferred.
+        let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(|error| error.to_string())?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_owned(),
             token,
