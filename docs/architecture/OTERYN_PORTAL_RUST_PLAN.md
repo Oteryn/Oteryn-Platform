@@ -35,6 +35,7 @@ Zasady projektu:
 | Gracz | Postacie | Przegląd konta z postaciami (poziom, profesja, świat), tworzenie, usuwanie z anulowaniem, zmiana nazwy, płci i świata, pełne ustawienia profilu publicznego (§5.5) |
 | Gracz | Wiedza o świecie | Wiki generowana z treści świata gry (przedmioty, potwory, NPC, czary, questy, łupy, miejsca) i uzupełniana przez redakcję; Atlas, czyli interaktywna mapa świata z warstwami i znacznikami; wyszukiwarka |
 | Gracz | Społeczność | Rankingi, profile, gildie, domy, zgony, online, status światów |
+| Gracz | Handel z graczami | Bazar: licytacje postaci, ogłoszenia i licytacje cennych przedmiotów, za coiny albo złoto z gry, z depozytem po obu stronach (§5.6) |
 | Gracz | Zakupy | Saldo coinów, doładowanie, sklep, status premium, historia, transfer coinów, płatności i rachunki |
 | Gracz | Pomoc | Zgłoszenia z załącznikami, zgłaszanie graczy, historia kar z potwierdzeniem i odwołaniem, FAQ, zgłoszenie błędu |
 | Gracz | Być na bieżąco | Newsy, wydarzenia, ogłoszenia, strona „Dziś”, powiadomienia (e-mail i w kliencie) z preferencjami, wybór języka |
@@ -44,7 +45,7 @@ Zasady projektu:
 | Admin | Kontrola | Role i uprawnienia, audyt, flagi, cennik sklepu, zwroty |
 | Operacje | Działający system | Status światów, wydania klienta (TUF), zdrowie systemu, kolejki |
 
-Poza pierwszym wydaniem zostają: bazar postaci i przedmiotów, analizator sesji, zarządzanie węzłami gry, obserwacja GM-a i aplikacja mobilna. Szablony strony głównej z obecnego portalu zastępuje jedna nowa strona główna (T39b).
+Bazar postaci i przedmiotów jest w zakresie (§5.6, D13). Poza pierwszym wydaniem zostają: analizator sesji, zarządzanie węzłami gry, obserwacja GM-a i aplikacja mobilna. Szablony strony głównej z obecnego portalu zastępuje jedna nowa strona główna (T39b).
 
 ## 3. Architektura
 
@@ -88,6 +89,7 @@ portal-rs/
     community/               projekcje publiczne: rankingi, profile, gildie, domy, zgony, online, światy
     wallet/                  ledger coinów, transfer, blokady, idempotencja
     store/                   cennik, zakup, dostawa (wire sklepu), historia
+    bazaar/                  bazar: licytacje postaci, ogłoszenia i licytacje przedmiotów, depozyt, rozliczenie, statystyki
     payments/                interfejs dostawcy, webhooki (provider za traitem)
     support/                 zgłoszenia, zgłoszenia graczy, kary, odwołania
     admin/                   RBAC, audyt, panel
@@ -102,7 +104,7 @@ portal-rs/
   tests/                     testy integracyjne i kontraktowe
 ```
 
-Każdy moduł domenowy ma typy i reguły bez I/O, repozytorium (sqlx) i handlery HTTP w swoim crate'cie. Crate `web` składa router z modułów. Moduły nie zależą od siebie nawzajem, poza `core`, `db` i jawnie nazwanymi interfejsami: `identity::AccountId`, `wallet::Ledger`. `payments` zależy od `wallet`, nigdy odwrotnie.
+Każdy moduł domenowy ma typy i reguły bez I/O, repozytorium (sqlx) i handlery HTTP w swoim crate'cie. Crate `web` składa router z modułów. Moduły nie zależą od siebie nawzajem, poza `core`, `db` i jawnie nazwanymi interfejsami: `identity::AccountId`, `wallet::Ledger`. `payments` i `bazaar` zależą od `wallet`, nigdy odwrotnie.
 
 ### 3.3 Hosty i role
 
@@ -139,6 +141,7 @@ Wszystkie identyfikatory to UUIDv7. Kwoty to `bigint` w najmniejszej jednostce. 
 | wallet | `wallet_accounts`, `wallet_entries` (niezmienne, saldo jako suma z blokadą wiersza konta), `wallet_transfers`, `wallet_adjustments` (korekty zespołu z powodem) |
 | premium | `premium_ledger` (nadania, odebrania, zakupy; stan jako suma), `loyalty_state` |
 | store | `store_price_list_imports`, `store_active_catalog`, `store_offers`, `store_purchase_requests`, `store_orders`, `store_order_lines`, `store_fulfilment_units`, `store_operations` (outbox DELIVER), `store_receipts`, `store_reconcile_state` |
+| bazaar | `bazaar_listings` (rodzaj: postać lub przedmiot; forma: licytacja, ogłoszenie, kupno; waluta: coiny lub złoto; cena, „przyjmuję oferty”, stan, koniec), `bazaar_snapshots` (dane z gry, hash, czas), `bazaar_escrow` (stan depozytu w grze), `bazaar_bids` (oferta maksymalna, rezerwa portfela albo blokada złota w grze), `bazaar_offers` (oferty do ogłoszeń), `bazaar_settlements` (kwota, prowizja, komenda do gry, receipt), `bazaar_watches`, `bazaar_saved_searches`, `bazaar_reports` |
 | payments | `payment_intents`, `payment_events` (idempotencja po id dostawcy), `invoices` |
 | support | `tickets`, `ticket_messages` (też wewnętrzne), `ticket_attachments`, `player_reports`, `sanctions` (ostrzeżenie, ograniczenie, zawieszenie; potwierdzenie gracza), `appeals` |
 | admin | `roles`, `role_permissions`, `account_roles`, `audit_log` (tylko dopisywanie), `feature_flags`, `four_eyes_requests`, `player_notes` |
@@ -224,10 +227,11 @@ Panel działa na osobnym hoście, z obowiązkowym MFA. Uprawnienia odpowiadają 
 | Gracze | Wyszukiwanie, widok konta bez danych wrażliwych, sesje, postacie, wylogowanie wszędzie, notatki, reset MFA po weryfikacji przez support | T49 |
 | Support i moderacja | Zgłoszenia z notatkami wewnętrznymi, zgłoszenia graczy, kary, odwołania | T51 |
 | Handel | Cennik sklepu, nadanie i odebranie premium, korekta salda z powodem, rekoncyliacja płatności, zwroty | T28, T50 |
+| Bazar | Moderacja ofert i zgłoszeń, wstrzymanie oferty, unieważnienie transakcji, opłaty i lista zbywalnych przedmiotów | T64 |
 | Wydania klienta | Kanały i polityka aktualizatora | T35 |
 | System | Role, audyt, flagi, zdrowie | T10, T10b |
 
-Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwroty, aktywacja cennika, nadanie roli admina, korekta salda powyżej progu i reset MFA.
+Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwroty, aktywacja cennika, unieważnienie transakcji bazaru, nadanie roli admina, korekta salda powyżej progu i reset MFA.
 
 ### 5.5 Panel gracza
 
@@ -258,7 +262,8 @@ Panel obejmuje wszystko, co dziś ma Laravel, oraz to, czego tam brakuje lub co 
 | Zgłaszanie graczy | Jest | Jest | T33c | – |
 | Historia kar i odwołania | Jest (tylko zapis w Platform) | Jest; zawieszenie konta blokuje logowanie do gry | T34, T34b | Kary w grze: G-5 |
 | Postacie w kliencie (urządzenia) | Wyłączone | Jest, za flagą | T21 | – |
-| Bazar postaci, analizator sesji | Bazar wyłączony, analizator jest | Poza pierwszym wydaniem (D1) | – | – |
+| Bazar | Tylko postacie, wyłączony | Postacie i cenne przedmioty: licytacje, ogłoszenia, depozyt, statystyki (§5.6) | T57–T64 | G-7 |
+| Analizator sesji | Jest | Poza pierwszym wydaniem (D1) | – | – |
 | Ostatnie logowanie, czas online | Brak | Na profilu, z przełącznikiem prywatności (D11) | T24b | G-4 (dziś kontrakt je wyklucza, LCFA:48) |
 | Dane konta w przeglądzie | Brak | Data założenia, ostatnie logowanie w grze i na stronie, status konta, saldo, punkty i tytuł lojalności | T44 | Logowanie w grze: G-4 |
 | Kreator bezpieczeństwa | Brak | Ocena bezpieczeństwa konta i lista kroków: potwierdzony e-mail, 2FA, klucz odzyskiwania, zapasowy e-mail, data ostatniej zmiany hasła | T53 | – |
@@ -273,6 +278,157 @@ Panel obejmuje wszystko, co dziś ma Laravel, oraz to, czego tam brakuje lub co 
 | Saldo coinów | Jedno saldo | Rozbicie: dostępne, przenoszalne, zarezerwowane | T26 | – |
 | Polecenia znajomych | Brak | Zaproszenie i powrót gracza, nagrody i statystyki | T56 | Nagrody w grze przez sklep |
 | Tworzenie postaci, filtry świata | – | Sugestia nazwy; filtry świata (typ PvP, lokalizacja), gdy będzie więcej światów | T22c | – |
+
+Reguły z przeglądu panelu Tibii. Przenosimy mechanikę, nie wygląd. Zadanie w nawiasie obejmuje regułę:
+
+- Przegląd konta pokazuje przy postaci dom, gildię, ukrycie i trwające usunięcie. Limity postaci aktywnych i łącznie są w konfiguracji. Nazwa usuniętej postaci jest zablokowana przez 6 miesięcy w `reserved_names` (T44, T46).
+- Pasek statusu konta informuje o:
+  - niepotwierdzonym e-mailu;
+  - odpowiedzi w zgłoszeniu;
+  - nowej karze;
+  - oczekującej zmianie e-maila;
+  - zaplanowanym usunięciu konta (T44).
+- Ustawienia postaci pokazują zgony z 30 dni i zabójstwa PvP z 10 tygodni. Jest też ukrycie wszystkich postaci konta naraz (T45, dane z G-4).
+- Niepotwierdzone konto:
+  - może ponownie wysłać link;
+  - może poprawić adres przed potwierdzeniem;
+  - do potwierdzenia nie ma dostępu do sklepu, bazaru ani płatnych usług (T03).
+- Klucz odzyskiwania:
+  - przy generowaniu gracz wpisuje go ponownie dla sprawdzenia;
+  - jest wymagany do wyłączenia 2FA;
+  - nowy klucz można dostać przez zapasowy e-mail (T05b).
+- E-mail: zmiana od razu z kluczem odzyskiwania albo po okresie oczekiwania z możliwością anulowania (Q8). Gracz może też zamienić adres główny z zapasowym (T08b).
+- Zaufane urządzenia są ważne 30 dni i znikają przy zmianie hasła lub 2FA (T06). Zmiana hasła wymaga obecnego hasła i wysyła e-mail (T08c).
+- Strona wylogowuje po 45 minutach bezczynności; czas jest w konfiguracji (T02).
+- Zgłoszenia graczy:
+  - lista z 30 dni ze statusem;
+  - najwyżej 20 oczekujących;
+  - blokada zgłaszania po wielu nieuzasadnionych (T33c).
+- Historia kar pokazuje poziom zachowania konta (T34b). Zgłoszenia supportu mają znacznik nowej odpowiedzi i są przechowywane 180 dni (T33).
+- Historia w panelu (T47) obejmuje:
+  - premium;
+  - płatności, z wycofaniem nieopłaconego przelewu;
+  - coiny (+/−, prezenty, bazar);
+  - usługi;
+  - kody.
+- Zgody na e-maile informacyjne i powrotne są oddzielone od zgód obowiązkowych (T09c, T36).
+- Lojalność:
+  - punkt za każdy dzień premium;
+  - tytuły na progach;
+  - ranking lojalności per świat;
+  - bonus w grze tylko wtedy, gdy gra go wdroży (T27b, T24a).
+- Odzyskiwanie konta bez logowania obejmuje:
+  - nowe hasło;
+  - przejęte konto;
+  - natychmiastową zmianę e-maila kluczem;
+  - nowy klucz;
+  - wyłączenie 2FA kluczem (T05, T05b).
+- Rejestracja tworzy od razu pierwszą postać, z sugestią nazwy, płcią i wyborem świata (T03, T22c).
+- Pomijamy:
+  - dane adresowe i telefon (odzyskiwanie pocztą, SMS);
+  - aplikację Observer;
+  - wymianę tokenów.
+
+### 5.6 Bazar
+
+Bazar to miejsce, gdzie gracze sprzedają innym graczom postacie i cenne przedmioty za coiny albo za złoto z gry. Walutę wybiera sprzedawca przy wystawieniu. W portalu nazywa się po prostu „Bazar” (D13). Wzorce, przejrzane 2026-11-05:
+
+- Char Bazaar Tibii: licytacje postaci;
+- Exevopan: wyszukiwarka, filtry i statystyki aukcji;
+- TibiaTrade: ogłoszenia przedmiotów i historia cen.
+
+Najważniejsza różnica: portal pilnuje obu stron transakcji. Postać albo przedmiot czeka w depozycie gry. Coiny kupującego czekają w rezerwie portfela, a złoto w blokadzie po stronie gry. Wymiana dzieje się automatycznie, więc nie da się oszukać przy przekazaniu. TibiaTrade tylko łączy strony i nie odpowiada za wymianę.
+
+| Co | Forma | Zasady |
+| --- | --- | --- |
+| Postać | Licytacja | Cena minimalna, czas trwania, opcjonalnie „kup teraz” (Q10). Od wystawienia postać jest zablokowana: nie można się na nią zalogować ani jej zmienić. Po sprzedaży przechodzi na konto kupującego, a bez ofert wraca do sprzedawcy |
+| Przedmiot | Ogłoszenie | Cena stała albo „przyjmuję oferty”. Oferta kupującego rezerwuje coiny; sprzedawca ją przyjmuje albo odrzuca. Ogłoszenie trwa 14 dni i można je odnowić |
+| Przedmiot | Licytacja | Jak przy postaci: cena minimalna, czas, opcjonalnie „kup teraz” |
+| Przedmiot | Ogłoszenie kupna | Gracz szuka przedmiotu, podaje cenę albo czeka na oferty. Sprzedawca odpowiada przedmiotem z depozytu |
+
+Przedmioty:
+
+- Wystawić można każdy przedmiot, który gra oznaczy jako zbywalny.
+- Admin może zawęzić listę albo ustawić minimalną wartość.
+- Stos ma cenę za sztukę.
+- Atrybuty przedmiotu (np. ulepszenie) pochodzą z depozytu gry, nie z opisu sprzedawcy.
+
+Przepływ:
+
+1. Wystawienie w portalu wymaga potwierdzonego e-maila, 2FA i trybu sudo. Opłata za wystawienie: Q9. Gra sprawdza warunki (np. dom, gildia, aktywna kara) i podaje powód odmowy.
+2. Gra blokuje postać albo przenosi przedmioty do depozytu bazaru i zwraca snapshot z hashem. Portal publikuje ofertę dopiero po tym potwierdzeniu.
+3. Licytacja:
+   - gracz podaje swoją ofertę maksymalną, a system podbija cenę automatycznie o minimalny krok;
+   - na ofertę maksymalną portfel rezerwuje coiny, a gra blokuje złoto kupującego;
+   - przebita oferta zwalnia rezerwę;
+   - oferta w ostatnich minutach przedłuża aukcję (ochrona przed snipingiem);
+   - coinami licytuje się tylko przenoszalnymi.
+4. Rozliczenie:
+   - przy coinach jedna transakcja portfela obciąża kupującego i uznaje sprzedawcę, pomniejszając kwotę o prowizję (Q9);
+   - przy złocie gra przenosi zablokowane złoto kupującego do sprzedawcy, a portal zleca to komendą i czeka na potwierdzenie;
+   - komenda do gry przenosi postać (TransferCharacterOwnership) albo dostarcza przedmiot na wybraną postać kupującego;
+   - komenda ma outbox, klucz idempotencji i rekoncyliację;
+   - coiny sprzedawcy stają się dostępne po potwierdzeniu przekazania z gry.
+5. Sprzedawca może anulować ofertę przed pierwszą ofertą kupna. Później anuluje tylko zespół, na zasadzie czterech oczu. Oferta wygasła bez sprzedaży wraca do sprzedawcy.
+
+Wyszukiwanie i filtry. Wszystkie filtry są dostępne za darmo; w Exevopan część jest płatna.
+
+- Postacie:
+  - świat, typ PvP i lokalizacja;
+  - profesja, poziom od–do, umiejętność z zakresem;
+  - nazwa, przedmiot posiadany przez postać;
+  - usługi i rozszerzenia ze sklepu, outfity i mounty;
+  - questy, osiągnięcia i punkty, które gra poda w snapshocie;
+  - tylko z ofertami, rzadkie nazwy.
+- Przedmioty: kategoria, typ, nazwa, atrybuty, świat, sprzedam lub kupię, waluta, cena od–do, tylko z ceną.
+- Postacie i przedmioty: waluta (coiny albo złoto).
+- Sortowanie: koniec, początek, cena, poziom albo umiejętność, rosnąco lub malejąco.
+- Zakładki: bieżące, zakończone (z ceną sprzedaży), moje oferty kupna, moje wystawienia, obserwowane.
+
+Strony:
+
+- Karta postaci zawiera:
+  - nazwę, poziom, profesję, świat, outfit i 4 wyróżnione przedmioty;
+  - czas do końca aukcji;
+  - obecną albo minimalną ofertę;
+  - umiejętności z paskami;
+  - skrót punktów i questów;
+  - automatyczne etykiety, np. „dużo questów” albo „rzadkie mounty”.
+- Szczegóły postaci mają zakładki ze snapshotu:
+  - ogólne: HP, mana, udźwig, szybkość, błogosławieństwa, umiejętności z procentem, data utworzenia, doświadczenie, złoto, możliwość transferu świata;
+  - przedmioty z wyszukiwaniem i kategoriami;
+  - przedmioty ze sklepu;
+  - outfity, mounty, osiągnięcia, questy.
+
+  Zakładki zależą od systemów gry; systemy, których gra nie ma, nie mają zakładek. Strona pokazuje datę i hash snapshotu.
+- Strona ogłoszenia przedmiotu pokazuje:
+  - opis z gry i link do wiki;
+  - cenę;
+  - sprzedawcę;
+  - cenę rynkową z ostatnich transakcji z linkiem do historii;
+  - przycisk zgłoszenia;
+  - link do udostępnienia z podglądem (Open Graph).
+- Profil sprzedawcy pokazuje postać wybraną przez sprzedawcę, liczbę zakończonych transakcji, datę dołączenia i aktywne oferty. Kontakt odbywa się przez oferty z krótką wiadomością; czatu nie ma.
+
+Ulepszenia ponad wzorce:
+
+- depozyt i automatyczne rozliczenie zamiast zaufanego pośrednika;
+- jawna licytacja z ofertą maksymalną i ochrona przed snipingiem;
+- obserwowane oferty i zapisane wyszukiwania z powiadomieniem (e-mail i w kliencie): nowa pasująca oferta, przebicie, koniec za godzinę, wygrana;
+- historia cen i cena rynkowa (mediana ostatnich transakcji), osobno dla coinów i złota;
+- statystyki: obrót, odsetek udanych aukcji, podział profesji, rekordy;
+- szacowanie wartości postaci na podstawie podobnych sprzedanych;
+- porównanie dwóch postaci;
+- wyróżnienie oferty za coiny (Q9).
+
+Bezpieczeństwo:
+
+- Nie można licytować własnej oferty.
+- Zawieszone konto nie wystawia i nie licytuje.
+- Oferty kupna mają limity.
+- Zespół może wstrzymać ofertę.
+- Wszystkie operacje trafiają do audytu, a kwoty do niezmiennego ledgera.
+- Postać kupioną na bazarze można wystawić ponownie dopiero po karencji (Q10).
 
 ## 6. Integracja z grą
 
@@ -290,6 +446,7 @@ Panel obejmuje wszystko, co dziś ma Laravel, oraz to, czego tam brakuje lub co 
 | Komendy postaci poza tworzeniem | Usunięcie i anulowanie, nazwa, płeć, świat (G-3) | Brak kontraktu; dane cyklu życia postaci są tylko szkicem |
 | Rozszerzone dane publiczne | Zgony z zabójcą, gildie, domy, osiągnięcia, umiejętności, ekwipunek (G-4) | Zgony, gildie, domy CANDIDATE; reszta: dane są, projekcji brak |
 | Usunięcie konta | Co dzieje się z postaciami i projekcjami (G-6) | Brak |
+| Bazar | Blokada i snapshot postaci, warunki wystawienia, depozyt i dostawa przedmiotów, blokada i przekazanie złota (G-7); przeniesienie postaci przez TransferCharacterOwnership z GAME-CHAR-CMD | Przeniesienie jest w kontrakcie komend; snapshot i depozyt brak |
 | Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
 | Dane świata (wiki, Atlas) | Odczyt `content/**` z przypiętego commita gry (§6.1) | Dane są; flaga widoczności brak (G-2); publikacja grafik: zgoda (D7) |
 | Granty admission | FND-04B-AMEND-1 | Pole status: ACCEPTED (2026-11-05), ale treść ma otwarte decyzje właściciela. Traktujemy jako propozycję i **nie implementujemy na jej podstawie**, dopóki decyzje nie zapadną |
@@ -367,6 +524,7 @@ Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie cz�
 - CSRF: token synchronizowany dla każdej mutacji w web.
 - Tokeny API: nieprzezroczyste, przechowywane jako SHA-256, z zakresami. Refresh rotowany; ponowne użycie unieważnia całą rodzinę.
 - Waluta: transakcja z `SELECT ... FOR UPDATE` na koncie portfela, brak ujemnych sald, klucz idempotencji dla każdej operacji.
+- Bazar: postać i przedmiot w depozycie gry, coiny w rezerwie portfela, złoto w blokadzie gry, rozliczenie w jednej transakcji z kluczem idempotencji; unieważnienie tylko na zasadzie czterech oczu.
 - Webhooki płatności: weryfikacja podpisu, idempotencja po id zdarzenia, ochrona przed powtórzeniem.
 - Nagłówki: CSP bez `unsafe-inline`, HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`.
 - Uploady: limit rozmiaru, sprawdzanie typu po zawartości, przetwarzanie obrazów, brak wykonywania.
@@ -393,7 +551,7 @@ Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie cz�
 
    Nie kopiuje sesji ani tokenów w locie (reset hasła, zmiana e-maila). Gracz loguje się ponownie i w razie potrzeby powtarza prośbę.
 3. Weryfikacja importu: liczby i sumy kontrolne, logowanie próbnych kont, zgodność sald.
-4. Bazar jest wyłączony poza środowiskiem testowym, więc w produkcji nie ma otwartych aukcji ani zablokowanych coinów. Import to sprawdza i przerywa się, jeśli jakieś znajdzie.
+4. Bazar Laravela jest wyłączony poza środowiskiem testowym, więc w produkcji nie ma otwartych aukcji ani zablokowanych coinów. Import to sprawdza i przerywa się, jeśli jakieś znajdzie. Nowy bazar startuje pusty.
 5. Przekierowania 301 ze starych adresów (T43): `/highscores` → `/rankings/level`, `/servers` → `/worlds`, `/getting-started` → `/start`, `/wiki/{slug}` → `/wiki/articles/{slug}`, `/wiki/items/*` i `/wiki/creatures/*` → strony encji.
 6. Przełączenie domeny i gatewaya na nowy portal (rola `gateway` zamiast `services/game-gateway`). Laravel i gateway w Go zostają wyłączone, a ich kod i workflowy CI są usuwane z repozytorium osobnym PR-em.
 
@@ -494,19 +652,28 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T54 | Odznaki konta, wybór do 5 osiągnięć na profilu, postać do rankingu lojalności | T45, T47 | `crates/characters/src/badges*` |
 | T55 | Kody prezentowe i kody z gry: generowanie (admin), realizacja jednorazowa i idempotentna, przypisanie do postaci | T26, T27 | `crates/store/src/codes*` |
 | T56 | Polecenia znajomych: zaproszenia, powrót gracza, nagrody i statystyki | T36, T55 | `crates/community/src/referrals*` |
+| T57 | Bazar, rdzeń: wystawienia w coinach lub złocie, oferty, licytacja z ofertą maksymalną, ochrona przed snipingiem, stany; rezerwy w portfelu; rozliczenie z prowizją (bez I/O gry) | T26 | `crates/bazaar/src/domain*`, migracja |
+| T58 | Bazar, gra (G-7): blokada i snapshot postaci, depozyt przedmiotów, blokada i przekazanie złota, przeniesienie i dostawa przez outbox, rekoncyliacja | T57, T22 | `crates/bazaar/src/game*`, trasy bazaru w `crates/internal-api` |
+| T59 | Bazar, postacie: wystawienie, karta, szczegóły z zakładkami ze snapshotu, licytacja | T57, T58, T39 | `crates/bazaar/src/characters*`, `templates/bazaar/` |
+| T60 | Bazar, przedmioty: ogłoszenia (cena stała, przyjmuję oferty, kupię), oferty i ich przyjęcie, licytacje przedmiotów | T57, T58, T14b | `crates/bazaar/src/items*`, `templates/bazaar/` |
+| T61 | Bazar: wyszukiwarka, filtry, sortowanie, zakładki, obserwowane, zapisane wyszukiwania | T59, T60 | `crates/bazaar/src/search*` |
+| T62 | Bazar: powiadomienia (przebicie, nowa oferta, koniec, wygrana, pasujące wyszukiwanie) | T61, T36 | `crates/bazaar/src/notify*` |
+| T63 | Bazar: historia cen, cena rynkowa, statystyki, szacowanie wartości postaci, porównanie postaci | T59, T60 | `crates/bazaar/src/stats*` |
+| T64 | Bazar: profil sprzedawcy, zgłoszenia ofert, wyróżnienie; panel zespołu (moderacja, wstrzymanie, unieważnienie z czterema oczami, opłaty, lista zbywalnych przedmiotów) | T59, T60, T10b, T33c | `crates/bazaar/src/moderation*`, `crates/admin/src/bazaar*` |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 | G-2 | (gra) Pole widoczności (public/hidden) w schematach questów, NPC i obszarów | – | Oteryn-Game, przez koordynatora |
 | G-3 | (gra) Komendy postaci: usunięcie i anulowanie, zmiana nazwy, płci i świata (rozszerzenie GAME-CHAR-CMD; płatne usługi rozlicza Platform) | – | Oteryn-Game, przez koordynatora |
 | G-4 | (gra) Rodziny publiczne: zgony z zabójcą, gildie, domy, osiągnięcia, umiejętności, ekwipunek i outfit, ostatnie logowanie i czas online (D11) | – | Oteryn-Game, przez koordynatora |
 | G-5 | (gra) Wykonywanie kar w grze (po D9) | – | Oteryn-Game, przez koordynatora |
 | G-6 | (gra) Usunięcie konta: los postaci i projekcji | – | Oteryn-Game, przez koordynatora |
+| G-7 | (gra) Bazar: blokada i podpisany snapshot postaci z hashem, warunki wystawienia, zbywalność przedmiotów, depozyt przedmiotów z atrybutami, dostawa do kupującego i zwrot do sprzedawcy; blokada złota kupującego (oferta, rezerwa), przekazanie złota sprzedawcy i zwolnienie blokady; przeniesienie postaci przez istniejące TransferCharacterOwnership | – | Oteryn-Game, przez koordynatora |
 
 Kolejność startu:
 
 1. T00 jest gotowy w PR #1685 (kompilujący się szkielet i job CI).
 2. Potem jednocześnie: T01, T14, T15, T37, T39 i T52.
-3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45, T53–T54), gry (T16–T25), handlu (T26–T32, T47, T55–T56) i panelu zespołu (T10–T10b, T49–T51).
-4. Zadania zależne od G-3…G-6 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
+3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45, T53–T54), gry (T16–T25), handlu (T26–T32, T47, T55–T56), bazaru (T57–T64) i panelu zespołu (T10–T10b, T49–T51).
+4. Zadania zależne od G-3…G-7 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
 
 ### 10.1 Szablon zadania dla Codexa
 
@@ -536,7 +703,7 @@ Pozostałe warunki:
 
 | # | Decyzja | Domyślnie |
 | --- | --- | --- |
-| D1 | Zakres pierwszego wydania | Sekcja 2 bez bazaru, analizatora, węzłów i obserwacji GM |
+| D1 | Zakres pierwszego wydania | Sekcja 2 bez analizatora, węzłów i obserwacji GM; bazar w zakresie (D13) |
 | D2 | Nowy job CI dla `portal-rs/` | **Zgoda** (2026-11-05), PR #1685 |
 | D3 | Dostawca płatności | Provider testowy do czasu wyboru (np. Stripe) |
 | D4 | Wygląd | Nowy projekt graficzny (T39) |
@@ -548,6 +715,7 @@ Pozostałe warunki:
 | D10 | Zmiana płci, świata i nazwy postaci | **Płatne** (2026-11-05), jak w Tibii: zmiana płci to kosmetyka, transfer świata płatny. Dziś jest jeden świat, więc transfer czeka na drugi. Zmiana nazwy też płatna |
 | D11 | Ostatnie logowanie i czas online na profilu | **Tak** (2026-11-05), z przełącznikiem prywatności gracza; wymaga danych z gry (G-4) |
 | D12 | Kolejność zadań gry G-3…G-6 | **G-4, G-3, G-6, G-5** (2026-11-05) |
+| D13 | Bazar | **Tak** (2026-11-05): nazwa „Bazar”; postacie na licytacji, cenne przedmioty w ogłoszeniu albo na licytacji; za coiny albo złoto z gry (§5.6). G-7 trafia do kolejki gry po G-5 |
 
 ## 12. Otwarte pytania
 
@@ -558,6 +726,8 @@ Pozostałe warunki:
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
 | Q5 | Akceptacja projektu | Właściciel | Start T01+ |
 | Q8 | Okres oczekiwania przy zmianie e-maila (Tibia: 30 dni i nowe hasło; dziś: potwierdzenie i link cofnięcia) | Właściciel | Tylko T08b |
+| Q9 | Opłaty bazaru: za wystawienie, prowizja od sprzedaży, cena wyróżnienia (Tibia pobiera opłatę za wystawienie i procent od sprzedaży) | Właściciel | Tylko wartości w konfiguracji T57 i T64 |
+| Q10 | Parametry bazaru: czasy trwania, „kup teraz”, minimalny krok, przedłużenie przy ofercie na końcu, karencja ponownej sprzedaży postaci | Właściciel | Tylko wartości w konfiguracji T57 |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
@@ -568,4 +738,5 @@ Pozostałe zadania nie czekają na te odpowiedzi.
 - Gra (main @60de8634): `docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json`, `crates/platform-client` (`lib.rs`, `native_login.rs`, `native_login/owner_characters.rs`), `crates/gameplay/native-admission-source` (`account_characters.rs`, `character_commands.rs`, `store.rs`, `restore_notice.rs`, `public_projections.rs`), `PROD-ENTITLEMENTS-01_GAME_CONSUMER_ENFORCEMENT_CONTRACT_CANDIDATE.md`.
 - Przegląd od strony gry: koordynator, 2026-11-05; stan panelu gracza po stronie gry: Game main @00c01066.
 - Inwentarz obecnego portalu i niezależny przegląd kompletności panelu gracza, 2026-11-05.
+- Przegląd panelu konta Tibii, Char Bazaar Tibii, Exevopan i TibiaTrade, 2026-11-05.
 - Szkic #1643: źródło pomysłów dla rozszerzeń (węzły, Atlas, obserwacja GM).
