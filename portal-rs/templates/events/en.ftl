@@ -1,0 +1,17 @@
+events = Events
+empty = No published events.
+create = Create event
+starts = Starts at (UTC)
+ends = Ends at (UTC)
+featured = Featured
+title = Title
+slug = Slug
+summary = Summary
+body = Content
+save = Save draft
+publication = Publication status
+draft = Draft
+scheduled = Scheduled
+published = Published
+archived = Archived
+apply = Change status
