@@ -149,6 +149,9 @@ async fn run_until(
 }
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
+    if let Some(delivery) = crate::sessions_http::delivery(pool.clone())? {
+        registry.notifications(delivery)?;
+    }
     registry.cleanup(
         "stats.poll",
         60,
