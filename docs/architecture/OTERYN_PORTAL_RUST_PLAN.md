@@ -231,18 +231,18 @@ Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwr
 
 ### 5.5 Panel gracza
 
-Panel obejmuje wszystko, co dziś ma Laravel, oraz to, czego tam brakuje lub co jest wyłączone. Porównanie powstało z inwentarza obecnego kodu i z tabeli stanu gry od koordynatora (Game main @00c01066).
+Panel obejmuje wszystko, co dziś ma Laravel, oraz to, czego tam brakuje lub co jest wyłączone. Porównanie powstało z inwentarza obecnego kodu i z tabeli stanu gry od koordynatora (Game main @00c01066). Uzupełniono je o przegląd panelu konta Tibii (2026-11-05). Przeniesiono funkcje, nie wygląd ani nazwy.
 
 | Funkcja | Laravel dziś | Nowy portal | Zadanie | Dane z gry |
 | --- | --- | --- | --- | --- |
 | Przegląd konta | Postać pokazuje tylko nazwę i znacznik „main” | Postacie z poziomem, profesją, światem i linkiem do profilu; stan powiązania z grą; limit postaci; skróty do bezpieczeństwa, premium i salda | T44 | LCFA i profil publiczny (są) |
 | Tworzenie postaci | Jest, wyłączone | Formularz, reguły nazw i lista zastrzeżonych, status operacji | T22c | GAME-CHAR-CMD-0 (jest, wyłączony) |
-| Usunięcie postaci z anulowaniem | Brak | Jest, z karencją | T46 | G-3 |
+| Usunięcie postaci z anulowaniem | Brak | Jest; przywrócenie przez 60 dni | T46 | G-3 |
 | Zmiana płci i transfer świata | Brak | Płatne coinami (D10); transfer włączony dopiero przy drugim świecie | T46 | G-3 |
 | Zmiana nazwy | Brak | Płatna coinami (D10) | T46 | G-3 |
 | Ustawienia profilu postaci | 2 z 9 opcji | Postać główna, ukrycie, komentarz i 7 przełączników widoczności | T45 | Niepotrzebne: portal sam renderuje profile |
 | Profil publiczny | Świat, profesja, poziom, gildia | Dodatkowo zgony, osiągnięcia, umiejętności, ekwipunek i dom, według ustawień gracza | T24b | Podstawowy jest; reszta G-4 |
-| Hasło, 2FA, kody odzyskiwania | Jest (TOTP) | Dodatkowo passkeys | T06, T07, T08c | – |
+| Hasło, 2FA, kody odzyskiwania | Jest (TOTP) | Dodatkowo passkeys, zaufane urządzenia i 2FA z e-maila | T06, T07, T08c | – |
 | Klucz odzyskiwania konta | Jest | Jest | T05b | – |
 | Zmiana e-maila z cofnięciem | Jest | Jest | T08b | – |
 | Sesje i urządzenia | Sesje web | Dodatkowo urządzenia klienta, historia logowań, alert o nowym urządzeniu | T08, T21 | – |
@@ -260,6 +260,19 @@ Panel obejmuje wszystko, co dziś ma Laravel, oraz to, czego tam brakuje lub co 
 | Postacie w kliencie (urządzenia) | Wyłączone | Jest, za flagą | T21 | – |
 | Bazar postaci, analizator sesji | Bazar wyłączony, analizator jest | Poza pierwszym wydaniem (D1) | – | – |
 | Ostatnie logowanie, czas online | Brak | Na profilu, z przełącznikiem prywatności (D11) | T24b | G-4 (dziś kontrakt je wyklucza, LCFA:48) |
+| Dane konta w przeglądzie | Brak | Data założenia, ostatnie logowanie w grze i na stronie, status konta, saldo, punkty i tytuł lojalności | T44 | Logowanie w grze: G-4 |
+| Kreator bezpieczeństwa | Brak | Ocena bezpieczeństwa konta i lista kroków: potwierdzony e-mail, 2FA, klucz odzyskiwania, zapasowy e-mail, data ostatniej zmiany hasła | T53 | – |
+| Zapasowy e-mail | Brak | Drugi potwierdzony adres do odzyskiwania konta | T08b | – |
+| Zaufane urządzenia | Brak | „Zapamiętaj urządzenie” przy 2FA, lista i usuwanie | T06 | – |
+| 2FA kodem z e-maila | Brak | Rezerwowa metoda, gdy aplikacja nie jest możliwa | T06 | – |
+| Odznaki konta | Brak | Odznaki za wiek konta, lojalność, sumę poziomów i poziomy wszystkich profesji; gracz wybiera, które pokazać na profilu | T54 | Poziomy: profil publiczny (jest) |
+| Osiągnięcia na profilu | Brak | Gracz wybiera do 5 zdobytych osiągnięć do pokazania | T54 | G-4 |
+| Postać do rankingu lojalności | Brak | Wybór postaci (nieukrytej) do rankingu lojalności | T54 | – |
+| Kody prezentowe i kody z gry | Brak | Realizacja kodu: coiny, premium albo usługa, przypisanie do postaci; kod jednorazowy, idempotentnie | T55 | – |
+| Usługi gotowe do użycia | Brak | Lista kupionych, jeszcze nieużytych usług (np. zmiana nazwy) | T46 | – |
+| Saldo coinów | Jedno saldo | Rozbicie: dostępne, przenoszalne, zarezerwowane | T26 | – |
+| Polecenia znajomych | Brak | Zaproszenie i powrót gracza, nagrody i statystyki | T56 | Nagrody w grze przez sklep |
+| Tworzenie postaci, filtry świata | – | Sugestia nazwy; filtry świata (typ PvP, lokalizacja), gdy będzie więcej światów | T22c | – |
 
 ## 6. Integracja z grą
 
@@ -400,10 +413,10 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T04 | Logowanie i wylogowanie, argon2id z rehashem, rate limit | T02 | `crates/identity/src/login*` |
 | T05 | Reset hasła | T04 | `crates/identity/src/reset*` |
 | T05b | Klucz odzyskiwania konta: generowanie, unieważnienie, odzyskanie (e-mail, klucz i nowe hasło) | T05 | `crates/identity/src/recovery_key*` |
-| T06 | 2FA TOTP, kody odzyskiwania, wyzwanie przy logowaniu | T04 | `crates/identity/src/mfa*` |
+| T06 | 2FA TOTP, kody odzyskiwania, wyzwanie przy logowaniu; zaufane urządzenia (lista, usuwanie); rezerwowe 2FA kodem z e-maila | T04 | `crates/identity/src/mfa*` |
 | T07 | Passkeys (WebAuthn) | T04 | `crates/identity/src/passkeys*` |
 | T08 | Sesje web: lista, unieważnienie jednej i wszystkich, historia logowań, e-mail o nowym urządzeniu | T04, T36 | `crates/identity/src/sessions*` |
-| T08b | Zmiana e-maila: potwierdzenie na nowy adres, link cofnięcia na stary, cooldown | T04, T36 | `crates/identity/src/email_change*` |
+| T08b | Zmiana e-maila: potwierdzenie na nowy adres, link cofnięcia na stary, cooldown (okres oczekiwania: Q8); zapasowy e-mail z potwierdzeniem | T04, T36 | `crates/identity/src/email_change*` |
 | T08c | Zmiana hasła i tryb sudo; po zmianie poświadczeń unieważnienie sesji web, rodzin OAuth i sesji urządzeń | T04, T16, T21 | `crates/identity/src/credentials*` |
 | T09 | Eksport danych (RODO) | T08 | `crates/identity/src/export*` |
 | T09b | Usunięcie konta: karencja 1–90 dni (domyślnie 14), anulowanie, finalizacja w workerze; przekazanie do gry po G-6 | T08c, T37 | `crates/identity/src/termination*` |
@@ -430,7 +443,7 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T21 | Sesje urządzeń (enroll, characters, tickets, revoke); kontrakt po stronie Platform | T17 | `crates/gameauth/src/devices*` |
 | T22 | `character-commands/{pending, read, receipt}` (CreateCharacter, TransferCharacterOwnership) | T18 | `crates/characters/src/commands*` |
 | T22b | `character-bootstrap-intents/read` (v3) | T18 | `crates/characters/src/bootstrap*` |
-| T22c | Tworzenie postaci z konta: formularz, reguły nazw i lista zastrzeżonych, status operacji | T22, T44 | `crates/characters/src/create_web*` |
+| T22c | Tworzenie postaci z konta: formularz, reguły nazw i lista zastrzeżonych, sugestia nazwy, status operacji | T22, T44 | `crates/characters/src/create_web*` |
 | T23 | `/internal/v1/game-auth/game-restore/notice` i rekoncyliacja | T22 | `crates/characters/src/restore*` |
 | T24 | Ingest projekcji publicznych: wspólny handler rodzin, watermark, migawki | T15 | `crates/community/src/ingest*` |
 | T24a | Rankingi: kategorie i filtr profesji | T24, T01 | `crates/community/src/rankings*` |
@@ -440,7 +453,7 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T24e | Gildie: lista i strona (po akceptacji rodziny w G-4) | T24 | `crates/community/src/guilds*` |
 | T24f | Domy: lista i strona (po akceptacji rodziny w G-4) | T24 | `crates/community/src/houses*` |
 | T25 | Status światów: strona i `GET /api/v1/worlds` | T24 | `crates/community/src/worlds*` |
-| T26 | Ledger portfela, saldo, historia, transfer coinów (blokady, idempotencja) | T04 | `crates/wallet` |
+| T26 | Ledger portfela, saldo (dostępne, przenoszalne, zarezerwowane), historia, transfer coinów (blokady, idempotencja) | T04 | `crates/wallet` |
 | T27 | Ledger premium i `premium-snapshots/read` (≤256 B) | T15, T26 | `crates/store/src/premium*` |
 | T27b | `loyalty-snapshots/read` | T27 | `crates/store/src/loyalty*` |
 | T28 | Import i aktywacja cennika sklepu (S-5, `catalog_revision` = SHA-256) | T10 | `crates/store/src/catalog*` |
@@ -468,15 +481,19 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T41 | Atlas: strona `/atlas` (przeglądarka kafli, warstwy, znaczniki, linki do wiki) | T40, T14 | `crates/atlas/src/web*`, `templates/atlas/`, `static/atlas/` |
 | T42 | Miniatury z `appearances-*.dat` i `sprites-*.bmp.lzma` do wiki i znaczników | T14 | `crates/world/src/sprites*` |
 | T43 | SEO i przejście: sitemap, robots, `hreflang`, przekierowania 301 ze starych adresów | T01 | `crates/web/src/seo*`, `crates/web/src/redirects*` |
-| T44 | Przegląd konta `/account`: postacie (poziom, profesja, świat, link do profilu), stan powiązania z grą, limit postaci, skróty do bezpieczeństwa, premium i salda | T18, T08 | `crates/characters/src/overview*`, `templates/account/` |
+| T44 | Przegląd konta `/account`: postacie (poziom, profesja, świat, link do profilu), stan powiązania z grą, limit postaci; data założenia, ostatnie logowanie w grze i na stronie, status konta, saldo, lojalność; skróty do bezpieczeństwa, premium i salda | T18, T08 | `crates/characters/src/overview*`, `templates/account/` |
 | T45 | Ustawienia profilu postaci: postać główna, ukrycie, komentarz, 7 przełączników widoczności | T44 | `crates/characters/src/profile*` |
-| T46 | Zarządzanie postacią: usunięcie z anulowaniem, zmiana nazwy, płci i świata; usługi płatne coinami (D10): obciążenie portfela razem z komendą do gry, zwrot przy odrzuconym potwierdzeniu; każda akcja za flagą do czasu G-3 | T22, T26, G-3 | `crates/characters/src/manage*` |
+| T46 | Zarządzanie postacią: usunięcie z przywróceniem przez 60 dni, lista usług gotowych do użycia, zmiana nazwy, płci i świata; usługi płatne coinami (D10): obciążenie portfela razem z komendą do gry, zwrot przy odrzuconym potwierdzeniu; każda akcja za flagą do czasu G-3 | T22, T26, G-3 | `crates/characters/src/manage*` |
 | T47 | Premium i płatności w panelu: status i data końca premium, historia płatności, rachunki | T27, T31 | `crates/store/src/account*`, `crates/payments/src/account*` |
 | T48 | Wyszukiwarka portalu: newsy, strony, wydarzenia, wiki, encje świata, postacie | T11, T14b, T24b | `crates/web/src/search*` |
 | T49 | Panel zespołu, gracze: wyszukiwanie, konto, sesje, postacie, wylogowanie wszędzie, notatki, reset MFA | T10b, T08 | `crates/admin/src/players*` |
 | T50 | Panel zespołu, handel: premium, korekta salda, rekoncyliacja płatności, zwroty | T10b, T26, T27, T31 | `crates/admin/src/commerce*` |
 | T51 | Panel zespołu, support i moderacja: zgłoszenia z notatkami wewnętrznymi, zgłoszenia graczy, kary, odwołania | T10b, T33c, T34b | `crates/admin/src/support*` |
 | T52 | Rola `gateway`: `POST /v1/login` (protokół 2, 11 kodów błędów, limiter), `/health`, `/ready`, `/version`; wektory golden z testów gatewaya Go i fixtures klienta gry (`platform-client/src/native_login/tests.rs`, przez koordynatora), zgodność bajt w bajt; bez konfiguracji bazy | T00 | `crates/gateway`, `bin/oteryn-portal/src/gateway*` |
+| T53 | Kreator bezpieczeństwa: ocena konta i lista brakujących kroków | T05b, T06, T08b | `crates/identity/src/security_wizard*` |
+| T54 | Odznaki konta, wybór do 5 osiągnięć na profilu, postać do rankingu lojalności | T45, T47 | `crates/characters/src/badges*` |
+| T55 | Kody prezentowe i kody z gry: generowanie (admin), realizacja jednorazowa i idempotentna, przypisanie do postaci | T26, T27 | `crates/store/src/codes*` |
+| T56 | Polecenia znajomych: zaproszenia, powrót gracza, nagrody i statystyki | T36, T55 | `crates/community/src/referrals*` |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 | G-2 | (gra) Pole widoczności (public/hidden) w schematach questów, NPC i obszarów | – | Oteryn-Game, przez koordynatora |
 | G-3 | (gra) Komendy postaci: usunięcie i anulowanie, zmiana nazwy, płci i świata (rozszerzenie GAME-CHAR-CMD; płatne usługi rozlicza Platform) | – | Oteryn-Game, przez koordynatora |
@@ -488,7 +505,7 @@ Kolejność startu:
 
 1. T00 jest gotowy w PR #1685 (kompilujący się szkielet i job CI).
 2. Potem jednocześnie: T01, T14, T15, T37, T39 i T52.
-3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45), gry (T16–T25), handlu (T26–T32, T47) i panelu zespołu (T10–T10b, T49–T51).
+3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45, T53–T54), gry (T16–T25), handlu (T26–T32, T47, T55–T56) i panelu zespołu (T10–T10b, T49–T51).
 4. Zadania zależne od G-3…G-6 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
 
 ### 10.1 Szablon zadania dla Codexa
@@ -540,6 +557,7 @@ Pozostałe warunki:
 | Q3 | Aktualizacja locka gry: N4P (z `native-admissions`) i GAME-CHAR-CMD-0 (§6) | Koordynator, G-1 | Nic; portal implementuje według kodu |
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
 | Q5 | Akceptacja projektu | Właściciel | Start T01+ |
+| Q8 | Okres oczekiwania przy zmianie e-maila (Tibia: 30 dni i nowe hasło; dziś: potwierdzenie i link cofnięcia) | Właściciel | Tylko T08b |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
