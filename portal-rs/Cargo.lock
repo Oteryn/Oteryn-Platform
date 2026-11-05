@@ -1055,6 +1055,20 @@ version = "0.1.0"
 [[package]]
 name = "oteryn-gameauth"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "oteryn-db",
+ "oteryn-gateway",
+ "oteryn-internal-api",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "subtle",
+ "tokio",
+ "tower",
+ "uuid",
+]
 
 [[package]]
 name = "oteryn-gateway"
@@ -1114,6 +1128,7 @@ dependencies = [
  "axum",
  "oteryn-core",
  "oteryn-db",
+ "oteryn-gameauth",
  "oteryn-gateway",
  "oteryn-web",
  "tokio",
