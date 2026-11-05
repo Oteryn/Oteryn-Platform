@@ -50,6 +50,7 @@ impl Database {
             include_str!("../../../../migrations/20261105170000_t10_rbac_audit.sql"),
             include_str!("../../../../migrations/20261105190100_t19_native_admissions.sql"),
             include_str!("../../../../migrations/20261105220235_t34_sanctions.sql"),
+            include_str!("../../../../migrations/20261105231600_support_sanction_revisions.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
         }
@@ -606,5 +607,356 @@ async fn db_unknown_sanction_state_and_unavailable_storage_never_authorize() -> 
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 0);
+    db.cleanup().await
+}
+
+fn intent(account: Uuid, action: SanctionAction, character: Option<Uuid>) -> SanctionIntent {
+    SanctionIntent {
+        account,
+        sanction_id: Uuid::now_v7(),
+        character,
+        action,
+    }
+}
+async fn apply(db: &Database, intent: &SanctionIntent) -> Result<SanctionReceipt, Error> {
+    let mut tx = db.pool.begin().await?;
+    let receipt = db.service().allocate_and_record(&mut tx, intent).await?;
+    tx.commit().await?;
+    Ok(receipt)
+}
+async fn state(db: &Database, character: Option<Uuid>) -> Result<EffectiveState, Error> {
+    let mut connection = db.pool.acquire().await?;
+    db.service()
+        .effective_state(&mut connection, db.target, character)
+        .await
+}
+
+#[tokio::test]
+async fn db_revision_concurrent_allocation_and_caller_rollback() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let mut tasks = tokio::task::JoinSet::new();
+    for _ in 0..16 {
+        let pool = db.pool.clone();
+        let target = db.target;
+        tasks.spawn(async move {
+            let service = Service::new(pool.clone(), ENABLED);
+            let mut tx = pool.begin().await?;
+            let receipt = service
+                .allocate_and_record(&mut tx, &intent(target, SanctionAction::Warning, None))
+                .await?;
+            tx.commit().await?;
+            Ok::<_, Error>(receipt.revision)
+        });
+    }
+    let mut revisions = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        revisions.push(result??);
+    }
+    revisions.sort_unstable();
+    assert_eq!(revisions, (1..=16).collect::<Vec<_>>());
+    let ban = intent(
+        db.target,
+        SanctionAction::Ban {
+            expires_at_ms: None,
+        },
+        None,
+    );
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service()
+            .allocate_and_record(&mut tx, &ban)
+            .await?
+            .revision,
+        17
+    );
+    assert_eq!(
+        db.service()
+            .effective_state(&mut tx, db.target, None)
+            .await?
+            .bans
+            .len(),
+        1
+    );
+    tx.rollback().await?;
+    assert_eq!(state(&db, None).await?.revision, 16);
+    assert!(state(&db, None).await?.bans.is_empty());
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM support_sanction_revisions WHERE account_id=$1")
+            .bind(db.target)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(count, 16);
+    assert_eq!(apply(&db, &ban).await?.revision, 17);
+    assert!(matches!(db.ticket().await, Err(Error::Denied)));
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn db_revision_permanent_unban_stale_and_conflicting_replay() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let ban = intent(
+        db.target,
+        SanctionAction::Ban {
+            expires_at_ms: None,
+        },
+        None,
+    );
+    assert_eq!(apply(&db, &ban).await?.revision, 1);
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service()
+            .record_at_revision(&mut tx, &ban, 1)
+            .await?
+            .revision,
+        1
+    );
+    let mut conflicting = ban.clone();
+    conflicting.action = SanctionAction::Unban;
+    assert!(matches!(
+        db.service()
+            .record_at_revision(&mut tx, &conflicting, 1)
+            .await,
+        Err(Error::RevisionConflict)
+    ));
+    tx.rollback().await?;
+    let current = state(&db, None).await?;
+    assert_eq!(current.bans[0].sanction_id, ban.sanction_id);
+    assert_eq!(current.bans[0].expires_at_ms, None);
+    apply(&db, &conflicting).await?;
+    assert!(state(&db, None).await?.bans.is_empty());
+    db.ticket().await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service().record_at_revision(&mut tx, &ban, 1).await,
+        Err(Error::StaleRevision)
+    ));
+    assert!(matches!(
+        db.service()
+            .record_at_revision(
+                &mut tx,
+                &intent(db.target, SanctionAction::Warning, None),
+                1
+            )
+            .await,
+        Err(Error::RevisionConflict)
+    ));
+    assert!(matches!(
+        db.service().record_at_revision(&mut tx, &ban, 4).await,
+        Err(Error::InvalidInput)
+    ));
+    tx.rollback().await?;
+    assert!(state(&db, None).await?.bans.is_empty());
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn db_revision_expiry_uses_database_clock_even_in_old_transaction() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let mut tx = db.pool.begin().await?;
+    // Establish transaction time before the decision and expiry.
+    sqlx::query("SELECT now()").execute(&mut *tx).await?;
+    let expired = intent(
+        db.target,
+        SanctionAction::Ban {
+            expires_at_ms: Some(db.now().await? - 1),
+        },
+        None,
+    );
+    assert!(matches!(
+        db.service().allocate_and_record(&mut tx, &expired).await,
+        Err(Error::InvalidInput)
+    ));
+    tx.rollback().await?;
+    let temporary = intent(
+        db.target,
+        SanctionAction::Ban {
+            expires_at_ms: Some(db.now().await? + 2000),
+        },
+        None,
+    );
+    apply(&db, &temporary).await?;
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service()
+            .effective_state(&mut tx, db.target, None)
+            .await?
+            .bans
+            .len(),
+        1
+    );
+    // Database sleep makes this independent of the application host's clock.
+    sqlx::query("SELECT pg_sleep(2.1)")
+        .execute(&mut *tx)
+        .await?;
+    assert!(
+        db.service()
+            .effective_state(&mut tx, db.target, None)
+            .await?
+            .bans
+            .is_empty()
+    );
+    tx.rollback().await?;
+    db.ticket().await?;
+    assert_eq!(state(&db, None).await?.revision, 1);
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn db_revision_namelock_is_character_scoped_and_notation_is_staff_only() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let character = Uuid::now_v7();
+    let other = Uuid::now_v7();
+    let lock = intent(
+        db.target,
+        SanctionAction::Namelock {
+            expires_at_ms: None,
+        },
+        Some(character),
+    );
+    apply(&db, &lock).await?;
+    assert_eq!(state(&db, Some(character)).await?.namelocks.len(), 1);
+    assert!(state(&db, Some(other)).await?.namelocks.is_empty());
+    assert!(state(&db, None).await?.namelocks.is_empty());
+    for character in [None, Some(character)] {
+        apply(&db, &intent(db.target, SanctionAction::Notation, character)).await?;
+    }
+    apply(&db, &intent(db.target, SanctionAction::Warning, None)).await?;
+    let current = state(&db, Some(character)).await?;
+    assert_eq!(current.namelocks.len(), 1);
+    assert!(current.bans.is_empty());
+    db.ticket().await?;
+    let lift = SanctionIntent {
+        action: SanctionAction::LiftNamelock,
+        ..lock.clone()
+    };
+    let wrong = SanctionIntent {
+        character: Some(other),
+        ..lift.clone()
+    };
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service().allocate_and_record(&mut tx, &wrong).await,
+        Err(Error::Conflict)
+    ));
+    tx.rollback().await?;
+    apply(&db, &lift).await?;
+    assert!(state(&db, Some(character)).await?.namelocks.is_empty());
+    assert_eq!(state(&db, None).await?.revision, 5);
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn db_revision_bounds_and_invalid_lifts_do_not_allocate() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    for action in [SanctionAction::Unban, SanctionAction::LiftNamelock] {
+        let character = matches!(action, SanctionAction::LiftNamelock).then(Uuid::now_v7);
+        let mut tx = db.pool.begin().await?;
+        assert!(matches!(
+            db.service()
+                .allocate_and_record(&mut tx, &intent(db.target, action, character))
+                .await,
+            Err(Error::NotFound)
+        ));
+        tx.rollback().await?;
+    }
+    let warning = intent(db.target, SanctionAction::Warning, None);
+    let mut tx = db.pool.begin().await?;
+    for revision in [0, MAX_SANCTION_REVISION + 1] {
+        assert!(matches!(
+            db.service()
+                .record_at_revision(&mut tx, &warning, revision)
+                .await,
+            Err(Error::InvalidInput)
+        ));
+    }
+    sqlx::query("INSERT INTO support_sanction_counters VALUES ($1,$2)")
+        .bind(db.target)
+        .bind(MAX_SANCTION_REVISION - 1)
+        .execute(&mut *tx)
+        .await?;
+    assert_eq!(
+        db.service()
+            .allocate_and_record(&mut tx, &warning)
+            .await?
+            .revision,
+        MAX_SANCTION_REVISION
+    );
+    assert!(matches!(
+        db.service()
+            .allocate_and_record(&mut tx, &intent(db.target, SanctionAction::Warning, None))
+            .await,
+        Err(Error::RevisionExhausted)
+    ));
+    tx.rollback().await?;
+    assert_eq!(apply(&db, &warning).await?.revision, 1);
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn db_revision_newer_expired_state_never_restores_older_permanent_state() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let character = Uuid::now_v7();
+    let ban = intent(
+        db.target,
+        SanctionAction::Ban {
+            expires_at_ms: None,
+        },
+        None,
+    );
+    let lock = intent(
+        db.target,
+        SanctionAction::Namelock {
+            expires_at_ms: None,
+        },
+        Some(character),
+    );
+    apply(&db, &ban).await?;
+    apply(&db, &lock).await?;
+    let end = db.now().await? + 2000;
+    let newer_ban = SanctionIntent {
+        action: SanctionAction::Ban {
+            expires_at_ms: Some(end),
+        },
+        ..ban.clone()
+    };
+    let newer_lock = SanctionIntent {
+        action: SanctionAction::Namelock {
+            expires_at_ms: Some(end),
+        },
+        ..lock.clone()
+    };
+    apply(&db, &newer_ban).await?;
+    apply(&db, &newer_lock).await?;
+    let current = state(&db, Some(character)).await?;
+    assert_eq!(current.bans[0].revision, 3);
+    assert_eq!(current.namelocks[0].revision, 4);
+    sqlx::query("SELECT pg_sleep(2.1)")
+        .execute(&db.pool)
+        .await?;
+    let current = state(&db, Some(character)).await?;
+    assert!(current.bans.is_empty() && current.namelocks.is_empty());
+    assert_eq!(current.revision, 4);
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service().record_at_revision(&mut tx, &ban, 1).await,
+        Err(Error::StaleRevision)
+    ));
+    tx.rollback().await?;
+    // Counters belong to accounts, not characters or server sessions.
+    let other = intent(db.reviewer, SanctionAction::Warning, None);
+    assert_eq!(apply(&db, &other).await?.revision, 1);
+    assert_eq!(state(&db, Some(character)).await?.revision, 4);
     db.cleanup().await
 }

@@ -4,6 +4,7 @@
 //! envelopes. This store does not grant RBAC permissions or verify signatures.
 //! Canonicalisation, signing, operation schemas and HTTP belong to later packets.
 pub mod canonical;
+pub mod catalog;
 #[path = "http.rs"]
 pub mod control_http;
 pub mod controls;

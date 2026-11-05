@@ -59,3 +59,36 @@ result schema before displaying its contents. No UI is added by this packet.
 
 Tests use `PORTAL_TEST_DATABASE_URL`; when unset each database test prints a
 skip notice. PostgreSQL tests create isolated schemas and run migrations there.
+
+## Staff-actions v1 catalog (S12-P2A)
+
+`catalog::StaffOperation` registers five command definitions at version 1 against
+Game commit `457713b25f153c2b09e3dffe420d22fd5379c8f7`. Pinned files and SHA-256
+hashes live in `fixtures/staff-actions-v1/SOURCE.md`. Golden signatures and preview
+digests are structural placeholders, never executable evidence.
+
+`catalog::Catalog::default()` has an empty staff allowlist: every staff operation
+returns `Disabled`, independently of `PORTAL_ADMIN_CONTROL_ENABLED`. A future
+trusted caller must explicitly supply `Catalog::with_staff_allowlist`; no env
+wiring, agent advertisement, dispatch, result union, revision allocation or store
+change is included. Existing authority adapters still fail closed. Transport
+activation and agent hello do not enable these definitions. Rollout requires the
+contract's joint acceptance, result-union integration, environment trust separation
+and snapshot/replay prerequisites.
+
+Closed `StaffParams` plus `validate_staff_request` enforce conditional expiry,
+positive safe-integer revisions (maximum 9007199254740991), at most 32 opaque
+nonempty evidence refs, character targets for namelock, and preview presence only
+for executing R4. Expiry must be RFC3339 UTC and follow issuance. Permission uses
+existing scopes: warning/notation `game.sanction.write` R1; namelock
+`game.sanction.ban` R2; temporary ban/unban `game.sanction.ban` R3; permanent ban
+`game.sanction.ban` R4. Policy derives from operation and validated params; client
+risk/permission claims must agree and never select policy. Structural validation
+neither verifies signatures, preview matches, approval identity/freshness or account
+ownership, nor grants execution authority.
+
+Task authority: owner request S12-P2A, branch `codex/portal-rs-s12-p2a`, base main;
+branch retained for owner review, no PR. Changes stay within portal-rs per owner
+scope. No mapped live S12 Issue was found; Jira synchronization is unknown.
+Runtime E2E is not applicable: disabled definitions and pure validation have no
+actor-to-effect path.
