@@ -170,6 +170,9 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     for kind in ["cleanup.tokens", "cleanup.support"] {
         registry.cleanup(kind, 3600, Arc::new(NoopCleanup))?;
     }
+    if let Some(worker) = oteryn_identity::email_change::Worker::configured(pool.clone())? {
+        registry.cleanup("identity.email-change", 60, Arc::new(worker))?;
+    }
     #[cfg(unix)]
     let shutdown = {
         let mut terminate =

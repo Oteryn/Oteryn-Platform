@@ -1829,8 +1829,11 @@ dependencies = [
  "argon2",
  "axum",
  "email_address",
+ "fluent-bundle",
  "getrandom 0.4.3",
  "oteryn-db",
+ "oteryn-notify",
+ "oteryn-wallet",
  "oteryn-web",
  "serde",
  "serde_json",
@@ -1839,6 +1842,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tower",
+ "unic-langid",
  "uuid",
 ]
 
@@ -1921,6 +1925,7 @@ dependencies = [
  "oteryn-payments",
  "oteryn-stats",
  "oteryn-web",
+ "sha2 0.10.9",
  "sqlx",
  "tokio",
  "tower",

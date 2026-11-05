@@ -26,3 +26,15 @@ oteryn-web.workspace = true
 axum = "0.8.9"
 tower = { version = "0.5.3", features = ["util"] }
 serde_urlencoded = "0.7"
+
+[dependencies.oteryn-notify]
+workspace = true
+
+[dependencies.fluent-bundle]
+version = "0.16"
+
+[dependencies.unic-langid]
+version = "0.9"
+
+[dependencies.oteryn-wallet]
+workspace = true
