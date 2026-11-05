@@ -27,3 +27,9 @@ sha2 = "0.10.9"
 
 [dev-dependencies]
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "time"] }
+[dependencies.askama]
+version = "0.16.1"
+[dependencies.fluent-bundle]
+version = "0.16.0"
+[dependencies.oteryn-wallet]
+workspace = true
