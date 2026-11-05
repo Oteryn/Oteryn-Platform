@@ -1,0 +1,15 @@
+{% extends "wiki/layout.html" %}
+{% block content %}<h1>{{ self.t("edit") }}</h1><p>{{ self.t("status") }}: {{ self.t(status.as_str()) }} · {{ self.t("version") }}: {{ version }}</p>
+<form method="post" action="/admin/wiki/articles{% if existing %}/{{ id }}{% endif %}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="lock_version" value="{{ version }}">
+{% for value in values %}<fieldset class="op-card op-stack"><legend>{{ value.locale }}</legend>
+<div class="op-field"><label for="{{ value.locale }}_title">{{ self.t("title") }}</label><input class="op-input" id="{{ value.locale }}_title" lang="{{ value.locale }}" name="{{ value.locale }}_title" required maxlength="200" value="{{ value.title }}"></div>
+<div class="op-field"><label for="{{ value.locale }}_slug">{{ self.t("slug") }}</label><input class="op-input" id="{{ value.locale }}_slug" name="{{ value.locale }}_slug" required maxlength="160" pattern="[a-z0-9]+(-[a-z0-9]+)*" value="{{ value.slug }}"></div>
+<div class="op-field"><label for="{{ value.locale }}_summary">{{ self.t("summary") }}</label><textarea class="op-input" id="{{ value.locale }}_summary" lang="{{ value.locale }}" name="{{ value.locale }}_summary" maxlength="1000">{{ value.summary }}</textarea></div>
+<div class="op-field"><label for="{{ value.locale }}_markdown">{{ self.t("markdown") }}</label><textarea class="op-input" id="{{ value.locale }}_markdown" lang="{{ value.locale }}" name="{{ value.locale }}_markdown" rows="12" maxlength="100000">{{ value.markdown }}</textarea></div></fieldset>{% endfor %}
+<div class="op-field"><label for="note">{{ self.t("note") }}</label><input class="op-input" id="note" name="note" maxlength="500"></div>
+{% if status == "draft" || status == "in_review" %}<button class="op-button" type="submit">{{ self.t("save") }}</button>{% endif %}</form>
+{% if existing %}<nav class="op-row"><a href="/admin/wiki/articles/{{ id }}/revisions">{{ self.t("history") }}</a><a href="/admin/wiki/articles/{{ id }}/preview/pl">{{ self.t("preview") }} (PL)</a><a href="/admin/wiki/articles/{{ id }}/preview/en">{{ self.t("preview") }} (EN)</a></nav>
+{% if status == "draft" %}{% set action = "submit-review" %}{% set label = "review" %}{% include "admin/wiki/action.html" %}{% endif %}
+{% if status == "in_review" %}{% set action = "return-draft" %}{% set label = "return" %}{% include "admin/wiki/action.html" %}{% set action = "publish" %}{% set label = "publish" %}{% include "admin/wiki/action.html" %}{% endif %}
+{% if status == "published" %}{% set action = "unpublish" %}{% set label = "unpublish" %}{% include "admin/wiki/action.html" %}{% endif %}
+{% if status != "archived" %}{% set action = "archive" %}{% set label = "archive" %}{% include "admin/wiki/action.html" %}{% endif %}{% endif %}{% endblock %}
