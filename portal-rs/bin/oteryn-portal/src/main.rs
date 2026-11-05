@@ -128,9 +128,15 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // module routes on the same paths never overlap with them.
             let app = app.merge(oteryn_web::seo::router(seo));
             let app = oteryn_web::register::configured(app);
+            let app = app.merge(oteryn_admin::console::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
             let app = app.merge(oteryn_admin::web::configured_router(oteryn_db::lazy_pool(
                 config.database_url(),
             )?)?);
+            let app = app.merge(oteryn_admin::console::access::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
             let app = app.merge(oteryn_payments::account::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
@@ -416,6 +422,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
             let app = app.merge(oteryn_minigames::collection_pvp::http::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_minigames::collection::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;

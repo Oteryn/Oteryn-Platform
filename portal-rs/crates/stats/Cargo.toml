@@ -39,3 +39,7 @@ features = ["util"]
 
 [dependencies.oteryn-notify]
 workspace = true
+[dependencies.sha2]
+version = "0.10"
+[dependencies.oteryn-internal-api]
+workspace = true

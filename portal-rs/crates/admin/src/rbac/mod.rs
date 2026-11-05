@@ -65,16 +65,34 @@ pub enum Error {
     Storage(#[from] sqlx::Error),
 }
 
+/// Game permissions and deployment each require explicit application enablement.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GamePermissionFlags {
+    pub enabled: bool,
+    pub deploy: bool,
+}
+
 /// Role checks never cache grants, so revocations take effect on the next check.
 #[derive(Debug, Clone)]
 pub struct Authorizer<A> {
     pool: PgPool,
     accounts: A,
+    game_flags: GamePermissionFlags,
 }
 
 impl<A: AccountStateReader> Authorizer<A> {
     pub fn new(pool: PgPool, accounts: A) -> Self {
-        Self { pool, accounts }
+        Self {
+            pool,
+            accounts,
+            game_flags: GamePermissionFlags::default(),
+        }
+    }
+
+    /// Trusted application configuration only; never derive flags from request input.
+    pub fn with_game_flags(mut self, flags: GamePermissionFlags) -> Self {
+        self.game_flags = flags;
+        self
     }
 
     async fn validate_account(&self, context: CheckContext) -> Result<(), Error> {
@@ -92,6 +110,12 @@ impl<A: AccountStateReader> Authorizer<A> {
 
     /// Checks one explicit permission. Missing roles and unknown account state deny.
     pub async fn check(&self, context: CheckContext, permission: Permission) -> Result<(), Error> {
+        if permission.as_str().starts_with("game.")
+            && (!self.game_flags.enabled
+                || (permission == Permission::GameNodeDeploy && !self.game_flags.deploy))
+        {
+            return Err(Error::Denied);
+        }
         self.validate_account(context).await?;
         let mut connection = self.pool.acquire().await?;
         Self::check_permission(&mut connection, context.account, permission).await

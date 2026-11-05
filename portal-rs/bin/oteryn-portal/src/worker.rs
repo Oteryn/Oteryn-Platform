@@ -150,6 +150,11 @@ async fn run_until(
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
     registry.cleanup(
+        "cleanup.world-kills",
+        3600,
+        Arc::new(oteryn_stats::world::kills::Retention(pool.clone())),
+    )?;
+    registry.cleanup(
         "cleanup.game-logins",
         3600,
         Arc::new(oteryn_playerdata::logins::Retention(pool.clone())),
@@ -219,6 +224,23 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(worker) = oteryn_identity::email_change::Worker::configured(pool.clone())? {
         registry.cleanup("identity.email-change", 60, Arc::new(worker))?;
     }
+    if oteryn_admin::control::Config::from_env().enabled {
+        registry.cleanup(
+            "admin.control.expire",
+            10,
+            Arc::new(oteryn_admin::control::ExpiryJob(
+                oteryn_admin::control::Store::new(
+                    pool.clone(),
+                    oteryn_admin::control::Config::from_env(),
+                ),
+            )),
+        )?;
+    }
+    registry.cleanup(
+        "stats.v2-retention",
+        3600,
+        Arc::new(oteryn_stats::online::Retention { pool: pool.clone() }),
+    )?;
     #[cfg(unix)]
     let shutdown = {
         let mut terminate =

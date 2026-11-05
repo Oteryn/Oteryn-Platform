@@ -9,3 +9,4 @@ pub mod world;
 
 pub mod character;
 pub mod guilds;
+pub mod online;

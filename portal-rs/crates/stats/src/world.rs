@@ -92,5 +92,6 @@ pub async fn read(
 }
 
 pub mod http;
+pub mod kills;
 #[cfg(test)]
 mod tests;

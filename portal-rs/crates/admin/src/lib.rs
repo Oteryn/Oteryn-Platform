@@ -9,3 +9,6 @@ pub mod bazaar;
 pub mod commerce;
 pub mod players;
 pub mod support;
+
+pub mod console;
+pub mod control;

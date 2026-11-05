@@ -7,3 +7,4 @@ world-note = Partial observations only. Missing days are unavailable. Profession
 world-level = Level
 world-day = UTC day
 world-count = Characters
+world-kills = Monster and boss deaths (UTC day)

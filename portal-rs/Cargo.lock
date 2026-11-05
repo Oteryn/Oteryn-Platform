@@ -1216,6 +1216,7 @@ checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
+ "rand_core 0.6.4",
  "serde",
  "sha2 0.10.9",
  "subtle",
@@ -2661,6 +2662,8 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "axum",
+ "base64 0.22.1",
+ "ed25519-dalek",
  "fluent-bundle",
  "oteryn-bazaar",
  "oteryn-characters",
@@ -2671,16 +2674,20 @@ dependencies = [
  "oteryn-store",
  "oteryn-wallet",
  "oteryn-web",
+ "rand_core 0.6.4",
  "serde",
  "serde_json",
+ "serde_json_canonicalizer",
  "serde_urlencoded",
  "sha2 0.10.9",
  "sqlx",
  "thiserror 2.0.21",
+ "time",
  "tokio",
  "tower",
  "unic-langid",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -2976,10 +2983,12 @@ dependencies = [
  "askama",
  "axum",
  "fluent-bundle",
+ "getrandom 0.4.3",
  "image",
  "oteryn-atlas",
  "oteryn-db",
  "oteryn-identity",
+ "oteryn-playerdata",
  "oteryn-wallet",
  "oteryn-web",
  "oteryn-world",
@@ -3141,10 +3150,12 @@ dependencies = [
  "axum",
  "fluent-bundle",
  "oteryn-db",
+ "oteryn-internal-api",
  "oteryn-notify",
  "serde",
  "serde_json",
  "serde_urlencoded",
+ "sha2 0.10.9",
  "sqlx",
  "time",
  "tokio",
@@ -4007,6 +4018,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
+name = "ryu-js"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04d056b875a9d2e6cb9a61d127afee9ac5999b9f87bcb32079d1318e505be714"
+
+[[package]]
 name = "salsa20"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4186,6 +4203,17 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_json_canonicalizer"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87f7bb64f8c7e9f783fdfe883b5fe93a90bee1597c63705baa91842c5f698620"
+dependencies = [
+ "ryu-js",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

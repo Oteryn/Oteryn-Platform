@@ -93,6 +93,7 @@ fn labels(en: bool) -> Vec<String> {
         "level",
         "day",
         "count",
+        "kills",
     ]
     .iter()
     .map(|key| {
