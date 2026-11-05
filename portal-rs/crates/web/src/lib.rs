@@ -205,6 +205,46 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
     .route_layer(axum::middleware::from_fn(
         oteryn_gameauth::oauth::secure_response,
     ));
+    let profile_routes = get(
+        |State(state): State<AppState>,
+         axum::Extension(session): axum::Extension<session::BrowserSession>,
+         axum::Extension(lang): axum::Extension<Language>,
+         axum::extract::Path(name): axum::extract::Path<String>| async move {
+            if std::env::var("OTERYN_CHARACTER_PROFILES_ENABLED").as_deref() != Ok("true") {
+                return StatusCode::NOT_FOUND.into_response();
+            }
+            match session.csrf_token().await {
+                Ok(csrf) => {
+                    oteryn_characters::profile::edit(
+                        &state.db,
+                        session.account_id().await,
+                        lang.code(),
+                        &name,
+                        &csrf,
+                    )
+                    .await
+                }
+                Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            }
+        },
+    )
+    .on(
+        axum::routing::MethodFilter::POST.or(axum::routing::MethodFilter::PUT),
+        |State(state): State<AppState>,
+         axum::Extension(session): axum::Extension<session::BrowserSession>,
+         axum::Extension(lang): axum::Extension<Language>,
+         axum::extract::Path(name): axum::extract::Path<String>,
+         body: axum::body::Bytes| async move {
+            oteryn_characters::profile::update(
+                &state.db,
+                session.account_id().await,
+                lang.code(),
+                &name,
+                body,
+            )
+            .await
+        },
+    );
     let router = Router::new()
         .route("/", get(home))
         .route("/healthz", get(healthz))
@@ -262,6 +302,12 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                 },
             ),
         )
+        .route("/account/characters/{name}/profile", profile_routes.clone())
+        .route(
+            "/pl/account/characters/{name}/profile",
+            profile_routes.clone(),
+        )
+        .route("/en/account/characters/{name}/profile", profile_routes)
         .route_layer(axum::middleware::from_fn_with_state(
             state.db.clone(),
             oteryn_identity::abuse::http::protect,
