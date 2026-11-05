@@ -186,3 +186,5 @@ pub mod csrf;
 pub mod session;
 
 pub mod ratelimit;
+pub mod redirects;
+pub mod seo;
