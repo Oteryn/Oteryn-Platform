@@ -1025,6 +1025,17 @@ version = "0.1.0"
 [[package]]
 name = "oteryn-community"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "oteryn-db",
+ "oteryn-internal-api",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tower",
+ "unicode-normalization",
+]
 
 [[package]]
 name = "oteryn-content"
@@ -1112,9 +1123,11 @@ name = "oteryn-portal"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "oteryn-community",
  "oteryn-core",
  "oteryn-db",
  "oteryn-gateway",
+ "oteryn-internal-api",
  "oteryn-web",
  "tokio",
  "tracing",
@@ -1275,6 +1288,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "regex"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
