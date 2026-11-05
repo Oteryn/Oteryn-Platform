@@ -191,3 +191,33 @@ mod tests {
         assert!(!WalletFlags::default().enabled);
     }
 }
+
+/// Classification for the existing caller-owned adjustment API. Opt-in only.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum AdjustmentKind {
+    #[default]
+    Operator,
+    StorePurchase,
+}
+impl AdjustmentKind {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Operator => "adjustment",
+            Self::StorePurchase => "store_purchase",
+        }
+    }
+}
+#[derive(Debug, Clone, Copy)]
+pub struct NumericHistoryPage {
+    pub before: u64,
+    pub limit: u8,
+}
+#[derive(Debug, Clone)]
+pub struct NumericHistoryEntry {
+    pub sequence: i64,
+    pub operation_id: Uuid,
+    pub kind: String,
+    pub available_delta: i64,
+    pub reserved_delta: i64,
+    pub created_at: OffsetDateTime,
+}
