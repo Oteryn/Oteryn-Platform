@@ -1,0 +1,13 @@
+title = Profile badges and achievements
+introduction = Only your explicit selections are displayed. Choose a profile and save before choosing up to five earned achievements. Unknown data remains unavailable.
+badges = Account badges
+achievements = Earned achievements (maximum 5)
+profile = Profile to display your selections
+ranking = Visible character for the loyalty ranking
+none = None
+save = Save selections
+unavailable = Unavailable
+account-age = Account age (whole years)
+loyalty = Loyalty points
+total-levels = Total character levels
+all-professions = Minimum level across all professions

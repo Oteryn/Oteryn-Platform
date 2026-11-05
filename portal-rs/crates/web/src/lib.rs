@@ -232,6 +232,36 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                 },
             ),
         )
+        .route(
+            "/account/badges",
+            get(
+                |State(state): State<AppState>,
+                 axum::Extension(session): axum::Extension<session::BrowserSession>,
+                 axum::Extension(lang): axum::Extension<Language>| async move {
+                    oteryn_characters::badges::http::show(
+                        &oteryn_characters::badges::http::configured(state.db),
+                        session.account_id().await,
+                        lang.code(),
+                        session.csrf_token().await,
+                    )
+                    .await
+                },
+            )
+            .post(
+                |State(state): State<AppState>,
+                 axum::Extension(session): axum::Extension<session::BrowserSession>,
+                 axum::Extension(lang): axum::Extension<Language>,
+                 axum::Form(fields): axum::Form<Vec<(String, String)>>| async move {
+                    oteryn_characters::badges::http::save(
+                        &oteryn_characters::badges::http::configured(state.db),
+                        session.account_id().await,
+                        lang.code(),
+                        fields,
+                    )
+                    .await
+                },
+            ),
+        )
         .route_layer(axum::middleware::from_fn_with_state(
             state.db.clone(),
             oteryn_identity::abuse::http::protect,

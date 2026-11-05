@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-stack op-panel">
+<h1>{{ title }}</h1><p>{{ introduction }}</p>
+<form method="post" class="op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<fieldset class="op-stack"><legend>{{ badges_label }}</legend>
+{% for badge in badges %}<label><input type="checkbox" name="badge" value="{{ badge.0 }}" {% if badge.3 %}checked{% endif %} {% if badge.4 %}disabled{% endif %}> {{ badge.1 }}: {{ badge.2 }}</label>{% endfor %}
+</fieldset>
+<label for="profile">{{ profile_label }}</label><select class="op-input" id="profile" name="profile"><option value="">{{ none }}</option>{% for c in characters %}<option value="{{ c.0 }}" {% if c.2 %}selected{% endif %}>{{ c.1 }}</option>{% endfor %}</select>
+<fieldset class="op-stack"><legend>{{ achievements_label }}</legend>
+{% if earned.is_empty() %}<p role="status">{{ unavailable }}</p>{% endif %}
+{% for a in earned %}<label><input type="checkbox" name="achievement" value="{{ a.0 }}" {% if a.2 %}checked{% endif %}>{{ a.1 }}</label>{% endfor %}
+</fieldset>
+<label for="ranking">{{ loyalty_label }}</label><select class="op-input" id="ranking" name="ranking"><option value="">{{ none }}</option>{% for c in characters %}<option value="{{ c.0 }}" {% if c.3 %}selected{% endif %}>{{ c.1 }}</option>{% endfor %}</select>
+<button type="submit" class="op-button">{{ save }}</button>
+</form></main></body></html>
