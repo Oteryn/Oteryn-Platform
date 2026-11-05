@@ -193,6 +193,9 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
             enabled: std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() == Ok("true"),
         }),
     )?;
+    if let Some(worker) = oteryn_identity::email_change::Worker::configured(pool.clone())? {
+        registry.cleanup("identity.email-change", 60, Arc::new(worker))?;
+    }
     #[cfg(unix)]
     let shutdown = {
         let mut terminate =

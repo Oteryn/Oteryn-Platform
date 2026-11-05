@@ -2748,6 +2748,7 @@ dependencies = [
  "getrandom 0.4.3",
  "oteryn-db",
  "oteryn-notify",
+ "oteryn-wallet",
  "oteryn-web",
  "serde",
  "serde_json",

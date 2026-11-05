@@ -9,6 +9,7 @@ pub use accounts::AccountId;
 pub mod abuse;
 pub mod credentials;
 pub mod export;
+pub mod email_change;
 pub mod login;
 pub mod passkeys;
 pub mod reset;
