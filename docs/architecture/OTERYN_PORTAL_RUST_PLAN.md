@@ -1,6 +1,6 @@
 # Oteryn Portal w Ruście – projekt i plan
 
-> **Status: PROPOZYCJA, rewizja 1** (2026-11-05). Dokument do przeglądu właściciela i koordynatora programu. Nie autoryzuje kodu, wdrożenia, zmian w kontraktach gry ani wydatków. Każda decyzja z sekcji 10 ma wartość domyślną. Obowiązuje dopiero po akceptacji właściciela.
+> **Status: PROPOZYCJA, rewizja 2** (2026-11-05, po przeglądzie koordynatora). Dokument do przeglądu właściciela i koordynatora programu. Nie autoryzuje kodu, wdrożenia, zmian w kontraktach gry ani wydatków. Każda decyzja z sekcji 10 ma wartość domyślną. Obowiązuje dopiero po akceptacji właściciela.
 >
 > Relacja do szkicu #1643 (`OTERYN_PLATFORM_2_DESIGN_DRAFT.md`, rewizja 4.1): ten dokument zaczyna projekt od potrzeb graczy i zespołu oraz od integracji z klientem i serwerem gry. Ze szkicu #1643 przejmuje stos technologiczny, zasady zgodności wire, zarządzanie serwerami (M5), Atlas (MA) i obserwację GM-a (M10). Zmienia trzy rzeczy: przełączenie odbywa się falami zamiast jednym ruchem, Player API jest osobną, wersjonowaną powierzchnią dla klienta gry, a zakres jest podzielony na rdzeń i rozszerzenia. Szczegółów z #1643 nie powtarzamy, tylko się do nich odwołujemy.
 
@@ -182,7 +182,12 @@ portal-rs/crates/
   web-public, web-account, web-admin, api-player, api-game
 ```
 
-Granice sprawdza CI (zakaz krawędzi z domeny do adapterów, zakaz zależności konta od płatności). Kontrakty z grą pochodzą ze wspólnych crate'ów bez I/O w Oteryn-Game (`platform-wire`, `catalog`, `game-rules`; #1643, „Repozytorium”).
+Granice sprawdza CI (zakaz krawędzi z domeny do adapterów, zakaz zależności konta od płatności).
+
+Kontrakty z grą: w Oteryn-Game (main 99c6716) istnieją dziś crate'y `platform-contracts`, `platform-client` i `protocol-oteryn`. Crate'ów `platform-wire`, `catalog` i `game-rules` z #1643 (GC6, GC8) jeszcze nie ma. Plan:
+
+- do czasu ich powstania `adapters-game` korzysta z `platform-contracts` i z fixtures w `docs/contracts/` (złote wektory po obu stronach);
+- utworzenie crate'ów bez I/O to osobne zadanie po stronie gry (GC6, GC8), wymagane przed bramką fali 2.
 
 ### 4.4a Współistnienie w jednym repozytorium
 
@@ -242,18 +247,21 @@ Granice sprawdza CI (zakaz krawędzi z domeny do adapterów, zakaz zależności 
 
 | Przepływ | Kierunek | Kontrakt | Stan na 2026-11-05 | Fala |
 | --- | --- | --- | --- | --- |
-| Logowanie do gry: ticket → gateway → admission | Klient → gateway → Platform → gra | V2_NATIVE_GATEWAY_LOGIN, FND-04B-AMEND-1 (Game #2910) | Logowanie natywne zaakceptowane tylko dla testing/preprod. FND-04B-AMEND-1 jest PROPOSED, reconnect zablokowany | 2 |
-| Lista postaci konta | Gra → Platform | `native-account-characters` (LCFA) | Działa | 2 |
-| Tworzenie i komendy postaci | Platform → gra (pull) | V2_CHARACTER_AUTHORITY_COMMAND, GAME-CHAR-CMD-0 | Zaakceptowane, wyłączone. Transfer: `CHAR_CMD_UNSUPPORTED` | 2 (tworzenie), 3 (transfer) |
-| Premium | Gra czyta snapshot | V2_PREMIUM_TIME_SNAPSHOT | Działa | 2 |
+| Transport gry (protocol-oteryn) | Klient ↔ serwer gry | protocol-oteryn v1, PROTOCOL_OTERYN_TRANSPORT_POLICY (TCP + TLS 1.3) | Kontrakt LOCKED, runtime niezaimplementowany: `gameplay_listener_available=false`, `native_client_gameplay_entry_available=false` | Warunek demo gry w F4 i bramki fali 2 |
+| Logowanie do gry: ticket → gateway → admission | Klient → gateway → Platform → gra | V2_NATIVE_GATEWAY_LOGIN (D721, N4P), FND-04B-AMEND-1 | Logowanie natywne zaakceptowane tylko dla testing/preprod (D721). FND-04B-AMEND-1: PR Game #2910 zmergowany, dokument ma status PROPOSED (nie zaakceptowany); reconnect zablokowany | 2 (tylko testing/preprod) |
+| Lista postaci konta | Gra → Platform | `native-account-characters` (LCFA, OTV2-20260929-N4P) | Producent w grze zaimplementowany, niewłączony (LCFA §11). Platform: `CHARACTER_PROJECTION_NOT_IMPLEMENTED` | 2 |
+| Tworzenie i komendy postaci | Platform → gra (pull) | V2_CHARACTER_AUTHORITY_COMMAND, GAME-CHAR-CMD-0 | ACCEPTED_NOT_IMPLEMENTED, wyłączone. Transfer: `CHAR_CMD_UNSUPPORTED` | 2 (tworzenie), 3 (transfer) |
+| Premium | Gra czyta snapshot | V2_PREMIUM_TIME_SNAPSHOT | Endpoint Platform istnieje; konsumpcja w grze niezweryfikowana | 2 |
 | Loyalty | Gra czyta snapshot | V2_LOYALTY_SNAPSHOT | Proposed | 3 |
-| Sklep: zakup w kliencie i dostawa | Gra ↔ Platform | V2_STORE_WIRE, V2_STORE_PURCHASE_DELIVERY, poprawka 2026-11-05 | Proposed; STORE-ENT-1 zablokowany | 3 |
-| Dane publiczne (rankingi, profile, gildie, domy, zgony, online) | Gra → Platform | V2_PUBLIC_GAME_DATA_PROJECTION, GAME-PUBLIC-PROJ-0 | Zaakceptowany kontrakt; producent w grze PENDING | 1 (gdy producent jest gotowy) |
-| Status światów | Gra → Platform | V2_RUNTIME_STATUS_PROJECTION, V2_WORLD_TOPOLOGY | Działa | 1 |
-| Kary i ogłoszenia | Platform → gra | V2_GAME_ENFORCEMENT_COMMAND | Zaakceptowany; wykonanie w grze brak | 2 |
+| Sklep: zakup w kliencie i dostawa | Gra ↔ Platform | V2_STORE_WIRE, V2_STORE_PURCHASE_DELIVERY, poprawka 2026-11-05 | PROPOSED, DEFAULT-OFF; brak wpisu w locku; brak autoryzacji sprzedaży produkcyjnej; Q1–Q6 otwarte w kontrakcie wire; STORE-ENT-1 zablokowany | 3 (za bramkami z §6) |
+| Dane publiczne (rankingi, profile, gildie, domy, zgony, online) | Gra → Platform | V2_PUBLIC_GAME_DATA_PROJECTION, GAME-PUBLIC-PROJ-0 | GAME-PUBLIC-PROJ-0: PENDING_CANONICAL_MERGE / CANDIDATE_REVISION_1_NOT_ACCEPTED; producent w grze brak | 1 (bez tych danych, jeśli kontrakt nie jest gotowy) |
+| Status światów | Gra → Platform | V2_RUNTIME_STATUS_PROJECTION, V2_WORLD_TOPOLOGY | PARTIAL w locku | 1 |
+| Kary i ogłoszenia | Platform → gra | V2_GAME_ENFORCEMENT_COMMAND | Zaakceptowany; wykonanie w grze brak (status do potwierdzenia) | 2 |
 | Restore i rekoncyliacja | Gra → Platform | V2_GAME_RESTORE_RECONCILIATION | Zaakceptowany, domyślnie wyłączony | 2 |
 | Katalog gry i wiki | Gra publikuje paczkę | OTERYN-GAME-PLATFORM-CATALOG-V1 | LOCKED; konsument Platform nieaktywny | 1 |
 | Zarządzanie węzłami, obserwacja GM | Platform ↔ agent węzła, gra | #1643 M5 i M10 | Projekt w #1643 | Rozszerzenie |
+
+Źródła stanów: lock `CROSS_REPOSITORY_CONTRACT_LOCK.json` (updated_at 2026-10-11, może być nieaktualny), kod Game main 99c6716 i przegląd koordynatora z 2026-11-05. Gdy lock i kod się różnią, plan cytuje oba osobno. Przykład: lock N4P podaje `NOT_IMPLEMENTED_N4_CLIENT`, a `native_login.rs` w `platform-client` implementuje `gateway_login`. Przed każdą bramką fali statusy są sprawdzane ponownie.
 
 Zasady wspólne dla wszystkich przepływów:
 
@@ -263,15 +271,23 @@ Zasady wspólne dla wszystkich przepływów:
 
 ### 5.2 Klient gry i launcher
 
-Klient i launcher korzystają z **Player API** (`crates/platform-client` w Oteryn-Game już obsługuje OAuth PKCE, tickety, sesje urządzeń i listę postaci).
+Klient i launcher korzystają z **Player API**. `crates/platform-client` w Oteryn-Game ma dziś:
+
+- OAuth PKCE;
+- tickety;
+- `gateway_login` (`native_login.rs`);
+- listę postaci właściciela (`owner_characters`);
+- katalog usług `v1/client/directory` (`fetch_directory`).
+
+Sesji urządzeń w kliencie jeszcze nie ma; to kandydat kontraktu. Ścieżki w tabeli to propozycja. Przed F4 trzeba je uzgodnić z klientem: albo Player API wystawia je przez `v1/client/directory`, albo klient przyjmuje nowe ścieżki. Decyzję zapisuje osobne zadanie kontraktowe po obu stronach.
 
 | Funkcja w kliencie | Endpoint Player API | Zasada |
 | --- | --- | --- |
-| Logowanie i zapamiętane urządzenie | OAuth PKCE, device sessions | Hasło nigdy nie trafia do klienta. Odświeżenie tokenu z rotacją |
-| Lista i tworzenie postaci | `/api/v1/characters` | Tworzenie jako intencja z potwierdzeniem z gry |
+| Logowanie i zapamiętane urządzenie | OAuth PKCE; sesje urządzeń (kandydat kontraktu) | Hasło nigdy nie trafia do klienta. Odświeżenie tokenu z rotacją |
+| Lista i tworzenie postaci | `/api/v1/characters` | Tworzenie jako intencja z potwierdzeniem z gry. Wymaga producenta LCFA i GAME-CHAR-CMD-0 |
 | Wejście do gry | `/api/v1/game-auth/tickets` | Ticket krótkotrwały, jednorazowy |
-| Newsy, wydarzenia, ogłoszenia | `/api/v1/feed` | Treść tylko do odczytu, cache, język gracza |
-| Status światów | `/api/v1/worlds` | Ten sam model co na stronie, z czasem aktualności |
+| Newsy, wydarzenia, ogłoszenia | do uzgodnienia (propozycja `/api/v1/feed` albo wpis w `v1/client/directory`) | Treść tylko do odczytu, cache, język gracza |
+| Status światów | do uzgodnienia (propozycja `/api/v1/worlds` albo wpis w `v1/client/directory`) | Ten sam model co na stronie, z czasem aktualności |
 | Saldo, premium, historia | `/api/v1/account/summary` | Tylko do wyświetlenia. Autorytatywny zakup w grze idzie przez wire sklepu |
 | Sklep w kliencie | wire sklepu (gra → Platform) i `/api/v1/store/offers` | Natywny UI w kliencie. Doładowanie coinów (płatność) zawsze w przeglądarce |
 | Powiadomienia | `/api/v1/notifications` | Kary, odpowiedzi supportu, dostawy |
@@ -289,17 +305,21 @@ Dostawy gry potrzebne dla fal (lista i numeracja GC1–GC16 w #1643, sekcja 11.2
 
 | Fala | Potrzebne od gry |
 | --- | --- |
-| Fala 1 | Producent projekcji publicznych (GAME-PUBLIC-PROJ-0, GC1), paczka katalogu (GC5), eksport świata Atlasa (GC16) |
-| Fala 2 | Akceptacja FND-04B-AMEND-1 przez właściciela, wykonanie kar w grze (GC4), wspólne crate'y kontraktowe (GC6, GC8), konsument N4 |
-| Fala 3 | STORE-ENT-1 i konsument DELIVER (sklep), transfer postaci (GC2), sklep w kliencie (GC13) |
+| Fala 1 | Paczka katalogu (GC5), eksport świata Atlasa (GC16, niezweryfikowane). Opcjonalnie: akceptacja GAME-PUBLIC-PROJ-0 i producent projekcji (GC1); bez nich fala 1 idzie bez rankingów i profili |
+| Fala 2 | Runtime protocol-oteryn (listener i wejście klienta do gry), akceptacja FND-04B-AMEND-1, włączenie producenta LCFA, implementacja GAME-CHAR-CMD-0, wykonanie kar w grze (GC4), crate'y kontraktowe bez I/O (GC6, GC8), sesje urządzeń jako kontrakt |
+| Fala 3 | Akceptacja kontraktów sklepu i wpis w locku, STORE-ENT-1 i konsument DELIVER, transfer postaci (GC2), sklep w kliencie (GC13) |
+
+**Zastrzeżenie fali 2 (D721, N4P):** logowanie natywne jest zaakceptowane tylko dla testing/preprod. Fala 2 na produkcji wymaga osobnej autoryzacji właściciela oraz spełnienia U1, U3, U8 i U9 i bramek 33a/34a z rejestru gry. Bez tego fala 2 kończy się na preprodzie.
 
 ## 6. Migracja i przełączenie (trzy fale)
 
 Zamiast jednego przełączenia po ukończeniu wszystkiego (D7 w #1643) proponujemy trzy fale. W każdej chwili każda dana ma dokładnie jednego właściciela-pisarza.
 
+Dlaczego odchodzimy od D7: #1643 wybrało jedno przełączenie, aby uniknąć współdzielenia sesji i bazy przez dwie aplikacje. Fale tego unikają inaczej. W fali 1 Rust nie ma kont ani sesji, więc nic nie jest współdzielone. Właścicielem sesji w fali 1 pozostaje Laravel.
+
 | Fala | Co przechodzi na Rust | Laravel po fali | Dane | Rollback |
 | --- | --- | --- | --- | --- |
-| 1. Strona publiczna | Strona główna, newsy, wydarzenia, strony, wiki i katalog, Atlas, rankingi, profile, status światów, pobieranie | Konto, logowanie, admin i sklep pod ścieżkami `/account`, `/login`, `/admin` | Treści migrowane jednorazowo (Laravel przechodzi w tryb tylko do odczytu dla treści). Projekcje gry zasilane równolegle | Przełączenie routingu w Caddy z powrotem; treści eksportowane do Laravela |
+| 1. Strona publiczna | Strona główna, newsy, wydarzenia, strony, wiki i katalog, Atlas, status światów, pobieranie; rankingi i profile tylko gdy GAME-PUBLIC-PROJ-0 jest zaakceptowany i producent działa | Konto, logowanie, admin i sklep pod ścieżkami `/account`, `/login`, `/admin` | Treści migrowane jednorazowo (Laravel przechodzi w tryb tylko do odczytu dla treści). Projekcje gry zasilane równolegle | Przełączenie routingu w Caddy z powrotem; treści eksportowane do Laravela |
 | 2. Konto i logowanie do gry | Rejestracja, logowanie, MFA, panel konta, Player API, Game API, gateway logowania w Ruście, support, admin | Tylko sklep i płatności (jeśli używane) | Import tożsamości z zachowaniem AccountId i hashy argon2id, okno ≤60 min, sesje web unieważnione, tokeny klienta odświeżane | Powrót routingu i gatewaya Go; rekordy z okna eksportowane |
 | 3. Handel | Portfel, sklep, płatności, bazar, transfer coinów | Wyłączony, przekierowania 301 | Ledger przenoszony po zamknięciu i uzgodnieniu sald; zero otwartych operacji przy przełączeniu | Ledger zamrożony; powrót możliwy tylko przed pierwszą operacją po przełączeniu |
 
@@ -311,6 +331,24 @@ Uzasadnienie:
 
 Koszt: przez okres przejściowy działają dwie aplikacje za jednym edge, a fala 1 wymaga wspólnego wyglądu nagłówka i stopki. Alternatywa (jedno przełączenie) zostaje decyzją właściciela w sekcji 10.
 
+Sesja, cookie i CSRF między falami:
+
+- **Fala 1:**
+  - Strony publiczne w Ruście są bezstanowe: nie czytają ani nie ustawiają cookie sesji i nie przyjmują mutacji.
+  - Cookie sesji Laravela ma zakres ścieżek `/account`, `/login` i `/admin` (lub osobną subdomenę), żeby nie trafiało do Rusta.
+  - Nagłówek strony pokazuje stan „zalogowany” przez lekkie zapytanie do Laravela (`/account/whoami`, bez danych wrażliwych) albo pokazuje tylko link „Konto”.
+  - CSRF zostaje w Laravelu, bo tylko on przyjmuje mutacje.
+- **Fala 2:**
+  - Właścicielem sesji staje się Rust: nowe cookie `__Host-`, a stare sesje Laravela są unieważniane w oknie przełączenia.
+  - Laravel do fali 3 obsługuje tylko sklep i płatności. Uwierzytelnia się wewnętrznym endpointem sesji Rusta (sprawdzenie po stronie serwera, bez współdzielonej tabeli sesji) i ma własny token CSRF.
+- **Fala 3:** Laravel jest wyłączony, Rust jest jedynym właścicielem sesji.
+
+**Zapis Laravela do bazy postaci starego silnika** (`CHARACTER_AUTHORITY_PLATFORM_BOUNDARY.md` §11–12, oznaczony LEGACY):
+
+- Portal w Ruście nie dziedziczy tego zapisu i nigdy nie łączy się z bazą starego silnika.
+- Zapis LEGACY musi zniknąć przed bramką fali 2. Tworzenie i zmiany postaci idą wtedy wyłącznie przez GAME-CHAR-CMD-0.
+- Jeśli GAME-CHAR-CMD-0 nie jest gotowe, funkcje postaci w fali 2 pozostają wyłączone, a zapis LEGACY nie jest przenoszony.
+
 Runbook, przekierowania i rollback są dziedziczone z #1643 („Migracja i przełączenie”) i dzielone na fale.
 
 ## 7. Plan realizacji
@@ -321,14 +359,23 @@ Szacunki są przybliżone. Tydzień oznacza tydzień jednego developera. Faza ko
 | --- | --- | --- | --- |
 | F0 Fundament | Katalog `portal-rs/` i workspace, CI (lint, testy, pokrycie, `cargo deny`), szkielet ról, migracje, obserwowalność, preprod na `oteryn-vps-2`, zestaw zgodności z obrazem gry | Pusty portal na preprodzie, zielone CI i zestaw zgodności | 4–6 |
 | F1 Treści i strona publiczna | Layout, i18n, newsy, strony, wydarzenia, media, admin treści, RBAC i audyt, migracja treści | Redakcja publikuje na preprodzie | 6–8 |
-| F2 Dane gry publicznie | Projekcje (rankingi, profile, gildie, domy, zgony, online), status światów, wiki z katalogu, pobieranie z TUF | **Fala 1 gotowa do przełączenia** | 6–9 |
+| F2 Dane gry publicznie | Status światów, wiki z katalogu, pobieranie z TUF; projekcje (rankingi, profile, gildie, domy, zgony, online) gdy kontrakt jest gotowy | **Fala 1 gotowa do przełączenia.** Rankingi i profile wchodzą tylko przy zaakceptowanym GAME-PUBLIC-PROJ-0 i działającym producencie, w przeciwnym razie później | 6–9 |
 | F3 Konto | Rejestracja, logowanie, MFA, passkeys, odzyskiwanie, sesje i urządzenia, RODO, e-maile | Przegląd bezpieczeństwa konta | 6–8 |
-| F4 Gra i klient | Player API, gateway logowania w Ruście, admission, postacie, premium, kary, restore, support | **Fala 2 gotowa**, demo: logowanie z klienta i gra na węźle testowym | 8–11 |
-| F5 Handel | Portfel, transfer coinów, sklep (cennik, zakup, dostawa), płatności za interfejsem, faktury, bazar | **Fala 3 gotowa**, rekoncyliacja ledgera na kopii produkcyjnej | 8–11 |
+| F4 Gra i klient | Player API, gateway logowania w Ruście, admission, postacie, premium, kary, restore, support | **Fala 2 gotowa na preprodzie**: logowanie z klienta; demo gry na węźle testowym tylko gdy runtime protocol-oteryn działa. Produkcja: osobna autoryzacja (D721, N4P, §5.3) | 8–11 |
+| F5 Handel | Portfel, transfer coinów, sklep (cennik, zakup, dostawa), płatności za interfejsem, faktury, bazar | Bramki: akceptacja kontraktów sklepu i wpis w locku, zamknięte Q1–Q6, autoryzacja sprzedaży produkcyjnej, fence PITR, rekoncyliacja ledgera na kopii produkcyjnej. Dopiero wtedy fala 3 | 8–11 |
 | F6 Rozszerzenia | Atlas i `oteryn-map` (MA), narzędzia (M7), zarządzanie węzłami (M5), obserwacja GM (M10), OIDC dla staffu | Każde rozszerzenie z własną bramką z #1643 | 14–20 |
 | F7 Wygaszenie Laravela | Usunięcie ścieżek przejściowych i kodu Laravela z repozytorium (historia zostaje w git) | Zero ruchu na Laravel przez 30 dni | 1–2 |
 
-Razem rdzeń (F0–F5) to ok. **38–53 tygodni pracy**, a z rozszerzeniami ok. **53–75**. Przy dwóch równoległych osobach fala 1 jest możliwa po ok. 8–11 tygodniach kalendarzowych od startu F0. Daty kalendarzowe ustala właściciel po wyborze składu zespołu.
+Razem rdzeń (F0–F5) to ok. **38–53 tygodni pracy**, a z rozszerzeniami ok. **53–75**.
+
+Czas do fali 1 (F0 jest bramką szeregową, dopiero po niej F1 i F2 mogą iść równolegle):
+
+| Skład | F0 | F1 + F2 | Fala 1 po |
+| --- | --- | --- | --- |
+| 1 osoba | 4–6 | 12–17 (szeregowo) | ok. 16–23 tyg. |
+| 2 osoby | 3–5 (część F0 da się podzielić) | 6–9 (równolegle) | ok. 10–14 tyg. |
+
+Fale 2 i 3 zależą też od dostaw gry (§5.3), więc ich daty ustalamy po bramce fali 1. Daty kalendarzowe ustala właściciel po wyborze składu zespołu.
 
 Sposób pracy:
 
