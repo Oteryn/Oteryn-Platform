@@ -59,11 +59,11 @@ The existing HTTP foundation test is updated only to require empty 400 for incom
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-28T13:50:08Z
-head: b7d6df3e0aaef84a84757b8ceb3a058a88b2bbf2
+updated_at: 2026-11-05T10:35:00Z
+head: 39aa851089b978af7ce7b525044feea3ca8881ad
 branch: claude/happy-davinci-ijz3wy-store-delivery
 pr: 1672
-status: waiting
+status: completed
 context_routes:
   - products-entitlements
 owned_paths:
@@ -169,15 +169,15 @@ validation:
     evidence: "No whitespace errors; every new PHP file is below 400 lines; full tracked and untracked delta reviewed against owner checklist."
 blockers:
   - Governing Issue is TBD; lifecycle/exact-head CI and independent review remain coordinator work.
-next_action: Coordinator reviews this uncommitted candidate, resolves the recorded foundation conflicts and assigns the governing delivery Issue before integration.
+next_action: none; delivered by PR 1672 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: local implementation only; owner prohibits commits and publication
-source_branch_evidence: current task instruction
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1672 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1672 merged as 39aa851089b978af7ce7b525044feea3ca8881ad
 ```
 
 ## Validation details
