@@ -161,6 +161,60 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         tx.commit().await?;
         Ok(receipt(key, false))
     }
+    /// Uses the caller transaction; the caller must roll back on any error.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn adjust_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        key: Uuid,
+        account: Uuid,
+        amount: i64,
+        actor: Uuid,
+        reason: &str,
+    ) -> Result<Receipt, Error> {
+        self.enabled()?;
+        valid_key(key)?;
+        valid_id(account)?;
+        valid_id(actor)?;
+        if amount == 0 || amount == i64::MIN {
+            return Err(Refusal::InvalidAmount.into());
+        }
+        if reason.trim().is_empty() || reason.chars().count() > 1000 {
+            return Err(Refusal::InvalidReason.into());
+        }
+        lock(tx, account).await?;
+        self.active(tx, account).await?;
+        let operation = Operation {
+            key,
+            kind: "adjustment",
+            account,
+            counterparty: None,
+            amount,
+            reference: Some(actor),
+            reason: Some(reason),
+        };
+        if claim(tx, &operation).await? {
+            return Ok(receipt(key, true));
+        }
+        let before = balance(tx, account).await?;
+        let after = before.apply(amount, 0)?;
+        let event = AdjustmentAudit {
+            operation_id: key,
+            account_id: account,
+            actor_id: actor,
+            amount,
+            reason: reason.to_owned(),
+            before,
+            after,
+        };
+        if !self.audit.adjustment(tx, &event).await {
+            return Err(Refusal::AuditDenied.into());
+        }
+        entry(tx, key, account, amount, 0).await?;
+        sqlx::query("INSERT INTO wallet_adjustments (id, account_id, actor_id, amount, reason) VALUES ($1,$2,$3,$4,$5)")
+            .bind(key).bind(account).bind(actor).bind(amount).bind(reason).execute(&mut **tx).await?;
+        Ok(receipt(key, false))
+    }
     /// The operation key is also the reservation ID.
     pub async fn reserve(&self, key: Uuid, account: Uuid, amount: i64) -> Result<Receipt, Error> {
         self.enabled()?;
