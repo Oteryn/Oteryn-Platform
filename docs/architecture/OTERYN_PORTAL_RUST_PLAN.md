@@ -35,6 +35,7 @@ Zasady projektu:
 | Gracz | Postacie | Przegląd konta z postaciami (poziom, profesja, świat), tworzenie, usuwanie z anulowaniem, zmiana nazwy, płci i świata, pełne ustawienia profilu publicznego (§5.5) |
 | Gracz | Wiedza o świecie | Wiki generowana z treści świata gry (przedmioty, potwory, NPC, czary, questy, łupy, miejsca) i uzupełniana przez redakcję; Atlas, czyli interaktywna mapa świata z warstwami i znacznikami; wyszukiwarka |
 | Gracz | Społeczność | Rankingi, profile, gildie, domy, zgony, online, status światów |
+| Gracz | Statystyki | Historia postaci (doświadczenie dzień po dniu, czas online, nazwy, światy, gildie), rankingi przyrostu, statystyki gildii i świata, porównania, obserwowanie z powiadomieniami (§5.7) |
 | Gracz | Handel z graczami | Bazar: licytacje postaci, ogłoszenia i licytacje cennych przedmiotów, za coiny albo złoto z gry, z depozytem po obu stronach (§5.6) |
 | Gracz | Zakupy | Saldo coinów, doładowanie, sklep, status premium, historia, transfer coinów, płatności i rachunki |
 | Gracz | Pomoc | Zgłoszenia z załącznikami, zgłaszanie graczy, historia kar z potwierdzeniem i odwołaniem, FAQ, zgłoszenie błędu |
@@ -87,6 +88,7 @@ portal-rs/
     wiki/                    strony encji generowane z `world`, poradniki redakcji, wyszukiwanie
     atlas/                   kafle mapy z `world`, znaczniki, przeglądarka mapy
     community/               projekcje publiczne: rankingi, profile, gildie, domy, zgony, online, światy
+    stats/                   historia i statystyki: dzienne migawki postaci, gildii i świata, przyrosty, wykresy, obserwowanie
     wallet/                  ledger coinów, transfer, blokady, idempotencja
     store/                   cennik, zakup, dostawa (wire sklepu), historia
     bazaar/                  bazar: licytacje postaci, ogłoszenia i licytacje przedmiotów, depozyt, rozliczenie, statystyki
@@ -138,6 +140,7 @@ Wszystkie identyfikatory to UUIDv7. Kwoty to `bigint` w najmniejszej jednostce. 
 | wiki | `wiki_guides`, `wiki_revisions`, `wiki_reviews` (tylko teksty redakcji: poradniki i opisy dopisane do encji) |
 | atlas | `atlas_markers` (wyliczane z `world`: miasta, NPC, spawny, questy); kafle mapy jako pliki statyczne per wersja świata |
 | community | `public_snapshots` (rodzina, wersja, watermark, `jsonb`), `world_status` |
+| stats | `stats_character_daily` (postać, dzień, poziom, doświadczenie, umiejętności, punkty, minuty online; partycje miesięczne), `stats_character_events` (zmiana nazwy, świata, gildii, sprzedaż na bazarze, zgon, awans), `stats_guild_daily`, `stats_world_samples` (gracze online co 5 min), `stats_world_daily`, `stats_watches` |
 | wallet | `wallet_accounts`, `wallet_entries` (niezmienne, saldo jako suma z blokadą wiersza konta), `wallet_transfers`, `wallet_adjustments` (korekty zespołu z powodem) |
 | premium | `premium_ledger` (nadania, odebrania, zakupy; stan jako suma), `loyalty_state` |
 | store | `store_price_list_imports`, `store_active_catalog`, `store_offers`, `store_purchase_requests`, `store_orders`, `store_order_lines`, `store_fulfilment_units`, `store_operations` (outbox DELIVER), `store_receipts`, `store_reconcile_state` |
@@ -297,7 +300,7 @@ Reguły z przeglądu panelu Tibii. Przenosimy mechanikę, nie wygląd. Zadanie w
   - przy generowaniu gracz wpisuje go ponownie dla sprawdzenia;
   - jest wymagany do wyłączenia 2FA;
   - nowy klucz można dostać przez zapasowy e-mail (T05b).
-- E-mail: zmiana od razu z kluczem odzyskiwania albo po okresie oczekiwania z możliwością anulowania (Q8). Gracz może też zamienić adres główny z zapasowym (T08b).
+- E-mail: zmiana od razu z kluczem odzyskiwania albo po 7 dniach oczekiwania z możliwością anulowania (D14). Gracz może też zamienić adres główny z zapasowym (T08b).
 - Zaufane urządzenia są ważne 30 dni i znikają przy zmianie hasła lub 2FA (T06). Zmiana hasła wymaga obecnego hasła i wysyła e-mail (T08c).
 - Strona wylogowuje po 45 minutach bezczynności; czas jest w konfiguracji (T02).
 - Zgłoszenia graczy:
@@ -341,7 +344,7 @@ Najważniejsza różnica: portal pilnuje obu stron transakcji. Postać albo prze
 
 | Co | Forma | Zasady |
 | --- | --- | --- |
-| Postać | Licytacja | Cena minimalna, czas trwania, opcjonalnie „kup teraz” (Q10). Od wystawienia postać jest zablokowana: nie można się na nią zalogować ani jej zmienić. Po sprzedaży przechodzi na konto kupującego, a bez ofert wraca do sprzedawcy |
+| Postać | Licytacja | Cena minimalna, koniec wybrany przez sprzedawcę od 1 do 14 dni, opcjonalnie „kup teraz” do pierwszej oferty (D15). Od wystawienia postać jest zablokowana: nie można się na nią zalogować ani jej zmienić. Po sprzedaży przechodzi na konto kupującego, a bez ofert wraca do sprzedawcy |
 | Przedmiot | Ogłoszenie | Cena stała albo „przyjmuję oferty”. Oferta kupującego rezerwuje coiny; sprzedawca ją przyjmuje albo odrzuca. Ogłoszenie trwa 14 dni i można je odnowić |
 | Przedmiot | Licytacja | Jak przy postaci: cena minimalna, czas, opcjonalnie „kup teraz” |
 | Przedmiot | Ogłoszenie kupna | Gracz szuka przedmiotu, podaje cenę albo czeka na oferty. Sprzedawca odpowiada przedmiotem z depozytu |
@@ -361,7 +364,8 @@ Przepływ:
    - gracz podaje swoją ofertę maksymalną, a system podbija cenę automatycznie o minimalny krok;
    - licytować może tylko gracz, który ma pełną kwotę oferty maksymalnej; portfel rezerwuje ją w coinach, a gra blokuje ją w złocie;
    - przebita oferta zwalnia rezerwę;
-   - oferta w ostatnich minutach przedłuża aukcję (ochrona przed snipingiem);
+   - minimalne przebicie to 1% aktualnej ceny, co najmniej 1 coin albo 1 000 złota (D15);
+   - oferta w ostatnich 5 minutach przedłuża aukcję o 5 minut (ochrona przed snipingiem, D15);
    - coinami licytuje się tylko przenoszalnymi.
 4. Rozliczenie:
    - przy coinach jedna transakcja portfela obciąża kupującego i uznaje sprzedawcę, pomniejszając kwotę o prowizję 10% (D13);
@@ -428,7 +432,42 @@ Bezpieczeństwo:
 - Oferty kupna mają limity.
 - Zespół może wstrzymać ofertę.
 - Wszystkie operacje trafiają do audytu, a kwoty do niezmiennego ledgera.
-- Postać kupioną na bazarze można wystawić ponownie dopiero po karencji (Q10).
+- Postać kupioną na bazarze można wystawić ponownie dopiero po 30 dniach (D15).
+- Oferta o 25% droższa lub tańsza od ceny rynkowej jest oznaczona ostrzeżeniem (D15).
+
+### 5.7 Statystyki
+
+Wzór: GuildStats (przegląd 2026-11-05). GuildStats zbiera dane, odpytując stronę Tibii. Portal ma je wprost z projekcji gry, więc historia jest dokładna i bez opóźnień.
+
+Portal po każdym ingeście projekcji (T24) zapisuje dzienną migawkę każdej postaci: poziom, doświadczenie, umiejętności i punkty. Do tego dochodzą zdarzenia:
+
+- zmiana nazwy;
+- zmiana świata;
+- wejście do gildii i wyjście z niej;
+- sprzedaż na bazarze;
+- zgon;
+- awans.
+
+Czas online pochodzi z sesji w grze (G-8).
+
+| Obszar | Funkcje | Zadanie |
+| --- | --- | --- |
+| Strona postaci | Zakładki: historia (nazwy, światy, gildie, sprzedaże na bazarze), doświadczenie (wykres dzienny, przyrost dzień, tydzień, miesiąc, rekordy), czas online (kalendarz dni, suma tygodnia i miesiąca), pozycje w rankingach w czasie, zgony; postęp gry (procent zdobytych osiągnięć i questów); przewidywanie daty poziomu | T66 |
+| Porównanie | Dwie lub więcej postaci na jednym wykresie: poziom, doświadczenie, umiejętności | T66 |
+| Rankingi przyrostu | Top doświadczenia (wczoraj, 7 dni, 30 dni, rekordy), czas online, najstarsze postacie i rocznice, zmiany nazw, transfery światów, postacie sprzedane na bazarze. Filtry: świat, typ PvP, profesja | T67 |
+| Gildie | Lista: członkowie, aktywni, średni i łączny poziom, doświadczenie, punkty osiągnięć, wojny, data założenia. Historia członków, przyrost gildii, ranking gildii, porównanie gildii, rocznice, rozwiązane gildie | T68 |
+| Świat | Wykres graczy online, spis (profesje, poziomy, płeć), zgony dziennie, statystyki zabitych potworów i bossów (G-8) | T69 |
+| Obserwowanie | Postać lub gildia z powiadomieniem: online, awans, zgon, zmiana gildii | T70 |
+| Kalkulatory | Doświadczenie do poziomu, stamina, trening, podział łupu; liczone z danych świata (T14) | T71 |
+
+Prywatność:
+
+- Statystyki postaci podlegają przełącznikom profilu (T45) i D11.
+- Postać ukryta nie pojawia się w statystykach ani rankingach przyrostu.
+- Czas online jest widoczny tylko przy włączonym przełączniku gracza.
+- Obserwowanie nie omija tych ustawień.
+
+Retencja: migawki dzienne przechowujemy bez limitu, a próbki co 5 minut przez 90 dni; potem zostają agregaty dzienne.
 
 ## 6. Integracja z grą
 
@@ -446,6 +485,7 @@ Bezpieczeństwo:
 | Komendy postaci poza tworzeniem | Usunięcie i anulowanie, nazwa, płeć, świat (G-3) | Brak kontraktu; dane cyklu życia postaci są tylko szkicem |
 | Rozszerzone dane publiczne | Zgony z zabójcą, gildie, domy, osiągnięcia, umiejętności, ekwipunek (G-4) | Zgony, gildie, domy CANDIDATE; reszta: dane są, projekcji brak |
 | Usunięcie konta | Co dzieje się z postaciami i projekcjami (G-6) | Brak |
+| Statystyki | Sesje online per postać (start, koniec) i dzienne liczniki zabitych potworów i bossów per świat (G-8); reszta z projekcji publicznych | Brak |
 | Bazar | Blokada i snapshot postaci, warunki wystawienia, depozyt i dostawa przedmiotów, blokada i przekazanie złota (G-7); przeniesienie postaci przez TransferCharacterOwnership z GAME-CHAR-CMD | Przeniesienie jest w kontrakcie komend; snapshot i depozyt brak |
 | Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
 | Dane świata (wiki, Atlas) | Odczyt `content/**` z przypiętego commita gry (§6.1) | Dane są; flaga widoczności brak (G-2); publikacja grafik: zgoda (D7) |
@@ -519,6 +559,7 @@ Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie cz�
   - tryb sudo dla akcji wrażliwych;
   - po zmianie hasła lub e-maila, użyciu klucza odzyskiwania i wyłączeniu 2FA portal unieważnia sesje web, rodziny tokenów OAuth i sesje urządzeń klienta;
   - e-mail o logowaniu z nowego urządzenia.
+- Zmiana e-maila (D14): bez klucza odzyskiwania zmiana po 7 dniach z anulowaniem ze starego adresu; po zmianie 72 h blokady transferu coinów, bazaru i kolejnej zmiany e-maila.
 - Rejestracja: rate limit i proof-of-work bez zewnętrznych usług.
 - Rate limity: zestaw z obecnego portalu (`app/Providers/AppServiceProvider.php`) jako punkt wyjścia.
 - CSRF: token synchronizowany dla każdej mutacji w web.
@@ -574,7 +615,7 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T06 | 2FA TOTP, kody odzyskiwania, wyzwanie przy logowaniu; zaufane urządzenia (lista, usuwanie); rezerwowe 2FA kodem z e-maila | T04 | `crates/identity/src/mfa*` |
 | T07 | Passkeys (WebAuthn) | T04 | `crates/identity/src/passkeys*` |
 | T08 | Sesje web: lista, unieważnienie jednej i wszystkich, historia logowań, e-mail o nowym urządzeniu | T04, T36 | `crates/identity/src/sessions*` |
-| T08b | Zmiana e-maila: potwierdzenie na nowy adres, link cofnięcia na stary, cooldown (okres oczekiwania: Q8); zapasowy e-mail z potwierdzeniem | T04, T36 | `crates/identity/src/email_change*` |
+| T08b | Zmiana e-maila: potwierdzenie na nowy adres, link cofnięcia na stary, zmiana od razu z kluczem odzyskiwania albo po 7 dniach, przycisk „to nie ja” na starym adresie, link cofnięcia przez 30 dni, po zmianie 72 h blokady transferu coinów, bazaru i kolejnej zmiany e-maila (D14); zapasowy e-mail z potwierdzeniem | T04, T36 | `crates/identity/src/email_change*` |
 | T08c | Zmiana hasła i tryb sudo; po zmianie poświadczeń unieważnienie sesji web, rodzin OAuth i sesji urządzeń | T04, T16, T21 | `crates/identity/src/credentials*` |
 | T09 | Eksport danych (RODO) | T08 | `crates/identity/src/export*` |
 | T09b | Usunięcie konta: karencja 1–90 dni (domyślnie 14), anulowanie, finalizacja w workerze; przekazanie do gry po G-6 | T08c, T37 | `crates/identity/src/termination*` |
@@ -660,6 +701,13 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T62 | Bazar: powiadomienia (przebicie, nowa oferta, koniec, wygrana, pasujące wyszukiwanie) | T61, T36 | `crates/bazaar/src/notify*` |
 | T63 | Bazar: historia cen, cena rynkowa, statystyki, szacowanie wartości postaci, porównanie postaci | T59, T60 | `crates/bazaar/src/stats*` |
 | T64 | Bazar: profil sprzedawcy, zgłoszenia ofert, wyróżnienie; panel zespołu (moderacja, wstrzymanie, unieważnienie z czterema oczami, opłaty, lista zbywalnych przedmiotów) | T59, T60, T10b, T33c | `crates/bazaar/src/moderation*`, `crates/admin/src/bazaar*` |
+| T65 | Statystyki, rdzeń: dzienne migawki postaci z ingestu projekcji, zdarzenia (nazwa, świat, gildia, bazar, zgon, awans), próbki online, agregaty, partycje i retencja | T24 | `crates/stats/src/store*`, migracja |
+| T66 | Statystyki postaci: zakładki historii, doświadczenia, czasu online, rankingów i zgonów; postęp gry; przewidywanie poziomu; porównanie postaci | T65, T24b | `crates/stats/src/character*`, `templates/stats/` |
+| T67 | Rankingi przyrostu: doświadczenie, czas online, najstarsze postacie, zmiany nazw, transfery, sprzedane postacie; filtry | T65, T24a | `crates/stats/src/rankings*` |
+| T68 | Statystyki gildii: lista z miarami, historia członków, przyrost, ranking, porównanie | T65, T24e | `crates/stats/src/guilds*` |
+| T69 | Statystyki świata: wykres online, spis, zgony dziennie, potwory i bossowie (po G-8) | T65, T25 | `crates/stats/src/world*` |
+| T70 | Obserwowanie postaci i gildii z powiadomieniami, z poszanowaniem prywatności | T66, T36 | `crates/stats/src/watch*` |
+| T71 | Kalkulatory z danych świata: doświadczenie do poziomu, stamina, trening, podział łupu | T14 | `crates/wiki/src/calculators*` |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 | G-2 | (gra) Pole widoczności (public/hidden) w schematach questów, NPC i obszarów | – | Oteryn-Game, przez koordynatora |
 | G-3 | (gra) Komendy postaci: usunięcie i anulowanie, zmiana nazwy, płci i świata (rozszerzenie GAME-CHAR-CMD; płatne usługi rozlicza Platform) | – | Oteryn-Game, przez koordynatora |
@@ -667,13 +715,14 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | G-5 | (gra) Wykonywanie kar w grze (po D9) | – | Oteryn-Game, przez koordynatora |
 | G-6 | (gra) Usunięcie konta: los postaci i projekcji | – | Oteryn-Game, przez koordynatora |
 | G-7 | (gra) Bazar: blokada i podpisany snapshot postaci z hashem, warunki wystawienia, zbywalność przedmiotów, depozyt przedmiotów z atrybutami, dostawa do kupującego i zwrot do sprzedawcy; blokada złota kupującego (oferta, rezerwa), przekazanie złota sprzedawcy i zwolnienie blokady; przeniesienie postaci przez istniejące TransferCharacterOwnership | – | Oteryn-Game, przez koordynatora |
+| G-8 | (gra) Statystyki: sesje online per postać (start, koniec) oraz dzienne liczniki zabitych potworów i bossów per świat, jako rodziny publiczne | – | Oteryn-Game, przez koordynatora |
 
 Kolejność startu:
 
 1. T00 jest gotowy w PR #1685 (kompilujący się szkielet i job CI).
 2. Potem jednocześnie: T01, T14, T15, T37, T39 i T52.
-3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45, T53–T54), gry (T16–T25), handlu (T26–T32, T47, T55–T56), bazaru (T57–T64) i panelu zespołu (T10–T10b, T49–T51).
-4. Zadania zależne od G-3…G-7 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
+3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45, T53–T54), gry (T16–T25), handlu (T26–T32, T47, T55–T56), bazaru (T57–T64), statystyk (T65–T71) i panelu zespołu (T10–T10b, T49–T51).
+4. Zadania zależne od G-3…G-8 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
 
 ### 10.1 Szablon zadania dla Codexa
 
@@ -716,6 +765,9 @@ Pozostałe warunki:
 | D11 | Ostatnie logowanie i czas online na profilu | **Tak** (2026-11-05), z przełącznikiem prywatności gracza; wymaga danych z gry (G-4) |
 | D12 | Kolejność zadań gry G-3…G-6 | **G-4, G-3, G-6, G-5** (2026-11-05) |
 | D13 | Bazar | **Tak** (2026-11-05): nazwa „Bazar”; postacie na licytacji, cenne przedmioty w ogłoszeniu albo na licytacji; za coiny albo złoto z gry; wystawienie darmowe; prowizja tylko od sprzedaży: 10% przy coinach, 2,5% przy złocie, bez górnego limitu (inaczej niż Market Tibii); licytuje tylko gracz z pełną kwotą oferty (§5.6). G-7 trafia do kolejki gry po G-5 |
+| D14 | Zmiana e-maila (było Q8) | **Zgoda** (2026-11-05): z kluczem odzyskiwania od razu; bez klucza hasło, 2FA i potwierdzenie nowego adresu, zmiana po 7 dniach; stary adres dostaje od razu „to nie ja” (anuluje) i link cofnięcia ważny 30 dni; po zmianie wylogowanie wszędzie i 72 h blokady transferu coinów, bazaru i kolejnej zmiany e-maila |
+| D15 | Parametry bazaru (było Q10) | **Zgoda** (2026-11-05): licytacja 1–14 dni; ogłoszenie 14 dni z odnowieniem; „kup teraz” do pierwszej oferty; przebicie min. 1% (≥1 coin lub 1 000 złota); oferta w ostatnich 5 min przedłuża o 5 min; ponowna sprzedaż kupionej postaci po 30 dniach; ostrzeżenie przy cenie ±25% od rynkowej |
+| D16 | Statystyki graczy, gildii i świata (wzór GuildStats) | **Tak** (2026-11-05), §5.7 |
 
 ## 12. Otwarte pytania
 
@@ -725,8 +777,6 @@ Pozostałe warunki:
 | Q3 | Aktualizacja locka gry: N4P (z `native-admissions`) i GAME-CHAR-CMD-0 (§6) | Koordynator, G-1 | Nic; portal implementuje według kodu |
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
 | Q5 | Akceptacja projektu | Właściciel | Start T01+ |
-| Q8 | Okres oczekiwania przy zmianie e-maila (Tibia: 30 dni i nowe hasło; dziś: potwierdzenie i link cofnięcia) | Właściciel | Tylko T08b |
-| Q10 | Parametry bazaru: czasy trwania, „kup teraz”, minimalny krok, przedłużenie przy ofercie na końcu, karencja ponownej sprzedaży postaci | Właściciel | Tylko wartości w konfiguracji T57 |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
@@ -737,5 +787,5 @@ Pozostałe zadania nie czekają na te odpowiedzi.
 - Gra (main @60de8634): `docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json`, `crates/platform-client` (`lib.rs`, `native_login.rs`, `native_login/owner_characters.rs`), `crates/gameplay/native-admission-source` (`account_characters.rs`, `character_commands.rs`, `store.rs`, `restore_notice.rs`, `public_projections.rs`), `PROD-ENTITLEMENTS-01_GAME_CONSUMER_ENFORCEMENT_CONTRACT_CANDIDATE.md`.
 - Przegląd od strony gry: koordynator, 2026-11-05; stan panelu gracza po stronie gry: Game main @00c01066.
 - Inwentarz obecnego portalu i niezależny przegląd kompletności panelu gracza, 2026-11-05.
-- Przegląd panelu konta Tibii, Char Bazaar Tibii, Exevopan i TibiaTrade, 2026-11-05.
+- Przegląd panelu konta Tibii, Char Bazaar Tibii, Exevopan, TibiaTrade i GuildStats, 2026-11-05.
 - Szkic #1643: źródło pomysłów dla rozszerzeń (węzły, Atlas, obserwacja GM).
