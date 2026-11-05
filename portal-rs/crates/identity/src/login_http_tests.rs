@@ -194,6 +194,30 @@ async fn postgres_browser_login_logout_csrf_and_limits() -> TestResult {
             .await?;
         assert_eq!(response.status(), StatusCode::FOUND);
     }
+    // Earlier credential checks can span fixed windows under hashing load. Seed
+    // this email/source through the real key derivation, without password work
+    // between charges. Keep a small database-clock margin before the HTTP check.
+    let policy = NamedPolicy::IdentityLogin;
+    let remaining: f64 = sqlx::query_scalar(
+        "SELECT ($1::bigint - mod(extract(epoch FROM statement_timestamp()), $1::bigint))::double precision",
+    )
+    .bind(policy.window_seconds())
+    .fetch_one(&pool)
+    .await?;
+    if remaining < 3.0 {
+        tokio::time::sleep(std::time::Duration::from_secs_f64(remaining)).await;
+    }
+    // Each test has its own schema; discard only the earlier email quota.
+    sqlx::query("DELETE FROM web_rate_limits WHERE limiter_name = $1")
+        .bind(policy.name())
+        .execute(&pool)
+        .await?;
+    let limiter = RateLimiter::new(pool.clone());
+    let mut keys = Keys::source("192.0.2.44".parse()?);
+    keys.email = Some(email.clone());
+    for _ in 0..policy.limit() {
+        limiter.check(policy, std::slice::from_ref(&keys)).await?;
+    }
     let response = app
         .oneshot(request(
             "POST",
