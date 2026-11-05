@@ -1,0 +1,7 @@
+{% extends "account/register_base.html" %}
+{% block title %}{{ self.text("verify-title") }}{% endblock %}
+{% block content %}<h1>{{ self.text("verify-title") }}</h1><p role="status">{{ self.text(key) }}</p>
+{% if key != "verify-success" %}
+<a href="/{{ lang }}/verify-email/resend">{{ self.text("verify-resend") }}</a>
+{% if key != "verify-inbox" %}{% if authenticated %}<form method="post" action="/{{ lang }}/verify-email/resend"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button op-button--primary" type="submit">{{ self.text("verify-resend") }}</button></form>{% else %}<p>{{ self.text("verify-login-hint") }}</p><a href="/{{ lang }}/login">{{ self.text("verify-login") }}</a>{% endif %}{% endif %}
+{% endif %}{% endblock %}
