@@ -8,4 +8,7 @@ pub use domain::*;
 pub use ports::*;
 pub use repository::Bazaar;
 
+pub mod game;
+
 pub mod characters;
+pub mod items;

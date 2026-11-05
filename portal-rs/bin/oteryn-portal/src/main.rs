@@ -116,4 +116,105 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_payments::account::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let app = app.merge(oteryn_atlas::web::configured_router(oteryn_db::lazy_pool(
+                config.database_url(),
+            )?));
+            let app = app.merge(login_http::configured_router(oteryn_db::lazy_pool(
+                config.database_url(),
+            )?));
+            let app = app.merge(oteryn_content::pages::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_content::events::web::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_wiki::web::configured_router(oteryn_db::lazy_pool(
+                config.database_url(),
+            )?)?);
+            let app = app.merge(oteryn_world::admin::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_content::news::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_stats::rankings::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_stats::world::http::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_content::media::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_player_api::configured_router(oteryn_db::lazy_pool(
+                config.database_url(),
+            )?));
+            let app = app.merge(oteryn_support::reports::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.merge(oteryn_admin::players::http::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let wizard_pool = oteryn_db::lazy_pool(config.database_url())?;
+            let wizard = oteryn_identity::security_wizard::configured(wizard_pool.clone())
+                .layer(axum::middleware::from_fn(
+                    |mut request: axum::extract::Request, next: axum::middleware::Next| async move {
+                        if let Some(session) = request
+                            .extensions()
+                            .get::<oteryn_web::session::BrowserSession>()
+                            && let Some(id) = session.account_id().await
+                        {
+                            request
+                                .extensions_mut()
+                                .insert(oteryn_identity::security_wizard::Viewer(id));
+                        }
+                        next.run(request).await
+                    },
+                ))
+                .layer(axum::middleware::from_fn_with_state(
+                    oteryn_web::session::SessionLayer::new(wizard_pool),
+                    oteryn_web::session::middleware,
+                ));
+            let app = app.merge(wizard);
+            let app = app.merge(oteryn_hirelings::web::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let app = app.merge(oteryn_bazaar::characters::http::configured_router());
+            let app = oteryn_wiki::entities::mount(
+                app,
+                oteryn_wiki::entities::EntityState::configured(oteryn_db::lazy_pool(
+                    config.database_url(),
+                )?),
+            );
+            let app = app.merge(oteryn_bazaar::items::web::configured_router());
+            let listener = tokio::net::TcpListener::bind(config.bind).await?;
+            tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
+            let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = tokio::signal::ctrl_c().await;
+                })
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roles_parse_with_serve_as_default() {
+        assert_eq!(parse_role(None), Some(Role::Serve));
+        assert_eq!(parse_role(Some("migrate")), Some(Role::Migrate));
+        assert_eq!(parse_role(Some("worker")), Some(Role::Worker));
+        assert_eq!(parse_role(Some("drop-database")), None);
+    }
+}
+
+mod gateway;
+mod worker;
+
+#[path = "../../../crates/identity/src/login_http.rs"]
+mod login_http;
