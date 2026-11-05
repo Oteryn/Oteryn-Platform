@@ -341,7 +341,7 @@ async fn database_idle_and_absolute_expiry_and_cleanup() -> TestResult {
                 .await
                 .is_err()
         );
-        SessionCleanup { pool: pool.clone() }.clean().await?;
+        oteryn_db::outbox::Cleanup::clean(&SessionCleanup { pool: pool.clone() }).await?;
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE id_hash=$1")
             .bind(hash(&id))
             .fetch_one(&pool)

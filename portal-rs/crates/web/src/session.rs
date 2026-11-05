@@ -360,3 +360,13 @@ impl SessionCleanup {
 #[cfg(test)]
 #[path = "session_tests.rs"]
 mod tests;
+
+impl oteryn_db::outbox::Cleanup for SessionCleanup {
+    fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
+        Box::pin(async move {
+            SessionCleanup::clean(self)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    }
+}
