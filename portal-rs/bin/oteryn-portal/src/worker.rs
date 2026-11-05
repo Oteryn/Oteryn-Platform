@@ -206,3 +206,23 @@ impl Registry {
         self.register(oteryn_notify::EMAIL_JOB, Arc::new(delivery))
     }
 }
+
+impl Handler for oteryn_admin::commerce::RefundDelivery {
+    fn run<'a>(&'a self, job: &'a Job) -> HandlerFuture<'a> {
+        Box::pin(async move {
+            self.run(job)
+                .await
+                .map_err(|_| "refund delivery refused".to_owned())
+        })
+    }
+}
+impl Registry {
+    /// Commerce supplies verified domain authority before refund dispatch is enabled.
+    #[allow(dead_code)]
+    pub fn commerce_refunds(
+        &mut self,
+        delivery: oteryn_admin::commerce::RefundDelivery,
+    ) -> Result<(), String> {
+        self.register("commerce.refund", Arc::new(delivery))
+    }
+}
