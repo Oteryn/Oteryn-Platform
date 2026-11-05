@@ -240,7 +240,7 @@ async fn postgres_masked_view_writes_exactly_one_read_audit()
     assert!(html.contains("Email: masked"));
     assert!(html.contains("IP: masked"));
     assert!(html.contains("Payment details: masked"));
-    let count:i64=sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE request_id=$1 AND actor=$2 AND action='console.players.view'").bind(request_id).bind(actor.account).fetch_one(&pool).await?;
+    let count:i64=sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE request_id=$1 AND actor=$2 AND operation='player.character.get' AND risk_class='R1'").bind(request_id).bind(actor.account).fetch_one(&pool).await?;
     assert_eq!(count, 1);
     let denied = Console {
         pool: pool.clone(),
@@ -449,7 +449,7 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
         assert!(html.contains(expected));
     }
     let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM audit_log WHERE actor=$1 AND action='console.audit.view'",
+        "SELECT count(*) FROM audit_log WHERE actor=$1 AND operation='admin.ledger.query' AND risk_class='R1'",
     )
     .bind(actor.account)
     .fetch_one(&db.pool)

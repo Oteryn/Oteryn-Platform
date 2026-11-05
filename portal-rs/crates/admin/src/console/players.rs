@@ -2,7 +2,9 @@
 //! masked even when present in a verified response. Reads fail if auditing fails.
 use super::access::{Backend, Console, Error, Page, language, tr};
 use crate::{
-    audit::{self, AuditContext, Entry},
+    audit::{
+        AdminControlAudit, AdminControlAuditWriter, AuditContext, AuditOutcome, ReadView, RiskClass,
+    },
     rbac::CheckContext,
 };
 use axum::{
@@ -91,53 +93,47 @@ pub struct Snapshot {
     pub inventory: Option<Vec<Item>>,
     pub sanctions: Option<Vec<Sanction>>,
 }
-/// A successful R1 view is released only after one durable masked-read record.
-/// Implementations must fail closed when audit storage is unavailable.
-pub trait ReadAudit {
-    fn record(
-        &self,
-        actor: CheckContext,
-        request_id: Uuid,
-        target: &str,
-        action: &str,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send;
-}
-impl ReadAudit for sqlx::PgPool {
-    async fn record(
-        &self,
-        actor: CheckContext,
-        request_id: Uuid,
-        target: &str,
-        action: &str,
-    ) -> Result<(), Error> {
-        let mut tx = self.begin().await?;
-        audit::append(
-            &mut tx,
-            Entry {
-                context: AuditContext {
-                    actor: Some(actor.account),
-                    request_id,
-                },
-                action,
-                target,
-                before: json!(null),
-                after: json!({"risk_class":"R1","masked":true}),
-            },
-        )
-        .await
-        .map_err(|_| Error::Unavailable)?;
-        tx.commit().await?;
-        Ok(())
-    }
-}
+/// The shared audit writer stores one R1 event before releasing the view.
 pub(crate) async fn record_read(
     pool: &sqlx::PgPool,
     actor: CheckContext,
     request_id: Uuid,
     target: &str,
-    action: &str,
+    operation: &str,
 ) -> Result<(), Error> {
-    pool.record(actor, request_id, target, action).await
+    let mut tx = pool.begin().await?;
+    let record = AdminControlAudit {
+        context: AuditContext {
+            actor: Some(actor.account),
+            request_id,
+        },
+        admin_operation_id: request_id,
+        operation: operation.to_owned(),
+        risk_class: RiskClass::R1,
+        target: if operation == "player.search" {
+            json!({"view":"search"})
+        } else if operation == "admin.ledger.query" {
+            json!({"view":"ledger"})
+        } else {
+            json!({"character_id":target})
+        },
+        reason: None,
+        approvals: json!([]),
+        ip: None,
+        user_agent: None,
+        correlation_id: request_id,
+        outcome: AuditOutcome::Succeeded,
+        game_ledger_id: None,
+    };
+    let writer = AdminControlAuditWriter { enabled: true };
+    if operation == ReadView::Dossier.operation() {
+        writer.read_audit(&mut tx, ReadView::Dossier, record).await
+    } else {
+        writer.append(&mut tx, record).await
+    }
+    .map_err(|_| Error::Unavailable)?;
+    tx.commit().await?;
+    Ok(())
 }
 pub(crate) async fn view<B: Backend>(
     state: &Console<B>,
@@ -171,7 +167,7 @@ pub(crate) async fn view<B: Backend>(
             actor,
             snapshot.request_id,
             input.character.as_deref().unwrap_or("search"),
-            "console.players.view",
+            operation,
         )
         .await?;
         page.source = format!(
