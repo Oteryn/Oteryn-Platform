@@ -9,3 +9,6 @@ pub use store::*;
 
 #[cfg(test)]
 mod tests;
+
+pub mod canonical;
+pub mod signer;

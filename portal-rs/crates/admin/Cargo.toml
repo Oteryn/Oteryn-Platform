@@ -58,3 +58,14 @@ version = "0.7"
 [dependencies.time]
 version = "0.3.55"
 features = ["serde-well-known"]
+[dependencies.ed25519-dalek]
+workspace = true
+[dependencies.serde_json_canonicalizer]
+workspace = true
+[dependencies.base64]
+version = "0.22"
+[dev-dependencies.rand_core]
+version = "0.6"
+features = ["getrandom"]
+[dependencies.zeroize]
+version = "1.9"
