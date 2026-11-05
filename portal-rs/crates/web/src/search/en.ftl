@@ -1,0 +1,15 @@
+title = Search the portal
+query = Search terms
+search = Search
+kind = Content type
+all = Editorial content
+news = News
+pages = Pages
+events = Events
+wiki = Wiki guides
+world = World entities
+characters = Characters
+empty = No results.
+invalid = Use 2–80 characters and a page from 1 to 1000.
+unavailable = This search source is unavailable. Try again later.
+next = Next page
