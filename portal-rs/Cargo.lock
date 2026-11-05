@@ -2351,6 +2351,8 @@ dependencies = [
  "oteryn-web",
  "oteryn-wiki",
  "oteryn-world",
+ "serde",
+ "serde_urlencoded",
  "sha2 0.10.9",
  "sqlx",
  "tokio",

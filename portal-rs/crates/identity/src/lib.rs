@@ -9,5 +9,6 @@ pub use accounts::AccountId;
 pub mod abuse;
 pub mod login;
 
+pub mod privacy;
 pub mod security_wizard;
 pub mod sessions;

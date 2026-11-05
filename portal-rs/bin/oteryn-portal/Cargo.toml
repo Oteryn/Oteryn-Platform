@@ -29,6 +29,8 @@ oteryn-downloads = { path = "../../crates/downloads" }
 oteryn-admin = { path = "../../crates/admin" }
 oteryn-payments = { path = "../../crates/payments" }
 sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_urlencoded = "0.7"
 oteryn-hirelings.workspace = true
 oteryn-support.workspace = true
 oteryn-player-api = { path = "../../crates/player-api" }
@@ -50,3 +52,6 @@ workspace = true
 
 [dependencies.oteryn-world]
 path = "../../crates/world"
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }
