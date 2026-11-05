@@ -69,3 +69,12 @@ version = "0.6"
 features = ["getrandom"]
 [dependencies.zeroize]
 version = "1.9"
+
+[dependencies.oteryn-internal-api]
+path = "../internal-api"
+[dependencies.tokio]
+version = "1.54.1"
+features = ["time"]
+[dependencies.tower]
+version = "0.5.3"
+features = ["util"]

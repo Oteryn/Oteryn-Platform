@@ -2657,6 +2657,7 @@ dependencies = [
  "oteryn-core",
  "oteryn-db",
  "oteryn-identity",
+ "oteryn-internal-api",
  "oteryn-payments",
  "oteryn-store",
  "oteryn-wallet",

@@ -10,3 +10,6 @@ pub mod players;
 pub mod support;
 
 pub mod control;
+
+#[path = "control/http.rs"]
+pub mod control_http;
