@@ -1,0 +1,17 @@
+events = Wydarzenia
+empty = Brak opublikowanych wydarzeń.
+create = Utwórz wydarzenie
+starts = Początek (UTC)
+ends = Koniec (UTC)
+featured = Wyróżnione
+title = Tytuł
+slug = Adres
+summary = Podsumowanie
+body = Treść
+save = Zapisz szkic
+publication = Status publikacji
+draft = Szkic
+scheduled = Zaplanowane
+published = Opublikowane
+archived = Zarchiwizowane
+apply = Zmień status
