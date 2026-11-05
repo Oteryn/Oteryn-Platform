@@ -1960,6 +1960,26 @@ name = "oteryn-player-api"
 version = "0.1.0"
 
 [[package]]
+name = "oteryn-playerdata"
+version = "0.1.0"
+dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
+ "oteryn-db",
+ "oteryn-identity",
+ "oteryn-web",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tower",
+ "unic-langid",
+ "uuid",
+]
+
+[[package]]
 name = "oteryn-portal"
 version = "0.1.0"
 dependencies = [
@@ -1977,6 +1997,7 @@ dependencies = [
  "oteryn-internal-api",
  "oteryn-notify",
  "oteryn-payments",
+ "oteryn-playerdata",
  "oteryn-stats",
  "oteryn-web",
  "sha2 0.10.9",
