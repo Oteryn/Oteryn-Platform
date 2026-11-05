@@ -26,6 +26,8 @@ tower = { version = "0.5.3", features = ["util"] }
 version = "0.16.1"
 [dependencies.oteryn-web]
 path = "../web"
+[dependencies.sha2]
+version = "0.10"
 [dependencies.serde]
 version = "1"
 features = ["derive"]
