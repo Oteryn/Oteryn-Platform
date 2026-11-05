@@ -7,9 +7,10 @@ pub mod online;
 pub mod rankings;
 pub mod worlds;
 
-pub mod party;
-pub mod referrals;
-pub mod profiles;
 pub mod deaths;
 pub mod guilds;
 pub mod houses;
+pub mod party;
+pub mod profiles;
+pub mod referrals;
+pub mod v2_watermark;

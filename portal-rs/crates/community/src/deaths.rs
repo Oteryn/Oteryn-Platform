@@ -1,4 +1,5 @@
 //! Default-off V2 deaths ingestion and privacy-gated public presentation.
+use crate::v2_watermark::Part;
 use axum::{
     Extension, Router,
     extract::State,
@@ -49,11 +50,22 @@ fn now() -> u64 {
 }
 /// Only verified TLS metadata supplied by the trusted adapter establishes identity.
 pub fn ingest_router(db: PgPool, identities: Arc<IdentityMap>, config: IngestConfig) -> Router {
+    ingest_routes(db, identities, config, Part::All)
+}
+fn ingest_routes(
+    db: PgPool,
+    identities: Arc<IdentityMap>,
+    config: IngestConfig,
+    part: Part,
+) -> Router {
     let mut routes = Router::new();
     for (path, handler, limit) in [
         ("character-deaths", post(snapshot), 32768),
         ("watermark", post(watermark), 512),
     ] {
+        if !part.includes(path) {
+            continue;
+        }
         let route = Router::new()
             .route(&format!("/internal/v2/game-public/{path}"), handler)
             .with_state(Ingest {
@@ -207,7 +219,15 @@ fn result(result: Result<&'static str, storage::Error>) -> Response {
     }
 }
 /// Binary wiring deliberately denies presentation until a privacy authority is provided.
+/// The shared V2 watermark is mounted once by [`crate::v2_watermark`].
 pub fn configured_router(db: PgPool) -> Router {
+    configured(db, Part::Payload)
+}
+/// Only the guarded watermark route, for [`crate::v2_watermark::router`].
+pub fn configured_watermark_router(db: PgPool) -> Router {
+    configured(db, Part::Watermark)
+}
+fn configured(db: PgPool, part: Part) -> Router {
     let env_allowed = matches!(
         std::env::var("APP_ENV").as_deref(),
         Ok("testing" | "preproduction")
@@ -226,7 +246,7 @@ pub fn configured_router(db: PgPool) -> Router {
             .ok()
         })
         .unwrap_or_default();
-    ingest_router(
+    let ingest = ingest_routes(
         db.clone(),
         Arc::new(identities),
         IngestConfig {
@@ -236,8 +256,12 @@ pub fn configured_router(db: PgPool) -> Router {
                 && std::env::var("PORTAL_DEATHS_V2_INGEST_ENABLED").as_deref() == Ok("true"),
             source_authority: authority.clone(),
         },
-    )
-    .merge(router(
+        part,
+    );
+    if part == Part::Watermark {
+        return ingest;
+    }
+    ingest.merge(router(
         db,
         Arc::new(FailClosed),
         Config {

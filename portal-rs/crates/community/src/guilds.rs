@@ -1,4 +1,5 @@
 //! G-4 guild snapshots and privacy-filtered public pages. No gameplay mutations.
+use crate::v2_watermark::Part;
 use axum::{
     Extension, Router,
     extract::State,
@@ -31,8 +32,19 @@ struct Ingest {
 }
 /// Mount on the trusted mTLS listener; identity headers never grant access.
 pub fn ingest_router(db: PgPool, identities: Arc<IdentityMap>, config: IngestConfig) -> Router {
+    ingest_routes(db, identities, config, Part::All)
+}
+fn ingest_routes(
+    db: PgPool,
+    identities: Arc<IdentityMap>,
+    config: IngestConfig,
+    part: Part,
+) -> Router {
     let mut result = Router::new();
     for (path, bound) in [("guild", 393216), ("watermark", 512)] {
+        if !part.includes(path) {
+            continue;
+        }
         let route = Router::new()
             .route(&format!("/internal/v2/game-public/{path}"), post(handle))
             .with_state(Ingest {
@@ -161,7 +173,15 @@ async fn apply(db: &PgPool, p: &Publication) -> Result<&'static str, StatusCode>
     Ok("accepted")
 }
 /// Environment activation remains testing/preproduction only; both flags default off.
+/// The shared V2 watermark is mounted once by [`crate::v2_watermark`].
 pub fn configured_router(db: PgPool) -> Router {
+    configured(db, Part::Payload)
+}
+/// Only the guarded watermark route, for [`crate::v2_watermark::router`].
+pub fn configured_watermark_router(db: PgPool) -> Router {
+    configured(db, Part::Watermark)
+}
+fn configured(db: PgPool, part: Part) -> Router {
     let environment = matches!(
         std::env::var("APP_ENV").as_deref(),
         Ok("testing" | "preproduction")
@@ -178,23 +198,28 @@ pub fn configured_router(db: PgPool) -> Router {
         })
         .unwrap_or_default();
     let source_authority = std::env::var("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY").unwrap_or_default();
-    router(
+    let ingest = ingest_routes(
         db.clone(),
-        Arc::new(pages::FailClosed),
-        Config {
-            source_authority: source_authority.clone(),
-            enabled: environment && std::env::var("PORTAL_GUILDS_ENABLED").as_deref() == Ok("true"),
-        },
-    )
-    .merge(ingest_router(
-        db,
         Arc::new(identities),
         IngestConfig {
             enabled: environment
                 && std::env::var("PORTAL_GUILDS_INGEST_ENABLED").as_deref() == Ok("true"),
-            source_authority,
+            source_authority: source_authority.clone(),
         },
-    ))
+        part,
+    );
+    if part == Part::Watermark {
+        return ingest;
+    }
+    router(
+        db,
+        Arc::new(pages::FailClosed),
+        Config {
+            source_authority,
+            enabled: environment && std::env::var("PORTAL_GUILDS_ENABLED").as_deref() == Ok("true"),
+        },
+    )
+    .merge(ingest)
 }
 #[cfg(test)]
 #[path = "guilds_tests.rs"]

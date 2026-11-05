@@ -72,8 +72,10 @@ async fn postgres_mfa_enrollment_and_refusals() -> Result<(), Box<dyn std::error
             .is_none()
     );
     assert!(mfa.confirm(id, "test password", "bad").await?.is_none());
+    // Reuse the confirmed step's code: a fresh one could fall in the next 30 s window.
+    let confirmed = code(&enrollment.secret, 0)?;
     let codes = mfa
-        .confirm(id, "test password", &code(&enrollment.secret, 0)?)
+        .confirm(id, "test password", &confirmed)
         .await?
         .ok_or("confirm")?;
     assert_eq!(codes.len(), 8);
@@ -96,7 +98,7 @@ async fn postgres_mfa_enrollment_and_refusals() -> Result<(), Box<dyn std::error
         .await?
         .ok_or("challenge")?;
     assert!(
-        mfa.complete(&challenge.token, &code(&enrollment.secret, 0)?, false)
+        mfa.complete(&challenge.token, &confirmed, false)
             .await?
             .is_none()
     );

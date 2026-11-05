@@ -1,4 +1,5 @@
 //! G-4 house catalogue. Ingest evidence never grants public owner visibility.
+use crate::v2_watermark::Part;
 use askama::Template;
 use axum::{
     Router,
@@ -64,6 +65,15 @@ pub fn router<S: Clone + Send + Sync + 'static>(
     privacy: Arc<dyn OwnerVisibility>,
     config: Config,
 ) -> Router<S> {
+    routes(db, identities, privacy, config, Part::All)
+}
+fn routes<S: Clone + Send + Sync + 'static>(
+    db: PgPool,
+    identities: Arc<IdentityMap>,
+    privacy: Arc<dyn OwnerVisibility>,
+    config: Config,
+    part: Part,
+) -> Router<S> {
     let state = Houses {
         db,
         config: config.clone(),
@@ -71,6 +81,9 @@ pub fn router<S: Clone + Send + Sync + 'static>(
     };
     let mut app = Router::new();
     for (path, bound) in [("house", 2048), ("watermark", 512)] {
+        if !part.includes(path) {
+            continue;
+        }
         let route = Router::new()
             .route(
                 &format!("/internal/v2/game-public/{path}"),
@@ -90,7 +103,10 @@ pub fn router<S: Clone + Send + Sync + 'static>(
             },
         ));
     }
-    for prefix in ["", "/pl", "/en"] {
+    for prefix in ["", "/pl", "/en"]
+        .into_iter()
+        .filter(|_| part != Part::Watermark)
+    {
         app = app
             .route(&format!("{prefix}/houses"), get(page))
             .route(&format!("{prefix}/houses/{{key}}"), get(page));
@@ -98,7 +114,15 @@ pub fn router<S: Clone + Send + Sync + 'static>(
     app.with_state(state)
         .layer(axum::middleware::from_fn(headers))
 }
+/// The shared V2 watermark is mounted once by [`crate::v2_watermark`].
 pub fn configured_router<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router<S> {
+    configured(db, Part::Payload)
+}
+/// Only the guarded watermark route, for [`crate::v2_watermark::router`].
+pub fn configured_watermark_router(db: PgPool) -> Router {
+    configured(db, Part::Watermark)
+}
+fn configured<S: Clone + Send + Sync + 'static>(db: PgPool, part: Part) -> Router<S> {
     let prerequisite = std::env::var("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Ok("true")
         && matches!(
             std::env::var("APP_ENV").as_deref(),
@@ -115,7 +139,7 @@ pub fn configured_router<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router
             .ok()
         })
         .unwrap_or_default();
-    router(
+    routes(
         db,
         Arc::new(identities),
         Arc::new(DenyOwners),
@@ -129,6 +153,7 @@ pub fn configured_router<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router
             serving_enabled: prerequisite
                 && std::env::var("PORTAL_HOUSES_SERVING_ENABLED").as_deref() == Ok("true"),
         },
+        part,
     )
 }
 #[derive(serde::Deserialize, Default)]

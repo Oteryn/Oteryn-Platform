@@ -668,7 +668,7 @@ async fn postgres_configured_identity_and_unknown_transfer_state_deny() -> TestR
     let account = Uuid::now_v7();
     let backend = backend::configured(db.pool.clone(), None);
     let app = app(db.pool.clone(), backend);
-    let (cookie, csrf) = session(&db.pool, account).await?;
+    let (mut cookie, mut csrf) = session(&db.pool, account).await?;
     for state in [
         "missing",
         "pending_verification",
@@ -679,6 +679,8 @@ async fn postgres_configured_identity_and_unknown_transfer_state_deny() -> TestR
         if state != "missing" {
             sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'fixture@example.invalid',now(),'unused-test-hash',$2,'en') ON CONFLICT(id) DO UPDATE SET status=$2")
                 .bind(account).bind(state).execute(&db.pool).await?;
+            // A status change revokes the account's sessions; sign in again for this state.
+            (cookie, csrf) = session(&db.pool, account).await?;
         }
         let response = app
             .clone()
