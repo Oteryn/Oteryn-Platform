@@ -108,6 +108,7 @@ Inventory reconciled on 2026-10-11. Duplicate prefixes are intentionally shown r
 - `0044-preproduction-store-native-route-publication.md`
 - `0045-native-gateway-recovery-and-multichannel-login.md`
 - `0046-platform-persistence-moves-to-postgresql.md`
+- `0047-admin-control-plane-channel.md`
 
 ## Preserved legacy duplicate paths
 
