@@ -10,4 +10,21 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-uuid = { version = "1.29.0", features = ["v7"] }
+oteryn-core.workspace = true
+oteryn-db.workspace = true
+oteryn-identity.workspace = true
+oteryn-web.workspace = true
+axum = "0.8.9"
+askama = "0.16.1"
+fluent-bundle = "0.16"
+serde = { version = "1", features = ["derive"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "derive"] }
+uuid = { version = "1", features = ["serde", "v7"] }
+thiserror = "2"
+time = "0.3.47"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tower = { version = "0.5.3", features = ["util"] }
+sha2 = "0.10"
+serde_urlencoded = "0.7"

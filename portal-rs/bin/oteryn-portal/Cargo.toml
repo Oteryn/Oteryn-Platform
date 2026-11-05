@@ -28,6 +28,7 @@ oteryn-downloads = { path = "../../crates/downloads" }
 
 oteryn-admin = { path = "../../crates/admin" }
 oteryn-payments = { path = "../../crates/payments" }
+oteryn-support.workspace = true
 oteryn-player-api = { path = "../../crates/player-api" }
 oteryn-atlas = { path = "../../crates/atlas" }
 oteryn-identity.workspace = true
