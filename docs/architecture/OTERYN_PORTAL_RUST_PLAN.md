@@ -564,7 +564,7 @@ Reguły:
 - Cele wyprawy mają jawną tabelę nagród. Łup z wypraw ma tygodniowy limit na konto, a zakup pomocnika nie daje przewagi w walce, żeby nie było pay-to-win ani inflacji.
 - Waluty, karty, odznaki i nagrody minigier są niezbywalne: nie da się ich przekazać, wymienić na coiny lub złoto ani wystawić na Bazarze. Wyjątkiem jest łup pomocnika: to zwykłe przedmioty gry, objęte limitem.
 - Nic z minigier nie daje przewagi w walce w grze.
-- Nagrody kosmetyczne wymagają włączenia rodzaju COSMETIC w kontrakcie sklepu; dziś jest wyłączony (decyzja 2026-11-05), więc to osobna decyzja przed T89.
+- Nagrody kosmetyczne wymagają rodzaju COSMETIC w kontrakcie sklepu. Właściciel zgodził się go włączyć (D21); zmianę kontraktu z grą robimy przed T89.
 
 ## 6. Integracja z grą
 
@@ -903,6 +903,7 @@ Pozostałe warunki:
 | D18 | Atlas z mapą dostaw zadań i trackerami (wzór TibiaRoute) | **Tak** (2026-11-05), §5.9 |
 | D19 | Repozytorium Oteryn-Atlas (było Q11) | **Zgoda** (2026-11-05): Atlas w portalu je zastępuje. Repo zostaje zamrożone i trafia do archiwum po uruchomieniu Atlasu portalu (T41, T84–T86); archiwizuje je właściciel |
 | D20 | Rozrywka bez hazardu | **Tak** (2026-11-05), §5.10: pomocnik w domu zamiast wysyłania postaci, przepustka sezonowa, kolekcja potworów, zagadki; bez gier losowych o wartość; po pierwszym wydaniu, po konsultacji prawnej |
+| D21 | Rodzaj COSMETIC w sklepie (wyglądy, ramki, tytuły) | **Zgoda** (2026-11-05) na włączenie, wcześniej wyłączony; zmiana kontraktu wire sklepu z grą przed T89 |
 
 ## 12. Otwarte pytania
 
