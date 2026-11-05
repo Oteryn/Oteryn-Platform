@@ -29,3 +29,10 @@ getrandom = "0.4.2"
 tower = { version = "0.5.3", features = ["util"] }
 oteryn-db = { path = "../db" }
 tempfile = "3.27"
+
+[dependencies.oteryn-web]
+path = "../web"
+
+[dev-dependencies.tower-http]
+version = "0.7.1"
+features = ["fs"]
