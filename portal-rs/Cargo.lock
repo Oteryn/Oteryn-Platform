@@ -1693,9 +1693,13 @@ dependencies = [
 name = "oteryn-characters"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "axum",
+ "fluent-bundle",
  "oteryn-core",
+ "oteryn-identity",
  "oteryn-internal-api",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
@@ -1703,6 +1707,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tower",
+ "unic-langid",
  "unicode-normalization",
  "unicode-properties",
  "uuid",
