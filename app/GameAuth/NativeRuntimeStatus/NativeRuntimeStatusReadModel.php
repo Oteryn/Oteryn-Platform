@@ -113,7 +113,8 @@ final class NativeRuntimeStatusReadModel
             || NativeRuntimeStatusRow::string($assignment, 'assignment_epoch') !== $this->highestEpoch()
             || NativeRuntimeStatusRow::string($report, 'assignment_epoch') !== NativeRuntimeStatusRow::string($assignment, 'assignment_epoch')
             || NativeRuntimeStatusRow::string($report, 'scope_ownership_generation') !== NativeRuntimeStatusRow::string($assignment, 'ownership_generation')
-            || NativeRuntimeStatusRow::string($report, 'node_identity') !== NativeRuntimeStatusRow::string($assignment, 'node_identity')
+            || ! is_string($assignment->node_identity)
+            || NativeRuntimeStatusRow::string($report, 'node_identity') !== $assignment->node_identity
             || $observedAt > $now + $settings->clockUncertaintySeconds) {
             return [self::INVALID, $report];
         }

@@ -37,7 +37,8 @@ final class NativeRuntimeStatusIngestion
                 || NativeRuntimeStatusRow::string($assignment, 'assignment_epoch') !== $highest
                 || NativeRuntimeStatusRow::string($assignment, 'assignment_epoch') !== $report->assignmentEpoch
                 || NativeRuntimeStatusRow::string($assignment, 'ownership_generation') !== $report->scopeOwnershipGeneration
-                || ! hash_equals(NativeRuntimeStatusRow::string($assignment, 'node_identity'), $identity)) {
+                || ! is_string($assignment->node_identity)
+                || ! hash_equals($assignment->node_identity, $identity)) {
                 return self::CONFLICT;
             }
 
