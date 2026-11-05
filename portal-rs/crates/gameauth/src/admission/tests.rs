@@ -158,7 +158,7 @@ impl Database {
             .connect(&url)
             .await?;
         sqlx::raw_sql(include_str!(
-            "../../../../migrations/20261105190000_t19_native_admissions.sql"
+            "../../../../migrations/20261105190100_t19_native_admissions.sql"
         ))
         .execute(&pool)
         .await?;
