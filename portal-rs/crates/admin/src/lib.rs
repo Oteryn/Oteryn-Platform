@@ -12,3 +12,9 @@ pub mod support;
 
 pub mod console;
 pub mod control;
+pub mod console {
+    pub mod access;
+    pub mod approvals;
+    pub mod audit;
+    pub mod players;
+}
