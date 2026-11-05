@@ -51,3 +51,5 @@ path = "../wallet"
 path = "../notify"
 [dependencies.oteryn-admin]
 path = "../admin"
+[dependencies.oteryn-db]
+path = "../db"

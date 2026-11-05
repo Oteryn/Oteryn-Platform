@@ -168,6 +168,11 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         registry.notifications(delivery)?;
     }
     registry.cleanup(
+        "cleanup.deaths",
+        3600,
+        Arc::new(oteryn_community::deaths::Cleanup { pool: pool.clone() }),
+    )?;
+    registry.cleanup(
         "stats.poll",
         60,
         Arc::new(oteryn_stats::worker::StatisticsJob {

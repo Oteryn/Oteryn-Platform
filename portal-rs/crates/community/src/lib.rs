@@ -10,3 +10,4 @@ pub mod worlds;
 pub mod party;
 pub mod referrals;
 pub mod profiles;
+pub mod deaths;
