@@ -1,428 +1,329 @@
-# Oteryn Portal w Ruście – projekt i plan
+# Oteryn Portal w Ruście – projekt
 
-> **Status: PROPOZYCJA, rewizja 2** (2026-11-05, po przeglądzie koordynatora). Dokument do przeglądu właściciela i koordynatora programu. Nie autoryzuje kodu, wdrożenia, zmian w kontraktach gry ani wydatków. Każda decyzja z sekcji 10 ma wartość domyślną. Obowiązuje dopiero po akceptacji właściciela.
+> **Status: PROJEKT, rewizja 3** (2026-11-05). Zastępuje rewizje 1–2 (plan migracji falami), na polecenie właściciela.
 >
-> Relacja do szkicu #1643 (`OTERYN_PLATFORM_2_DESIGN_DRAFT.md`, rewizja 4.1): ten dokument zaczyna projekt od potrzeb graczy i zespołu oraz od integracji z klientem i serwerem gry. Ze szkicu #1643 przejmuje stos technologiczny, zasady zgodności wire, zarządzanie serwerami (M5), Atlas (MA) i obserwację GM-a (M10). Zmienia trzy rzeczy: przełączenie odbywa się falami zamiast jednym ruchem, Player API jest osobną, wersjonowaną powierzchnią dla klienta gry, a zakres jest podzielony na rdzeń i rozszerzenia. Szczegółów z #1643 nie powtarzamy, tylko się do nich odwołujemy.
+> Ten dokument opisuje nową platformę Oteryn w Ruście, budowaną od zera według obecnych potrzeb graczy, zespołu i gry. Obecny portal Laravel służy tylko jako źródło wiedzy o potrzebach i kontraktach. Nie jest specyfikacją i nie jest przenoszony.
+>
+> Kod powstaje w `portal-rs/` w tym repozytorium. Pisze go Codex, zadaniami z sekcji 10, wysyłanymi przez koordynatora.
+>
+> Dokument nie autoryzuje wdrożenia, zmian w kontraktach gry ani nowych jobów CI. Każda z tych rzeczy wymaga osobnej zgody właściciela.
 
-## 0. Streszczenie
+## 1. Co budujemy
 
-- **Co budujemy.** Nowy portal Oteryn w Ruście jest jednym produktem dla czterech odbiorców:
-  - gracz w przeglądarce;
-  - gracz w kliencie gry i launcherze;
-  - serwer gry;
-  - zespół (admin, GM, support, redakcja, operacje).
-- **Obecny portal** (Laravel) jest źródłem pomysłów i danych, nie specyfikacją. Przenosimy:
-  - sprawdzone granice domen;
-  - kontrakty z grą;
-  - inwarianty bezpieczeństwa.
+Jedną aplikację, `oteryn-portal`, która obsługuje:
 
-  Nie przenosimy długu: starego silnika serwera i jego bazy, równoległych ścieżek legacy, pustych modułów.
-- **Integracja z grą jest pierwszorzędna.** Każda funkcja, która dotyka gry, ma nazwany kontrakt, właściciela danych, testy zgodności przeciw przypiętemu obrazowi gry i jawną semantykę błędów.
-- **Stos:**
-  - Rust z axum, askama SSR i htmx;
-  - PostgreSQL, sqlx i rustls;
-  - jeden workspace, osobne binarki per rola.
+- **graczy** w przeglądarce: stronę, konto, sklep, społeczność, wiki i pomoc;
+- **klienta gry i launcher**: logowanie, postacie, wejście do gry, newsy, status, saldo i aktualizacje;
+- **serwer gry**: admission, projekcje, komendy postaci, premium, sklep i restore;
+- **zespół**: panel admina, GM-a, supportu, redakcji i operacji.
 
-  Wersje i uzasadnienie są w #1643, sekcje „Wersje” i D3.
-- **Przełączenie w trzech falach**, każda z własnym rollbackiem:
-  1. strona publiczna;
-  2. konto i logowanie do gry;
-  3. handel i sklep.
+Zasady projektu:
 
-  Pierwsza wartość dla graczy pojawia się po fali 1, a nie po roku budowy.
-- **Repozytorium:** budujemy w `Oteryn/Oteryn-Platform` (decyzja właściciela 2026-11-05: bez osobnego repo). Kod w Ruście trafia do katalogu `portal-rs/` obok Laravela, a Laravel jest usuwany w F7.
-- **Plan** to fazy F0–F7 z bramkami wyjścia. Praca jest dzielona na małe zadania: jedna mechanika na jedno zadanie.
+- **Jedna baza, jedna binarka.** PostgreSQL platformy i jedna binarka z rolami: `serve`, `worker`, `migrate`, `admin-cli`. Brak mikroserwisów.
+- **Gra jest osobna.** Brak wspólnej bazy z grą. Wymiana danych idzie tylko przez kontrakty HTTP z mTLS. Kontrakty, które gra już implementuje, zostają bajt w bajt (sekcja 6).
+- **Mało JS.** SSR w askama i htmx. Bez SPA, bez npm, bez bundlera.
+- **Domyślnie wyłączone.** Każda funkcja dotykająca gry lub pieniędzy ma flagę.
+- **Uruchomienie jednorazowe.** Gdy nowy portal jest gotowy, importujemy konta (hashe argon2id działają bez resetu haseł) i przełączamy domenę. Bez okresu współistnienia.
 
-## 1. Cele i zasady
+## 2. Potrzeby → funkcje
 
-### Cele produktu
-
-1. Nowy gracz w kilka minut rozumie, czym jest Oteryn, zakłada konto, pobiera klienta i wchodzi do gry.
-2. Powracający gracz od razu widzi swój stan: postacie, premium, saldo, wiadomości i status świata. Działa to tak samo w przeglądarce, w launcherze i w kliencie.
-3. Społeczność ma żywe, prawdziwe dane: rankingi, profile, gildie, domy, zgony, online, wiki z katalogu gry i Atlas.
-4. Zespół prowadzi grę z jednego panelu: treści, moderacja, support, sklep, serwery, wydania klienta i audyt.
-5. Portal nigdy nie zmyśla stanu gry. Gdy brak danych, pokazuje „niedostępne” lub „nieaktualne” z czasem ostatniej aktualizacji, a nie „0 graczy” ani „offline”.
-
-### Zasady inżynierskie
-
-- **Jeden właściciel danych.** Platform jest właścicielem konta (AccountId), tożsamości, sesji, OAuth, uprawnień, treści, portfela i sklepu. Gra jest właścicielem postaci (CharacterId), rozgrywki, sesji gry i ostatecznego admission. Zmiany przez granicę idą tylko przez komendy i potwierdzenia (receipts), nigdy przez wspólną bazę ani bezpośredni SQL.
-- **Timeout nie jest wynikiem.** Każda mutacja przez granicę jest idempotentna, ma klucz operacji i rekoncyliację.
-- **Domyślnie wyłączone.** Każda nowa powierzchnia gry ma flagę i bramkę aktywacji.
-- **Rdzeń najpierw.** Moduł trafia do rdzenia tylko wtedy, gdy gracz lub zespół potrzebuje go na start. Reszta jest rozszerzeniem z własną bramką.
-- **Bezpieczeństwo bez wyjątków.** Inwarianty z `AGENTS.md` i `docs/architecture/SECURITY_ARCHITECTURE.md` obowiązują w Ruście tak samo. Obejmują CSRF, autoryzację każdej mutacji, rate limity, rotację sesji, transakcje z blokadami przy walucie oraz idempotencję i ochronę przed powtórzeniem dla płatności i webhooków.
-- **Kod w Ruście** podlega polityce lintów gry: `unsafe_code = forbid`; `unwrap`, `expect` i `panic` mają poziom `deny`. Domena jest bez I/O, adaptery są osobno.
-
-## 2. Dla kogo: potrzeby
-
-### Gracze
-
-| Persona | Potrzeby | Gdzie to dostaje |
+| Kto | Potrzeba | Funkcja |
 | --- | --- | --- |
-| Nowy gracz | Czym jest gra, jak zacząć, rejestracja, pobranie klienta, pierwsza postać, zasady | Web publiczny, onboarding, launcher |
-| Powracający gracz | Logowanie jednym kliknięciem, stan konta, co nowego, status świata, wydarzenia | Launcher, panel konta, Player API |
-| Aktywny gracz | Rankingi, profile, zgony, gildie, domy, narzędzia (kalkulatory, analizator sesji), wiki i Atlas | Web publiczny, narzędzia, link z klienta |
-| Kupujący | Saldo coinów, sklep w kliencie i w przeglądarce, premium, historia zakupów, faktura, transfer coinów | Sklep (fala 3), Player API |
-| Handlujący | Bazar postaci i przedmiotów z bezpiecznym escrow | Bazar (fala 3, za kontraktem z grą) |
-| Dbający o konto | 2FA, passkeys, klucz odzyskiwania, lista sesji i urządzeń, historia bezpieczeństwa, eksport i usunięcie danych (RODO) | Panel konta |
-| Szukający pomocy | Zgłoszenia, odwołania od kar, FAQ, status zgłoszenia | Support |
+| Nowy gracz | Zrozumieć grę i zacząć | Strona główna, „Jak zacząć”, rejestracja, pobieranie klienta |
+| Gracz | Bezpieczne konto | Logowanie, 2FA (TOTP), passkeys, kody odzyskiwania, lista sesji i urządzeń, zmiana e-maila i hasła, eksport i usunięcie danych |
+| Gracz w kliencie | Logowanie bez hasła w kliencie | OAuth PKCE z przeglądarki systemowej, sesje urządzeń, tickety do gry |
+| Gracz | Postacie | Lista postaci, tworzenie (intencja → gra), profil publiczny i jego ustawienia |
+| Gracz | Wiedza | Wiki z katalogu gry, artykuły, wyszukiwarka, Atlas |
+| Gracz | Społeczność | Rankingi, profile, gildie, domy, zgony, online, status światów |
+| Gracz | Zakupy | Saldo coinów, doładowanie, sklep, premium, historia, transfer coinów |
+| Gracz | Pomoc | Zgłoszenia, odwołania od kar, FAQ |
+| Gracz | Być na bieżąco | Newsy, wydarzenia, ogłoszenia, powiadomienia (e-mail i w kliencie) |
+| Redakcja | Publikować | Newsy, strony, wydarzenia, media i wiki z wersjami i przeglądem |
+| GM / moderator | Pilnować porządku | Kary wykonywane w grze, historia gracza, notatki, ogłoszenia w grze |
+| Support | Pomagać | Kolejka zgłoszeń, widok konta bez danych wrażliwych |
+| Admin | Kontrola | Role i uprawnienia, audyt, flagi, cennik sklepu, zwroty |
+| Operacje | Działający system | Status światów, wydania klienta (TUF), zdrowie systemu, kolejki |
 
-Wymagania przekrojowe dla graczy:
+Poza pierwszym wydaniem zostają: bazar postaci i przedmiotów, analizator sesji, zarządzanie węzłami gry, obserwacja GM-a i aplikacja mobilna.
 
-- język polski i angielski od pierwszego dnia;
-- pełna obsługa telefonu;
-- dostępność na poziomie WCAG 2.2 AA;
-- szybkie strony (budżety w sekcji 4.7);
-- powiadomienia e-mail oraz w kliencie;
-- jasne komunikaty przy przerwach technicznych.
+## 3. Architektura
 
-### Zespół
+### 3.1 Stos
 
-| Rola | Potrzeby |
+| Warstwa | Wybór |
 | --- | --- |
-| Właściciel / admin | RBAC, audyt każdej akcji, zasada czterech oczu dla akcji krytycznych, flagi funkcji, przegląd zdrowia systemu |
-| GM / moderator | Kary (ban, mute, kick, ostrzeżenie) wykonywane w grze przez kontrakt egzekucji, historia gracza, ogłoszenia w grze, obserwacja sesji (M10 z #1643) |
-| Support | Kolejka zgłoszeń, odwołania, widok konta bez danych wrażliwych, makra odpowiedzi |
-| Redakcja | Newsy, strony, wydarzenia, media, wiki z przeglądem i wersjami, tłumaczenia |
-| Operacje | Status światów, zarządzanie węzłami gry (M5 z #1643), wydania klienta (TUF), kopie zapasowe, monitoring, alerty |
-| Sklep / finanse | Import cennika z gry (aktywacja jawną komendą), rekoncyliacja dostaw, zwroty i chargebacki, faktury |
+| Język | Rust (stable, edycja 2024) |
+| HTTP | axum, tower, tower-http (kompresja, limity, nagłówki bezpieczeństwa, trace) |
+| TLS i mTLS | rustls; mTLS dla `/internal/v1` terminowany w procesie |
+| Szablony | askama (sprawdzane przy kompilacji), htmx, ręczny CSS z tokenami |
+| Baza | PostgreSQL, sqlx (zapytania sprawdzane offline, `sqlx::migrate!`) |
+| Hasła | argon2 (argon2id, zgodny z obecnymi hashami) |
+| 2FA i passkeys | totp-rs, webauthn-rs |
+| Tokeny | ed25519-dalek (granty admission), losowe tokeny nieprzezroczyste przechowywane jako SHA-256 |
+| i18n | fluent (pl, en) |
+| Markdown | pulldown-cmark i ammonia (sanityzacja) |
+| E-mail | lettre (SMTP) |
+| Obserwowalność | tracing, metryki Prometheus, OpenTelemetry opcjonalnie |
+| Testy | `cargo test`, testy integracyjne na prawdziwym PostgreSQL, testy kontraktów na fixtures z `docs/contracts/` |
 
-## 3. Co bierzemy z obecnego portalu
+Lint: `unsafe_code = forbid`; `unwrap_used`, `expect_used` i `panic` mają poziom `deny` poza testami; `cargo deny` sprawdza licencje i podatności.
 
-Skala obecnego portalu (pomiar 2026-11-05, pliki śledzone w git):
-
-| Część | Pliki | Linie |
-| --- | --- | --- |
-| Kod aplikacji PHP (`app/`) | 682 | ok. 56 tys. (ok. 44 tys. bez komentarzy i pustych linii) |
-| Trasy, konfiguracja, migracje | 123 | ok. 6,4 tys. |
-| Widoki Blade, CSS, JS | 166 | ok. 13,5 tys. |
-| Tłumaczenia (`lang/`) | 33 | ok. 3,2 tys. |
-| Testy | 262 | ok. 59 tys. |
-| Gateway w Go | 16 | ok. 2,2 tys. |
-| Narzędzia, skrypty, wdrożenie | ok. 355 | ok. 74 tys. |
-| Dokumentacja | ok. 1000 | ok. 137 tys. |
-
-Do przepisania jest ok. 80 tys. linii kodu produktu (bez testów, narzędzi i dokumentacji). Nie przepisujemy go linia w linię: część modułów odpada (sekcja 3), a testy powstają od nowa w Ruście.
-
-| Obszar | Bierzemy | Zmieniamy | Nie przenosimy |
-| --- | --- | --- | --- |
-| Tożsamość | AccountId UUIDv7 (ADR 0028), hashe argon2id bez zmian, MFA TOTP, klucz odzyskiwania | Passkeys od startu, jeden ekran bezpieczeństwa konta | – |
-| Logowanie do gry | OAuth PKCE, tickety, natywne admission z grantem Ed25519, zaufanie do kluczy podpisu | Gateway logowania w Ruście (D5 z #1643), sesje urządzeń jako pełny kontrakt | Gateway w Go po przełączeniu fali 2 |
-| Dane publiczne | Projekcje gry (`/internal/v1/game-public/*`) | Czas aktualności widoczny przy każdej liczbie | Odczyty starego silnika (MySQL) |
-| Treści | Model news, stron, wydarzeń, mediów; wiki z przeglądem; katalog gry z wersjami | Wiki generowana z paczki katalogu gry (M6 z #1643) | Szablony strony głównej |
-| Sklep i portfel | Ledger coinów, kontrakt sklepu (wire v1), decyzje właściciela z 2026-11-05 | Transfer coinów jako funkcja ledgera Platform | Testowy provider płatności w produkcji |
-| Support | Zgłoszenia, odwołania, egzekucja przez komendy | Kary wykonywane w grze, nie tylko jako rekordy webowe | – |
-| Pobieranie | Polityka TUF i kanały (ADR 0035) | Launcher korzysta z Player API | – |
-| Player Companion | Pomysł analizatora sesji | Część narzędzi (M7 z #1643) | Osobny moduł |
-
-## 4. Architektura
-
-### 4.1 Powierzchnie
-
-| Powierzchnia | Konsument | Uwierzytelnienie | Forma |
-| --- | --- | --- | --- |
-| Web publiczny | Każdy | Brak lub sesja | SSR + htmx, cache na krawędzi dla anonimowych |
-| Panel konta | Gracz | Sesja cookie, tryb sudo dla akcji wrażliwych | SSR + htmx, CSRF |
-| **Player API `/api/v1`** | Klient gry, launcher, w przyszłości aplikacja mobilna | OAuth 2.1 PKCE i device flow; tokeny z zakresami | JSON, wersjonowany, OpenAPI |
-| Game API `/internal/v1` | Serwer gry, gateway | mTLS (rustls w procesie) i tokeny serwisowe | Bajt w bajt zgodny z obecnym kontraktem (D4 z #1643) |
-| Admin / GM / Ops | Zespół | Sesja, obowiązkowe MFA, RBAC, cztery oczy | SSR + htmx, osobny host |
-| Worker | – | – | Outbox, importy, rekoncyliacje, e-maile, buildy Atlasa |
-
-### 4.2 Binarki i hosty
-
-- Główna binarka `oteryn-portal` ma role:
-  - `serve-public`: web publiczny, panel konta i Player API;
-  - `serve-internal`: Game API;
-  - `serve-admin`;
-  - `worker`;
-  - `migrate`;
-  - `ops`.
-
-  Jedna binarka upraszcza wydania, a role pozwalają skalować i izolować sieciowo każdą powierzchnię osobno.
-- Obok niej:
-  - `oteryn-login-gateway`, logowanie do gry (fala 2);
-  - `oteryn-node-agent` i `oteryn-node-supervisor` do zarządzania serwerami gry (rozszerzenie, M5 z #1643).
-- **Hosty:**
-  - Produkcja: `oteryn-vps` (OCI).
-  - Preprodukcja i testowe węzły gry: `oteryn-vps-2`.
-
-  `serve-internal` i `serve-admin` nie są wystawione publicznie. Admin działa za Cloudflare Access i OIDC.
-
-### 4.3 Stos
-
-Stos z #1643 (D3, „Wersje”): axum, askama, htmx, sqlx, PostgreSQL, rustls, tokio z łatkami wspólnymi z grą.
-
-Dlaczego SSR + htmx, a nie SPA czy WASM:
-
-- jeden język;
-- brak bundlera i łańcucha npm;
-- lepsze SEO i pierwsze wyświetlenie;
-- mniejsza powierzchnia ataku.
-
-Interaktywne elementy, które naprawdę tego potrzebują (mapa `oteryn-map`), są samodzielnymi komponentami.
-
-### 4.4 Moduły i granice kodu
-
-Workspace Cargo leży w `portal-rs/` w tym repozytorium. Dzielimy go na crate'y domenowe bez I/O i adaptery:
+### 3.2 Układ kodu
 
 ```
-portal-rs/crates/
-  domain-identity     konto, uwierzytelnienie, MFA, passkeys, sesje, RODO
-  domain-gameauth     tickety, admission, urządzenia, zaufanie do kluczy
-  domain-characters   intencje komend postaci, projekcje, nazwy
-  domain-wallet       ledger coinów, transfer, rezerwacje
-  domain-store        cennik, zakup, dostawa, zwroty
-  domain-content      news, strony, wydarzenia, media, tłumaczenia
-  domain-wiki         artykuły, przegląd, katalog gry, Atlas
-  domain-community    rankingi, profile, gildie, domy, zgony, online
-  domain-support      zgłoszenia, odwołania, kary
-  domain-ops          światy, węzły, wydania klienta, flagi
-  adapters-db         sqlx, migracje, outbox/inbox
-  adapters-game       klient i serwer kontraktów /internal/v1 (crate'y kontraktowe z gry)
-  adapters-payments   dostawca płatności za interfejsem (rdzeń nie zależy od dostawcy)
-  web-public, web-account, web-admin, api-player, api-game
+portal-rs/
+  Cargo.toml                 workspace, wspólne wersje i lints
+  bin/oteryn-portal/         main, role: serve | worker | migrate | admin-cli
+  crates/
+    core/                    konfiguracja, błędy, identyfikatory (UUIDv7), czas, flagi
+    db/                      pula, migracje, transakcje, outbox
+    web/                     router, layout, i18n, CSRF, sesje, nagłówki, strony błędów
+    identity/                konta, hasła, 2FA, passkeys, odzyskiwanie, e-mail, RODO
+    gameauth/                OAuth PKCE, sesje urządzeń, tickety, admission, granty Ed25519
+    characters/              projekcja postaci konta, intencje tworzenia, profile
+    content/                 newsy, strony, wydarzenia, media, ogłoszenia
+    wiki/                    artykuły, wersje, przegląd, import katalogu gry, wyszukiwanie
+    community/               projekcje publiczne: rankingi, profile, gildie, domy, zgony, online, światy
+    wallet/                  ledger coinów, transfer, blokady, idempotencja
+    store/                   cennik, zakup, dostawa (wire sklepu), historia
+    payments/                interfejs dostawcy, webhooki (provider za traitem)
+    support/                 zgłoszenia, odwołania, kary (komendy do gry)
+    admin/                   RBAC, audyt, panel
+    downloads/               kanały TUF, metadane wydań klienta
+    notify/                  powiadomienia e-mail i w kliencie
+    internal-api/            /internal/v1: guardy mTLS, kodeki wire, handlery
+    player-api/              /api/v1 dla klienta gry i launchera
+  templates/                 askama
+  static/                    css, htmx, ikony
+  migrations/                sqlx
+  tests/                     testy integracyjne i kontraktowe
 ```
 
-Granice sprawdza CI (zakaz krawędzi z domeny do adapterów, zakaz zależności konta od płatności).
+Każdy moduł domenowy ma typy i reguły bez I/O, repozytorium (sqlx) i handlery HTTP w swoim crate'cie. Crate `web` składa router z modułów. Moduły nie zależą od siebie nawzajem, poza `core`, `db` i jawnie nazwanymi interfejsami: `identity::AccountId`, `wallet::Ledger`. `payments` zależy od `wallet`, nigdy odwrotnie.
 
-Kontrakty z grą: w Oteryn-Game (main 99c6716) istnieją dziś crate'y `platform-contracts`, `platform-client` i `protocol-oteryn`. Crate'ów `platform-wire`, `catalog` i `game-rules` z #1643 (GC6, GC8) jeszcze nie ma. Plan:
+### 3.3 Hosty i role
 
-- do czasu ich powstania `adapters-game` korzysta z `platform-contracts` i z fixtures w `docs/contracts/` (złote wektory po obu stronach);
-- utworzenie crate'ów bez I/O to osobne zadanie po stronie gry (GC6, GC8), wymagane przed bramką fali 2.
-
-### 4.4a Współistnienie w jednym repozytorium
-
-- `portal-rs/` ma własny `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml` i `deny.toml`. Nie zmienia `composer.json` ani bramek PHP.
-- CI uruchamia joby Rusta tylko przy zmianach w `portal-rs/` (filtry ścieżek), a joby PHP tylko przy zmianach w kodzie Laravela. Obie strony są wymagane przed merge, gdy ich ścieżki się zmieniły.
-- Wspólne zostają: `docs/contracts/` (kontrakty i fixtures, testowane z obu stron), `docs/agents/` (zadania i governance), `deploy/` (osobne jednostki dla binarek Rusta).
-- Bramka pokrycia dla Rusta ma własny próg w `docs/agents/CI_COVERAGE_POLICY.json`; obecny próg PHP się nie zmienia.
-- Zadania agentów mają rozłączne zakresy plików: zadanie w `portal-rs/` nie zmienia Laravela i odwrotnie, poza jawnie nazwanymi kontraktami.
-
-### 4.5 Dane
-
-- PostgreSQL platformy na osobnej instancji z rolami właściciela migracji i runtime (jak ADR 0046). Baza gry jest osobna i należy do gry.
-- Migracje są addytywne i odwracalne. Nie zakładamy pustej bazy produkcyjnej.
-- Każda mutacja przez granicę gry zapisuje intencję w outboxie w tej samej transakcji co zmianę lokalną. Worker dostarcza ją co najmniej raz, a gra stosuje idempotentnie i odsyła potwierdzenie.
-- Dane gry na portalu to projekcje tylko do odczytu, ze znacznikiem wersji i czasem aktualności.
-- Waluta: ledger z blokadami wierszy, brak ujemnych sald, każda operacja ma klucz idempotencji.
-
-### 4.6 Bezpieczeństwo
-
-- **Hasła i logowanie:**
-  - argon2id z rehashem przy zmianie parametrów;
-  - sprawdzanie haseł w wyciekach (k-anonymity);
-  - rate limity logowania, odzyskiwania i rejestracji;
-  - blokada enumeracji kont.
-- **Sesje:**
-  - cookie `__Host-`, `SameSite=Lax` i CSRF dla mutacji;
-  - rotacja sesji przy zmianie hasła, MFA i e-maila;
-  - tryb sudo dla akcji wrażliwych.
-- **Player API:** tokeny krótkotrwałe z zakresami, refresh z rotacją i wykrywaniem ponownego użycia, powiązanie z urządzeniem.
-- **Game API:**
-  - mTLS z allowlistą DN i TLS 1.3;
-  - limity rozmiaru;
-  - porównania w stałym czasie;
-  - fail closed.
-- **Admin:** obowiązkowe MFA, RBAC, audyt nie do edycji, cztery oczy dla kar, zwrotów i aktywacji cennika.
-- **Sekrety:** tylko w menedżerze sekretów lub plikach środowiska na hoście, nigdy w repozytorium.
-
-### 4.7 Jakość dla gracza
-
-- **Budżety wydajności** (strony publiczne, telefon, sieć 4G):
-  - LCP poniżej 2,0 s;
-  - JS poza mapą poniżej 30 KB;
-  - odpowiedź serwera p95 poniżej 150 ms dla stron z cache.
-- **i18n:** pl i en z plikami Fluent, adresy z prefiksem języka, `hreflang`, brak mieszanych języków na jednej stronie.
-- **SEO:** sitemap, dane strukturalne, kanoniczne adresy, przekierowania 301 ze starych adresów.
-- **Dostępność:** WCAG 2.2 AA sprawdzane automatycznie (axe w Playwright) i ręcznie przed każdą falą.
-
-### 4.8 Obserwowalność
-
-- Logi strukturalne z identyfikatorem korelacji przechodzącym do gry i z powrotem.
-- Metryki Prometheus, panele Grafana i alerty. Obejmują: opóźnienie outboxa, nieudane potwierdzenia, nieaktualne projekcje, błędy logowania, rozbieżności ledgera.
-- Ślady (OpenTelemetry) dla ścieżek logowania do gry i zakupu.
-
-## 5. Integracja z grą
-
-### 5.1 Serwer gry
-
-| Przepływ | Kierunek | Kontrakt | Stan na 2026-11-05 | Fala |
-| --- | --- | --- | --- | --- |
-| Transport gry (protocol-oteryn) | Klient ↔ serwer gry | protocol-oteryn v1, PROTOCOL_OTERYN_TRANSPORT_POLICY (TCP + TLS 1.3) | Kontrakt LOCKED, runtime niezaimplementowany: `gameplay_listener_available=false`, `native_client_gameplay_entry_available=false` | Warunek demo gry w F4 i bramki fali 2 |
-| Logowanie do gry: ticket → gateway → admission | Klient → gateway → Platform → gra | V2_NATIVE_GATEWAY_LOGIN (D721, N4P), FND-04B-AMEND-1 | Logowanie natywne zaakceptowane tylko dla testing/preprod (D721). FND-04B-AMEND-1: PR Game #2910 zmergowany, dokument ma status PROPOSED (nie zaakceptowany); reconnect zablokowany | 2 (tylko testing/preprod) |
-| Lista postaci konta | Gra → Platform | `native-account-characters` (LCFA, OTV2-20260929-N4P) | Producent w grze zaimplementowany, niewłączony (LCFA §11). Platform: `CHARACTER_PROJECTION_NOT_IMPLEMENTED` | 2 |
-| Tworzenie i komendy postaci | Platform → gra (pull) | V2_CHARACTER_AUTHORITY_COMMAND, GAME-CHAR-CMD-0 | ACCEPTED_NOT_IMPLEMENTED, wyłączone. Transfer: `CHAR_CMD_UNSUPPORTED` | 2 (tworzenie), 3 (transfer) |
-| Premium | Gra czyta snapshot | V2_PREMIUM_TIME_SNAPSHOT | Endpoint Platform istnieje; konsumpcja w grze niezweryfikowana | 2 |
-| Loyalty | Gra czyta snapshot | V2_LOYALTY_SNAPSHOT | Proposed | 3 |
-| Sklep: zakup w kliencie i dostawa | Gra ↔ Platform | V2_STORE_WIRE, V2_STORE_PURCHASE_DELIVERY, poprawka 2026-11-05 | PROPOSED, DEFAULT-OFF; brak wpisu w locku; brak autoryzacji sprzedaży produkcyjnej; Q1–Q6 otwarte w kontrakcie wire; STORE-ENT-1 zablokowany | 3 (za bramkami z §6) |
-| Dane publiczne (rankingi, profile, gildie, domy, zgony, online) | Gra → Platform | V2_PUBLIC_GAME_DATA_PROJECTION, GAME-PUBLIC-PROJ-0 | GAME-PUBLIC-PROJ-0: PENDING_CANONICAL_MERGE / CANDIDATE_REVISION_1_NOT_ACCEPTED; producent w grze brak | 1 (bez tych danych, jeśli kontrakt nie jest gotowy) |
-| Status światów | Gra → Platform | V2_RUNTIME_STATUS_PROJECTION, V2_WORLD_TOPOLOGY | PARTIAL w locku | 1 |
-| Kary i ogłoszenia | Platform → gra | V2_GAME_ENFORCEMENT_COMMAND | Zaakceptowany; wykonanie w grze brak (status do potwierdzenia) | 2 |
-| Restore i rekoncyliacja | Gra → Platform | V2_GAME_RESTORE_RECONCILIATION | Zaakceptowany, domyślnie wyłączony | 2 |
-| Katalog gry i wiki | Gra publikuje paczkę | OTERYN-GAME-PLATFORM-CATALOG-V1 | LOCKED; konsument Platform nieaktywny | 1 |
-| Zarządzanie węzłami, obserwacja GM | Platform ↔ agent węzła, gra | #1643 M5 i M10 | Projekt w #1643 | Rozszerzenie |
-
-Źródła stanów: lock `CROSS_REPOSITORY_CONTRACT_LOCK.json` (updated_at 2026-10-11, może być nieaktualny), kod Game main 99c6716 i przegląd koordynatora z 2026-11-05. Gdy lock i kod się różnią, plan cytuje oba osobno. Przykład: lock N4P podaje `NOT_IMPLEMENTED_N4_CLIENT`, a `native_login.rs` w `platform-client` implementuje `gateway_login`. Przed każdą bramką fali statusy są sprawdzane ponownie.
-
-Zasady wspólne dla wszystkich przepływów:
-
-- Kontrakty pozostają w Game i Platform w obecnej formie. Przepisanie portalu nie zmienia wire.
-- Każda zmiana kontraktu jest osobnym zadaniem z akceptacją obu stron i informacją dla koordynatora.
-- Zestaw zgodności (#1643, „Repozytorium”) uruchamia obraz gry przypięty po digeście i przechodzi czarne skrzynki dla każdego wiersza tabeli powyżej. Przed każdą falą działa przeciw digestowi z produkcji.
-
-### 5.2 Klient gry i launcher
-
-Klient i launcher korzystają z **Player API**. `crates/platform-client` w Oteryn-Game ma dziś:
-
-- OAuth PKCE;
-- tickety;
-- `gateway_login` (`native_login.rs`);
-- listę postaci właściciela (`owner_characters`);
-- katalog usług `v1/client/directory` (`fetch_directory`).
-
-Sesji urządzeń w kliencie jeszcze nie ma; to kandydat kontraktu. Ścieżki w tabeli to propozycja. Przed F4 trzeba je uzgodnić z klientem: albo Player API wystawia je przez `v1/client/directory`, albo klient przyjmuje nowe ścieżki. Decyzję zapisuje osobne zadanie kontraktowe po obu stronach.
-
-| Funkcja w kliencie | Endpoint Player API | Zasada |
+| Host | Co obsługuje | Dostęp |
 | --- | --- | --- |
-| Logowanie i zapamiętane urządzenie | OAuth PKCE; sesje urządzeń (kandydat kontraktu) | Hasło nigdy nie trafia do klienta. Odświeżenie tokenu z rotacją |
-| Lista i tworzenie postaci | `/api/v1/characters` | Tworzenie jako intencja z potwierdzeniem z gry. Wymaga producenta LCFA i GAME-CHAR-CMD-0 |
-| Wejście do gry | `/api/v1/game-auth/tickets` | Ticket krótkotrwały, jednorazowy |
-| Newsy, wydarzenia, ogłoszenia | do uzgodnienia (propozycja `/api/v1/feed` albo wpis w `v1/client/directory`) | Treść tylko do odczytu, cache, język gracza |
-| Status światów | do uzgodnienia (propozycja `/api/v1/worlds` albo wpis w `v1/client/directory`) | Ten sam model co na stronie, z czasem aktualności |
-| Saldo, premium, historia | `/api/v1/account/summary` | Tylko do wyświetlenia. Autorytatywny zakup w grze idzie przez wire sklepu |
-| Sklep w kliencie | wire sklepu (gra → Platform) i `/api/v1/store/offers` | Natywny UI w kliencie. Doładowanie coinów (płatność) zawsze w przeglądarce |
-| Powiadomienia | `/api/v1/notifications` | Kary, odpowiedzi supportu, dostawy |
-| Aktualizacje klienta | TUF (ADR 0035) | Launcher weryfikuje podpisy. Portal publikuje politykę kanałów |
-| Głębokie linki | `oteryn://` i `https://oteryn.com/...` | Wiki, profil postaci i zgłoszenie otwierane z klienta |
+| `oteryn.com` | Strona, konto, sklep, `/api/v1` | Publiczny, za Cloudflare |
+| `internal` (osobny port) | `/internal/v1` | Tylko mTLS, allowlista DN, sieć prywatna |
+| `admin` (osobny host) | Panel zespołu | Cloudflare Access i obowiązkowe MFA |
+
+Worker obsługuje:
+
+- dostarczanie outboxa;
+- e-maile;
+- import katalogu;
+- odświeżanie projekcji;
+- rekoncyliacje;
+- sprzątanie sesji i tokenów.
+
+## 4. Model danych
+
+Wszystkie identyfikatory to UUIDv7. Kwoty to `bigint` w najmniejszej jednostce. Czas to `timestamptz` w UTC. Każda tabela z mutacjami użytkownika ma `created_at` i `updated_at`.
+
+| Moduł | Tabele |
+| --- | --- |
+| identity | `accounts` (id, email, email_verified_at, password_hash, status, locale), `account_mfa_totp`, `account_passkeys`, `account_recovery_codes`, `account_email_tokens`, `account_password_resets`, `web_sessions` (hash tokenu, konto, urządzenie, ip, wygasa, sudo_until), `security_events` |
+| gameauth | `oauth_clients`, `oauth_authorization_codes`, `oauth_tokens` (access i refresh jako hash, rodzina rotacji), `device_sessions`, `game_login_tickets` (jednorazowe, krótkie), `native_admissions`, `native_evidence`, `signing_keys` (Ed25519, rotacja), `scope_assignments` |
+| characters | `account_characters` (projekcja LCFA z watermarkiem), `character_create_intents` (outbox do gry), `character_profiles` (preferencje publiczne) |
+| content | `news`, `pages`, `events`, `announcements`, `media` (z wariantami), `translations` |
+| wiki | `wiki_articles`, `wiki_revisions`, `wiki_reviews`, `catalog_imports` (paczka gry z wersją i hashem), `catalog_entries` |
+| community | `public_snapshots` (rodzina, wersja, watermark, `jsonb`), `world_status` |
+| wallet | `wallet_accounts`, `wallet_entries` (niezmienne, saldo jako suma z blokadą wiersza konta), `wallet_transfers` |
+| store | `store_price_list_imports`, `store_active_catalog`, `store_offers`, `store_purchase_requests`, `store_orders`, `store_order_lines`, `store_fulfilment_units`, `store_operations` (outbox DELIVER), `store_receipts`, `store_reconcile_state` |
+| payments | `payment_intents`, `payment_events` (idempotencja po id dostawcy), `invoices` |
+| support | `tickets`, `ticket_messages`, `appeals`, `sanctions` (z komendą do gry i potwierdzeniem) |
+| admin | `roles`, `role_permissions`, `account_roles`, `audit_log` (tylko dopisywanie), `feature_flags`, `four_eyes_requests` |
+| downloads | `client_channels`, `client_releases` |
+| notify | `notifications`, `email_outbox` |
+| db | `outbox` (wspólny: typ, klucz idempotencji, payload, próby, następna próba) |
+
+Schemat sklepu odpowiada kontraktowi wire sklepu (`docs/contracts/OTERYN_V2_STORE_WIRE_CONTRACT.md`) i decyzjom z 2026-11-05: jedna moneta transferowalna, PREMIUM_TIME włączony, COSMETIC wyłączony.
+
+## 5. Powierzchnie HTTP
+
+### 5.1 Web (SSR)
+
+| Obszar | Trasy |
+| --- | --- |
+| Publiczne | `/`, `/start`, `/news`, `/news/{slug}`, `/events`, `/pages/{slug}`, `/download`, `/worlds`, `/rankings/{kind}`, `/characters/{name}`, `/guilds/{name}`, `/houses`, `/deaths`, `/online`, `/wiki`, `/wiki/{slug}`, `/wiki/search`, `/atlas` |
+| Konto | `/register`, `/login`, `/logout`, `/verify-email`, `/forgot-password`, `/reset-password`, `/account`, `/account/security` (hasło, 2FA, passkeys, kody), `/account/sessions`, `/account/devices`, `/account/characters`, `/account/privacy` (eksport, usunięcie) |
+| Sklep | `/shop`, `/shop/coins` (doładowanie), `/shop/history`, `/shop/transfer` |
+| Pomoc | `/support`, `/support/tickets/{id}`, `/support/appeals` |
+| Autoryzacja klienta | `/oauth/authorize`, `/oauth/consent`, `/link` (kod urządzenia) |
+
+Prefiks języka: `/pl/...` i `/en/...`, z przekierowaniem z `/` według `Accept-Language` i cookie.
+
+### 5.2 Player API `/api/v1` (klient gry i launcher)
+
+| Endpoint | Cel |
+| --- | --- |
+| `POST /oauth/token` | Wymiana kodu PKCE i refresh z rotacją |
+| `GET /api/v1/client/directory` | Katalog usług dla klienta (jak `fetch_directory` w `platform-client`) |
+| `POST /api/v1/game-auth/tickets` | Ticket do gry (jak dziś) |
+| `GET /api/v1/game-auth/native-characters` | Postacie konta (jak dziś) |
+| `POST /api/v1/game-auth/device-sessions` oraz `.../native-characters`, `.../tickets`, `.../revoke` | Sesje urządzeń (jak dziś) |
+| `GET /api/v1/account/summary` | Saldo, premium, powiadomienia (nowe) |
+| `GET /api/v1/feed` | Newsy, wydarzenia, ogłoszenia w języku gracza (nowe) |
+| `GET /api/v1/worlds` | Status światów (nowe) |
+
+Trasy oznaczone „jak dziś” zachowują obecne kształty żądań i odpowiedzi. Nowe trasy klient odkrywa przez `client/directory`. Kontrakt nowych tras zapisujemy razem z grą (zadanie G-1 w sekcji 10).
+
+### 5.3 Game API `/internal/v1` (serwer gry i gateway; bajt w bajt)
+
+| Grupa | Trasy |
+| --- | --- |
+| game-auth | `native-admissions`, `native-evidence`, `native-runtime-status`, `native-scope-assignments`, `native-scope-revocations`, `native-account-characters`, `native-account-characters/watermark`, `character-bootstrap-intents/read` |
+| character-authority | komendy postaci (lista PENDING, odczyt, receipt), notatka restore |
+| products-entitlements | `premium-snapshots/read`, `loyalty-snapshots/read`, `store/balance/read`, `store/history/read`, `store/purchases`, `store/operations/{pending,read,receipt,reconcile}` |
+| game-public | snapshoty rodzin projekcji i watermark |
+
+Każda trasa ma:
+
+- guard mTLS z allowlistą tożsamości per grupa;
+- TLS 1.3;
+- limit rozmiaru;
+- kanoniczny JSON;
+- porównania w stałym czasie;
+- odpowiedzi 503 i 401 dokładnie jak w kontrakcie.
+
+Testy kontraktowe czytają fixtures z `docs/contracts/fixtures/` i wymagają identycznych bajtów odpowiedzi.
+
+### 5.4 Panel zespołu
+
+Panel ma sekcje: treści, wiki, gracze (wyszukiwanie, konto, postacie, kary, notatki), support, sklep (import i aktywacja cennika, zamówienia, zwroty), role, audyt, flagi, wydania klienta i zdrowie systemu.
+
+Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwroty, aktywacja cennika, nadanie roli admina.
+
+## 6. Integracja z grą
+
+| Przepływ | Kontrakt | Stan po stronie gry |
+| --- | --- | --- |
+| Logowanie: ticket → gateway → admission | V2_NATIVE_GATEWAY_LOGIN, granty Ed25519 | Tylko testing/preprod (D721); FND-04B-AMEND-1 PROPOSED |
+| Postacie konta | LCFA (`native-account-characters`) | Producent zaimplementowany, niewłączony |
+| Tworzenie postaci | GAME-CHAR-CMD-0 | Zaakceptowany, niezaimplementowany |
+| Premium i loyalty | V2_PREMIUM_TIME_SNAPSHOT, V2_LOYALTY_SNAPSHOT | Premium: endpoint jest; loyalty: proposed |
+| Sklep | V2_STORE_WIRE, V2_STORE_PURCHASE_DELIVERY | PROPOSED, domyślnie wyłączony |
+| Dane publiczne | GAME-PUBLIC-PROJ-0 | Kandydat, niezaakceptowany |
+| Status światów | V2_RUNTIME_STATUS_PROJECTION | PARTIAL |
+| Kary | V2_GAME_ENFORCEMENT_COMMAND | Wykonanie w grze brak |
+| Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
+| Katalog i wiki | OTERYN-GAME-PLATFORM-CATALOG-V1 | LOCKED |
+| Klient | `platform-client` (PKCE, tickety, `gateway_login`, `owner_characters`, `fetch_directory`) | Działa po stronie klienta |
 
 Zasady:
 
-- Brak wbudowanej przeglądarki w kliencie do płatności i logowania. Płatność i wrażliwe akcje konta przechodzą do przeglądarki systemowej, a powrót do klienta działa przez głęboki link.
-- Każdy endpoint Player API ma wersję, OpenAPI, limity i testy kontraktowe uruchamiane też w CI klienta.
+- Portal implementuje wszystkie przepływy, ale każdy jest za flagą. Włączamy go, gdy gra ma swoją stronę.
+- Funkcja bez danych z gry pokazuje „niedostępne” z czasem ostatniej aktualizacji, nigdy zmyślonych wartości.
+- Każda mutacja przez granicę gry jest idempotentna, ma klucz operacji, outbox i rekoncyliację. Timeout nie oznacza sukcesu ani porażki.
+- Gateway logowania (dziś w Go, `services/game-gateway`) zostaje bez zmian. Portal implementuje jego endpointy `/internal/v1` bajt w bajt.
 
-### 5.3 Wymagane od gry
+## 7. Bezpieczeństwo
 
-Dostawy gry potrzebne dla fal (lista i numeracja GC1–GC16 w #1643, sekcja 11.2):
+- Hasła: argon2id z rehashem; sprawdzanie haseł w wyciekach (k-anonymity); rate limity logowania, rejestracji i odzyskiwania; ochrona przed enumeracją kont.
+- Sesje:
+  - cookie `__Host-`, `Secure`, `HttpOnly`, `SameSite=Lax`;
+  - rotacja przy logowaniu, zmianie hasła, 2FA i e-maila;
+  - tryb sudo dla akcji wrażliwych.
+- CSRF: token synchronizowany dla każdej mutacji w web.
+- Tokeny API: nieprzezroczyste, przechowywane jako SHA-256, z zakresami. Refresh rotowany; ponowne użycie unieważnia całą rodzinę.
+- Waluta: transakcja z `SELECT ... FOR UPDATE` na koncie portfela, brak ujemnych sald, klucz idempotencji dla każdej operacji.
+- Webhooki płatności: weryfikacja podpisu, idempotencja po id zdarzenia, ochrona przed powtórzeniem.
+- Nagłówki: CSP bez `unsafe-inline`, HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`.
+- Uploady: limit rozmiaru, sprawdzanie typu po zawartości, przetwarzanie obrazów, brak wykonywania.
+- Audyt: każda akcja zespołu trafia do `audit_log` (kto, co, kiedy, przed i po).
+- Sekrety: tylko zmienne środowiska lub pliki na hoście; nic w repozytorium.
 
-| Fala | Potrzebne od gry |
-| --- | --- |
-| Fala 1 | Paczka katalogu (GC5), eksport świata Atlasa (GC16, niezweryfikowane). Opcjonalnie: akceptacja GAME-PUBLIC-PROJ-0 i producent projekcji (GC1); bez nich fala 1 idzie bez rankingów i profili |
-| Fala 2 | Runtime protocol-oteryn (listener i wejście klienta do gry), akceptacja FND-04B-AMEND-1, włączenie producenta LCFA, implementacja GAME-CHAR-CMD-0, wykonanie kar w grze (GC4), crate'y kontraktowe bez I/O (GC6, GC8), sesje urządzeń jako kontrakt |
-| Fala 3 | Akceptacja kontraktów sklepu i wpis w locku, STORE-ENT-1 i konsument DELIVER, transfer postaci (GC2), sklep w kliencie (GC13) |
+## 8. Wygląd i jakość
 
-**Zastrzeżenie fali 2 (D721, N4P):** logowanie natywne jest zaakceptowane tylko dla testing/preprod. Fala 2 na produkcji wymaga osobnej autoryzacji właściciela oraz spełnienia U1, U3, U8 i U9 i bramek 33a/34a z rejestru gry. Bez tego fala 2 kończy się na preprodzie.
+- Projekt graficzny od nowa: ciemny motyw z akcentem marki, czytelna typografia, komponenty w jednym pliku tokenów CSS.
+- Pełna obsługa telefonu i WCAG 2.2 AA.
+- Budżety: LCP poniżej 2 s na 4G, JS poza mapą poniżej 30 KB, p95 odpowiedzi poniżej 150 ms dla stron publicznych.
+- SEO: sitemap, `hreflang`, kanoniczne adresy, dane strukturalne.
 
-## 6. Migracja i przełączenie (trzy fale)
+## 9. Uruchomienie
 
-Zamiast jednego przełączenia po ukończeniu wszystkiego (D7 w #1643) proponujemy trzy fale. W każdej chwili każda dana ma dokładnie jednego właściciela-pisarza.
+1. Preprod na `oteryn-vps-2`: PostgreSQL, portal, mTLS z gatewayem i węzłem testowym.
+2. Narzędzie `admin-cli import-legacy` jednorazowo czyta eksport z obecnej bazy. Kopiuje: konta (z AccountId i hashami), role, treści, wiki, postacie z projekcji, saldo portfela i historię.
+3. Weryfikacja importu: liczby i sumy kontrolne, logowanie próbnych kont, zgodność sald.
+4. Przełączenie domeny i gatewaya na nowy portal; Laravel zostaje wyłączony, a jego kod jest usuwany z repozytorium osobnym PR-em.
 
-Dlaczego odchodzimy od D7: #1643 wybrało jedno przełączenie, aby uniknąć współdzielenia sesji i bazy przez dwie aplikacje. Fale tego unikają inaczej. W fali 1 Rust nie ma kont ani sesji, więc nic nie jest współdzielone. Właścicielem sesji w fali 1 pozostaje Laravel.
+Każdy krok wymaga zgody właściciela („deploy”).
 
-| Fala | Co przechodzi na Rust | Laravel po fali | Dane | Rollback |
-| --- | --- | --- | --- | --- |
-| 1. Strona publiczna | Strona główna, newsy, wydarzenia, strony, wiki i katalog, Atlas, status światów, pobieranie; rankingi i profile tylko gdy GAME-PUBLIC-PROJ-0 jest zaakceptowany i producent działa | Konto, logowanie, admin i sklep pod ścieżkami `/account`, `/login`, `/admin` | Treści migrowane jednorazowo (Laravel przechodzi w tryb tylko do odczytu dla treści). Projekcje gry zasilane równolegle | Przełączenie routingu w Caddy z powrotem; treści eksportowane do Laravela |
-| 2. Konto i logowanie do gry | Rejestracja, logowanie, MFA, panel konta, Player API, Game API, gateway logowania w Ruście, support, admin | Tylko sklep i płatności (jeśli używane) | Import tożsamości z zachowaniem AccountId i hashy argon2id, okno ≤60 min, sesje web unieważnione, tokeny klienta odświeżane | Powrót routingu i gatewaya Go; rekordy z okna eksportowane |
-| 3. Handel | Portfel, sklep, płatności, bazar, transfer coinów | Wyłączony, przekierowania 301 | Ledger przenoszony po zamknięciu i uzgodnieniu sald; zero otwartych operacji przy przełączeniu | Ledger zamrożony; powrót możliwy tylko przed pierwszą operacją po przełączeniu |
+## 10. Zadania dla Codexa
 
-Uzasadnienie:
+Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryterium akceptacji (`cargo test` i `cargo clippy` w `portal-rs/`) oraz zależności. Zadania wysyła koordynator. Zadania bez zależności między sobą idą równolegle.
 
-- gracze dostają nowy portal po pierwszej fazie budowy, a nie po roku;
-- ryzyko każdego przełączenia jest mniejsze;
-- błędy logowania i ledgera nie blokują strony publicznej.
-
-Koszt: przez okres przejściowy działają dwie aplikacje za jednym edge, a fala 1 wymaga wspólnego wyglądu nagłówka i stopki. Alternatywa (jedno przełączenie) zostaje decyzją właściciela w sekcji 10.
-
-Sesja, cookie i CSRF między falami:
-
-- **Fala 1:**
-  - Strony publiczne w Ruście są bezstanowe: nie czytają ani nie ustawiają cookie sesji i nie przyjmują mutacji.
-  - Cookie sesji Laravela ma zakres ścieżek `/account`, `/login` i `/admin` (lub osobną subdomenę), żeby nie trafiało do Rusta.
-  - Nagłówek strony pokazuje stan „zalogowany” przez lekkie zapytanie do Laravela (`/account/whoami`, bez danych wrażliwych) albo pokazuje tylko link „Konto”.
-  - CSRF zostaje w Laravelu, bo tylko on przyjmuje mutacje.
-- **Fala 2:**
-  - Właścicielem sesji staje się Rust: nowe cookie `__Host-`, a stare sesje Laravela są unieważniane w oknie przełączenia.
-  - Laravel do fali 3 obsługuje tylko sklep i płatności. Uwierzytelnia się wewnętrznym endpointem sesji Rusta (sprawdzenie po stronie serwera, bez współdzielonej tabeli sesji) i ma własny token CSRF.
-- **Fala 3:** Laravel jest wyłączony, Rust jest jedynym właścicielem sesji.
-
-**Zapis Laravela do bazy postaci starego silnika** (`CHARACTER_AUTHORITY_PLATFORM_BOUNDARY.md` §11–12, oznaczony LEGACY):
-
-- Portal w Ruście nie dziedziczy tego zapisu i nigdy nie łączy się z bazą starego silnika.
-- Zapis LEGACY musi zniknąć przed bramką fali 2. Tworzenie i zmiany postaci idą wtedy wyłącznie przez GAME-CHAR-CMD-0.
-- Jeśli GAME-CHAR-CMD-0 nie jest gotowe, funkcje postaci w fali 2 pozostają wyłączone, a zapis LEGACY nie jest przenoszony.
-
-Runbook, przekierowania i rollback są dziedziczone z #1643 („Migracja i przełączenie”) i dzielone na fale.
-
-## 7. Plan realizacji
-
-Szacunki są przybliżone. Tydzień oznacza tydzień jednego developera. Faza kończy się bramką: CI zielone, zestaw zgodności zielony, przegląd bezpieczeństwa dla faz z kontem lub pieniędzmi, demo dla właściciela.
-
-| Faza | Zakres | Bramka wyjścia | Szacunek |
+| ID | Zadanie | Zależy od | Ścieżki |
 | --- | --- | --- | --- |
-| F0 Fundament | Katalog `portal-rs/` i workspace, CI (lint, testy, pokrycie, `cargo deny`), szkielet ról, migracje, obserwowalność, preprod na `oteryn-vps-2`, zestaw zgodności z obrazem gry | Pusty portal na preprodzie, zielone CI i zestaw zgodności | 4–6 |
-| F1 Treści i strona publiczna | Layout, i18n, newsy, strony, wydarzenia, media, admin treści, RBAC i audyt, migracja treści | Redakcja publikuje na preprodzie | 6–8 |
-| F2 Dane gry publicznie | Status światów, wiki z katalogu, pobieranie z TUF; projekcje (rankingi, profile, gildie, domy, zgony, online) gdy kontrakt jest gotowy | **Fala 1 gotowa do przełączenia.** Rankingi i profile wchodzą tylko przy zaakceptowanym GAME-PUBLIC-PROJ-0 i działającym producencie, w przeciwnym razie później | 6–9 |
-| F3 Konto | Rejestracja, logowanie, MFA, passkeys, odzyskiwanie, sesje i urządzenia, RODO, e-maile | Przegląd bezpieczeństwa konta | 6–8 |
-| F4 Gra i klient | Player API, gateway logowania w Ruście, admission, postacie, premium, kary, restore, support | **Fala 2 gotowa na preprodzie**: logowanie z klienta; demo gry na węźle testowym tylko gdy runtime protocol-oteryn działa. Produkcja: osobna autoryzacja (D721, N4P, §5.3) | 8–11 |
-| F5 Handel | Portfel, transfer coinów, sklep (cennik, zakup, dostawa), płatności za interfejsem, faktury, bazar | Bramki: akceptacja kontraktów sklepu i wpis w locku, zamknięte Q1–Q6, autoryzacja sprzedaży produkcyjnej, fence PITR, rekoncyliacja ledgera na kopii produkcyjnej. Dopiero wtedy fala 3 | 8–11 |
-| F6 Rozszerzenia | Atlas i `oteryn-map` (MA), narzędzia (M7), zarządzanie węzłami (M5), obserwacja GM (M10), OIDC dla staffu | Każde rozszerzenie z własną bramką z #1643 | 14–20 |
-| F7 Wygaszenie Laravela | Usunięcie ścieżek przejściowych i kodu Laravela z repozytorium (historia zostaje w git) | Zero ruchu na Laravel przez 30 dni | 1–2 |
+| T00 | Workspace, lints, `core` (konfiguracja, błędy, UUIDv7), `db` (pula, migracje), binarka z rolami, `/healthz` | – | `portal-rs/` (cały szkielet) |
+| T01 | `web`: router, layout askama, statyczne pliki, nagłówki bezpieczeństwa, strony błędów, i18n fluent pl/en | T00 | `crates/web`, `templates/`, `static/` |
+| T02 | Sesje web (tabela, cookie `__Host-`, rotacja) i CSRF | T01 | `crates/web/src/session*`, migracja |
+| T03 | Rejestracja i weryfikacja e-maila | T02 | `crates/identity` (rejestracja), szablony |
+| T04 | Logowanie i wylogowanie, argon2id z rehashem, rate limit | T02 | `crates/identity` (login) |
+| T05 | Reset hasła | T04 | `crates/identity` (reset) |
+| T06 | 2FA TOTP i kody odzyskiwania | T04 | `crates/identity` (mfa) |
+| T07 | Passkeys (WebAuthn) | T04 | `crates/identity` (passkeys) |
+| T08 | Panel konta: sesje, urządzenia, zmiana e-maila i hasła, tryb sudo | T04 | `crates/identity` (account) |
+| T09 | RODO: eksport i usunięcie konta | T08 | `crates/identity` (privacy) |
+| T10 | RBAC, audyt, szkielet panelu admina z obowiązkowym MFA | T06 | `crates/admin` |
+| T11 | Treści: newsy, strony, wydarzenia, ogłoszenia; CRUD w adminie; strony publiczne | T10 | `crates/content` |
+| T12 | Media: upload, warianty obrazów, walidacja | T11 | `crates/content/src/media*` |
+| T13 | Wiki: artykuły, wersje, przegląd, markdown i sanityzacja, wyszukiwanie (PG full text) | T10 | `crates/wiki` |
+| T14 | Import paczki katalogu gry do wiki (kontrakt CATALOG-V1) | T13 | `crates/wiki/src/catalog*` |
+| T15 | Guard mTLS `/internal/v1`, kanoniczny JSON i harness testów kontraktowych na fixtures | T00 | `crates/internal-api` (wspólne) |
+| T16 | OAuth PKCE (`/oauth/authorize`, `/oauth/token`, consent, refresh z rotacją) | T04 | `crates/gameauth/src/oauth*` |
+| T17 | Tickety do gry i `GET native-characters` (Player API, jak dziś) | T16, T18 | `crates/gameauth/src/tickets*`, `crates/player-api` |
+| T18 | `native-account-characters` i watermark (LCFA, `/internal/v1`) | T15 | `crates/characters` |
+| T19 | Admission, evidence, runtime-status, granty Ed25519, rotacja kluczy | T15 | `crates/gameauth/src/admission*` |
+| T20 | Scope assignments i revocations | T19 | `crates/gameauth/src/scopes*` |
+| T21 | Sesje urządzeń (enroll, characters, tickets, revoke) | T17 | `crates/gameauth/src/devices*` |
+| T22 | Komendy postaci i character-bootstrap-intents, tworzenie postaci z konta | T18 | `crates/characters/src/commands*` |
+| T23 | Restore notice i rekoncyliacja | T22 | `crates/characters/src/restore*` |
+| T24 | Projekcje publiczne: snapshoty i watermark (`/internal/v1/game-public`) i strony społeczności | T15, T01 | `crates/community` |
+| T25 | Status światów: strona i `GET /api/v1/worlds` | T24 | `crates/community/src/worlds*` |
+| T26 | Ledger portfela, saldo, historia, transfer coinów (blokady, idempotencja) | T04 | `crates/wallet` |
+| T27 | Premium i loyalty snapshoty (`/internal/v1`) | T15, T26 | `crates/store/src/snapshots*` |
+| T28 | Import i aktywacja cennika sklepu (S-5, `catalog_revision` = SHA-256) | T10 | `crates/store/src/catalog*` |
+| T29 | Zakup, saldo i historia przez wire sklepu | T26, T28, T15 | `crates/store/src/purchase*` |
+| T30 | Dostawa: operacje pending, read, receipt, reconcile | T29 | `crates/store/src/delivery*` |
+| T31 | Płatności: trait dostawcy, provider testowy, webhooki z idempotencją, doładowanie coinów | T26 | `crates/payments` |
+| T32 | Sklep web: oferty, doładowanie, historia, transfer | T29, T31 | `crates/store/src/web*`, szablony |
+| T33 | Support: zgłoszenia, wiadomości, odwołania | T10 | `crates/support` |
+| T34 | Kary: komenda do gry (enforcement), historia, cztery oczy | T33, T15 | `crates/support/src/sanctions*` |
+| T35 | Pobieranie i kanały TUF | T11 | `crates/downloads` |
+| T36 | Powiadomienia e-mail (outbox) i `GET /api/v1/account/summary`, `GET /api/v1/feed`, `client/directory` | T11, T26 | `crates/notify`, `crates/player-api` |
+| T37 | Worker: outbox, ponowienia, sprzątanie | T00 | `bin/oteryn-portal/src/worker*`, `crates/db/src/outbox*` |
+| T38 | `admin-cli import-legacy` z eksportu obecnej bazy | T03–T34 | `bin/oteryn-portal/src/import*` |
+| T39 | Projekt graficzny: tokeny CSS, komponenty, strona główna, „Jak zacząć” | T01 | `static/`, `templates/` |
+| G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` | – | Oteryn-Game, przez koordynatora |
 
-Razem rdzeń (F0–F5) to ok. **38–53 tygodni pracy**, a z rozszerzeniami ok. **53–75**.
+Kolejność startu:
 
-Czas do fali 1 (F0 jest bramką szeregową, dopiero po niej F1 i F2 mogą iść równolegle):
+1. Najpierw T00, bo daje wspólny szkielet. Ja mogę go przygotować i sprawdzić lokalnie, żeby Codex startował od kompilującej się bazy.
+2. Potem jednocześnie: T01, T15, T37 i T39.
+3. Potem gałęzie konta (T02–T10), gry (T16–T25) i handlu (T26–T32) równolegle.
 
-| Skład | F0 | F1 + F2 | Fala 1 po |
-| --- | --- | --- | --- |
-| 1 osoba | 4–6 | 12–17 (szeregowo) | ok. 16–23 tyg. |
-| 2 osoby | 3–5 (część F0 da się podzielić) | 6–9 (równolegle) | ok. 10–14 tyg. |
+Pozostałe warunki:
 
-Fale 2 i 3 zależą też od dostaw gry (§5.3), więc ich daty ustalamy po bramce fali 1. Daty kalendarzowe ustala właściciel po wyborze składu zespołu.
+- **CI.** Testy Rusta w CI wymagają nowego joba w `.github/workflows`, a to potrzebuje zgody właściciela. Do tego czasu każde zadanie dołącza wynik `cargo test` i `cargo clippy` w PR.
+- **Zakres plików.** Zadania mają rozłączne ścieżki. Wspólne pliki (`Cargo.toml` workspace, router w `web`, migracje) zmienia się tylko przez dopisanie linii, a konflikty rozwiązuje koordynator przy merge.
 
-Sposób pracy:
+## 11. Decyzje właściciela
 
-- Zadania dla agentów: jedna mechanika na zadanie, packet zadania z dozwolonymi plikami i komendami walidacji, wysyłane przez koordynatora.
-- Każde zadanie, które dotyka gry, ma osobne zadanie po stronie gry i wpis w rejestrze kontraktów.
-- Na każdej fazie właściciel dostaje krótkie demo na preprodzie.
-
-## 8. Ryzyka
-
-| Ryzyko | Skutek | Ograniczenie |
+| # | Decyzja | Domyślnie |
 | --- | --- | --- |
-| Opóźnienie dostaw gry (projekcje, kary, sklep) | Fala czeka | Fale niezależne; funkcja bez producenta pokazuje „wkrótce”, nie fałszywe dane |
-| Rozjazd kontraktu wire | Błędy logowania lub dostaw | Crate'y kontraktowe z gry, złote wektory, zestaw zgodności per digest |
-| Utrata lub rozjazd danych przy imporcie | Konta lub saldo nieprawidłowe | Próbne importy na kopii produkcyjnej, sumy kontrolne, rekoncyliacja przed i po |
-| Dwie aplikacje w okresie przejściowym | Koszt utrzymania | Krótkie okna między falami; zamrożenie nowych funkcji w Laravelu od F1 |
-| Zakres rozszerzeń | Opóźnienie rdzenia | Rozszerzenia dopiero po fali 2 i za osobnymi bramkami |
-| Jedna osoba z uprawnieniami krytycznymi | Brak czterech oczu | Samozatwierdzenie z opóźnieniem i e-mailem do właściciela (#1643) |
+| D1 | Zakres pierwszego wydania | Sekcja 2 bez bazaru, analizatora, węzłów i obserwacji GM |
+| D2 | Nowy job CI dla `portal-rs/` | Potrzebna zgoda |
+| D3 | Dostawca płatności | Provider testowy do czasu wyboru (np. Stripe) |
+| D4 | Wygląd | Nowy projekt graficzny (T39) |
+| D5 | Gateway logowania | Zostaje w Go; portal zachowuje jego kontrakt |
+| D6 | Import danych | Konta, role, treści, wiki, portfel; reszta zaczyna od zera |
 
-## 9. Poza zakresem
+## 12. Źródła
 
-- Zmiany protokołu gry, logiki rozgrywki i bazy gry.
-- Wdrożenie produkcyjne przed akceptacją właściciela („deploy”).
-- Prawdziwe płatności przed wyborem dostawcy, danymi sprzedawcy i bramką fali 3.
-- Aplikacja mobilna (Player API jest na nią gotowe, ale budowa to osobna decyzja).
-
-## 10. Decyzje właściciela
-
-| # | Decyzja | Wartość domyślna |
-| --- | --- | --- |
-| P1 | Ten plan zastępuje szkic #1643 jako dokument główny; #1643 zostaje źródłem szczegółów dla M5, MA, M7 i M10 | Tak |
-| P2 | Przełączenie | **Trzy fale** (sekcja 6). Alternatywa: jedno przełączenie jak w #1643 |
-| P3 | Repozytorium | **Rozstrzygnięte 2026-11-05:** to samo repo `Oteryn/Oteryn-Platform`, katalog `portal-rs/`. Nowe joby CI dla Rusta w `.github/workflows` wymagają osobnej zgody właściciela |
-| P4 | Zakres rdzenia | F0–F5. Rozszerzenia (F6) po fali 2 |
-| P5 | Zamrożenie nowych funkcji w Laravelu | Od startu F1; tylko poprawki bezpieczeństwa i kontraktów |
-| P6 | Skład zespołu | Do ustalenia; plan podaje szacunki dla 1 i 2 osób |
-| P7 | Dostawca płatności i faktury | Jak w #1643 (Stripe, KSeF), decyzja najpóźniej na starcie F5 |
-| P8 | Sklep w kliencie | Natywny UI w kliencie, doładowanie coinów tylko w przeglądarce |
-| P9 | Języki | pl i en od startu |
-
-## 11. Źródła
-
-- Szkic #1643: `docs/architecture/OTERYN_PLATFORM_2_DESIGN_DRAFT.md` (rewizja 4.1, head 1c9c638).
-- Kontrakty Platform: `docs/contracts/` (statusy z inwentarza 2026-11-05).
-- Rejestr kontraktów gry: Oteryn-Game `docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json`. Polityka transportu: `PROTOCOL_OTERYN_TRANSPORT_POLICY.json`, rewizja 4 (tylko TCP+TLS 1.3).
-- Architektura obecna:
-  - `docs/architecture/DATA_OWNERSHIP.md`, `SECURITY_ARCHITECTURE.md`, `PLATFORM_API_ARCHITECTURE.md`, `CLIENT_DISTRIBUTION_ARCHITECTURE.md`;
-  - ADR 0028, 0031, 0035, 0046.
-- Kierunek produktu: `docs/architecture/PORTAL_PLAYER_EXPERIENCE_COMPLETION_DIRECTION.md`.
-- Raporty: `docs/agents/reports/OTERYN-20260808-platform-v2-architecture-reconciliation.md`, `OTERYN-20260810-portal-architecture-product-review.md`.
-- Decyzje sklepu: `docs/contracts/OTERYN_V2_STORE_OWNER_DECISIONS_AMENDMENT_2026-11-05.md`.
+- Obecny portal: trasy `routes/internal.php`, `routes/api.php`, `routes/modules/*`; moduły `app/*`.
+- Kontrakty: `docs/contracts/`, w tym wire sklepu i decyzje z 2026-11-05.
+- Gra: Oteryn-Game `docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json`, `crates/platform-client`, `crates/platform-contracts`, `crates/protocol-oteryn`.
+- Szkic #1643: źródło pomysłów dla rozszerzeń (węzły, Atlas, obserwacja GM).
