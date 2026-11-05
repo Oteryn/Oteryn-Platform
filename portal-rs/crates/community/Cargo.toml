@@ -49,3 +49,5 @@ features = ["macros"]
 path = "../wallet"
 [dependencies.oteryn-notify]
 path = "../notify"
+[dependencies.oteryn-admin]
+path = "../admin"

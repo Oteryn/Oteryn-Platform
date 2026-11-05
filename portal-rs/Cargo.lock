@@ -2082,6 +2082,7 @@ dependencies = [
  "askama",
  "axum",
  "fluent-bundle",
+ "oteryn-admin",
  "oteryn-db",
  "oteryn-internal-api",
  "oteryn-notify",

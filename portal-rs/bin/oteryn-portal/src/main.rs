@@ -97,6 +97,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_wiki::calculators::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let app = app.merge(oteryn_community::party::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
             let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")
                 .unwrap_or_else(|_| "http://localhost:3000".to_owned());
             let production = std::env::var("OTERYN_ENV").is_ok_and(|value| value == "production");

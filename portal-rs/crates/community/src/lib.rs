@@ -7,4 +7,5 @@ pub mod online;
 pub mod rankings;
 pub mod worlds;
 
+pub mod party;
 pub mod referrals;
