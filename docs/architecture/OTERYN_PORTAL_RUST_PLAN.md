@@ -512,14 +512,14 @@ Wzór: TibiaRoute (przegląd 2026-11-05): mapa dostaw zadań, trackery bestiariu
 
 | Narzędzie | Funkcje | Zadanie | Dane |
 | --- | --- | --- | --- |
-| Spawny na Atlasie | Każdy spawn potwora: ikona, liczba potworów, piętro; skupienia przy oddaleniu; licznik potworów i spawnów w widoku. Link do miejsca (x, y, piętro, przybliżenie), pełny ekran, prywatne znaczniki gracza, „zgłoś błąd na mapie” | T84 | Pozycje spawnów z `content/world/` (do potwierdzenia przez koordynatora) |
-| Mapa dostaw zadań | Zakładki: wszystko, potwory, przedmioty zadań. Wybór przedmiotu wymaganego przez zadanie albo quest podświetla potwory, które go upuszczają (z szansą z tabel łupu), i ich spawny. Ranking potworów jako źródła przedmiotu (tier z szansy, gęstości spawnu i poziomu). Wyszukiwarka i filtry: poziom, piętro, miasto, rzadkość | T85 | Zadania i questy, łupy, spawny |
+| Spawny na Atlasie | Każdy spawn potwora: ikona, liczba potworów, piętro, czas odrodzenia; skupienia przy oddaleniu; licznik potworów i spawnów w widoku. Link do miejsca (x, y, piętro, przybliżenie), pełny ekran, prywatne znaczniki gracza, „zgłoś błąd na mapie” | T84 | `content/world/spawns/spawns-*.json`, rodzina `Spawn.Source`: centrum i punkty `{cell, creature, respawn_ms}`, jeden punkt to jeden potwór |
+| Mapa dostaw zadań | Zakładki: wszystko, potwory, przedmioty zadań. Wybór przedmiotu wymaganego przez krok questa (`collect`, `item`) podświetla potwory, które go upuszczają (z szansą i liczbą sztuk z tabel łupu), i ich spawny. Ranking potworów jako źródła przedmiotu (tier z szansy, gęstości spawnu i poziomu). Wyszukiwarka i filtry: poziom, piętro, miasto, rzadkość | T85 | Kroki questów, łupy (`probability_ppm`, `min_count`, `max_count`), spawny. Kroki wskazują przedmiot nazwą, nie kluczem; do czasu G-13 portal dopasowuje nazwę do definicji przedmiotu i oznacza dopasowania niepewne |
 | Gdzie wypada | To samo dla dowolnego przedmiotu; przycisk „pokaż na mapie” na stronie wiki przedmiotu i potwora | T85 | Łupy, spawny |
-| Bestiariusz na mapie | Postęp każdej postaci gracza bez wpisywania; kolor spawnu według stanu (ukończony, w trakcie, nie rozpoczęty); punkty do zdobycia; filtry klasy i trudności; spawny pojedyncze i grupowe; rekomendacje: nieukończone potwory z najlepszym tempem dla poziomu postaci | T86 | Postęp bestiariusza (jest; G-11), spawny, mapa łowisk (T81) |
-| Bossowie na mapie | Postęp i punkty, cooldowny postaci, miejsca bossów; szanse pojawienia się dziś per świat | T86 | G-11; szanse: G-12 |
+| Bestiariusz na mapie | Postęp każdej postaci gracza bez wpisywania; kolor spawnu według stanu (ukończony, w trakcie, nie rozpoczęty); punkty charmów i progi zabójstw; filtry klasy, trudności i gwiazdek; spawny pojedyncze i grupowe; rekomendacje: nieukończone potwory z najlepszym tempem dla poziomu postaci | T86 | Pole `bestiary` w definicjach potworów (punkty, trudność, progi, klasa, gwiazdki); postęp postaci (G-11); spawny; mapa łowisk (T81) |
+| Bossowie na mapie | Postęp i punkty (prowess, expertise, mastery), cooldowny postaci, miejsca bossów | T86 | Pole `bosstiary` w definicjach potworów; G-11. Spawny bossów są w grze wstrzymane (`held-bosses.json`), więc mapa pokazuje miejsca bossów dopiero po ich zatwierdzeniu w grze |
 | Miejsca polowań | Karty: solo, duo, pełna drużyna; poziom, exp/h, profit/h; sortowanie po exp i po proficie; opis redakcji, dane z mapy łowisk i raporty graczy (sesje udostępnione z analizatora) | T87 | T81, T13 |
 | Miejsca na bestiariusz i bossów | Karty: potwór lub boss, poziom, punkty, szacowany czas ukończenia z tempa zabójstw graczy | T87 | T81 |
-| Dziś na świecie | Na stronie „Dziś” i w nagłówku: aktywne wydarzenia, wzmocniony dziś potwór i boss, historia wzmocnień | T88 | G-12 |
+| Dziś na świecie | Na stronie „Dziś” i w nagłówku: wzmocniony dziś potwór i boss, historia wzmocnień, rajdy z harmonogramu | T88 | G-12 |
 
 Mechaniki właściwe tylko dla Tibii (np. fiendish przez exivę, koło przeznaczenia, imbuementy) przenosimy tylko wtedy, gdy gra je ma. Kalkulatory (T71) dostają w takim przypadku odpowiedniki: obrażenia na bossach, koszt ulepszeń, miejsce na punkty bestiariusza.
 
@@ -542,7 +542,7 @@ Mechaniki właściwe tylko dla Tibii (np. fiendish przez exivę, koło przeznacz
 | Statystyki | Sesje online per postać (start, koniec) i dzienne liczniki zabitych potworów i bossów per świat (G-8); reszta z projekcji publicznych (G-4 dostaje doświadczenie i umiejętności per postać) | G-8 w kolejce gry po G-7 (koordynator, 2026-11-05). Jest: aktywna sesja, postęp bestiariusza per postać, receipty zabójstw bossów. Brak: historii sesji i dziennych liczników per świat; doda je G-8 |
 | Bazar | Blokada i snapshot postaci, warunki wystawienia, depozyt i dostawa przedmiotów, blokada i przekazanie złota (G-7); przeniesienie postaci przez TransferCharacterOwnership z GAME-CHAR-CMD | G-7 w kolejce gry po G-5 (koordynator, 2026-11-05). Jest: bank konta i gildii, depot z transferami, market, TransferCharacterOwnership, pole `tradeable` w danych przedmiotów (bez egzekwowania). Brak: blokady złota, blokady postaci, podpisanego snapshotu. Gra przyśle kontrakt wire do akceptacji Platform przed implementacją |
 | Dziennik gry | Prywatny kanał per konto, oddzielony od projekcji publicznych: sesje, łup, zużycie, obrażenia i dropy (G-9); przedmioty i historia handlu (G-10); postęp, zgony, PvP, liczniki czasu i logowania do gry (G-11) | G-9…G-11 w kolejce gry po G-8 (koordynator, 2026-11-05); kolejność między nimi ustala właściciel. Jest: receipty zabójstw bossów i łup z pojemników (sesje); stan ekwipunku, depotu, skrzynki i domu, bank, market (przedmioty); bestiariusz, bosstiary z cooldownami, questy, osiągnięcia, umiejętności (postęp). Brak: dziennika odcinków sesji z obrażeniami, leczeniem i zużyciem; snapshotu przy wylogowaniu; recapu zgonu, historii logowań i zdarzeń premium, staminy i czynszu. Dziennik wymian do sprawdzenia. Gra przyśle kontrakt wire do akceptacji Platform |
-| Atlas i narzędzia | Spawny, zadania dostaw i łupy z `content/**` (§6.1); dzienne dane świata: wzmocnienia, szanse bossów, wydarzenia (G-12) | Do potwierdzenia przez koordynatora: czy `content/world/` ma pozycje spawnów potworów i czy zadania dostaw są w `quests/` |
+| Atlas i narzędzia | Spawny, kroki questów, łupy, bestiariusz i bosstiary z `content/**` (§6.1); wzmocnienia dnia i rajdy (G-12); klucze przedmiotów w questach (G-13) | Koordynator (Game main @9418ffb8): spawny są (31 plików, `Spawn.Source`); łupy z szansą ppm; `bestiary` i `bosstiary` w definicjach potworów. Spawny bossów wstrzymane do zatwierdzenia polityki. Osobnego typu „dostawa” nie ma, a kroki questów wskazują przedmioty nazwą. Wzmocnienie dnia jest (mechanika 0351), rajdy z harmonogramu częściowo (0434), szans bossów brak |
 | Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
 | Dane świata (wiki, Atlas) | Odczyt `content/**` z przypiętego commita gry (§6.1) | Dane są; flaga widoczności brak (G-2); publikacja grafik: zgoda (D7) |
 | Granty admission | FND-04B-AMEND-1 | Pole status: ACCEPTED (2026-11-05), ale treść ma otwarte decyzje właściciela. Traktujemy jako propozycję i **nie implementujemy na jej podstawie**, dopóki decyzje nie zapadną |
@@ -781,7 +781,7 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T85 | Mapa dostaw zadań i „gdzie wypada”: przedmiot → potwory → spawny, tiery źródeł, filtry, linki z wiki | T84, T14b | `crates/atlas/src/delivery*` |
 | T86 | Bestiariusz i bossowie na mapie: postęp postaci z dziennika, stany spawnów, punkty, rekomendacje | T84, T77 | `crates/atlas/src/bestiary*` |
 | T87 | Miejsca polowań, na bestiariusz i bossów: karty z danymi z mapy łowisk, opisy redakcji, raporty graczy | T81, T13 | `crates/wiki/src/places*` |
-| T88 | „Dziś na świecie”: wydarzenia, wzmocnienia i ich historia (po G-12) | T24 | `crates/community/src/today*` |
+| T88 | „Dziś na świecie”: wzmocnienia i ich historia, rajdy (po G-12) | T24 | `crates/community/src/today*` |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 | G-2 | (gra) Pole widoczności (public/hidden) w schematach questów, NPC i obszarów | – | Oteryn-Game, przez koordynatora |
 | G-3 | (gra) Komendy postaci: usunięcie i anulowanie, zmiana nazwy, płci i świata (rozszerzenie GAME-CHAR-CMD; płatne usługi rozlicza Platform) | – | Oteryn-Game, przez koordynatora |
@@ -793,14 +793,15 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | G-9 | (gra) Dziennik gry, sesje: prywatny kanał per konto; podsumowanie po zakończeniu sesji i co godzinę (czas, miejsca, doświadczenie, łup i zużycie per przedmiot, obrażenia zadane i otrzymane per typ i źródło, leczenie, zabite potwory, drużyna i jej łup); rzadkie dropy; idempotencja po id sesji i odcinka | – | Oteryn-Game, przez koordynatora |
 | G-10 | (gra) Dziennik gry, przedmioty: snapshot ekwipunku, depotów, skrzynki i domu przy wylogowaniu, tylko do odczytu; historia banku, marketu i wymian | – | Oteryn-Game, przez koordynatora |
 | G-11 | (gra) Dziennik gry, postęp i zdarzenia: bestiariusz, cooldowny bossów, questy, osiągnięcia, umiejętności; recap zgonu; zabójstwa PvP i skull; stamina, koniec premium, czynsz domu; historia logowań do gry | – | Oteryn-Game, przez koordynatora |
-| G-12 | (gra) Dzienne dane świata jako rodzina publiczna: wzmocniony potwór i boss, szanse pojawienia się bossów per świat, aktywne wydarzenia (tylko mechaniki, które gra ma) | – | Oteryn-Game, przez koordynatora |
+| G-12 | (gra) Dzienne dane świata jako rodzina publiczna: wzmocniony potwór i boss dnia, rajdy z harmonogramu | – | Oteryn-Game, przez koordynatora |
+| G-13 | (gra) Klucze przedmiotów (`oteryn:item.*`) w celach i nagrodach kroków questów zamiast nazw | – | Oteryn-Game, przez koordynatora |
 
 Kolejność startu:
 
 1. T00 jest gotowy w PR #1685 (kompilujący się szkielet i job CI).
 2. Potem jednocześnie: T01, T14, T15, T37, T39 i T52.
 3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45, T53–T54), gry (T16–T25), handlu (T26–T32, T47, T55–T56), bazaru (T57–T64), statystyk (T65–T71), dziennika gry (T72–T83), Atlasu i narzędzi (T84–T88) i panelu zespołu (T10–T10b, T49–T51).
-4. Zadania zależne od G-3…G-12 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
+4. Zadania zależne od G-3…G-13 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
 
 ### 10.1 Szablon zadania dla Codexa
 
