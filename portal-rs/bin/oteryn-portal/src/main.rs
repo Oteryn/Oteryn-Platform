@@ -100,6 +100,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(login_http::configured_router(oteryn_db::lazy_pool(
                 config.database_url(),
             )?));
+            let app = app.merge(reset_http::configured_router(oteryn_db::lazy_pool(
+                config.database_url(),
+            )?));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
@@ -131,3 +134,8 @@ mod worker;
 
 #[path = "../../../crates/identity/src/login_http.rs"]
 mod login_http;
+
+#[path = "../../../crates/identity/src/reset_delivery.rs"]
+mod reset_delivery;
+#[path = "../../../crates/identity/src/reset_http.rs"]
+mod reset_http;

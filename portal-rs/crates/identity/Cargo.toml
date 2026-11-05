@@ -21,6 +21,9 @@ serde_json = "1"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
 email_address = "0.2"
 
+chacha20poly1305 = "0.10"
+subtle = "2.6"
+
 [dev-dependencies]
 oteryn-web.workspace = true
 axum = "0.8.9"

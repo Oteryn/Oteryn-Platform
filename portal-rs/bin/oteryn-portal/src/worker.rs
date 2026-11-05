@@ -149,6 +149,7 @@ async fn run_until(
 }
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
+    crate::reset_delivery::register(&mut registry, pool.clone())?;
     registry.cleanup(
         "stats.poll",
         60,
