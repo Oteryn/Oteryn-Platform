@@ -365,7 +365,7 @@ Przepływ:
    - coinami licytuje się tylko przenoszalnymi.
 4. Rozliczenie:
    - przy coinach jedna transakcja portfela obciąża kupującego i uznaje sprzedawcę, pomniejszając kwotę o prowizję 10% (D13);
-   - przy złocie gra przenosi zablokowane złoto kupującego do sprzedawcy, pomniejszone o prowizję 2,5%, a portal zleca to komendą i czeka na potwierdzenie;
+   - przy złocie gra przenosi zablokowane złoto kupującego do sprzedawcy, pomniejszone o prowizję 2,5% bez górnego limitu, a portal zleca to komendą i czeka na potwierdzenie;
    - komenda do gry przenosi postać (TransferCharacterOwnership) albo dostarcza przedmiot na wybraną postać kupującego;
    - komenda ma outbox, klucz idempotencji i rekoncyliację;
    - coiny sprzedawcy stają się dostępne po potwierdzeniu przekazania z gry.
@@ -715,7 +715,7 @@ Pozostałe warunki:
 | D10 | Zmiana płci, świata i nazwy postaci | **Płatne** (2026-11-05), jak w Tibii: zmiana płci to kosmetyka, transfer świata płatny. Dziś jest jeden świat, więc transfer czeka na drugi. Zmiana nazwy też płatna |
 | D11 | Ostatnie logowanie i czas online na profilu | **Tak** (2026-11-05), z przełącznikiem prywatności gracza; wymaga danych z gry (G-4) |
 | D12 | Kolejność zadań gry G-3…G-6 | **G-4, G-3, G-6, G-5** (2026-11-05) |
-| D13 | Bazar | **Tak** (2026-11-05): nazwa „Bazar”; postacie na licytacji, cenne przedmioty w ogłoszeniu albo na licytacji; za coiny albo złoto z gry; wystawienie darmowe; prowizja tylko od sprzedaży: 10% przy coinach, 2,5% przy złocie; licytuje tylko gracz z pełną kwotą oferty (§5.6). G-7 trafia do kolejki gry po G-5 |
+| D13 | Bazar | **Tak** (2026-11-05): nazwa „Bazar”; postacie na licytacji, cenne przedmioty w ogłoszeniu albo na licytacji; za coiny albo złoto z gry; wystawienie darmowe; prowizja tylko od sprzedaży: 10% przy coinach, 2,5% przy złocie, bez górnego limitu (inaczej niż Market Tibii); licytuje tylko gracz z pełną kwotą oferty (§5.6). G-7 trafia do kolejki gry po G-5 |
 
 ## 12. Otwarte pytania
 
