@@ -165,3 +165,6 @@ mod tests {
 mod surface;
 
 pub use surface::{CspNonce, Language, WebOptions, module_router, router_with_options};
+
+pub mod redirects;
+pub mod seo;
