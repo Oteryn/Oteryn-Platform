@@ -273,7 +273,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             session::middleware,
         ))
         .method_not_allowed_fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
-        .fallback(|| async { StatusCode::NOT_FOUND })
+        .fallback(redirects::redirect)
         .merge(oteryn_gameauth::runtime::routes(state.db.clone()))
         .merge(oteryn_gameauth::scopes::routes(state.db.clone()))
         .merge(oteryn_gameauth::devices::routes(state.db.clone()))

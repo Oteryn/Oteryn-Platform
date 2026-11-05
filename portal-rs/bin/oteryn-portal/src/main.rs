@@ -109,9 +109,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 en: "/en/".to_owned(),
                 lastmod: "2026-11-05".to_owned(),
             })?;
-            let app = app
-                .merge(oteryn_web::seo::router(seo))
-                .merge(oteryn_web::redirects::router());
+            // Legacy redirects are the site fallback (oteryn_web::router), so
+            // module routes on the same paths never overlap with them.
+            let app = app.merge(oteryn_web::seo::router(seo));
             let app = oteryn_web::register::configured(app);
             let app = app.merge(oteryn_admin::web::configured_router(oteryn_db::lazy_pool(
                 config.database_url(),
