@@ -19,13 +19,21 @@ sha2 = "0.10.9"
 axum = "0.8.9"
 askama = "0.16.0"
 oteryn-world = { path = "../world" }
-sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "uuid"] }
 tokio = { version = "1.54.1", features = ["fs", "macros", "rt-multi-thread"] }
 fluent-bundle = "0.16.0"
 unic-langid = { version = "0.9.6", features = ["macros"] }
 getrandom = "0.4.2"
+uuid = { version = "1", features = ["v7", "serde"] }
 
 [dev-dependencies]
 tower = { version = "0.5.3", features = ["util"] }
 oteryn-db = { path = "../db" }
 tempfile = "3.27"
+
+[dependencies.oteryn-web]
+path = "../web"
+
+[dev-dependencies.tower-http]
+version = "0.7.1"
+features = ["fs"]

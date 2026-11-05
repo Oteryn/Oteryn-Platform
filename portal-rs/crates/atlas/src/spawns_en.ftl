@@ -1,0 +1,17 @@
+spawns = Monster spawns
+monsters = Monsters
+sites = Spawns
+respawn = Respawn (seconds)
+place = Link to this place
+fullscreen = Full screen
+private = Private markers
+label = Marker label (1–80 characters)
+save = Save marker at map centre
+remove = Delete marker
+report = Report a map error at map centre
+description = Describe the error (10–2000 characters)
+send = Send report
+saved = Saved
+failed = Unavailable or invalid input. Please try again.
+sign-in = Sign in to save private markers and report errors.
+loading = Loading spawns…

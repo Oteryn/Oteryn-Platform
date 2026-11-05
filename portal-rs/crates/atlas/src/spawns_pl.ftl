@@ -1,0 +1,17 @@
+spawns = Spawny potworów
+monsters = Potwory
+sites = Spawny
+respawn = Odrodzenie (sekundy)
+place = Link do tego miejsca
+fullscreen = Pełny ekran
+private = Prywatne znaczniki
+label = Nazwa znacznika (1–80 znaków)
+save = Zapisz znacznik w centrum mapy
+remove = Usuń znacznik
+report = Zgłoś błąd w centrum mapy
+description = Opisz błąd (10–2000 znaków)
+send = Wyślij zgłoszenie
+saved = Zapisano
+failed = Niedostępne lub błędne dane. Spróbuj ponownie.
+sign-in = Zaloguj się, aby zapisywać prywatne znaczniki i zgłaszać błędy.
+loading = Wczytywanie spawnów…
