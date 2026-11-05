@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ labels[0] }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-stack"><h1>{{ labels[0] }}</h1><p>{{ labels[5] }}</p>
+{% if unavailable %}<p role="status">{{ labels[1] }}</p>{% else %}
+<h2>{{ labels[4] }}</h2><p>{{ labels[1] }}</p>
+{% for day in days %}<section class="op-card op-stack"><h2>{{ labels[7] }}: {{ day.date }}</h2><h3>{{ labels[2] }}</h3>
+{% if day.levels.is_empty() %}<p>{{ labels[1] }}</p>{% else %}<ul>{% for (level, count) in day.levels %}<li>{{ labels[6] }} {{ level }}: {{ labels[8] }} {{ count }}</li>{% endfor %}</ul>{% endif %}
+<h3>{{ labels[3] }}</h3><p>{% match day.deaths %}{% when Some with (count) %}{{ count }}{% when None %}{{ labels[1] }}{% endmatch %}</p></section>{% endfor %}{% endif %}
+</main></body></html>

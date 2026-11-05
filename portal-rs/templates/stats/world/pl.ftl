@@ -1,0 +1,9 @@
+world-title = Statystyki świata
+world-unavailable = Niedostępne
+world-census = Zaobserwowany spis według poziomu
+world-deaths = Dzienne zgony postaci zaobserwowanych na tym świecie
+world-online = Historia online
+world-note = Tylko częściowe obserwacje. Brakujące dni są niedostępne. Profesja, płeć i historia online z ochroną prywatności są niedostępne w obecnym źródle statystyk. Zgony obejmują tylko postacie z migawką świata z tego samego dnia i publicznymi zgonami; transferów w ciągu dnia nie można przypisać dokładnie.
+world-level = Poziom
+world-day = Dzień UTC
+world-count = Postacie

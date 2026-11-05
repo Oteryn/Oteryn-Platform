@@ -3,3 +3,4 @@ pub mod store;
 #[cfg(test)]
 mod tests;
 pub mod worker;
+pub mod world;
