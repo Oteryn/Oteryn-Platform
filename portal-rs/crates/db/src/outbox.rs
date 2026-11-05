@@ -165,3 +165,12 @@ pub async fn schedule(pool: &PgPool, kind: &str, interval_seconds: i32) -> Resul
 
 // Re-export the query and pool builders for domain repositories and integration harnesses.
 pub use sqlx::{AssertSqlSafe, postgres::PgPoolOptions, query, query_as, query_scalar};
+
+/// Shared asynchronous result used by periodic domain cleanup handlers.
+pub type CleanupFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>>;
+
+/// Implemented by session, token and support retention repositories.
+pub trait Cleanup: std::fmt::Debug + Send + Sync {
+    fn clean(&self) -> CleanupFuture<'_>;
+}

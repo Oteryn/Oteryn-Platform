@@ -10,10 +10,7 @@ pub trait Handler: std::fmt::Debug + Send + Sync {
     fn run<'a>(&'a self, job: &'a Job) -> HandlerFuture<'a>;
 }
 
-/// Implemented by future session, token and support domains.
-pub trait Cleanup: std::fmt::Debug + Send + Sync {
-    fn clean(&self) -> HandlerFuture<'_>;
-}
+pub use oteryn_db::outbox::Cleanup;
 #[derive(Debug)]
 struct CleanupHandler(Arc<dyn Cleanup>);
 impl Handler for CleanupHandler {
@@ -152,7 +149,12 @@ async fn run_until(
 }
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
-    for kind in ["cleanup.sessions", "cleanup.tokens", "cleanup.support"] {
+    registry.cleanup(
+        "cleanup.sessions",
+        3600,
+        Arc::new(oteryn_web::session::SessionCleanup { pool: pool.clone() }),
+    )?;
+    for kind in ["cleanup.tokens", "cleanup.support"] {
         registry.cleanup(kind, 3600, Arc::new(NoopCleanup))?;
     }
     #[cfg(unix)]

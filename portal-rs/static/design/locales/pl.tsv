@@ -1,0 +1,89 @@
+# Gallery-only i18n catalogue. Product partials receive Fluent-translated labels.
+eyebrow	Oteryn / Podstawy interfejsu
+gallery	Miejsce dla każdego detalu.
+intro	Spokojna, czytelna podstawa portalu. Poznaj te same komponenty w ciemnym i jasnym motywie. To przykłady interfejsu bez działań na koncie lub w grze.
+dark	01 / Motyw ciemny
+light	02 / Motyw jasny
+palette	Paleta i typografia
+canvas	Tło
+surface	Powierzchnia
+raised	Wyróżniona powierzchnia
+accent	Akcent marki
+body	Jasne słowa. Przestrzeń na treść.
+type_sample	Czytelność w każdym rozmiarze, na każdym ekranie.
+actions	Działania i nawigacja
+primary	Działanie główne
+secondary	Działanie dodatkowe
+disabled	Działanie niedostępne
+text_link	Przeczytaj wskazówki
+crumb_label	Ścieżka nawigacji
+home	Galeria
+components	Komponenty
+tabs_label	Sekcje komponentów
+overview	Przegląd
+details	Szczegóły
+history	Historia
+pagination	Przykładowe stronicowanie
+previous	Poprzednia
+current	Strona 1 z 2
+next	Następna
+forms	Pola i komunikaty
+name	Nazwa wyświetlana (wymagana)
+hint	Użyj 3–24 liter. Ten przykład nie jest wysyłany.
+value	Odkrywca
+error	Wpisz co najmniej 3 litery.
+success	Zapisano
+success_body	Przykładowe ustawienia są aktualne.
+warning	Wymaga sprawdzenia
+warning_body	Sprawdź szczegóły przed kontynuowaniem.
+danger	Odmowa działania
+danger_body	To przykładowe działanie jest niedostępne. Nie wprowadzono zmian.
+info	Warto wiedzieć
+info_body	Twoja praca pozostaje tutaj podczas sprawdzania szczegółów.
+content	Karty i dane
+card_title	Z myślą o czytaniu
+card_body	Jeden jasny tytuł, przydatny opis i widoczny kolejny krok. Treść jest najważniejsza.
+card_link	Poznaj podstawy
+table_title	Zestawienie komponentów · dane przykładowe
+table_hint	Na wąskim ekranie ustaw fokus na tabeli i przewijaj poziomo klawiszami strzałek.
+column_name	Komponent
+column_status	Stan
+column_updated	Aktualizacja
+row_form	Pola formularza
+row_navigation	Nawigacja
+ready	Gotowe
+draft	Szkic
+blocked	Niedostępne
+neutral	Wzorzec
+panels	Panele i okna
+panel_title	W skrócie
+panel_label1	Język
+panel_value1	Polski
+panel_label2	Wygląd
+panel_value2	Ustawienie systemowe
+modal_trigger	Otwórz przykładowe okno
+modal_title	Chwila na sprawdzenie
+modal_body	Miejsce na krótkie zadanie. Zamknij przyciskiem lub klawiszem Escape. Bez skryptów treść rozwija się na stronie.
+drawer_trigger	Otwórz przykładowy panel
+drawer_title	Zachowaj kontekst
+drawer_body	Dodatkowe szczegóły są blisko strony. Fokus klawiatury pozostaje wewnątrz do zamknięcia panelu.
+close	Zamknij
+frames	Ramki i stany
+map_title	Ramka mapy
+map_body	Miejsce na mapę · bez danych mapy ani gry.
+chart_title	Ramka wykresu
+chart_body	Miejsce na wykres · wykres otrzyma też opis tekstowy i tabelę danych.
+empty_title	Nowy początek
+empty_body	Jeszcze nic tu nie ma. Zacznij od przewodnika po komponentach.
+empty_action	Zobacz przewodnik
+loading	Wczytywanie przykładowej treści…
+skip	Przejdź do komponentów
+footer	Czcionki systemowe. Lokalne zasoby. Projekt na małe ekrany.
+theme_nav	Przykłady motywów
+masthead	Wspólny świat. Przemyślane detale.
+masthead_note	Podstawy interfejsu Oteryn.
+system	System projektowy
+dark_link	Ciemny
+light_link	Jasny
+guide	Przewodnik
+design	Wzornictwo
