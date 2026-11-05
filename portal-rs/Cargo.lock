@@ -2038,18 +2038,21 @@ dependencies = [
 name = "oteryn-bazaar"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
- "ed25519-dalek",
+ "askama",
+ "axum",
+ "fluent-bundle",
  "oteryn-core",
  "oteryn-db",
- "oteryn-internal-api",
+ "oteryn-web",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "serde_urlencoded",
  "sqlx",
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "tower",
+ "unic-langid",
  "uuid",
 ]
 
@@ -2331,37 +2334,23 @@ dependencies = [
 name = "oteryn-portal"
 version = "0.1.0"
 dependencies = [
- "askama",
  "axum",
- "fluent-bundle",
  "oteryn-admin",
- "oteryn-atlas",
+ "oteryn-bazaar",
  "oteryn-community",
- "oteryn-content",
  "oteryn-core",
  "oteryn-db",
  "oteryn-downloads",
  "oteryn-gameauth",
  "oteryn-gateway",
- "oteryn-hirelings",
- "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-notify",
  "oteryn-payments",
- "oteryn-player-api",
  "oteryn-stats",
- "oteryn-support",
  "oteryn-web",
- "oteryn-wiki",
- "oteryn-world",
- "sqlx",
  "tokio",
- "tower",
- "tower-http",
  "tracing",
  "tracing-subscriber",
- "unic-langid",
- "uuid",
 ]
 
 [[package]]
