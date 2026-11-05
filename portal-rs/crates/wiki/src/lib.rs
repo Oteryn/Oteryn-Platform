@@ -5,3 +5,5 @@ pub mod domain;
 pub mod entities;
 pub mod repository;
 pub mod web;
+
+pub mod places;

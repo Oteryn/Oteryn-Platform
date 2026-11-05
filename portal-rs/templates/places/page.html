@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="{{ locale }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack">
+  <h1>{{ title }}</h1>
+  <p>{{ reports }}</p>
+  {% for card in cards %}
+  <article class="op-card op-stack">
+    <h2>{{ card.title }}</h2>
+    <p>{{ card.editorial_summary }}</p>
+    <dl>
+      <dt>{{ labels[0] }}</dt><dd>{{ card.level }}</dd>
+      <dt>{{ labels[1] }}</dt><dd>{{ card.party_size }}</dd>
+      {% if let Some(value) = card.experience_per_hour %}
+      <dt>{{ labels[2] }}</dt><dd>{{ value }}</dd>
+      {% endif %}
+      {% if let Some(value) = card.profit_per_hour %}
+      <dt>{{ labels[3] }}</dt><dd>{{ value }}</dd>
+      {% endif %}
+      {% if let Some(value) = card.points %}
+      <dt>{{ labels[4] }}</dt><dd>{{ value }}</dd>
+      {% endif %}
+      {% if let Some(value) = card.completion_seconds %}
+      <dt>{{ labels[5] }}</dt><dd>{{ value }}</dd>
+      {% endif %}
+    </dl>
+  </article>
+  {% else %}
+  <p>{{ unavailable }}</p>
+  {% endfor %}
+</main>
+</body>
+</html>
