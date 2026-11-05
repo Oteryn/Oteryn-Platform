@@ -31,3 +31,6 @@ oteryn-payments = { path = "../../crates/payments" }
 
 [dependencies.oteryn-wiki]
 workspace = true
+
+[dependencies.oteryn-bazaar]
+workspace = true

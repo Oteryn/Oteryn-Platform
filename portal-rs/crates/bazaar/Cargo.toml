@@ -21,3 +21,27 @@ oteryn-db.workspace = true
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.149"
+
+[dependencies.axum]
+version = "0.8.9"
+[dependencies.askama]
+version = "0.16.1"
+[dependencies.serde]
+version = "1.0"
+features = ["derive"]
+[dependencies.serde_json]
+version = "1.0"
+[dependencies.fluent-bundle]
+version = "0.16"
+[dependencies.unic-langid]
+version = "0.9"
+
+[dev-dependencies.tower]
+version = "0.5.3"
+features = ["util"]
+
+[dependencies.oteryn-web]
+workspace = true
+
+[dev-dependencies.sha2]
+version = "0.10"
