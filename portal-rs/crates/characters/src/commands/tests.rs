@@ -117,7 +117,7 @@ async fn database() -> Option<(PgPool, PgPool, String)> {
         .await
         .unwrap();
     sqlx::raw_sql(include_str!(
-        "../../../../migrations/20261105160000_t22_character_commands.sql"
+        "../../../../migrations/20261105160001_t22_character_commands.sql"
     ))
     .execute(&pool)
     .await
