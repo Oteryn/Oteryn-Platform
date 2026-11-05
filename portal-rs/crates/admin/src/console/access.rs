@@ -351,9 +351,9 @@ pub(crate) fn tr(lang: &str, key: &str) -> String {
     };
     let mut bundle = fluent_bundle::FluentBundle::new(vec![id]);
     let source = if lang == "en" {
-        include_str!("en.ftl")
+        include_str!("access.en.ftl")
     } else {
-        include_str!("pl.ftl")
+        include_str!("access.pl.ftl")
     };
     let Ok(resource) = fluent_bundle::FluentResource::try_new(source.to_owned()) else {
         return String::new();
@@ -370,7 +370,7 @@ pub(crate) fn tr(lang: &str, key: &str) -> String {
 }
 #[derive(Template)]
 #[template(
-    path = "console/templates/read.html",
+    path = "read.html",
     config = "src/console/templates/askama.toml"
 )]
 pub(crate) struct Page {

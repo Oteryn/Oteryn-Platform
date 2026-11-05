@@ -2,6 +2,11 @@
 //! P1A/P2A are absent: the configured channel fails closed until their adapters exist.
 //! Adapters must resolve current hello ownership, verify results, bound R0 fields and
 //! enforce request ownership. No network client or guessed channel schema lives here.
+pub mod access;
+pub mod approvals;
+pub mod audit;
+pub mod players;
+
 mod dashboard;
 mod database;
 mod nodes;
