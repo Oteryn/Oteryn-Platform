@@ -27,6 +27,8 @@ serde_urlencoded = "0.7"
 
 fluent-bundle = "0.16"
 unic-langid = { version = "0.9", features = ["macros"] }
+chacha20poly1305 = "0.10"
+subtle = "2.6"
 
 [dev-dependencies]
 oteryn-web.workspace = true

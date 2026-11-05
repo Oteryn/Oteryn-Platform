@@ -1,0 +1,19 @@
+{% extends "account/register_base.html" %}
+{% block title %}{{ self.text("reset-title") }}{% endblock %}
+{% block content %}
+<h1>{{ self.text("reset-title") }}</h1>
+{% if notice %}<p role="status">{{ self.text("reset-notice") }}</p>{% endif %}
+{% if failed %}<p class="op-error" role="alert">{{ self.text("reset-error") }}</p>{% endif %}
+<form class="op-stack" method="post" action="/{{ lang }}/{% if reset %}reset-password{% else %}forgot-password{% endif %}">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="token" value="{{ token }}">
+<div class="op-field"><label for="email">{{ self.text("reset-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="username" maxlength="254" required value="{{ email }}"></div>
+{% if reset %}
+<p id="password-help">{{ self.text("reset-policy") }}</p>
+<div class="op-field"><label for="password">{{ self.text("reset-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="256" aria-describedby="password-help" required></div>
+<div class="op-field"><label for="confirmation">{{ self.text("reset-confirm") }}</label><input class="op-input" id="confirmation" name="password_confirmation" type="password" autocomplete="new-password" minlength="10" maxlength="256" required></div>
+{% endif %}
+<button class="op-button op-button--primary" type="submit">{{ self.text("reset-submit") }}</button>
+</form>
+<a href="/{{ lang }}/login">{{ self.text("reset-login") }}</a>
+{% endblock %}
