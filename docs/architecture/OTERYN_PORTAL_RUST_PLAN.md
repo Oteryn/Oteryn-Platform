@@ -1,6 +1,6 @@
 # Oteryn Portal w Ruście – projekt
 
-> **Status: PROJEKT, rewizja 3** (2026-11-05). Zastępuje rewizje 1–2 (plan migracji falami), na polecenie właściciela.
+> **Status: PROJEKT, rewizja 4** (2026-11-05). Zastępuje rewizje 1–3. Rewizja 4 dodaje przegląd od strony gry i upraszcza wiki oraz Atlas: portal czyta dane świata gry bez nowego formatu eksportu.
 >
 > Ten dokument opisuje nową platformę Oteryn w Ruście, budowaną od zera według obecnych potrzeb graczy, zespołu i gry. Obecny portal Laravel służy tylko jako źródło wiedzy o potrzebach i kontraktach. Nie jest specyfikacją i nie jest przenoszony.
 >
@@ -20,7 +20,7 @@ Jedną aplikację, `oteryn-portal`, która obsługuje:
 Zasady projektu:
 
 - **Jedna baza, jedna binarka.** PostgreSQL platformy i jedna binarka z rolami: `serve`, `worker`, `migrate`, `admin-cli`. Brak mikroserwisów.
-- **Gra jest osobna.** Brak wspólnej bazy z grą. Wymiana danych idzie tylko przez kontrakty HTTP z mTLS. Kontrakty, które gra już implementuje, zostają bajt w bajt (sekcja 6).
+- **Gra jest osobna.** Brak wspólnej bazy z grą. Dane na żywo idą tylko przez kontrakty HTTP z mTLS, a kontrakty, które gra już implementuje, zostają bajt w bajt (sekcje 5 i 6). Dane świata portal czyta tylko do odczytu z przypiętego wydania gry (§6.1).
 - **Mało JS.** SSR w askama i htmx. Bez SPA, bez npm, bez bundlera.
 - **Domyślnie wyłączone.** Każda funkcja dotykająca gry lub pieniędzy ma flagę.
 - **Uruchomienie jednorazowe.** Gdy nowy portal jest gotowy, importujemy konta (hashe argon2id działają bez resetu haseł) i przełączamy domenę. Bez okresu współistnienia.
@@ -64,7 +64,7 @@ Poza pierwszym wydaniem zostają: bazar postaci i przedmiotów, analizator sesji
 | Markdown | pulldown-cmark i ammonia (sanityzacja) |
 | E-mail | lettre (SMTP) |
 | Obserwowalność | tracing, metryki Prometheus, OpenTelemetry opcjonalnie |
-| Testy | `cargo test`, testy integracyjne na prawdziwym PostgreSQL, testy kontraktów na fixtures z `docs/contracts/` |
+| Testy | `cargo test`, testy integracyjne na prawdziwym PostgreSQL, testy kontraktów na wektorach golden z `docs/contracts/` i z Game |
 
 Lint: `unsafe_code = forbid`; `unwrap_used`, `expect_used` i `panic` mają poziom `deny` poza testami; `cargo deny` sprawdza licencje i podatności.
 
@@ -82,8 +82,9 @@ portal-rs/
     gameauth/                OAuth PKCE, sesje urządzeń, tickety, admission, granty Ed25519
     characters/              projekcja postaci konta, intencje tworzenia, profile
     content/                 newsy, strony, wydarzenia, media, ogłoszenia
-    wiki/                    artykuły, wersje, przegląd, import katalogu gry, wyszukiwanie
-    atlas/                   import eksportu mapy świata, budowa kafli, znaczniki, przeglądarka mapy
+    world/                   odczyt danych świata z przypiętego wydania gry (encje, relacje, mapa, sprite'y)
+    wiki/                    strony encji generowane z `world`, poradniki redakcji, wyszukiwanie
+    atlas/                   kafle mapy z `world`, znaczniki, przeglądarka mapy
     community/               projekcje publiczne: rankingi, profile, gildie, domy, zgony, online, światy
     wallet/                  ledger coinów, transfer, blokady, idempotencja
     store/                   cennik, zakup, dostawa (wire sklepu), historia
@@ -106,7 +107,7 @@ Każdy moduł domenowy ma typy i reguły bez I/O, repozytorium (sqlx) i handlery
 
 | Host | Co obsługuje | Dostęp |
 | --- | --- | --- |
-| `oteryn.com` | Strona, konto, sklep, `/api/v1` | Publiczny, za Cloudflare |
+| Domena portalu (base URL klienta) | Strona, konto, sklep, `/oauth`, `/v1/client/directory`, `/api/v1` | Publiczny, za Cloudflare |
 | `internal` (osobny port) | `/internal/v1` | Tylko mTLS, allowlista DN, sieć prywatna |
 | `admin` (osobny host) | Panel zespołu | Cloudflare Access i obowiązkowe MFA |
 
@@ -114,7 +115,7 @@ Worker obsługuje:
 
 - dostarczanie outboxa;
 - e-maile;
-- import katalogu;
+- import danych świata z nowego wydania gry;
 - odświeżanie projekcji;
 - rekoncyliacje;
 - sprzątanie sesji i tokenów.
@@ -129,8 +130,9 @@ Wszystkie identyfikatory to UUIDv7. Kwoty to `bigint` w najmniejszej jednostce. 
 | gameauth | `oauth_clients`, `oauth_authorization_codes`, `oauth_tokens` (access i refresh jako hash, rodzina rotacji), `device_sessions`, `game_login_tickets` (jednorazowe, krótkie), `native_admissions`, `native_evidence`, `signing_keys` (Ed25519, rotacja), `scope_assignments` |
 | characters | `account_characters` (projekcja LCFA z watermarkiem), `character_create_intents` (outbox do gry), `character_profiles` (preferencje publiczne) |
 | content | `news`, `pages`, `events`, `announcements`, `media` (z wariantami), `translations` |
-| wiki | `wiki_articles`, `wiki_revisions`, `wiki_reviews`, `catalog_imports` (paczka gry z wersją i hashem), `catalog_entries` (encja świata: typ, klucz, dane, wersja), `catalog_links` (relacje: potwór → łup, NPC → quest, przedmiot → miejsce) |
-| atlas | `atlas_imports` (wersja eksportu świata, hash), `atlas_floors`, `atlas_regions`, `atlas_markers` (miasta, NPC, spawny, questy, z odnośnikiem do wiki); kafle mapy jako pliki statyczne |
+| world | `world_versions` (wersja gry, SHA źródła, data, aktywna), `world_entities` (typ, klucz, dane `jsonb`, wersja), `world_links` (potwór → łup, NPC → quest, przedmiot → miejsce), `world_hidden` (ręczne ukrycie encji, jeśli gra nie ma flagi) |
+| wiki | `wiki_guides`, `wiki_revisions`, `wiki_reviews` (tylko teksty redakcji: poradniki i opisy dopisane do encji) |
+| atlas | `atlas_markers` (wyliczane z `world`: miasta, NPC, spawny, questy); kafle mapy jako pliki statyczne per wersja świata |
 | community | `public_snapshots` (rodzina, wersja, watermark, `jsonb`), `world_status` |
 | wallet | `wallet_accounts`, `wallet_entries` (niezmienne, saldo jako suma z blokadą wiersza konta), `wallet_transfers` |
 | store | `store_price_list_imports`, `store_active_catalog`, `store_offers`, `store_purchase_requests`, `store_orders`, `store_order_lines`, `store_fulfilment_units`, `store_operations` (outbox DELIVER), `store_receipts`, `store_reconcile_state` |
@@ -160,7 +162,7 @@ Prefiks języka: `/pl/...` i `/en/...`, z przekierowaniem z `/` według `Accept-
 
 ### 5.2 Player API (klient gry i launcher)
 
-Klient ma jeden base URL portalu (np. `https://oteryn.pl/`). Od tego zależą bajty żądań:
+Klient ma jeden base URL portalu (domena portalu z §3.3). Od tego zależą bajty żądań:
 
 - `v1/client/directory` i `oauth/token` klient składa **względem base URL**;
 - tickety i postacie idą **ścieżką absolutną** `/api/v1/game-auth/...`, która ignoruje ścieżkę bazową.
@@ -226,7 +228,7 @@ Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwr
 | Status światów | V2_RUNTIME_STATUS_PROJECTION | PARTIAL |
 | Kary | Game: `PROD-ENTITLEMENTS-01_GAME_CONSUMER_ENFORCEMENT_CONTRACT_CANDIDATE.md` | Kandydat; wykonania w grze brak |
 | Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
-| Katalog i wiki | OTERYN-GAME-PLATFORM-CATALOG-V1 | LOCKED |
+| Dane świata (wiki, Atlas) | Odczyt danych gry z przypiętego wydania (§6.1); OTERYN-GAME-PLATFORM-CATALOG-V1 do sprawdzenia | CATALOG-V1 LOCKED |
 | Granty admission | FND-04B-AMEND-1 | Pole status: ACCEPTED (2026-11-05), ale treść ma otwarte decyzje właściciela. Traktujemy jako propozycję i **nie implementujemy na jej podstawie**, dopóki decyzje nie zapadną |
 
 **Gateway `POST /v1/login`** (serwuje gateway Go w tym repo, woła klient gry):
@@ -246,21 +248,33 @@ Zasady:
 
 ### 6.1 Treści świata gry (wiki i Atlas)
 
-Portal potrzebuje odczytu treści świata, żeby budować wiki i Atlas. Nie dostaje dostępu do bazy ani plików serwera gry. Gra publikuje wersjonowane eksporty, a portal je importuje.
+Zasada: **portal czyta te same dane, które ładuje serwer gry**, z przypiętego wydania gry. Nie ma osobnego formatu eksportu, osobnego kontraktu ani ręcznie przepisywanych danych. Jedno źródło prawdy: repozytorium gry.
 
-| Eksport z gry | Zawartość | Kontrakt | Co z tym robi portal |
-| --- | --- | --- | --- |
-| Paczka katalogu | Przedmioty, potwory, NPC, czary, questy, łupy, miejsca, z kluczami i relacjami | OTERYN-GAME-PLATFORM-CATALOG-V1 (LOCKED) | Generuje strony wiki per encja, listy, filtry i wyszukiwanie. Redakcja dopisuje opisy i poradniki jako nakładkę; dane z gry nadpisuje tylko nowy import |
-| Eksport mapy świata | Piętra, kafle terenu, regiony, miasta, spawny, NPC i questy z pozycjami | GC16 (do potwierdzenia z grą, zadanie G-2) | Worker buduje piramidę kafli (WebP) per wersja; strona `/atlas` pokazuje mapę z warstwami i znacznikami podlinkowanymi do wiki |
-| Grafiki | Sprite'y przedmiotów, potworów i NPC, ikony | Do ustalenia z grą (G-2), z licencją użycia na stronie | Miniatury w wiki i znaczniki na mapie, serwowane statycznie z cache |
+| Co | Źródło | Co robi portal |
+| --- | --- | --- |
+| Encje świata: przedmioty, potwory, NPC, czary, questy, łupy, miejsca | Pliki danych serwera gry z przypiętego wydania | Crate `world` parsuje je do `world_entities` i `world_links`. Wiki generuje z nich strony, listy, filtry i wyszukiwanie |
+| Mapa świata | Plik mapy serwera gry | Worker renderuje kafle WebP per piętro i zoom. Jeśli gra lub klient ma już renderer, portal go używa zamiast własnego |
+| Grafiki | Sprite'y klienta | Worker wycina miniatury PNG i WebP do wiki i znaczników mapy |
 
-Zasady:
+Jak to działa:
 
-- **Wersjonowanie.** Każdy eksport ma wersję, manifest i SHA-256. Portal importuje dokładnie przypiętą wersję, sprawdza hash i podmienia dane atomowo (nowa wersja albo żadna).
-- **Ścieżka dostarczenia.** CI gry publikuje eksport jako artefakt wydania. Worker portalu pobiera go po wersji, albo admin wgrywa plik w panelu. Import działa bez połączenia z serwerem gry.
-- **Ukryte treści.** Eksport zawiera tylko to, co gra oznaczy jako publiczne. Sekrety questów i ukryte miejsca nie trafiają do portalu.
-- **Spójność.** Wiki i Atlas pokazują wersję świata i datę eksportu. Odnośniki wiki ↔ Atlas idą po kluczach encji, nie po nazwach.
-- **Dane na żywo** (online, rankingi, status światów) to osobne projekcje z §6, nie część eksportu świata.
+1. Admin wybiera w panelu wersję gry (tag lub SHA). Worker pobiera z tego wydania tylko katalogi danych, mapę i sprite'y, tylko do odczytu.
+2. `world` parsuje dane do nowej wersji w bazie i renderuje kafle obok. Gdy wszystko się uda, przełącza aktywną wersję jedną transakcją. Błąd parsowania zatrzymuje import, a stara wersja dalej działa.
+3. Wiki i Atlas pokazują wersję świata. Odnośniki wiki ↔ Atlas idą po kluczach encji, nie po nazwach.
+
+Co robi redakcja: pisze poradniki i opisy dopisane do encji (`wiki_guides`). Nie przepisuje statystyk ani łupów, bo te zawsze pochodzą z gry. Nowa wersja gry aktualizuje dane bez ruszania tekstów redakcji.
+
+Ukryte treści: jeśli gra ma flagę „ukryte” na encjach lub miejscach, portal ją respektuje. Jeśli nie ma, admin ukrywa encję w panelu (`world_hidden`) przed publikacją wersji. Sekrety questów nie trafiają na stronę.
+
+Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie część danych świata.
+
+Do potwierdzenia z koordynatorem przed T40 (pytanie wysłane 2026-11-05):
+
+- format i położenie plików danych oraz czy istnieje parser do ponownego użycia bez reszty workspace gry;
+- czy gra lub klient ma renderer mapy;
+- format sprite'ów i czy istnieje eksport do PNG;
+- czy istnieje flaga „ukryte”;
+- czy OTERYN-GAME-PLATFORM-CATALOG-V1 (LOCKED) już daje te dane. Jeśli tak, portal czyta katalog zamiast surowych plików.
 
 ## 7. Bezpieczeństwo
 
@@ -313,9 +327,9 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T10 | RBAC, audyt, szkielet panelu admina z obowiązkowym MFA | T06 | `crates/admin` |
 | T11 | Treści: newsy, strony, wydarzenia, ogłoszenia; CRUD w adminie; strony publiczne | T10 | `crates/content` |
 | T12 | Media: upload, warianty obrazów, walidacja | T11 | `crates/content/src/media*` |
-| T13 | Wiki: artykuły, wersje, przegląd, markdown i sanityzacja, wyszukiwanie (PG full text) | T10 | `crates/wiki` |
-| T14 | Import paczki katalogu gry (CATALOG-V1): weryfikacja hasha, atomowa podmiana, encje i relacje | T13 | `crates/wiki/src/catalog*` |
-| T14b | Strony wiki generowane z katalogu: listy per typ, strona encji, filtry, wyszukiwanie, nakładka redakcji | T14 | `crates/wiki/src/entities*`, `templates/wiki/` |
+| T13 | Wiki: poradniki redakcji, wersje, przegląd, markdown i sanityzacja, wyszukiwanie (PG full text) | T10 | `crates/wiki` |
+| T14 | `world`: parser danych świata z przypiętego wydania gry, wersje, atomowe przełączenie, `world_hidden` | T00 | `crates/world` |
+| T14b | Strony wiki generowane z `world`: listy per typ, strona encji, filtry, wyszukiwanie, opisy redakcji | T13, T14 | `crates/wiki/src/entities*`, `templates/wiki/` |
 | T15 | Guard mTLS `/internal/v1` (tożsamość per grupa), kanoniczny JSON, harness testów na wektorach golden z Game | T00 | `crates/internal-api` (wspólne) |
 | T16 | OAuth PKCE (`/oauth/authorize`, `/oauth/token` w korzeniu base URL, consent); odpowiedź `authorization_code` zgodna z klientem; refresh z rotacją jako nowe zachowanie | T04 | `crates/gameauth/src/oauth*` |
 | T17 | `POST /api/v1/game-auth/tickets` i `GET /api/v1/game-auth/native-characters` (kształty z §5.2, wektory golden) | T16, T18 | `crates/gameauth/src/tickets*`, `crates/player-api` |
@@ -341,17 +355,34 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T37 | Worker: outbox, ponowienia, sprzątanie | T00 | `bin/oteryn-portal/src/worker*`, `crates/db/src/outbox*` |
 | T38 | `admin-cli import-legacy` z eksportu obecnej bazy | T03–T34 | `bin/oteryn-portal/src/import*` |
 | T39 | Projekt graficzny: tokeny CSS, komponenty, strona główna, „Jak zacząć” | T01 | `static/`, `templates/` |
-| T40 | Atlas: import eksportu mapy, budowa piramidy kafli WebP, regiony i znaczniki | T00 | `crates/atlas/src/import*` |
+| T40 | Atlas: kafle WebP z mapy gry (albo z renderera gry, jeśli istnieje) i znaczniki z `world` | T14 | `crates/atlas/src/tiles*` |
 | T41 | Atlas: strona `/atlas` (przeglądarka kafli, warstwy, znaczniki, linki do wiki) | T40, T14 | `crates/atlas/src/web*`, `templates/atlas/`, `static/atlas/` |
-| T42 | Import grafik (sprite'y, ikony) i miniatury w wiki i na mapie | T14, T40 | `crates/wiki/src/assets*` |
+| T42 | Miniatury ze sprite'ów klienta do wiki i znaczników | T14 | `crates/world/src/sprites*` |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
-| G-2 | (gra) Kontrakt eksportu mapy świata i grafik (format, wersja, manifest, publiczność treści) | – | Oteryn-Game, przez koordynatora |
 
 Kolejność startu:
 
 1. Najpierw T00, bo daje wspólny szkielet. Ja mogę go przygotować i sprawdzić lokalnie, żeby Codex startował od kompilującej się bazy.
-2. Potem jednocześnie: T01, T15, T37, T39 i T40.
+2. Potem jednocześnie: T01, T14, T15, T37 i T39.
 3. Potem gałęzie konta (T02–T10), gry (T16–T25) i handlu (T26–T32) równolegle.
+
+### 10.1 Szablon zadania dla Codexa
+
+Koordynator wysyła każde zadanie w tej postaci:
+
+```
+Repo: Oteryn/Oteryn-Platform, gałąź z main: codex/portal-rs-<ID>
+Zadanie <ID>: <nazwa z tabeli>
+Projekt: docs/architecture/OTERYN_PORTAL_RUST_PLAN.md, sekcje <§>
+Dozwolone ścieżki: <ścieżki z tabeli>; wspólne pliki tylko przez dopisanie linii
+Kontrakt: <plik kontraktu i wektory golden, jeśli dotyczy>
+Akceptacja:
+  - cd portal-rs && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+  - testy pokrywają ścieżkę sukcesu, odmowę i błąd wejścia
+  - każda funkcja gry lub pieniędzy za flagą, domyślnie wyłączona
+Zakazy: brak zmian poza dozwolonymi ścieżkami, brak .github/workflows, brak sekretów, brak unwrap/expect/panic poza testami
+Wynik: PR draft z wynikiem komend akceptacji w opisie
+```
 
 Pozostałe warunki:
 
@@ -369,7 +400,20 @@ Pozostałe warunki:
 | D5 | Gateway logowania | Zostaje w Go; portal zachowuje jego kontrakt |
 | D6 | Import danych | Konta, role, treści, wiki, portfel; reszta zaczyna od zera |
 
-## 12. Źródła
+## 12. Otwarte pytania
+
+| # | Pytanie | Do kogo | Blokuje |
+| --- | --- | --- | --- |
+| Q1 | Format danych świata, renderer mapy, sprite'y, flaga „ukryte”, rola CATALOG-V1 (§6.1) | Koordynator | T14, T40, T42 |
+| Q2 | Kierunek `native-admissions` (§5.3) | Koordynator, G-1 | T19 |
+| Q3 | Kontrakt `client/directory` i `world.characters` vs LCFA (§5.2) | Koordynator, G-1 | T36 |
+| Q4 | Sprzeczność locka gry dla GAME-CHAR-CMD-0 i N4 (§6) | Koordynator | T22 |
+| Q5 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
+| Q6 | Akceptacja projektu, job CI (D2), sposób wysyłki zadań do Codexa | Właściciel | Start T01+ |
+
+Pozostałe zadania nie czekają na te odpowiedzi.
+
+## 13. Źródła
 
 - Obecny portal: trasy `routes/internal.php`, `routes/api.php`, `routes/modules/*`; moduły `app/*`.
 - Kontrakty: `docs/contracts/`, w tym wire sklepu i decyzje z 2026-11-05.
