@@ -1,7 +1,6 @@
 -- Shared lock contract: restore owners lock row 1 exclusively before intents;
 -- receipt publishers lock it shared. Missing rows deny exchange mutations.
-CREATE TABLE character_restore_locks (id integer PRIMARY KEY CHECK (id=1));
-INSERT INTO character_restore_locks(id) VALUES(1);
+-- character_restore_locks and row 1 are provided by the earlier T23 migration.
 CREATE TABLE store_delivery_fence (
     id integer PRIMARY KEY CHECK(id=1),
     new_recovery_generation numeric(20,0) NOT NULL DEFAULT 0 CHECK(new_recovery_generation BETWEEN 0 AND 18446744073709551615),
