@@ -8,3 +8,6 @@ pub mod delivery;
 pub mod spawns;
 
 pub mod bestiary;
+
+/// Shared portal navigation registration.
+pub mod navigation;

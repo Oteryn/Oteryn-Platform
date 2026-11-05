@@ -20,3 +20,6 @@ pub mod termination;
 
 pub mod privacy;
 pub mod sessions;
+
+/// Shared portal navigation registration.
+pub mod navigation;

@@ -10,3 +10,6 @@ pub mod world;
 pub mod character;
 pub mod guilds;
 pub mod online;
+
+/// Shared portal navigation registration.
+pub mod navigation;

@@ -49,7 +49,11 @@ fn refusal(error: Error, language: &str) -> Response {
         text(language, key),
         text(language, "retry")
     );
-    (status, [(header::CACHE_CONTROL, "no-store")], Html(body)).into_response()
+    let mut response = (status, [(header::CACHE_CONTROL, "no-store")], Html(body)).into_response();
+    response
+        .extensions_mut()
+        .insert(oteryn_ui::RefusalMessage(text(language, key)));
+    response
 }
 async fn script() -> impl IntoResponse {
     (

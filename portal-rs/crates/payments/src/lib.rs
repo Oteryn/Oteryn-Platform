@@ -7,3 +7,6 @@ pub use core::*;
 pub use provider::*;
 pub use storage::*;
 pub mod account;
+
+/// Shared portal navigation registration.
+pub mod navigation;

@@ -418,3 +418,67 @@ async fn database_idle_and_absolute_expiry_and_cleanup() -> TestResult {
     assert!(run(&layer, &mut malformed).await.is_err());
     db.close().await
 }
+
+#[tokio::test]
+async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let session = BrowserSession::new(
+        db.pool.clone(),
+        SessionConfig::default(),
+        None,
+        "chrome test",
+    );
+    rotate(&session, PrivilegeChange::Login(Uuid::from_u128(42))).await?;
+    let csrf = session.csrf_token().await?;
+    let id = session
+        .inner
+        .lock()
+        .await
+        .record
+        .as_ref()
+        .ok_or("missing record")?
+        .id
+        .clone();
+    let snapshot = |pool: PgPool| async move {
+        sqlx::query_scalar::<_, String>("SELECT row_to_json(s)::text FROM web_sessions s LIMIT 1")
+            .fetch_one(&pool)
+            .await
+    };
+    let before = snapshot(db.pool.clone()).await?;
+    let mut registry = oteryn_ui::Registry::default();
+    registry.login = true;
+    registry.account = true;
+    registry.registration = true;
+    let app = Router::new()
+        .route(
+            "/en/",
+            get(
+                |Extension(chrome): Extension<oteryn_ui::Chrome>| async move {
+                    oteryn_ui::home(&chrome)
+                },
+            ),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            crate::chrome::Shell {
+                registry,
+                sessions: SessionLayer::new(db.pool.clone()),
+            },
+            crate::chrome::middleware,
+        ));
+    for cookie in [None, Some(format!("{COOKIE_NAME}={id}"))] {
+        let mut builder = HttpRequest::get("/en/");
+        if let Some(cookie) = &cookie {
+            builder = builder.header(header::COOKIE, cookie);
+        }
+        let response = app.clone().oneshot(builder.body(Body::empty())?).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(!response.headers().contains_key(header::SET_COOKIE));
+        let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+        assert_eq!(html.contains("action=\"/en/logout\""), cookie.is_some());
+        assert_eq!(html.contains(&csrf), cookie.is_some());
+    }
+    assert_eq!(snapshot(db.pool.clone()).await?, before);
+    db.close().await
+}

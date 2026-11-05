@@ -1,6 +1,13 @@
-{% extends "base.html" %}
-{% block title %}Oteryn{% endblock %}
+{% extends "layout.html" %}
 {% block content %}
-<h1>Oteryn</h1>
-<p>{{ tagline }}</p>
+<section class="op-shell__hero op-stack">
+  <p class="op-eyebrow">{{ chrome.text("shell-play") }}</p>
+  <h1>Oteryn</h1>
+  <p class="op-shell__intro">{{ chrome.text("shell-welcome") }}</p>
+  {% if chrome.registration_mounted && !chrome.signed_in() %}<div><a class="op-button" href="/{{ chrome.lang }}/register">{{ chrome.text("shell-register") }}</a></div>{% endif %}
+</section>
+<section class="op-stack" aria-labelledby="sections-title">
+  <h2 id="sections-title">{{ chrome.text("shell-explore") }}</h2>
+  <div class="op-shell__cards">{% for link in chrome.entries %}<article class="op-card op-stack"><h3><a href="{{ link.url }}">{{ link.label }}</a></h3><p class="op-muted">{{ chrome.text("shell-open-section") }}</p></article>{% endfor %}</div>
+</section>
 {% endblock %}

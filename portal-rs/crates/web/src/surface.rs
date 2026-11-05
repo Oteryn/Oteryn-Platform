@@ -1,17 +1,14 @@
 //! Shared response policy and module composition for public HTTP routes.
 
-use askama::Template;
 use axum::{
     Router,
     body::Body,
     extract::{Path, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use fluent_bundle::{FluentBundle, FluentResource};
-use unic_langid::LanguageIdentifier;
 
 use crate::AppState;
 
@@ -93,7 +90,7 @@ impl Language {
     }
 }
 
-fn negotiate(headers: &HeaderMap) -> Language {
+pub(crate) fn negotiate(headers: &HeaderMap) -> Language {
     for cookie in headers.get_all(header::COOKIE) {
         if let Ok(cookie) = cookie.to_str() {
             for part in cookie.split(';') {
@@ -134,81 +131,28 @@ fn negotiate(headers: &HeaderMap) -> Language {
 }
 
 fn message(lang: Language, id: &str) -> String {
-    let locale: LanguageIdentifier = match lang {
-        Language::Pl => unic_langid::langid!("pl"),
-        Language::En => unic_langid::langid!("en"),
-    };
-    let source = match lang {
-        Language::Pl => include_str!("../i18n/pl.ftl"),
-        Language::En => include_str!("../i18n/en.ftl"),
-    };
-    let mut bundle = FluentBundle::new(vec![locale]);
-    if let Ok(resource) = FluentResource::try_new(source.to_owned())
-        && bundle.add_resource(resource).is_ok()
-        && let Some(value) = bundle.get_message(id).and_then(|m| m.value())
-    {
-        return bundle
-            .format_pattern(value, None, &mut Vec::new())
-            .into_owned();
-    }
-    tracing::error!(id, "missing translation");
-    String::new()
+    oteryn_ui::text(lang.code(), id)
 }
 
-#[derive(Template)]
-#[template(path = "pages/surface.html")]
-struct Page {
-    lang: &'static str,
-    brand: String,
-    skip: String,
-    navigation: String,
-    home: String,
-    language: String,
-    switch: &'static str,
-    switch_lang: &'static str,
-    footer: String,
-    title: String,
-    description: String,
-}
-
-fn page(lang: Language, status: Option<StatusCode>) -> Response {
-    let key = status.map_or_else(
-        || "home".to_owned(),
-        |status| format!("error-{}", status.as_u16()),
-    );
-    let template = Page {
-        lang: lang.code(),
-        brand: message(lang, "brand"),
-        skip: message(lang, "skip"),
-        navigation: message(lang, "navigation"),
-        home: message(lang, "home-link"),
-        language: message(lang, "language-switch"),
-        switch: if lang == Language::Pl {
-            "/language/en"
-        } else {
-            "/language/pl"
-        },
-        switch_lang: if lang == Language::Pl { "en" } else { "pl" },
-        footer: message(lang, "footer"),
-        title: message(lang, &format!("{key}-title")),
-        description: message(lang, &format!("{key}-description")),
-    };
-    match template.render() {
-        Ok(html) => (status.unwrap_or(StatusCode::OK), Html(html)).into_response(),
-        Err(error) => {
-            tracing::error!(%error, "error page rendering failed");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
-    }
+fn request_chrome(request: &Request, lang: Language) -> oteryn_ui::Chrome {
+    request
+        .extensions()
+        .get::<oteryn_ui::Chrome>()
+        .cloned()
+        .unwrap_or_else(|| {
+            oteryn_ui::Registry::default().chrome(
+                lang.code(),
+                request.uri().path(),
+                oteryn_ui::Account::Anonymous,
+            )
+        })
 }
 
 async fn localized_home(request: Request) -> Response {
-    page(
-        path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers())),
-        None,
-    )
+    let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
+    oteryn_ui::home(&request_chrome(&request, lang))
 }
-fn path_language(path: &str) -> Option<Language> {
+pub(crate) fn path_language(path: &str) -> Option<Language> {
     Language::parse(path.split('/').nth(1).unwrap_or_default())
 }
 async fn switch_language(Path(lang): Path<String>) -> Response {
@@ -239,6 +183,7 @@ fn wants_json(headers: &HeaderMap) -> bool {
 
 async fn policy(mut request: Request, next: Next) -> Response {
     let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
+    let chrome = request_chrome(&request, lang);
     let json = wants_json(request.headers());
     let path = request.uri().path().to_owned();
     let is_head = request.method() == axum::http::Method::HEAD;
@@ -262,12 +207,23 @@ async fn policy(mut request: Request, next: Next) -> Response {
         response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     let status = response.status();
-    if matches!(status.as_u16(), 400 | 404 | 405 | 413 | 429 | 500) {
+    if matches!(
+        status.as_u16(),
+        400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503
+    ) && !(status == StatusCode::UNPROCESSABLE_ENTITY
+        && response.extensions().get::<crate::RenderedPage>().is_some())
+    {
         let mut replacement = if json {
             let error = serde_json::json!({"status": status.as_u16(), "error": message(lang, &format!("error-{}-title", status.as_u16()))});
             (status, axum::Json(error)).into_response()
         } else {
-            page(lang, Some(status))
+            response
+                .extensions()
+                .get::<oteryn_ui::RefusalMessage>()
+                .map_or_else(
+                    || oteryn_ui::error(&chrome, status),
+                    |message| oteryn_ui::error_with_message(&chrome, status, &message.0),
+                )
         };
         // Preserve protocol metadata, but discard internal content and entity headers.
         for name in [header::ALLOW, header::RETRY_AFTER] {
@@ -423,8 +379,8 @@ mod tests {
             "<main ",
             "<footer>",
             "href=\"#main\"",
-            "Portal under construction.",
-            "href=\"/language/pl\"",
+            "Explore Oteryn",
+            "href=\"/pl/\"",
         ] {
             assert!(body.contains(expected), "missing {expected}");
         }
@@ -441,6 +397,10 @@ mod tests {
                 get(|| async { (StatusCode::INTERNAL_SERVER_ERROR, "private database detail") }),
             )
             .route(
+                "/unavailable",
+                get(|| async { (StatusCode::SERVICE_UNAVAILABLE, "private failure") }),
+            )
+            .route(
                 "/limited",
                 get(|| async {
                     (
@@ -453,6 +413,11 @@ mod tests {
         let failures = finish(failures);
         for (uri, status, title) in [
             ("/missing", StatusCode::NOT_FOUND, "Page not found"),
+            (
+                "/unavailable",
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Temporarily unavailable",
+            ),
             (
                 "/failure",
                 StatusCode::INTERNAL_SERVER_ERROR,

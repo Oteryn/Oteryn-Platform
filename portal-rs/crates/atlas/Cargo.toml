@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+oteryn-ui.workspace = true
 image = { version = "0.25.10", default-features = false, features = ["bmp", "webp"] }
 lzma-rs = "0.3.0"
 serde = { version = "1.0.229", features = ["derive"] }

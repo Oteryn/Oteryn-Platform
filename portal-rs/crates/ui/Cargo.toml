@@ -1,0 +1,16 @@
+[package]
+name = "oteryn-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+askama = "0.16.1"
+axum = "0.8.9"
+fluent-bundle = "0.16"
+unic-langid = { version = "0.9", features = ["macros"] }

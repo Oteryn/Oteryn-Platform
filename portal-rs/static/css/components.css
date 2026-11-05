@@ -74,3 +74,28 @@
 .op-sr-only { position: absolute; width: 1px; height: 1px; padding: var(--op-space-0); margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @media (prefers-reduced-motion: reduce) { .op-loading .op-icon { animation: none; } }
 @media (forced-colors: active) { .op-button, .op-badge, .op-input { border-color: ButtonText; } }
+
+/* Shared production page shell. All visual values come from T39 tokens. */
+.op-shell { margin: var(--op-space-0); }
+.op-shell > :where(header, main, footer) { padding: var(--op-space-5); max-width: var(--op-shell-width); margin-inline: auto; }
+.op-shell > header { border-bottom: var(--op-line) solid var(--op-border); }
+.op-shell > footer { border-top: var(--op-line) solid var(--op-border); margin-top: var(--op-space-6); }
+.op-shell__bar { justify-content: space-between; }
+.op-shell__brand { font-size: var(--op-type-xl); font-weight: var(--op-weight-bold); }
+.op-shell__language { margin-inline-start: auto; }
+.op-shell form { margin: var(--op-space-0); }
+.op-shell a:not(.op-button) { display: inline-flex; align-items: center; min-height: var(--op-target); }
+.op-shell__groups { display: grid; gap: var(--op-space-5); padding-block: var(--op-space-4); }
+.op-shell__groups [aria-current="page"] { font-weight: var(--op-weight-bold); text-decoration-thickness: var(--op-ring); }
+.op-shell__hero { padding-block: var(--op-space-6); }
+.op-shell__intro { max-width: var(--op-copy-width); font-size: var(--op-type-lg); color: var(--op-muted); }
+.op-shell__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--op-shell-card)), 1fr)); gap: var(--op-space-4); }
+.op-skip { position: absolute; inset-inline-start: var(--op-space-4); top: var(--op-space-0); transform: translateY(-200%); padding: var(--op-space-3); background: var(--op-surface); z-index: 1; }
+.op-skip:focus { transform: none; }
+.op-shell__desktop { display: none; }
+@media (min-width: 60rem) {
+  .op-shell__menu { display: none; }
+  .op-shell__desktop { display: block; }
+  .op-shell__groups { display: flex; flex-wrap: wrap; align-items: start; }
+  .op-shell__groups .op-stack { gap: var(--op-space-1); }
+}

@@ -21,6 +21,7 @@ todo = "deny"
 dbg_macro = "deny"
 
 [workspace.dependencies]
+oteryn-ui = { path = "crates/ui" }
 oteryn-core = { path = "crates/core" }
 oteryn-db = { path = "crates/db" }
 oteryn-web = { path = "crates/web" }
