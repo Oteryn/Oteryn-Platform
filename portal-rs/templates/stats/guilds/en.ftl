@@ -1,0 +1,15 @@
+guild-title = Guild statistics
+guild-unavailable = Unavailable
+guild-note = Derived ranking by total level of currently visible members only. Missing progression is unknown. Samples are observations, not a complete membership ledger. Select two unique guild names to compare. Founding dates use Unix seconds in UTC.
+guild-members = Visible members
+guild-level = Total level
+guild-average = Average level
+guild-experience = Experience
+guild-founded = Founded
+guild-history = Member observations
+guild-growth = Experience gain for the same visible cohort at both endpoints
+guild-guild = Guild name
+guild-compare = Compare with guild
+guild-submit = Show
+guild-days = Days (1–31)
+guild-extras = Achievement points, wars, dissolved guilds and authoritative ranking: unavailable

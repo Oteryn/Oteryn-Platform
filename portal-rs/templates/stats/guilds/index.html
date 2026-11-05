@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ labels[0] }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-stack"><h1>{{ labels[0] }}</h1><p>{{ labels[2] }}</p>
+<form method="get" class="op-stack"><label for="guild">{{ labels[10] }}</label><input class="op-input" id="guild" name="guild" maxlength="128"><label for="compare">{{ labels[11] }}</label><input class="op-input" id="compare" name="compare" maxlength="128"><label for="days">{{ labels[13] }}</label><input class="op-input" id="days" name="days" type="number" min="1" max="31" value="7"><button class="op-button" type="submit">{{ labels[12] }}</button></form>
+{% if unavailable %}<p role="status">{{ labels[1] }}</p>{% else %}
+<ol>{% for card in cards %}<li><section class="op-card op-stack"><h2>{{ card.summary.guild.name }}</h2><dl>
+<dt>{{ labels[3] }}</dt><dd>{{ card.summary.members }}</dd>
+<dt>{{ labels[4] }}</dt><dd>{% match card.summary.total_level %}{% when Some with (v) %}{{ v }}{% when None %}{{ labels[1] }}{% endmatch %}</dd>
+<dt>{{ labels[5] }}</dt><dd>{% match card.summary.average_level %}{% when Some with (v) %}{{ v }}{% when None %}{{ labels[1] }}{% endmatch %}</dd>
+<dt>{{ labels[6] }}</dt><dd>{% match card.summary.experience %}{% when Some with (v) %}{{ v }}{% when None %}{{ labels[1] }}{% endmatch %}</dd>
+<dt>{{ labels[7] }}</dt><dd>{{ card.summary.guild.founded_at }}</dd></dl><ul>{% for member in card.summary.guild.members %}<li>{{ member.name }}</li>{% endfor %}</ul>
+{% match card.history %}{% when Some with (h) %}<h3>{{ labels[9] }}</h3><p>{% match h.experience_gain %}{% when Some with (v) %}{{ v }}{% when None %}{{ labels[1] }}{% endmatch %}</p><h3>{{ labels[8] }}</h3><ul>{% for o in h.observations %}<li>{{ o.day }}: {{ o.member }} — {{ labels[4] }} {{ o.level }}</li>{% endfor %}</ul>{% when None %}{% endmatch %}
+</section></li>{% endfor %}</ol>{% endif %}<p>{{ labels[14] }}</p></main></body></html>
