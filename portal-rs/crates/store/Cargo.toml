@@ -26,3 +26,14 @@ getrandom = "0.4.1"
 subtle = "2.6.1"
 tracing = "0.1.44"
 oteryn-db.workspace = true
+
+[dependencies.oteryn-web]
+path = "../web"
+[dependencies.oteryn-identity]
+workspace = true
+[dependencies.askama]
+version = "0.16.1"
+[dependencies.fluent-bundle]
+version = "0.16"
+[dependencies.serde_urlencoded]
+version = "0.7"

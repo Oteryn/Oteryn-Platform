@@ -159,6 +159,9 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(oteryn_identity::termination::UnavailableBoundary),
         )?),
     )?;
+    if let Some(delivery) = crate::sessions_http::delivery(pool.clone())? {
+        registry.notifications(delivery)?;
+    }
     registry.cleanup(
         "stats.poll",
         60,

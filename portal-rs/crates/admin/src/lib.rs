@@ -6,3 +6,4 @@ pub mod rbac;
 pub mod web;
 
 pub mod players;
+pub mod support;

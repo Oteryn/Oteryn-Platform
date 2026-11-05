@@ -42,3 +42,5 @@ path = "../identity"
 path = "../characters"
 [dependencies.oteryn-core]
 path = "../core"
+[dev-dependencies.serde_urlencoded]
+version = "0.7"

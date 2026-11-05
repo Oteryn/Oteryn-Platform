@@ -97,6 +97,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_wiki::calculators::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             ));
+            let app = app.merge(oteryn_community::party::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
             let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")
                 .unwrap_or_else(|_| "http://localhost:3000".to_owned());
             let production = std::env::var("OTERYN_ENV").is_ok_and(|value| value == "production");
@@ -281,8 +284,31 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_db::lazy_pool(config.database_url())?,
                 oteryn_content::announcements::banner,
             ));
+            let app = sessions_http::configured(app, oteryn_db::lazy_pool(config.database_url())?);
+            let app = app.merge(privacy_web::configured_router(oteryn_db::lazy_pool(
+                config.database_url(),
+            )?));
+            let app = app.merge(shop_web::router(oteryn_db::lazy_pool(
+                config.database_url(),
+            )?));
+            let app = app.merge(oteryn_player_api::account_feed::configured_router());
+            let app = app.merge(oteryn_admin::support::web::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
+            let app = app.merge(oteryn_atlas::spawns::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
+            let app = app.layer(axum::middleware::from_fn(
+                oteryn_atlas::spawns::viewer_policy,
+            ));
+            let app = app.merge(oteryn_minigames::puzzles::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
+            let app = app.merge(oteryn_atlas::delivery::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            ));
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             axum::serve(listener, app)
                 .with_graceful_shutdown(async {
@@ -321,3 +347,9 @@ mod passkeys_http;
 mod reset_delivery;
 #[path = "../../../crates/identity/src/reset_http.rs"]
 mod reset_http;
+#[path = "../../../crates/identity/src/privacy_web.rs"]
+mod privacy_web;
+#[path = "../../../crates/identity/src/sessions_http.rs"]
+mod sessions_http;
+#[path = "../../../crates/store/src/web_payments.rs"]
+mod shop_web;
