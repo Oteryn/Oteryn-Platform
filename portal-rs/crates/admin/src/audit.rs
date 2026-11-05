@@ -49,3 +49,11 @@ pub async fn append(
     .await?;
     Ok(id)
 }
+
+#[path = "audit_control.rs"]
+mod control;
+pub use control::*;
+
+#[cfg(test)]
+#[path = "audit_tests.rs"]
+mod control_tests;
