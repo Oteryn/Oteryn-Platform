@@ -1078,6 +1078,15 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "oteryn-admin"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "oteryn-db",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "oteryn-atlas"
@@ -1254,10 +1263,23 @@ dependencies = [
  "oteryn-db",
  "oteryn-gateway",
  "oteryn-internal-api",
+ "oteryn-stats",
  "oteryn-web",
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "oteryn-stats"
+version = "0.1.0"
+dependencies = [
+ "oteryn-db",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
