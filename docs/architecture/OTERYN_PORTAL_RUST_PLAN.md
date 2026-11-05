@@ -36,6 +36,7 @@ Zasady projektu:
 | Gracz | Wiedza o świecie | Wiki generowana z treści świata gry (przedmioty, potwory, NPC, czary, questy, łupy, miejsca) i uzupełniana przez redakcję; Atlas, czyli interaktywna mapa świata z warstwami i znacznikami; wyszukiwarka |
 | Gracz | Społeczność | Rankingi, profile, gildie, domy, zgony, online, status światów |
 | Gracz | Statystyki | Historia postaci (doświadczenie dzień po dniu, czas online, nazwy, światy, gildie), rankingi przyrostu, statystyki gildii i świata, porównania, obserwowanie z powiadomieniami (§5.7) |
+| Gracz | Wiedzieć, jak mu idzie | Prywatny dziennik gry: automatyczny analizator polowań z wyceną łupu, dropy i rekordy, przeglądarka przedmiotów („gdzie mam”), postęp i cele, recap zgonów, przypomnienia, historia logowań do gry, mapa łowisk, szukanie drużyny (§5.8) |
 | Gracz | Handel z graczami | Bazar: licytacje postaci, ogłoszenia i licytacje cennych przedmiotów, za coiny albo złoto z gry, z depozytem po obu stronach (§5.6) |
 | Gracz | Zakupy | Saldo coinów, doładowanie, sklep, status premium, historia, transfer coinów, płatności i rachunki |
 | Gracz | Pomoc | Zgłoszenia z załącznikami, zgłaszanie graczy, historia kar z potwierdzeniem i odwołaniem, FAQ, zgłoszenie błędu |
@@ -46,7 +47,7 @@ Zasady projektu:
 | Admin | Kontrola | Role i uprawnienia, audyt, flagi, cennik sklepu, zwroty |
 | Operacje | Działający system | Status światów, wydania klienta (TUF), zdrowie systemu, kolejki |
 
-Bazar postaci i przedmiotów jest w zakresie (§5.6, D13). Poza pierwszym wydaniem zostają: analizator sesji, zarządzanie węzłami gry, obserwacja GM-a i aplikacja mobilna. Szablony strony głównej z obecnego portalu zastępuje jedna nowa strona główna (T39b).
+Bazar postaci i przedmiotów jest w zakresie (§5.6, D13). Prywatny dziennik gry z automatycznym analizatorem polowań też jest w zakresie (§5.8, D17). Poza pierwszym wydaniem zostają: zarządzanie węzłami gry, obserwacja GM-a i aplikacja mobilna. Szablony strony głównej z obecnego portalu zastępuje jedna nowa strona główna (T39b).
 
 ## 3. Architektura
 
@@ -91,6 +92,7 @@ portal-rs/
     stats/                   historia i statystyki: dzienne migawki postaci, gildii i świata, przyrosty, wykresy, obserwowanie
     wallet/                  ledger coinów, transfer, blokady, idempotencja
     store/                   cennik, zakup, dostawa (wire sklepu), historia
+    playerdata/              prywatny dziennik gry: sesje i analizator polowań, wycena, dropy, przedmioty, postęp, zgony, przypomnienia, mapa łowisk
     bazaar/                  bazar: licytacje postaci, ogłoszenia i licytacje przedmiotów, depozyt, rozliczenie, statystyki
     payments/                interfejs dostawcy, webhooki (provider za traitem)
     support/                 zgłoszenia, zgłoszenia graczy, kary, odwołania
@@ -144,6 +146,7 @@ Wszystkie identyfikatory to UUIDv7. Kwoty to `bigint` w najmniejszej jednostce. 
 | wallet | `wallet_accounts`, `wallet_entries` (niezmienne, saldo jako suma z blokadą wiersza konta), `wallet_transfers`, `wallet_adjustments` (korekty zespołu z powodem) |
 | premium | `premium_ledger` (nadania, odebrania, zakupy; stan jako suma), `loyalty_state` |
 | store | `store_price_list_imports`, `store_active_catalog`, `store_offers`, `store_purchase_requests`, `store_orders`, `store_order_lines`, `store_fulfilment_units`, `store_operations` (outbox DELIVER), `store_receipts`, `store_reconcile_state` |
+| playerdata | `pd_sessions` (postać, odcinek, start, koniec, miejsca, doświadczenie, bilans, drużyna), `pd_session_items` (łup i zużycie per przedmiot), `pd_session_combat` (obrażenia zadane i otrzymane per typ i źródło, leczenie), `pd_session_kills`, `pd_drops`, `pd_records`, `pd_item_snapshots` (miejsce, `jsonb`, czas), `pd_trade_history`, `pd_progress`, `pd_goals`, `pd_deaths` (recap), `pd_pvp_events`, `pd_game_logins`, `pd_reminders`, `pd_notes`, `pd_price_overrides`, `pd_share_links` (hash tokenu, wygasa, odwołany), `pd_hunting_places_daily` (tylko agregaty), `pd_party_posts` |
 | bazaar | `bazaar_listings` (rodzaj: postać lub przedmiot; forma: licytacja, ogłoszenie, kupno; waluta: coiny lub złoto; cena, „przyjmuję oferty”, stan, koniec), `bazaar_snapshots` (dane z gry, hash, czas), `bazaar_escrow` (stan depozytu w grze), `bazaar_bids` (oferta maksymalna, rezerwa portfela albo blokada złota w grze), `bazaar_offers` (oferty do ogłoszeń), `bazaar_settlements` (kwota, prowizja, komenda do gry, receipt), `bazaar_watches`, `bazaar_saved_searches`, `bazaar_reports` |
 | payments | `payment_intents`, `payment_events` (idempotencja po id dostawcy), `invoices` |
 | support | `tickets`, `ticket_messages` (też wewnętrzne), `ticket_attachments`, `player_reports`, `sanctions` (ostrzeżenie, ograniczenie, zawieszenie; potwierdzenie gracza), `appeals` |
@@ -266,7 +269,7 @@ Panel obejmuje wszystko, co dziś ma Laravel, oraz to, czego tam brakuje lub co 
 | Historia kar i odwołania | Jest (tylko zapis w Platform) | Jest; zawieszenie konta blokuje logowanie do gry | T34, T34b | Kary w grze: G-5 |
 | Postacie w kliencie (urządzenia) | Wyłączone | Jest, za flagą | T21 | – |
 | Bazar | Tylko postacie, wyłączony | Postacie i cenne przedmioty: licytacje, ogłoszenia, depozyt, statystyki (§5.6) | T57–T64 | G-7 |
-| Analizator sesji | Jest | Poza pierwszym wydaniem (D1) | – | – |
+| Analizator sesji | Jest (wklejanie logu) | Automatyczny, w prywatnym dzienniku gry, bez wklejania (§5.8) | T72–T83 | G-9…G-11 |
 | Ostatnie logowanie, czas online | Brak | Na profilu, z przełącznikiem prywatności (D11) | T24b | G-4 (dziś kontrakt je wyklucza, LCFA:48) |
 | Dane konta w przeglądzie | Brak | Data założenia, ostatnie logowanie w grze i na stronie, status konta, saldo, punkty i tytuł lojalności | T44 | Logowanie w grze: G-4 |
 | Kreator bezpieczeństwa | Brak | Ocena bezpieczeństwa konta i lista kroków: potwierdzony e-mail, 2FA, klucz odzyskiwania, zapasowy e-mail, data ostatniej zmiany hasła | T53 | – |
@@ -469,6 +472,40 @@ Prywatność:
 
 Retencja: migawki dzienne przechowujemy bez limitu, a próbki co 5 minut przez 90 dni; potem zostają agregaty dzienne.
 
+### 5.8 Dziennik gry (prywatny panel gracza)
+
+Prywatna część panelu, widoczna tylko dla właściciela konta. Gra wysyła dane prywatnym kanałem per konto (G-9…G-11), nie przez projekcje publiczne. Analizator działa sam: gracz niczego nie wkleja. Wzór to analizatory klienta Tibii (sesja, łup, zużycie, obrażenia, doświadczenie), ale portal dodaje historię, porównania, wycenę i rekordy, których klient nie przechowuje.
+
+| Obszar | Funkcje | Zadanie | Dane z gry |
+| --- | --- | --- | --- |
+| Pulpit konta | Wszystkie postacie naraz: online, poziom, stamina, premium, dostępni bossowie, czynsz domu, wynik ostatniej sesji | T79 | G-9, G-11 |
+| Analizator polowań | Lista sesji z filtrami (postać, miejsce, data, drużyna). Szczegóły sesji: czas, doświadczenie i exp/h, łup, zużycie (mikstury, amunicja, runy), bilans i profit/h, obrażenia zadane i otrzymane według typu i źródła, leczenie, zabite potwory, miejsce. Porównanie sesji i miejsc; podział łupu w drużynie z listą przelewów; link udostępnienia | T73 | G-9 |
+| Wycena | Ceny łupu i zapasów: u NPC (dane świata), rynkowa z bazaru (T63) albo własna gracza; źródło wybierane per przedmiot | T74 | – |
+| Dropy i rekordy | Dziennik rzadkich dropów (próg rzadkości z danych świata albo wartości); rekordy osobiste: najlepszy exp/h i profit/h, największy łup, najdłuższa sesja, pierwsze zabicie bossa; prywatna kronika postaci | T75 | G-9 |
+| Przedmioty | Ekwipunek, depot w każdym mieście, skrzynka pocztowa i dom, tylko do odczytu, ze stanem z chwili wylogowania; wyszukiwarka „gdzie mam przedmiot”; wartość majątku; skrót „wystaw na bazar” przy zbywalnych. Historia banku, marketu, wymian z graczami i bazaru | T76 | G-10 |
+| Postęp i cele | Bestiariusz, bossowie z cooldownem, questy, osiągnięcia, historia umiejętności; cele gracza (poziom, umiejętność, bestiariusz) z prognozą daty z jego tempa | T77 | G-11 (bestiariusz i receipty bossów już są) |
+| Zgony i PvP | Recap zgonu: kto i czym zadał obrażenia w ostatnich sekundach, leczenie, utracone poziomy i przedmioty, działanie błogosławieństw. Zabójstwa, asysty, skull i czas do jego wygaśnięcia | T78 | G-11 |
+| Przypomnienia | Czynsz domu, koniec premium, cooldown bossa, pełna stamina, koniec licytacji na bazarze; e-mail i web push według preferencji (T36) | T79 | G-11 |
+| Logowania do gry | Historia wejść do gry (czas, postać, kraj z IP, urządzenie) z przyciskiem „to nie ja”: wylogowanie wszędzie i zmiana hasła | T80 | G-11 |
+| Mapa łowisk | Warstwa Atlasu: średni exp/h i profit/h według miejsca, przedziału poziomu i profesji, popularność; tylko agregaty | T81 | G-9 |
+| Raport i eksport | Raport tygodniowy (opcjonalny e-mail), notatki do sesji i postaci, eksport sesji i dropów do CSV i JSON | T82 | – |
+| Szukam drużyny | Tablica ogłoszeń: świat, cel (polowanie, boss, quest), przedział poziomu dla dzielonego doświadczenia, profesje, termin; kontakt przez nazwę postaci w grze; zgłoszenia i moderacja | T83 | – (poziom i profesja z LCFA) |
+
+Najpierw powstają analizator polowań z wyceną (T72–T74) i przeglądarka przedmiotów (T76).
+
+Zasady:
+
+- Dziennik widzi tylko właściciel konta. Zespół widzi go wyłącznie z uprawnieniem `playerdata.read`, w ramach zgłoszenia, z wpisem do audytu.
+- Gra wysyła podsumowanie po zakończeniu sesji, a długą sesję dzieli na godzinne odcinki. Portal nie pokazuje niczego na żywo ani pozycji innych graczy, więc dziennik nie pomaga botom.
+- Link udostępnienia sesji jest opcjonalny, ma datę ważności i można go odwołać. Nie zawiera nazwy konta ani innych postaci gracza.
+- Podział łupu pokazuje członków drużyny po nazwie postaci, tak jak gra w oknie drużyny.
+- Po sprzedaży postaci na bazarze jej historia zostaje u sprzedawcy. Kupujący widzi dane od dnia przejęcia.
+- Mapa łowisk liczy tylko miejsca z co najmniej 10 sesjami z 5 różnych kont, z opóźnieniem 24 h. Gracz może wyłączyć udział swoich sesji.
+- Przeglądarka przedmiotów niczego nie przenosi. Jedyną drogą przedmiotu z gry przez portal pozostaje depozyt bazaru.
+- Usunięcie konta usuwa dziennik, a eksport danych (T09) go obejmuje.
+
+Retencja: szczegóły sesji 365 dni, potem agregaty miesięczne bez limitu; dropy, rekordy, zgony i postęp bez limitu; historia logowań do gry 180 dni.
+
 ## 6. Integracja z grą
 
 | Przepływ | Kontrakt | Stan po stronie gry (Game main @60de8634) |
@@ -487,6 +524,7 @@ Retencja: migawki dzienne przechowujemy bez limitu, a próbki co 5 minut przez 9
 | Usunięcie konta | Co dzieje się z postaciami i projekcjami (G-6) | Brak |
 | Statystyki | Sesje online per postać (start, koniec) i dzienne liczniki zabitych potworów i bossów per świat (G-8); reszta z projekcji publicznych (G-4 dostaje doświadczenie i umiejętności per postać) | G-8 w kolejce gry po G-7 (koordynator, 2026-11-05). Jest: aktywna sesja, postęp bestiariusza per postać, receipty zabójstw bossów. Brak: historii sesji i dziennych liczników per świat; doda je G-8 |
 | Bazar | Blokada i snapshot postaci, warunki wystawienia, depozyt i dostawa przedmiotów, blokada i przekazanie złota (G-7); przeniesienie postaci przez TransferCharacterOwnership z GAME-CHAR-CMD | G-7 w kolejce gry po G-5 (koordynator, 2026-11-05). Jest: bank konta i gildii, depot z transferami, market, TransferCharacterOwnership, pole `tradeable` w danych przedmiotów (bez egzekwowania). Brak: blokady złota, blokady postaci, podpisanego snapshotu. Gra przyśle kontrakt wire do akceptacji Platform przed implementacją |
+| Dziennik gry | Prywatny kanał per konto, oddzielony od projekcji publicznych: sesje, łup, zużycie, obrażenia i dropy (G-9); przedmioty i historia handlu (G-10); postęp, zgony, PvP, liczniki czasu i logowania do gry (G-11) | Do potwierdzenia przez koordynatora. Wiadomo: jest aktywna sesja, postęp bestiariusza, receipty zabójstw bossów, bank, depot i market. Brak: podsumowań sesji i kanału prywatnego |
 | Restore | V2_GAME_RESTORE_RECONCILIATION | Domyślnie wyłączony |
 | Dane świata (wiki, Atlas) | Odczyt `content/**` z przypiętego commita gry (§6.1) | Dane są; flaga widoczności brak (G-2); publikacja grafik: zgoda (D7) |
 | Granty admission | FND-04B-AMEND-1 | Pole status: ACCEPTED (2026-11-05), ale treść ma otwarte decyzje właściciela. Traktujemy jako propozycję i **nie implementujemy na jej podstawie**, dopóki decyzje nie zapadną |
@@ -566,6 +604,7 @@ Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie cz�
 - Tokeny API: nieprzezroczyste, przechowywane jako SHA-256, z zakresami. Refresh rotowany; ponowne użycie unieważnia całą rodzinę.
 - Waluta: transakcja z `SELECT ... FOR UPDATE` na koncie portfela, brak ujemnych sald, klucz idempotencji dla każdej operacji.
 - Bazar: postać i przedmiot w depozycie gry, coiny w rezerwie portfela, złoto w blokadzie gry, rozliczenie w jednej transakcji z kluczem idempotencji; unieważnienie tylko na zasadzie czterech oczu.
+- Dziennik gry: dostęp tylko właściciela konta, zespół z uprawnieniem i audytem; dane po zakończeniu sesji, nigdy na żywo; mapa łowisk tylko z agregatów z progiem i opóźnieniem (§5.8).
 - Webhooki płatności: weryfikacja podpisu, idempotencja po id zdarzenia, ochrona przed powtórzeniem.
 - Nagłówki: CSP bez `unsafe-inline`, HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`.
 - Uploady: limit rozmiaru, sprawdzanie typu po zawartości, przetwarzanie obrazów, brak wykonywania.
@@ -708,6 +747,18 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T69 | Statystyki świata: wykres online, spis, zgony dziennie, potwory i bossowie (po G-8) | T65, T25 | `crates/stats/src/world*` |
 | T70 | Obserwowanie postaci i gildii z powiadomieniami, z poszanowaniem prywatności | T66, T36 | `crates/stats/src/watch*` |
 | T71 | Kalkulatory z danych świata: doświadczenie do poziomu, stamina, trening, podział łupu | T14 | `crates/wiki/src/calculators*` |
+| T72 | Dziennik gry, rdzeń: crate `playerdata`, ingest rodzin prywatnych (G-9…G-11) z idempotencją i watermarkiem, dostęp tylko właściciela (testy odmowy dla innych kont i zespołu bez uprawnienia), granica sprzedaży postaci, retencja, flagi | T15, T24, T44 | `crates/playerdata/src/store*`, `crates/internal-api/src/playerdata*`, migracja |
+| T73 | Analizator polowań: lista sesji z filtrami, szczegóły (exp/h, łup, zużycie, bilans, obrażenia, leczenie, zabici), porównania, podział łupu w drużynie, link udostępnienia | T72, T74 | `crates/playerdata/src/hunts*`, `templates/playerdata/` |
+| T74 | Wycena łupu i zapasów: ceny NPC z danych świata, rynkowa z bazaru, własne ceny gracza | T72, T14 | `crates/playerdata/src/pricing*` |
+| T75 | Dziennik dropów, rekordy osobiste, kronika postaci | T73 | `crates/playerdata/src/drops*` |
+| T76 | Przeglądarka przedmiotów: ekwipunek, depoty, skrzynka, dom; „gdzie mam”; wartość majątku; skrót do bazaru; historia banku, marketu i wymian | T72, T74, T14b | `crates/playerdata/src/items*` |
+| T77 | Postęp i cele: bestiariusz, bossowie z cooldownem, questy, osiągnięcia, historia umiejętności, cele z prognozą | T72, T65 | `crates/playerdata/src/progress*` |
+| T78 | Recap zgonu i PvP: źródła obrażeń, straty, błogosławieństwa, zabójstwa, asysty, skull | T72 | `crates/playerdata/src/deaths*` |
+| T79 | Pulpit konta i przypomnienia (czynsz, premium, bossowie, stamina, bazar) przez e-mail i web push | T72, T36 | `crates/playerdata/src/dashboard*`, `crates/playerdata/src/reminders*` |
+| T80 | Historia logowań do gry z „to nie ja” (wylogowanie wszędzie, zmiana hasła) | T72, T08 | `crates/playerdata/src/logins*` |
+| T81 | Mapa łowisk: dzienne agregaty z progiem 10 sesji i 5 kont, opóźnienie 24 h, wyłączenie udziału, warstwa Atlasu | T73, T41 | `crates/playerdata/src/places*`, `static/atlas/` |
+| T82 | Raport tygodniowy, notatki do sesji i postaci, eksport CSV i JSON | T73, T36, T09 | `crates/playerdata/src/reports*` |
+| T83 | Szukam drużyny: ogłoszenia, filtry, wygasanie, zgłoszenia, moderacja | T44, T33c, T10b | `crates/community/src/party*` |
 | G-1 | (gra) Kontrakt nowych tras Player API i `client/directory` (wpis w locku, `world.characters` vs LCFA), kierunek `native-admissions`, aktualizacja locka (N4, CharCmd) | – | Oteryn-Game, przez koordynatora |
 | G-2 | (gra) Pole widoczności (public/hidden) w schematach questów, NPC i obszarów | – | Oteryn-Game, przez koordynatora |
 | G-3 | (gra) Komendy postaci: usunięcie i anulowanie, zmiana nazwy, płci i świata (rozszerzenie GAME-CHAR-CMD; płatne usługi rozlicza Platform) | – | Oteryn-Game, przez koordynatora |
@@ -716,13 +767,16 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | G-6 | (gra) Usunięcie konta: los postaci i projekcji | – | Oteryn-Game, przez koordynatora |
 | G-7 | (gra) Bazar: blokada i podpisany snapshot postaci z hashem, warunki wystawienia, zbywalność przedmiotów, depozyt przedmiotów z atrybutami, dostawa do kupującego i zwrot do sprzedawcy; blokada złota kupującego (oferta, rezerwa), przekazanie złota sprzedawcy i zwolnienie blokady; przeniesienie postaci przez istniejące TransferCharacterOwnership | – | Oteryn-Game, przez koordynatora |
 | G-8 | (gra) Statystyki: sesje online per postać (start, koniec) oraz dzienne liczniki zabitych potworów i bossów per świat, jako rodziny publiczne | – | Oteryn-Game, przez koordynatora |
+| G-9 | (gra) Dziennik gry, sesje: prywatny kanał per konto; podsumowanie po zakończeniu sesji i co godzinę (czas, miejsca, doświadczenie, łup i zużycie per przedmiot, obrażenia zadane i otrzymane per typ i źródło, leczenie, zabite potwory, drużyna i jej łup); rzadkie dropy; idempotencja po id sesji i odcinka | – | Oteryn-Game, przez koordynatora |
+| G-10 | (gra) Dziennik gry, przedmioty: snapshot ekwipunku, depotów, skrzynki i domu przy wylogowaniu, tylko do odczytu; historia banku, marketu i wymian | – | Oteryn-Game, przez koordynatora |
+| G-11 | (gra) Dziennik gry, postęp i zdarzenia: bestiariusz, cooldowny bossów, questy, osiągnięcia, umiejętności; recap zgonu; zabójstwa PvP i skull; stamina, koniec premium, czynsz domu; historia logowań do gry | – | Oteryn-Game, przez koordynatora |
 
 Kolejność startu:
 
 1. T00 jest gotowy w PR #1685 (kompilujący się szkielet i job CI).
 2. Potem jednocześnie: T01, T14, T15, T37, T39 i T52.
-3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45, T53–T54), gry (T16–T25), handlu (T26–T32, T47, T55–T56), bazaru (T57–T64), statystyk (T65–T71) i panelu zespołu (T10–T10b, T49–T51).
-4. Zadania zależne od G-3…G-8 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
+3. Potem równolegle gałęzie: konta (T02–T09c, T44–T45, T53–T54), gry (T16–T25), handlu (T26–T32, T47, T55–T56), bazaru (T57–T64), statystyk (T65–T71), dziennika gry (T72–T83) i panelu zespołu (T10–T10b, T49–T51).
+4. Zadania zależne od G-3…G-11 powstają od razu, ale ich funkcje zostają wyłączone flagą, dopóki gra nie dostarczy kontraktu.
 
 ### 10.1 Szablon zadania dla Codexa
 
@@ -752,7 +806,7 @@ Pozostałe warunki:
 
 | # | Decyzja | Domyślnie |
 | --- | --- | --- |
-| D1 | Zakres pierwszego wydania | Sekcja 2 bez analizatora, węzłów i obserwacji GM; bazar w zakresie (D13) |
+| D1 | Zakres pierwszego wydania | Sekcja 2 bez węzłów i obserwacji GM; bazar (D13) i dziennik gry z analizatorem (D17) w zakresie |
 | D2 | Nowy job CI dla `portal-rs/` | **Zgoda** (2026-11-05), PR #1685 |
 | D3 | Dostawca płatności | Provider testowy do czasu wyboru (np. Stripe) |
 | D4 | Wygląd | Nowy projekt graficzny (T39) |
@@ -768,6 +822,7 @@ Pozostałe warunki:
 | D14 | Zmiana e-maila (było Q8) | **Zgoda** (2026-11-05): z kluczem odzyskiwania od razu; bez klucza hasło, 2FA i potwierdzenie nowego adresu, zmiana po 7 dniach; stary adres dostaje od razu „to nie ja” (anuluje) i link cofnięcia ważny 30 dni; po zmianie wylogowanie wszędzie i 72 h blokady transferu coinów, bazaru i kolejnej zmiany e-maila |
 | D15 | Parametry bazaru (było Q10) | **Zgoda** (2026-11-05): licytacja 1–14 dni; ogłoszenie 14 dni z odnowieniem; „kup teraz” do pierwszej oferty; przebicie min. 1% (≥1 coin lub 1 000 złota); oferta w ostatnich 5 min przedłuża o 5 min; ponowna sprzedaż kupionej postaci po 30 dniach; ostrzeżenie przy cenie ±25% od rynkowej |
 | D16 | Statystyki graczy, gildii i świata (wzór GuildStats) | **Tak** (2026-11-05), §5.7 |
+| D17 | Prywatny dziennik gry z automatycznym analizatorem polowań | **Tak** (2026-11-05), §5.8; najpierw analizator i przeglądarka przedmiotów |
 
 ## 12. Otwarte pytania
 
@@ -788,4 +843,5 @@ Pozostałe zadania nie czekają na te odpowiedzi.
 - Przegląd od strony gry: koordynator, 2026-11-05; stan panelu gracza po stronie gry: Game main @00c01066.
 - Inwentarz obecnego portalu i niezależny przegląd kompletności panelu gracza, 2026-11-05.
 - Przegląd panelu konta Tibii, Char Bazaar Tibii, Exevopan, TibiaTrade i GuildStats, 2026-11-05.
+- Analizatory w kliencie Tibii (sesja, łup, zużycie, obrażenia, doświadczenie) jako wzór dla §5.8.
 - Szkic #1643: źródło pomysłów dla rozszerzeń (węzły, Atlas, obserwacja GM).
