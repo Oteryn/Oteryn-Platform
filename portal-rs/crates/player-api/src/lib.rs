@@ -181,3 +181,5 @@ async fn characters(State(api): State<Api>, headers: HeaderMap) -> Response {
 
 #[cfg(test)]
 mod tests;
+
+pub mod account_feed;

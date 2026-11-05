@@ -23,3 +23,12 @@ tower = { version = "0.5.3", features = ["util"] }
 oteryn-db = { path = "../db" }
 oteryn-core = { path = "../core" }
 uuid = { version = "1.23.4", features = ["v7"] }
+
+[dependencies.oteryn-db]
+workspace = true
+[dependencies.oteryn-identity]
+workspace = true
+[dependencies.oteryn-notify]
+workspace = true
+[dependencies.oteryn-wallet]
+workspace = true
