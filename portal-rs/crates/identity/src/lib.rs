@@ -10,3 +10,4 @@ pub mod abuse;
 pub mod login;
 
 pub mod security_wizard;
+pub mod sessions;
