@@ -239,3 +239,6 @@ impl Rankings {
 #[cfg(test)]
 #[path = "rankings_tests.rs"]
 mod tests;
+
+#[path = "rankings_online.rs"]
+pub mod online;

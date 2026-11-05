@@ -3150,6 +3150,7 @@ dependencies = [
  "axum",
  "fluent-bundle",
  "oteryn-db",
+ "oteryn-internal-api",
  "oteryn-notify",
  "serde",
  "serde_json",

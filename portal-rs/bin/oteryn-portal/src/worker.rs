@@ -236,6 +236,11 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
             )),
         )?;
     }
+    registry.cleanup(
+        "stats.v2-retention",
+        3600,
+        Arc::new(oteryn_stats::online::Retention { pool: pool.clone() }),
+    )?;
     #[cfg(unix)]
     let shutdown = {
         let mut terminate =
