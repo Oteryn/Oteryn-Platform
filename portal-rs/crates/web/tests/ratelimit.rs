@@ -166,7 +166,9 @@ async fn limit_returns_429_retry_after_and_localized_html_or_api_json() -> TestR
             );
         } else {
             assert!(body.contains("<main"));
-            assert!(body.contains("surface.css"));
+            assert!(body.contains("tokens.css"));
+            assert!(body.contains("components.css"));
+            assert!(body.contains("class=\"op-theme op-shell\""));
         }
     }
     db.close().await
