@@ -24,5 +24,3 @@ serde = { version = "1.0.229", features = ["derive"] }
 oteryn-wallet.workspace = true
 getrandom = "0.4.1"
 subtle = "2.6.1"
-tracing = "0.1.44"
-oteryn-db.workspace = true

@@ -4,5 +4,3 @@ pub mod audit;
 pub mod rbac;
 
 pub mod web;
-
-pub mod players;

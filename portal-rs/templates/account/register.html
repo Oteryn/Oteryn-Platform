@@ -3,14 +3,3 @@
 <h1>{{ self.text("register-title") }}</h1>
 {% if !errors.is_empty() %}<p class="op-error" role="alert">{{ self.text("register-errors") }}</p>{% endif %}
 <form class="op-stack" method="post" action="/{{ lang }}/register">
-<input type="hidden" name="work_token" value="">
-<input type="hidden" name="work_nonce" value="">
-<script src="/register/abuse.js" defer></script>
-<input type="hidden" name="_csrf" value="{{ csrf }}">
-<div class="op-field"><label for="email">{{ self.text("register-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="email" required maxlength="254" value="{{ email }}" aria-describedby="email-error"{% if !self.error("email").is_empty() %} aria-invalid="true"{% endif %}><p class="op-error" id="email-error">{{ self.error("email") }}</p></div>
-<div class="op-field"><label for="password">{{ self.text("register-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="new-password" required aria-describedby="password-hint password-error"{% if !self.error("password").is_empty() %} aria-invalid="true"{% endif %}><p class="op-hint" id="password-hint">{{ self.text("register-password-hint") }}</p><p class="op-error" id="password-error">{{ self.error("password") }}</p></div>
-<div class="op-field"><label for="password_confirmation">{{ self.text("register-confirm") }}</label><input class="op-input" id="password_confirmation" name="password_confirmation" type="password" autocomplete="new-password" required aria-describedby="confirmation-error"{% if !self.error("password_confirmation").is_empty() %} aria-invalid="true"{% endif %}><p class="op-error" id="confirmation-error">{{ self.error("password_confirmation") }}</p></div>
-<div class="op-field"><label for="terms"><input id="terms" type="checkbox" name="terms" value="{{ config.terms_version }}" required aria-describedby="terms-error"{% if !self.error("terms").is_empty() %} aria-invalid="true"{% endif %}> {{ self.text("register-terms") }} ({{ config.terms_version }})</label><a href="/{{ lang }}/legal/terms">{{ self.text("register-read-terms") }}</a><p class="op-error" id="terms-error">{{ self.error("terms") }}</p></div>
-<div class="op-field"><label for="privacy"><input id="privacy" type="checkbox" name="privacy" value="{{ config.privacy_version }}" required aria-describedby="privacy-error"{% if !self.error("privacy").is_empty() %} aria-invalid="true"{% endif %}> {{ self.text("register-privacy") }} ({{ config.privacy_version }})</label><a href="/{{ lang }}/legal/privacy">{{ self.text("register-read-privacy") }}</a><p class="op-error" id="privacy-error">{{ self.error("privacy") }}</p></div>
-<button class="op-button op-button--primary" type="submit">{{ self.text("register-submit") }}</button>
-</form>{% endblock %}

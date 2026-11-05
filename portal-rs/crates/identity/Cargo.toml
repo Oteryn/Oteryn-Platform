@@ -21,30 +21,3 @@ serde_json = "1"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
 email_address = "0.2"
 
-sha1 = "0.10"
-axum = "0.8.9"
-serde_urlencoded = "0.7"
-
-fluent-bundle = "0.16"
-unic-langid = { version = "0.9", features = ["macros"] }
-chacha20poly1305 = "0.10"
-subtle = "2.6"
-
-[dev-dependencies]
-oteryn-web.workspace = true
-axum = "0.8.9"
-tower = { version = "0.5.3", features = ["util"] }
-serde_urlencoded = "0.7"
-
-[dependencies.webauthn-rs]
-version = "0.6.2"
-features = ["danger-allow-state-serialisation", "conditional-ui"]
-
-[dev-dependencies.webauthn-authenticator-rs]
-version = "0.6.2"
-features = ["softpasskey"]
-
-[dev-dependencies.base64]
-version = "0.22"
-[dependencies.oteryn-notify]
-workspace = true
