@@ -32,3 +32,6 @@ tower = { version = "0.5.3", features = ["util"] }
 
 [dependencies.url]
 version = "2"
+
+[dependencies.oteryn-world]
+workspace = true
