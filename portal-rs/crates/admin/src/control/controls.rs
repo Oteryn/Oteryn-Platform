@@ -68,15 +68,16 @@ pub struct Operation {
     pub permission: String,
     pub risk: RiskClass,
 }
-/// Intent digest covers admin_operation_id, operation/version, target and canonical parameters excluding
-/// preview_digest. The request builder must use the same immutable intent at enqueue.
+/// Pure policy comparison snapshot. Stored-request integration derives the digest
+/// from operation/version, kind, target and parameters excluding preview_digest;
+/// transport/idempotency identities remain bound by the immutable signed request.
 #[derive(Debug, Clone)]
 pub struct Intent {
     pub operation: String,
     pub digest: String,
 }
-/// Narrow integration boundary until the request builder and game RBAC are present.
-/// Implementations must check current account status, staff MFA, session ownership,
+/// Trusted current operation authority. Implementations must check current
+/// account status, staff MFA, session ownership,
 /// operation permission and advertisement. No wildcard or fallback authorization.
 pub trait Authority: Send + Sync + 'static {
     fn authorize(
@@ -94,13 +95,49 @@ pub trait Authority: Send + Sync + 'static {
 }
 /// Identity owns verification, secret storage and TOTP replay prevention. The
 /// adapter must consume a newly verified TOTP counter, never accept a recovery code.
-/// There is currently no public TOTP verifier in identity; the default denies.
+/// Live grants use identity's revocation, expiry and credential-generation checks.
 pub trait TotpVerifier: Send + Sync + 'static {
+    fn grant_valid_in_transaction(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        account: Uuid,
+        grant: &str,
+    ) -> impl Future<Output = Result<bool, Refusal>> + Send {
+        let _ = (tx, account, grant);
+        async { Err(Refusal::Unavailable) }
+    }
+
+    fn grant_valid(
+        &self,
+        account: oteryn_identity::AccountId,
+        grant: &str,
+    ) -> impl Future<Output = Result<bool, Refusal>> + Send {
+        let _ = (account, grant);
+        async { Err(Refusal::Unavailable) }
+    }
+
     fn verify_totp(
         &self,
         account: oteryn_identity::AccountId,
         code: &str,
     ) -> impl Future<Output = Result<bool, Refusal>> + Send;
+}
+impl TotpVerifier for oteryn_identity::mfa::Mfa {
+    async fn grant_valid_in_transaction(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        account: Uuid,
+        grant: &str,
+    ) -> Result<bool, Refusal> {
+        Ok(self.satisfied_in_transaction(tx, account, grant).await?)
+    }
+
+    async fn verify_totp(&self, account: Uuid, code: &str) -> Result<bool, Refusal> {
+        Ok(self.verify_totp(account, code).await?)
+    }
+    async fn grant_valid(&self, account: Uuid, grant: &str) -> Result<bool, Refusal> {
+        Ok(self.satisfied(account, grant).await?)
+    }
 }
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Unavailable;
@@ -157,6 +194,16 @@ impl From<sqlx::Error> for Refusal {
 impl From<rbac::Error> for Refusal {
     fn from(_: rbac::Error) -> Self {
         Self::Unavailable
+    }
+}
+impl From<super::store::Error> for Refusal {
+    fn from(error: super::store::Error) -> Self {
+        match error {
+            super::store::Error::Disabled => Self::Disabled,
+            super::store::Error::SelfApproval => Self::SelfApproval,
+            super::store::Error::IllegalTransition | super::store::Error::NotFound => Self::Denied,
+            _ => Self::Unavailable,
+        }
     }
 }
 #[derive(Debug, Clone)]
@@ -317,7 +364,7 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
                 .await?,
         )
     }
-    pub async fn step_up(&self, session: &BrowserSession, code: &str) -> Result<(), Refusal> {
+    async fn step_up(&self, session: &BrowserSession, code: &str) -> Result<(), Refusal> {
         self.enabled()?;
         let account = self.authority.staff(session).await?;
         if account.is_nil() || session.account_id().await != Some(account) {
@@ -373,172 +420,6 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
             .await?;
         Ok(())
     }
-    /// Called only by the verified agent-result ingestion path after matching a
-    /// successful R4 dry run to the requester and canonical intent. Never mount
-    /// this method as a browser endpoint or accept receipt data from a form.
-    pub async fn record_preview(
-        &self,
-        session: &BrowserSession,
-        intent: &Intent,
-        preview_digest: &str,
-        preview: Value,
-        reason: Reason,
-    ) -> Result<Uuid, Refusal> {
-        self.enabled()?;
-        let (identity, op) = self.authorized(session, &intent.operation).await?;
-        if op.name != intent.operation
-            || op.risk != RiskClass::R4
-            || !digest(preview_digest)
-            || preview.is_null()
-            || preview.to_string().len() > 65536
-        {
-            return Err(Refusal::InvalidInput);
-        }
-        evaluate(
-            &op,
-            &identity,
-            session.get(STEP_UP).await?,
-            Some(reason.clone()),
-            &intent.digest,
-            None,
-            None,
-            true,
-            self.now().await?,
-        )?;
-        let id = Uuid::now_v7();
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("INSERT INTO admin_control_previews(id,requester,operation,permission,intent_digest,preview_digest,preview,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
-            .bind(id).bind(identity.admin_id).bind(&op.name).bind(&op.permission).bind(&intent.digest).bind(preview_digest).bind(preview).bind(json!(reason)).execute(&mut *tx).await?;
-        audit::append(
-            &mut tx,
-            audit::Entry {
-                context: audit::AuditContext {
-                    actor: Some(identity.admin_id),
-                    request_id: id,
-                },
-                action: "admin.control.preview.stored",
-                target: &id.to_string(),
-                before: Value::Null,
-                after: json!({"preview_digest":preview_digest}),
-            },
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(id)
-    }
-    pub async fn approve(&self, session: &BrowserSession, preview: Uuid) -> Result<Uuid, Refusal> {
-        self.enabled()?;
-        let p = self.preview(preview).await?;
-        let (identity, op) = self.authorized(session, &p.operation).await?;
-        if op.name != p.operation || op.permission != p.permission || op.risk != RiskClass::R4 {
-            return Err(Refusal::Denied);
-        }
-        if identity.admin_id == p.requester {
-            return Err(Refusal::SelfApproval);
-        }
-        let now = self.now().await?;
-        let step = session
-            .get(STEP_UP)
-            .await?
-            .filter(|s| s.account == identity.admin_id && recent(s.step_up_at, now, 300))
-            .ok_or(Refusal::StepUpRequired)?;
-        let id = Uuid::now_v7();
-        let mut tx = self.pool.begin().await?;
-        let inserted = sqlx::query("INSERT INTO admin_control_approvals(id,preview_id,admin_id,step_up_at,approved_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(preview_id) DO NOTHING")
-            .bind(id).bind(preview).bind(identity.admin_id).bind(step.step_up_at).bind(now).execute(&mut *tx).await?;
-        if inserted.rows_affected() != 1 {
-            return Err(Refusal::Denied);
-        }
-        audit::append(
-            &mut tx,
-            audit::Entry {
-                context: audit::AuditContext {
-                    actor: Some(identity.admin_id),
-                    request_id: id,
-                },
-                action: "admin.control.approved",
-                target: &preview.to_string(),
-                before: Value::Null,
-                after: json!({"approval_id":id,"preview_digest":p.preview_digest}),
-            },
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(id)
-    }
-    /// Request builder calls immediately before signing/enqueue, using params'
-    /// actual preview_digest and the digest of the actual canonical intent.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn evidence(
-        &self,
-        session: &BrowserSession,
-        intent: &Intent,
-        reason: Option<Reason>,
-        preview: Option<Uuid>,
-        params_preview_digest: Option<&str>,
-        dry_run: bool,
-    ) -> Result<Evidence, Refusal> {
-        self.enabled()?;
-        let (identity, op) = self.authorized(session, &intent.operation).await?;
-        if op.name != intent.operation {
-            return Err(Refusal::Denied);
-        }
-        // Check requester controls first, so expired elevation always leads to
-        // step-up before approval/preview processing on a submission.
-        let step_up = session.get(STEP_UP).await?;
-        evaluate(
-            &op,
-            &identity,
-            step_up,
-            reason.clone(),
-            &intent.digest,
-            None,
-            None,
-            true,
-            self.now().await?,
-        )?;
-        let approval = if op.risk == RiskClass::R4 && !dry_run {
-            let p = self
-                .preview(preview.ok_or(Refusal::DryRunRequired)?)
-                .await?;
-            if p.requester != identity.admin_id
-                || p.operation != op.name
-                || p.permission != op.permission
-                || Some(&p.reason) != reason.as_ref()
-            {
-                return Err(Refusal::Denied);
-            }
-            let a = self.approval(p.id).await?;
-            self.authority.approver(a.admin_id, &op).await?;
-            Some(a)
-        } else {
-            None
-        };
-        evaluate(
-            &op,
-            &identity,
-            step_up,
-            reason,
-            &intent.digest,
-            params_preview_digest,
-            approval.as_ref(),
-            dry_run,
-            self.now().await?,
-        )
-    }
-    async fn approval(&self, preview: Uuid) -> Result<ApprovalState, Refusal> {
-        let r = sqlx::query("SELECT a.id,a.admin_id,a.approved_at,a.step_up_at,p.requester,p.preview_digest,p.intent_digest FROM admin_control_approvals a JOIN admin_control_previews p ON p.id=a.preview_id WHERE p.id=$1")
-            .bind(preview).fetch_optional(&self.pool).await?.ok_or(Refusal::ApprovalRequired)?;
-        Ok(ApprovalState {
-            approval_id: r.try_get("id")?,
-            admin_id: r.try_get("admin_id")?,
-            approved_at: r.try_get("approved_at")?,
-            step_up_at: r.try_get("step_up_at")?,
-            requester: r.try_get("requester")?,
-            preview_digest: r.try_get("preview_digest")?,
-            intent_digest: r.try_get("intent_digest")?,
-        })
-    }
     async fn preview(&self, id: Uuid) -> Result<Preview, Refusal> {
         let r = sqlx::query("SELECT id,requester,operation,permission,preview_digest,preview,reason FROM admin_control_previews WHERE id=$1").bind(id).fetch_optional(&self.pool).await?.ok_or(Refusal::DryRunRequired)?;
         Ok(Preview {
@@ -563,41 +444,10 @@ struct Preview {
     reason: Reason,
 }
 
-/// Minimal interface consumed by a request builder before signing and enqueue.
-/// The builder supplies its final immutable intent and reads preview_digest from
-/// the final params; it must not change either after obtaining this evidence.
-#[derive(Debug)]
-pub struct Submission<'a> {
-    pub intent: &'a Intent,
-    pub reason: Option<Reason>,
-    pub preview: Option<Uuid>,
-    pub params_preview_digest: Option<&'a str>,
-    pub dry_run: bool,
-}
-pub trait ControlEvidence: Send + Sync {
-    fn control_evidence(
-        &self,
-        session: &BrowserSession,
-        submission: &Submission<'_>,
-    ) -> impl Future<Output = Result<Evidence, Refusal>> + Send;
-}
-impl<A: Authority, T: TotpVerifier> ControlEvidence for Controls<A, T> {
-    async fn control_evidence(
-        &self,
-        session: &BrowserSession,
-        submission: &Submission<'_>,
-    ) -> Result<Evidence, Refusal> {
-        self.evidence(
-            session,
-            submission.intent,
-            submission.reason.clone(),
-            submission.preview,
-            submission.params_preview_digest,
-            submission.dry_run,
-        )
-        .await
-    }
-}
+#[path = "integration.rs"]
+mod integration;
+pub use integration::ControlEvidence;
+pub use integration::Submission;
 
 #[path = "controls_http.rs"]
 pub mod http;

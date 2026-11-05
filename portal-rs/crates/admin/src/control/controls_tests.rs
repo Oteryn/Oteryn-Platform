@@ -12,13 +12,13 @@ use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
-struct Database {
-    pool: PgPool,
+pub(super) struct Database {
+    pub(super) pool: PgPool,
     admin: PgPool,
     schema: String,
 }
 impl Database {
-    async fn open() -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub(super) async fn open() -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("SKIPPED control PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
             return Ok(None);
@@ -50,7 +50,7 @@ impl Database {
             schema,
         }))
     }
-    async fn close(self) -> TestResult {
+    pub(super) async fn close(self) -> TestResult {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",
@@ -63,7 +63,7 @@ impl Database {
     }
 }
 #[derive(Clone)]
-struct Auth;
+pub(super) struct Auth;
 impl Authority for Auth {
     async fn staff(&self, s: &BrowserSession) -> Result<Uuid, Refusal> {
         s.account_id().await.ok_or(Refusal::Denied)
@@ -99,8 +99,20 @@ impl Authority for Auth {
     }
 }
 #[derive(Clone)]
-struct Verifier;
+pub(super) struct Verifier;
 impl TotpVerifier for Verifier {
+    async fn grant_valid_in_transaction(
+        &self,
+        _: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        _: Uuid,
+        _: &str,
+    ) -> Result<bool, Refusal> {
+        Ok(true)
+    }
+
+    async fn grant_valid(&self, _: Uuid, _: &str) -> Result<bool, Refusal> {
+        Ok(true)
+    }
     async fn verify_totp(
         &self,
         _: oteryn_identity::AccountId,
@@ -127,15 +139,28 @@ async fn seed(State(s): State<Seed>, Extension(session): Extension<BrowserSessio
                 },
             )
             .await?;
+        session
+            .set(
+                SessionKey::<String>::new(oteryn_identity::mfa::SESSION_GRANT_KEY),
+                &"test-grant".to_owned(),
+            )
+            .await?;
         *s.captured.lock().map_err(|_| Refusal::Unavailable)? = Some(session);
         Ok::<_, Refusal>(())
     }
     .await
     .map_or(StatusCode::INTERNAL_SERVER_ERROR, |()| StatusCode::OK)
 }
-async fn session(
+pub(super) async fn session(
     pool: &PgPool,
     age: i64,
+) -> Result<(BrowserSession, String), Box<dyn std::error::Error>> {
+    session_for_account(pool, age, Uuid::now_v7()).await
+}
+pub(super) async fn session_for_account(
+    pool: &PgPool,
+    age: i64,
+    id: Uuid,
 ) -> Result<(BrowserSession, String), Box<dyn std::error::Error>> {
     let now: i64 =
         sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
@@ -145,7 +170,7 @@ async fn session(
     let app = Router::new()
         .route("/seed", get(seed))
         .with_state(Seed {
-            id: Uuid::now_v7(),
+            id,
             at: now - age,
             captured: captured.clone(),
         })
@@ -170,7 +195,7 @@ async fn session(
         .ok_or("missing session")?;
     Ok((session, cookie))
 }
-fn reason() -> Reason {
+pub(super) fn reason() -> Reason {
     Reason {
         code: "MAINTENANCE".into(),
         text: "Retire unused test world".into(),
@@ -461,11 +486,14 @@ async fn pg_forms_csrf_locales_and_step_up_redirect() -> TestResult {
     let response = app
         .clone()
         .oneshot(
-            Request::post("/admin/control/step-up")
-                .header("host", "admin.test")
-                .header("cookie", &cookie)
-                .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from("code=123456"))?,
+            Request::post(format!(
+                "/admin/control/step-up?request_id={}",
+                Uuid::now_v7()
+            ))
+            .header("host", "admin.test")
+            .header("cookie", &cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("code=123456"))?,
         )
         .await?;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -473,12 +501,15 @@ async fn pg_forms_csrf_locales_and_step_up_redirect() -> TestResult {
     let malformed = app
         .clone()
         .oneshot(
-            Request::post("/admin/control/step-up")
-                .header("host", "admin.test")
-                .header("cookie", &cookie)
-                .header("content-type", "application/x-www-form-urlencoded")
-                .header("accept-language", "pl")
-                .body(Body::from(format!("_csrf={csrf}")))?,
+            Request::post(format!(
+                "/admin/control/step-up?request_id={}",
+                Uuid::now_v7()
+            ))
+            .header("host", "admin.test")
+            .header("cookie", &cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("accept-language", "pl")
+            .body(Body::from(format!("_csrf={csrf}")))?,
         )
         .await?;
     assert_eq!(malformed.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -490,12 +521,15 @@ async fn pg_forms_csrf_locales_and_step_up_redirect() -> TestResult {
     assert!(body.contains("Nieprawidłowe dane"));
     let response = app
         .oneshot(
-            Request::post("/admin/control/step-up")
-                .header("host", "admin.test")
-                .header("cookie", &cookie)
-                .header("origin", "https://admin.test")
-                .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("code=123456&_csrf={csrf}")))?,
+            Request::post(format!(
+                "/admin/control/step-up?request_id={}",
+                Uuid::now_v7()
+            ))
+            .header("host", "admin.test")
+            .header("cookie", &cookie)
+            .header("origin", "https://admin.test")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!("code=123456&_csrf={csrf}")))?,
         )
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
@@ -606,15 +640,24 @@ async fn pg_approval_form_review_csrf_and_submit() -> TestResult {
     let (requester, _) = session(&db.pool, 0).await?;
     let (approver, cookie) = session(&db.pool, 0).await?;
     let s = controls(&db);
+    let i = Intent {
+        operation: "world.retire".into(),
+        digest: {
+            use sha2::{Digest, Sha256};
+            Sha256::digest(crate::control::canonical::encode_wire(&json!({"operation":"world.retire","operation_version":1,"kind":"command","target":{"world_id":"test","node_id":null,"character_id":null,"account_ref":null},"params":{}}))?).iter().map(|v|format!("{v:02x}")).collect()
+        },
+    };
     let id = s
         .record_preview(
             &requester,
-            &intent(),
+            &i,
             &"b".repeat(64),
             json!({"effect":"<script>test</script>","reference":"x".repeat(500)}),
             reason(),
         )
         .await?;
+    stored_preview_fixture(&db.pool, id, requester.account_id().await.ok_or("account")?).await?;
+    super::integration::tests::bound(&approver, id, 0).await?;
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(approver.account_id().await).execute(&db.pool).await?;
     let app = http::router(
         controls(&db),
@@ -676,20 +719,225 @@ async fn pg_approval_form_review_csrf_and_submit() -> TestResult {
         )
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
-    let i = intent();
     let d = "b".repeat(64);
+    let final_id = Uuid::now_v7();
+    s.step_up_for_request(&requester, final_id, "123456")
+        .await?;
+    let expected = s
+        .evidence(&requester, &i, Some(reason()), Some(id), Some(&d), false)
+        .await?;
+    let mut final_request = super::integration::tests::input(
+        final_id,
+        requester.account_id().await.ok_or("requester")?,
+        true,
+    );
+    final_request.dry_run = false;
+    final_request.params = json!({"preview_digest":d});
+    final_request.params_digest = crate::control::signer::params_digest(
+        &crate::control::canonical::Json(final_request.params.clone()),
+    )?
+    .to_vec();
+    final_request.approvals = vec![crate::control::Approval {
+        approval_id: expected.approvals[0].approval_id,
+        approver: expected.approvals[0].admin_id,
+        approved_at: time::OffsetDateTime::parse(
+            &expected.approvals[0].approved_at,
+            &time::format_description::well_known::Rfc3339,
+        )?,
+        preview_digest: vec![0xbb; 32],
+        decision: crate::control::Decision::Approved,
+    }];
+    final_request.canonical_envelope = super::integration::tests::wire(&final_request, &expected)?;
+    crate::control::Store::new(db.pool.clone(), crate::control::Config { enabled: true })
+        .enqueue(&final_request)
+        .await?;
     let evidence = s
         .control_evidence(
             &requester,
             &Submission {
-                intent: &i,
-                reason: Some(reason()),
+                request_id: final_id,
                 preview: Some(id),
-                params_preview_digest: Some(&d),
-                dry_run: false,
             },
         )
         .await?;
     assert_eq!(evidence.approvals.len(), 1);
     db.close().await
+}
+
+async fn stored_preview_fixture(pool: &PgPool, id: Uuid, actor: Uuid) -> TestResult {
+    sqlx::query("INSERT INTO admin_control_requests(request_id,admin_operation_id,operation,operation_version,kind,target,params,params_digest,dry_run,risk_class,actor,reason,approvals,issued_at,expires_at,nonce,signer_key_id,canonical_envelope,signature,status) VALUES($1,$2,'world.retire',1,'command','{\"world_id\":\"test\"}','{}',$3,true,'R4',$4,$5,'[]',now()-interval '1 second',now()+interval '5 minutes',$6,'test',$7,$8,'succeeded')")
+        .bind(id).bind(Uuid::now_v7()).bind(vec![1u8;32]).bind(actor).bind(json!(reason())).bind(vec![1u8;16]).bind(b"fixture".to_vec()).bind(vec![1u8;64]).execute(pool).await?;
+    Ok(())
+}
+
+// Preserve the original ADM-P2B policy regressions while the production boundary
+// accepts only durable requests. These fixture helpers are never compiled into
+// the admin service.
+impl<A: Authority, T: TotpVerifier> Controls<A, T> {
+    /// Called only by the verified agent-result ingestion path after matching a
+    /// successful R4 dry run to the requester and canonical intent. Never mount
+    /// this method as a browser endpoint or accept receipt data from a form.
+    async fn record_preview(
+        &self,
+        session: &BrowserSession,
+        intent: &Intent,
+        preview_digest: &str,
+        preview: Value,
+        reason: Reason,
+    ) -> Result<Uuid, Refusal> {
+        self.enabled()?;
+        let (identity, op) = self.authorized(session, &intent.operation).await?;
+        if op.name != intent.operation
+            || op.risk != RiskClass::R4
+            || !digest(preview_digest)
+            || preview.is_null()
+            || preview.to_string().len() > 65536
+        {
+            return Err(Refusal::InvalidInput);
+        }
+        evaluate(
+            &op,
+            &identity,
+            session.get(STEP_UP).await?,
+            Some(reason.clone()),
+            &intent.digest,
+            None,
+            None,
+            true,
+            self.now().await?,
+        )?;
+        let id = Uuid::now_v7();
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("INSERT INTO admin_control_previews(id,requester,operation,permission,intent_digest,preview_digest,preview,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+            .bind(id).bind(identity.admin_id).bind(&op.name).bind(&op.permission).bind(&intent.digest).bind(preview_digest).bind(preview).bind(json!(reason)).execute(&mut *tx).await?;
+        audit::append(
+            &mut tx,
+            audit::Entry {
+                context: audit::AuditContext {
+                    actor: Some(identity.admin_id),
+                    request_id: id,
+                },
+                action: "admin.control.preview.stored",
+                target: &id.to_string(),
+                before: Value::Null,
+                after: json!({"preview_digest":preview_digest}),
+            },
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(id)
+    }
+    async fn approve(&self, session: &BrowserSession, preview: Uuid) -> Result<Uuid, Refusal> {
+        self.enabled()?;
+        let p = self.preview(preview).await?;
+        let (identity, op) = self.authorized(session, &p.operation).await?;
+        if op.name != p.operation || op.permission != p.permission || op.risk != RiskClass::R4 {
+            return Err(Refusal::Denied);
+        }
+        if identity.admin_id == p.requester {
+            return Err(Refusal::SelfApproval);
+        }
+        let now = self.now().await?;
+        let step = session
+            .get(STEP_UP)
+            .await?
+            .filter(|s| s.account == identity.admin_id && recent(s.step_up_at, now, 300))
+            .ok_or(Refusal::StepUpRequired)?;
+        let id = Uuid::now_v7();
+        let mut tx = self.pool.begin().await?;
+        let inserted = sqlx::query("INSERT INTO admin_control_approvals(id,preview_id,admin_id,step_up_at,approved_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(preview_id) DO NOTHING")
+            .bind(id).bind(preview).bind(identity.admin_id).bind(step.step_up_at).bind(now).execute(&mut *tx).await?;
+        if inserted.rows_affected() != 1 {
+            return Err(Refusal::Denied);
+        }
+        audit::append(
+            &mut tx,
+            audit::Entry {
+                context: audit::AuditContext {
+                    actor: Some(identity.admin_id),
+                    request_id: id,
+                },
+                action: "admin.control.approved",
+                target: &preview.to_string(),
+                before: Value::Null,
+                after: json!({"approval_id":id,"preview_digest":p.preview_digest}),
+            },
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(id)
+    }
+    /// Request builder calls immediately before signing/enqueue, using params'
+    /// actual preview_digest and the digest of the actual canonical intent.
+    #[allow(clippy::too_many_arguments)]
+    async fn evidence(
+        &self,
+        session: &BrowserSession,
+        intent: &Intent,
+        reason: Option<Reason>,
+        preview: Option<Uuid>,
+        params_preview_digest: Option<&str>,
+        dry_run: bool,
+    ) -> Result<Evidence, Refusal> {
+        self.enabled()?;
+        let (identity, op) = self.authorized(session, &intent.operation).await?;
+        if op.name != intent.operation {
+            return Err(Refusal::Denied);
+        }
+        // Check requester controls first, so expired elevation always leads to
+        // step-up before approval/preview processing on a submission.
+        let step_up = session.get(STEP_UP).await?;
+        evaluate(
+            &op,
+            &identity,
+            step_up,
+            reason.clone(),
+            &intent.digest,
+            None,
+            None,
+            true,
+            self.now().await?,
+        )?;
+        let approval = if op.risk == RiskClass::R4 && !dry_run {
+            let p = self
+                .preview(preview.ok_or(Refusal::DryRunRequired)?)
+                .await?;
+            if p.requester != identity.admin_id
+                || p.operation != op.name
+                || p.permission != op.permission
+                || Some(&p.reason) != reason.as_ref()
+            {
+                return Err(Refusal::Denied);
+            }
+            let a = self.approval(p.id).await?;
+            self.authority.approver(a.admin_id, &op).await?;
+            Some(a)
+        } else {
+            None
+        };
+        evaluate(
+            &op,
+            &identity,
+            step_up,
+            reason,
+            &intent.digest,
+            params_preview_digest,
+            approval.as_ref(),
+            dry_run,
+            self.now().await?,
+        )
+    }
+    async fn approval(&self, preview: Uuid) -> Result<ApprovalState, Refusal> {
+        let r = sqlx::query("SELECT a.id,a.admin_id,a.approved_at,a.step_up_at,p.requester,p.preview_digest,p.intent_digest FROM admin_control_approvals a JOIN admin_control_previews p ON p.id=a.preview_id WHERE p.id=$1")
+            .bind(preview).fetch_optional(&self.pool).await?.ok_or(Refusal::ApprovalRequired)?;
+        Ok(ApprovalState {
+            approval_id: r.try_get("id")?,
+            admin_id: r.try_get("admin_id")?,
+            approved_at: r.try_get("approved_at")?,
+            step_up_at: r.try_get("step_up_at")?,
+            requester: r.try_get("requester")?,
+            preview_digest: r.try_get("preview_digest")?,
+            intent_digest: r.try_get("intent_digest")?,
+        })
+    }
 }

@@ -4,7 +4,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{
-        Path, State,
+        Path, Query, State,
         rejection::{FormRejection, PathRejection},
     },
     http::{HeaderMap, StatusCode},
@@ -49,7 +49,7 @@ fn routes<A: Authority, T: TotpVerifier>(s: Arc<Controls<A, T>>) -> Router {
         )
         .with_state(s)
 }
-/// Dormant until identity TOTP and catalog/RBAC adapters are wired by the application.
+/// Catalog/RBAC authority remains fail-closed until wired by the application.
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let enabled = std::env::var("OTERYN_ADMIN_CONTROL").as_deref() == Ok("true");
     if !enabled {
@@ -58,7 +58,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     let s = Arc::new(Controls::new(
         pool.clone(),
         Unavailable,
-        Unavailable,
+        oteryn_identity::mfa::Mfa::configured(pool.clone())?,
         enabled,
     ));
     crate::web::configured_guard(routes(s), pool, rbac::Permission::Access)
@@ -160,9 +160,14 @@ async fn step_page<A: Authority, T: TotpVerifier>(
 struct Code {
     code: String,
 }
+#[derive(Deserialize)]
+struct StepRequest {
+    request_id: Uuid,
+}
 async fn step_submit<A: Authority, T: TotpVerifier>(
     State(s): State<Arc<Controls<A, T>>>,
     Extension(session): Extension<BrowserSession>,
+    query: Result<Query<StepRequest>, axum::extract::rejection::QueryRejection>,
     headers: HeaderMap,
     form: Result<Form<Code>, FormRejection>,
 ) -> Response {
@@ -170,8 +175,14 @@ async fn step_submit<A: Authority, T: TotpVerifier>(
     let Ok(Form(form)) = form else {
         return refusal(locale, Refusal::InvalidInput);
     };
-    match s.step_up(&session, &form.code).await {
-        Ok(()) => message(locale, StatusCode::OK, "done"),
+    let Ok(Query(query)) = query else {
+        return refusal(locale, Refusal::InvalidInput);
+    };
+    match s
+        .step_up_for_request(&session, query.request_id, &form.code)
+        .await
+    {
+        Ok(_) => message(locale, StatusCode::OK, "done"),
         Err(e) => refusal(locale, e),
     }
 }
@@ -232,10 +243,18 @@ async fn approval_submit<A: Authority, T: TotpVerifier>(
     let Ok(Path(id)) = path else {
         return refusal(locale, Refusal::InvalidInput);
     };
-    match s.approve(&session, id).await {
+    match s.approve_request(&session, id).await {
         Ok(_) => message(locale, StatusCode::OK, "done"),
-        Err(e) => refusal(locale, e),
+        Err(e) => refusal_for_request(&headers, e, id),
     }
+}
+/// Preserve the target request while obtaining a new proof for a submission.
+pub fn refusal_for_request(headers: &HeaderMap, error: Refusal, request_id: Uuid) -> Response {
+    if error == Refusal::StepUpRequired {
+        return Redirect::to(&format!("/admin/control/step-up?request_id={request_id}"))
+            .into_response();
+    }
+    refusal_response(headers, error)
 }
 /// Submission handlers reuse this mapping for typed policy refusals.
 pub fn refusal_response(headers: &HeaderMap, error: Refusal) -> Response {
