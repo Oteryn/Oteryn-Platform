@@ -209,3 +209,34 @@ async function atlasSpawns(view, redraw, install) {
   form('label','save',1,80,'/atlas/private-markers');
   panel.append(element('h2',text.report)); form('description','send',10,2000,'/atlas/map-reports');
 }
+// Owner-only hunting-place layer. Labels come from the server i18n layer.
+(() => {
+  const atlas = document.getElementById('atlas');
+  const lang = document.documentElement.lang;
+  if (!atlas || !['pl', 'en'].includes(lang)) return;
+  fetch(`/${lang}/atlas/places`, { credentials: 'same-origin', cache: 'no-store' })
+    .then(response => response.ok ? response.text() : null)
+    .then(markup => {
+      if (!markup) return;
+      const page = new DOMParser().parseFromString(markup, 'text/html');
+      const heading = page.querySelector('h1');
+      if (!heading) return;
+      const link = document.createElement('a');
+      link.href = `/${lang}/atlas/places`;
+      link.textContent = heading.textContent;
+      const layer = document.createElement('details');
+      layer.className = 'hunting-places-layer';
+      const summary = document.createElement('summary');
+      summary.textContent = heading.textContent;
+      layer.append(summary, link);
+      const help = page.querySelector('main > p');
+      if (help) {
+        const description = document.createElement('p');
+        description.textContent = help.textContent;
+        layer.append(description);
+      }
+      const rows = page.querySelector('ul.places');
+      if (rows) layer.append(document.importNode(rows, true));
+      atlas.before(layer);
+    }).catch(() => {});
+})();

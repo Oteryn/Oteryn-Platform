@@ -8,3 +8,4 @@ pub mod reminders;
 pub mod store;
 pub mod pricing;
 pub mod deaths;
+pub mod places;

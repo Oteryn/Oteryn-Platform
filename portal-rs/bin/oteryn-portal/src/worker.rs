@@ -200,6 +200,11 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         3600,
         Arc::new(oteryn_identity::mfa::MfaCleanup { pool: pool.clone() }),
     )?;
+    registry.cleanup(
+        "cleanup.hunting-places",
+        3600,
+        Arc::new(oteryn_playerdata::places::PlacesRetention { pool: pool.clone() }),
+    )?;
     for kind in ["cleanup.tokens", "cleanup.support"] {
         registry.cleanup(kind, 3600, Arc::new(NoopCleanup))?;
     }

@@ -1,2 +1,12 @@
 :root{color-scheme:dark}body{margin:0;background:#111820;color:#f4f6f8;font:1rem/1.6 system-ui}main{max-width:75rem;margin:auto;padding:1rem}nav{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;margin-block:1rem}button,select,input{font:inherit}button,select{min-height:44px;background:#263747;color:#fff;border:1px solid #a8bfd1;border-radius:.25rem;padding:.4rem}label{display:flex;align-items:center;gap:.5rem;min-height:44px}input{width:24px;height:24px}a{color:#a7dcff}a,button,select,input,#atlas{outline-offset:4px} :focus-visible{outline:3px solid #ffdc78}#atlas{height:60vh;min-height:280px;position:relative;overflow:hidden;border:2px solid #a8bfd1;touch-action:none;cursor:grab}canvas{display:block;width:100%;height:100%}#entities{padding-left:1.5rem}#entities a{display:inline-block;min-height:44px}#status{min-height:1.6em}
 .spawn-panel{max-width:100%;overflow-wrap:anywhere}.spawn-panel label{flex-wrap:wrap}.spawn-panel textarea{box-sizing:border-box;display:block;width:100%;max-width:32rem;min-height:5rem;background:#263747;color:#fff;border:1px solid #a8bfd1;font:inherit}.spawn-panel form{display:grid;gap:.75rem;margin-block:1rem}.spawn-panel li{margin-block:.5rem}.spawn-panel li>a,.spawn-panel summary{display:inline-block;min-height:44px}.spawn-panel li button{margin-inline:.75rem}.spawn-panel summary{cursor:pointer}.spawn-panel :focus-visible{outline:3px solid #ffdc78;outline-offset:4px}#atlas:fullscreen{width:100%;height:100%;background:#111820}
+
+.hunting-places-layer { color: #f1f5f9; background: #111820; padding: .75rem; overflow-wrap: anywhere; }
+.hunting-places-layer summary { min-height: 44px; cursor: pointer; }
+.hunting-places-layer a { color: #8ed8ff; }
+.hunting-places-layer :focus-visible { outline: 3px solid #ffda70; outline-offset: 3px; }
+.hunting-places-layer .places { list-style: none; padding: 0; display: grid; gap: 1rem; }
+.hunting-places-layer li { border: 1px solid #8c9eaf; padding: .75rem; min-width: 0; }
+.hunting-places-layer dt { font-weight: 700; }
+.hunting-places-layer dd { margin: 0 0 .75rem; }
+.hunting-places-layer a { display: inline-block; min-height: 44px; padding: .25rem; }
