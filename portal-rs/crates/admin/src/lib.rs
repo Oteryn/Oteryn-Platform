@@ -8,3 +8,8 @@ pub mod web;
 pub mod commerce;
 pub mod players;
 pub mod support;
+
+pub mod control {
+    pub mod canonical;
+    pub mod signer;
+}
