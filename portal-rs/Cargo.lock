@@ -1655,6 +1655,7 @@ dependencies = [
  "oteryn-web",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",

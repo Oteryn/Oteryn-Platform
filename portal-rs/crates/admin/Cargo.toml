@@ -34,3 +34,5 @@ features = ["derive"]
 [dev-dependencies.tower]
 version = "0.5.3"
 features = ["util"]
+[dev-dependencies.serde_urlencoded]
+version = "0.7"
