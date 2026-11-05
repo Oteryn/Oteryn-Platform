@@ -173,3 +173,21 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 #[path = "worker_tests.rs"]
 mod tests;
+
+impl Handler for oteryn_notify::Delivery {
+    fn run<'a>(&'a self, job: &'a Job) -> HandlerFuture<'a> {
+        Box::pin(async move {
+            self.notifications
+                .deliver(job, self.sender.as_ref())
+                .await
+                .map_err(|_| "email delivery failed".to_owned())
+        })
+    }
+}
+impl Registry {
+    /// Identity supplies account state before email delivery can be enabled.
+    #[allow(dead_code)]
+    pub fn notifications(&mut self, delivery: oteryn_notify::Delivery) -> Result<(), String> {
+        self.register(oteryn_notify::EMAIL_JOB, Arc::new(delivery))
+    }
+}
