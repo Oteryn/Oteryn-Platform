@@ -521,7 +521,7 @@ Wzór: TibiaRoute (przegląd 2026-11-05): mapa dostaw zadań, trackery bestiariu
 | Miejsca na bestiariusz i bossów | Karty: potwór lub boss, poziom, punkty, szacowany czas ukończenia z tempa zabójstw graczy | T87 | T81 |
 | Dziś na świecie | Na stronie „Dziś” i w nagłówku: wzmocniony dziś potwór i boss, historia wzmocnień, rajdy z harmonogramu | T88 | G-12 |
 
-Pierwowzór: repozytorium `Oteryn/Oteryn-Atlas` (przegląd 2026-11-05, main @0bbd188). Ma przeglądarkę WebGL całego świata, kafelek po kafelku. Publikacja ma 18,75 GB i powstała ze starego OTBM oraz klienta Tibii 15.32 z atestacją praw. Działa tylko jako podgląd w sieci domowej, a repozytorium jest w zamrożeniu. Portal nie przenosi tego renderera: kafle z minimapy gry (T40) są lżejsze i nie zależą od danych Tibii. Przenosi natomiast:
+Pierwowzór: repozytorium `Oteryn/Oteryn-Atlas` (przegląd 2026-11-05, main @0bbd188). Ma przeglądarkę WebGL całego świata, kafelek po kafelku. Publikacja ma 18,75 GB i powstała ze starego OTBM oraz klienta Tibii 15.32 z atestacją praw. Działa tylko jako podgląd w sieci domowej, a repozytorium jest w zamrożeniu. Atlas portalu je zastępuje (D19). Portal nie przenosi tego renderera: kafle z minimapy gry (T40) są lżejsze i nie zależą od danych Tibii. Przenosi natomiast:
 
 - estymator farmy: oczekiwana liczba zabójstw oraz P50, P80 i P95 do zdobycia N sztuk z dokładnych szans ppm, wraz z kontraktem liczbowym i testami (`src/browser/farm-intelligence.mjs`, `docs/testing/ATLAS-FARM-ESTIMATOR-NUMERIC-CONTRACT.md`); w mapie dostaw zadań pokazuje na przykład „ok. 120 zabójstw, 80% szans przy 190”;
 - ranking wyszukiwania (NPC, potwory, miasta, miejsca, teleporty, domy, obszary questów);
@@ -866,6 +866,7 @@ Pozostałe warunki:
 | D16 | Statystyki graczy, gildii i świata (wzór GuildStats) | **Tak** (2026-11-05), §5.7 |
 | D17 | Prywatny dziennik gry z automatycznym analizatorem polowań | **Tak** (2026-11-05), §5.8; najpierw analizator i przeglądarka przedmiotów |
 | D18 | Atlas z mapą dostaw zadań i trackerami (wzór TibiaRoute) | **Tak** (2026-11-05), §5.9 |
+| D19 | Repozytorium Oteryn-Atlas (było Q11) | **Zgoda** (2026-11-05): Atlas w portalu je zastępuje. Repo zostaje zamrożone i trafia do archiwum po uruchomieniu Atlasu portalu (T41, T84–T86); archiwizuje je właściciel |
 
 ## 12. Otwarte pytania
 
@@ -875,7 +876,6 @@ Pozostałe warunki:
 | Q3 | Aktualizacja locka gry: N4P (z `native-admissions`) i GAME-CHAR-CMD-0 (§6) | Koordynator, G-1 | Nic; portal implementuje według kodu |
 | Q4 | Decyzje właściciela w FND-04B-AMEND-1 (§6) | Właściciel | Zmiany grantów w T19 |
 | Q5 | Akceptacja projektu | Właściciel | Start T01+ |
-| Q11 | Los repozytorium Oteryn-Atlas: Atlas w portalu je zastępuje, a repo zostaje zarchiwizowane (rekomendacja) albo zostaje osobnym trybem 3D | Właściciel | Nic; portal buduje swój Atlas (T40, T41, T84–T86) |
 
 Pozostałe zadania nie czekają na te odpowiedzi.
 
