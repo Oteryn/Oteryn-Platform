@@ -14,10 +14,6 @@ on:
       - "tools/agents/test_historical_branch_audit.py"
       - "tools/agents/test_historical_branch_policy.py"
       - "tools/agents/test_historical_work_reconciliation.py"
-  pull_request_target:
-    types:
-      - opened
-      - reopened
   push:
     branches:
       - main
@@ -44,12 +40,12 @@ permissions:
 
 concurrency:
   group: historical-branch-audit-${{ github.event.pull_request.number || github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
     name: validate
-    if: github.event_name != 'pull_request_target' && github.event_name != 'schedule'
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -74,7 +70,7 @@ jobs:
 
   inventory:
     name: live-dry-run
-    if: github.event_name != 'pull_request_target' && github.event_name != 'schedule'
+    if: github.event_name != 'schedule'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -222,7 +218,9 @@ jobs:
 
   steady-state:
     name: steady-state-read-only
-    if: github.event_name == 'pull_request_target' || github.event_name == 'schedule'
+    # Nightly only: the package workflow keeps integration branches without a PR,
+    # so a per-PR run reports the same repository-wide findings on every PR.
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
