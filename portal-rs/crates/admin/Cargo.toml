@@ -72,3 +72,4 @@ version = "0.6"
 features = ["getrandom"]
 [dependencies.zeroize]
 version = "1.9"
+

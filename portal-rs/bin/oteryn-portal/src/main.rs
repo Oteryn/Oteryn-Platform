@@ -321,6 +321,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_admin::commerce::configured_router(
                 oteryn_db::lazy_pool(config.database_url())?,
             )?);
+            let app = app.merge(oteryn_admin::controls::http::configured_router(
+                oteryn_db::lazy_pool(config.database_url())?,
+            )?);
             let app = sessions_http::configured(app, oteryn_db::lazy_pool(config.database_url())?);
             let app = app.merge(privacy_web::configured_router(oteryn_db::lazy_pool(
                 config.database_url(),

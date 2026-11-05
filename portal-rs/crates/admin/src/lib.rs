@@ -7,6 +7,8 @@ pub mod web;
 
 pub mod bazaar;
 pub mod commerce;
+#[path = "control/controls.rs"]
+pub mod controls;
 pub mod players;
 pub mod support;
 
