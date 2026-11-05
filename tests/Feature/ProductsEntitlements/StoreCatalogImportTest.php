@@ -18,9 +18,17 @@ final class StoreCatalogImportTest extends TestCase
 
     private const FIXTURE = 'docs/contracts/fixtures/store-price-list-v1/price-list.valid.json';
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if (DB::getDriverName() !== 'pgsql') {
+            self::markTestSkipped('Store qualification requires the PostgreSQL test wrapper (phpunit.pgsql.xml).');
+        }
+    }
+
     public function test_store_artisan_import_is_verbatim_idempotent_and_activation_is_explicit_exclusive(): void
     {
-        self::assertSame('pgsql', DB::getDriverName(), 'Store qualification requires the PostgreSQL test wrapper.');
         $raw = $this->fixture();
         $revision = hash('sha256', $raw);
         self::assertSame(0, Artisan::call('store:catalog:import', ['file' => base_path(self::FIXTURE)]));
