@@ -175,6 +175,7 @@ struct Page {
     recommendations_label: String,
     locations_label: String,
     points_label: String,
+    unavailable: String,
     recommendations: Vec<String>,
     rows: Vec<Row>,
 }
@@ -320,6 +321,7 @@ fn render(lang: &str, map: Map, version: String) -> Result<String> {
         recommendations_label: text("recommendations")?,
         locations_label: text("locations")?,
         points_label: text("points")?,
+        unavailable: text("unavailable")?,
         recommendations: map.recommendations.iter().map(|k| wrap(k)).collect(),
         rows,
     }
