@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo fmt --all --check)",
+      "Bash(cargo fmt --all)",
+      "Bash(cargo clippy --locked *)",
+      "Bash(cargo test --locked)",
+      "Bash(cargo test --locked *)",
+      "Bash(cargo metadata *)",
+      "Bash(python3 scripts/ci/classify_changes.py *)",
+      "Bash(python3 tools/agents/checkpoint.py *)",
+      "Bash(.claude/skills/oteryn-platform-dev/scripts/main-health.sh)",
+      "Bash(.claude/skills/oteryn-platform-dev/scripts/main-health.sh *)"
+    ]
+  }
+}
