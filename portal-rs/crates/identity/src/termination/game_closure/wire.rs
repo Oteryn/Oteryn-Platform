@@ -263,6 +263,8 @@ impl Receipt {
         {
             return Err(Error::UnknownState);
         }
+        // Attempt expiry bounds the start of unexecuted work. A signed terminal
+        // receipt may follow a durable resumable detach that outlives that TTL.
         let decided = number(&self.decided_at, true)?;
         let issued = number(&intent.issued_at_source, true)?;
         if decided.saturating_add(5) < issued {
@@ -272,7 +274,6 @@ impl Receipt {
             && (result.account_id != intent.account_id
                 || result.termination_id != intent.termination_id
                 || result.lifecycle_generation != intent.lifecycle_generation
-                || decided > number(&intent.expires_at_source, true)?
                 || (intent.command == "ResolveAccountClosure"
                     && result.closure_state
                         != if intent.decision.as_deref() == Some("CANCEL") {

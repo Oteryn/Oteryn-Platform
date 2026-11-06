@@ -682,3 +682,14 @@ async fn postgres_higher_watermark_epoch_withdraws_previously_usable_proof() -> 
     assert_eq!(s.run_worker(100).await?.blocked, 1);
     db.close().await
 }
+
+#[test]
+fn committed_resumable_close_can_complete_after_attempt_ttl() {
+    let intent = Intent::parse(&vectors().remove(0).1).unwrap();
+    let mut receipt = Receipt::parse(&vectors().remove(1).1).unwrap();
+    receipt.decided_at =
+        (wire::number(&intent.expires_at_source, true).unwrap() + 3600).to_string();
+    let raw = serde_json::to_vec(&receipt).unwrap();
+    Receipt::parse(&raw).unwrap().bind(&intent, 3).unwrap();
+    assert!(Receipt::parse(&raw).unwrap().bind(&intent, 4).is_err());
+}
