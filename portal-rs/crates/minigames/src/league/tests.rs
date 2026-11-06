@@ -326,15 +326,17 @@ async fn database_replay_correction_freeze_and_retention() -> TestResult {
         http::{Request, StatusCode},
     };
     use tower::ServiceExt;
-    let wall = u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp())?;
-    let app = web::router(League::new(
-        db.pool.clone(),
-        flags(),
-        Trusted {
-            generation: 1,
-            complete: wall,
-        },
-    ));
+    let app = web::router_with_clock(
+        League::new(
+            db.pool.clone(),
+            flags(),
+            Trusted {
+                generation: 1,
+                complete: NOW,
+            },
+        ),
+        || NOW as i64,
+    );
     for lang in ["pl", "en"] {
         let response = app
             .clone()

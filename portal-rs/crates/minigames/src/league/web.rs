@@ -142,8 +142,15 @@ impl Page {
 struct Surface<A> {
     league: League<A>,
     rate: Mutex<(i64, u32)>,
+    clock: fn() -> i64,
 }
 pub fn router<A: Authority + 'static>(league: League<A>) -> Router {
+    router_with_clock(league, || time::OffsetDateTime::now_utc().unix_timestamp())
+}
+pub(super) fn router_with_clock<A: Authority + 'static>(
+    league: League<A>,
+    clock: fn() -> i64,
+) -> Router {
     if !league.flags.enabled || !league.flags.public {
         return Router::new();
     }
@@ -152,6 +159,7 @@ pub fn router<A: Authority + 'static>(league: League<A>) -> Router {
         .with_state(Arc::new(Surface {
             league,
             rate: Mutex::new((0, 0)),
+            clock,
         }))
 }
 pub fn configured_router(pool: PgPool) -> Router {
@@ -170,7 +178,7 @@ async fn page<A: Authority>(
     if !matches!(lang.as_str(), "pl" | "en") {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let now = (state.clock)();
     let allowed = state
         .rate
         .lock()
