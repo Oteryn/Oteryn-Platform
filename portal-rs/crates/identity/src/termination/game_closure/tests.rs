@@ -644,3 +644,41 @@ async fn postgres_conflicting_terminal_receipt_quarantines_retry_issuance() -> T
     assert_eq!(count, 1);
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_higher_watermark_epoch_withdraws_previously_usable_proof() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let s = service(&db, b.clone());
+    let account = db.account().await?;
+    let (_, intent) = issue(&db, &s, account).await;
+    publish(&db, &b, &intent, true).await;
+    let now: i64 = sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint")
+        .fetch_one(&db.pool)
+        .await?;
+    let watermark = Watermark {
+        contract_version: 2,
+        operation: "PublishPublicProjectionWatermarkV1".into(),
+        source_authority: b.authority.clone(),
+        family: "account_closure".into(),
+        projection_epoch: "4".into(),
+        complete_through: now.to_string(),
+        observed_at: now.to_string(),
+    };
+    let raw = serde_json::to_vec(&watermark)?;
+    assert!(
+        b.ingest_watermark(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+            .await
+            .is_err()
+    );
+    let (epoch, withdrawn): (String, bool) =
+        sqlx::query_as("SELECT highest_epoch,watermark IS NULL FROM plat3_closure_feed WHERE id=1")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(epoch, "4");
+    assert!(withdrawn);
+    assert_eq!(s.run_worker(100).await?.blocked, 1);
+    db.close().await
+}

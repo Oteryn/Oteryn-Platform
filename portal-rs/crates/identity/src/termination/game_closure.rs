@@ -249,10 +249,18 @@ impl GameBoundary {
         .fetch_one(&mut *tx)
         .await?;
         let now = now(&mut tx).await?;
-        if invalid
-            || epoch != watermark.projection_epoch
-            || wire::number(&watermark.observed_at, false)? > now + 5
-        {
+        if wire::number(&watermark.observed_at, false)? > now.saturating_add(1) {
+            return Err(Error::UnknownState);
+        }
+        if wire::number(&watermark.projection_epoch, true)? > wire::number(&epoch, false)? {
+            // Observing a newer authenticated epoch withdraws every old proof,
+            // even when the resync snapshots have not reached Platform yet.
+            sqlx::query("UPDATE plat3_closure_feed SET highest_epoch=$1,watermark=NULL,signature=NULL WHERE id=1")
+                .bind(&watermark.projection_epoch).execute(&mut *tx).await?;
+            tx.commit().await?;
+            return Err(Error::UnknownState);
+        }
+        if invalid || epoch != watermark.projection_epoch {
             return Err(Error::UnknownState);
         }
         if let Some(old) = old {
