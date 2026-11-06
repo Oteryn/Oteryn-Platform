@@ -58,7 +58,7 @@ test('login rate limit refuses the sixth wrong password and supplies Retry-After
 });
 
 
-test('recovery key: confirm and revoke; unavailable global reset preserves credentials',async({page},info)=>{
+test('recovery key: one-time reset revokes sessions; regenerate and revoke',async({page,browser},info)=>{
  const lang=info.project.metadata.locale, account=await register(page,lang);
  await login(page,lang,account);
  await page.goto(`/${lang}/account/recovery-key`);
@@ -69,21 +69,34 @@ test('recovery key: confirm and revoke; unavailable global reset preserves crede
  await page.goto(`/${lang}/account/recovery-key`);
  await expect(page.locator('.op-code')).toHaveCount(0);
  const db=pool();
+ const otherContext=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:lang,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  try {
   const state=async()=> (await db.query('SELECT r.confirmed_at,r.used_at,r.revoked_at,a.password_hash FROM account_recovery_keys r JOIN accounts a ON a.id=r.account_id WHERE a.email=$1',[account.email])).rows[0];
   const before=await state();expect(before.confirmed_at).toBeTruthy();
+  const other=await otherContext.newPage();await login(other,lang,account);
   await logout(page,lang);
   await page.goto(`/${lang}/recovery-key`);
   const next=password();
   const response=page.waitForResponse(r=>r.request().method()==='POST' && new URL(r.url()).pathname===`/${lang}/recovery-key` && r.status()!==403);
   await submit(page,'main form',{email:account.email,recovery_key:key,password:next,password_confirmation:next});
-  expect((await response).status()).toBe(503);
-  const after=await state();expect(after.used_at).toBeNull();expect(after.password_hash).toBe(before.password_hash);
-  await login(page,lang,account);
+  const recovered=await response;expect(recovered.status()).toBe(302);expect(recovered.headers().location).toBe(`/${lang}/login`);
+  const after=await state();expect(after.used_at).toBeTruthy();expect(after.password_hash).not.toBe(before.password_hash);
+  await other.goto('/account');await expect(other).toHaveURL(/login/);
+  await page.goto(`/${lang}/recovery-key`);
+  const replay=password();
+  await submit(page,'main form',{email:account.email,recovery_key:key,password:replay,password_confirmation:replay});
+  await expect(page).toHaveURL(new RegExp(`/${lang}/recovery-key$`));
+  expect((await state()).password_hash).toBe(after.password_hash);
+  await login(page,lang,account);await expect(page).toHaveURL(/login/);
+  await login(page,lang,{...account,password:next});await expect(page).not.toHaveURL(/login/);
   await page.goto(`/${lang}/account/recovery-key`);
-  await csrfRejected(page,`/${lang}/account/recovery-key/revoke`,{current_password:account.password});
-  await page.locator('[name=current_password]').fill(account.password);
+  await submit(page,'main form',{current_password:next});
+  const replacement=(await page.locator('.op-code').innerText()).trim();expect(replacement).not.toBe(key);
+  await submit(page,'main form',{current_password:next,recovery_key:replacement});
+  await page.goto(`/${lang}/account/recovery-key`);
+  await csrfRejected(page,`/${lang}/account/recovery-key/revoke`,{current_password:next});
+  await page.locator('[name=current_password]').fill(next);
   await page.locator('button[formaction$="/revoke"]').click();
   expect((await state()).revoked_at).toBeTruthy();
- } finally {await db.end();}
+ } finally {await otherContext.close();await db.end();}
 });
