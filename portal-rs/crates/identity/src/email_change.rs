@@ -42,6 +42,45 @@ impl Security for DenySecurity {
         Box::pin(async { Ok(false) })
     }
 }
+/// Transactional proof consumption and shared authorization revocation.
+#[derive(Debug)]
+pub struct TransactionalSecurity(pub crate::mfa::Mfa);
+impl Security for TransactionalSecurity {
+    fn proof<'a>(
+        &'a self,
+        db: &'a mut PgConnection,
+        account: AccountId,
+        recovery: bool,
+        proof: &'a str,
+    ) -> FutureResult<'a, bool> {
+        Box::pin(async move {
+            if !recovery {
+                return self.0.verify_totp_in_connection(db, account, proof).await;
+            }
+            let stored: Option<String> = sqlx::query_scalar("SELECT key_hash FROM account_recovery_keys WHERE account_id=$1 AND confirmed_at IS NOT NULL AND used_at IS NULL AND revoked_at IS NULL FOR UPDATE").bind(account).fetch_optional(&mut *db).await?;
+            let raw = crate::recovery_key::normalize(proof);
+            let valid = tokio::task::spawn_blocking(move || {
+                stored.is_some_and(|hash| password::verify(&raw, &hash))
+            })
+            .await
+            .map_err(|_| sqlx::Error::Protocol("proof verification unavailable".into()))?;
+            if valid {
+                sqlx::query("UPDATE account_recovery_keys SET used_at=now(),updated_at=now() WHERE account_id=$1").bind(account).execute(db).await?;
+            }
+            Ok(valid)
+        })
+    }
+    fn revoke<'a>(
+        &'a self,
+        db: &'a mut PgConnection,
+        account: AccountId,
+    ) -> FutureResult<'a, bool> {
+        Box::pin(async move {
+            crate::recovery_key::revoke_authorizations(db, account).await?;
+            Ok(true)
+        })
+    }
+}
 #[derive(Clone)]
 pub struct Service {
     pub pool: PgPool,

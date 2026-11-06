@@ -13,9 +13,16 @@ use subtle::ConstantTimeEq;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Selection {
+    #[serde(default = "previous_week")]
     week: i64,
     format: Option<String>,
     dataset: Option<String>,
+}
+/// Header navigation selects the most recent closed UTC week without inventing data.
+fn previous_week() -> i64 {
+    let at = time::OffsetDateTime::now_utc();
+    at.unix_timestamp().div_euclid(86400) * 86400
+        - (i64::from(at.weekday().number_days_from_monday()) + 7) * 86400
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -238,4 +245,28 @@ pub fn configured_router(pool: PgPool) -> Router {
             weekly_email: false,
         },
     })
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+    #[test]
+    fn missing_week_selects_a_closed_monday_and_bad_input_stays_refused()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let selection =
+            Query::<Selection>::try_from_uri(&"/en/account/journal/reports".parse()?)?.0;
+        let start = time::OffsetDateTime::from_unix_timestamp(selection.week)?;
+        assert_eq!(start.weekday(), time::Weekday::Monday);
+        assert_eq!(start.time(), time::Time::MIDNIGHT);
+        assert!(selection.week + 7 * 86400 <= time::OffsetDateTime::now_utc().unix_timestamp());
+        assert!(
+            Query::<Selection>::try_from_uri(&"/en/account/journal/reports?week=invalid".parse()?)
+                .is_err()
+        );
+        assert!(
+            Query::<Selection>::try_from_uri(&"/en/account/journal/reports?unknown=value".parse()?)
+                .is_err()
+        );
+        Ok(())
+    }
 }

@@ -67,3 +67,5 @@ world-transfer = Możliwość transferu świata
 yes = Tak
 no = Nie
 blessings = Błogosławieństwa
+authority-title = Aukcje postaci są niedostępne
+authority-unavailable = Brak zatwierdzonego źródła uprawnień do depozytu i podpisu postaci. Wystawienie, licytacja i przeniesienie są niedostępne.

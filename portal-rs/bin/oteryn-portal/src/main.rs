@@ -79,6 +79,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
             let app = oteryn_web::router(AppState { db: db.clone() }, &static_dir);
             let app = app.merge(oteryn_community::ingest::configured_router(db.clone()));
+            let app = app.merge(oteryn_web::favicon::router());
             let app = app.merge(oteryn_community::deaths::configured_router(db.clone()));
             let app = app.merge(oteryn_community::guilds::configured_router(db.clone()));
             let app = app.merge(oteryn_community::houses::configured_router(db.clone()));
@@ -247,6 +248,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_admin::controls::http::configured_router(db.clone())?);
             let app = sessions_http::configured(app, db.clone());
             let app = app.merge(privacy_web::configured_router(db.clone()));
+            let app = app.merge(account_lifecycle_http::configured_router(db.clone()));
             let app = app.merge(shop_web::router(db.clone()));
             let app = app.merge(oteryn_player_api::account_feed::configured_router());
             let app = app.merge(oteryn_admin::support::web::configured_router(db.clone())?);
@@ -412,3 +414,6 @@ mod mfa_http;
 mod registration_delivery;
 
 mod import;
+
+#[path = "../../../crates/identity/src/account_lifecycle_http.rs"]
+mod account_lifecycle_http;

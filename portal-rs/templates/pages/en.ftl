@@ -10,3 +10,5 @@ delete = Delete
 slug = Page slug
 locale = Language
 create = Create or edit
+
+not-published = This page has not been published yet.

@@ -140,8 +140,18 @@ pub(crate) async fn view<B: Backend>(
     actor: CheckContext,
     input: Input,
 ) -> Result<Page, Error> {
-    state.check(actor, "game.player.read").await?;
     input.validate()?;
+    if input.q.is_none() && input.character.is_none() {
+        state.check(actor, "admin.access").await?;
+        let lang = language(input.lang.as_deref())?;
+        let mut page = Page::new(lang, "players");
+        page.search = state.check(actor, "game.player.read").await.is_ok();
+        for title in ["characters", "inventory", "sanctions"] {
+            page.section(title, None);
+        }
+        return Ok(page);
+    }
+    state.check(actor, "game.player.read").await?;
     let lang = language(input.lang.as_deref())?;
     let mut page = Page::new(lang, "players");
     page.search = true;

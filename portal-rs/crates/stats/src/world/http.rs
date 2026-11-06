@@ -133,6 +133,19 @@ async fn page(
         if !state.config.enabled {
             return StatusCode::NOT_FOUND.into_response();
         }
+        if raw.as_deref().is_none_or(str::is_empty) {
+            let en = uri.path().starts_with("/en/");
+            let page = Page {
+                lang: if en { "en" } else { "pl" },
+                labels: labels(en),
+                unavailable: true,
+                days: vec![],
+            };
+            return match page.render() {
+                Ok(body) => (StatusCode::SERVICE_UNAVAILABLE, Html(body)).into_response(),
+                Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            };
+        }
         let Ok(query) = serde_urlencoded::from_str::<Query>(raw.as_deref().unwrap_or_default())
         else {
             return StatusCode::BAD_REQUEST.into_response();

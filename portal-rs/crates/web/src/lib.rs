@@ -564,3 +564,5 @@ pub async fn internal_character_services_router(
 
 /// Shared request chrome adapter for startup composition.
 pub mod chrome;
+
+pub mod favicon;

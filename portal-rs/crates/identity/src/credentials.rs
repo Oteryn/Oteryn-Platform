@@ -31,6 +31,18 @@ impl AuthorizationRevoker for UnavailableRevoker {
         })
     }
 }
+/// Integrated authorization revocation, using the same effects as account recovery.
+#[derive(Debug)]
+pub struct TransactionalRevoker;
+impl AuthorizationRevoker for TransactionalRevoker {
+    fn revoke<'a>(
+        &'a self,
+        tx: &'a mut Transaction<'_, Postgres>,
+        account: AccountId,
+    ) -> EffectFuture<'a> {
+        Box::pin(async move { crate::recovery_key::revoke_authorizations(tx, account).await })
+    }
+}
 #[derive(Clone)]
 pub struct Credentials {
     pub pool: PgPool,

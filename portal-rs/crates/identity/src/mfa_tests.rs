@@ -465,3 +465,41 @@ async fn postgres_grant_verifier_is_read_only_and_holds_revocation_lock()
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_transactional_totp_proof_rolls_back_and_refuses_replay()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let mfa = Mfa::new(db.pool.clone(), [7; 32]);
+    let id = account(&db.pool, "email-proof@example.test").await?;
+    let foreign = account(&db.pool, "foreign-email-proof@example.test").await?;
+    let enrollment = mfa.enroll(id, "test password").await?.ok_or("enroll")?;
+    mfa.confirm(id, "test password", &code(&enrollment.secret, 0)?)
+        .await?
+        .ok_or("confirm")?;
+    let fresh = code(&enrollment.secret, 30)?;
+    let mut tx = db.pool.begin().await?;
+    Mfa::lock(&mut tx, id).await?;
+    assert!(
+        !mfa.verify_totp_in_connection(&mut tx, foreign, &fresh)
+            .await?
+    );
+    assert!(
+        !mfa.verify_totp_in_connection(&mut tx, id, "invalid")
+            .await?
+    );
+    assert!(mfa.verify_totp_in_connection(&mut tx, id, &fresh).await?);
+    tx.rollback().await?;
+    let mut tx = db.pool.begin().await?;
+    Mfa::lock(&mut tx, id).await?;
+    assert!(mfa.verify_totp_in_connection(&mut tx, id, &fresh).await?);
+    tx.commit().await?;
+    let mut tx = db.pool.begin().await?;
+    Mfa::lock(&mut tx, id).await?;
+    assert!(!mfa.verify_totp_in_connection(&mut tx, id, &fresh).await?);
+    tx.rollback().await?;
+    db.close().await?;
+    Ok(())
+}

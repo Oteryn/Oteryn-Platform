@@ -10,3 +10,5 @@ delete = Usuń
 slug = Adres strony
 locale = Język
 create = Utwórz lub edytuj
+
+not-published = Ta strona nie została jeszcze opublikowana.

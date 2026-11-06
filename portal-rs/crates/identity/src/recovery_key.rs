@@ -254,14 +254,27 @@ pub fn integrated_security(conn: &mut PgConnection, id: AccountId) -> ResetFutur
             "DELETE FROM account_passkeys WHERE account_id=$1",
             "DELETE FROM passkey_ceremonies WHERE account_id=$1",
             "UPDATE accounts SET login_mfa_required=false WHERE id=$1",
-            "UPDATE oauth_authorization_codes SET revoked_at=now(),updated_at=now() WHERE account_id=$1 AND revoked_at IS NULL",
-            "UPDATE oauth_token_families SET revoked_at=now(),updated_at=now() WHERE account_id=$1 AND revoked_at IS NULL",
-            "UPDATE device_sessions SET revoked_at=coalesce(revoked_at,floor(extract(epoch FROM clock_timestamp()))::bigint),updated_at=now() WHERE account_id=$1",
         ] {
             sqlx::query(statement).bind(id).execute(&mut *conn).await?;
         }
+        revoke_authorizations(conn, id).await?;
         Ok(())
     })
+}
+/// Shared transactional revocation; callers retain MFA and advance the native generation.
+pub async fn revoke_authorizations(
+    conn: &mut PgConnection,
+    id: AccountId,
+) -> Result<(), sqlx::Error> {
+    for statement in [
+        "UPDATE oauth_authorization_codes SET revoked_at=now(),updated_at=now() WHERE account_id=$1 AND revoked_at IS NULL",
+        "UPDATE oauth_token_families SET revoked_at=now(),updated_at=now() WHERE account_id=$1 AND revoked_at IS NULL",
+        "UPDATE device_sessions SET revoked_at=coalesce(revoked_at,floor(extract(epoch FROM clock_timestamp()))::bigint),updated_at=now() WHERE account_id=$1",
+        "DELETE FROM account_mfa_tokens WHERE account_id=$1",
+    ] {
+        sqlx::query(statement).bind(id).execute(&mut *conn).await?;
+    }
+    Ok(())
 }
 #[cfg(test)]
 #[path = "recovery_key_tests.rs"]

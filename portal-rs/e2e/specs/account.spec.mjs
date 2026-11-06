@@ -18,6 +18,8 @@ const surfaces=[
 ];
 // These startup adapters explicitly deny access until accepted game authority exists.
 const gameRefusals={
+ 'bazaar':'accepted character custody and signing authority are unavailable',
+ 'account/bazaar':'accepted character custody and signing authority are unavailable',
  'account/dashboard':'closed-session and timer producers are unavailable; runtime defaults to empty 503',
  [`account/journal/reports?week=${previousWeek()}`]:'accepted private journal projection source is unavailable',
  'bazaar/items':'capability and escrow receipt integration is absent',
@@ -42,6 +44,20 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
    expect(refused.status(),gameRefusals[path]).toBe(503);
    expect(refused.headers()['cache-control']).toContain('no-store');
    expect(await refused.text()).not.toContain(account.email);
+   if (path.startsWith('account/journal/reports?')) {
+     const navigation=await page.request.get(target.split('?')[0],{headers:{accept:'text/html'}});expect(navigation.status()).toBe(503);expect(navigation.headers()['cache-control']).toContain('no-store');expect(await navigation.text()).toContain('op-shell__header');
+   }
+   if (['bazaar','account/bazaar'].includes(path)) {
+     expect(refused.headers()['content-type']).toContain('text/html');
+     const html=await refused.text();expect(html).toContain('op-shell__header');expect(html).toContain('op-shell__footer');
+     expect(html).toContain(lang==='pl'?'Aukcje postaci są niedostępne':'Character auctions unavailable');
+     if(path==='bazaar') {
+       const detail=await page.request.get(`/${lang}/bazaar/019a541b-a000-7000-8000-000000000001`,{headers:{accept:'text/html'}});
+       expect(detail.status()).toBe(503);expect(detail.headers()['cache-control']).toContain('no-store');expect(await detail.text()).toContain('op-shell__header');expect(await detail.text()).not.toContain(account.email);
+       const invalid=await page.request.get(`/${lang}/bazaar/invalid`,{headers:{accept:'text/html'}});expect(invalid.status()).toBe(404);expect(await invalid.text()).toContain('op-shell__header');
+     }
+
+   }
    return;
  }
  if(path.endsWith('/export')) {
