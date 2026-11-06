@@ -2948,6 +2948,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm 0.10.3",
  "argon2",
+ "askama",
  "axum",
  "base64 0.22.1",
  "chacha20poly1305",

@@ -252,6 +252,110 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(oteryn_identity::abuse::http::routes(state.db.clone()))
         .merge(register::routes())
         .merge(verify::routes())
+        .merge(
+            oteryn_identity::recovery_key_http::routes(state.db.clone()).route_layer(
+                axum::middleware::from_fn_with_state(
+                    ratelimit::RateLimiter::new(state.db.clone()),
+                    |State(limiter): State<ratelimit::RateLimiter>,
+                     axum::Extension(session): axum::Extension<session::BrowserSession>,
+                     axum::Extension(language): axum::Extension<Language>,
+                     mut request: axum::extract::Request,
+                     next: axum::middleware::Next| async move {
+                        if std::env::var("OTERYN_ACCOUNT_RECOVERY_KEYS").as_deref() != Ok("true") && !request
+                            .extensions()
+                            .get::<oteryn_identity::recovery_key::FeatureFlags>()
+                            .is_some_and(|flags| {
+                                flags.contains(oteryn_identity::recovery_key::FEATURE)
+                            })
+                        {
+                            return StatusCode::NOT_FOUND.into_response();
+                        }
+                        request
+                            .extensions_mut()
+                            .insert(oteryn_identity::recovery_key::Enabled(true));
+                        let account = session.account_id().await;
+                        let csrf = match session.csrf_token().await {
+                            Ok(token) => token,
+                            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+                        };
+                        let peer = request
+                            .extensions()
+                            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                            .copied();
+                        let source = peer.ok_or(ratelimit::Denial::Unavailable).and_then(|peer| {
+                            limiter.trusted_proxies.client_ip(peer.0, request.headers())
+                        });
+                        let managing = request.uri().path().contains("/account/");
+                        let flash_key =
+                            session::SessionKey::<String>::new("identity.recovery_key_flash");
+                        let notice = match session.get(flash_key.clone()).await {
+                            Ok(value) => value.unwrap_or_default(),
+                            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+                        };
+                        if !notice.is_empty()
+                            && session
+                                .set(flash_key.clone(), &String::new())
+                                .await
+                                .is_err()
+                        {
+                            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                        }
+                        let chrome = request.extensions().get::<oteryn_ui::Chrome>().cloned().unwrap_or_default();
+                        request.extensions_mut().insert(
+                            oteryn_identity::recovery_key_http::BrowserContext {
+                                chrome,
+                                account,
+                                csrf,
+                                notice,
+                                flash: std::sync::Arc::new(move |key| {
+                                    let session = session.clone();
+                                    let flash_key = flash_key.clone();
+                                    Box::pin(async move {
+                                        if key == "recovered" {
+                                            session::rotate(
+                                                &session,
+                                                session::PrivilegeChange::Logout,
+                                            )
+                                            .await
+                                            .map_err(
+                                                |_| StatusCode::SERVICE_UNAVAILABLE.into_response(),
+                                            )?;
+                                        }
+                                        session
+                                            .set(flash_key.clone(), &key.to_owned())
+                                            .await
+                                            .map_err(|_| {
+                                                StatusCode::SERVICE_UNAVAILABLE.into_response()
+                                            })
+                                    })
+                                }),
+                                language: language.code(),
+                                rate: std::sync::Arc::new(move |email| {
+                                    let limiter = limiter.clone();
+                                    Box::pin(async move {
+                                        let source = source
+                                            .map_err(|error| error.response(language, false))?;
+                                        let mut keys = ratelimit::Keys::source(source);
+                                        keys.email = Some(email);
+                                        keys.account = account.map(|id| id.to_string());
+                                        let policy = if managing {
+                                            ratelimit::NamedPolicy::IdentityRecoveryKeyManage
+                                        } else {
+                                            ratelimit::NamedPolicy::IdentityRecoveryKeyUse
+                                        };
+                                        limiter
+                                            .check(policy, &[keys])
+                                            .await
+                                            .map_err(|error| error.response(language, false))
+                                    })
+                                }),
+                            },
+                        );
+                        next.run(request).await
+                    },
+                ),
+            ),
+        )
         .route(
             "/account",
             get(
