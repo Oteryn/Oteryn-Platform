@@ -70,6 +70,17 @@ pub enum Permission {
 }
 
 impl Permission {
+    /// Existing sanction scopes for the pinned staff-actions v1 operation catalog.
+    pub const fn for_staff_operation(operation: crate::control::catalog::StaffOperation) -> Self {
+        use crate::control::catalog::StaffOperation;
+        match operation {
+            StaffOperation::Warning | StaffOperation::Notation => Self::GameSanctionWrite,
+            StaffOperation::Namelock | StaffOperation::Ban | StaffOperation::Unban => {
+                Self::GameSanctionBan
+            }
+        }
+    }
+
     pub const ALL: &'static [Self] = &[
         Self::Access,
         Self::ManageRoles,

@@ -57,15 +57,20 @@ fn localized_accessible_document_and_invalid_language() -> Result<(), StatusCode
         ("pl", "Bezpieczeństwo konta", "Niedostępne"),
         ("en", "Account security", "Unavailable"),
     ] {
-        let html = render(lang, &assessment)?;
+        let html = render(lang, &assessment, None)?;
         assert!(html.contains(title));
         assert!(html.contains(unknown));
         assert!(html.contains("0/4"));
-        assert!(html.contains("<main><h1>"));
+        assert!(html.contains("op-shell"));
+        assert!(html.contains("data-theme=\"dark\""));
+        assert!(html.contains(&format!("href=\"/{lang}/account/recovery-key\"")));
         assert!(html.contains("width=device-width"));
         assert!(html.contains(&format!("href=\"/{lang}/account/security\"")));
     }
-    assert_eq!(render("<script>", &assessment), Err(StatusCode::NOT_FOUND));
+    assert_eq!(
+        render("<script>", &assessment, None),
+        Err(StatusCode::NOT_FOUND)
+    );
     assert_eq!(escape("<>&\"'"), "&lt;&gt;&amp;&quot;&#39;");
     Ok(())
 }

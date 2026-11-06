@@ -373,13 +373,13 @@ mod tests {
             .await?;
         let body = html(response).await?;
         for expected in [
-            "<html lang=\"en\">",
-            "<header>",
+            "<html lang=\"en\" data-theme=\"dark\">",
+            "<header class=\"op-shell__header\">",
             "<nav ",
             "<main ",
-            "<footer>",
+            "<footer class=\"op-shell__footer\">",
             "href=\"#main\"",
-            "Explore Oteryn",
+            "Everything in one place",
             "href=\"/pl/\"",
         ] {
             assert!(body.contains(expected), "missing {expected}");

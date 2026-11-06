@@ -231,3 +231,192 @@ async fn record(
     .await?;
     Ok(())
 }
+
+impl Service {
+    /// Allocate and record one authorized intent. The caller owns commit/rollback
+    /// and must include its decision, audit and outbox in this same transaction.
+    /// This low-level API performs no staff authorization or external effects.
+    pub async fn allocate_and_record(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        intent: &super::SanctionIntent,
+    ) -> Result<super::SanctionReceipt, Error> {
+        let current = self.lock_revision(tx, intent.account).await?;
+        if current == super::MAX_SANCTION_REVISION {
+            return Err(Error::RevisionExhausted);
+        }
+        self.record_locked(tx, intent, current + 1, current).await
+    }
+
+    /// Record an explicitly supplied next revision, or replay identical intent.
+    /// Gaps, stale revisions and conflicting replays never change stored state.
+    pub async fn record_at_revision(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        intent: &super::SanctionIntent,
+        revision: i64,
+    ) -> Result<super::SanctionReceipt, Error> {
+        if !(1..=super::MAX_SANCTION_REVISION).contains(&revision) {
+            return Err(Error::InvalidInput);
+        }
+        let current = self.lock_revision(tx, intent.account).await?;
+        self.record_locked(tx, intent, revision, current).await
+    }
+
+    async fn lock_revision(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+    ) -> Result<i64, Error> {
+        if !self.features.sanctions {
+            return Err(Error::Disabled);
+        }
+        valid_id(account)?;
+        // Match admission's account lock before taking the counter row lock.
+        let exists: Option<Uuid> =
+            sqlx::query_scalar("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+                .bind(account)
+                .fetch_optional(&mut **tx)
+                .await?;
+        exists.ok_or(Error::NotFound)?;
+        sqlx::query(
+            "INSERT INTO support_sanction_counters(account_id) VALUES ($1) ON CONFLICT DO NOTHING",
+        )
+        .bind(account)
+        .execute(&mut **tx)
+        .await?;
+        Ok(sqlx::query_scalar(
+            "SELECT revision FROM support_sanction_counters WHERE account_id=$1 FOR UPDATE",
+        )
+        .bind(account)
+        .fetch_one(&mut **tx)
+        .await?)
+    }
+
+    async fn record_locked(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        intent: &super::SanctionIntent,
+        revision: i64,
+        current: i64,
+    ) -> Result<super::SanctionReceipt, Error> {
+        use super::SanctionAction;
+        valid_id(intent.sanction_id)?;
+        if let Some(character) = intent.character {
+            valid_id(character)?;
+        }
+        let encoded = serde_json::to_value(intent).map_err(|_| Error::InvalidInput)?;
+        let receipt = super::SanctionReceipt {
+            sanction_id: intent.sanction_id,
+            revision,
+        };
+        let previous: Option<Value> = sqlx::query_scalar(
+            "SELECT intent FROM support_sanction_revisions WHERE account_id=$1 AND revision=$2",
+        )
+        .bind(intent.account)
+        .bind(revision)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some(previous) = previous {
+            if previous != encoded {
+                return Err(Error::RevisionConflict);
+            }
+            if revision < current {
+                return Err(Error::StaleRevision);
+            }
+            return Ok(receipt);
+        }
+        if revision <= current {
+            return Err(Error::StaleRevision);
+        }
+        if revision != current + 1 {
+            return Err(Error::InvalidInput);
+        }
+        let (kind, active, expiry) = match intent.action {
+            SanctionAction::Ban { expires_at_ms } => ("ban", true, expires_at_ms),
+            SanctionAction::Unban => ("ban", false, None),
+            SanctionAction::Namelock { expires_at_ms } => ("namelock", true, expires_at_ms),
+            SanctionAction::LiftNamelock => ("namelock", false, None),
+            SanctionAction::Warning => ("warning", true, None),
+            SanctionAction::Notation => ("notation", true, None),
+        };
+        if kind == "namelock" && intent.character.is_none()
+            || matches!(kind, "ban" | "warning") && intent.character.is_some()
+        {
+            return Err(Error::InvalidInput);
+        }
+        let decision_at: time::OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&mut **tx)
+            .await?;
+        let expires_at = expiry
+            .map(|ms| time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000))
+            .transpose()
+            .map_err(|_| Error::InvalidInput)?;
+        if expires_at.is_some_and(|end| end <= decision_at) {
+            return Err(Error::InvalidInput);
+        }
+        let identity = sqlx::query("SELECT account_id,kind,character_id FROM support_sanction_identities WHERE sanction_id=$1")
+            .bind(intent.sanction_id).fetch_optional(&mut **tx).await?;
+        if let Some(identity) = identity {
+            if identity.try_get::<Uuid, _>("account_id")? != intent.account
+                || identity.try_get::<String, _>("kind")? != kind
+                || identity.try_get::<Option<Uuid>, _>("character_id")? != intent.character
+            {
+                return Err(Error::Conflict);
+            }
+        } else {
+            if !active {
+                return Err(Error::NotFound);
+            }
+            sqlx::query("INSERT INTO support_sanction_identities(sanction_id,account_id,kind,character_id) VALUES ($1,$2,$3,$4)")
+                .bind(intent.sanction_id).bind(intent.account).bind(kind).bind(intent.character)
+                .execute(&mut **tx).await?;
+        }
+        sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+            .bind(intent.account).bind(revision).bind(intent.sanction_id).bind(encoded).bind(active).bind(decision_at).bind(expires_at)
+            .execute(&mut **tx).await?;
+        sqlx::query("UPDATE support_sanction_counters SET revision=$2 WHERE account_id=$1")
+            .bind(intent.account)
+            .bind(revision)
+            .execute(&mut **tx)
+            .await?;
+        Ok(receipt)
+    }
+
+    /// Latest state per stable sanction, evaluated using one database statement's
+    /// time. Expired restrictions cannot reappear through delayed older revisions.
+    pub async fn effective_state(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        account: Uuid,
+        character: Option<Uuid>,
+    ) -> Result<super::EffectiveState, Error> {
+        if !self.features.sanctions {
+            return Err(Error::Disabled);
+        }
+        valid_id(account)?;
+        if let Some(character) = character {
+            valid_id(character)?;
+        }
+        let rows = sqlx::query("WITH latest AS (SELECT DISTINCT ON (sanction_id) sanction_id,revision,active,expires_at FROM support_sanction_revisions WHERE account_id=$1 ORDER BY sanction_id,revision DESC) SELECT c.revision AS account_revision,l.sanction_id,l.revision,l.expires_at,i.kind FROM support_sanction_counters c LEFT JOIN (latest l JOIN support_sanction_identities i ON i.sanction_id=l.sanction_id) ON l.active AND (l.expires_at IS NULL OR l.expires_at > statement_timestamp()) AND (i.kind='ban' OR (i.kind='namelock' AND i.character_id=$2)) WHERE c.account_id=$1 ORDER BY l.revision")
+            .bind(account).bind(character).fetch_all(connection).await?;
+        let mut state = super::EffectiveState::default();
+        for row in rows {
+            state.revision = row.try_get("account_revision")?;
+            if let Some(sanction_id) = row.try_get::<Option<Uuid>, _>("sanction_id")? {
+                let expiry: Option<time::OffsetDateTime> = row.try_get("expires_at")?;
+                let entry = super::EffectiveSanction {
+                    sanction_id,
+                    revision: row.try_get("revision")?,
+                    expires_at_ms: expiry.map(|t| (t.unix_timestamp_nanos() / 1_000_000) as i64),
+                };
+                match row.try_get::<String, _>("kind")?.as_str() {
+                    "ban" => state.bans.push(entry),
+                    "namelock" => state.namelocks.push(entry),
+                    _ => return Err(Error::InvalidInput),
+                }
+            }
+        }
+        Ok(state)
+    }
+}

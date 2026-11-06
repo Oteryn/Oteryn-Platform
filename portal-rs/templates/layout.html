@@ -1,38 +1,18 @@
 <!doctype html>
-<html lang="{{ chrome.lang }}">
+<html lang="{{ chrome.lang }}" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <title>{% block title %}{{ chrome.text("home-link") }}{% endblock %} · Oteryn</title>
+  <link rel="preload" href="/static/fonts/cinzel-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
 </head>
 <body class="op-theme op-shell">
-  {% include "components/icons.html" %}
-  <a class="op-skip" href="#main">{{ chrome.text("skip") }}</a>
-  <header>
-    <div class="op-shell__bar op-row">
-      <a class="op-shell__brand" href="{{ chrome.home_url() }}">Oteryn</a>
-      <a class="op-shell__language" href="{{ chrome.alternate_url }}" lang="{{ chrome.alternate_lang }}" hreflang="{{ chrome.alternate_lang }}">{{ chrome.text("language-switch") }}</a>
-      <div class="op-row" role="group" aria-label="{{ chrome.text("shell-account") }}">
-        {% if chrome.signed_in() %}
-          {% if chrome.account_mounted %}<a class="op-button op-button--secondary" href="/account">{{ chrome.text("shell-account") }}</a>{% endif %}
-          {% if chrome.login_mounted %}<form action="/{{ chrome.lang }}/logout" method="post"><input type="hidden" name="_csrf" value="{{ chrome.csrf() }}"><button class="op-button op-button--secondary" type="submit">{{ chrome.text("shell-logout") }}</button></form>{% endif %}
-        {% else %}
-          {% if chrome.login_mounted %}<a class="op-button op-button--secondary" href="/{{ chrome.lang }}/login">{{ chrome.text("shell-login") }}</a>{% endif %}
-          {% if chrome.registration_mounted %}<a class="op-button" href="/{{ chrome.lang }}/register">{{ chrome.text("shell-register") }}</a>{% endif %}
-        {% endif %}
-      </div>
-    </div>
-    <nav aria-label="{{ chrome.text("navigation") }}">
-      <div class="op-shell__desktop">{% include "components/navigation.html" %}</div>
-      <details class="op-disclosure op-shell__menu">
-        <summary>{{ chrome.text("navigation") }}</summary>
-        {% include "components/navigation.html" %}
-      </details>
-    </nav>
-  </header>
-  <main id="main" class="op-stack" tabindex="-1">{% block content %}{% endblock %}</main>
-  <footer><div class="op-row"><span>{{ chrome.text("footer") }}</span>{% for link in chrome.entries %}{% if link.footer %}<a href="{{ link.url }}">{{ link.label }}</a>{% endif %}{% endfor %}</div></footer>
+  {% include "components/shell-header.html" %}
+  <main id="main" class="{% block main_class %}op-stack op-main{% endblock %}" tabindex="-1">{% block content %}{% endblock %}</main>
+  {% include "components/shell-footer.html" %}
 </body>
 </html>

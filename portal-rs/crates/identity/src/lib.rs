@@ -23,3 +23,6 @@ pub mod sessions;
 
 /// Shared portal navigation registration.
 pub mod navigation;
+
+pub mod recovery_key;
+pub mod recovery_key_http;
