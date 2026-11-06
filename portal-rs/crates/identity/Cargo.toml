@@ -56,3 +56,6 @@ workspace = true
 version = "0.10"
 [dependencies.totp-rs]
 version = "5.7"
+
+[dependencies.askama]
+version = "0.16.1"

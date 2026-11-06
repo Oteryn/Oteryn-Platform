@@ -112,10 +112,30 @@ impl std::fmt::Debug for Wizard {
 /// from account updated_at, password hashes, pending enrollments or address presence.
 pub fn configured(pool: PgPool) -> Router {
     router(Wizard {
-        pool,
+        pool: pool.clone(),
         enabled: std::env::var("OTERYN_SECURITY_WIZARD_ENABLED").is_ok_and(|v| v == "true"),
-        facts: Arc::new(UnavailableFacts),
+        facts: Arc::new(RecoveryFacts(pool.clone())),
     })
+}
+
+/// Reads only the non-secret state owned by the recovery-key module.
+#[derive(Debug)]
+struct RecoveryFacts(PgPool);
+impl FactsSource for RecoveryFacts {
+    fn load(&self, account: AccountId) -> FactsFuture<'_> {
+        Box::pin(async move {
+            let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_recovery_keys WHERE account_id=$1 AND confirmed_at IS NOT NULL AND revoked_at IS NULL AND used_at IS NULL)")
+                .bind(account).fetch_one(&self.0).await?;
+            Ok(Facts {
+                recovery_key: if active {
+                    Evidence::Complete
+                } else {
+                    Evidence::Missing
+                },
+                ..Facts::default()
+            })
+        })
+    }
 }
 
 pub fn router(wizard: Wizard) -> Router {
@@ -128,6 +148,7 @@ async fn page(
     State(wizard): State<Wizard>,
     Path(lang): Path<String>,
     viewer: Option<Extension<Viewer>>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Response {
     let response = async {
         if !wizard.enabled {
@@ -153,7 +174,7 @@ async fn page(
             Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         };
         match assess(account.email_verified_at, facts, OffsetDateTime::now_utc()) {
-            Ok(assessment) => match render(&lang, &assessment) {
+            Ok(assessment) => match render(&lang, &assessment, chrome.map(|value| value.0)) {
                 Ok(html) => Html(html).into_response(),
                 Err(status) => status.into_response(),
             },
@@ -183,7 +204,11 @@ async fn page(
     response
 }
 
-fn render(lang: &str, assessment: &Assessment) -> Result<String, StatusCode> {
+fn render(
+    lang: &str,
+    assessment: &Assessment,
+    chrome: Option<oteryn_ui::Chrome>,
+) -> Result<String, StatusCode> {
     let source = match lang {
         "pl" => include_str!("security_wizard_pl.ftl"),
         "en" => include_str!("security_wizard_en.ftl"),
@@ -212,7 +237,7 @@ fn render(lang: &str, assessment: &Assessment) -> Result<String, StatusCode> {
     };
     let title = text("title")?;
     let mut html = format!(
-        "<!doctype html><html lang=\"{lang}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title></head><body><main><h1>{title}</h1><p>{}: {}/4</p><p>{}</p><ul>",
+        "<section class=\"op-card op-stack\" data-theme=\"dark\"><h1>{title}</h1><p>{}: {}/4</p><p>{}</p><ul>",
         text("score")?,
         assessment.completed,
         text("explanation")?
@@ -226,14 +251,47 @@ fn render(lang: &str, assessment: &Assessment) -> Result<String, StatusCode> {
             Evidence::Missing => "missing",
             Evidence::Unknown => "unknown",
         };
-        html.push_str(&format!("<li>{}: {}</li>", text(id)?, text(status)?));
+        if id == "key" {
+            html.push_str(&format!(
+                "<li><a href=\"/{lang}/account/recovery-key\">{}</a>: {}</li>",
+                text(id)?,
+                text(status)?
+            ));
+        } else {
+            html.push_str(&format!("<li>{}: {}</li>", text(id)?, text(status)?));
+        }
     }
     let date = assessment
         .password_changed_at
         .map(|date| date.date().to_string())
         .unwrap_or(text("unknown")?);
-    html.push_str(&format!("</ul><p>{}: {date}</p><p>{}</p><p><a href=\"/{lang}/account/security\">{}</a></p></main></body></html>", text("password")?, text("password-help")?, text("manage")?));
-    Ok(html)
+    html.push_str(&format!("</ul><p>{}: {date}</p><p>{}</p><p><a href=\"/{lang}/account/security\">{}</a></p></section>", text("password")?, text("password-help")?, text("manage")?));
+    use askama::Template;
+    WizardPage {
+        chrome: chrome.unwrap_or_else(|| {
+            oteryn_ui::Registry::default().chrome(
+                lang,
+                &format!("/{lang}/account/security/wizard"),
+                oteryn_ui::Account::Anonymous,
+            )
+        }),
+        title,
+        content: html,
+    }
+    .render()
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+#[derive(askama::Template)]
+#[template(
+    config = "../ui/askama.toml",
+    source = "{% extends \"layout.html\" %}{% block title %}{{ title }}{% endblock %}{% block content %}{{ content|safe }}{% endblock %}",
+    ext = "html"
+)]
+struct WizardPage {
+    chrome: oteryn_ui::Chrome,
+    title: String,
+    content: String,
 }
 
 fn escape(value: &str) -> String {
