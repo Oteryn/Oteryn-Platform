@@ -149,6 +149,9 @@ async fn run_until(
 }
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
+    if let Some(runtime) = oteryn_bazaar::game::runtime::Runtime::configured(pool.clone()).await? {
+        registry.cleanup("bazaar.authority", 1, Arc::new(runtime))?;
+    }
     registry.cleanup(
         "league.retention",
         1,

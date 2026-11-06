@@ -10,6 +10,14 @@ type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + 
 #[derive(Clone, Default)]
 struct TestAuthority(Arc<AtomicBool>);
 impl ItemAuthority for TestAuthority {
+    async fn cancellation_ready(
+        &self,
+        _: &mut PgConnection,
+        _: &Listing,
+    ) -> std::result::Result<bool, Error> {
+        Ok(self.0.load(Ordering::SeqCst))
+    }
+
     async fn preflight(
         &self,
         _: &mut PgConnection,
@@ -659,4 +667,28 @@ async fn default_flags_deny_before_database_access() -> Result {
         Err(Error::Disabled)
     ));
     Ok(())
+}
+
+#[tokio::test]
+async fn cancellation_without_return_stays_pending_and_keeps_the_same_request() -> Result {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let listing = h.listing(Mode::Fixed).await?;
+    h.authority.0.store(false, Ordering::SeqCst);
+    h.api.cancel(listing, h.owner).await?;
+    h.api.cancel(listing, h.owner).await?;
+    let state: String = sqlx::query_scalar("SELECT state::text FROM bazaar_listings WHERE id=$1")
+        .bind(listing)
+        .fetch_one(&h.pool)
+        .await?;
+    assert_eq!(state, "active");
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_item_outbox WHERE listing_id=$1 AND step='return'",
+    )
+    .bind(listing)
+    .fetch_one(&h.pool)
+    .await?;
+    assert_eq!(count, 1);
+    h.finish().await
 }

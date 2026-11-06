@@ -453,3 +453,21 @@ async fn offer_limits_fixed_prices_and_acceptance_release_other_holds() -> TestR
     }
     h.finish().await
 }
+
+#[tokio::test]
+async fn terminal_cancellation_and_expiry_require_return_evidence() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let listing = h.listing(Form::Auction, Currency::Coins, 100).await?;
+    h.evidence.escrow.store(false, Ordering::SeqCst);
+    assert!(matches!(
+        h.api.cancel(listing.id, h.owner).await,
+        Err(Error::Denied)
+    ));
+    assert_eq!(h.api.get(listing.id).await?.state, State::Active);
+    h.end_in(listing.id, -1).await?;
+    assert!(matches!(h.api.expire(listing.id).await, Err(Error::Denied)));
+    assert_eq!(h.api.get(listing.id).await?.state, State::Active);
+    h.finish().await
+}

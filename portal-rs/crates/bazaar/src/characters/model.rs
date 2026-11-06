@@ -204,7 +204,7 @@ pub struct CharacterCard {
     pub ends_at: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, sqlx::FromRow)]
 pub struct CharacterChoice {
     pub id: Uuid,
     pub name: String,

@@ -511,6 +511,13 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         if activity {
             return Err(Error::Denied);
         }
+        if !self.authority.cancellation_ready(&mut tx, &row).await? {
+            if row.form != Form::WantToBuy {
+                enqueue(&mut tx, listing, "return", listing).await?;
+            }
+            tx.commit().await?;
+            return Ok(());
+        }
         state(&mut tx, listing, State::Cancelled).await?;
         if row.form != Form::WantToBuy {
             enqueue(&mut tx, listing, "return", listing).await?;
@@ -570,6 +577,11 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         accounts.dedup();
         if row.form != Form::WantToBuy {
             self.funds.lock_accounts(&mut tx, &accounts).await?;
+            if !self.authority.cancellation_ready(&mut tx, &row).await? {
+                enqueue(&mut tx, listing, "return", listing).await?;
+                tx.commit().await?;
+                return Ok(());
+            }
             for offer in offers {
                 self.funds.release(&mut tx, offer.id, offer.account).await?;
             }
@@ -667,8 +679,12 @@ async fn enqueue(
     let key = format!("bazaar:{listing}:{command}:{step_id}:1");
     // Local saga reference only. T58 must construct the accepted canonical intent once
     // the result mapping and capability advertisement are accepted. Never a wire body.
-    sqlx::query("INSERT INTO bazaar_item_outbox(id,listing_id,step,issuance_key,local_payload) VALUES ($1,$2,$3,$4,jsonb_build_object('step_id',$5::text))")
-        .bind(Uuid::now_v7()).bind(listing).bind(step).bind(key).bind(step_id.to_string()).execute(db).await?;
+    sqlx::query("INSERT INTO bazaar_item_outbox(id,listing_id,step,issuance_key,local_payload) VALUES ($1,$2,$3,$4,jsonb_build_object('step_id',$5::text)) ON CONFLICT(issuance_key) DO NOTHING")
+        .bind(Uuid::now_v7()).bind(listing).bind(step).bind(&key).bind(step_id.to_string()).execute(&mut *db).await?;
+    let matches:bool=sqlx::query_scalar("SELECT listing_id=$2 AND step=$3 AND local_payload=jsonb_build_object('step_id',$4::text) FROM bazaar_item_outbox WHERE issuance_key=$1").bind(key).bind(listing).bind(step).bind(step_id.to_string()).fetch_one(&mut *db).await?;
+    if !matches {
+        return Err(Error::IdempotencyConflict);
+    }
     Ok(())
 }
 

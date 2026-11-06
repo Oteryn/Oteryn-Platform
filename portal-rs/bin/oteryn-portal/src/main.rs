@@ -75,6 +75,12 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
         Role::Serve => {
             let _league_listener =
                 oteryn_minigames::league::transport::start_private_listener(db.clone()).await?;
+            let bazaar = oteryn_bazaar::game::runtime::Runtime::configured(db.clone()).await?;
+            let _bazaar_listener = if let Some(runtime) = &bazaar {
+                Some(runtime.start_private_listener().await?)
+            } else {
+                None
+            };
             let _admission_listener =
                 oteryn_gameauth::admission::start_private_listener(db.clone()).await?;
             let static_dir =
@@ -158,7 +164,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 ));
             let app = app.merge(wizard);
             let app = app.merge(oteryn_hirelings::web::configured_router(db.clone()));
-            let app = app.merge(oteryn_bazaar::characters::http::configured_router());
+            let app = app.merge(match &bazaar {
+                Some(runtime) => runtime.browser_router(),
+                None => oteryn_bazaar::characters::http::configured_router(),
+            });
             let app = app.merge(reset_http::configured_router(db.clone()));
             let app = app.merge(passkeys_http::configured_router(db.clone())?);
             let mut oauth_login_sessions = oteryn_web::session::SessionLayer::new(db.clone());
@@ -259,7 +268,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_atlas::spawns::viewer_policy,
             ));
             let app = app.merge(oteryn_minigames::puzzles::configured_router(db.clone()));
-            let app = app.merge(oteryn_bazaar::items::web::configured_router());
+            let app = if bazaar.is_none() {
+                app.merge(oteryn_bazaar::items::web::configured_router())
+            } else {
+                app
+            };
             let app = app.merge(oteryn_playerdata::hunts::web::configured_router(db.clone()));
             let app = app.merge(oteryn_playerdata::items::configured_router(db.clone()));
             let app = app.merge(oteryn_playerdata::dashboard::configured_router());
