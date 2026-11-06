@@ -3,19 +3,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {register,login,csrfRejected,submit,pool} from '../helpers.mjs';
 
+function previousWeek(){const d=new Date();d.setUTCHours(0,0,0,0);d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7-7);return Math.floor(d.getTime()/1000);}
+
 const surfaces=[
  ['/account','overview'],['account/privacy','privacy'],['account/sessions','sessions'],['account/passkeys','passkeys'],
  ['account/security/email','email change'],['password/change','password change'],['account/sudo','sudo'],['mfa','MFA settings'],
- ['account/characters/new','character creation'],['panel/balance','wallet balance'],['panel/premium','premium'],['panel/payments','payments'],
+ ['account/characters/new','character creation'],['shop/history','wallet balance'],['panel/premium','premium'],['panel/payments','payments'],
  ['shop','store'],['shop/coins','top up'],['shop/history','wallet history'],['shop/transfer','transfer'],
  ['bazaar','bazaar'],['account/bazaar','character listings'],['bazaar/items','item listings'],
- ['account/hunts','hunts'],['account/journal/reports','journal reports'],['account/game-logins','game login history'],['account/dashboard','dashboard'],
+ ['account/hunts','hunts'],[`account/journal/reports?week=${previousWeek()}`,'journal reports'],['account/game-logins','game login history'],['account/dashboard','dashboard'],
  ['panel/hirelings','hirelings'],['support/tickets','tickets'],['support/reports','player reports'],
  ['party','party finder'],['puzzles','puzzles'],['collection','collection'],['pass','season pass'],['account/notifications','notification preferences'],
  ['account/privacy/export','data export'],['account/privacy/delete','account deletion'],
 ];
 // These startup adapters explicitly deny access until accepted game authority exists.
 const gameRefusals={
+ 'account/dashboard':'closed-session and timer producers are unavailable; runtime defaults to empty 503',
+ [`account/journal/reports?week=${previousWeek()}`]:'accepted private journal projection source is unavailable',
  'bazaar/items':'capability and escrow receipt integration is absent',
  'account/game-logins':'accepted ownership and baseline authority is absent',
  'pass':'accepted season source and cosmetic authority is absent',
@@ -53,6 +57,7 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
  expect(response.status(),target).toBe(200);
  await expect(page.locator('html')).toHaveAttribute('lang',lang);
  await expect(page.locator('main')).toBeVisible();
+ if(label==='wallet balance') {expect(await page.locator('main dl dd').count()).toBeGreaterThanOrEqual(3);await expect(page.locator('main dl dd').first()).toHaveText('0');}
  const forms=await page.locator('form[method=post],form[method=POST]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
  for(const form of forms) await csrfRejected(page,form.action,form.fields);
 });
