@@ -18,6 +18,7 @@ test('all public header and footer links: shell, links, keyboard, accessibility 
       let response;
       try { response = await page.goto(href); } catch (error) { failures.push(`${href}: ${error.message}`); return; }
       if (response.status() !== 200) failures.push(`${href}: HTTP ${response.status()}`);
+      if (await page.locator('html').getAttribute('lang') !== lang) failures.push(`${href}: wrong page language`);
       if (await page.locator('body.op-shell > header.op-shell__header').count() !== 1) failures.push(`${href}: shared header missing`);
       if (await page.locator('body.op-shell > footer.op-shell__footer').count() !== 1) failures.push(`${href}: shared footer missing`);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);

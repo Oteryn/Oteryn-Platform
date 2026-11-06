@@ -51,6 +51,7 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
  }
  const response=await page.goto(target);
  expect(response.status(),target).toBe(200);
+ await expect(page.locator('html')).toHaveAttribute('lang',lang);
  await expect(page.locator('main')).toBeVisible();
  const forms=await page.locator('form[method=post],form[method=POST]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
  for(const form of forms) await csrfRejected(page,form.action,form.fields);
