@@ -89,3 +89,33 @@ test('character request reaches pending state without a game result',async({page
    expect(row.state).toBe('PENDING');expect(row.receipt_json).toBeNull();expect(row.email).toBe(account.email);
  }finally{await statusDb.end();}
 });
+
+test('player report: create a private pending report',async({page},info)=>{
+ const lang=info.project.metadata.locale;
+ await page.goto(`/${lang}/support/reports/create`);
+ await submit(page,'main form',{target_reference:'Local browser qualification target',evidence_summary:'Synthetic local evidence; no real player involved.'});
+ await expect(page).toHaveURL(/support\/reports\/[a-f0-9-]+$/);
+ await expect(page.locator('main')).toContainText('Local browser qualification target');
+ const db=pool();
+ try {
+  const row=(await db.query('SELECT status FROM player_reports WHERE target_reference=$1 ORDER BY created_at DESC LIMIT 1',['Local browser qualification target'])).rows[0];
+  expect(row.status).toBe('submitted');
+ } finally {await db.end();}
+});
+
+test('party post: unavailable ownership authority refuses the mutation',async({page},info)=>{
+ const lang=info.project.metadata.locale;
+ expect((await page.goto(`/${lang}/party`)).status()).toBe(200);
+ await page.goto(`/${lang}/account/sudo`);
+ const token=await page.locator('input[name=_csrf]').first().inputValue();
+ const now=Math.floor(Date.now()/1000);
+ const form={character:'019a541b-a000-7000-8000-000000000001',purpose:'hunt',min_level:'1',max_level:'100',profession:'any',starts_at:String(now+60),expires_at:String(now+3600),note:'Synthetic local recruitment'};
+ await csrfRejected(page,`/${lang}/party`,form);
+ const db=pool();
+ try {
+  const count=async()=>Number((await db.query('SELECT count(*) AS count FROM pd_party_posts')).rows[0].count);
+  const before=await count();
+  const refused=await page.request.post(`/${lang}/party`,{form:{...form,_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
+  expect(refused.status()).toBe(403);expect(await count()).toBe(before);
+ } finally {await db.end();}
+});

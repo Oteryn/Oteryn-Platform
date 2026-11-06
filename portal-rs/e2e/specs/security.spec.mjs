@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {register,login,submit,password,csrfRejected,waitForLoginBudget} from '../helpers.mjs';
+import {register,login,submit,password,csrfRejected,waitForLoginBudget,pool} from '../helpers.mjs';
 import crypto from 'node:crypto';
 
 test('privacy changes persist and account export contains the owning account',async({page},info)=>{
@@ -55,4 +55,34 @@ test('login rate limit refuses the sixth wrong password and supplies Retry-After
  }
  expect(statuses).toEqual([302,302,302,302,302,429]);
  expect(Number(last.headers()['retry-after'])).toBeGreaterThan(0);
+});
+
+
+test('recovery key: confirm and revoke; unavailable global reset preserves credentials',async({page},info)=>{
+ const lang=info.project.metadata.locale, account=await register(page,lang);
+ await login(page,lang,account);
+ await page.goto(`/${lang}/account/recovery-key`);
+ await submit(page,'main form',{current_password:account.password});
+ const key=(await page.locator('.op-code').innerText()).trim();
+ expect(key.length).toBeGreaterThan(30);
+ await submit(page,'main form',{current_password:account.password,recovery_key:key});
+ await page.goto(`/${lang}/account/recovery-key`);
+ await expect(page.locator('.op-code')).toHaveCount(0);
+ const db=pool();
+ try {
+  const state=async()=> (await db.query('SELECT r.confirmed_at,r.used_at,r.revoked_at,a.password_hash FROM account_recovery_keys r JOIN accounts a ON a.id=r.account_id WHERE a.email=$1',[account.email])).rows[0];
+  const before=await state();expect(before.confirmed_at).toBeTruthy();
+  await page.goto(`/${lang}/recovery-key`);
+  const next=password();
+  const response=page.waitForResponse(r=>r.request().method()==='POST' && new URL(r.url()).pathname===`/${lang}/recovery-key` && r.status()!==403);
+  await submit(page,'main form',{email:account.email,recovery_key:key,password:next,password_confirmation:next});
+  expect((await response).status()).toBe(503);
+  const after=await state();expect(after.used_at).toBeNull();expect(after.password_hash).toBe(before.password_hash);
+  await login(page,lang,account);
+  await page.goto(`/${lang}/account/recovery-key`);
+  await csrfRejected(page,`/${lang}/account/recovery-key/revoke`,{current_password:account.password});
+  await page.locator('[name=current_password]').fill(account.password);
+  await page.locator('button[formaction$="/revoke"]').click();
+  expect((await state()).revoked_at).toBeTruthy();
+ } finally {await db.end();}
 });
