@@ -3017,6 +3017,7 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "axum",
+ "ed25519-dalek",
  "fluent-bundle",
  "getrandom 0.4.3",
  "image",
@@ -3028,6 +3029,7 @@ dependencies = [
  "oteryn-wallet",
  "oteryn-web",
  "oteryn-world",
+ "prost",
  "serde",
  "serde_json",
  "sha2 0.10.9",

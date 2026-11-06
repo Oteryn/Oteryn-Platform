@@ -44,3 +44,9 @@ path = "../playerdata"
 
 [dependencies.getrandom]
 version = "0.4.3"
+
+[dependencies.ed25519-dalek]
+workspace = true
+
+[dependencies.prost]
+version = "0.14.1"
