@@ -24,7 +24,7 @@ let account, cookies, stateFile;
 test.beforeAll(async({browser},info)=>{
  stateFile=path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`${info.project.name}.json`);
  if(fs.existsSync(stateFile)){({account,cookies}=JSON.parse(fs.readFileSync(stateFile,'utf8')));return;}
- const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
+ const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const page=await context.newPage();account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();fs.writeFileSync(stateFile,JSON.stringify({account,cookies}),{mode:0o600});await context.close();
 });
 test.beforeEach(async({context})=>{await context.addCookies(cookies);});
@@ -65,7 +65,7 @@ test('support ticket create, reply and refusal to another account',async({page,b
  const target=new URL(page.url()).pathname;
  await submit(page,'main form[action$="/reply"]',{body:'Local browser reply for qualification.'});
  await expect(page.locator('main')).toContainText('Local browser reply for qualification.');
- const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
+ const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const other=await context.newPage();const foreign=await register(other,lang);await login(other,lang,foreign);
  expect((await other.goto(target)).status()).toBe(404);
  await context.close();

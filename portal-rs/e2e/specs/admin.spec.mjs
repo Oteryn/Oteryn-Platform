@@ -34,7 +34,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    const forms=await page.locator('form[method=post],form[method=POST]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
    for(const form of forms)await csrfRejected(page,form.action,form.fields);
  });
- const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
+ const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
  expect((await ordinary.goto('/admin')).status()).toBe(403);
  await context.close();

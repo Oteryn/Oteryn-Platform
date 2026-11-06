@@ -20,7 +20,7 @@ test('privacy changes persist and account export contains the owning account',as
 
 test('sessions: revoke other browser sessions and refuse the revoked cookie',async({page,browser},info)=>{
  const lang=info.project.metadata.locale;const account=await register(page,lang);await login(page,lang,account);
- const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
+ const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const other=await context.newPage();await login(other,lang,account);
  await page.goto(`/${lang}/account/sessions`);
  await submit(page,'main form[action$="/others"]');
