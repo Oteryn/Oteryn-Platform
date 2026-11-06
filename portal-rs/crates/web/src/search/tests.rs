@@ -284,11 +284,34 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
         return Ok(());
     };
     sqlx::query("INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,translation_source_updated_at) VALUES ('dragon','Dragon <test>','dragon',now(),'Dragon <test>','dragon',now(),now())").execute(&db.pool).await?;
+    async fn shell_fixture(
+        axum::extract::Path(lang): axum::extract::Path<String>,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        let mut registry = oteryn_ui::Registry::default();
+        registry.login = true;
+        registry.registration = true;
+        registry.account = true;
+        registry.section(
+            true,
+            "information",
+            "shell-server-information",
+            "server-information",
+            oteryn_ui::Group::World,
+            true,
+        );
+        let chrome = registry.chrome(&lang, &format!("/{lang}/"), oteryn_ui::Account::Anonymous);
+        let Some((header, footer)) = oteryn_ui::shell_parts(&chrome) else {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        };
+        axum::response::Html(format!("<!doctype html><html lang=\"{lang}\" data-theme=\"dark\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Shell</title><link rel=\"stylesheet\" href=\"/static/css/surface.css\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme op-shell\">{header}<main id=\"main\">Shell</main>{footer}</body></html>")).into_response()
+    }
     let app = routes(SearchState {
         pool: db.pool.clone(),
         world: None,
         characters: None,
     })
+    .route("/browser-shell/{lang}", axum::routing::get(shell_fixture))
     .nest_service(
         "/static",
         tower_http::services::ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../static")),

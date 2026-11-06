@@ -23,6 +23,18 @@ const AxeBuilder = modules('@axe-core/playwright').default;
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}px overflow`);
         const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
         assert.deepEqual(result.violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) })), []);
+        await page.goto(`${process.env.PORTAL_BROWSER_URL}/browser-shell/${lang}`);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'closed navigation overflow');
+        const menu = page.locator('details.op-shell__menu');
+        assert.equal(await menu.locator('nav').isVisible(), false);
+        if (width === 360) {
+          await menu.locator('summary').click();
+          const dimensions = await menu.locator('nav').evaluate(n => ({ width:n.getBoundingClientRect().width, height:n.getBoundingClientRect().height, viewport:innerWidth, minimum:innerHeight-document.querySelector('header').getBoundingClientRect().height-2 }));
+          assert.ok(dimensions.width <= dimensions.viewport);
+          assert.ok(dimensions.height >= dimensions.minimum, 'mobile sheet must fill the available viewport');
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'open navigation overflow');
+          await menu.locator('summary').click();
+        }
       }
       await context.close();
       console.log(`${width}px ${colorScheme}: PL/EN keyboard search, escaped result, no overflow; axe 0 violations`);
