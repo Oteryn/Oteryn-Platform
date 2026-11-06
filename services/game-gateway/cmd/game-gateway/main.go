@@ -27,6 +27,9 @@ func main() {
 	httpClient := &http.Client{Timeout: cfg.RequestTimeout}
 	platformClient := platform.NewClient(cfg.PlatformBaseURL, httpClient)
 	api := httpapi.NewServer(platformClient, cfg.Version, logger)
+	if cfg.CastWatchEnabled {
+		api.EnableCastWatch(nativelogin.NewCastWatchHandler(cfg.PlatformBaseURL, cfg.PlatformServiceToken, cfg.NativeAdmissionTimeout, nil))
+	}
 	if cfg.NativeLoginEnabled {
 		issuer := nativelogin.NewIssuerClient(cfg.PlatformBaseURL, cfg.PlatformServiceToken, cfg.NativeAdmissionTimeout, nil)
 		api.EnableNativeLogin(nativelogin.NewHandler(issuer, logger))

@@ -20,6 +20,7 @@ var safeRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 type Server struct {
 	checker Readiness
+	cast    NativeLoginHandler
 	native  NativeLoginHandler
 	version string
 	logger  *slog.Logger
@@ -47,6 +48,7 @@ func NewServer(ready Readiness, version string, logger *slog.Logger) *Server {
 	server.mux.HandleFunc("GET /ready", server.ready)
 	server.mux.HandleFunc("GET /version", server.versionInfo)
 	server.mux.HandleFunc("POST /v1/login", server.login)
+	server.mux.HandleFunc("POST /v1/casts/watch", server.watchCast)
 	return server
 }
 
