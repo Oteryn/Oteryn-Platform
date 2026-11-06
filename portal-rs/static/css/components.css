@@ -101,7 +101,7 @@
 .op-tabs a { color: var(--op-nav); text-decoration: none; border-radius: var(--op-radius-sm); }
 .op-tabs a:hover { background: var(--op-hairline); color: var(--op-text); }
 .op-tabs a[aria-current="page"], .op-pagination [aria-current="page"] { background: linear-gradient(180deg, var(--op-cta-hi), var(--op-cta-lo)); color: var(--op-cta-text); }
-.op-input { border-color: var(--op-border); border-radius: var(--op-radius-md); background: var(--op-tile-lo); }
+.op-input { border-color: var(--op-border); border-radius: var(--op-radius-md); background: var(--op-surface); }
 .op-input:focus-visible { border-color: var(--op-accent); }
 .op-badge { border-radius: 999px; }
 .op-shell__page { flex: 1; display: grid; align-content: start; gap: var(--op-space-5); width: 100%; max-width: var(--op-shell-width); margin-inline: auto; padding: var(--op-space-7) var(--op-space-5); }

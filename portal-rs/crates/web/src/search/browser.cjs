@@ -7,8 +7,8 @@ const AxeBuilder = modules('@axe-core/playwright').default;
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
   try {
-    for (const width of [360, 1280]) {
-      const context = await browser.newContext({ viewport: { width, height: 800 } });
+    for (const width of [360, 1280]) for (const colorScheme of ['light', 'dark']) {
+      const context = await browser.newContext({ viewport: { width, height: 800 }, colorScheme });
       const page = await context.newPage();
       for (const lang of ['en', 'pl']) {
         assert.equal((await page.goto(`${process.env.PORTAL_BROWSER_URL}/${lang}/search`)).status(), 200);
@@ -25,7 +25,7 @@ const AxeBuilder = modules('@axe-core/playwright').default;
         assert.deepEqual(result.violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) })), []);
       }
       await context.close();
-      console.log(`${width}px: PL/EN keyboard search, escaped result, no overflow; axe 0 violations`);
+      console.log(`${width}px ${colorScheme}: PL/EN keyboard search, escaped result, no overflow; axe 0 violations`);
     }
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
