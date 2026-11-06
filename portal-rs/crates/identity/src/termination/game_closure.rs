@@ -304,7 +304,7 @@ impl GameBoundary {
         decision: Option<&str>,
     ) -> Result<()> {
         self.settings.ready()?;
-        let (generation,close,resolution):(i64,Option<Uuid>,Option<String>)=sqlx::query_as("SELECT generation,close_operation_id,resolution FROM plat3_closure_work WHERE termination_id=$1 AND account_id=$2 FOR UPDATE")
+        let (generation,close,resolution):(i64,Option<Uuid>,Option<String>)=sqlx::query_as("SELECT generation,close_operation_id,resolution FROM plat3_closure_work WHERE termination_id=$1 AND account_id=$2 AND NOT invalid FOR UPDATE")
             .bind(termination.id).bind(termination.account_id).fetch_optional(&mut **tx).await?.ok_or(Error::UnknownState)?;
         if let Some(resolution) = resolution {
             return if Some(resolution.as_str()) == decision {

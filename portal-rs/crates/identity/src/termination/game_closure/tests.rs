@@ -606,3 +606,38 @@ async fn postgres_flag_off_and_request_time_characters_are_still_blockers() -> T
     assert_eq!(count, 0);
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_conflicting_terminal_receipt_quarantines_retry_issuance() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let s = service(&db, b.clone());
+    let account = db.account().await?;
+    let (t, intent) = issue(&db, &s, account).await;
+    let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
+    receipt.operation_id = intent.operation_id.clone();
+    receipt.outcome = "REJECTED".into();
+    receipt.result_code = "CHAR_CMD_INTENT_EXPIRED".into();
+    receipt.result_data = None;
+    receipt.decided_at = intent.issued_at_source.clone();
+    let raw = serde_json::to_vec(&receipt)?;
+    b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+        .await?;
+    receipt.result_code = "CHAR_CMD_ACCOUNT_CLOSE_OBLIGATION".into();
+    let raw = serde_json::to_vec(&receipt)?;
+    assert!(
+        b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+            .await
+            .is_err()
+    );
+    assert_eq!(s.run_worker(100).await?.blocked, 1);
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM plat3_closure_commands WHERE termination_id=$1")
+            .bind(t.id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(count, 1);
+    db.close().await
+}
