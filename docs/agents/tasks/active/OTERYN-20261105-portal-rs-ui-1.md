@@ -39,6 +39,7 @@ head: b77e290a903a005714feb2951492a6fa4da3329c
 branch: claude/portal-rs-ui-1
 pr: 1747
 status: ready
+terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
   - portal-rs/**
@@ -72,7 +73,7 @@ validation:
     evidence: eight exact viewport screenshots, no horizontal overflow, native disclosure without JavaScript, skip-link keyboard focus, optional flags and dark theme checked
 blockers:
   - none
-next_action: owner reviews the retained branch before module migration follow-ups
+next_action: archive this record; PR #1747 is integrated on main
 ```
 
 ## Source branch closeout
