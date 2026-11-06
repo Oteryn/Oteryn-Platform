@@ -11,8 +11,8 @@ async fn disabled_router_refuses_before_database() {
         pool,
         PanelConfig::default(),
         WorldOptions::default(),
-        PendingAuthentication,
-        PendingAuthentication,
+        oteryn_admin::web::PendingAuthentication,
+        oteryn_admin::web::PendingAuthentication,
     );
     let response = app
         .oneshot(

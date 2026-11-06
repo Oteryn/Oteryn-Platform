@@ -13,7 +13,7 @@ use axum::{
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{AccountStateReader, Authorizer, CheckContext, Permission},
-    web::{PanelConfig, PendingAuthentication, StaffSession},
+    web::{PanelConfig, PortalIdentity, StaffSession},
 };
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
@@ -34,7 +34,11 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         return Ok(Router::new());
     }
     oteryn_admin::web::configured_guard(
-        routes(pool.clone(), enabled, PendingAuthentication),
+        routes(
+            pool.clone(),
+            enabled,
+            PortalIdentity::configured(pool.clone()),
+        ),
         pool,
         Permission::GameCatalogAccess,
     )
