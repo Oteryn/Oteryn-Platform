@@ -118,7 +118,7 @@ pub fn routes<M: Market, S: BrowserSecurity>(market: M, security: S, enabled: bo
 /// Mount documented refusal pages only when explicitly enabled. Missing accepted
 /// custody/signing authority never enables a listing, bid or transfer command.
 pub fn configured_router() -> Router {
-    unavailable_routes(std::env::var("OTERYN_BAZAAR_CHARACTERS_ENABLED").as_deref() == Ok("true"))
+    unavailable_routes(true)
 }
 fn authority_refusal(lang: &str) -> Response {
     (StatusCode::SERVICE_UNAVAILABLE, Html(format!("<!doctype html><html lang=\"{lang}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{0}</title></head><body><main><h1>{0}</h1><p>{1}</p></main></body></html>",text(lang,"authority-title"),text(lang,"authority-unavailable")))).into_response()

@@ -10,6 +10,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { SMTPServer } from 'smtp-server';
+import { leagueProducer } from './league-producer.mjs';
+import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
+import {createGameClosureProducer} from './game-closure-producer.mjs';
 dns.setDefaultResultOrder('ipv4first');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const scratch=process.env.PORTAL_E2E_SCRATCH || fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-'));
@@ -46,10 +49,36 @@ openssl(['req','-x509','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/ca-ke
 openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/key.pem`,'-out',`${scratch}/leaf.csr`,'-subj','/CN=localhost']);
 fs.writeFileSync(`${scratch}/extensions`,'subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n');
 openssl(['x509','-req','-in',`${scratch}/leaf.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/cert.pem`,'-days','2','-extfile',`${scratch}/extensions`]);
+const league=await leagueProducer({root,scratch,env,openssl});
+const bazaarConfig=prepareBazaar(env,scratch);
+// Dedicated Character/portfolio certificates; neither is a browser identity.
+function gameCertificate(name){
+ openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/${name}-key.pem`,'-out',`${scratch}/${name}.csr`,'-subj',`/CN=${name}`]);
+ fs.writeFileSync(`${scratch}/${name}.ext`,'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n');
+ openssl(['x509','-req','-in',`${scratch}/${name}.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/${name}.pem`,'-days','2','-extfile',`${scratch}/${name}.ext`]);
+ return {cert:fs.readFileSync(`${scratch}/${name}.pem`),key:fs.readFileSync(`${scratch}/${name}-key.pem`)};
+}
+const character=gameCertificate('closure-character'),portfolio=gameCertificate('closure-portfolio');
+const gameProducer=createGameClosureProducer({baseURL:'https://localhost:19443',ca:fs.readFileSync(`${scratch}/ca.pem`),character,portfolio});
+Object.assign(env,{
+ PORTAL_ACCOUNT_CLOSURE_ENABLED:'true',PORTAL_ACCOUNT_CLOSURE_BASE_URL:'https://localhost:19443',PORTAL_ACCOUNT_CLOSURE_BIND:'127.0.0.1:19443',
+ PORTAL_ACCOUNT_CLOSURE_TLS_CA_FILE:`${scratch}/ca.pem`,PORTAL_ACCOUNT_CLOSURE_TLS_CERT_FILE:`${scratch}/cert.pem`,PORTAL_ACCOUNT_CLOSURE_TLS_KEY_FILE:`${scratch}/key.pem`,
+ PORTAL_ACCOUNT_CLOSURE_CLIENT_CERT_SHA256:crypto.createHash('sha256').update(new crypto.X509Certificate(character.cert).raw).digest('hex'),
+ PORTAL_ACCOUNT_CLOSURE_LCFA_CLIENT_CERT_SHA256:crypto.createHash('sha256').update(new crypto.X509Certificate(portfolio.cert).raw).digest('hex'),
+ PORTAL_ACCOUNT_CLOSURE_KEY_ID:gameProducer.keyId,PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX:gameProducer.publicKeyHex,PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION:'3',PORTAL_ACCOUNT_CLOSURE_WORKER_INTERVAL_SECONDS:'1',
+ PORTAL_E2E_GAME_CLOSURE_CONTROL_URL:gameProducer.controlURL,
+});
 fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
 command('cargo',['build','--locked','-p','oteryn-portal']);
 const binary=process.env.PORTAL_E2E_BINARY||path.join(process.env.CARGO_TARGET_DIR||path.join(root,'target'),'debug/oteryn-portal');
 command(binary,['migrate']);
+// Platform-owned registry/allocation fixtures. The production runtime never mints
+// an escrow account or Game asset and never reads this test producer's journal.
+const bazaarSeed=new pg.Client({connectionString:databaseURL(dbName)});await bazaarSeed.connect();
+await bazaarSeed.query("INSERT INTO world_status(id,name) VALUES($1,'Local Bazaar World') ON CONFLICT(id) DO NOTHING",[bazaarConfig.world]);
+await bazaarSeed.query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'bazaar-escrow@local.test',now(),'non-loginable-fixture','active','en') ON CONFLICT(id) DO NOTHING",[bazaarConfig.escrow]);
+await bazaarSeed.end();
+const bazaarGame=await startBazaarProducer(bazaarConfig);
 const tls={key:fs.readFileSync(`${scratch}/key.pem`),cert:fs.readFileSync(`${scratch}/cert.pem`)};
 const messages=[];
 const smtp=new SMTPServer({...tls,secure:true,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
@@ -60,13 +89,16 @@ const starttls=new SMTPServer({...tls,secure:false,onAuth(auth,session,callback)
 starttls.on('error',error=>console.error('Local SMTP error:',error.code));
 starttls.listen(587,'127.0.0.1');
 const proxy=https.createServer(tls,(req,res)=>{
+ if(req.url.startsWith('/__bazaar_game/')){const upstream=http.request({hostname:'127.0.0.1',port:18993,path:req.url.slice('/__bazaar_game'.length),method:req.method,headers:req.headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);return;}
  if(req.url==='/__mail'){res.setHeader('content-type','application/json');res.end(JSON.stringify(messages));return;}
  const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,headers:req.headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 });
 proxy.listen(18443,'127.0.0.1');
 const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
+league.start();
+await gameProducer.start();
 console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the two task databases.`);
 let closing=false;
-async function close(){if(closing)return;closing=true;for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
+async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();await gameProducer.stop();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
 process.on('SIGINT',close);process.on('SIGTERM',close);

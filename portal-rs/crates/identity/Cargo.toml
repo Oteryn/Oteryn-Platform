@@ -59,3 +59,13 @@ version = "5.7"
 
 [dependencies.askama]
 version = "0.16.1"
+
+[dependencies.ed25519-dalek]
+version = "2.2.0"
+features = ["zeroize"]
+
+[dependencies.prost]
+version = "0.14.3"
+
+[dependencies.oteryn-internal-api]
+path = "../internal-api"

@@ -43,6 +43,10 @@ impl Default for TestEvidence {
     }
 }
 impl Evidence for TestEvidence {
+    async fn cancellation_ready(&self, _: &mut PgConnection, _: &Listing) -> Result<bool, Error> {
+        Ok(self.escrow.load(Ordering::SeqCst))
+    }
+
     async fn escrow_ready(&self, _: &mut PgConnection, _: &Listing) -> Result<bool, Error> {
         Ok(self.escrow.load(Ordering::SeqCst))
     }

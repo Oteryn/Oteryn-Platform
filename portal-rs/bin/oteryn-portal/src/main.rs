@@ -73,6 +73,16 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tokio::signal::ctrl_c().await?;
         }
         Role::Serve => {
+            let _league_listener =
+                oteryn_minigames::league::transport::start_private_listener(db.clone()).await?;
+            let bazaar = oteryn_bazaar::game::runtime::Runtime::configured(db.clone()).await?;
+            let _bazaar_listener = if let Some(runtime) = &bazaar {
+                Some(runtime.start_private_listener().await?)
+            } else {
+                None
+            };
+            let closure = account_closure::configured(db.clone())?;
+            let _closure_listener = account_closure::start_listener(db.clone(), &closure).await?;
             let _admission_listener =
                 oteryn_gameauth::admission::start_private_listener(db.clone()).await?;
             let static_dir =
@@ -156,7 +166,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 ));
             let app = app.merge(wizard);
             let app = app.merge(oteryn_hirelings::web::configured_router(db.clone()));
-            let app = app.merge(oteryn_bazaar::characters::http::configured_router());
+            let app = app.merge(match &bazaar {
+                Some(runtime) => runtime.browser_router(),
+                None => oteryn_bazaar::characters::http::configured_router(),
+            });
             let app = app.merge(reset_http::configured_router(db.clone()));
             let app = app.merge(passkeys_http::configured_router(db.clone())?);
             let mut oauth_login_sessions = oteryn_web::session::SessionLayer::new(db.clone());
@@ -248,7 +261,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_admin::controls::http::configured_router(db.clone())?);
             let app = sessions_http::configured(app, db.clone());
             let app = app.merge(privacy_web::configured_router(db.clone()));
-            let app = app.merge(account_lifecycle_http::configured_router(db.clone()));
+            let app = app.merge(account_lifecycle_http::configured_router(
+                db.clone(),
+                closure.terminations.clone(),
+            ));
             let app = app.merge(shop_web::router(db.clone()));
             let app = app.merge(oteryn_player_api::account_feed::configured_router());
             let app = app.merge(oteryn_admin::support::web::configured_router(db.clone())?);
@@ -257,7 +273,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_atlas::spawns::viewer_policy,
             ));
             let app = app.merge(oteryn_minigames::puzzles::configured_router(db.clone()));
-            let app = app.merge(oteryn_bazaar::items::web::configured_router());
+            let app = if bazaar.is_none() {
+                app.merge(oteryn_bazaar::items::web::configured_router())
+            } else {
+                app
+            };
             let app = app.merge(oteryn_playerdata::hunts::web::configured_router(db.clone()));
             let app = app.merge(oteryn_playerdata::items::configured_router(db.clone()));
             let app = app.merge(oteryn_playerdata::dashboard::configured_router());
@@ -327,6 +347,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             ));
             let app = app.merge(oteryn_wiki::places::configured_router());
             let app = app.merge(oteryn_minigames::pass::web::configured_router(db.clone()));
+            let app = app.merge(oteryn_minigames::league::web::configured_router(db.clone()));
             let app = app.merge(oteryn_minigames::collection_pvp::http::configured_router(
                 db.clone(),
             ));
@@ -417,3 +438,5 @@ mod import;
 
 #[path = "../../../crates/identity/src/account_lifecycle_http.rs"]
 mod account_lifecycle_http;
+
+mod account_closure;

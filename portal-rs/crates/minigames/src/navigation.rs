@@ -5,6 +5,14 @@ use oteryn_ui::{Group, Registry};
 pub fn register(registry: &mut Registry) {
     let on = |key| std::env::var(key).as_deref() == Ok("true");
     registry.section(
+        on("OTERYN_LEAGUE_ENABLED"),
+        "league",
+        "shell-league",
+        "league",
+        Group::Play,
+        false,
+    );
+    registry.section(
         on("OTERYN_DAILY_PUZZLES_ENABLED"),
         "puzzles",
         "shell-puzzles",

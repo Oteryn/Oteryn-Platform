@@ -336,9 +336,9 @@ async fn peer_flag_and_transport_failures_need_no_database() -> TestResult {
         )?)
         .await?;
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-    for environment in [Environment::Local, Environment::Production] {
+    {
         let mut projection = projection.clone();
-        projection.settings.environment = environment;
+        projection.settings.environment = Environment::Local;
         let response = router(projection, identities()?)
             .oneshot(request(
                 SNAPSHOT_PATH,
@@ -349,6 +349,15 @@ async fn peer_flag_and_transport_failures_need_no_database() -> TestResult {
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert!(body(response).await?.is_empty());
     }
+    // Owner acceptance enables production with the same required verified-peer
+    // guard. An enabled environment never supplies a publisher identity.
+    let mut production = projection.clone();
+    production.settings.environment = Environment::Production;
+    assert!(production.settings.available());
+    let response = router(production, identities()?)
+        .oneshot(request(SNAPSHOT_PATH, SNAPSHOT, None)?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     let mut projection = projection;
     projection.settings = Settings::default();
     let response = router(projection, identities()?)

@@ -1,0 +1,15 @@
+title = Wydarzenia świata i sezony gildii
+unavailable = Autorytatywne wyniki są obecnie niedostępne.
+pending = Typowanie pozostaje zamknięte. Wyniki nie wiążą się z nagrodami ani stawkami.
+outcomes = Rozstrzygnięte wydarzenia świata
+standings = Rankingi sezonowe gildii
+world = Świat
+result = Wynik
+rank = Miejsce
+guild = Gildia
+points = Punkty rankingu
+settled = Rozstrzygnięte
+closed = Wynik ostateczny
+void = Unieważnione
+open = Ranking tymczasowy
+frozen = Ranking ostateczny

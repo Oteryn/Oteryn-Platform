@@ -62,7 +62,17 @@ impl Outbox {
             .await
             .map_err(|_| Error::Denied)?
             .ok_or(Error::Denied)?;
-        let allows = if matches!(intent.command, Command::Lock | Command::Escrow) {
+        let compensation = matches!(
+            intent.command,
+            Command::Return | Command::Unlock | Command::Release
+        ) || (intent.command == Command::Bind
+            && text(&intent.value, "purpose")? == "BAZAAR_ESCROW_RETURN");
+        let allows = if compensation {
+            accounts
+                .safe_return(db, actor)
+                .await
+                .map_err(|_| Error::Denied)?
+        } else if matches!(intent.command, Command::Lock | Command::Escrow) {
             state.allows_listing()
         } else {
             state.allows_trade()
@@ -91,9 +101,8 @@ impl Outbox {
         if revision <= previous {
             return Err(Error::Conflict);
         }
-        let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_game_outbox")
-            .fetch_one(&mut **db)
-            .await?;
+        let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_game_outbox o WHERE NOT EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id AND r.recovery_generation=$1::text::numeric)")
+            .bind(generation.to_string()).fetch_one(&mut **db).await?;
         if pending >= 24 {
             return Err(Error::Backlog);
         }
