@@ -83,6 +83,8 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     let body = axum::body::to_bytes(response.into_body(), 65536).await?;
     let html = String::from_utf8(body.to_vec())?;
     assert!(html.contains("Account overview"));
+    assert!(html.contains("href=\"/en/shop/history\""));
+    assert!(!html.contains("/panel/balance"));
     assert!(html.contains("Unavailable"));
     assert!(!html.contains("test-hash"));
     sqlx::raw_sql(include_str!(

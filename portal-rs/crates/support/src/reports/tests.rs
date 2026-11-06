@@ -470,3 +470,43 @@ async fn postgres_browser_flow_csrf_localization_private_output_and_bad_input() 
     assert_eq!(response.headers()[header::RETRY_AFTER], "60");
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_browser_configured_origin_still_requires_csrf() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let owner = db.account("active").await?;
+    let (cookie, csrf) = session(&db, owner, 'a').await?;
+    let origin = "https://portal.local.test";
+    let app = super::web::router_with_origin(db.pool.clone(), policy(), Some(origin.into()));
+    let fields = values();
+    let response = app
+        .clone()
+        .oneshot(get("/en/support/reports/create", &cookie))
+        .await?;
+    assert_eq!(response.headers()[header::REFERRER_POLICY], "same-origin");
+    for (source, token, status) in [
+        (origin, "", StatusCode::FORBIDDEN),
+        ("null", csrf.as_str(), StatusCode::FORBIDDEN),
+        (
+            "https://untrusted.invalid",
+            csrf.as_str(),
+            StatusCode::FORBIDDEN,
+        ),
+        (origin, csrf.as_str(), StatusCode::FOUND),
+    ] {
+        let mut request = post("/en/support/reports", &cookie, token, &fields);
+        request
+            .headers_mut()
+            .insert(header::ORIGIN, source.parse()?);
+        assert_eq!(app.clone().oneshot(request).await?.status(), status);
+    }
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM player_reports WHERE reporter_account_id=$1")
+            .bind(owner)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(count, 1);
+    db.close().await
+}

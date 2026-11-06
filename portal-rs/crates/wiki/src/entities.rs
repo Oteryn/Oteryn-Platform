@@ -156,7 +156,7 @@ fn error(status: StatusCode, lang: &str) -> Response {
         StatusCode::UNPROCESSABLE_ENTITY => "invalid",
         _ => "unavailable",
     };
-    (status, t(lang, key)).into_response()
+    crate::web::notice(status, lang, t(lang, key))
 }
 fn render<T: Template>(page: T) -> Response {
     match page.render() {

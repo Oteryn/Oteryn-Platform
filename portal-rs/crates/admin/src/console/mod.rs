@@ -320,7 +320,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         enabled: std::env::var("OTERYN_ADMIN_CONSOLE").is_ok_and(|v| v == "true"),
         permissions: PgPermissions {
             pool: pool.clone(),
-            accounts: web::PendingAuthentication,
+            accounts: web::PortalIdentity::configured(pool.clone()),
         },
         channel: UnavailableChannel,
         pool: pool.clone(),

@@ -46,6 +46,51 @@ impl AccountStateReader for PendingAuthentication {
         Ok(AccountState::Unknown)
     }
 }
+/// Identity read from the validated browser session and current account/MFA stores.
+#[derive(Debug, Clone)]
+pub struct PortalIdentity {
+    pool: PgPool,
+    mfa: Option<oteryn_identity::mfa::Mfa>,
+}
+impl PortalIdentity {
+    pub fn configured(pool: PgPool) -> Self {
+        let mfa = oteryn_identity::mfa::Mfa::configured(pool.clone()).ok();
+        Self { pool, mfa }
+    }
+}
+impl StaffSession for PortalIdentity {
+    async fn resolve(&self, session: &BrowserSession) -> Option<StaffIdentity> {
+        let account = session.account_id().await?;
+        let key =
+            oteryn_web::session::SessionKey::<String>::new(oteryn_identity::mfa::SESSION_GRANT_KEY);
+        let mfa_satisfied =
+            if let (Some(mfa), Ok(Some(grant))) = (&self.mfa, session.get(key).await) {
+                mfa.enrolled(account).await.unwrap_or(false)
+                    && mfa.satisfied(account, &grant).await.unwrap_or(false)
+            } else {
+                false
+            };
+        Some(StaffIdentity {
+            account,
+            mfa_satisfied,
+        })
+    }
+}
+impl AccountStateReader for PortalIdentity {
+    async fn state(&self, account: Uuid) -> Result<AccountState, AccountStateUnavailable> {
+        let state: Option<(String, bool)> =
+            sqlx::query_as("SELECT status,email_verified_at IS NOT NULL FROM accounts WHERE id=$1")
+                .bind(account)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|_| AccountStateUnavailable)?;
+        Ok(match state {
+            Some((status, true)) if status == "active" => AccountState::Active,
+            Some(_) => AccountState::Disabled,
+            None => AccountState::Unknown,
+        })
+    }
+}
 #[derive(Debug, Clone, Default)]
 pub struct PanelConfig {
     pub admin_panel: bool,
@@ -74,10 +119,10 @@ fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     Ok(router(
-        pool,
+        pool.clone(),
         config_from_env()?,
-        PendingAuthentication,
-        PendingAuthentication,
+        PortalIdentity::configured(pool.clone()),
+        PortalIdentity::configured(pool),
     ))
 }
 
@@ -90,10 +135,10 @@ pub fn configured_guard(
 ) -> Result<Router, Box<dyn std::error::Error>> {
     Ok(guarded(
         routes,
-        pool,
+        pool.clone(),
         config_from_env()?,
-        PendingAuthentication,
-        PendingAuthentication,
+        PortalIdentity::configured(pool.clone()),
+        PortalIdentity::configured(pool),
         permission,
     ))
 }

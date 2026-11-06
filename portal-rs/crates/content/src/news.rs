@@ -50,7 +50,7 @@ fn label(lang: &str, key: &str) -> String {
 }
 #[derive(askama::Template)]
 #[template(
-    source = "<!doctype html><html class=\"op-theme\" lang=\"{{ lang }}\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title><main class=\"op-stack\"><h1>{{ title }}</h1>{{ body|safe }}</main></html>",
+    source = "<!doctype html><html class=\"op-theme\" lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title></head><body class=\"op-theme\"><main class=\"op-stack\"><h1>{{ title }}</h1>{{ body|safe }}</main></body></html>",
     ext = "html"
 )]
 struct NewsPage<'a> {

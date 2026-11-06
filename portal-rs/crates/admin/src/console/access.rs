@@ -304,7 +304,7 @@ where
     routes
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    // Pending identity and channel adapters fail closed even if the flag is set.
+    // Channel operations remain unavailable until a verified agent is connected.
     let flags = Flags {
         console: std::env::var("OTERYN_ADMIN_CONSOLE").is_ok_and(|v| v == "true"),
     };
@@ -320,15 +320,15 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     let backend = StoredMetadata::new(
         pool.clone(),
         flags,
-        crate::web::PendingAuthentication,
+        crate::web::PortalIdentity::configured(pool.clone()),
         crate::control::Config::from_env(),
     );
     Ok(router(
-        pool,
+        pool.clone(),
         flags,
         panel,
-        crate::web::PendingAuthentication,
-        crate::web::PendingAuthentication,
+        crate::web::PortalIdentity::configured(pool.clone()),
+        crate::web::PortalIdentity::configured(pool.clone()),
         backend,
     ))
 }

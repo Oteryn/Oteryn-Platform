@@ -14,7 +14,7 @@ use axum::{
 };
 use oteryn_admin::{
     rbac::{AccountStateReader, CheckContext, Permission},
-    web::{PanelConfig, PendingAuthentication, StaffSession},
+    web::{PanelConfig, PortalIdentity, StaffSession},
 };
 use oteryn_web::ratelimit::{RateLimit, RateLimiter, WikiSearch};
 use oteryn_web::session::BrowserSession;
@@ -28,7 +28,7 @@ struct Staff<A> {
     repository: Repository<A>,
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    let routes = staff_routes(pool.clone(), PendingAuthentication);
+    let routes = staff_routes(pool.clone(), PortalIdentity::configured(pool.clone()));
     let staff = oteryn_admin::web::configured_guard(routes, pool.clone(), Permission::WikiAccess)?;
     Ok(public_router(pool).merge(staff))
 }
@@ -145,14 +145,11 @@ fn failure(error: Error, lang: &str) -> Response {
         }
         _ => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
     };
-    (
-        status,
-        page(Message {
-            lang,
-            message: text(lang, key),
-        }),
-    )
-        .into_response()
+    notice(status, lang, text(lang, key))
+}
+/// Reuse the localized document for domain refusals without changing their status.
+pub(crate) fn notice(status: StatusCode, lang: &str, message: String) -> Response {
+    (status, page(Message { lang, message })).into_response()
 }
 #[derive(Template)]
 #[template(path = "wiki/message.html", config = "wiki_askama.toml")]

@@ -34,7 +34,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     for area in [Area::Tickets, Area::Reports, Area::Enforcement] {
         let state = Arc::new(Panel {
             pool: pool.clone(),
-            auth: Authorizer::new(pool.clone(), web::PendingAuthentication),
+            auth: Authorizer::new(pool.clone(), web::PortalIdentity::configured(pool.clone())),
             backend: PendingSupport,
         });
         routes = routes.merge(web::configured_guard(

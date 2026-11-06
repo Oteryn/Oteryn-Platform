@@ -168,6 +168,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
             .await
             .unwrap();
     }
+    portal_identity_lifecycle(&pool).await;
     let actor = Uuid::now_v7();
     let identity = Some(StaffIdentity {
         account: actor,
@@ -442,4 +443,148 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .await
         .unwrap();
     root.close().await;
+}
+
+async fn portal_identity_session(pool: &PgPool, account: Uuid, grant: Option<String>) -> bool {
+    let identity = PortalIdentity {
+        pool: pool.clone(),
+        mfa: Some(oteryn_identity::mfa::Mfa::new(pool.clone(), [19; 32])),
+    };
+    let routes = Router::new()
+        .route(
+            "/fixture",
+            get(move |Extension(session): Extension<BrowserSession>| {
+                let identity = identity.clone();
+                let grant = grant.clone();
+                async move {
+                    oteryn_web::session::rotate(
+                        &session,
+                        oteryn_web::session::PrivilegeChange::Login(account),
+                    )
+                    .await
+                    .unwrap();
+                    if let Some(grant) = grant {
+                        session
+                            .set(
+                                oteryn_web::session::SessionKey::new(
+                                    oteryn_identity::mfa::SESSION_GRANT_KEY,
+                                ),
+                                &grant,
+                            )
+                            .await
+                            .unwrap();
+                    }
+                    let staff = identity.resolve(&session).await.unwrap();
+                    assert_eq!(staff.account, account);
+                    if staff.mfa_satisfied {
+                        StatusCode::OK
+                    } else {
+                        StatusCode::FORBIDDEN
+                    }
+                }
+            }),
+        )
+        .route_layer(axum::middleware::from_fn_with_state(
+            SessionLayer::new(pool.clone()),
+            oteryn_web::session::middleware,
+        ));
+    routes
+        .oneshot(Request::get("/fixture").body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+        .status()
+        == StatusCode::OK
+}
+
+async fn portal_identity_lifecycle(pool: &PgPool) {
+    let identity = PortalIdentity {
+        pool: pool.clone(),
+        mfa: Some(oteryn_identity::mfa::Mfa::new(pool.clone(), [19; 32])),
+    };
+    let account: Uuid = sqlx::query_scalar(
+        "INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('staff-fixture@local.test',$1,'active','en',now()) RETURNING id",
+    )
+    .bind(oteryn_identity::password::hash("local staff test passphrase").unwrap())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(identity.state(account).await.unwrap(), AccountState::Active);
+    assert_eq!(
+        identity.state(Uuid::now_v7()).await.unwrap(),
+        AccountState::Unknown
+    );
+    assert!(!portal_identity_session(pool, account, None).await);
+    assert!(!portal_identity_session(pool, account, Some("00".repeat(32))).await);
+    let mfa = identity.mfa.as_ref().unwrap();
+    let enrollment = mfa
+        .enroll(account, "local staff test passphrase")
+        .await
+        .unwrap()
+        .unwrap();
+    let totp = totp_rs::TOTP::new(
+        totp_rs::Algorithm::SHA1,
+        6,
+        1,
+        30,
+        totp_rs::Secret::Encoded(enrollment.secret)
+            .to_bytes()
+            .unwrap(),
+    )
+    .unwrap();
+    let codes = mfa
+        .confirm(
+            account,
+            "local staff test passphrase",
+            &totp.generate_current().unwrap(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let challenge = mfa
+        .begin_login(&oteryn_identity::login::Credentials {
+            email: "staff-fixture@local.test".into(),
+            password: "local staff test passphrase".into(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    let authenticated = mfa
+        .complete(&challenge.token, &codes[0], false)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(portal_identity_session(pool, account, Some(authenticated.grant.clone())).await);
+    assert!(
+        !portal_identity_session(pool, Uuid::now_v7(), Some(authenticated.grant.clone())).await
+    );
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(account)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        identity.state(account).await.unwrap(),
+        AccountState::Disabled
+    );
+    assert!(!portal_identity_session(pool, account, Some(authenticated.grant.clone())).await);
+    sqlx::query("UPDATE accounts SET status='active' WHERE id=$1")
+        .bind(account)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1")
+        .bind(account)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(!portal_identity_session(pool, account, Some(authenticated.grant)).await);
+    sqlx::query("UPDATE accounts SET email_verified_at=NULL WHERE id=$1")
+        .bind(account)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        identity.state(account).await.unwrap(),
+        AccountState::Disabled
+    );
 }

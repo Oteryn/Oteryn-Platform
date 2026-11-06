@@ -38,7 +38,7 @@ account-termination reader is present. Those fields display localized
 unavailability until the owning crates expose their read APIs. This page never
 reads their private tables or invents an authoritative zero, title or date.
 
-Security, premium and balance shortcuts follow the account-panel routes. Their
+Security and premium shortcuts follow the account-panel routes; balance opens the store wallet history, which also shows the current balances. Their
 destination features retain their independent flags and implementation status.
 
 The PostgreSQL test uses an isolated generated schema and covers active reads,
