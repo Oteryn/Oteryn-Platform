@@ -22,6 +22,7 @@ pub enum Error {
     NoPending,
     Unauthorized,
     UnknownState,
+    Conflict,
     Database(sqlx::Error),
 }
 impl From<sqlx::Error> for Error {
@@ -38,6 +39,7 @@ impl std::fmt::Display for Error {
             Self::NoPending => "no pending termination",
             Self::Unauthorized => "termination authorization refused",
             Self::UnknownState => "termination dependencies unavailable",
+            Self::Conflict => "account closure evidence conflict",
             Self::Database(_) => "termination database failure",
         })
     }

@@ -73,6 +73,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tokio::signal::ctrl_c().await?;
         }
         Role::Serve => {
+            let closure = account_closure::configured(db.clone())?;
+            let _closure_listener = account_closure::start_listener(db.clone(), &closure).await?;
             let _admission_listener =
                 oteryn_gameauth::admission::start_private_listener(db.clone()).await?;
             let static_dir =
@@ -248,7 +250,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_admin::controls::http::configured_router(db.clone())?);
             let app = sessions_http::configured(app, db.clone());
             let app = app.merge(privacy_web::configured_router(db.clone()));
-            let app = app.merge(account_lifecycle_http::configured_router(db.clone()));
+            let app = app.merge(account_lifecycle_http::configured_router(
+                db.clone(),
+                closure.terminations.clone(),
+            ));
             let app = app.merge(shop_web::router(db.clone()));
             let app = app.merge(oteryn_player_api::account_feed::configured_router());
             let app = app.merge(oteryn_admin::support::web::configured_router(db.clone())?);
@@ -418,3 +423,5 @@ mod import;
 
 #[path = "../../../crates/identity/src/account_lifecycle_http.rs"]
 mod account_lifecycle_http;
+
+mod account_closure;

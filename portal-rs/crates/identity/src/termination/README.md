@@ -1,81 +1,104 @@
-PLAT3-DELETION implements the candidate Game-backed termination boundary as a dormant
-library adapter. Governing source: Oteryn/Oteryn-Game at
-3b49a20feec3ba29700bb4b2fa28fa9b539b79a2, PR #3010, CANDIDATE revision 1:
+PLAT3 account closure
+====================
 
-- docs/contracts/OTERYN_GAME_ACCOUNT_DELETION_FINALIZATION_V1.md
-- docs/contracts/fixtures/account-deletion/{README.md,closure.json}
-- docs/contracts/game-events/v1/plat3_authority.proto (AccountClosureDecisionV1)
-- docs/contracts/GAME_EVENT_FOUNDATION_REGISTRY.json (only event 7 belongs here;
-  events 6/10/11 remain with their owners)
-- docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json (pending, not canonical)
+Governing Game source is Oteryn/Oteryn-Game at
+3b49a20feec3ba29700bb4b2fa28fa9b539b79a2 (PR #3010, CANDIDATE revision 1):
+OTERYN_GAME_ACCOUNT_DELETION_FINALIZATION_V1.md, its account-deletion fixtures,
+plat3_authority.proto AccountClosureDecisionV1, GAME_EVENT_FOUNDATION_REGISTRY.json
+(event 7 only; 6/10/11 belong to other modules), CROSS_REPOSITORY_CONTRACT_LOCK.json.
+All Game inspection uses this immutable SHA. No Game files are changed.
+fixtures/SOURCE.md records the exact byte/hash provenance and explains that the
+source fixtures contain no signatures; synthetic signing material is test-only.
 
-No Game files or shared contract registrations are changed. See fixtures/SOURCE.md
-for byte provenance and the unsigned-source/synthetic-test-signature distinction.
+Production composition
+----------------------
 
-Composition and transaction boundaries
---------------------------------------
-GameBoundary wraps the existing local Boundary for sudo, blockers and credential
-revocation; it never treats ActorProof as an account identifier. Terminations still
-verifies the current password. The browser's existing CSRF/rate limiting and
-request-time any-account_characters refusal remain in their existing HTTP adapter.
-Default application wiring is unchanged and still refuses finalization.
+Serve and worker use bin/oteryn-portal/src/account_closure.rs. With both
+PORTAL_ACCOUNT_TERMINATION_ENABLED=true and PORTAL_ACCOUNT_CLOSURE_ENABLED=true,
+the factory installs the real GameBoundary around the existing sudo/password,
+wallet/Bazaar/email/any-account_characters checks and credential revocation.
+With the feature off it installs UnavailableBoundary. Missing configuration when
+on is an error, never a silent fallback. These are the only activation flags;
+owner acceptance is no longer represented by additional off-by-default switches.
 
-The requested hook allocates a distinct monotone lifecycle generation atomically.
-The due worker first commits an immutable CloseAccount command in a separate account
-transaction. An unavailable/missing receipt cannot roll that command back. Pending
-and read methods return original bytes, including expired unacknowledged commands;
-no timeout synthesizes a receipt. A signed terminal expired/stale-generation refusal
-can produce a fresh Close attempt after the recovery reconciler supplies its locked
-floor. The original deadline/generation remain unchanged. Source revisions are
-serialized and monotone across accounts; the pending backlog is bounded at 40.
+Game pulls the existing CC direction: POST character-commands/pending and /read,
+then publishes to /receipt. Closure v2 uses the same exact route names and command
+identity. The new private account-closure and account-closure/watermark routes
+accept the contract's canonical snapshots. The production listener also composes
+the existing complete LCFA publisher routes under a DIFFERENT certificate identity.
+No closure routes are merged into the public browser router.
 
-The final worker locks the account and rechecks local blockers, the reconciled
-recovery fence, receipt signature/hash/bindings, proof hash, current closure snapshot
-and fresh account_closure watermark, and the independently authenticated complete
-empty LCFA pair. LCFA feed/snapshot locks serialize withdrawal with proof use.
-CLOSED_DETACHED is the Game's offline-fence/domain-preparation attestation; Platform
-never infers that attestation from an empty local row count. Missing/partial work
-stays pending. Credential erasure, exclusive FINALIZE command and finalized_at
-commit together. Cancellation serializes on the same account, advances the fence,
-and commits the exclusive CANCEL outbox decision. Delivery order cannot resurrect
-an older close; Game must honor the cancellation tombstone defined by the contract.
-Cancellation before any close was issued has no remote intent to resolve.
+The required BASE_URL is the advertised HTTPS Platform origin the Game consumer
+calls. There is no Game-host push endpoint in the pinned contract, so no outbound
+Game API has been invented. The actual TLS 1.3 / HTTP 1.1 listener validates the
+client CA and exact configured DER leaf SHA-256. It alone inserts VerifiedClient.
+The Character client and LCFA publisher pins must differ; a forged header cannot
+establish either identity. Detached Ed25519 publications use x-oteryn-key-id and
+x-oteryn-signature (lowercase hex over the exact original body). Both are checked
+against configured trust; keys are never selected from publisher-supplied material.
+Only file paths to server secrets are configured; no secrets are stored here.
 
-Receipt ingestion atomically retains the exact receipt and event-7 protobuf payload
-in a private audit outbox. Permanent commands, generations and receipt replay state
-are separate from the P90D audit payload. Equal receipt replays make no new effect;
-changed signed receipts quarantine local proof. Equal projection pairs compare
-content rather than observation time. Conflicts and revision gaps remain invalid;
-an empty snapshot withdraws proof and a higher epoch clears its watermark.
+Every command and lifecycle generation commits under the Platform account lock.
+The due worker commits CloseAccount in a separate transaction, so missing proof
+cannot roll back issuance. The pending rescan retains expired unreceipted commands.
+A signed terminal expired/stale refusal may produce a fresh immutable Close attempt
+using the reconciled recovery floor. Source revisions are serialized across accounts.
+The final transaction rechecks blockers, current recovery fence, receipt/hash/proof,
+current closure snapshot/watermark, and the independently authenticated complete
+empty LCFA pair. It revokes credentials, enqueues the exclusive FINALIZE resolution,
+and sets finalized_at atomically. Cancellation uses the same lock, invalidates the
+proof generation and enqueues CANCEL if a Close exists. Its UI says restoration
+pending until the matching signed cancellation receipt and snapshot are retained;
+old sessions are never restored. Cancellation before issuance needs no remote undo.
 
-Remaining fail-closed seams / enablement
----------------------------------------
-All Settings fields default false. Enabling the feature requires explicit v2
-qualification, reversible-quarantine acceptance, disposition/retention acceptance
-(including bank/entitlement policy), and an operator for restoration conflicts.
-These fields record external owner acceptance; this implementation chooses none.
-The request-character gate cannot be relaxed through these settings.
+Recovery is a real transaction-bound adapter: it locks the native restore barrier,
+denies unacknowledged restore notices, and checks immutable command/receipt history
+against the explicitly configured reconciled nonrollback recovery floor. Unknown,
+missing or downgraded generations stay pending. An operator must reconcile a Game
+restore and supply its current floor; enabling a flag never performs reconciliation.
+Projection gaps/conflicts remain quarantined, higher epochs withdraw old proof, and
+freshness cannot repair conflicting evidence. No timeout guesses a Game outcome.
 
-A production RecoveryFence must lock the owning nonrollback reconciler's fence
-through the transaction; UnavailableRecoveryFence always denies. A fixed supplied
-Ed25519 verifying key must come from qualified Character publisher trust, never
-from an inbound message. Detached signatures are verified over exact original
-contract bytes; they add no JSON members/envelope. The pinned deletion fixtures do
-not supply a signature transport. A qualified transport must bind that verifier to
-the existing dedicated Character mTLS identity, rate limits and CC route/cadence
-bounds before calling the library. No new public/internal routes are exposed here.
+Owner defaults (decision 2026-11-06)
+-----------------------------------
 
-Full outbox resync after a gap/conflict, generation-selected receipt replacement
-following restore, and expired resolution-attempt reissuance are not qualified by
-this candidate. They stay pending; operators must not rewrite immutable evidence.
-Restoration must be acknowledged by a signed CANCELLED receipt and current Game
-projection before any future UX may claim restoration complete. The current default
-HTTP boundary cannot enter this Game flow. Game kick/lease/portfolio/domain runtime
-race tests require the separately implemented Game producer; no Game-runtime
-conformance is claimed by Platform's local signed fixtures.
+- Accept the candidate v2 command/private projection variants, reversible quarantine,
+  Game domain restoration/final disposition and exclusive CANCEL/FINALIZE decisions.
+- Keep request-time any-account_characters blocking. Accepting the candidate does
+  not silently relax the request gate its text explicitly preserves.
+- Grace: 14 days, overridable by existing PORTAL_ACCOUNT_TERMINATION_GRACE_DAYS (1..90).
+- Command attempt TTL: 300 seconds; MAX_PENDING: 40; freshness: 30 seconds;
+  uncertainty: 1 second. Config overrides may tighten TTL/backlog/freshness bounds.
+- Worker interval: 5 seconds, configurable 1..60. Domain side effects are never
+  executed on a page-render request or under an account-lock network exchange.
+- FINAL_DISPOSITION_POLICY defaults to `game_verified`, overridable to `hold` to
+  retain quarantine and deny FINALIZE while still allowing cancellation. This is
+  the conservative override for unsettled physical/financial disposition.
+- Physical erasure is Game-owned after authenticated FINALIZE, not a Platform timer.
+  The conservative default is no Platform deletion of gameplay or financial facts.
+  Outstanding bank funds/entitlements and unresolved guild/house/market obligations
+  require Game's owner-domain disposition; absence of its committed proof blocks.
+  There is no unsupported Platform policy field added to the immutable CC wire.
+- Authoritative command, receipt, generation and non-reuse evidence is retained
+  separately from the registry's P90D audit payload. The enabled worker expires
+  only local audit copies, measured from the original Game decision, and preserves
+  all authoritative receipts and generations. No retry resets retention.
+  Domain financial retention and legal holds remain with their owning retention
+  policy. AccountClosureDecisionV1 is staged atomically with the retained receipt;
+  this consumer does not invent a Game EventEnvelope or become a Game audit producer.
+- Conflicts require explicit operator reconciliation while closed/pending. No
+  automatic repair, donation, forfeiture, name release or speculative refund is chosen.
+- No recovery generation, publisher key or certificate identity has a fabricated
+  default. Those are required deployment facts, not owner-policy decisions.
 
-The event foundation publisher must provide the existing envelope and
-TransactionEventRef/audit-retention/legal-hold handling for the staged event-7
-payload before enablement; this module never invents a new envelope or dispatches
-an audit event itself. Migration rollback means disable and retain authoritative
-replay evidence; dropping closure state could allow an old command to execute.
+Configuration inventory and the exact local transport are in e2e/ENVIRONMENT.md.
+The fixture-backed producer under e2e runs outside production, uses generated
+throwaway certificates/keys, and asserts every pinned fixture hash. Playwright drives
+registration, verification mail, login, sudo, CSRF, deletion request, elapsed grace,
+real worker, mTLS Game publications, final account closure and login refusal in pl/en.
+Its invalid-signature case proves pending finalization and cancellation after grace.
+The test clock advances only its own original deadline before issuance, never proof.
+Game kick/lease/domain race conformance still belongs to the real Game producer.
+
+Rollback: disable the closure feature and retain authoritative replay state. Never
+rewrite immutable commands or erase the only evidence of an already executed close.

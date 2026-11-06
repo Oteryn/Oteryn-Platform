@@ -1,6 +1,8 @@
 //! Pinned PLAT3 candidate adapter. Transport and owner acceptance remain explicit seams.
 //! No network I/O runs under an account lock. Commands/replay evidence are durable;
 //! timeouts, partial detach and unsigned input never establish closure eligibility.
+pub mod http;
+pub mod runtime;
 mod wire;
 use super::*;
 use ed25519_dalek::{Signature, VerifyingKey};
@@ -31,6 +33,42 @@ impl Settings {
         }
     }
 }
+/// Conservative owner override: retain reversible quarantine instead of issuing
+/// permanent disposition. This is a policy value, not another activation flag.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FinalDisposition {
+    #[default]
+    GameVerified,
+    Hold,
+}
+/// Operational bounds accepted by the owner; overrides can only tighten the
+/// contract's work/freshness/TTL ceilings.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    pub ttl_seconds: u64,
+    pub max_pending: i64,
+    pub stale_seconds: u64,
+}
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            ttl_seconds: 300,
+            max_pending: 40,
+            stale_seconds: 30,
+        }
+    }
+}
+impl Limits {
+    pub fn validate(self) -> Result<Self> {
+        if !(1..=300).contains(&self.ttl_seconds)
+            || !(1..=40).contains(&self.max_pending)
+            || !(2..=30).contains(&self.stale_seconds)
+        {
+            return Err(Error::InvalidInput);
+        }
+        Ok(self)
+    }
+}
 pub type RecoveryFuture<'a> = Pin<Box<dyn Future<Output = Result<u64>> + Send + 'a>>;
 /// Trusted reconciler must lock its nonrollback fence in this transaction. A restore
 /// cannot race proof use. Native session/security generations are not this fence.
@@ -49,6 +87,8 @@ impl RecoveryFence for UnavailableRecoveryFence {
 #[derive(Debug)]
 pub struct GameBoundary {
     settings: Settings,
+    limits: Limits,
+    final_disposition: FinalDisposition,
     local: Arc<dyn Boundary>,
     recovery: Arc<dyn RecoveryFence>,
     publisher: VerifyingKey,
@@ -72,11 +112,21 @@ impl GameBoundary {
         }
         Ok(Self {
             settings,
+            limits: Limits::default(),
+            final_disposition: FinalDisposition::default(),
             local,
             recovery,
             publisher,
             authority,
         })
+    }
+    pub fn with_final_disposition(mut self, policy: FinalDisposition) -> Self {
+        self.final_disposition = policy;
+        self
+    }
+    pub fn with_limits(mut self, limits: Limits) -> Result<Self> {
+        self.limits = limits.validate()?;
+        Ok(self)
     }
     fn verify(&self, raw: &[u8], signature: &[u8], max: usize) -> Result<()> {
         self.settings.ready()?;
@@ -108,7 +158,7 @@ impl GameBoundary {
         let operation = wire::id(&receipt.operation_id)?;
         let command: Option<(Vec<u8>,Vec<u8>,AccountId)>=sqlx::query_as("SELECT c.intent,c.intent_sha256,w.account_id FROM plat3_closure_commands c JOIN plat3_closure_work w USING(termination_id) WHERE c.operation_id=$1")
             .bind(operation).fetch_optional(&mut *tx).await?;
-        let (intent_raw, intent_hash, account) = command.ok_or(Error::UnknownState)?;
+        let (intent_raw, intent_hash, account) = command.ok_or(Error::NoPending)?;
         lock(&mut tx, account).await?.ok_or(Error::UnknownState)?;
         let current = self.recovery(&mut tx).await?;
         if wire::number(&receipt.decided_at, false)? > now(&mut tx).await?.saturating_add(5) {
@@ -131,7 +181,7 @@ impl GameBoundary {
                     .execute(&mut *tx)
                     .await?;
                 tx.commit().await?;
-                return Err(Error::UnknownState);
+                return Err(Error::Conflict);
             }
             tx.commit().await?;
             return Ok(());
@@ -146,9 +196,12 @@ impl GameBoundary {
             recovery_generation: current,
         }
         .encode_to_vec();
-        sqlx::query("INSERT INTO plat3_closure_audit_outbox(operation_id,payload) VALUES($1,$2)")
+        let decided_at = OffsetDateTime::from_unix_timestamp(wire::time(&receipt.decided_at)?)
+            .map_err(|_| Error::InvalidInput)?;
+        sqlx::query("INSERT INTO plat3_closure_audit_outbox(operation_id,payload,expires_at) VALUES($1,$2,$3::timestamptz+interval '90 days')")
             .bind(operation)
             .bind(payload)
+            .bind(decided_at)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
@@ -209,7 +262,7 @@ impl GameBoundary {
                     .execute(&mut *tx)
                     .await?;
                     tx.commit().await?;
-                    return Err(Error::UnknownState);
+                    return Err(Error::Conflict);
                 }
                 tx.commit().await?;
                 return if invalid {
@@ -382,14 +435,25 @@ impl GameBoundary {
             .execute(&mut **tx)
             .await?;
         let pending:i64=sqlx::query_scalar("SELECT count(*) FROM plat3_closure_commands c WHERE NOT EXISTS(SELECT 1 FROM plat3_closure_receipts r WHERE r.operation_id=c.operation_id)").fetch_one(&mut **tx).await?;
-        if pending >= 40 {
+        if pending >= self.limits.max_pending {
             return Err(Error::UnknownState);
         }
         let mut intent = Intent::new(termination, operation, next, recovery, now, close, decision)?;
         let revision: i64 = sqlx::query_scalar("SELECT nextval('plat3_closure_source_revision')")
             .fetch_one(&mut **tx)
             .await?;
+        let highest: Option<i64> =
+            sqlx::query_scalar("SELECT max(source_revision) FROM plat3_closure_commands")
+                .fetch_one(&mut **tx)
+                .await?;
+        if highest.is_some_and(|highest| revision <= highest) {
+            return Err(Error::UnknownState);
+        }
         intent.source_revision = revision.to_string();
+        intent.expires_at_source = now
+            .checked_add(self.limits.ttl_seconds)
+            .ok_or(Error::UnknownState)?
+            .to_string();
         let bytes = intent.bytes()?;
         sqlx::query("INSERT INTO plat3_closure_commands(operation_id,termination_id,command,intent,intent_sha256,source_revision) VALUES($1,$2,$3,$4,$5,$6)")
             .bind(operation).bind(termination.id).bind(&intent.command).bind(&bytes).bind(digest(&bytes)).bind(revision).execute(&mut **tx).await?;
@@ -417,6 +481,9 @@ impl GameBoundary {
         termination: &Termination,
     ) -> Result<()> {
         self.settings.ready()?;
+        if self.final_disposition == FinalDisposition::Hold {
+            return Err(Error::UnknownState);
+        }
         let current = self.recovery(tx).await?;
         let (generation,operation):(i64,Uuid)=sqlx::query_as("SELECT w.generation,w.close_operation_id FROM plat3_closure_work w JOIN plat3_closure_lifecycle l ON l.account_id=w.account_id AND l.generation=w.generation WHERE w.termination_id=$1 AND w.account_id=$2 AND w.resolution IS NULL AND NOT w.invalid AND w.close_operation_id IS NOT NULL FOR UPDATE OF w,l")
             .bind(termination.id).bind(termination.account_id).fetch_optional(&mut **tx).await?.ok_or(Error::UnknownState)?;
@@ -451,6 +518,10 @@ impl GameBoundary {
         if wm.source_authority != self.authority
             || wm.projection_epoch != epoch
             || !wm.fresh(now)?
+            || now
+                .saturating_add(1)
+                .saturating_sub(wire::number(&wm.complete_through, false)?)
+                > self.limits.stale_seconds
         {
             return Err(Error::UnknownState);
         }
@@ -485,8 +556,8 @@ impl GameBoundary {
         .bind(termination.account_id)
         .execute(&mut **tx)
         .await?;
-        let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_character_feed f JOIN account_character_snapshots s ON s.account_id=$1 WHERE f.id=1 AND f.highest_epoch=$2 AND f.watermark_epoch=$2 AND s.projection_epoch=$2 AND s.projection_revision=$3 AND f.source_authority=$4 AND s.source_authority=$4 AND NOT s.invalid AND f.complete_through >= s.source_observed_at AND f.complete_through >= $5 AND f.complete_through <= $6+1 AND f.observed_at <= $6+1 AND f.observed_at >= f.complete_through AND $6+1-f.complete_through <= 30) AND NOT EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1)")
-            .bind(termination.account_id).bind(&result.projection_epoch).bind(&result.projection_revision).bind(&self.authority).bind(wire::time(&receipt.decided_at)?).bind(i64::try_from(now).map_err(|_| Error::UnknownState)?).fetch_one(&mut **tx).await?;
+        let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_character_feed f JOIN account_character_snapshots s ON s.account_id=$1 WHERE f.id=1 AND f.highest_epoch=$2 AND f.watermark_epoch=$2 AND s.projection_epoch=$2 AND s.projection_revision=$3 AND f.source_authority=$4 AND s.source_authority=$4 AND NOT s.invalid AND f.complete_through >= s.source_observed_at AND f.complete_through >= $5 AND f.complete_through <= $6+1 AND f.observed_at <= $6+1 AND f.observed_at >= f.complete_through AND $6+1-f.complete_through <= $7) AND NOT EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1)")
+            .bind(termination.account_id).bind(&result.projection_epoch).bind(&result.projection_revision).bind(&self.authority).bind(wire::time(&receipt.decided_at)?).bind(i64::try_from(now).map_err(|_| Error::UnknownState)?).bind(i64::try_from(self.limits.stale_seconds).map_err(|_|Error::InvalidInput)?).fetch_one(&mut **tx).await?;
         if !valid {
             return Err(Error::UnknownState);
         }
@@ -606,5 +677,19 @@ async fn advance(
     }
     Ok(())
 }
+
+/// Only finite local audit copies expire. Immutable authoritative receipts and
+/// non-reuse/generation evidence remain available for replay and proof requery.
+#[derive(Debug)]
+pub struct AuditRetention(pub PgPool);
+impl oteryn_db::outbox::Cleanup for AuditRetention {
+    fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
+        Box::pin(async {
+            sqlx::query("DELETE FROM plat3_closure_audit_outbox a USING plat3_closure_receipts r WHERE a.operation_id=r.operation_id AND (a.expires_at<=clock_timestamp() OR to_timestamp((convert_from(r.receipt,'UTF8')::jsonb->>'decided_at')::double precision)<=clock_timestamp()-interval '90 days')")
+                .execute(&self.0).await.map(|_|()).map_err(|_|"account closure audit retention failed".into())
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests;

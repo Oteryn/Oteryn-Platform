@@ -4,7 +4,7 @@ Derived from `env::var`, `env::var_os`, and configuration-helper `lookup`/`get`/
 
 Required for the exercised configuration: `OTERYN_DATABASE_URL`, `OTERYN_PUBLIC_ORIGIN`, `OTERYN_ADMIN_HOST`, `OTERYN_MFA_KEY`, `OTERYN_RESET_DELIVERY_KEY`, `OTERYN_WEBAUTHN_RP_ID`, `OTERYN_SMTP_HOST`, `OTERYN_SMTP_USERNAME`, `OTERYN_SMTP_PASSWORD`, both `OTERYN_MAIL_FROM` and `OTERYN_SMTP_FROM`, `OTERYN_NOTIFY_UNSUBSCRIBE_KEY`, `OTERYN_NOTIFY_UNSUBSCRIBE_URL`, `PORTAL_ADMIN_CONTROL_AGENTS_JSON`. `OTERYN_ACTIVE_CHARACTER_LIMIT` and `OTERYN_TOTAL_CHARACTER_LIMIT` provide bounded overview policy. `OTERYN_STATIC_DIR`, `OTERYN_BIND`, `OTERYN_ENV` and `APP_ENV` select local runtime behavior. `SSL_CERT_FILE` trusts the generated local CA. The test-only database is selected with `PORTAL_TEST_DATABASE_URL`.
 
-All values used for keys, mail credentials and accounts are disposable local values. Source authorities are local fixture labels, not evidence of a game integration. Game certificate/token/evidence configuration is intentionally absent; its enabled gates retain documented refusal behavior. An enable flag alone does not establish an authority contract.
+All values used for keys, mail credentials and accounts are disposable local values. Source authorities are local fixture labels, not evidence of a game integration. The account-closure producer uses disposable, distinct Character and LCFA client certificates and a synthetic Ed25519 key. Other native Game certificate/token/evidence configuration remains absent; those unrelated gates retain documented refusal behavior. An enable flag alone does not establish an authority contract.
 
 | Variable | Source |
 | --- | --- |
@@ -122,6 +122,7 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `PLATFORM_BUILD_REVISION` | `crates/store/src/premium_http.rs:35`, `crates/store/src/loyalty_http.rs:36` |
 | `PLAYERDATA_G10_HISTORY_ENABLED` | `crates/playerdata/src/items/web.rs:131` |
 | `PLAYERDATA_G10_ITEMS_ENABLED` | `crates/playerdata/src/items/web.rs:130` |
+| `PORTAL_ACCOUNT_CLOSURE_ENABLED` | `crates/identity/src/termination/game_closure/runtime.rs` |
 | `PORTAL_ACCOUNT_TERMINATION_ENABLED` | `crates/identity/src/termination.rs:61` |
 | `PORTAL_ACCOUNT_TERMINATION_GRACE_DAYS` | `crates/identity/src/termination.rs:67` |
 | `PORTAL_ADMIN_CONTROL_AGENTS_JSON` | `crates/admin/src/control/http.rs:523` |
@@ -275,6 +276,7 @@ PANEL_PREMIUM_PAYMENTS
 PLAYERDATA_G10_HISTORY_ENABLED
 PLAYERDATA_G10_ITEMS_ENABLED
 PORTAL_ACCOUNT_TERMINATION_ENABLED
+PORTAL_ACCOUNT_CLOSURE_ENABLED
 PORTAL_ADMIN_CONTROL_ENABLED
 PORTAL_ATLAS_DELIVERY_ENABLED
 PORTAL_CALCULATORS_ENABLED
@@ -312,3 +314,37 @@ PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_ENABLED
 PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED
 PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED
 ```
+
+## Account closure transport and owner defaults
+
+`PORTAL_ACCOUNT_CLOSURE_ENABLED` is the single new feature flag. Both it and
+`PORTAL_ACCOUNT_TERMINATION_ENABLED` select the real boundary in serve and worker.
+The local launcher enables both and runs `game-closure-producer.mjs` as an external,
+fixture-backed Game client. This stub is test support, not a production adapter.
+
+| Configuration | Default / local value |
+| --- | --- |
+| `PORTAL_ACCOUNT_CLOSURE_BASE_URL` | Required HTTPS **Platform** private origin (Game pulls); local `https://localhost:19443` |
+| `PORTAL_ACCOUNT_CLOSURE_BIND` | `127.0.0.1:8092`; local `127.0.0.1:19443` |
+| `PORTAL_ACCOUNT_CLOSURE_TLS_CA_FILE` | Required trust CA path |
+| `PORTAL_ACCOUNT_CLOSURE_TLS_CERT_FILE`, `PORTAL_ACCOUNT_CLOSURE_TLS_KEY_FILE` | Required server certificate/private-key paths; contents never committed |
+| `PORTAL_ACCOUNT_CLOSURE_CLIENT_CERT_SHA256` | Required exact DER leaf SHA-256 for the dedicated Character client |
+| `PORTAL_ACCOUNT_CLOSURE_LCFA_CLIENT_CERT_SHA256` | Required distinct DER leaf SHA-256 for the portfolio publisher |
+| `PORTAL_ACCOUNT_CLOSURE_KEY_ID`, `PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX` | Required configured Ed25519 signing key id and 32-byte lowercase public-key hex |
+| `PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION` | Required positive reconciled nonrollback floor; local fixture `3`, never inferred |
+| `PORTAL_ACCOUNT_CLOSURE_SOURCE_AUTHORITY` | `oteryn:character-authority:primary` |
+| `PORTAL_ACCOUNT_CLOSURE_FINAL_DISPOSITION_POLICY` | `game_verified`; conservative override `hold` keeps verified closures pending but allows CANCEL |
+| `PORTAL_ACCOUNT_CLOSURE_WORKER_INTERVAL_SECONDS` | `5` (1..60); local `1` |
+| `PORTAL_ACCOUNT_CLOSURE_INTENT_TTL_SECONDS` | `300` (1..300) |
+| `PORTAL_ACCOUNT_CLOSURE_MAX_PENDING` | `40` (1..40) |
+| `PORTAL_ACCOUNT_CLOSURE_STALE_SECONDS` | `30` (2..30), with fixed 1-second clock uncertainty |
+| `PORTAL_E2E_GAME_CLOSURE_CONTROL_URL` | Test-only loopback producer fault control, never a production URL |
+
+Publications carry detached lowercase signature hex in `x-oteryn-signature` and
+the configured `x-oteryn-key-id`; original JSON remains byte-exact. Headers never
+establish mTLS identity. The listener requires TLS 1.3, HTTP/1.1 and CA validation
+plus exact certificate pins. The Character identity cannot publish LCFA facts.
+
+The browser spec advances only its own termination's grace timestamps before
+issuance to simulate elapsed days. It never inserts commands, receipts, projections
+or eligibility. Request-time Character blockers, password, sudo and CSRF stay real.

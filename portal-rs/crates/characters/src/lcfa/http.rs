@@ -48,7 +48,7 @@ impl Settings {
         self.enabled
             && matches!(
                 self.environment,
-                Environment::Testing | Environment::Preprod
+                Environment::Testing | Environment::Preprod | Environment::Production
             )
             && wire::authority_valid(&self.source_authority)
             && (1..=120).contains(&self.freshness_seconds)
