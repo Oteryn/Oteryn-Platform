@@ -14,15 +14,21 @@ use oteryn_web::session::{BrowserSession, SessionKey, SessionLayer};
 use serde::Serialize;
 
 pub fn router(pool: PgPool, policy: Policy) -> Router {
+    router_with_origin(pool, policy, std::env::var("OTERYN_PUBLIC_ORIGIN").ok())
+}
+
+pub(super) fn router_with_origin(pool: PgPool, policy: Policy, origin: Option<String>) -> Router {
     if !policy.enabled || !policy.valid() {
         return Router::new();
     }
+    let mut sessions = SessionLayer::new(pool.clone());
+    sessions.csrf.trusted_origins = origin.into_iter().collect();
     Router::new()
         .route("/{lang}/support/reports", get(index).post(store))
         .route("/{lang}/support/reports/create", get(create))
         .route("/{lang}/support/reports/{id}", get(show))
         .route_layer(middleware::from_fn_with_state(
-            SessionLayer::new(pool.clone()),
+            sessions,
             oteryn_web::session::middleware,
         ))
         .layer(axum::extract::DefaultBodyLimit::max(32 * 1024))
