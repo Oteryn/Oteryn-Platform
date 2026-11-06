@@ -73,6 +73,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tokio::signal::ctrl_c().await?;
         }
         Role::Serve => {
+            let _league_listener =
+                oteryn_minigames::league::transport::start_private_listener(db.clone()).await?;
             let _admission_listener =
                 oteryn_gameauth::admission::start_private_listener(db.clone()).await?;
             let static_dir =

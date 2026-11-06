@@ -312,3 +312,30 @@ PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_ENABLED
 PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED
 PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED
 ```
+
+
+## League — owner decision 2026-11-06
+
+`OTERYN_LEAGUE_ENABLED` is the sole feature flag; the launcher enables it.
+The private listener and worker use the same real admission path with disposable
+Game publisher authority. Keys and certificates are generated into scratch.
+
+| Variable | Purpose |
+| --- | --- |
+| `OTERYN_LEAGUE_ENABLED` | Public routes, private ingress, worker, navigation |
+| `OTERYN_LEAGUE_BASE_URL` | HTTPS Platform admission audience (push transport; no Game pull API) |
+| `OTERYN_LEAGUE_BIND` | Dedicated private TLS listener |
+| `OTERYN_LEAGUE_SOURCE_AUTHORITY` | Exact dedicated Game purpose namespace |
+| `OTERYN_LEAGUE_PUBLIC_KEYS` | JSON key-id to Ed25519 public-key lowercase hex |
+| `OTERYN_LEAGUE_CLIENT_CA_DER` | Trusted client CA certificate file |
+| `OTERYN_LEAGUE_CERTIFICATE_DER` | Server certificate file |
+| `OTERYN_LEAGUE_PRIVATE_KEY_DER` | External PKCS8 key file; never committed |
+| `OTERYN_LEAGUE_PEER_CERTIFICATE_SHA256` | Pinned dedicated Game certificate digest |
+| `OTERYN_LEAGUE_RECOVERY_FILE` | Operator-owned nonrollback epoch/generation file |
+| `OTERYN_LEAGUE_REQUESTS_PER_MINUTE` | Aggregate publisher cap (default 120) |
+| `PORTAL_E2E_LEAGUE_CONTROL` | Test-only producer control URL, never a production endpoint |
+| `OTERYN_LEAGUE_POLICY` | Optional accepted_* policy JSON; defaults follow owner acceptance |
+| `OTERYN_LEAGUE_MAX_ENVELOPE_BYTES` | Conservative ANL ceiling, default/max 4096; lower overrides allowed |
+| `OTERYN_LEAGUE_CONNECTION_LIMIT` | Default/max 16 simultaneous private TLS connections; lower overrides allowed |
+| `OTERYN_LEAGUE_BATCH_LIMIT` | Default/max 64 queued requests per worker tick; lower overrides allowed |
+| `OTERYN_LEAGUE_SUBJECT_LIMIT` | Default/max 1000 subjects in a complete cut; lower overrides allowed |

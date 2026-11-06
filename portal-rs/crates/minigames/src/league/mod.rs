@@ -1,8 +1,12 @@
 //! T94: non-authoritative, display-only consumer. No stakes, rewards or predictions.
+mod admission;
+pub mod config;
+pub mod runtime;
 pub mod schema;
 mod store;
 #[cfg(test)]
 mod tests;
+pub mod transport;
 pub mod web;
 
 use sqlx::{Postgres, Transaction};
@@ -16,6 +20,8 @@ pub enum Error {
     Unavailable,
     #[error("invalid league evidence")]
     Invalid,
+    #[error("league publication superseded by the recovery fence")]
+    Superseded,
     #[error("league decision conflict")]
     Conflict,
     #[error(transparent)]
@@ -104,11 +110,29 @@ impl Fence {
 /// privacy/retention/schema/ceilings) and its binding to this exact snapshot/payload.
 /// Hashes alone never establish native evidence. No caller-supplied fence is trusted.
 pub trait Authority: Send + Sync {
+    fn verify_served(
+        &self,
+        _tx: &mut Transaction<'_, Postgres>,
+        _snapshot: &schema::Snapshot,
+        _wire: &[u8],
+    ) -> impl Future<Output = Result<()>> + Send {
+        async { Ok(()) }
+    }
+    fn reconciled_recovery(&self) -> bool {
+        false
+    }
     fn fence(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         now: u64,
     ) -> impl Future<Output = Result<Fence>> + Send;
+    fn admission_fence(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        now: u64,
+    ) -> impl Future<Output = Result<Fence>> + Send {
+        self.fence(tx, now)
+    }
     fn verify(
         &self,
         tx: &mut Transaction<'_, Postgres>,

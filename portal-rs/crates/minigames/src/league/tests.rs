@@ -271,6 +271,7 @@ impl Db {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
+        sqlx::query("INSERT INTO world_status(id,name) VALUES($1,'Synthetic fixture world') ON CONFLICT DO NOTHING").bind(schema::id("0192a000-0000-7000-8000-000000000012")?).execute(&pool).await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -509,4 +510,365 @@ async fn database_bad_evidence_rolls_back_and_pair_conflict_quarantines() -> Tes
         .await?;
     assert_eq!(count, 1);
     db.close().await
+}
+
+fn real_config(path: &std::path::Path) -> config::Config {
+    config::Config {
+        authority: "oteryn:game:primary".into(),
+        audience: "https://platform.example.test".into(),
+        bind: "127.0.0.1:0".into(),
+        ca: path.join("unused-ca.der"),
+        certificate: path.join("unused-cert.der"),
+        private_key: path.join("unused-key.der"),
+        peer_certificate_sha256: "ab".repeat(32),
+        keys: std::collections::BTreeMap::from([(
+            "synthetic".into(),
+            SigningKey::from_bytes(&[42; 32]).verifying_key().to_bytes(),
+        )]),
+        recovery_file: path.join("recovery.json"),
+        requests_per_minute: 120,
+        max_envelope_bytes: 4096,
+    }
+}
+fn write_recovery(c: &config::Config, generation: &str) -> TestResult {
+    std::fs::write(
+        &c.recovery_file,
+        serde_json::to_vec(&config::Recovery {
+            source_authority: c.authority.clone(),
+            projection_epoch: "3".into(),
+            recovery_generation: generation.into(),
+        })?,
+    )?;
+    Ok(())
+}
+struct Publication {
+    path: &'static str,
+    body: Vec<u8>,
+    meta: Vec<u8>,
+    signature: Vec<u8>,
+}
+fn publication(
+    c: &config::Config,
+    path: &'static str,
+    body: Vec<u8>,
+    envelope: Option<admission::Envelope>,
+    finalized: bool,
+    clock: u64,
+) -> std::result::Result<Publication, Box<dyn std::error::Error>> {
+    use base64::Engine;
+    let id = match &envelope {
+        Some(e) => Uuid::from_slice(&e.event_id)?,
+        None => Uuid::now_v7(),
+    };
+    let meta = serde_json::to_vec(&admission::Meta {
+        contract_version: 1,
+        source_authority: c.authority.clone(),
+        projection_epoch: "3".into(),
+        recovery_generation: "1".into(),
+        key_id: "synthetic".into(),
+        request_id: id.to_string(),
+        envelope: envelope
+            .map(|e| base64::engine::general_purpose::STANDARD.encode(e.encode_to_vec()))
+            .unwrap_or_default(),
+        finalized_at: if finalized {
+            vec![clock.to_string()]
+        } else {
+            vec![]
+        },
+    })?;
+    let signature = SigningKey::from_bytes(&[42; 32])
+        .sign(&admission::signable(c, path, &meta, &body))
+        .to_bytes()
+        .to_vec();
+    Ok(Publication {
+        path,
+        body,
+        meta,
+        signature,
+    })
+}
+fn native_envelope(raw: &[u8], season: bool, clock: u64) -> Result<admission::Envelope> {
+    let s = schema::Snapshot::decode(raw, season, clock)?;
+    let payload = payload(raw, season)?;
+    let id = Uuid::now_v7();
+    Ok(admission::Envelope {
+        envelope_revision: 1,
+        event_id: id.as_bytes().to_vec(),
+        event_type_id: if season { 11 } else { 10 },
+        event_schema_revision: 1,
+        durability_class: 2,
+        privacy_class: 3,
+        retention_profile_id: "PLAT3_AUTHORITY_AUDIT_RETENTION_V1".into(),
+        occurred_at_unix_ms: (clock * 1000) as i64,
+        world_id: Some(schema::id(s.world())?.as_bytes().to_vec()),
+        transaction_event: Some(admission::TransactionRef {
+            transaction_id: id.as_bytes().to_vec(),
+            ordinal: 1,
+            count: 1,
+        }),
+        server_build_id: "synthetic-only".into(),
+        payload_sha256: Sha256::digest(&payload).to_vec(),
+        payload,
+    })
+}
+async fn enqueue_publication(db: &Db, c: &config::Config, p: &Publication) -> Result<bool> {
+    runtime::receive(&db.pool, c, p.path, &p.body, &p.meta, &p.signature).await
+}
+#[tokio::test]
+async fn real_authority_worker_enumeration_replay_and_restore() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let clock = runtime::now()?;
+    let mut subjects = vec![];
+    let mut publications = vec![];
+    for name in ["settlement", "tied_guilds_frozen"] {
+        let raw = wire(name)?;
+        let season = name == "tied_guilds_frozen";
+        let s = schema::Snapshot::decode(&raw, season, clock)?;
+        subjects.push(runtime::subject(&s, false)?);
+        let envelope = native_envelope(&raw, season, clock)?;
+        publications.push(publication(
+            &c,
+            if season {
+                admission::SEASON
+            } else {
+                admission::EVENT
+            },
+            raw,
+            Some(envelope),
+            s.final_state(),
+            clock,
+        )?);
+    }
+    subjects.sort();
+    let cut = admission::Cut {
+        contract_version: 1,
+        operation: "PublishLeagueCutV1".into(),
+        source_authority: c.authority.clone(),
+        projection_epoch: "3".into(),
+        recovery_generation: "1".into(),
+        subjects,
+    };
+    let cut = publication(
+        &c,
+        admission::CUT,
+        serde_json::to_vec(&cut)?,
+        None,
+        false,
+        clock,
+    )?;
+    assert!(!enqueue_publication(&db, &c, &cut).await?);
+    for p in &publications {
+        assert!(!enqueue_publication(&db, &c, p).await?);
+    }
+    let league = League::new(
+        db.pool.clone(),
+        config::owner_flags(true),
+        runtime::GameAuthority::new(c.clone()),
+    );
+    let job = runtime::FeedJob {
+        pool: db.pool.clone(),
+    };
+    job.run_config(c.clone()).await?;
+    assert!(league.read(runtime::now()?).await.is_err());
+    for family in ["world_event_outcome", "guild_season"] {
+        let clock = runtime::now()?;
+        let w = admission::Watermark {
+            contract_version: 1,
+            operation: "PublishLeagueWatermarkV1".into(),
+            source_authority: c.authority.clone(),
+            family: family.into(),
+            projection_epoch: "3".into(),
+            complete_through: clock.to_string(),
+            observed_at: clock.to_string(),
+        };
+        let p = publication(
+            &c,
+            admission::WATERMARK,
+            serde_json::to_vec(&w)?,
+            None,
+            false,
+            clock,
+        )?;
+        enqueue_publication(&db, &c, &p).await?;
+    }
+    job.run_config(c.clone()).await?;
+    assert_eq!(league.read(runtime::now()?).await?.len(), 2);
+    for p in &publications {
+        assert!(enqueue_publication(&db, &c, p).await?);
+    }
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM league_receipts")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(rows, 2);
+    let restarted = League::new(
+        db.pool.clone(),
+        config::owner_flags(true),
+        runtime::GameAuthority::new(c.clone()),
+    );
+    assert_eq!(restarted.read(runtime::now()?).await?.len(), 2);
+    let first: admission::Meta = admission::json(&publications[0].meta)?;
+    let request_id = schema::id(&first.request_id)?;
+    sqlx::query("UPDATE league_feed_inbox SET signature=$2 WHERE request_id=$1")
+        .bind(request_id)
+        .bind(vec![0u8; 64])
+        .execute(&db.pool)
+        .await?;
+    assert!(restarted.read(runtime::now()?).await.is_err());
+    sqlx::query("UPDATE league_feed_inbox SET signature=$2 WHERE request_id=$1")
+        .bind(request_id)
+        .bind(&publications[0].signature)
+        .execute(&db.pool)
+        .await?;
+    let mut bad = publication(&c, admission::CUT, cut.body.clone(), None, false, clock)?;
+    bad.signature[0] ^= 1;
+    assert!(enqueue_publication(&db, &c, &bad).await.is_err());
+    assert_eq!(restarted.read(runtime::now()?).await?.len(), 2);
+    sqlx::query("UPDATE league_feed_state SET event_complete=$1")
+        .bind(runtime::now()?.saturating_sub(30) as i64)
+        .execute(&db.pool)
+        .await?;
+    assert!(league.read(runtime::now()?).await.is_err());
+    write_recovery(&c, "2")?;
+    assert!(restarted.read(runtime::now()?).await.is_err());
+    sqlx::query("UPDATE league_feed_state SET conflicted=true,ready=false")
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("UPDATE league_feed_inbox SET expires_at=$1")
+        .bind(runtime::now()? as i64 - 1)
+        .execute(&db.pool)
+        .await?;
+    runtime::Retention {
+        pool: db.pool.clone(),
+    }
+    .run()
+    .await?;
+    let raw: i64 = sqlx::query_scalar("SELECT count(*) FROM league_feed_inbox")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(raw, 0);
+    let control: i64 = sqlx::query_scalar("SELECT count(*) FROM league_feed_requests")
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(control > 0);
+    db.close().await
+}
+#[tokio::test]
+async fn real_authority_refuses_signed_bad_native_hash_and_wrong_audience() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let clock = runtime::now()?;
+    let raw = wire("settlement")?;
+    let mut envelope = native_envelope(&raw, false, clock)?;
+    envelope.payload_sha256[0] ^= 1;
+    let bad = publication(&c, admission::EVENT, raw, Some(envelope), false, clock)?;
+    let mut other = c.clone();
+    other.audience = "https://other.example.test".into();
+    assert!(
+        admission::authenticate(&other, bad.path, &bad.meta, &bad.body, &bad.signature).is_err()
+    );
+    assert!(enqueue_publication(&db, &c, &bad).await.is_err());
+    let poisoned: bool =
+        sqlx::query_scalar("SELECT conflicted FROM league_feed_state WHERE authority=$1")
+            .bind(&c.authority)
+            .fetch_one(&db.pool)
+            .await?;
+    assert!(poisoned);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM league_receipts")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 0);
+    db.close().await
+}
+#[test]
+fn names_follow_nfc_wire_policy_instead_of_ascii_only() -> TestResult {
+    let raw = String::from_utf8(wire("tied_guilds_frozen")?)?;
+    let unicode = raw.replace("Aldric Guild", "Łowcy Żmij");
+    schema::Snapshot::decode(unicode.as_bytes(), true, NOW)?;
+    for name in ["A\u{200d}Guild", "A\nGuild", "Z\u{307}mije", "../guild"] {
+        let bad = raw.replace("Aldric Guild", name);
+        assert!(schema::Snapshot::decode(bad.as_bytes(), true, NOW).is_err());
+    }
+    Ok(())
+}
+#[tokio::test]
+async fn real_worker_keeps_scheduled_locked_pending_and_refuses_reopening() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let clock = runtime::now()?;
+    let scheduled = String::from_utf8(wire("advance_schedule")?)?;
+    let job = runtime::FeedJob {
+        pool: db.pool.clone(),
+    };
+    for raw in [
+        scheduled.clone(),
+        scheduled
+            .replace(
+                "\"projection_revision\":\"1\"",
+                "\"projection_revision\":\"2\"",
+            )
+            .replace("\"state\":\"SCHEDULED\"", "\"state\":\"LOCKED\""),
+    ] {
+        let p = publication(&c, admission::EVENT, raw.into_bytes(), None, false, clock)?;
+        enqueue_publication(&db, &c, &p).await?;
+        job.run_config(c.clone()).await?;
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM league_receipts")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 0);
+    let reopened = scheduled.replace(
+        "\"projection_revision\":\"1\"",
+        "\"projection_revision\":\"3\"",
+    );
+    let p = publication(
+        &c,
+        admission::EVENT,
+        reopened.into_bytes(),
+        None,
+        false,
+        clock,
+    )?;
+    enqueue_publication(&db, &c, &p).await?;
+    job.run_config(c.clone()).await?;
+    let blocked: bool =
+        sqlx::query_scalar("SELECT conflicted FROM league_feed_state WHERE authority=$1")
+            .bind(&c.authority)
+            .fetch_one(&db.pool)
+            .await?;
+    assert!(blocked);
+    write_recovery(&c, "2")?;
+    assert!(matches!(
+        admission::authenticate(&c, p.path, &p.meta, &p.body, &p.signature),
+        Err(Error::Superseded)
+    ));
+    let mut forged = p.signature.clone();
+    forged[0] ^= 1;
+    assert!(!matches!(
+        admission::authenticate(&c, p.path, &p.meta, &p.body, &forged),
+        Err(Error::Superseded)
+    ));
+    db.close().await
+}
+#[test]
+fn duplicate_public_key_ids_are_not_an_owner_trust_decision() -> TestResult {
+    assert!(config::public_keys(r#"{"same":"a","same":"b"}"#).is_err());
+    assert!(config::public_keys(r#"{"same":"a"}{}"#).is_err());
+    assert_eq!(
+        config::public_keys(r#"{ "first": "a", "second": "b" }"#)?.len(),
+        2
+    );
+    Ok(())
 }

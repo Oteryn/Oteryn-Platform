@@ -3017,9 +3017,12 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "axum",
+ "base64 0.22.1",
  "ed25519-dalek",
  "fluent-bundle",
  "getrandom 0.4.3",
+ "hyper",
+ "hyper-util",
  "image",
  "oteryn-atlas",
  "oteryn-db",
@@ -3030,6 +3033,7 @@ dependencies = [
  "oteryn-web",
  "oteryn-world",
  "prost",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3038,8 +3042,11 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "tokio-rustls",
  "tower",
  "tower-http",
+ "unicode-general-category",
+ "unicode-normalization",
  "uuid",
 ]
 

@@ -69,8 +69,9 @@ impl<A: Authority> League<A> {
         sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
             .execute(&mut *tx)
             .await?;
-        let fence = self.authority.fence(&mut tx, now).await?;
-        if !fence.valid(now)
+        let fence = self.authority.admission_fence(&mut tx, now).await?;
+        if fence.epoch == 0
+            || fence.recovery_generation == 0
             || fence.epoch != schema::number(s.epoch(), false)?
             || fence.recovery_generation != d.recovery_generation
         {
@@ -114,16 +115,24 @@ impl<A: Authority> League<A> {
             let next_epoch = schema::number(s.epoch(), false)?;
             let next_revision = schema::number(s.revision(), false)?;
             // Epoch installation/resync requires a separate accepted adapter protocol.
-            if next_epoch != old_epoch || generation != d.recovery_generation.to_string() {
+            let recovery =
+                next_epoch != old_epoch || generation != d.recovery_generation.to_string();
+            if recovery
+                && (!self.authority.reconciled_recovery()
+                    || next_epoch < old_epoch
+                    || schema::number(&generation, false)? > d.recovery_generation)
+            {
                 return Err(Error::Unavailable);
             }
-            if next_revision < old_revision {
+            if !recovery && next_revision < old_revision {
                 return Err(Error::Conflict);
             }
-            let conflict = if next_revision == old_revision {
+            let conflict = if !recovery && next_revision == old_revision {
                 content_hash != old.try_get::<String, _>("content_hash")?
-            } else if next_revision != old_revision.saturating_add(1) {
+            } else if !recovery && next_revision != old_revision.saturating_add(1) {
                 true
+            } else if record_hash == old.try_get::<String, _>("record_hash")? {
+                false
             } else if old.try_get::<bool, _>("final_state")? {
                 record_hash != old.try_get::<String, _>("record_hash")?
             } else {
@@ -157,7 +166,7 @@ impl<A: Authority> League<A> {
         // Same pair/content may have a new audit envelope; preserve first immutable audit.
         sqlx::query("INSERT INTO league_audit(envelope_id,authority,family,world_id,subject_id,epoch,revision,recovery_generation,wire,payload,signature,received_at,occurred_at_unix_ms) VALUES($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric,$9,$10,$11,$12,$13) ON CONFLICT(authority,family,world_id,subject_id,epoch,revision) DO NOTHING")
             .bind(d.envelope_id).bind(s.authority()).bind(s.family()).bind(world).bind(subject).bind(s.epoch()).bind(s.revision()).bind(d.recovery_generation.to_string()).bind(d.wire).bind(d.payload).bind(d.signature).bind(i64::try_from(now).map_err(|_| Error::Invalid)?).bind(d.occurred_at_unix_ms).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO league_subjects(authority,family,world_id,subject_id,epoch,revision,recovery_generation,wire,content_hash,record_hash,final_state,finalized_at) VALUES($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric,$8,$9,$10,$11,$12) ON CONFLICT(authority,family,world_id,subject_id) DO UPDATE SET revision=EXCLUDED.revision,wire=EXCLUDED.wire,content_hash=EXCLUDED.content_hash,record_hash=EXCLUDED.record_hash,final_state=EXCLUDED.final_state,finalized_at=COALESCE(league_subjects.finalized_at,EXCLUDED.finalized_at)")
+        sqlx::query("INSERT INTO league_subjects(authority,family,world_id,subject_id,epoch,revision,recovery_generation,wire,content_hash,record_hash,final_state,finalized_at) VALUES($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric,$8,$9,$10,$11,$12) ON CONFLICT(authority,family,world_id,subject_id) DO UPDATE SET epoch=EXCLUDED.epoch,recovery_generation=EXCLUDED.recovery_generation,revision=EXCLUDED.revision,wire=EXCLUDED.wire,content_hash=EXCLUDED.content_hash,record_hash=EXCLUDED.record_hash,final_state=EXCLUDED.final_state,finalized_at=COALESCE(league_subjects.finalized_at,EXCLUDED.finalized_at)")
             .bind(s.authority()).bind(s.family()).bind(world).bind(subject).bind(s.epoch()).bind(s.revision()).bind(d.recovery_generation.to_string()).bind(d.wire).bind(content_hash).bind(record_hash).bind(s.final_state()).bind(if s.final_state() { Some(i64::try_from(d.finalized_at.ok_or(Error::Unavailable)?).map_err(|_| Error::Invalid)?) } else { None }).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
@@ -174,7 +183,7 @@ impl<A: Authority> League<A> {
         if !fence.valid(now) {
             return Err(Error::Unavailable);
         }
-        let rows = sqlx::query("SELECT family,wire,quarantined,epoch::text,recovery_generation::text,content_hash,record_hash,EXISTS(SELECT 1 FROM league_audit a WHERE a.authority=league_subjects.authority AND a.family=league_subjects.family AND a.world_id=league_subjects.world_id AND a.subject_id=league_subjects.subject_id AND a.epoch=league_subjects.epoch AND a.revision=league_subjects.revision AND octet_length(a.signature)>0 AND a.occurred_at_unix_ms / 1000 > $1) AS audit_available FROM league_subjects WHERE finalized_at IS NULL OR finalized_at > $1")
+        let rows = sqlx::query("SELECT family,wire,quarantined,epoch::text,recovery_generation::text,content_hash,record_hash,EXISTS(SELECT 1 FROM league_audit a WHERE a.authority=league_subjects.authority AND a.family=league_subjects.family AND a.world_id=league_subjects.world_id AND a.subject_id=league_subjects.subject_id AND a.epoch=league_subjects.epoch AND a.revision=league_subjects.revision AND octet_length(a.signature)>0 AND a.occurred_at_unix_ms / 1000 > $1) AS audit_available FROM league_subjects WHERE (finalized_at IS NULL OR finalized_at > $1) AND NOT EXISTS(SELECT 1 FROM league_feed_withdrawals w WHERE w.authority=league_subjects.authority AND w.family=league_subjects.family AND w.world_id=league_subjects.world_id AND w.subject_id=league_subjects.subject_id AND w.withdrawn)")
             .bind(i64::try_from(now.saturating_sub(90*86400)).map_err(|_| Error::Invalid)?).fetch_all(&mut *tx).await?;
         let mut out = vec![];
         for row in rows {
@@ -192,6 +201,7 @@ impl<A: Authority> League<A> {
                 row.try_get::<String, _>("family")? == "guild_season",
                 now,
             )?;
+            self.authority.verify_served(&mut tx, &s, &wire).await?;
             if schema::hash(&s.content()?) != row.try_get::<String, _>("content_hash")?
                 || schema::hash(&s.record()?) != row.try_get::<String, _>("record_hash")?
             {
@@ -235,7 +245,7 @@ impl<A: Authority> League<A> {
         Ok(())
     }
 }
-fn check_payload(d: &Delivery<'_>, s: &Snapshot) -> Result<()> {
+pub(super) fn check_payload(d: &Delivery<'_>, s: &Snapshot) -> Result<()> {
     let record = s.record()?;
     let hash = Sha256::digest(&record).to_vec();
     match s {

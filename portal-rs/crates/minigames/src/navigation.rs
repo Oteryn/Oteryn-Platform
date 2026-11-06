@@ -5,7 +5,7 @@ use oteryn_ui::{Group, Registry};
 pub fn register(registry: &mut Registry) {
     let on = |key| std::env::var(key).as_deref() == Ok("true");
     registry.section(
-        on("OTERYN_LEAGUE_ENABLED") && on("OTERYN_LEAGUE_PUBLIC_ENABLED"),
+        on("OTERYN_LEAGUE_ENABLED"),
         "league",
         "shell-league",
         "league",

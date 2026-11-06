@@ -150,6 +150,18 @@ async fn run_until(
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
     registry.cleanup(
+        "league.retention",
+        1,
+        Arc::new(oteryn_minigames::league::runtime::Retention { pool: pool.clone() }),
+    )?;
+    if oteryn_minigames::league::config::enabled() {
+        registry.cleanup(
+            "league.ingest",
+            1,
+            Arc::new(oteryn_minigames::league::runtime::FeedJob { pool: pool.clone() }),
+        )?;
+    }
+    registry.cleanup(
         "cleanup.world-kills",
         3600,
         Arc::new(oteryn_stats::world::kills::Retention(pool.clone())),

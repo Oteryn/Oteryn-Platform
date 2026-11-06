@@ -50,3 +50,31 @@ workspace = true
 
 [dependencies.prost]
 version = "0.14.1"
+
+[dependencies.base64]
+version = "0.22"
+[dependencies.tokio]
+version = "1"
+features = ["net", "time", "sync", "rt"]
+[dependencies.rustls]
+version = "0.23"
+default-features = false
+features = ["ring", "std"]
+[dependencies.tokio-rustls]
+version = "0.26"
+default-features = false
+features = ["ring"]
+[dependencies.hyper]
+version = "1"
+features = ["server", "http1"]
+[dependencies.hyper-util]
+version = "0.1"
+features = ["tokio"]
+[dependencies.tower]
+version = "0.5"
+features = ["util"]
+
+[dependencies.unicode-normalization]
+version = "0.1"
+[dependencies.unicode-general-category]
+version = "1"

@@ -163,14 +163,11 @@ pub(super) fn router_with_clock<A: Authority + 'static>(
         }))
 }
 pub fn configured_router(pool: PgPool) -> Router {
-    let on = |key| std::env::var(key).as_deref() == Ok("true");
-    let flags = Flags {
-        enabled: on("OTERYN_LEAGUE_ENABLED"),
-        public: on("OTERYN_LEAGUE_PUBLIC_ENABLED"),
-        ..Flags::default()
-    };
-    router(League::new(pool, flags, Unavailable))
+    let flags = super::config::owner_flags(super::config::enabled());
+    let authority = super::runtime::GameAuthority::configured();
+    router(League::new(pool, flags, authority))
 }
+
 async fn page<A: Authority>(
     Path(lang): Path<String>,
     State(state): State<Arc<Surface<A>>>,

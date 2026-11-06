@@ -10,6 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { SMTPServer } from 'smtp-server';
+import { leagueProducer } from './league-producer.mjs';
 dns.setDefaultResultOrder('ipv4first');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const scratch=process.env.PORTAL_E2E_SCRATCH || fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-'));
@@ -46,6 +47,7 @@ openssl(['req','-x509','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/ca-ke
 openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/key.pem`,'-out',`${scratch}/leaf.csr`,'-subj','/CN=localhost']);
 fs.writeFileSync(`${scratch}/extensions`,'subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n');
 openssl(['x509','-req','-in',`${scratch}/leaf.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/cert.pem`,'-days','2','-extfile',`${scratch}/extensions`]);
+const league=await leagueProducer({root,scratch,env,openssl});
 fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
 command('cargo',['build','--locked','-p','oteryn-portal']);
 const binary=process.env.PORTAL_E2E_BINARY||path.join(process.env.CARGO_TARGET_DIR||path.join(root,'target'),'debug/oteryn-portal');
@@ -66,7 +68,8 @@ const proxy=https.createServer(tls,(req,res)=>{
 });
 proxy.listen(18443,'127.0.0.1');
 const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
+league.start();
 console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the two task databases.`);
 let closing=false;
-async function close(){if(closing)return;closing=true;for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
+async function close(){if(closing)return;closing=true;await league.close();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
 process.on('SIGINT',close);process.on('SIGTERM',close);

@@ -2,6 +2,8 @@
 use super::{Error, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use unicode_general_category::{GeneralCategory, get_general_category};
+use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 
 macro_rules! record {
@@ -307,14 +309,19 @@ impl Season {
         let mut previous: Option<(u64, Vec<u64>, Uuid)> = None;
         for (i, g) in self.standings.iter().enumerate() {
             let gid = id(&g.guild_id)?;
-            // Until the PP privacy/NFC adapter is accepted, a conservative ASCII subset.
             ensure(
                 seen.insert(gid)
                     && !g.guild_name.is_empty()
                     && g.guild_name.len() <= 64
-                    && g.guild_name
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b" '-".contains(&b))
+                    && g.guild_name.nfc().eq(g.guild_name.chars())
+                    && !g.guild_name.contains(['"', '\\', '/'])
+                    && !matches!(g.guild_name.as_str(), "." | "..")
+                    && g.guild_name.chars().all(|c| {
+                        !matches!(
+                            get_general_category(c),
+                            GeneralCategory::Control | GeneralCategory::Format
+                        )
+                    })
                     && g.scores.len() == self.challenges.len()
                     && number(&g.rank, false)? == (i + 1) as u64,
             )?;

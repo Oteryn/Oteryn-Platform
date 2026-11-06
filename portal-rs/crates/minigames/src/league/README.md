@@ -1,91 +1,144 @@
-# PLAT3-T94 — display-only league consumer
+# PLAT3-T94 — world outcomes and guild season consumer
 
-Base: Platform main `93f0aec532df11bd575ac3d2944a3b5587e3d585`.
-Game authority: `3b49a20feec3ba29700bb4b2fa28fa9b539b79a2`, CANDIDATE rev 1.
-Contract: `docs/contracts/OTERYN_GAME_WORLD_EVENT_OUTCOMES_AND_GUILD_SEASON_V1.md`.
-Fixture provenance and exact hashes: `fixtures/SOURCE.md` and `tests.rs`.
-This task record stays inside the owner's permitted module paths; no live
-Platform Issue matching T94/PLAT3 was found during the targeted preflight.
-Jira mapping/synchronization is unknown; no Jira write or PR creation is claimed.
+Owner follow-up decision **2026-11-06** accepts candidate proposals. The actual
+Game contracts/fixtures remain pinned to `3b49a20feec3ba29700bb4b2fa28fa9b539b79a2`;
+this owner decision does not claim that Game at that SHA implements a publisher.
+See `fixtures/SOURCE.md`. No Game repository is modified.
 
-## Delivered boundary
+## Running the feature
 
-Strict canonical JSON with closed member order/types/absence lists, UUIDv7,
-uint64 decimal counters, event windows/options/evidence, season bounds, checked
-score sums and deterministic tie ordering. Unknown/duplicate/null/escaped members
-and noncanonical bytes deny. Guild names temporarily accept only an ASCII subset
-of PP's NFC/privacy domain; unsupported names deny the whole snapshot.
+`OTERYN_LEAGUE_ENABLED=true` is the **one** feature flag for public `/pl/league`,
+`/en/league`, navigation, the dedicated private publisher listener and the worker.
+The previous `OTERYN_LEAGUE_PUBLIC_ENABLED` flag is removed. `serve` wires the real
+`GameAuthority`; `worker` schedules `FeedJob` every second through the existing
+leased outbox scheduler. No production composition uses the `Unavailable` adapter.
+Missing trust configuration still yields localized 503, never trusted fixture data.
 
-`League::ingest` is an internal trusted-adapter API, **not a network endpoint**.
-It consumes only decided audit types 10/11 and their exact registered prost
-payloads, bound to complete snapshot bytes and matching record/evidence hashes.
-Types 6/7 remain their existing owners' responsibility. The separate snapshot
-transport (including nonterminal records, withdrawals and watermarks) cannot be
-mistaken for an audit decision. Those operations require the missing qualified
-transport adapter and remain unavailable. No live feed is advertised.
+Required deployment inputs (see `portal-rs/e2e/ENVIRONMENT.md`):
 
-Every write holds the module advisory transaction lock and the adapter's current
-recovery fence. Receipt IDs and transaction ordinals are unique; duplicate bytes
-are idempotent, receipt collisions quarantine serving, equal-pair different
-content/gaps quarantine the subject. Quarantine has no automatic clearing route.
-Question/season identity is immutable; correction binds the immediately prior
-record and replaces the projection. Final records cannot change. Occurrence
-non-reuse, final controls and receipt fingerprints survive P90D payload cleanup.
-First freeze time must be authenticated by the adapter; retries cannot extend
-history retention. Reads independently suppress final history at P90D and deny missing/expired signature audit or mismatched stored hashes.
+- `OTERYN_LEAGUE_BASE_URL`: the HTTPS **Platform admission** audience, without a
+  trailing slash; `OTERYN_LEAGUE_BIND`: its private listen address.
+- `OTERYN_LEAGUE_SOURCE_AUTHORITY`: exact dedicated outcome/season purpose name.
+- `OTERYN_LEAGUE_PUBLIC_KEYS`: JSON object mapping key IDs to 32-byte Ed25519 public
+  keys in lowercase hex. It contains no private key. Remove a key to revoke it on
+  process restart; queued proofs are reverified and public cut use checks trust.
+- `OTERYN_LEAGUE_CLIENT_CA_DER`, `OTERYN_LEAGUE_CERTIFICATE_DER`,
+  `OTERYN_LEAGUE_PRIVATE_KEY_DER`: external CA, server certificate and PKCS8 key
+  files; `OTERYN_LEAGUE_PEER_CERTIFICATE_SHA256`: exact dedicated Game leaf pin.
+- `OTERYN_LEAGUE_RECOVERY_FILE`: operator-owned **independent nonrollback storage**,
+  UTF-8 JSON with exactly `source_authority`, `projection_epoch`,
+  `recovery_generation` (positive decimal strings). Serve and worker reread it on
+  every proof use. Provision/bump it through the recovery control plane, never
+  ordinary restart. Fence writers must hold the same exclusive PostgreSQL advisory lock `94000003` while updating the file/state, so in-flight proof transactions cannot cross the change. Restoring this file along with the database defeats the fence
+  and is forbidden operationally. A different/older database generation cannot
+  serve until a complete authenticated cut and correction lineage reconcile.
 
-## Activation and unresolved owner choices
+Example public configuration: keys and certificate paths are deployment-owned;
+no sample private key or production certificate is checked into this repository.
 
-All `Flags` default false. `OTERYN_LEAGUE_ENABLED=true` plus
-`OTERYN_LEAGUE_PUBLIC_ENABLED=true` only mount `/pl/league` and `/en/league` and
-navigation. The configured adapter remains `Unavailable`, with all approval and
-ingest gates false, and responds with localized 503/no-store. No environment
-setting upgrades it to source authority. The page router limits aggregate reads
-to 120/minute per process; Askama escapes all data. There are no browser mutations,
-so no CSRF-bearing forms or submission endpoints are introduced.
+## Transport and admission profile
 
-Trusted application composition must separately supply `Authority`, the approval
-flags and the existing private TLS/ANL adapter. `Authority::fence` must lock a
-nonrollback generation, accepted source namespace, complete enumeration of both
-families/all retained subjects, correction lineage and fresh <=30s watermarks.
-It must reject clock uncertainty above 1s, incomplete cuts, schema drift, epoch
-alarms and missing evidence. `Authority::verify` must authenticate the purpose
-identity, exact signature bytes/key, ANL envelope/payload hash, TransactionEventRef,
-source evidence, source mappings, final-freeze time and recovery binding together.
-The Ed25519 helper defines no new signed Game wire format: the candidate specifies
-mTLS HTTP publishing and has no detached signature profile or signed fixture.
-Missing verification stays unavailable; hashes never establish authority.
+The pinned Game contract specifies **Game-initiated** HTTP/1.1, TLS 1.3 mTLS POSTs
+at these Platform routes, with exact unchanged snapshot/watermark bodies:
 
-New epochs cannot update existing subjects in this implementation: complete
-staging/enumeration, accepted nonrollback fence and recovery protocol remain an
-adapter/owner seam. No epoch is minted on restart and stale cached state is not
-used as a replacement. `expire` is a scheduler seam, not an enabled background
-worker. It removes audit bytes at P90D from the immutable authenticated ANL timestamp and expired final snapshot bytes while
-preserving minimal anti-replay/final-state authority controls.
+- `/internal/v1/game-public/world-event-outcome` (16384 bytes)
+- `/internal/v1/game-public/guild-season` (262144 bytes)
+- `/internal/v1/game-public/league-watermark` (512 bytes)
 
-Open owner questions remain gates: accepted source/advance windows/aggregation,
-season calendar/challenge/scoring/eligibility/tombstone/correction policy,
-immutable final freeze/repair, PKI and measured production limits. Each approval
-flag defaults OFF; no product policy is selected here. **Predictions are always
-closed**; there is no prediction window advertised, no scoring of submissions,
-no stakes, fees, Wallet/Store operation, reward or gameplay advantage.
+There is no pull-feed endpoint or inbound Game listener in the pinned contract.
+Platform does not invent one or query Game while rendering pages. HTTP responses
+are the return direction: accepted only after worker commit, otherwise empty
+400/401/409/429/503, all no-store. First staging normally returns retryable 503;
+the publisher retries identical bytes (backoff <=10s) until committed 200.
 
-T88 implements daily public facts and explicitly supplies no T94 outcome source.
-T89's production journal/cosmetic authority adapters remain unavailable and do
-not establish guild scoring authority. Neither is used to infer eligibility.
-G-12 producer/consumer interrupted-flow qualification and environment rollout
-remain pending; this implementation cannot mark the gate production-ready.
+The candidate defines ANL payloads but **no detached-signature framing or full-cut
+manifest wire**. The following is a separate **Platform admission profile v1**,
+chosen under the owner follow-up, not silently attributed to the Game contract.
+A real Game publisher must implement this profile alongside its normative bodies;
+the pinned Game SHA itself has no live producer. The E2E producer implements it
+only for local testing; that is not live Game producer/consumer qualification. The stub registers its synthetic Platform World metadata after migrations; outcomes and standings enter solely through the real private listener.
 
-## Validation
+Every private POST carries:
 
-Tests cover exact pinned bytes/hashes, Ed25519 verification and tampering, strict
-wire grammar, evidence absence, correction chains, fixed question fields, frozen
-lineage, rank/score/coverage refusal, clock/watermark failure, disabled/503 HTTP,
-pl/en responsive HTML, and PostgreSQL concurrent replay, durable restart,
-recovery mismatch, final mutation quarantine and retention. PostgreSQL tests use
-`PORTAL_TEST_DATABASE_URL`, isolated schemas and the complete migration chain.
-An unset variable emits a skip notice and is not PostgreSQL qualification.
+1. `x-oteryn-league-admission`: standard-base64 of canonical JSON in this exact
+   member order: `contract_version` (1), `source_authority`, `projection_epoch`,
+   `recovery_generation`, `key_id`, `request_id` (UUIDv7), `envelope` (base64 of
+   exact existing ANL EventEnvelope protobuf bytes, empty for cut/watermark or
+   withdrawal or SCHEDULED/LOCKED observation), `finalized_at` ([] or one authenticated first-freeze Unix second).
+2. `x-oteryn-league-signature`: lowercase hex Ed25519 signature over UTF-8:
+   `oteryn-platform-league-admission-v1\n<audience>\nPOST\n<path>\n<base64 admission>\n<SHA256 exact body>`.
 
-Required: `cargo fmt --all --check`,
-`cargo clippy -q --workspace --all-targets -- -D warnings`,
-`cargo test -q --workspace` from `portal-rs/` with the database harness configured.
+TLS client CA validation, TLS1.3/HTTP1.1/ALPN and exact certificate pin all precede
+HTTP access. Public forwarded-certificate headers are never trusted. The signature
+binds route, audience, recovery fence, exact body, native envelope and freeze time.
+Purpose identities/keys must be distinct from Character/Bazaar/public projections.
+
+Decisions use registered ANL types 10/11, revision 1, DURABLE_AUDIT, privacy class
+RESTRICTED_PLAYER_LINKED, PLAT3_AUTHORITY_AUDIT_RETENTION_V1 and TransactionEventRef.
+Nonterminal observations retain immutable question/occurrence controls and participate in the complete cut, but are never displayed as decided and never open predictions. The current admission profile accepts the closed non-personal envelope subset in
+`admission::Envelope`; other optional fields/schema revisions refuse rather than
+being silently discarded. Payload/record/evidence hashes, UUID domains, stable
+transaction counts and exact prost bytes are checked. World IDs must exist in Platform’s registry and are locked during proof use; a deleted/unregistered World cannot serve. No hash alone supplies a
+missing native receipt: Game's authenticated purpose attests retained evidence.
+
+A full-cut control POST is additionally required at
+`/internal/v1/game-public/league-cut` (max 262144 bytes), signed with the same
+profile. Canonical body order: `contract_version:1`,
+`operation:"PublishLeagueCutV1"`, `source_authority`, `projection_epoch`,
+`recovery_generation`, `subjects`. Each subject has exactly `family`, `world_id`,
+`subject_id`, `projection_revision`, `record_sha256`, `withdrawn` (boolean).
+Sort by family/world/subject; include **every** retained subject and explicit
+withdrawal, including VOID/CLOSED. A withdrawal's record hash is SHA256(empty
+bytes), matching the absent record; it never means a void result or zero score.
+Publish the cut first, replay required decisions/corrections in order, then the
+family watermarks. The worker atomically exposes the cut only on exact full-set
+match, with no unknown previous subjects and both fresh watermarks. Missing
+history, partial enumeration, quarantine or mismatched freeze stays unavailable.
+The cut contains final subject revisions; intermediate native corrections may be
+replayed to reach those revisions. Epoch/recovery changes never rewrite a CLOSED
+record, mint a generation or silently clear a quarantine.
+
+## Owner defaults
+
+- The four owner acceptance choices (`accepted_sources`, `accepted_season_rules`,
+  `accepted_final_freeze`, `accepted_pki`) default **true**. Override with the
+  corresponding boolean members of `OTERYN_LEAGUE_POLICY` JSON. Missing policy
+  uses accepted defaults; malformed policy refuses. These are policy choices,
+  never substitutes for actual signatures, fences, source facts or key material.
+- Outcome mappings/aggregation, season calendar/challenges/scoring, guild cut
+  attribution/eligibility/tombstone names and correction windows come from the
+  authenticated Game authority and immutable supplied rules, not Portal guesses.
+  No concrete supported live emitter is asserted by the pinned Game code.
+- No eligible prediction windows are supplied by this contract. The conservative
+  default is **zero open windows**; predictions, stakes, rewards and Wallet/Store
+  effects do not exist in this consumer. No season-pass source is inferred.
+- Watermark interval <=10s, stale bound 30s with 1s uncertainty, exact positive
+  fences, immutable final freeze and P90D audit/history ceilings follow the contract.
+- Unspecified local resource bounds: 16 concurrent TLS connections; 2s handshake,
+  5s exchange; publisher cap 120/minute (configurable 1..1200 through
+  `OTERYN_LEAGUE_REQUESTS_PER_MINUTE`); 64 queued requests processed per worker tick;
+  cut enumeration <=1000 retained subjects. Lower these caps with
+  `OTERYN_LEAGUE_CONNECTION_LIMIT`, `OTERYN_LEAGUE_BATCH_LIMIT`, and
+  `OTERYN_LEAGUE_SUBJECT_LIMIT`, respectively. ANL admission envelope ceiling 4096
+  bytes (can only be lowered through `OTERYN_LEAGUE_MAX_ENVELOPE_BYTES`). These are
+  conservative Platform caps, not permission to enlarge Game ANL hard ceilings.
+- Deployment trust values and recovery state have **no guessed defaults**. Supply
+  them explicitly. Retention scheduling is wired into the real worker; raw inbox
+  and audit data expire from immutable ANL timestamps. Minimal request/receipt,
+  final-state and occurrence non-reuse controls persist separately.
+
+## Tests and local proof
+
+The local launcher generates disposable TLS and Ed25519 keys, starts the isolated
+fixture Game publisher and the real serve/worker roles. No test trust shortcut,
+fixture loader, clock override or signing private key exists in production paths.
+`e2e/specs/league.spec.mjs` drives both locales and 1440/390 viewports, checks native
+outcomes/standings and checks a bad signature followed by stale-cut public refusal.
+The source snapshot file/wire strings stay byte-exact; synthetic ANL envelope
+identity, signatures and initial freeze commit timestamp are test-only provenance.
+
+Rust PostgreSQL tests use `PORTAL_TEST_DATABASE_URL`, isolated schemas, and the
+complete migration chain. Absence emits a skip notice. Run formatting, full
+workspace clippy with warnings denied, workspace tests, and the league Playwright
+spec against `e2e/local.mjs`. This proves the Platform user path with a local Game
+stub; a deployed Game emitter and environment rollout remain separate evidence.
