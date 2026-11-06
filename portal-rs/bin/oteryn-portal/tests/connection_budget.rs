@@ -93,6 +93,7 @@ async fn composed_modules_share_one_postgres_connection_budget()
         "OTERYN_COLLECTION_ENABLED",
         "OTERYN_SHOP_ENABLED",
         "PANEL_PREMIUM_PAYMENTS",
+        "OTERYN_ACCOUNT_RECOVERY_KEYS",
         "OTERYN_WORLD_ENABLED",
     ] {
         command.env(flag, "true");
@@ -134,6 +135,19 @@ async fn composed_modules_share_one_postgres_connection_budget()
             "{path} must not fail internally"
         );
     }
+    let recovery = request(address, "/en/recovery-key")?;
+    assert!(recovery.starts_with("HTTP/1.1 200"));
+    assert!(recovery.contains("Account recovery key"));
+    assert!(recovery.contains("name=\"_csrf\""));
+    let mut socket = TcpStream::connect_timeout(&address, Duration::from_secs(2))?;
+    socket.set_read_timeout(Some(Duration::from_secs(5)))?;
+    write!(
+        socket,
+        "POST /en/recovery-key HTTP/1.1\r\nHost: localhost\r\nOrigin: https://localhost\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )?;
+    let mut refused = String::new();
+    socket.read_to_string(&mut refused)?;
+    assert!(refused.starts_with("HTTP/1.1 403"));
     let connections: i64 =
         sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1")
             .bind(&schema)
