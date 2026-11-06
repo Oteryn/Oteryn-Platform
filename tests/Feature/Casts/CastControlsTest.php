@@ -125,7 +125,9 @@ final class CastControlsTest extends TestCase
 
     public function test_concurrent_cross_cast_admissions_lock_the_global_account_budget(): void
     {
-        self::assertSame('pgsql', DB::connection()->getDriverName());
+        if (DB::connection()->getDriverName() !== 'pgsql') {
+            self::markTestSkipped('Cross-cast admission locking requires the PostgreSQL test wrapper (phpunit.pgsql.xml).');
+        }
         $this->freezeTime();
         $service = app(CastControls::class);
         $owner = Identity::query()->create(['email' => 'race-owner@example.invalid', 'password' => 'unused']);
