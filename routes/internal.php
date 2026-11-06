@@ -1,5 +1,8 @@
 <?php
 
+use App\Casts\CastNodeController;
+use App\Casts\CastWatchController;
+use App\Casts\GuardCastNode;
 use App\CharacterAuthority\Http\CharacterCommandRoutes;
 use App\CharacterAuthority\Restore\GameRestoreNoticeWire;
 use App\CharacterAuthority\Restore\Http\GameRestoreNoticeController;
@@ -160,3 +163,10 @@ Route::middleware(GuardStorePeer::class.':delivery')->group(function (): void {
     Route::post('/internal/v1/products-entitlements/store/operations/reconcile', StoreReconcileController::class)
         ->middleware(ValidateStoreRequest::class.':ListStoreOperationStatesV1,512');
 });
+
+// S17 has a separate node identity and purpose; it never admits a character.
+Route::post('/internal/v1/casts/node', CastNodeController::class)
+    ->middleware([PreventSensitiveGameAuthResponseCaching::class, GuardCastNode::class]);
+
+Route::post('/internal/v1/casts/watch', CastWatchController::class)
+    ->middleware([PreventSensitiveGameAuthResponseCaching::class, RequireGatewayServiceCredential::class]);

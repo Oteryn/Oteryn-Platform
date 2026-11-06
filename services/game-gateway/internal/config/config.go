@@ -19,6 +19,7 @@ type Config struct {
 	// issuer. The built-in default stays off: the gateway cannot tell preproduction from
 	// production, so each deployment opts in with GATEWAY_NATIVE_LOGIN_ENABLED=true (D963 Q1=A,
 	// D607). Native admission is the only login protocol; with the flag off every login is refused.
+	CastWatchEnabled       bool
 	NativeLoginEnabled     bool
 	NativeAdmissionTimeout time.Duration
 }
@@ -45,6 +46,13 @@ func Load() (Config, error) {
 		cfg.RequestTimeout = parsed
 	}
 
+	switch os.Getenv("GATEWAY_CAST_WATCH_ENABLED") {
+	case "", "false":
+	case "true":
+		cfg.CastWatchEnabled = true
+	default:
+		return Config{}, fmt.Errorf("invalid GATEWAY_CAST_WATCH_ENABLED")
+	}
 	switch os.Getenv("GATEWAY_NATIVE_LOGIN_ENABLED") {
 	case "", "false":
 	case "true":
