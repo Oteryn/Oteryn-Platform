@@ -12,6 +12,7 @@ import pg from 'pg';
 import { SMTPServer } from 'smtp-server';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
+import {createGameClosureProducer} from './game-closure-producer.mjs';
 dns.setDefaultResultOrder('ipv4first');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const scratch=process.env.PORTAL_E2E_SCRATCH || fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-'));
@@ -50,6 +51,23 @@ fs.writeFileSync(`${scratch}/extensions`,'subjectAltName=DNS:localhost,IP:127.0.
 openssl(['x509','-req','-in',`${scratch}/leaf.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/cert.pem`,'-days','2','-extfile',`${scratch}/extensions`]);
 const league=await leagueProducer({root,scratch,env,openssl});
 const bazaarConfig=prepareBazaar(env,scratch);
+// Dedicated Character/portfolio certificates; neither is a browser identity.
+function gameCertificate(name){
+ openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/${name}-key.pem`,'-out',`${scratch}/${name}.csr`,'-subj',`/CN=${name}`]);
+ fs.writeFileSync(`${scratch}/${name}.ext`,'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n');
+ openssl(['x509','-req','-in',`${scratch}/${name}.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/${name}.pem`,'-days','2','-extfile',`${scratch}/${name}.ext`]);
+ return {cert:fs.readFileSync(`${scratch}/${name}.pem`),key:fs.readFileSync(`${scratch}/${name}-key.pem`)};
+}
+const character=gameCertificate('closure-character'),portfolio=gameCertificate('closure-portfolio');
+const gameProducer=createGameClosureProducer({baseURL:'https://localhost:19443',ca:fs.readFileSync(`${scratch}/ca.pem`),character,portfolio});
+Object.assign(env,{
+ PORTAL_ACCOUNT_CLOSURE_ENABLED:'true',PORTAL_ACCOUNT_CLOSURE_BASE_URL:'https://localhost:19443',PORTAL_ACCOUNT_CLOSURE_BIND:'127.0.0.1:19443',
+ PORTAL_ACCOUNT_CLOSURE_TLS_CA_FILE:`${scratch}/ca.pem`,PORTAL_ACCOUNT_CLOSURE_TLS_CERT_FILE:`${scratch}/cert.pem`,PORTAL_ACCOUNT_CLOSURE_TLS_KEY_FILE:`${scratch}/key.pem`,
+ PORTAL_ACCOUNT_CLOSURE_CLIENT_CERT_SHA256:crypto.createHash('sha256').update(new crypto.X509Certificate(character.cert).raw).digest('hex'),
+ PORTAL_ACCOUNT_CLOSURE_LCFA_CLIENT_CERT_SHA256:crypto.createHash('sha256').update(new crypto.X509Certificate(portfolio.cert).raw).digest('hex'),
+ PORTAL_ACCOUNT_CLOSURE_KEY_ID:gameProducer.keyId,PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX:gameProducer.publicKeyHex,PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION:'3',PORTAL_ACCOUNT_CLOSURE_WORKER_INTERVAL_SECONDS:'1',
+ PORTAL_E2E_GAME_CLOSURE_CONTROL_URL:gameProducer.controlURL,
+});
 fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
 command('cargo',['build','--locked','-p','oteryn-portal']);
 const binary=process.env.PORTAL_E2E_BINARY||path.join(process.env.CARGO_TARGET_DIR||path.join(root,'target'),'debug/oteryn-portal');
@@ -79,7 +97,8 @@ const proxy=https.createServer(tls,(req,res)=>{
 proxy.listen(18443,'127.0.0.1');
 const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
 league.start();
+await gameProducer.start();
 console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the two task databases.`);
 let closing=false;
-async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
+async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();await gameProducer.stop();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
 process.on('SIGINT',close);process.on('SIGTERM',close);

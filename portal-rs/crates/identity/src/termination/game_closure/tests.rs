@@ -356,6 +356,20 @@ async fn postgres_close_proof_requery_finalize_and_atomic_audit() -> TestResult 
     .fetch_one(&db.pool)
     .await?;
     AccountClosureDecisionV1::decode(payload.as_slice())?.validate(&raw)?;
+    sqlx::query("UPDATE plat3_closure_audit_outbox SET expires_at=now()-interval '1 second'")
+        .execute(&db.pool)
+        .await?;
+    oteryn_db::outbox::Cleanup::clean(&AuditRetention(db.pool.clone()))
+        .await
+        .map_err(std::io::Error::other)?;
+    let retained: i64 = sqlx::query_scalar("SELECT count(*) FROM plat3_closure_receipts")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(retained, 1);
+    let expired: i64 = sqlx::query_scalar("SELECT count(*) FROM plat3_closure_audit_outbox")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(expired, 0);
     assert!(
         sqlx::query("UPDATE plat3_closure_commands SET intent=$1")
             .bind(b"{}".as_slice())
@@ -692,4 +706,261 @@ fn committed_resumable_close_can_complete_after_attempt_ttl() {
     let raw = serde_json::to_vec(&receipt).unwrap();
     Receipt::parse(&raw).unwrap().bind(&intent, 3).unwrap();
     assert!(Receipt::parse(&raw).unwrap().bind(&intent, 4).is_err());
+}
+
+fn runtime_config(enabled: bool) -> runtime::Config {
+    runtime::Config::load(|key| match key {
+        "PORTAL_ACCOUNT_CLOSURE_ENABLED" => Some(enabled.to_string()),
+        "PORTAL_ACCOUNT_CLOSURE_KEY_ID" => Some("closure-test".into()),
+        "PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX" => {
+            Some(wire::hex(seed().verifying_key().as_bytes()))
+        }
+        "PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION" => Some("3".into()),
+        _ => None,
+    })
+    .unwrap()
+}
+#[test]
+fn production_owner_defaults_use_one_feature_switch_and_require_real_trust() {
+    let off = runtime::Config::load(|_| None).unwrap();
+    assert!(!off.enabled);
+    assert!(off.boundary(Arc::new(Local), true).unwrap().is_none());
+    assert!(
+        runtime::Config::load(
+            |key| (key == "PORTAL_ACCOUNT_CLOSURE_ENABLED").then(|| "true".into())
+        )
+        .is_err()
+    );
+    let config = runtime_config(true);
+    assert_eq!(config.worker_interval_seconds, 5);
+    assert_eq!(config.limits.ttl_seconds, 300);
+    assert_eq!(config.limits.max_pending, 40);
+    assert_eq!(config.limits.stale_seconds, 30);
+    assert!(config.boundary(Arc::new(Local), false).unwrap().is_none());
+    assert!(config.boundary(Arc::new(Local), true).unwrap().is_some());
+    for limits in [
+        Limits {
+            ttl_seconds: 301,
+            ..Limits::default()
+        },
+        Limits {
+            max_pending: 41,
+            ..Limits::default()
+        },
+        Limits {
+            stale_seconds: 31,
+            ..Limits::default()
+        },
+    ] {
+        assert!(limits.validate().is_err());
+    }
+}
+#[tokio::test]
+async fn postgres_production_factory_and_guarded_http_pull_read_signed_receipt() -> TestResult {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use oteryn_internal_api::guard::{Binding, Identity, IdentityMap, VerifiedClient};
+    use tower::ServiceExt;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let config = runtime_config(true);
+    let b = config
+        .boundary(Arc::new(Local), true)?
+        .ok_or("missing enabled boundary")?;
+    let s = service(&db, b.clone());
+    let account = db.account().await?;
+    let (_, intent) = issue(&db, &s, account).await;
+    let identity = Identity::san("test-character-command")?;
+    let identities = Arc::new(IdentityMap::new(vec![Binding {
+        identity: identity.clone(),
+        group: http::GROUP.into(),
+    }])?);
+    let app = http::router(
+        db.pool.clone(),
+        b.clone(),
+        "closure-test".into(),
+        identities,
+    );
+    let pending=br#"{"contract_version":2,"operation":"ListPendingCharacterCommandsV1","source_authority":"oteryn:character-authority:primary","after_source_revision":"0","after_operation_id":"00000000-0000-0000-0000-000000000000","max_entries":32}"#;
+    let path = "/internal/v1/game-auth/character-commands/pending";
+    let raw_request = |path: &str, raw: &[u8]| {
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .body(Body::from(raw.to_vec()))
+            .unwrap()
+    };
+    assert_eq!(
+        app.clone()
+            .oneshot(raw_request(path, pending))
+            .await?
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let mut request = raw_request(path, pending);
+    request
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+    let response = app.clone().oneshot(request).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 8192).await?;
+    let value: Value = serde_json::from_slice(&body)?;
+    assert_eq!(value["pending"][0]["operation_id"], intent.operation_id);
+    let read_raw = format!(
+        r#"{{"contract_version":2,"operation":"ReadCharacterCommandIntentV1","source_authority":"oteryn:character-authority:primary","issuer_authority":"OTERYN_PLATFORM_CHARACTER_AUTHORITY","command":"CloseAccount","operation_id":"{}"}}"#,
+        intent.operation_id
+    );
+    let mut request = raw_request(
+        "/internal/v1/game-auth/character-commands/read",
+        read_raw.as_bytes(),
+    );
+    request
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+    let response = app.clone().oneshot(request).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        axum::body::to_bytes(response.into_body(), 4096)
+            .await?
+            .as_ref(),
+        intent.bytes()?
+    );
+    let mismatched = read_raw.replace(
+        "\"command\":\"CloseAccount\"",
+        "\"command\":\"ResolveAccountClosure\"",
+    );
+    let mut request = raw_request(
+        "/internal/v1/game-auth/character-commands/read",
+        mismatched.as_bytes(),
+    );
+    request
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+    assert_eq!(
+        app.clone().oneshot(request).await?.status(),
+        StatusCode::CONFLICT
+    );
+    let read = serde_json::to_vec(&serde_json::json!({}))?; // Malformed protocol members fail before a read effect.
+    let mut request = raw_request("/internal/v1/game-auth/character-commands/read", &read);
+    request
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+    assert_eq!(
+        app.clone().oneshot(request).await?.status(),
+        StatusCode::BAD_REQUEST
+    );
+    let (receipt, _) = publish(&db, &b, &intent, true).await;
+    let path = "/internal/v1/game-auth/character-commands/receipt";
+    let mut request = raw_request(path, &receipt);
+    request
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+    assert_eq!(
+        app.clone().oneshot(request).await?.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let mut request = raw_request(path, &receipt);
+    request
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(identity));
+    request
+        .headers_mut()
+        .insert("x-oteryn-key-id", "closure-test".parse()?);
+    request.headers_mut().insert(
+        "x-oteryn-signature",
+        wire::hex(&seed().sign(&receipt).to_bytes()).parse()?,
+    );
+    assert_eq!(app.oneshot(request).await?.status(), StatusCode::OK);
+    assert_eq!(s.run_worker(100).await?.finalized, 1);
+    let mut tx = db.pool.begin().await?;
+    assert!(
+        runtime::DurableRecoveryFence { generation: 2 }
+            .current(&mut tx)
+            .await
+            .is_err()
+    );
+    tx.rollback().await?;
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_owner_hold_policy_keeps_verified_closure_pending_and_cancellable() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let mut config = runtime_config(true);
+    config.final_disposition = FinalDisposition::Hold;
+    let b = config
+        .boundary(Arc::new(Local), true)?
+        .ok_or("missing configured boundary")?;
+    let s = service(&db, b.clone());
+    let account = db.account().await?;
+    let (_, intent) = issue(&db, &s, account).await;
+    publish(&db, &b, &intent, true).await;
+    assert_eq!(s.run_worker(100).await?.blocked, 1);
+    s.cancel(
+        account,
+        &ActorProof(account.to_string()),
+        "termination test password",
+    )
+    .await?;
+    assert_eq!(s.run_worker(100).await?, WorkerResult::default());
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_source_revision_behind_committed_cursor_stays_pending() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let s = service(&db, b);
+    let first = db.account().await?;
+    let (termination, _) = issue(&db, &s, first).await;
+    sqlx::query("SELECT setval('plat3_closure_source_revision',10,true)")
+        .execute(&db.pool)
+        .await?;
+    let second = db.account().await?;
+    let next = request(&s, second).await;
+    db.due(next.id).await?;
+    assert_eq!(s.run_worker(100).await?.blocked, 2);
+    sqlx::query("SELECT setval('plat3_closure_source_revision',1,true)")
+        .execute(&db.pool)
+        .await?;
+    assert!(
+        s.cancel(
+            first,
+            &ActorProof(first.to_string()),
+            "termination test password"
+        )
+        .await
+        .is_err()
+    );
+    let cancelled: bool =
+        sqlx::query_scalar("SELECT cancelled_at IS NOT NULL FROM account_terminations WHERE id=$1")
+            .bind(termination.id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert!(!cancelled);
+    sqlx::query("SELECT setval('plat3_closure_source_revision',11,true)")
+        .execute(&db.pool)
+        .await?;
+    s.cancel(
+        first,
+        &ActorProof(first.to_string()),
+        "termination test password",
+    )
+    .await?;
+    s.cancel(
+        second,
+        &ActorProof(second.to_string()),
+        "termination test password",
+    )
+    .await?;
+    assert_eq!(s.run_worker(100).await?, WorkerResult::default());
+    db.close().await
 }

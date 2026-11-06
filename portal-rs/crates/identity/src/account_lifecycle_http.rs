@@ -51,7 +51,7 @@ impl oteryn_notify::AccountState for AccountState {
     }
 }
 #[derive(Debug)]
-struct TerminationBoundary;
+pub(crate) struct TerminationBoundary;
 impl termination::Boundary for TerminationBoundary {
     fn authorize<'a>(
         &'a self,
@@ -107,7 +107,7 @@ impl termination::Boundary for TerminationBoundary {
         })
     }
 }
-pub fn configured_router(pool: PgPool) -> Router {
+pub fn configured_router(pool: PgPool, termination: termination::Terminations) -> Router {
     let key = std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_KEY").unwrap_or_default();
     let Ok(signing) = oteryn_notify::Unsubscribe::new(
         key.into_bytes(),
@@ -116,11 +116,6 @@ pub fn configured_router(pool: PgPool) -> Router {
         return Router::new();
     };
     let Ok(config) = termination::Config::from_env() else {
-        return Router::new();
-    };
-    let Ok(termination) =
-        termination::Terminations::new(pool.clone(), config, Arc::new(TerminationBoundary))
-    else {
         return Router::new();
     };
     let notifications = Arc::new(oteryn_notify::Notifications {
@@ -192,6 +187,7 @@ struct Page {
     action: String,
     delete: bool,
     pending: bool,
+    restoration_pending: bool,
     unsubscribe: bool,
     token: String,
     news_email: bool,
@@ -239,6 +235,7 @@ async fn page(
         action: action.into(),
         delete,
         pending,
+        restoration_pending: false,
         unsubscribe,
         token,
         news_email: false,
@@ -433,9 +430,9 @@ async fn deletion(
     } else {
         String::new()
     };
-    Ok(render(
-        page(l, &s, &action, true, pending, false, String::new()).await?,
-    ))
+    let mut page = page(l, &s, &action, true, pending, false, String::new()).await?;
+    page.restoration_pending=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM plat3_closure_work w WHERE w.account_id=$1 AND w.generation=(SELECT max(latest.generation) FROM plat3_closure_work latest WHERE latest.account_id=w.account_id) AND w.resolution='CANCEL' AND w.close_operation_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM plat3_closure_commands c JOIN plat3_closure_receipts r USING(operation_id) JOIN plat3_closure_snapshots s ON s.account_id=w.account_id WHERE c.termination_id=w.termination_id AND c.command='ResolveAccountClosure' AND NOT s.invalid AND convert_from(r.receipt,'UTF8')::jsonb->'result_data'->>'closure_state'='CANCELLED' AND convert_from(s.snapshot,'UTF8')::jsonb->'closures'->0->>'operation_id'=c.operation_id::text AND convert_from(s.snapshot,'UTF8')::jsonb->'closures'->0->>'receipt_digest'=encode(r.receipt_sha256,'hex')))").bind(id).fetch_one(&st.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(render(page))
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]

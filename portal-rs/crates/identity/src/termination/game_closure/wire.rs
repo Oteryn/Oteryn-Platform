@@ -370,7 +370,10 @@ impl Watermark {
             && now.saturating_add(1).saturating_sub(complete) <= 30)
     }
 }
-fn canonical<T: serde::de::DeserializeOwned + Serialize>(raw: &[u8], max: usize) -> Result<T> {
+pub(super) fn canonical<T: serde::de::DeserializeOwned + Serialize>(
+    raw: &[u8],
+    max: usize,
+) -> Result<T> {
     if raw.is_empty() || raw.len() > max || raw.contains(&b'\\') {
         return Err(Error::InvalidInput);
     }

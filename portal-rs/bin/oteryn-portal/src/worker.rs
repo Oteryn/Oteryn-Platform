@@ -181,14 +181,20 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     )?;
     crate::reset_delivery::register(&mut registry, pool.clone())?;
     crate::registration_delivery::register(&mut registry, pool.clone())?;
+    let closure = crate::account_closure::configured(pool.clone())?;
+    if closure.game_enabled() {
+        registry.cleanup(
+            "identity.account-closure-audit",
+            3600,
+            Arc::new(oteryn_identity::termination::game_closure::AuditRetention(
+                pool.clone(),
+            )),
+        )?;
+    }
     registry.cleanup(
         "identity.finalize-terminations",
-        60,
-        Arc::new(oteryn_identity::termination::Terminations::new(
-            pool.clone(),
-            oteryn_identity::termination::Config::from_env()?,
-            Arc::new(oteryn_identity::termination::UnavailableBoundary),
-        )?),
+        closure.worker_interval_seconds(),
+        Arc::new(closure.terminations),
     )?;
     if let Some(delivery) = crate::sessions_http::delivery(pool.clone())? {
         registry.notifications(delivery)?;

@@ -10,7 +10,9 @@ save = Zapisz
 password = Obecne hasło
 confirmation = Wpisz TERMINATE, aby potwierdzić
 pending = Usunięcie konta jest zaplanowane. Możesz je anulować przed zakończeniem.
-explanation = Poproś o usunięcie konta po okresie karencji. Najpierw potwierdź hasło na stronie potwierdzenia bezpieczeństwa. Konta z postaciami, transakcjami, rezerwami środków lub zmianą adresu e-mail otrzymają odmowę. Zakończenie oczekuje na kontrakt cyklu życia gry.
+explanation = Poproś o usunięcie konta po okresie karencji. Najpierw potwierdź hasło na stronie potwierdzenia bezpieczeństwa. Konta z postaciami, transakcjami, rezerwami środków lub zmianą adresu e-mail otrzymają odmowę. Zakończenie wymaga zweryfikowanego potwierdzenia zamknięcia konta w grze.
 cancel = Anuluj usunięcie
 delete = Poproś o usunięcie konta
 unsubscribed = Opcjonalne wiadomości e-mail są wyłączone.
+
+restoration-pending = Usunięcie anulowano. Przywracanie konta w grze trwa; stare sesje gry pozostają unieważnione.
