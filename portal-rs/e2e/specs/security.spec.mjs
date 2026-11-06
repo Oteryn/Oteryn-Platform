@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {register,login,submit,password,csrfRejected,waitForLoginBudget,pool} from '../helpers.mjs';
+import {register,login,logout,submit,password,csrfRejected,waitForLoginBudget,pool} from '../helpers.mjs';
 import crypto from 'node:crypto';
 
 test('privacy changes persist and account export contains the owning account',async({page},info)=>{
@@ -72,6 +72,7 @@ test('recovery key: confirm and revoke; unavailable global reset preserves crede
  try {
   const state=async()=> (await db.query('SELECT r.confirmed_at,r.used_at,r.revoked_at,a.password_hash FROM account_recovery_keys r JOIN accounts a ON a.id=r.account_id WHERE a.email=$1',[account.email])).rows[0];
   const before=await state();expect(before.confirmed_at).toBeTruthy();
+  await logout(page,lang);
   await page.goto(`/${lang}/recovery-key`);
   const next=password();
   const response=page.waitForResponse(r=>r.request().method()==='POST' && new URL(r.url()).pathname===`/${lang}/recovery-key` && r.status()!==403);
