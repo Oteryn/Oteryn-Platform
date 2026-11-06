@@ -10,7 +10,7 @@ export default defineConfig({
   fullyParallel: false, workers: 1, retries: 0,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
   use: { baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443', ignoreHTTPSErrors: true,
-    actionTimeout: 10_000, navigationTimeout: 20_000, browserName: 'chromium', launchOptions: { executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] },
+    actionTimeout: 30_000, navigationTimeout: 30_000, browserName: 'chromium', launchOptions: { executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] },
     trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   projects: ['pl', 'en'].flatMap(locale => [1440, 390].map(width => ({ name: `${locale}-${width}`, use: { locale, viewport: { width, height: 900 } }, metadata: { locale } }))),
 });

@@ -10,15 +10,11 @@ Browser validation failures redirect with a generic localized flash message. A
 successful password change redirects to login and clears the current cookie.
 Sudo lasts 15 minutes and rotates both the cookie identifier and CSRF token.
 
-The base did not contain T16 or T21, and their remote branches were absent at
-implementation time. Consequently the configured router uses
-`UnavailableRevoker`: password changes fail closed with 503. Do not replace it
-with a no-op when enabling the feature. Compose `credentials_http::router` with
-an `AuthorizationRevoker` that uses the caller's transaction to revoke outstanding
-OAuth authorization codes, access/refresh families, device families and trusted
-devices, and enforce an activated native non-rollback witness. Any failure must
-return an error. It must not commit, start an independent transaction or advance
-the account's native generation: the credential service owns that increment.
+The configured router installs `TransactionalRevoker`, sharing recovery's
+transactional OAuth authorization-code/family, device-session and trusted-MFA-token
+revocation. MFA enrollment and passkeys are preserved on a password change.
+The credential service advances the native generation, removes all browser sessions,
+and commits only after every revocation and notification succeeds.
 The positive account generation must remain below the PostgreSQL bigint limit.
 An overflow aborts the entire change.
 

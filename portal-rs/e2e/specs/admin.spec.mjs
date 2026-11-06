@@ -13,15 +13,15 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await login(page,lang,staff);
  expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(403);
  await page.goto(`/${lang}/mfa`);
- await submit(page,'main form',{password:staff.password});
+ await submit(page,'main form[action$="/mfa/enroll"]',{password:staff.password});
  const secret=await page.locator('main .op-prose').innerText();
  const totp=new OTPAuth.TOTP({secret,algorithm:'SHA1',digits:6,period:30});
- await submit(page,'main form',{password:staff.password,code:totp.generate()});
+ await submit(page,'main form[action$="/mfa/confirm"]',{password:staff.password,code:totp.generate()});
  const codes=await page.locator('textarea[readonly]').allTextContents();
  expect(codes.length).toBeGreaterThan(0);
  await login(page,lang,staff);
  await expect(page).toHaveURL(/mfa\/challenge/);
- await submit(page,'main form',{code:codes[0]});
+ await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
@@ -38,9 +38,13 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    for(const form of forms)await csrfRejected(page,form.action,form.fields);
    } finally {await page.close();}
  });
+ // Opening navigation must not grant Game read permission to the bootstrap role.
+ expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
+ expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
  const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
  expect((await ordinary.goto('/admin')).status()).toBe(403);
+ for(const path of ['/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up','/console/dashboard','/admin/console/players']) expect((await ordinary.goto(path)).status(),path).toBe(403);
  await context.close();
  await info.attach('admin-findings',{body:JSON.stringify({paths,failures},null,2),contentType:'application/json'});
  expect(failures).toEqual([]);

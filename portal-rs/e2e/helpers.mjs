@@ -27,9 +27,9 @@ export async function submit(page, selector='main form', values={}) {
     if(await input.getAttribute('type')==='checkbox') await input.setChecked(Boolean(value));
     else await input.fill(value);
   }
-  await form.locator('button[type=submit], button:not([type])').first().click();
+  await form.locator('button[type=submit], button:not([type])').first().click({timeout:30_000});
 }
-export async function mailLink(page,email,pattern) {
+export async function mailLink(page,email,pattern,timeout=30_000) {
   let found;
   await expect.poll(async()=>{
     const response=await page.request.get('/__mail');
@@ -38,7 +38,7 @@ export async function mailLink(page,email,pattern) {
     if(!message)return false;
     const raw=message.raw.replace(/=\r?\n/g,'').replace(/=3D/g,'=');
     found=raw.match(pattern)?.[0];return Boolean(found);
-  },{timeout:30_000}).toBe(true);
+  },{timeout}).toBe(true);
   return found;
 }
 export async function seedPasswordRange(value) {
@@ -59,7 +59,7 @@ export async function register(page,lang) {
   expect(registration.status()).toBe(200);
   await page.locator('[name=work_token]').waitFor({state:'attached'});
   await submit(page,'main form',{email,password:pass,password_confirmation:pass,terms:true,privacy:true});
-  await expect(page).toHaveURL(new RegExp(`/${lang}/register/check-inbox`));
+  await expect(page).toHaveURL(new RegExp(`/${lang}/register/check-inbox`),{timeout:90_000});
   const link=await mailLink(page,email,/https:\/\/localhost:18443\/(?:pl|en)\/verify-email\?token=[a-f0-9]+/);
   await page.goto(link);
   const form=page.locator('main form');

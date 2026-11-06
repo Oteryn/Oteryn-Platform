@@ -57,7 +57,10 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     }
     let s = Arc::new(Controls::new(
         pool.clone(),
-        Unavailable,
+        SessionAuthority {
+            pool: pool.clone(),
+            mfa: oteryn_identity::mfa::Mfa::configured(pool.clone())?,
+        },
         oteryn_identity::mfa::Mfa::configured(pool.clone())?,
         enabled,
     ));
@@ -275,4 +278,50 @@ fn refusal(locale: Locale, e: Refusal) -> Response {
 }
 fn message(locale: Locale, status: StatusCode, key: &str) -> Response {
     (status,axum::response::Html(format!("<!doctype html><html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><main><h1>{}</h1><a href=\"/admin\">{}</a></main></html>",locale.0,locale.text(key),locale.text("back")))).into_response()
+}
+
+/// The guarded step-up page resolves current account-bound staff MFA. Operation
+/// execution still requires an accepted target-specific catalog authority.
+struct SessionAuthority {
+    pool: PgPool,
+    mfa: oteryn_identity::mfa::Mfa,
+}
+impl Authority for SessionAuthority {
+    async fn staff(&self, session: &BrowserSession) -> Result<Uuid, Refusal> {
+        let account = session.account_id().await.ok_or(Refusal::Denied)?;
+        let grant = session
+            .get(oteryn_web::session::SessionKey::<String>::new(
+                oteryn_identity::mfa::SESSION_GRANT_KEY,
+            ))
+            .await?
+            .ok_or(Refusal::Denied)?;
+        if !self.mfa.satisfied(account, &grant).await? {
+            return Err(Refusal::Denied);
+        }
+        let auth = rbac::Authorizer::new(
+            self.pool.clone(),
+            crate::web::PortalIdentity::configured(self.pool.clone()),
+        );
+        auth.check(
+            rbac::CheckContext {
+                account,
+                require_staff_mfa: true,
+                mfa_verified: true,
+            },
+            rbac::Permission::Access,
+        )
+        .await
+        .map_err(|_| Refusal::Denied)?;
+        Ok(account)
+    }
+    async fn authorize(
+        &self,
+        _: &BrowserSession,
+        _: &str,
+    ) -> Result<(Identity, Operation), Refusal> {
+        Err(Refusal::Unavailable)
+    }
+    async fn approver(&self, _: Uuid, _: &Operation) -> Result<(), Refusal> {
+        Err(Refusal::Unavailable)
+    }
 }

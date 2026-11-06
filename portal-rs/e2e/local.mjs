@@ -55,6 +55,10 @@ const messages=[];
 const smtp=new SMTPServer({...tls,secure:true,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
 smtp.on('error',error=>console.error('Local SMTP error:',error.code));
 smtp.listen(465,'127.0.0.1');
+// Notification delivery uses the existing authenticated STARTTLS adapter on port 587.
+const starttls=new SMTPServer({...tls,secure:false,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
+starttls.on('error',error=>console.error('Local SMTP error:',error.code));
+starttls.listen(587,'127.0.0.1');
 const proxy=https.createServer(tls,(req,res)=>{
  if(req.url==='/__mail'){res.setHeader('content-type','application/json');res.end(JSON.stringify(messages));return;}
  const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,headers:req.headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
@@ -64,5 +68,5 @@ proxy.listen(18443,'127.0.0.1');
 const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
 console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the two task databases.`);
 let closing=false;
-async function close(){if(closing)return;closing=true;for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
+async function close(){if(closing)return;closing=true;for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
 process.on('SIGINT',close);process.on('SIGTERM',close);

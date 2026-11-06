@@ -64,6 +64,31 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
     };
     persist(&pool, ctx, &slug, "en", &form).await?;
     let app = router(pool.clone());
+    for (lang, message) in [
+        ("en", "This page has not been published yet."),
+        ("pl", "Ta strona nie została jeszcze opublikowana."),
+    ] {
+        for path in [
+            "rules",
+            "legal/terms",
+            "legal/privacy",
+            "legal/cookies",
+            "help",
+            "support/report-a-bug",
+            "server-information",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::get(format!("/{lang}/{path}")).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+            assert!(html.contains(message));
+            assert!(html.contains(&format!("lang=\"{lang}\"")));
+            assert!(!html.contains("Changed legal text"));
+        }
+    }
+
     let response = app
         .clone()
         .oneshot(Request::get(format!("/en/pages/{slug}")).body(Body::empty())?)

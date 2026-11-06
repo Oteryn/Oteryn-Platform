@@ -23,12 +23,15 @@ pub fn configured_router(pool: PgPool) -> Router {
     let origin = std::env::var("OTERYN_PUBLIC_ORIGIN").unwrap_or_default();
     let mut sessions = SessionLayer::new(pool.clone());
     sessions.csrf.trusted_origins = vec![origin.clone()];
+    let Ok(mfa) = oteryn_identity::mfa::Mfa::configured(pool.clone()) else {
+        return Router::new();
+    };
     router(
         Service {
             pool,
             enabled,
             origin,
-            security: Arc::new(DenySecurity),
+            security: Arc::new(TransactionalSecurity(mfa)),
         },
         sessions,
     )
@@ -132,7 +135,7 @@ async fn page(
     );
     response.headers_mut().insert(
         "referrer-policy",
-        axum::http::HeaderValue::from_static("no-referrer"),
+        axum::http::HeaderValue::from_static("same-origin"),
     );
     Ok(response)
 }

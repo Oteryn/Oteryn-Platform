@@ -1,32 +1,38 @@
 {
-  "material_head": "3180e9d48f008c0cee5eeadeb257648cde4cec1e",
-  "started_at": "2026-11-06T03:20:15.834Z",
+  "task": "E2E-FIX2",
+  "base_head": "0e019da51ec3a014d3fd2419ec940d3ea04d4998",
+  "source_delta_sha256": "c339f143565b7b8ea0dc88b9f3ea4e0c30d48370b64d2a76961228c5143e7185",
   "counts": {
-    "en-1440": {
-      "passed": 39,
-      "failed": 7
-    },
-    "en-390": {
-      "passed": 39,
-      "failed": 7
-    },
     "pl-1440": {
-      "passed": 39,
-      "failed": 7
+      "passed": 50,
+      "failed": 0,
+      "skipped": 0
     },
     "pl-390": {
-      "passed": 39,
-      "failed": 7
+      "passed": 50,
+      "failed": 0,
+      "skipped": 0
+    },
+    "en-1440": {
+      "passed": 50,
+      "failed": 0,
+      "skipped": 0
+    },
+    "en-390": {
+      "passed": 50,
+      "failed": 0,
+      "skipped": 0
     }
   },
   "stats": {
-    "startTime": "2026-11-06T03:20:15.834Z",
-    "duration": 854596.967,
-    "expected": 156,
+    "startTime": "2026-11-06T05:16:48.703Z",
+    "duration": 1956946.715,
+    "expected": 200,
     "skipped": 0,
-    "unexpected": 28,
+    "unexpected": 0,
     "flaky": 0
   },
+  "retries": 0,
   "cases": [
     {
       "case": "overview: owner page and CSRF on every rendered mutation",
@@ -109,14 +115,14 @@
       "status": "passed"
     },
     {
-      "case": "bazaar: owner page and CSRF on every rendered mutation",
+      "case": "bazaar: documented game-authority refusal",
       "project": "pl-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
-      "case": "character listings: owner page and CSRF on every rendered mutation",
+      "case": "character listings: documented game-authority refusal",
       "project": "pl-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "item listings: documented game-authority refusal",
@@ -181,7 +187,7 @@
     {
       "case": "notification preferences: owner page and CSRF on every rendered mutation",
       "project": "pl-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "data export: owner page and CSRF on every rendered mutation",
@@ -191,7 +197,7 @@
     {
       "case": "account deletion: owner page and CSRF on every rendered mutation",
       "project": "pl-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "support ticket create, reply and refusal to another account",
@@ -294,14 +300,14 @@
       "status": "passed"
     },
     {
-      "case": "bazaar: owner page and CSRF on every rendered mutation",
+      "case": "bazaar: documented game-authority refusal",
       "project": "pl-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
-      "case": "character listings: owner page and CSRF on every rendered mutation",
+      "case": "character listings: documented game-authority refusal",
       "project": "pl-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "item listings: documented game-authority refusal",
@@ -366,7 +372,7 @@
     {
       "case": "notification preferences: owner page and CSRF on every rendered mutation",
       "project": "pl-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "data export: owner page and CSRF on every rendered mutation",
@@ -376,7 +382,7 @@
     {
       "case": "account deletion: owner page and CSRF on every rendered mutation",
       "project": "pl-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "support ticket create, reply and refusal to another account",
@@ -479,14 +485,14 @@
       "status": "passed"
     },
     {
-      "case": "bazaar: owner page and CSRF on every rendered mutation",
+      "case": "bazaar: documented game-authority refusal",
       "project": "en-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
-      "case": "character listings: owner page and CSRF on every rendered mutation",
+      "case": "character listings: documented game-authority refusal",
       "project": "en-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "item listings: documented game-authority refusal",
@@ -551,7 +557,7 @@
     {
       "case": "notification preferences: owner page and CSRF on every rendered mutation",
       "project": "en-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "data export: owner page and CSRF on every rendered mutation",
@@ -561,7 +567,7 @@
     {
       "case": "account deletion: owner page and CSRF on every rendered mutation",
       "project": "en-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "support ticket create, reply and refusal to another account",
@@ -664,14 +670,14 @@
       "status": "passed"
     },
     {
-      "case": "bazaar: owner page and CSRF on every rendered mutation",
+      "case": "bazaar: documented game-authority refusal",
       "project": "en-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
-      "case": "character listings: owner page and CSRF on every rendered mutation",
+      "case": "character listings: documented game-authority refusal",
       "project": "en-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "item listings: documented game-authority refusal",
@@ -736,7 +742,7 @@
     {
       "case": "notification preferences: owner page and CSRF on every rendered mutation",
       "project": "en-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "data export: owner page and CSRF on every rendered mutation",
@@ -746,7 +752,7 @@
     {
       "case": "account deletion: owner page and CSRF on every rendered mutation",
       "project": "en-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "support ticket create, reply and refusal to another account",
@@ -771,22 +777,22 @@
     {
       "case": "staff bootstrap, mandatory MFA, admin navigation and non-staff refusal",
       "project": "pl-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "staff bootstrap, mandatory MFA, admin navigation and non-staff refusal",
       "project": "pl-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "staff bootstrap, mandatory MFA, admin navigation and non-staff refusal",
       "project": "en-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "staff bootstrap, mandatory MFA, admin navigation and non-staff refusal",
       "project": "en-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "registration, mail verification, wrong password, login, logout, reset and single-use link",
@@ -829,24 +835,104 @@
       "status": "passed"
     },
     {
+      "case": "e-mail change: recovery proof, mail confirmation, revert and replay refusal",
+      "project": "pl-1440",
+      "status": "passed"
+    },
+    {
+      "case": "notification preferences persist; signed unsubscribe is one-click, bounded and idempotent",
+      "project": "pl-1440",
+      "status": "passed"
+    },
+    {
+      "case": "account deletion: password and confirmation refusal, request revokes sessions, then cancel",
+      "project": "pl-1440",
+      "status": "passed"
+    },
+    {
+      "case": "account lifecycle pages: shared shell, keyboard and accessibility at 360 pixels",
+      "project": "pl-1440",
+      "status": "passed"
+    },
+    {
+      "case": "e-mail change: recovery proof, mail confirmation, revert and replay refusal",
+      "project": "pl-390",
+      "status": "passed"
+    },
+    {
+      "case": "notification preferences persist; signed unsubscribe is one-click, bounded and idempotent",
+      "project": "pl-390",
+      "status": "passed"
+    },
+    {
+      "case": "account deletion: password and confirmation refusal, request revokes sessions, then cancel",
+      "project": "pl-390",
+      "status": "passed"
+    },
+    {
+      "case": "account lifecycle pages: shared shell, keyboard and accessibility at 360 pixels",
+      "project": "pl-390",
+      "status": "passed"
+    },
+    {
+      "case": "e-mail change: recovery proof, mail confirmation, revert and replay refusal",
+      "project": "en-1440",
+      "status": "passed"
+    },
+    {
+      "case": "notification preferences persist; signed unsubscribe is one-click, bounded and idempotent",
+      "project": "en-1440",
+      "status": "passed"
+    },
+    {
+      "case": "account deletion: password and confirmation refusal, request revokes sessions, then cancel",
+      "project": "en-1440",
+      "status": "passed"
+    },
+    {
+      "case": "account lifecycle pages: shared shell, keyboard and accessibility at 360 pixels",
+      "project": "en-1440",
+      "status": "passed"
+    },
+    {
+      "case": "e-mail change: recovery proof, mail confirmation, revert and replay refusal",
+      "project": "en-390",
+      "status": "passed"
+    },
+    {
+      "case": "notification preferences persist; signed unsubscribe is one-click, bounded and idempotent",
+      "project": "en-390",
+      "status": "passed"
+    },
+    {
+      "case": "account deletion: password and confirmation refusal, request revokes sessions, then cancel",
+      "project": "en-390",
+      "status": "passed"
+    },
+    {
+      "case": "account lifecycle pages: shared shell, keyboard and accessibility at 360 pixels",
+      "project": "en-390",
+      "status": "passed"
+    },
+    {
       "case": "all public header and footer links: shell, links, keyboard, accessibility and mobile",
       "project": "pl-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "all public header and footer links: shell, links, keyboard, accessibility and mobile",
       "project": "pl-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "all public header and footer links: shell, links, keyboard, accessibility and mobile",
       "project": "en-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "all public header and footer links: shell, links, keyboard, accessibility and mobile",
       "project": "en-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "privacy changes persist and account export contains the owning account",
@@ -861,7 +947,7 @@
     {
       "case": "password change requires sudo, revokes sessions and accepts the new password",
       "project": "pl-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "login rate limit refuses the sixth wrong password and supplies Retry-After",
@@ -886,7 +972,7 @@
     {
       "case": "password change requires sudo, revokes sessions and accepts the new password",
       "project": "pl-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "login rate limit refuses the sixth wrong password and supplies Retry-After",
@@ -911,7 +997,7 @@
     {
       "case": "password change requires sudo, revokes sessions and accepts the new password",
       "project": "en-1440",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "login rate limit refuses the sixth wrong password and supplies Retry-After",
@@ -936,7 +1022,7 @@
     {
       "case": "password change requires sudo, revokes sessions and accepts the new password",
       "project": "en-390",
-      "status": "failed"
+      "status": "passed"
     },
     {
       "case": "login rate limit refuses the sixth wrong password and supplies Retry-After",
@@ -974,14 +1060,7 @@
           "/admin/console/players",
           "/admin/console/approvals"
         ],
-        "failures": [
-          "/admin/support/tickets: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/support/tickets",
-          "/admin/moderation/reports: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/moderation/reports",
-          "/admin/moderation/enforcement: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/moderation/enforcement",
-          "/admin/control/step-up: HTTP 503",
-          "/console/dashboard: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/console/dashboard?lang=pl",
-          "/admin/console/players: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/console/players?lang=pl"
-        ]
+        "failures": []
       },
       "public-findings": {
         "links": [
@@ -1031,113 +1110,19 @@
           "/pl/login",
           "/pl/register"
         ],
-        "failures": [
-          "/pl/ -> /pl/pass: HTTP 401",
-          "/pl/ -> /pl/support/report-a-bug: HTTP 404",
-          "/pl/ -> /pl/online: HTTP 503",
-          "/pl/ -> /pl/rankings/experience: HTTP 503",
-          "/pl/ -> /pl/deaths: HTTP 503",
-          "/pl/ -> /pl/stats/guilds: HTTP 503",
-          "/pl/ -> /pl/stats/rankings/yesterday: HTTP 503",
-          "/pl/ -> /pl/stats/compare: HTTP 400",
-          "/pl/ -> /pl/rules: HTTP 404",
-          "/pl/ -> /pl/server-information: HTTP 404",
-          "/pl/ -> /pl/wiki: HTTP 503",
-          "/pl/ -> /pl/houses: HTTP 503",
-          "/pl/ -> /pl/stats/world: HTTP 400",
-          "/pl/ -> /pl/atlas: HTTP 503",
-          "/pl/ -> /pl/atlas/delivery: HTTP 503",
-          "/pl/ -> /pl/atlas/places: HTTP 403",
-          "/pl/ -> /pl/account/privacy: HTTP 403",
-          "/pl/ -> /pl/account/recovery-key: HTTP 403",
-          "/pl/ -> /pl/account/characters/new: HTTP 403",
-          "/pl/ -> /pl/legal/privacy: HTTP 404",
-          "/pl/ -> /pl/legal/terms: HTTP 404",
-          "/pl/ -> /pl/panel/hirelings: HTTP 401",
-          "/pl/ -> /pl/account/journal/reports: HTTP 400",
-          "/pl/ -> /pl/account/game-logins: HTTP 403",
-          "/pl/ -> /pl/support/tickets: HTTP 403",
-          "/pl/pass: HTTP 401",
-          "/pl/support/report-a-bug: HTTP 404",
-          "/pl/online: HTTP 503",
-          "/pl/rankings/experience: HTTP 503",
-          "/pl/deaths: HTTP 503",
-          "/pl/stats/guilds: HTTP 503",
-          "/pl/stats/rankings/yesterday: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/yesterday: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/week: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/month: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/record: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/oldest: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/anniversaries: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/name-changes: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/transfers: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/sold: HTTP 503",
-          "/pl/stats/compare: HTTP 400",
-          "/pl/rules: HTTP 404",
-          "/pl/server-information: HTTP 404",
-          "/pl/wiki: HTTP 503",
-          "/pl/houses: HTTP 503",
-          "/pl/stats/world: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/pl/stats/world",
-          "/pl/atlas: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/pl/atlas",
-          "/pl/atlas/delivery: HTTP 503",
-          "/pl/atlas/places: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/pl/atlas/places",
-          "/pl/legal/privacy: HTTP 404",
-          "/pl/legal/terms: HTTP 404",
-          "/pl/panel/hirelings: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/pl/panel/hirelings",
-          "/pl/support/tickets: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/pl/support/tickets",
-          "/en/ -> /en/pass: HTTP 401",
-          "/en/ -> /en/support/report-a-bug: HTTP 404",
-          "/en/ -> /en/online: HTTP 503",
-          "/en/ -> /en/rankings/experience: HTTP 503",
-          "/en/ -> /en/deaths: HTTP 503",
-          "/en/ -> /en/stats/guilds: HTTP 503",
-          "/en/ -> /en/stats/rankings/yesterday: HTTP 503",
-          "/en/ -> /en/stats/compare: HTTP 400",
-          "/en/ -> /en/rules: HTTP 404",
-          "/en/ -> /en/server-information: HTTP 404",
-          "/en/ -> /en/wiki: HTTP 503",
-          "/en/ -> /en/houses: HTTP 503",
-          "/en/ -> /en/stats/world: HTTP 400",
-          "/en/ -> /en/atlas: HTTP 503",
-          "/en/ -> /en/atlas/delivery: HTTP 503",
-          "/en/ -> /en/atlas/places: HTTP 403",
-          "/en/ -> /en/account/privacy: HTTP 403",
-          "/en/ -> /en/account/recovery-key: HTTP 403",
-          "/en/ -> /en/account/characters/new: HTTP 403",
-          "/en/ -> /en/legal/privacy: HTTP 404",
-          "/en/ -> /en/legal/terms: HTTP 404",
-          "/en/ -> /en/panel/hirelings: HTTP 401",
-          "/en/ -> /en/account/journal/reports: HTTP 400",
-          "/en/ -> /en/account/game-logins: HTTP 403",
-          "/en/ -> /en/support/tickets: HTTP 403",
-          "/pl/register -> /pl/legal/terms: HTTP 404",
-          "/pl/register -> /pl/legal/privacy: HTTP 404"
-        ],
-        "errors": [
-          "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 400 (Bad Request)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)"
+        "failures": [],
+        "errors": [],
+        "expectedRefusalDiagnostics": [
+          "/pl/online",
+          "/pl/rankings/experience",
+          "/pl/deaths",
+          "/pl/stats/guilds",
+          "/pl/stats/rankings/yesterday",
+          "/pl/wiki",
+          "/pl/houses",
+          "/pl/stats/world",
+          "/pl/atlas",
+          "/pl/atlas/delivery"
         ]
       }
     },
@@ -1165,14 +1150,7 @@
           "/admin/console/players",
           "/admin/console/approvals"
         ],
-        "failures": [
-          "/admin/support/tickets: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/support/tickets",
-          "/admin/moderation/reports: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/moderation/reports",
-          "/admin/moderation/enforcement: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/moderation/enforcement",
-          "/admin/control/step-up: HTTP 503",
-          "/console/dashboard: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/console/dashboard?lang=pl",
-          "/admin/console/players: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/console/players?lang=pl"
-        ]
+        "failures": []
       },
       "public-findings": {
         "links": [
@@ -1222,113 +1200,19 @@
           "/pl/login",
           "/pl/register"
         ],
-        "failures": [
-          "/pl/ -> /pl/pass: HTTP 401",
-          "/pl/ -> /pl/support/report-a-bug: HTTP 404",
-          "/pl/ -> /pl/online: HTTP 503",
-          "/pl/ -> /pl/rankings/experience: HTTP 503",
-          "/pl/ -> /pl/deaths: HTTP 503",
-          "/pl/ -> /pl/stats/guilds: HTTP 503",
-          "/pl/ -> /pl/stats/rankings/yesterday: HTTP 503",
-          "/pl/ -> /pl/stats/compare: HTTP 400",
-          "/pl/ -> /pl/rules: HTTP 404",
-          "/pl/ -> /pl/server-information: HTTP 404",
-          "/pl/ -> /pl/wiki: HTTP 503",
-          "/pl/ -> /pl/houses: HTTP 503",
-          "/pl/ -> /pl/stats/world: HTTP 400",
-          "/pl/ -> /pl/atlas: HTTP 503",
-          "/pl/ -> /pl/atlas/delivery: HTTP 503",
-          "/pl/ -> /pl/atlas/places: HTTP 403",
-          "/pl/ -> /pl/account/privacy: HTTP 403",
-          "/pl/ -> /pl/account/recovery-key: HTTP 403",
-          "/pl/ -> /pl/account/characters/new: HTTP 403",
-          "/pl/ -> /pl/legal/privacy: HTTP 404",
-          "/pl/ -> /pl/legal/terms: HTTP 404",
-          "/pl/ -> /pl/panel/hirelings: HTTP 401",
-          "/pl/ -> /pl/account/journal/reports: HTTP 400",
-          "/pl/ -> /pl/account/game-logins: HTTP 403",
-          "/pl/ -> /pl/support/tickets: HTTP 403",
-          "/pl/pass: HTTP 401",
-          "/pl/support/report-a-bug: HTTP 404",
-          "/pl/online: HTTP 503",
-          "/pl/rankings/experience: HTTP 503",
-          "/pl/deaths: HTTP 503",
-          "/pl/stats/guilds: HTTP 503",
-          "/pl/stats/rankings/yesterday: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/yesterday: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/week: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/month: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/record: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/oldest: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/anniversaries: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/name-changes: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/transfers: HTTP 503",
-          "/pl/stats/rankings/yesterday -> /pl/stats/rankings/sold: HTTP 503",
-          "/pl/stats/compare: HTTP 400",
-          "/pl/rules: HTTP 404",
-          "/pl/server-information: HTTP 404",
-          "/pl/wiki: HTTP 503",
-          "/pl/houses: HTTP 503",
-          "/pl/stats/world: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/pl/stats/world",
-          "/pl/atlas: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/pl/atlas",
-          "/pl/atlas/delivery: HTTP 503",
-          "/pl/atlas/places: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/pl/atlas/places",
-          "/pl/legal/privacy: HTTP 404",
-          "/pl/legal/terms: HTTP 404",
-          "/pl/panel/hirelings: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/pl/panel/hirelings",
-          "/pl/support/tickets: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/pl/support/tickets",
-          "/en/ -> /en/pass: HTTP 401",
-          "/en/ -> /en/support/report-a-bug: HTTP 404",
-          "/en/ -> /en/online: HTTP 503",
-          "/en/ -> /en/rankings/experience: HTTP 503",
-          "/en/ -> /en/deaths: HTTP 503",
-          "/en/ -> /en/stats/guilds: HTTP 503",
-          "/en/ -> /en/stats/rankings/yesterday: HTTP 503",
-          "/en/ -> /en/stats/compare: HTTP 400",
-          "/en/ -> /en/rules: HTTP 404",
-          "/en/ -> /en/server-information: HTTP 404",
-          "/en/ -> /en/wiki: HTTP 503",
-          "/en/ -> /en/houses: HTTP 503",
-          "/en/ -> /en/stats/world: HTTP 400",
-          "/en/ -> /en/atlas: HTTP 503",
-          "/en/ -> /en/atlas/delivery: HTTP 503",
-          "/en/ -> /en/atlas/places: HTTP 403",
-          "/en/ -> /en/account/privacy: HTTP 403",
-          "/en/ -> /en/account/recovery-key: HTTP 403",
-          "/en/ -> /en/account/characters/new: HTTP 403",
-          "/en/ -> /en/legal/privacy: HTTP 404",
-          "/en/ -> /en/legal/terms: HTTP 404",
-          "/en/ -> /en/panel/hirelings: HTTP 401",
-          "/en/ -> /en/account/journal/reports: HTTP 400",
-          "/en/ -> /en/account/game-logins: HTTP 403",
-          "/en/ -> /en/support/tickets: HTTP 403",
-          "/pl/register -> /pl/legal/terms: HTTP 404",
-          "/pl/register -> /pl/legal/privacy: HTTP 404"
-        ],
-        "errors": [
-          "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 400 (Bad Request)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)"
+        "failures": [],
+        "errors": [],
+        "expectedRefusalDiagnostics": [
+          "/pl/online",
+          "/pl/rankings/experience",
+          "/pl/deaths",
+          "/pl/stats/guilds",
+          "/pl/stats/rankings/yesterday",
+          "/pl/wiki",
+          "/pl/houses",
+          "/pl/stats/world",
+          "/pl/atlas",
+          "/pl/atlas/delivery"
         ]
       }
     },
@@ -1356,14 +1240,7 @@
           "/admin/console/players",
           "/admin/console/approvals"
         ],
-        "failures": [
-          "/admin/support/tickets: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/support/tickets",
-          "/admin/moderation/reports: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/moderation/reports",
-          "/admin/moderation/enforcement: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/moderation/enforcement",
-          "/admin/control/step-up: HTTP 503",
-          "/console/dashboard: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/console/dashboard?lang=en",
-          "/admin/console/players: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/console/players?lang=en"
-        ]
+        "failures": []
       },
       "public-findings": {
         "links": [
@@ -1413,114 +1290,19 @@
           "/en/login",
           "/en/register"
         ],
-        "failures": [
-          "/en/ -> /en/pass: HTTP 401",
-          "/en/ -> /en/support/report-a-bug: HTTP 404",
-          "/en/ -> /en/online: HTTP 503",
-          "/en/ -> /en/rankings/experience: HTTP 503",
-          "/en/ -> /en/deaths: HTTP 503",
-          "/en/ -> /en/stats/guilds: HTTP 503",
-          "/en/ -> /en/stats/rankings/yesterday: HTTP 503",
-          "/en/ -> /en/stats/compare: HTTP 400",
-          "/en/ -> /en/rules: HTTP 404",
-          "/en/ -> /en/server-information: HTTP 404",
-          "/en/ -> /en/wiki: HTTP 503",
-          "/en/ -> /en/houses: HTTP 503",
-          "/en/ -> /en/stats/world: HTTP 400",
-          "/en/ -> /en/atlas: HTTP 503",
-          "/en/ -> /en/atlas/delivery: HTTP 503",
-          "/en/ -> /en/atlas/places: HTTP 403",
-          "/en/ -> /en/account/privacy: HTTP 403",
-          "/en/ -> /en/account/recovery-key: HTTP 403",
-          "/en/ -> /en/account/characters/new: HTTP 403",
-          "/en/ -> /en/legal/privacy: HTTP 404",
-          "/en/ -> /en/legal/terms: HTTP 404",
-          "/en/ -> /en/panel/hirelings: HTTP 401",
-          "/en/ -> /en/account/journal/reports: HTTP 400",
-          "/en/ -> /en/account/game-logins: HTTP 403",
-          "/en/ -> /en/support/tickets: HTTP 403",
-          "/en/pass: HTTP 401",
-          "/en/support/report-a-bug: HTTP 404",
-          "/en/online: HTTP 503",
-          "/en/rankings/experience: HTTP 503",
-          "/en/deaths: HTTP 503",
-          "/en/stats/guilds: HTTP 503",
-          "/en/stats/rankings/yesterday: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/yesterday: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/week: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/month: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/record: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/oldest: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/anniversaries: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/name-changes: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/transfers: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/sold: HTTP 503",
-          "/en/stats/compare: HTTP 400",
-          "/en/rules: HTTP 404",
-          "/en/server-information: HTTP 404",
-          "/en/wiki: HTTP 503",
-          "/en/houses: HTTP 503",
-          "/en/stats/world: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/en/stats/world",
-          "/en/atlas: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/en/atlas",
-          "/en/atlas/delivery: HTTP 503",
-          "/en/atlas/places: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/en/atlas/places",
-          "/en/legal/privacy: HTTP 404",
-          "/en/legal/terms: HTTP 404",
-          "/en/panel/hirelings: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/en/panel/hirelings",
-          "/en/support/tickets: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/en/support/tickets",
-          "/pl/ -> /pl/pass: HTTP 401",
-          "/pl/ -> /pl/support/report-a-bug: HTTP 404",
-          "/pl/ -> /pl/online: HTTP 503",
-          "/pl/ -> /pl/rankings/experience: HTTP 503",
-          "/pl/ -> /pl/deaths: HTTP 503",
-          "/pl/ -> /pl/stats/guilds: HTTP 503",
-          "/pl/ -> /pl/stats/rankings/yesterday: HTTP 503",
-          "/pl/ -> /pl/stats/compare: HTTP 400",
-          "/pl/ -> /pl/rules: HTTP 404",
-          "/pl/ -> /pl/server-information: HTTP 404",
-          "/pl/ -> /pl/wiki: HTTP 503",
-          "/pl/ -> /pl/houses: HTTP 503",
-          "/pl/ -> /pl/stats/world: HTTP 400",
-          "/pl/ -> /pl/atlas: HTTP 503",
-          "/pl/ -> /pl/atlas/delivery: HTTP 503",
-          "/pl/ -> /pl/atlas/places: HTTP 403",
-          "/pl/ -> /pl/account/privacy: HTTP 403",
-          "/pl/ -> /pl/account/recovery-key: HTTP 403",
-          "/pl/ -> /pl/account/characters/new: HTTP 403",
-          "/pl/ -> /pl/legal/privacy: HTTP 404",
-          "/pl/ -> /pl/legal/terms: HTTP 404",
-          "/pl/ -> /pl/panel/hirelings: HTTP 401",
-          "/pl/ -> /pl/account/journal/reports: HTTP 400",
-          "/pl/ -> /pl/account/game-logins: HTTP 403",
-          "/pl/ -> /pl/support/tickets: HTTP 403",
-          "/en/register -> /en/legal/terms: HTTP 404",
-          "/en/register -> /en/legal/privacy: HTTP 404"
-        ],
-        "errors": [
-          "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 400 (Bad Request)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 ()",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)"
+        "failures": [],
+        "errors": [],
+        "expectedRefusalDiagnostics": [
+          "/en/online",
+          "/en/rankings/experience",
+          "/en/deaths",
+          "/en/stats/guilds",
+          "/en/stats/rankings/yesterday",
+          "/en/wiki",
+          "/en/houses",
+          "/en/stats/world",
+          "/en/atlas",
+          "/en/atlas/delivery"
         ]
       }
     },
@@ -1548,14 +1330,7 @@
           "/admin/console/players",
           "/admin/console/approvals"
         ],
-        "failures": [
-          "/admin/support/tickets: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/support/tickets",
-          "/admin/moderation/reports: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/moderation/reports",
-          "/admin/moderation/enforcement: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/moderation/enforcement",
-          "/admin/control/step-up: HTTP 503",
-          "/console/dashboard: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/console/dashboard?lang=en",
-          "/admin/console/players: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/admin/console/players?lang=en"
-        ]
+        "failures": []
       },
       "public-findings": {
         "links": [
@@ -1605,115 +1380,36 @@
           "/en/login",
           "/en/register"
         ],
-        "failures": [
-          "/en/ -> /en/pass: HTTP 401",
-          "/en/ -> /en/support/report-a-bug: HTTP 404",
-          "/en/ -> /en/online: HTTP 503",
-          "/en/ -> /en/rankings/experience: HTTP 503",
-          "/en/ -> /en/deaths: HTTP 503",
-          "/en/ -> /en/stats/guilds: HTTP 503",
-          "/en/ -> /en/stats/rankings/yesterday: HTTP 503",
-          "/en/ -> /en/stats/compare: HTTP 400",
-          "/en/ -> /en/rules: HTTP 404",
-          "/en/ -> /en/server-information: HTTP 404",
-          "/en/ -> /en/wiki: HTTP 503",
-          "/en/ -> /en/houses: HTTP 503",
-          "/en/ -> /en/stats/world: HTTP 400",
-          "/en/ -> /en/atlas: HTTP 503",
-          "/en/ -> /en/atlas/delivery: HTTP 503",
-          "/en/ -> /en/atlas/places: HTTP 403",
-          "/en/ -> /en/account/privacy: HTTP 403",
-          "/en/ -> /en/account/recovery-key: HTTP 403",
-          "/en/ -> /en/account/characters/new: HTTP 403",
-          "/en/ -> /en/legal/privacy: HTTP 404",
-          "/en/ -> /en/legal/terms: HTTP 404",
-          "/en/ -> /en/panel/hirelings: HTTP 401",
-          "/en/ -> /en/account/journal/reports: HTTP 400",
-          "/en/ -> /en/account/game-logins: HTTP 403",
-          "/en/ -> /en/support/tickets: HTTP 403",
-          "/en/pass: HTTP 401",
-          "/en/support/report-a-bug: HTTP 404",
-          "/en/online: HTTP 503",
-          "/en/rankings/experience: HTTP 503",
-          "/en/deaths: HTTP 503",
-          "/en/stats/guilds: HTTP 503",
-          "/en/stats/rankings/yesterday: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/yesterday: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/week: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/month: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/record: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/oldest: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/anniversaries: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/name-changes: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/transfers: HTTP 503",
-          "/en/stats/rankings/yesterday -> /en/stats/rankings/sold: HTTP 503",
-          "/en/stats/compare: HTTP 400",
-          "/en/rules: HTTP 404",
-          "/en/server-information: HTTP 404",
-          "/en/wiki: HTTP 503",
-          "/en/houses: HTTP 503",
-          "/en/stats/world: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/en/stats/world",
-          "/en/atlas: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/en/atlas",
-          "/en/atlas/delivery: HTTP 503",
-          "/en/atlas/places: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/en/atlas/places",
-          "/en/legal/privacy: HTTP 404",
-          "/en/legal/terms: HTTP 404",
-          "/en/panel/hirelings: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/en/panel/hirelings",
-          "/en/support/tickets: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://localhost:18443/en/support/tickets",
-          "/pl/ -> /pl/pass: HTTP 401",
-          "/pl/ -> /pl/support/report-a-bug: HTTP 404",
-          "/pl/ -> /pl/online: HTTP 503",
-          "/pl/ -> /pl/rankings/experience: HTTP 503",
-          "/pl/ -> /pl/deaths: HTTP 503",
-          "/pl/ -> /pl/stats/guilds: HTTP 503",
-          "/pl/ -> /pl/stats/rankings/yesterday: HTTP 503",
-          "/pl/ -> /pl/stats/compare: HTTP 400",
-          "/pl/ -> /pl/rules: HTTP 404",
-          "/pl/ -> /pl/server-information: HTTP 404",
-          "/pl/ -> /pl/wiki: HTTP 503",
-          "/pl/ -> /pl/houses: HTTP 503",
-          "/pl/ -> /pl/stats/world: HTTP 400",
-          "/pl/ -> /pl/atlas: HTTP 503",
-          "/pl/ -> /pl/atlas/delivery: HTTP 503",
-          "/pl/ -> /pl/atlas/places: HTTP 403",
-          "/pl/ -> /pl/account/privacy: HTTP 403",
-          "/pl/ -> /pl/account/recovery-key: HTTP 403",
-          "/pl/ -> /pl/account/characters/new: HTTP 403",
-          "/pl/ -> /pl/legal/privacy: HTTP 404",
-          "/pl/ -> /pl/legal/terms: HTTP 404",
-          "/pl/ -> /pl/panel/hirelings: HTTP 401",
-          "/pl/ -> /pl/account/journal/reports: HTTP 400",
-          "/pl/ -> /pl/account/game-logins: HTTP 403",
-          "/pl/ -> /pl/support/tickets: HTTP 403",
-          "/en/register -> /en/legal/terms: HTTP 404",
-          "/en/register -> /en/legal/privacy: HTTP 404"
-        ],
-        "errors": [
-          "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 400 (Bad Request)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/cinzel-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin-ext.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Loading the font 'https://localhost:18443/static/fonts/inter-latin.woff2' violates the following Content Security Policy directive: \"default-src 'none'\". Note that 'font-src' was not explicitly set, so 'default-src' is used as a fallback. The action has been blocked.",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)",
-          "Failed to load resource: the server responded with a status of 404 (Not Found)"
+        "failures": [],
+        "errors": [],
+        "expectedRefusalDiagnostics": [
+          "/en/online",
+          "/en/rankings/experience",
+          "/en/deaths",
+          "/en/stats/guilds",
+          "/en/stats/rankings/yesterday",
+          "/en/wiki",
+          "/en/houses",
+          "/en/stats/world",
+          "/en/atlas",
+          "/en/atlas/delivery"
         ]
       }
     }
+  },
+  "rust_acceptance": {
+    "format": "passed",
+    "clippy": "passed",
+    "passed": 1049,
+    "failed": 0,
+    "preexisting_ignored": 3,
+    "opt_in_passed": 3,
+    "named_postgresql_cases": 477,
+    "database_configuration": "PORTAL_TEST_DATABASE_URL set; no database-configuration skips"
+  },
+  "boundaries": {
+    "character_bazaar": "HTML 503/no-store: no accepted custody/signing/receipt authority; no sale or bid accepted",
+    "deletion": "Request/cancel qualified; finalization remains closed pending Game lifecycle authority",
+    "staff": "Navigation qualified; Game query permissions and unavailable mutation seams preserved"
   }
 }

@@ -58,7 +58,7 @@ pub fn configured_router(pool: sqlx::PgPool) -> Router {
     let service = Credentials {
         pool: pool.clone(),
         enabled: true,
-        revoker: Arc::new(credentials::UnavailableRevoker),
+        revoker: Arc::new(credentials::TransactionalRevoker),
         notifications: Arc::new(oteryn_notify::Notifications {
             pool: pool.clone(),
             accounts: Arc::new(AccountState(Accounts { pool: pool.clone() })),

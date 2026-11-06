@@ -115,10 +115,42 @@ pub fn routes<M: Market, S: BrowserSecurity>(market: M, security: S, enabled: bo
             enabled,
         })
 }
-/// No accepted game capability or T58 adapter exists in this base. No environment variable can
-/// accidentally enable a command. Laravel likewise omits the route group while disabled.
+/// Mount documented refusal pages only when explicitly enabled. Missing accepted
+/// custody/signing authority never enables a listing, bid or transfer command.
 pub fn configured_router() -> Router {
-    Router::new()
+    unavailable_routes(std::env::var("OTERYN_BAZAAR_CHARACTERS_ENABLED").as_deref() == Ok("true"))
+}
+fn authority_refusal(lang: &str) -> Response {
+    (StatusCode::SERVICE_UNAVAILABLE, Html(format!("<!doctype html><html lang=\"{lang}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{0}</title></head><body><main><h1>{0}</h1><p>{1}</p></main></body></html>",text(lang,"authority-title"),text(lang,"authority-unavailable")))).into_response()
+}
+fn unavailable_routes(enabled: bool) -> Router {
+    if !enabled {
+        return Router::new();
+    }
+    let mut routes = Router::new();
+    for path in ["bazaar", "account/bazaar", "account/bazaar/sell"] {
+        routes = routes.route(
+            &format!("/{{locale}}/{path}"),
+            get(|Path(lang): Path<String>| async move {
+                if locale(&lang, true).is_err() {
+                    return StatusCode::NOT_FOUND.into_response();
+                }
+                authority_refusal(&lang)
+            }),
+        );
+    }
+    routes = routes.route(
+        "/{locale}/bazaar/{listing}",
+        get(|Path((lang, listing)): Path<(String, String)>| async move {
+            if locale(&lang, true).is_err() || super::id(&listing).is_err() {
+                return StatusCode::NOT_FOUND.into_response();
+            }
+            authority_refusal(&lang)
+        }),
+    );
+    routes.layer(axum::middleware::map_response(|response: Response| async {
+        no_store(response)
+    }))
 }
 
 fn locale(lang: &str, enabled: bool) -> Result<(), StatusCode> {
@@ -466,4 +498,51 @@ pub fn browser_routes<M: Market>(
             oteryn_web::session::middleware,
         ))
         .layer(axum::Extension(csrf))
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+    use tower::ServiceExt;
+    #[tokio::test]
+    async fn startup_refuses_without_game_authority_and_stays_off_by_default()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for lang in ["pl", "en"] {
+            let app = unavailable_routes(true);
+            for path in [
+                format!("/{lang}/bazaar"),
+                format!("/{lang}/account/bazaar"),
+                format!("/{lang}/bazaar/{}", Uuid::now_v7()),
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(axum::http::Request::get(path).body(Body::empty())?)
+                    .await?;
+                assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+                let html =
+                    String::from_utf8(to_bytes(response.into_body(), 10000).await?.to_vec())?;
+                assert!(html.contains(&format!("lang=\"{lang}\"")));
+                assert!(html.contains(&text(lang, "authority-title")));
+            }
+            let invalid = app
+                .oneshot(
+                    axum::http::Request::get(format!("/{lang}/bazaar/invalid"))
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(invalid.status(), StatusCode::NOT_FOUND);
+        }
+        let composed = unavailable_routes(true)
+            .merge(Router::new().route("/{locale}/bazaar/items", get(|| async { StatusCode::OK })));
+        let items = composed
+            .oneshot(axum::http::Request::get("/pl/bazaar/items").body(Body::empty())?)
+            .await?;
+        assert_eq!(items.status(), StatusCode::OK);
+        let disabled = unavailable_routes(false)
+            .oneshot(axum::http::Request::get("/en/bazaar").body(Body::empty())?)
+            .await?;
+        assert_eq!(disabled.status(), StatusCode::NOT_FOUND);
+        Ok(())
+    }
 }
