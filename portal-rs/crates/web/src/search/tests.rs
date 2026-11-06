@@ -306,12 +306,36 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
         };
         axum::response::Html(format!("<!doctype html><html lang=\"{lang}\" data-theme=\"dark\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Shell</title><link rel=\"stylesheet\" href=\"/static/css/surface.css\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme op-shell\">{header}<main id=\"main\">Shell</main>{footer}</body></html>")).into_response()
     }
+    async fn headless_fixture(
+        axum::extract::Path(lang): axum::extract::Path<String>,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        let chrome = oteryn_ui::Registry::default().chrome(
+            &lang,
+            &format!("/{lang}/"),
+            oteryn_ui::Account::Anonymous,
+        );
+        let Some((header, footer)) = oteryn_ui::shell_parts(&chrome) else {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        };
+        let raw = format!(
+            "<!doctype html><html lang=\"{lang}\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Headless</title><main id=\"main\">Headless</main></html>"
+        );
+        match crate::chrome::inject(&raw, &header, &footer) {
+            Some(html) => axum::response::Html(html).into_response(),
+            None => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
+    }
     let app = routes(SearchState {
         pool: db.pool.clone(),
         world: None,
         characters: None,
     })
     .route("/browser-shell/{lang}", axum::routing::get(shell_fixture))
+    .route(
+        "/browser-headless/{lang}",
+        axum::routing::get(headless_fixture),
+    )
     .nest_service(
         "/static",
         tower_http::services::ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../static")),

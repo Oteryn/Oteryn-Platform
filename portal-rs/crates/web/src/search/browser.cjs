@@ -35,6 +35,13 @@ const AxeBuilder = modules('@axe-core/playwright').default;
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'open navigation overflow');
           await menu.locator('summary').click();
         }
+        await page.goto(`${process.env.PORTAL_BROWSER_URL}/browser-headless/${lang}`);
+        assert.equal(await page.locator('link[href="/static/css/tokens.css"]').count(), 1);
+        assert.notEqual(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--op-text').trim()), '');
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'headless shell overflow');
+        await page.keyboard.press('Tab');
+        assert.equal(await page.evaluate(() => {const s=getComputedStyle(document.activeElement);return document.activeElement.matches(':focus-visible') && s.outlineStyle!=='none';}),true);
+
       }
       await context.close();
       console.log(`${width}px ${colorScheme}: PL/EN keyboard search, escaped result, no overflow; axe 0 violations`);

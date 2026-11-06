@@ -104,7 +104,7 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         ),
         None => format!("{body_tag} class=\"{}\"", oteryn_ui::SHELL_MARKER),
     };
-    let head = &page[html_end..body_open];
+    let head = &page[html_end + 1..body_open];
     let styles = if lower.contains("/static/css/components.css") {
         String::new()
     } else {
@@ -115,7 +115,7 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         None => format!("{styles}{head}"),
     };
     Some(format!(
-        "{}{html_tag} data-theme=\"dark\"{head}{body_tag}>{header}<div class=\"op-shell__page\">{}</div>{footer}{}",
+        "{}{html_tag} data-theme=\"dark\">{head}{body_tag}>{header}<div class=\"op-shell__page\">{}</div>{footer}{}",
         &page[..html_open],
         &page[body_end + 1..body_close],
         &page[body_close..]
@@ -165,6 +165,7 @@ mod tests {
         let out =
             inject(implied, "H", "F").ok_or("document with an implied body must be wrapped")?;
         assert!(out.find("components.css") < out.find("<body"));
+        assert!(out.contains("<html lang=\"pl\" data-theme=\"dark\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\">"));
         assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\"><main>m</main></div>F</body></html>"));
         Ok(())
     }
