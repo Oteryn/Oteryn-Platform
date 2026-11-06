@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-test('all public header and footer links: shell, links, keyboard, accessibility and mobile', async ({ page }, info) => {
+test('all public header and footer links: shell, links, keyboard, accessibility and mobile', async ({ page: homePage }, info) => {
+  const page = homePage;
   const lang = info.project.metadata.locale;
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -14,6 +15,10 @@ test('all public header and footer links: shell, links, keyboard, accessibility 
     if (!href.startsWith('/') || href.startsWith('//')) continue;
     // Authentication forms are public; account navigation is tested as its owner.
     if (/\/(account|password\/change)(\/|$)/.test(href) || href === '/account') continue;
+    const page = await homePage.context().newPage();
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    try {
     await test.step(href, async () => {
       let response;
       try { response = await page.goto(href); } catch (error) { failures.push(`${href}: ${error.message}`); return; }
@@ -35,6 +40,7 @@ test('all public header and footer links: shell, links, keyboard, accessibility 
         if (linked.status() >= 400) failures.push(`${href} -> ${target}: HTTP ${linked.status()}`);
       }
     });
+    } finally { await page.close(); }
   }
   await info.attach('public-findings', { body: JSON.stringify({ links, failures, errors }, null, 2), contentType: 'application/json' });
   expect(failures).toEqual([]);

@@ -27,12 +27,16 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
  const failures=[];
+ const staffContext=page.context();
  for(const path of paths) await test.step(path,async()=>{
+   const page=await staffContext.newPage();
+   try {
    let response;try{response=await page.goto(['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`)?path:`${path}?lang=${lang}`);}catch(error){failures.push(`${path}: ${error.message}`);return;}
    if(response.status()!==200)failures.push(`${path}: HTTP ${response.status()}`);
    if(response.status()===200 && await page.locator('html').getAttribute('lang')!==lang)failures.push(`${path}: wrong page language`);
    const forms=await page.locator('form[method=post],form[method=POST]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
    for(const form of forms)await csrfRejected(page,form.action,form.fields);
+   } finally {await page.close();}
  });
  const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
