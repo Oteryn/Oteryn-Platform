@@ -612,14 +612,17 @@ async fn postgres_conflicting_terminal_receipt_quarantines_retry_issuance() -> T
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
-    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let recovery = Arc::new(Recovery(AtomicU64::new(3)));
+    let b = boundary(settings(), recovery.clone());
     let s = service(&db, b.clone());
     let account = db.account().await?;
     let (t, intent) = issue(&db, &s, account).await;
     let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
     receipt.operation_id = intent.operation_id.clone();
     receipt.outcome = "REJECTED".into();
-    receipt.result_code = "CHAR_CMD_INTENT_EXPIRED".into();
+    receipt.result_code = "CHAR_CMD_ACCOUNT_CLOSE_STALE_GENERATION".into();
+    receipt.recovery_generation = "4".into();
+    recovery.0.store(4, Ordering::SeqCst);
     receipt.result_data = None;
     receipt.decided_at = intent.issued_at_source.clone();
     let raw = serde_json::to_vec(&receipt)?;
