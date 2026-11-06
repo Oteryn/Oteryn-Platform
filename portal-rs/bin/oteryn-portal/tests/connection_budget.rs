@@ -78,7 +78,7 @@ async fn composed_modules_share_one_postgres_connection_budget()
         .env("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY", "local-test")
         .env("PORTAL_PUBLIC_PROJECTIONS_SAN", "local-test")
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     for flag in [
         "PORTAL_WORLDS_ENABLED",
         "PORTAL_ONLINE_ENABLED",
@@ -106,7 +106,11 @@ async fn composed_modules_share_one_postgres_connection_budget()
             break;
         }
         if server.0.try_wait()?.is_some() {
-            return Err("portal exited before readiness".into());
+            let mut diagnostic = String::new();
+            if let Some(mut stderr) = server.0.stderr.take() {
+                stderr.read_to_string(&mut diagnostic)?;
+            }
+            return Err(format!("portal exited before readiness: {diagnostic}").into());
         }
         std::thread::sleep(Duration::from_millis(50));
     }
