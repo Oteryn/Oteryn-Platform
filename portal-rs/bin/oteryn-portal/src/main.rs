@@ -32,6 +32,9 @@ async fn main() -> ExitCode {
         .init();
 
     let arg = std::env::args().nth(1);
+    if arg.as_deref() == Some("import") {
+        return import::run().await;
+    }
     if arg.as_deref() == Some("gateway") {
         return match gateway::run().await {
             Ok(()) => ExitCode::SUCCESS,
@@ -522,3 +525,5 @@ mod shop_web;
 mod mfa_http;
 
 mod registration_delivery;
+
+mod import;
