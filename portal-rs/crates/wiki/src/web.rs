@@ -145,14 +145,11 @@ fn failure(error: Error, lang: &str) -> Response {
         }
         _ => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
     };
-    (
-        status,
-        page(Message {
-            lang,
-            message: text(lang, key),
-        }),
-    )
-        .into_response()
+    notice(status, lang, text(lang, key))
+}
+/// Reuse the localized document for domain refusals without changing their status.
+pub(crate) fn notice(status: StatusCode, lang: &str, message: String) -> Response {
+    (status, page(Message { lang, message })).into_response()
 }
 #[derive(Template)]
 #[template(path = "wiki/message.html", config = "wiki_askama.toml")]
