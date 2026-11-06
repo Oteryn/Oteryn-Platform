@@ -481,8 +481,14 @@ async fn postgres_browser_configured_origin_still_requires_csrf() -> TestResult 
     let origin = "https://portal.local.test";
     let app = super::web::router_with_origin(db.pool.clone(), policy(), Some(origin.into()));
     let fields = values();
+    let response = app
+        .clone()
+        .oneshot(get("/en/support/reports/create", &cookie))
+        .await?;
+    assert_eq!(response.headers()[header::REFERRER_POLICY], "same-origin");
     for (source, token, status) in [
         (origin, "", StatusCode::FORBIDDEN),
+        ("null", csrf.as_str(), StatusCode::FORBIDDEN),
         (
             "https://untrusted.invalid",
             csrf.as_str(),

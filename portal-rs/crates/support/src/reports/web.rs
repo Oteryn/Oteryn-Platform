@@ -335,7 +335,7 @@ async fn private_headers(request: Request, next: Next) -> Response {
             "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
         ),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-        (header::REFERRER_POLICY, "no-referrer"),
+        (header::REFERRER_POLICY, "same-origin"),
         (
             header::STRICT_TRANSPORT_SECURITY,
             "max-age=63072000; includeSubDomains",
