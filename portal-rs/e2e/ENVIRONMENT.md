@@ -1,6 +1,6 @@
 # Runtime environment inventory
 
-Derived from `env::var`, `env::var_os`, and core `lookup` reads in Rust source. Names and locations only; no credentials are included. Indirect module flags found as string arguments to configuration helpers are enabled by the local launcher as well.
+Derived from `env::var`, `env::var_os`, and configuration-helper `lookup`/`get`/`enabled`/`value`/`flag` reads in Rust source. Names and locations only; no credentials are included. Indirect module flags found as string arguments to configuration helpers are enabled by the local launcher as well.
 
 Required for the exercised configuration: `OTERYN_DATABASE_URL`, `OTERYN_PUBLIC_ORIGIN`, `OTERYN_ADMIN_HOST`, `OTERYN_MFA_KEY`, `OTERYN_RESET_DELIVERY_KEY`, `OTERYN_WEBAUTHN_RP_ID`, `OTERYN_SMTP_HOST`, `OTERYN_SMTP_USERNAME`, `OTERYN_SMTP_PASSWORD`, both `OTERYN_MAIL_FROM` and `OTERYN_SMTP_FROM`, `OTERYN_NOTIFY_UNSUBSCRIBE_KEY`, `OTERYN_NOTIFY_UNSUBSCRIBE_URL`, `PORTAL_ADMIN_CONTROL_AGENTS_JSON`. `OTERYN_ACTIVE_CHARACTER_LIMIT` and `OTERYN_TOTAL_CHARACTER_LIMIT` provide bounded overview policy. `OTERYN_STATIC_DIR`, `OTERYN_BIND`, `OTERYN_ENV` and `APP_ENV` select local runtime behavior. `SSL_CERT_FILE` trusts the generated local CA. The test-only database is selected with `PORTAL_TEST_DATABASE_URL`.
 
@@ -24,6 +24,11 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES` | `crates/gameauth/src/runtime.rs:619` |
 | `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED` | `crates/gameauth/src/scopes.rs:448` |
 | `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_REQUESTS_PER_MINUTE` | `crates/gameauth/src/scopes.rs:452` |
+| `GATEWAY_LISTEN_ADDR` | `crates/gateway/src/config.rs:41` |
+| `GATEWAY_NATIVE_ADMISSION_TIMEOUT` | `crates/gateway/src/config.rs:50` |
+| `GATEWAY_NATIVE_LOGIN_ENABLED` | `crates/gateway/src/config.rs:36` |
+| `GATEWAY_REQUEST_TIMEOUT` | `crates/gateway/src/config.rs:51` |
+| `GATEWAY_VERSION` | `crates/gateway/src/config.rs:52` |
 | `OTERYN_ACCOUNT_BADGES_ENABLED` | `crates/characters/src/badges/http.rs:79` |
 | `OTERYN_ACCOUNT_BALANCE_ENABLED` | `crates/characters/src/overview/wallet.rs:37` |
 | `OTERYN_ACCOUNT_CHARACTERS_AUTHORITY` | `crates/admin/src/players/projection.rs:42` |
@@ -36,9 +41,10 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `OTERYN_ACCOUNT_PASSKEYS` | `crates/identity/src/passkeys_http.rs:21` |
 | `OTERYN_ACCOUNT_PASSWORD_RESET` | `crates/identity/src/reset_http.rs:21`, `crates/identity/src/reset_delivery.rs:30` |
 | `OTERYN_ACCOUNT_PRIVACY_ENABLED` | `crates/identity/src/privacy_web.rs:24`, `crates/identity/src/navigation.rs:6` |
-| `OTERYN_ACCOUNT_RECOVERY_KEYS` |, `crates/identity/src/navigation.rs:38`, `crates/web/src/lib.rs:264` |
+| `OTERYN_ACCOUNT_RECOVERY_KEYS` | `crates/identity/src/navigation.rs:38`, `crates/web/src/lib.rs:264` |
 | `OTERYN_ACCOUNT_SESSIONS` | `crates/identity/src/navigation.rs:22`, `crates/identity/src/sessions_http.rs:24`, `crates/identity/src/sessions_http.rs:353` |
 | `OTERYN_ACTIVE_CHARACTER_LIMIT` | `crates/characters/src/overview/mod.rs:242` |
+| `OTERYN_ADMIN_COMMERCE` | `crates/admin/src/commerce/http.rs:60` |
 | `OTERYN_ADMIN_CONSOLE` | `crates/admin/src/console/mod.rs:320`, `crates/admin/src/console/access.rs:309` |
 | `OTERYN_ADMIN_CONTROL` | `crates/admin/src/control/controls_http.rs:54` |
 | `OTERYN_ADMIN_HOST` | `crates/admin/src/web.rs:110`, `crates/admin/src/console/access.rs:313` |
@@ -47,13 +53,16 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `OTERYN_ADMIN_PLAYER_CHARACTERS` | `crates/admin/src/players/http.rs:19` |
 | `OTERYN_ATLAS_BESTIARY_ENABLED` | `crates/atlas/src/bestiary/web.rs:63` |
 | `OTERYN_ATLAS_DIRECTORY` | `crates/atlas/src/navigation.rs:9`, `crates/atlas/src/web.rs:29` |
-| `OTERYN_ATLAS_ENABLED` | `crates/atlas/src/web.rs:28` |
+| `OTERYN_ATLAS_ENABLED` | `crates/atlas/src/spawns.rs:23`, `crates/atlas/src/web.rs:28` |
+| `OTERYN_ATLAS_SPAWNS_ENABLED` | `crates/atlas/src/spawns.rs:22` |
 | `OTERYN_BAZAAR_MODERATION` | `crates/admin/src/bazaar.rs:96`, `crates/bazaar/src/moderation_web.rs:68` |
 | `OTERYN_BAZAAR_PROFILES` | `crates/bazaar/src/moderation_web.rs:69` |
 | `OTERYN_BAZAAR_PROMOTIONS` | `crates/bazaar/src/moderation_web.rs:70` |
 | `OTERYN_BIND` | `crates/core/src/lib.rs:79` |
+| `OTERYN_CHARACTER_COMMANDS_ENABLED` | `crates/characters/src/create_web/http.rs:64` |
+| `OTERYN_CHARACTER_COMMAND_CREATE_ENABLED` | `crates/characters/src/create_web/http.rs:65` |
 | `OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY` | `crates/characters/src/create_web/http.rs:66` |
-| `OTERYN_CHARACTER_CREATE_WEB_ENABLED` | `crates/characters/src/navigation.rs:6` |
+| `OTERYN_CHARACTER_CREATE_WEB_ENABLED` | `crates/characters/src/navigation.rs:6`, `crates/characters/src/create_web/http.rs:62` |
 | `OTERYN_CHARACTER_PROFILES_ENABLED` | `crates/characters/src/profile/http.rs:54`, `crates/characters/src/profile/http.rs:80`, `crates/web/src/lib.rs:210` |
 | `OTERYN_CHARACTER_RENAME_PRICE` | `crates/characters/src/services/browser.rs:307` |
 | `OTERYN_CHARACTER_RENAME_PRODUCT_ID` | `crates/characters/src/services/browser.rs:302` |
@@ -67,7 +76,7 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `OTERYN_DAILY_PUZZLES_ENABLED` | `crates/minigames/src/puzzles/http.rs:49` |
 | `OTERYN_DATABASE_URL` | `crates/core/src/lib.rs:85` |
 | `OTERYN_DOWNLOADS_ENABLED` | `bin/oteryn-portal/src/main.rs:93` |
-| `OTERYN_ENV` | `bin/oteryn-portal/src/main.rs:103`, `crates/admin/src/commerce/effects.rs:134`, `crates/admin/src/players/projection.rs:32`, `crates/characters/src/overview/mod.rs:229`, `crates/characters/src/services/browser.rs:274`, `crates/core/src/lib.rs:78`, `crates/store/src/web_payments.rs:108` |
+| `OTERYN_ENV` | `bin/oteryn-portal/src/main.rs:103`, `crates/admin/src/commerce/effects.rs:134`, `crates/admin/src/players/projection.rs:32`, `crates/characters/src/overview/mod.rs:229`, `crates/characters/src/services/browser.rs:274`, `crates/core/src/lib.rs:78`, `crates/store/src/web_payments.rs:108`, `crates/store/src/purchase.rs:75` |
 | `OTERYN_JOURNAL_REPORTS_ENABLED` | `crates/playerdata/src/reports/http.rs:237` |
 | `OTERYN_LCFA_ENABLED` | `crates/characters/src/overview/mod.rs:228` |
 | `OTERYN_LCFA_SOURCE_AUTHORITY` | `crates/characters/src/overview/mod.rs:234` |
@@ -75,18 +84,26 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `OTERYN_MFA_KEY` | `bin/oteryn-portal/src/import/identity.rs:42`, `crates/identity/src/mfa.rs:143` |
 | `OTERYN_NOTIFY_UNSUBSCRIBE_KEY` | `crates/support/src/tickets/web.rs:48` |
 | `OTERYN_NOTIFY_UNSUBSCRIBE_URL` | `crates/support/src/tickets/web.rs:49` |
+| `OTERYN_PAYMENTS_ENABLED` | `crates/admin/src/commerce/http.rs:63` |
+| `OTERYN_PLATFORM_BASE_URL` | `crates/gateway/src/config.rs:28` |
+| `OTERYN_PLATFORM_SERVICE_TOKEN_FILE` | `crates/gateway/src/config.rs:32` |
+| `OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED` | `crates/playerdata/src/logins/web.rs:27` |
 | `OTERYN_PLAYERDATA_HUNTS_READ` | `crates/playerdata/src/hunts_web.rs:65` |
 | `OTERYN_PLAYERDATA_PLACES_AGGREGATE` | `crates/playerdata/src/places/http.rs:20` |
+| `OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED` | `crates/playerdata/src/logins/web.rs:26` |
+| `OTERYN_PREMIUM_ENABLED` | `crates/admin/src/commerce/http.rs:61` |
 | `OTERYN_PRIVACY_VERSION` | `crates/web/src/routes/register.rs:133` |
-| `OTERYN_PUBLIC_ORIGIN` | `bin/oteryn-portal/src/main.rs:101`, `bin/oteryn-portal/src/main.rs:162`, `bin/oteryn-portal/src/registration_delivery.rs:26`, `crates/atlas/src/spawns.rs:26`, `crates/community/src/party.rs:116`, `crates/identity/src/credentials_http.rs:76`, `crates/identity/src/privacy_web.rs:32`, `crates/identity/src/reset_http.rs:31`, `crates/identity/src/reset_delivery.rs:35`, `crates/identity/src/login_http.rs:23`, `crates/identity/src/mfa_http.rs:52`, `crates/identity/src/sessions_http.rs:28`, `crates/identity/src/passkeys_http.rs:24`, `crates/identity/src/email_change_http.rs:23`, `crates/store/src/web.rs:166`, `crates/support/src/tickets/web.rs:67`, `crates/web/src/lib.rs:94`, `crates/web/src/routes/register.rs:137`, `crates/playerdata/src/logins/web.rs:34`, `crates/playerdata/src/places/http.rs:26`, `crates/minigames/src/puzzles/http.rs:58`, `crates/minigames/src/collection/http.rs:116`, `crates/minigames/src/collection_pvp/http.rs:25`, `crates/minigames/src/pass/web.rs:142` |
-| `OTERYN_REPORTS_ENABLED` | `crates/support/src/reports/web.rs:42` |
-| `OTERYN_REPORTS_PENDING_LIMIT` | `crates/support/src/navigation.rs:16`, `crates/support/src/reports/web.rs:36` |
-| `OTERYN_REPORTS_UNJUSTIFIED_LIMIT` | `crates/support/src/navigation.rs:18`, `crates/support/src/reports/web.rs:38` |
+| `OTERYN_PUBLIC_ORIGIN` | `bin/oteryn-portal/src/main.rs:101`, `bin/oteryn-portal/src/main.rs:162`, `bin/oteryn-portal/src/registration_delivery.rs:26`, `crates/atlas/src/spawns.rs:26`, `crates/community/src/party.rs:116`, `crates/identity/src/credentials_http.rs:76`, `crates/identity/src/privacy_web.rs:32`, `crates/identity/src/reset_http.rs:31`, `crates/identity/src/reset_delivery.rs:35`, `crates/identity/src/login_http.rs:23`, `crates/identity/src/mfa_http.rs:52`, `crates/identity/src/sessions_http.rs:28`, `crates/identity/src/passkeys_http.rs:24`, `crates/identity/src/email_change_http.rs:23`, `crates/store/src/web.rs:166`, `crates/support/src/tickets/web.rs:67`, `crates/support/src/reports/web.rs:17`, `crates/web/src/lib.rs:94`, `crates/web/src/routes/register.rs:137`, `crates/playerdata/src/logins/web.rs:34`, `crates/playerdata/src/places/http.rs:26`, `crates/minigames/src/puzzles/http.rs:58`, `crates/minigames/src/collection/http.rs:116`, `crates/minigames/src/collection_pvp/http.rs:25`, `crates/minigames/src/pass/web.rs:142` |
+| `OTERYN_REFUNDS_ENABLED` | `crates/admin/src/commerce/http.rs:64` |
+| `OTERYN_REPORTS_ENABLED` | `crates/support/src/reports/web.rs:48` |
+| `OTERYN_REPORTS_PENDING_LIMIT` | `crates/support/src/navigation.rs:16`, `crates/support/src/reports/web.rs:42` |
+| `OTERYN_REPORTS_UNJUSTIFIED_LIMIT` | `crates/support/src/navigation.rs:18`, `crates/support/src/reports/web.rs:44` |
 | `OTERYN_RESET_DELIVERY_KEY` | `crates/identity/src/reset_http.rs:24`, `crates/identity/src/reset_delivery.rs:33` |
 | `OTERYN_SEASON_PASS_ENABLED` | `crates/minigames/src/pass/web.rs:137` |
 | `OTERYN_SECURITY_WIZARD_ENABLED` | `crates/identity/src/security_wizard.rs:116` |
-| `OTERYN_SHOP_ENABLED` | `crates/store/src/navigation.rs:6` |
+| `OTERYN_SHOP_ENABLED` | `crates/store/src/navigation.rs:6`, `crates/store/src/web.rs:162` |
 | `OTERYN_SHOP_TEST_PAYMENTS_ENABLED` | `crates/store/src/web_payments.rs:109` |
+| `OTERYN_SHOP_TOP_UPS_ENABLED` | `crates/store/src/web.rs:163` |
 | `OTERYN_SHOP_TOP_UP_PACKAGES` | `crates/store/src/web_payments.rs:111` |
 | `OTERYN_SMTP_FROM` | `crates/identity/src/sessions_http.rs:362` |
 | `OTERYN_SMTP_HOST` | `bin/oteryn-portal/src/registration_delivery.rs:23`, `crates/identity/src/reset_delivery.rs:44`, `crates/identity/src/mfa_http.rs:562`, `crates/identity/src/sessions_http.rs:359` |
@@ -96,11 +113,15 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `OTERYN_SUPPORT_TICKETS` | `bin/oteryn-portal/src/worker.rs:227`, `crates/support/src/tickets/web.rs:45` |
 | `OTERYN_TERMS_VERSION` | `crates/web/src/routes/register.rs:132` |
 | `OTERYN_TOTAL_CHARACTER_LIMIT` | `crates/characters/src/overview/mod.rs:243` |
+| `OTERYN_WALLET_ENABLED` | `crates/admin/src/commerce/http.rs:62` |
 | `OTERYN_WEBAUTHN_RP_ID` | `crates/identity/src/passkeys_http.rs:25` |
 | `OTERYN_WORLD_ADMIN` | `crates/world/src/admin.rs:32` |
-| `OTERYN_WORLD_ENABLED` | `crates/atlas/src/web.rs:35`, `crates/minigames/src/puzzles/http.rs:54`, `crates/minigames/src/collection/http.rs:103` |
+| `OTERYN_WORLD_ENABLED` | `crates/atlas/src/spawns.rs:23`, `crates/atlas/src/web.rs:35`, `crates/minigames/src/puzzles/http.rs:54`, `crates/minigames/src/collection/http.rs:103` |
 | `PANEL_PREMIUM_PAYMENTS` | `crates/payments/src/account.rs:54` |
 | `PATH` | `bin/oteryn-portal/tests/startup.rs:39` |
+| `PLATFORM_BUILD_REVISION` | `crates/store/src/premium_http.rs:35`, `crates/store/src/loyalty_http.rs:36` |
+| `PLAYERDATA_G10_HISTORY_ENABLED` | `crates/playerdata/src/items/web.rs:131` |
+| `PLAYERDATA_G10_ITEMS_ENABLED` | `crates/playerdata/src/items/web.rs:130` |
 | `PORTAL_ACCOUNT_TERMINATION_ENABLED` | `crates/identity/src/termination.rs:61` |
 | `PORTAL_ACCOUNT_TERMINATION_GRACE_DAYS` | `crates/identity/src/termination.rs:67` |
 | `PORTAL_ADMIN_CONTROL_AGENTS_JSON` | `crates/admin/src/control/http.rs:523` |
@@ -109,7 +130,7 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `PORTAL_ATLAS_DELIVERY_ENABLED` | `crates/atlas/src/navigation.rs:17`, `crates/atlas/src/delivery/http.rs:22` |
 | `PORTAL_BADGES_RENDER_OUTPUT` | `crates/characters/src/badges/tests.rs:195` |
 | `PORTAL_BESTIARY_TEST_OUTPUT` | `crates/atlas/src/bestiary/tests.rs:233` |
-| `PORTAL_BROWSER_NODE` | `crates/payments/src/account_tests.rs:420`, `crates/store/src/web_tests.rs:648`, `crates/web/src/search/tests.rs:307` |
+| `PORTAL_BROWSER_NODE` | `crates/payments/src/account_tests.rs:420`, `crates/store/src/web_tests.rs:648`, `crates/web/src/search/tests.rs:354` |
 | `PORTAL_CALCULATORS_ENABLED` | `crates/wiki/src/calculators/web.rs:66` |
 | `PORTAL_CHARACTER_STATS_ENABLED` | `crates/stats/src/character/http.rs:23` |
 | `PORTAL_COLLECTION_HTML_DIR` | `crates/minigames/src/collection/tests.rs:482`, `crates/minigames/src/collection/tests.rs:564` |
@@ -169,17 +190,28 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `PORTAL_WORLD_DAILY_WORLDS` | `crates/community/src/today.rs:33` |
 | `PORTAL_WORLD_ENABLED` | `crates/atlas/src/delivery/http.rs:25`, `crates/wiki/src/calculators/web.rs:62` |
 | `PORTAL_WORLD_STATS_ENABLED` | `crates/stats/src/world/http.rs:52` |
+| `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_ENABLED` | `crates/store/src/loyalty_http.rs:34` |
+| `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_MTLS_CLIENT_IDENTITY` | `crates/store/src/loyalty_http.rs:46` |
+| `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_REQUESTS_PER_MINUTE` | `crates/store/src/loyalty_http.rs:37` |
+| `PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_ENABLED` | `crates/store/src/premium_http.rs:33` |
+| `PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_MTLS_CLIENT_IDENTITY` | `crates/store/src/premium_http.rs:43` |
+| `PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED` | `crates/store/src/purchase.rs:73` |
+| `PRODUCTS_ENTITLEMENTS_STORE_ENABLED_UNIT_KINDS` | `crates/store/src/purchase.rs:80` |
+| `PRODUCTS_ENTITLEMENTS_STORE_MTLS_CLIENT_IDENTITY` | `crates/store/src/purchase.rs:78` |
+| `PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED` | `crates/store/src/purchase.rs:71` |
+| `PRODUCTS_ENTITLEMENTS_STORE_SOURCE_AUTHORITY` | `crates/store/src/purchase.rs:76` |
 | `UPDATE_DESIGN_GALLERY` | `crates/web/tests/design_system.rs:254` |
 
 ## Enabled local flags
 
-The launcher enables every source suffix flag and the following non-suffix module switches. `PORTAL_ATLAS_DELIVERY_ENABLED` uses its source-required value `1`; other enable values are `true`. Native authority activation is not fabricated.
+The launcher enables every source suffix flag and the following non-suffix module switches. `PORTAL_ATLAS_DELIVERY_ENABLED` and `PORTAL_WORLD_ENABLED` use their source-required value `1`; other enable values are `true`. Native authority activation is not fabricated.
 
 ```text
 GAME_AUTH_DEVICE_SESSIONS_ENABLED
 GAME_AUTH_NATIVE_EVIDENCE_ENABLED
 GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED
 GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED
+GATEWAY_NATIVE_LOGIN_ENABLED
 OTERYN_ACCOUNT_BADGES_ENABLED
 OTERYN_ACCOUNT_BALANCE_ENABLED
 OTERYN_ACCOUNT_CREDENTIALS
@@ -240,6 +272,8 @@ OTERYN_WALLET_ENABLED
 OTERYN_WORLD_ADMIN
 OTERYN_WORLD_ENABLED
 PANEL_PREMIUM_PAYMENTS
+PLAYERDATA_G10_HISTORY_ENABLED
+PLAYERDATA_G10_ITEMS_ENABLED
 PORTAL_ACCOUNT_TERMINATION_ENABLED
 PORTAL_ADMIN_CONTROL_ENABLED
 PORTAL_ATLAS_DELIVERY_ENABLED
@@ -273,4 +307,8 @@ PORTAL_WORLD_DAILY_INGEST_ENABLED
 PORTAL_WORLD_DAILY_PUBLIC_ENABLED
 PORTAL_WORLD_ENABLED
 PORTAL_WORLD_STATS_ENABLED
+PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_ENABLED
+PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_ENABLED
+PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED
+PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED
 ```

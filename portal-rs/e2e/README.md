@@ -6,9 +6,10 @@ From the repository root in the supplied environment:
 
 ```sh
 source /workspace/oteryn-platform-env/env.sh
+export PATH=/workspace/portal-e2e-night/node-v22.16.0-linux-x64/bin:$PATH
 /workspace/oteryn-platform-env/start.sh
 cd portal-rs/e2e
-PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --cache /tmp/portal-browser-npm
 # Supply a LOCAL disposable PostgreSQL administrator connection through the environment.
 # Do not put credentials in this file or commit them.
 node local.mjs
@@ -20,6 +21,7 @@ In a second shell, using the scratch path printed by that process:
 
 ```sh
 source /workspace/oteryn-platform-env/env.sh
+export PATH=/workspace/portal-e2e-night/node-v22.16.0-linux-x64/bin:$PATH
 cd /workspace/Oteryn-Platform/portal-rs/e2e
 CHROMIUM_PATH=/usr/bin/chromium node run.mjs /absolute/scratch/env.json test
 ```
@@ -34,9 +36,9 @@ export PATH=/workspace/portal-e2e-night/node-v22.16.0-linux-x64/bin:$PATH
 
 For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.
 
-Item-bazaar, game-login-history and season-pass startup adapters document missing accepted game authority. Those cases assert exactly HTTP 503, no-store and no account-data disclosure; they do not prove a successful game-backed flow.
+Item-bazaar, game-login-history, journal-report, dashboard and season-pass startup adapters document missing accepted game authority. Those cases assert exactly HTTP 503, no-store and no account-data disclosure; they do not prove a successful game-backed flow.
 
-The suite includes public navigation/accessibility checks, identity lifecycle, account surface reads/CSRF, ticket creation/reply/foreign-owner refusal, character requests and staff bootstrap/MFA/navigation. The current report explicitly lists unimplemented flows and qualification failures; this suite is not yet a complete proof of every flow in the requested acceptance matrix. Tests retain strict success assertions for required flows. A game-dependent refusal must be explicitly documented and asserted before it can count as qualified.
+The suite includes public navigation/accessibility checks, identity lifecycle, account surface reads/CSRF, ticket creation/reply/foreign-owner refusal, character requests, recovery-key management, player reports, party refusal and staff bootstrap/MFA/navigation. The current report explicitly lists unimplemented flows and qualification failures; this suite is not yet a complete proof of every flow in the requested acceptance matrix. Tests retain strict success assertions for required flows. A game-dependent refusal must be explicitly documented and asserted before it can count as qualified.
 
 Workspace acceptance uses the generated `PORTAL_TEST_DATABASE_URL`. Export it from the private scratch JSON without printing it, then run:
 
