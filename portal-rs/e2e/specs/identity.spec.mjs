@@ -1,0 +1,52 @@
+import { test, expect } from '@playwright/test';
+import { register, login, logout, submit, csrfRejected, mailLink, password } from '../helpers.mjs';
+import * as OTPAuth from 'otpauth';
+
+test('registration, mail verification, wrong password, login, logout, reset and single-use link',async({page},info)=>{
+ const lang=info.project.metadata.locale;
+ const account=await register(page,lang);
+ await login(page,lang,{...account,password:'Wrong local password!'});
+ await expect(page.locator('[role=alert]')).toBeVisible();
+ await login(page,lang,account);
+ await expect(page).not.toHaveURL(/login/);
+ await page.goto(`/${lang}/`);
+ await csrfRejected(page,`/${lang}/logout`);
+ const token=await page.locator('[name=_csrf]').first().inputValue();
+ const out=await page.request.post(`/${lang}/logout`,{form:{_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
+ expect(out.status()).toBe(302);
+ await page.goto(`/${lang}/forgot-password`);
+ await submit(page,'main form',{email:account.email});
+ const link=await mailLink(page,account.email,/https:\/\/localhost:18443\/(?:pl|en)\/reset-password\/[a-f0-9]+/);
+ await page.goto(link);
+ const next=password();
+ await submit(page,'main form',{email:account.email,password:next,password_confirmation:next});
+ await expect(page).toHaveURL(/login/);
+ await login(page,lang,{...account,password:next});
+ await expect(page).not.toHaveURL(/login/);
+ await logout(page,lang);
+ await page.goto(link);
+ const replay=password();
+ await submit(page,'main form',{email:account.email,password:replay,password_confirmation:replay});
+ await expect(page.locator('[role=alert]')).toBeVisible();
+});
+
+test('TOTP enrollment, challenge, recovery login and one-time recovery code',async({page},info)=>{
+ const lang=info.project.metadata.locale;
+ const account=await register(page,lang);
+ await login(page,lang,account);
+ await page.goto(`/${lang}/mfa`);
+ await submit(page,'main form',{password:account.password});
+ const provisioning=await page.locator('main .op-prose').innerText();
+ const totp=provisioning.startsWith('otpauth:')?OTPAuth.URI.parse(provisioning):new OTPAuth.TOTP({secret:provisioning,algorithm:'SHA1',digits:6,period:30});
+ await submit(page,'main form',{password:account.password,code:totp.generate()});
+ const codes=await page.locator('textarea[readonly]').allTextContents();
+ expect(codes.length).toBeGreaterThan(0);
+ await login(page,lang,account);
+ await expect(page).toHaveURL(/mfa\/challenge/);
+ await submit(page,'main form',{code:codes[0]});
+ await expect(page).not.toHaveURL(/mfa\/challenge/);
+ await login(page,lang,account);
+ await submit(page,'main form',{code:codes[0]});
+ await expect(page).toHaveURL(/mfa\/challenge/);
+ await expect(page.locator('[role=alert]')).toBeVisible();
+});
