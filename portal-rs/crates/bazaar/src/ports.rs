@@ -35,6 +35,21 @@ impl AccountState {
 }
 
 pub trait Accounts: Send + Sync {
+    /// Safe compensation may return custody to a suspended account, never a
+    /// closed or missing identity. The default requires current trade eligibility.
+    fn safe_return(
+        &self,
+        db: &mut PgConnection,
+        account: Uuid,
+    ) -> impl Future<Output = Result<bool, Error>> + Send {
+        async move {
+            Ok(self
+                .state(db, account)
+                .await?
+                .is_some_and(AccountState::allows_trade))
+        }
+    }
+
     /// Read and, where necessary, lock current account state in this transaction.
     fn state(
         &self,

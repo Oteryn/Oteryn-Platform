@@ -1,5 +1,10 @@
 # Character auctions (T59)
 
+The production composition is now the [PLAT3 runtime](../game/PLAT3.md), selected
+with the single `OTERYN_BAZAAR_ENABLED` flag. The description below records the
+lower-level T59 projection boundary; its former standalone activation flag was removed.
+
+
 The public DTO is a separate, bounded publication projection. It never serializes the raw G-7
 signed envelope, ownership linkage, instance/lock/receipt IDs, bank balances or private proxy bids.
 Supported empty sections remain visible; unsupported `None` sections remain absent. Item-key
@@ -21,11 +26,10 @@ bids; it does not release custody or funds or invent a receipt outcome.
 `browser_routes` supplies real T02 sessions and synchronizer CSRF/origin checks through
 `SessionSecurity`. The lower-level `routes` accepts a security port for actor-to-result tests.
 Form mutations refuse unknown fields; success redirects with 303. Public and owner pages are
-no-store. Flags default off. `OTERYN_BAZAAR_CHARACTERS_ENABLED=true` mounts explicit
-503 HTML refusal pages at the list, owner-list and sell destinations. The shared shell
-wraps these documents. Accepted G-7 character custody and signing authority are absent;
-no listing, bid, transfer or fabricated Game data is exposed by startup. There is no
-environment-only override for missing game capability.
+no-store. Without `OTERYN_BAZAAR_ENABLED=true`, startup mounts the existing
+localized 503 HTML refusal pages. With it enabled, the PLAT3 runtime supplies real
+trust, custody, funding, transfer and delivery evidence. Configuration alone
+never supplies missing Game facts.
 
 ## Dependency and contract boundaries
 
@@ -38,8 +42,8 @@ lock, snapshot signature/hash/trust and current CHAR_CMD custody receipt. It mus
 projection_epoch and recovery_generation, never an invented ownership counter. It returns only
 separately approved public facts under current privacy policy. Missing, unknown or stale evidence
 returns None. The game adapter and Wallet reservation adapter must be qualified before composing
-production routes. Transfer/delivery/settlement, Game wire codecs and trust provisioning belong
-to T58 and remain disabled; T59 never dispatches a Game command or settles a sale.
+production routes. Transfer/delivery/settlement, Game wire codecs and trust provisioning are supplied
+by the PLAT3 runtime; the T59 projection library itself never dispatches commands.
 
 Fail-closed decisions / remaining dependency work:
 

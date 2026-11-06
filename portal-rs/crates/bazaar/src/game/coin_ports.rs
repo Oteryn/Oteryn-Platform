@@ -14,6 +14,18 @@ pub struct PlatformAccounts {
     pub session_hash: Option<[u8; 32]>,
 }
 impl Accounts for PlatformAccounts {
+    async fn safe_return(&self, db: &mut PgConnection, account: Uuid) -> Result<bool, Error> {
+        if !self.enabled {
+            return Ok(false);
+        }
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
+                .bind(account)
+                .fetch_optional(db)
+                .await?;
+        Ok(matches!(status.as_deref(), Some("active" | "suspended")))
+    }
+
     async fn state(
         &self,
         db: &mut PgConnection,
@@ -133,6 +145,11 @@ impl Reservations for CoinReservations {
     }
     async fn reserve(&self, db: &mut PgConnection, h: Reservation) -> Result<(), Error> {
         self.fence(db).await?;
+        if h.currency == Currency::Gold {
+            return super::runtime::gold::reserve(&self.authority, db, h)
+                .await
+                .map_err(gold_error);
+        }
         if h.currency != Currency::Coins || h.amount <= 0 {
             return Err(Error::Denied);
         }
@@ -174,6 +191,14 @@ impl Reservations for CoinReservations {
         Self::account(db, account).await?;
         let row=sqlx::query("SELECT amount,settlement_id FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(id).bind(account).fetch_optional(&mut *db).await?;
         let Some(row) = row else {
+            if let Some(hold) =
+                super::runtime::gold::current_hold(&self.authority, db, id, account, None)
+                    .await
+                    .map_err(gold_error)?
+                && hold.amount != 0
+            {
+                return Err(Error::Denied);
+            }
             return Ok(());
         };
         if row.try_get::<Option<Uuid>, _>("settlement_id")?.is_some() {
@@ -199,6 +224,11 @@ impl Reservations for CoinReservations {
     }
     async fn settle(&self, db: &mut PgConnection, s: &Settlement) -> Result<(), Error> {
         self.authority.enabled().map_err(|_| Error::Disabled)?;
+        if s.currency == Currency::Gold {
+            return super::runtime::gold::settled(&self.authority, db, s, false)
+                .await
+                .map_err(gold_error);
+        }
         if s.currency != Currency::Coins
             || s.buyer == s.seller
             || s.amount <= 0
@@ -243,6 +273,11 @@ impl Reservations for CoinReservations {
         Ok(())
     }
     async fn complete(&self, db: &mut PgConnection, s: &Settlement) -> Result<(), Error> {
+        if s.currency == Currency::Gold {
+            return super::runtime::gold::settled(&self.authority, db, s, true)
+                .await
+                .map_err(gold_error);
+        }
         self.settle(db, s).await?;
         if !self.authority.delivered(db, s).await? {
             return Err(Error::Denied);
@@ -264,11 +299,15 @@ impl Reservations for CoinReservations {
         .fetch_one(&mut *db)
         .await?;
         let (buyer_available,buyer_reserved):(i64,i64)=sqlx::query_as("SELECT COALESCE(sum(available_delta),0)::bigint,COALESCE(sum(reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1").bind(s.buyer).fetch_one(&mut *db).await?;
-        let seller_available:i64=sqlx::query_scalar("SELECT COALESCE(sum(available_delta),0)::bigint FROM wallet_entries WHERE account_id=$1").bind(s.seller).fetch_one(&mut *db).await?;
+        let (seller_available,seller_reserved):(i64,i64)=sqlx::query_as("SELECT COALESCE(sum(available_delta),0)::bigint,COALESCE(sum(reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1").bind(s.seller).fetch_one(&mut *db).await?;
         if buyer_available < 0
             || buyer_reserved < held
             || seller_available < 0
-            || seller_available.checked_add(s.seller_net).is_none()
+            || seller_reserved < 0
+            || seller_available
+                .checked_add(seller_reserved)
+                .and_then(|total| total.checked_add(s.seller_net))
+                .is_none()
         {
             return Err(Error::Overflow);
         }
@@ -291,5 +330,13 @@ impl Reservations for CoinReservations {
             .execute(&mut *db)
             .await?;
         Ok(())
+    }
+}
+
+fn gold_error(e: super::Error) -> Error {
+    match e {
+        super::Error::Database(e) => Error::Database(e),
+        super::Error::Unavailable => Error::Disabled,
+        _ => Error::Denied,
     }
 }

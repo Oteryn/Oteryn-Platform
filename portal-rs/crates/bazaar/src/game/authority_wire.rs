@@ -308,7 +308,6 @@ impl Receipt {
                     same(d, k, i, k)?;
                 }
                 next(d, "lock_revision", i, "expected_lock_revision")?;
-                same(d, "current_account_id", i, "seller_account_id")?;
             }
             Command::Escrow => {
                 same(d, "seller_character_id", i, "seller_character_id")?;

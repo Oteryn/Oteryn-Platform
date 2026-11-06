@@ -53,6 +53,9 @@ fn authority() -> Authority {
             receipt_authority: "oteryn:character-authority:primary".into(),
             projection_authority: "oteryn:game:primary".into(),
             snapshot_keys: vec![("fixture-example-1".into(), key())],
+            escrow_account_id: None,
+            character_cooldown_seconds: None,
+            character_history_complete_since: None,
         },
         fence: RecoveryFence {
             projection_epoch: 3,
@@ -954,6 +957,12 @@ async fn postgres_concurrent_receipt_publication_commits_one_immutable_decision(
             })
         })
         .connect(&url)
+        .await
+        .unwrap();
+    // This isolated concurrency harness creates only Bazaar/Wallet tables. The
+    // production migration also references account identities for browser keys.
+    sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
+        .execute(&pool)
         .await
         .unwrap();
     for migration in [

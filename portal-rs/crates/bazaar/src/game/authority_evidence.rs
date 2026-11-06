@@ -38,11 +38,29 @@ impl Authority {
                 return Err(Error::Unavailable);
             }
             let operation = id(text(&status, "last_operation_id")?)?;
-            self.retained(db, operation)
-                .await?
-                .ok_or(Error::Unavailable)?;
+            if self.retained(db, operation).await?.is_none() {
+                // The existing CC1 ownership leg is not a v2 Bazaar receipt.
+                // Rebuild its proof from the unchanged receipt plus its v2 bind.
+                let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
+                    .bind(listing)
+                    .fetch_one(&mut **db)
+                    .await?;
+                if l.kind != Kind::Character
+                    || super::runtime::characters::custody(
+                        self,
+                        db,
+                        &l,
+                        &status,
+                        text(&status, "state")?,
+                    )
+                    .await?
+                    .is_none()
+                {
+                    return Err(Error::Unavailable);
+                }
+            }
         }
-        let missing:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox o WHERE NOT EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id AND r.recovery_generation=$1::text::numeric))").bind(self.fence.recovery_generation.to_string()).fetch_one(&mut **db).await?;
+        let missing:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox o WHERE NOT EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id AND r.recovery_generation=$1::text::numeric AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation)) OR EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id))").bind(self.fence.recovery_generation.to_string()).fetch_one(&mut **db).await?;
         if missing {
             return Err(Error::Unavailable);
         }
@@ -194,6 +212,13 @@ impl Authority {
         .bind(listing.id)
         .fetch_one(&mut *db)
         .await?;
+        let cancelling:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_assets WHERE listing_id=$1 AND cancel_requested)").bind(listing.id).fetch_one(&mut *db).await?;
+        if cancelling
+            && matches!(state, "ESCROWED" | "locked")
+            && listing.state != crate::State::Draft
+        {
+            return Ok(None);
+        }
         if held && state != "RETURNED" {
             return Ok(None);
         }
@@ -210,6 +235,14 @@ impl Authority {
                 }
         {
             return Ok(None);
+        }
+        if listing.kind == Kind::Character {
+            let Some((intent, receipt, _)) =
+                super::runtime::characters::custody(self, db, listing, &s, state).await?
+            else {
+                return Ok(None);
+            };
+            return Ok(Some((s, intent, receipt)));
         }
         let operation = id(text(&s, "last_operation_id")?)?;
         let Some((i, r)) = self.retained(db, operation).await? else {
@@ -358,6 +391,12 @@ impl Evidence for Authority {
         let Some(listing) = listing else {
             return Ok(false);
         };
+        if listing.kind == Kind::Character {
+            return super::runtime::characters::delivered(self, db, &listing, sale)
+                .await
+                .map_err(domain);
+        }
+
         let Some((_, i, _)) = self
             .custody(db, &listing, "DELIVERED")
             .await
@@ -365,10 +404,7 @@ impl Evidence for Authority {
         else {
             return Ok(false);
         };
-        if sale.currency != Currency::Coins
-            || sale.seller != listing.owner
-            || sale.buyer == sale.seller
-        {
+        if sale.seller != listing.owner || sale.buyer == sale.seller {
             return Ok(false);
         }
         let v = &i.value;
@@ -376,7 +412,12 @@ impl Evidence for Authority {
         Ok(
             id(text(v, "buyer_account_id").map_err(domain)?).map_err(domain)? == sale.buyer
                 && id(text(v, "sale_id").map_err(domain)?).map_err(domain)? == sale.id
-                && text(funding, "currency").map_err(domain)? == "COINS"
+                && text(funding, "currency").map_err(domain)?
+                    == if sale.currency == Currency::Gold {
+                        "GOLD"
+                    } else {
+                        "COINS"
+                    }
                 && id(text(funding, "reservation_id").map_err(domain)?).map_err(domain)?
                     == sale.reservation
                 && number(funding, "gross_amount").map_err(domain)? == sale.amount as u64,

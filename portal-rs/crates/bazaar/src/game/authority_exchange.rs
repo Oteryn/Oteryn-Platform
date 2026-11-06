@@ -36,9 +36,21 @@ impl Authority {
                 .await
                 .map_err(|_| Error::Denied)?
                 .ok_or(Error::Denied)?;
-            if !state.allows_trade()
-                || (matches!(i.command, Command::Lock | Command::Escrow) && !state.allows_listing())
-            {
+            let compensation = matches!(
+                i.command,
+                Command::Return | Command::Unlock | Command::Release
+            ) || (i.command == Command::Bind
+                && text(&i.value, "purpose")? == "BAZAAR_ESCROW_RETURN");
+            if if compensation {
+                !accounts
+                    .safe_return(db, party)
+                    .await
+                    .map_err(|_| Error::Denied)?
+            } else {
+                !state.allows_trade()
+                    || (matches!(i.command, Command::Lock | Command::Escrow)
+                        && !state.allows_listing())
+            } {
                 return Err(Error::Denied);
             }
         }
@@ -70,13 +82,17 @@ impl Authority {
         {
             return Err(Error::Denied);
         }
-        if matches!(
-            i.command,
-            Command::Bind | Command::Unlock | Command::Payout | Command::Release
-        ) {
-            // Existing Character binding/final-owner and no-late-commit financial
-            // proofs must be qualified before these steps may be executable.
-            return Err(Error::Unavailable);
+        if i.command == Command::Bind {
+            super::runtime::characters::validate_bind(self, db, &i).await?;
+        }
+        if i.command == Command::Unlock {
+            super::runtime::characters::verify_unlock(self, db, &i, None).await?;
+        }
+        match i.command {
+            Command::Hold => super::runtime::gold::validate_hold(self, db, &i, None).await?,
+            Command::Release => super::runtime::gold::validate_release(self, db, &i, None).await?,
+            Command::Payout => super::runtime::gold::validate_payout(self, db, &i, None).await?,
+            _ => {}
         }
         if i.command == Command::Hold && !self.config.gold_fee_and_headroom_accepted {
             return Err(Error::Unavailable);
@@ -113,8 +129,20 @@ impl Authority {
             }
             if i.command == Command::Deliver {
                 let f = i.value.get("funding").ok_or(Error::Invalid)?;
+                if text(f, "currency")? == "GOLD" {
+                    super::runtime::gold::funded(
+                        self,
+                        db,
+                        &i.value,
+                        id(text(&i.value, "buyer_account_id")?)?,
+                        Some(operation),
+                    )
+                    .await?;
+                    sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,$2::text::numeric,$3::text::numeric) ON CONFLICT DO NOTHING").bind(operation).bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).execute(&mut **db).await?;
+                    return Ok(());
+                }
                 if text(f, "currency")? != "COINS" {
-                    return Err(Error::Unavailable);
+                    return Err(Error::Invalid);
                 }
                 let sale = id(text(&i.value, "sale_id")?)?;
                 let reservation = id(text(f, "reservation_id")?)?;

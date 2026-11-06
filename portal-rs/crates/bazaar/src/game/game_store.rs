@@ -62,7 +62,17 @@ impl Outbox {
             .await
             .map_err(|_| Error::Denied)?
             .ok_or(Error::Denied)?;
-        let allows = if matches!(intent.command, Command::Lock | Command::Escrow) {
+        let compensation = matches!(
+            intent.command,
+            Command::Return | Command::Unlock | Command::Release
+        ) || (intent.command == Command::Bind
+            && text(&intent.value, "purpose")? == "BAZAAR_ESCROW_RETURN");
+        let allows = if compensation {
+            accounts
+                .safe_return(db, actor)
+                .await
+                .map_err(|_| Error::Denied)?
+        } else if matches!(intent.command, Command::Lock | Command::Escrow) {
             state.allows_listing()
         } else {
             state.allows_trade()

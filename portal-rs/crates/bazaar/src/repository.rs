@@ -151,19 +151,33 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         maximum: i64,
         key: &str,
     ) -> Result<BidOutcome, Error> {
+        let mut tx = self.pool.begin().await?;
+        let result = self.bid_in(&mut tx, id, account, maximum, key).await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+    /// Caller-owned transaction: destination choice, maximum funding and bid
+    /// idempotency must commit together. Roll back on any error.
+    pub async fn bid_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: Uuid,
+        account: Uuid,
+        maximum: i64,
+        key: &str,
+    ) -> Result<BidOutcome, Error> {
         self.enabled()?;
         validate_key(key)?;
         if maximum <= 0 {
             return Err(Error::InvalidInput);
         }
-        let mut tx = self.pool.begin().await?;
-        let listing = locked(&mut tx, id).await?;
+        let listing = locked(tx, id).await?;
         self.currency(listing.currency)?;
-        self.authorize_many(&mut tx, vec![(account, false), (listing.owner, false)])
+        self.authorize_many(tx, vec![(account, false), (listing.owner, false)])
             .await?;
         let previous: Option<(Uuid, i64, Uuid, i64, OffsetDateTime)> = sqlx::query_as(
             "SELECT account,maximum,leader,price,ends_at FROM bazaar_bids WHERE listing_id=$1 AND idempotency_key=$2")
-            .bind(id).bind(key).fetch_optional(&mut *tx).await?;
+            .bind(id).bind(key).fetch_optional(&mut **tx).await?;
         if let Some((actor, amount, leader, price, ends_at)) = previous {
             if actor != account || amount != maximum {
                 return Err(Error::IdempotencyConflict);
@@ -174,7 +188,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
                 ends_at,
             });
         }
-        let now = clock(&mut tx).await?;
+        let now = clock(tx).await?;
         if listing.ends_at <= now {
             return Err(Error::IllegalTransition);
         }
@@ -183,11 +197,11 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         if let Some(old) = listing.leader {
             accounts.push(old);
         }
-        self.funds_lock(&mut tx, accounts).await?;
+        self.funds_lock(tx, accounts).await?;
         // Even an immediately outbid maximum must be fully funded.
         self.reservations
             .reserve(
-                &mut tx,
+                tx,
                 Reservation {
                     id,
                     account,
@@ -197,9 +211,9 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             )
             .await?;
         if leader != account {
-            self.reservations.release(&mut tx, id, account).await?;
+            self.reservations.release(tx, id, account).await?;
         } else if let Some(old) = listing.leader.filter(|old| *old != account) {
-            self.reservations.release(&mut tx, id, old).await?;
+            self.reservations.release(tx, id, old).await?;
         }
         let leader_max = if leader == account {
             maximum
@@ -223,13 +237,12 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         .bind(leader_max)
         .bind(price)
         .bind(ends_at)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
         sqlx::query("INSERT INTO bazaar_bids(id,listing_id,account,maximum,idempotency_key,leader,price,ends_at)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
             .bind(oteryn_core::new_id()).bind(id).bind(account).bind(maximum).bind(key)
-            .bind(leader).bind(price).bind(ends_at).execute(&mut *tx).await?;
-        tx.commit().await?;
+            .bind(leader).bind(price).bind(ends_at).execute(&mut **tx).await?;
         Ok(BidOutcome {
             leader,
             price,

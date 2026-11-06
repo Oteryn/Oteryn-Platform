@@ -1,134 +1,124 @@
-# PLAT3-BAZAAR consumer candidate
+# PLAT3-BAZAAR Platform consumer
 
-Governing read-only contract: Oteryn/Oteryn-Game commit
+Governing read-only contract: Oteryn/Oteryn-Game
 `3b49a20feec3ba29700bb4b2fa28fa9b539b79a2`,
-`docs/contracts/OTERYN_GAME_BAZAAR_AUTHORITY_V1.md`, CANDIDATE revision 1,
-Game PR #3010. Base Platform commit:
-`93f0aec532df11bd575ac3d2944a3b5587e3d585`.
-This implementation does not accept or activate the candidate contract.
-Shared registry allocations are unchanged: Bazaar decision event type **6**,
-schema 1; types 7/10/11 belong to other PLAT3 consumers. The cross-repository
-lock remains pending; this task does not invent a merged canonical revision.
+`docs/contracts/OTERYN_GAME_BAZAAR_AUTHORITY_V1.md`, CANDIDATE rev 1,
+Game PR #3010. Owner accepted its candidate proposals on 2026-11-06.
+The shared lock remains pending; no merged Game revision is fabricated.
+Event type 6/schema 1 uses the pinned shared EventEnvelope and
+BazaarAuthorityDecisionV1. Registry types 7/10/11 are unchanged.
 
-## Delivered boundaries
+## Runtime
 
-- Exact ordered JSON codec for all nine intents and v2 receipts. SHA-256 covers
-  original retained intent/receipt bytes. Rejected receipts have null result data;
-  unknown result codes, unknown members, duplicates, escapes, noncanonical scalar
-  encodings, wrong bounds and cross-operation echoes deny ingestion.
-- Lock snapshots use the existing exact-byte SHA-256/Ed25519 verifier with separate
-  provisioned current/retiring keys. Fixture trust is test-only. Keys are checked
-  again wherever current signed evidence becomes usable; optional unsupported
-  snapshot sections remain unavailable.
-- Receipt ingestion is an extension of the existing Character receipt facility,
-  with no Bazaar receipt URL. `extend_receipt_facility` preserves the supplied v1
-  router and selects the v2 handler before its larger body bound. The six Bazaar
-  routes require their separate purpose identity, bounded bodies, rate limiting,
-  exact route-operation matching and no-store responses.
-- Same-key exact receipt retries are acknowledged without reapplying effects;
-  changed receipts retain the first record and durable conflict digest. Receipt,
-  local terminal record and audit ingestion all use caller-owned transactions and
-  the issuer lock. Errors must roll back; quarantine results must commit.
-- `BazaarAuthorityDecisionV1` uses the pinned protobuf field tags. Intake validates
-  the shared EventEnvelope, type/schema, durability/privacy/retention, transaction
-  reference, identity, exact payload hash and retained intent/receipt hashes.
-  Event retries compare immutable semantic envelope fields and exact payload bytes;
-  raw protobuf field serialization order is not treated as canonical.
-- Real `PlatformAccounts`, `CoinReservations`, `Evidence` and `ItemAuthority`
-  adapters use transaction-local Platform data only. Absolute coin holds share
-  the Wallet ledger, sorted account locks, replay protection and the caller's
-  transaction. Settlement fences funding; completion requires delivery evidence
-  before debit/credit, fee and excess release. There is no second coin balance.
-- Item evidence binds current status, receipt, audit, listing, seller, world,
-  exact asset/quantity/definition/attributes, custody revision, recovery floor,
-  policy and watermark freshness. Status or an HTTP acknowledgement cannot pay.
-  Full resync requires every retained listing and configured policy world plus
-  prerequisite receipts; it cannot treat missing subjects as cancellation.
-- The additive migration is exactly
-  `20261106090001_plat3_bazaar_authority.sql`. Immutable evidence is retained;
-  rollback means stop new dispatch and reconcile outstanding custody/funding.
-  There is no destructive down migration or automatic evidence deletion.
+The portal Serve and worker roles select `runtime::Runtime` with the single
+`OTERYN_BAZAAR_ENABLED=true` flag. Its default is off, retaining the localized
+unavailable boundary. Enabled configuration must provide registered worlds,
+a nonrollback recovery fence, provisioned snapshot public keys and mutual TLS
+identity configuration. See [environment configuration](../../../../e2e/ENVIRONMENT.md).
+Missing or changed trust configuration stops dispatch; missing, stale, conflicting
+or incomplete evidence stays pending or denies. Enablement never supplies facts.
 
-## Configuration and remaining fail-closed seams
+Game initiates all exchanges. There is no outbound Platform-to-Game polling API.
+The advertised HTTPS internal base URL hosts the six contract Bazaar routes,
+the existing Character Commands receipt route extended for v2, unchanged CC1
+pending/read/reconcile routes, and shared binary `/internal/v1/game-events` intake.
+A TLS 1.3 listener verifies client certificates and purpose-specific provisioned
+SPKI hashes; browser headers cannot create a trusted producer identity. Bazaar
+and Character receipt identities must differ. Configuration contains public keys
+and paths to operational private TLS keys; no secret is committed.
 
-`AuthorityConfig::default()` disables every owner gate and has no accepted contract
-hash. The exact pinned contract SHA-256 must be explicitly supplied. A configured authority
-also needs a positive externally supplied `RecoveryFence` matching the durable
-issuer floor. The restore coordinator must obtain that fence from its nonrollback
-source; this module never bootstraps it from a receipt or database restore.
-`Outbox::Settings` and its existing safe default wiring retain their preparation
-semantics; setting those two old booleans cannot activate this candidate.
+Character auctions lock a signed snapshot, privately stage the exact CC1 transfer,
+commit its v2 binding, then expose the unchanged CC1 intent. Escrow ownership
+requires a committed v1 receipt and current status. Settlement repeats binding
+and transfer for the buyer, then explicitly unlocks. Item auctions require
+positive instance escrow, policy and audit before publication and a matching
+committed delivery before credit. Browser routes use Fluent pl/en, authenticated
+sessions, scoped sudo/MFA for listing, CSRF/Origin protection and rate limits.
 
-Explicit gates cover v2 acceptance, eligibility/escrow allocation, Inbox/item
-coverage, gold fee/headroom policy, common recovery scope, and signing/retention.
-They do not stand in for actual missing evidence. In particular:
+Coins use absolute Wallet reservations with sorted locks. Settlement fences the
+reservation; verified delivery permits the single atomic buyer debit, seller
+credit, fee and excess release. Gold uses Game Hold/Release/Payout receipts and
+its authoritative bank/headroom interlock; Platform stores commercial intent and
+proof references, never a Gold balance. A separate additive Gold commercial
+record avoids the legacy core's floor-rounded fee constraint. Both paths require
+current recovery generation, retained exact intent/receipt hashes and ANL evidence.
 
-- Existing private-listener and browser composition still default to unavailable.
-  The new routers/adapters are exported for qualified composition, not enabled in
-  the portal binary. Existing browser routers retain CSRF, sessions, rate limits,
-  localized pl/en unavailable responses and public projection allowlists.
-- Character binding/ownership-transfer dispatch and final-owner unlock remain
-  pending: the existing CC v1 API has no qualified not-yet-listable transfer seam
-  tied to this bind facility. A bind receipt or signed snapshot cannot substitute
-  for the committed v1 ownership leg. Character auctions remain unavailable.
-- Gold release/payout and gold-funded handoff remain pending until durable bank
-  disposition/headroom and delivery/payout proofs are integrated. The old core's
-  floor-rounded gold commission is never used for this candidate's ceil fee.
-- Want-to-buy seller deposits remain unavailable until each offer has its own
-  authoritative deposit binding. A sell listing's escrow cannot prove that offer.
-- Terminal cancellation/expiry now requires return evidence. Item return requests
-  remain pending and replay the same immutable local issuance key; a pending
-  return hides the listing from the qualified item adapter.
-- Competing delivery/return dispatch is denied after the first executable key.
-  An expiry, timeout, changed recovery floor or terminal refusal never silently
-  frees funding or permits compensation. Automatic retry-after-refusal and safe
-  compensation require the no-late-commit orchestration seam.
-- Quarantined subjects/operations stay unavailable. Operator repair and external
-  trust revocation must suspend composition; there is no automatic unquarantine,
-  inferred policy acceptance, finite retention choice or production enablement.
-- `PlatformAccounts.session_hash` must be bound to the actual current browser
-  session for listing mutations. Missing session evidence denies sudo, even if
-  another session for that account has recently authenticated.
+Expiry requests explicit return; no timeout implies release or rejection.
+Immutable issuance keys, receipt identities and audit transaction references
+prevent replay effects. Conflicts retain the first record and quarantine the
+subject. Configuration changes and recovery require deliberate restart/resync;
+there is no automatic unquarantine or guessed recovery floor.
 
-Thus this is a tested consumer foundation and item/coin evidence path, **not full
-PLAT3-BAZAAR completion or rollout qualification**. Remaining orchestration and
-binary/browser wiring are explicit undelivered scope, in addition to owner gates.
+## Owner defaults
 
-## Evidence and tests
+- Candidate v2 result-data extension and route ceiling 270336 bytes accepted;
+  original v1 receipt bytes and acknowledgement remain unchanged.
+- Candidate eligibility obligations, snapshot survival, Inbox destinations and
+  supported item classes accepted. Game still decides the instance's actual
+  eligibility; unknown obligations, definition, attributes or destination deny.
+- Character sale cooldown: **30 days**, configurable with
+  `OTERYN_BAZAAR_COOLDOWN_SECONDS`. External history coverage must be
+  supplied; a newly restored Platform database cannot establish a clean history.
+- Escrow account allocation/capacity: explicit preallocated active, verified
+  Platform account via `OTERYN_BAZAAR_ESCROW_ACCOUNT_ID`; no invented account.
+  Game enforces actual capacity. Absent allocation leaves Character pending.
+- Gold fee **250 bps, rounded up**, positive seller net, checked wide arithmetic;
+  seller headroom and common bank/item/Character restore scope accepted.
+- Financial proof retention: **3650 days**, configurable with
+  `OTERYN_BAZAAR_FINANCIAL_RETENTION_DAYS`. This is an operational minimum policy;
+  there is no automatic deletion, especially for unsettled receipts.
+- Signing custody/rotation/revocation: externally provisioned current/retiring
+  Ed25519 public keys, at most two; immutable kid-to-key history, revoked kids
+  cannot be resurrected. No signing key is generated by production code.
+- External positive epoch/generation and incarnation are mandatory in the fence
+  file. A changed fence halts the old process. No fallback to restored SQL state.
 
-Byte-exact Game fixtures, source paths/full SHA and exact-file hashes are under
-`../../tests/fixtures/plat3/`. Every vector's exact wire hash is recomputed;
-positive/tampered/rehash-without-resign Ed25519 tests use its synthetic public key.
-Tests cover all nine intent/result schemas, disabled private routes, preservation
-of the v1 receipt handler, concurrent duplicate publication, conflict quarantine,
-transaction rollback, missing audit/status/receipt evidence, nonrollback floors,
-and receipt-to-item-delivery-to-Wallet completion with exact replay.
+## Validation and operational limits
 
-PostgreSQL tests use `PORTAL_TEST_DATABASE_URL`; they print a skip when absent.
-Validation must set it to a disposable PostgreSQL 18 database. No Game SQL, Game
-writes, network calls inside a Platform transaction, production changes or workflow
-changes are part of this work.
+Exact copied fixtures and SOURCE/hash notes live in `../../tests/fixtures/plat3`.
+Every vector's wire hash and all exact source-file hashes are tested. Ed25519
+positive, tamper and rehash-without-resigning cases use synthetic fixture trust.
+PostgreSQL tests exercise ingestion, conflict quarantine, rollback, fences,
+missing audit/status evidence and delivery-to-Wallet completion with replay.
 
-## Validation and delivery record
+`e2e/support/bazaar-game.mjs` is test-only: exact pinned fixture endpoint plus
+synthetic owned instances, disposable snapshot key and two client identities.
+Its atomic local journal retains effects, receipts and audit outbox together.
+`e2e/local.mjs` starts it; `e2e/specs/bazaar.spec.mjs` drives real browser listing,
+reservation, authority decisions, delivery/credit, replay and fail-closed refusal
+in Polish/English and mobile/desktop. Only the test advances auction deadlines.
 
-Branch: `codex/portal-rs-plat3-bazaar`. No PR creation, merge, Game writes,
-workflow changes or production enablement are included.
+Want-to-buy offers require independent deposits; the adapter refuses to reuse a
+sell listing's custody. The current browser exposes auctions. Operator repair,
+unknown historical eligibility, failed compensation and changed recovery floors
+stay pending until authoritative evidence is reconciled. A CC1 source revision
+interleaved after private transfer staging prevents exposing that older transfer
+behind the Game cursor; the worker refuses it for reconciliation instead of
+changing bytes already bound by Game. Definite CC1 transfer refusal also requires
+operator reconciliation/compensation; it never releases custody by timeout.
+No Game repository,
+workflow or production deployment changes are included.
 
-Required validation uses the existing native Rust toolchain and PostgreSQL 18.6
-harness, with `PORTAL_TEST_DATABASE_URL` set to a task-owned disposable database.
-`RUST_TEST_THREADS=1` avoids exhausting the supplied test server's lock table;
-no PostgreSQL settings or existing database data are changed. The required
-commands are `cargo fmt --all --check`,
-`cargo clippy -q --workspace --all-targets -- -D warnings`, and
-`cargo test -q --workspace`. Exact final counts/head are reported with delivery.
-The focused Bazaar suite has 91 passing tests, including ten PLAT3 conformance
-and PostgreSQL flow tests plus two new cancellation regressions. Three unrelated
-workspace browser tests remain pre-existing ignored tests requiring browser setup.
+The sole additive migration is `20261106090001_plat3_bazaar_authority.sql`.
+Rollback means stop new dispatch and reconcile custody/funding; proof tables
+are retained. Required validation: `cargo fmt --all --check`,
+`cargo clippy -q --workspace --all-targets -- -D warnings`,
+`cargo test -q --workspace` with a disposable PostgreSQL 18 database.
 
-Changed files (repository relative):
+## Changed files
+
+The branch includes the requested package-21 merge (including `08c24595`).
+Its closure/league changes below are inherited from that merge; PLAT3 edits
+remain in Bazaar, Cargo wiring, the portal/worker composition and E2E harness.
+Paths are relative to the repository root, against the supplied base.
 
 - `portal-rs/Cargo.lock`
+- `portal-rs/bin/oteryn-portal/src/main.rs`
+- `portal-rs/bin/oteryn-portal/src/worker.rs`
 - `portal-rs/crates/bazaar/Cargo.toml`
+- `portal-rs/crates/bazaar/src/characters/README.md`
+- `portal-rs/crates/bazaar/src/characters/http.rs`
+- `portal-rs/crates/bazaar/src/characters/model.rs`
 - `portal-rs/crates/bazaar/src/game/PLAT3.md`
 - `portal-rs/crates/bazaar/src/game/README.md`
 - `portal-rs/crates/bazaar/src/game/authority.rs`
@@ -143,6 +133,17 @@ Changed files (repository relative):
 - `portal-rs/crates/bazaar/src/game/game_store.rs`
 - `portal-rs/crates/bazaar/src/game/game_wire.rs`
 - `portal-rs/crates/bazaar/src/game/mod.rs`
+- `portal-rs/crates/bazaar/src/game/runtime/browser.rs`
+- `portal-rs/crates/bazaar/src/game/runtime/characters.rs`
+- `portal-rs/crates/bazaar/src/game/runtime/config.rs`
+- `portal-rs/crates/bazaar/src/game/runtime/en.ftl`
+- `portal-rs/crates/bazaar/src/game/runtime/gold.rs`
+- `portal-rs/crates/bazaar/src/game/runtime/gold_worker.rs`
+- `portal-rs/crates/bazaar/src/game/runtime/mod.rs`
+- `portal-rs/crates/bazaar/src/game/runtime/pl.ftl`
+- `portal-rs/crates/bazaar/src/game/runtime/tls.rs`
+- `portal-rs/crates/bazaar/src/game/runtime/transport.rs`
+- `portal-rs/crates/bazaar/src/game/runtime/worker.rs`
 - `portal-rs/crates/bazaar/src/items.rs`
 - `portal-rs/crates/bazaar/src/items/service.rs`
 - `portal-rs/crates/bazaar/src/items/tests.rs`
@@ -155,4 +156,55 @@ Changed files (repository relative):
 - `portal-rs/crates/bazaar/tests/fixtures/plat3/plat3_authority.proto`
 - `portal-rs/crates/bazaar/tests/postgres.rs`
 - `portal-rs/crates/bazaar/tests/support/mod.rs`
+- `portal-rs/crates/identity/Cargo.toml`
+- `portal-rs/crates/identity/src/termination.rs`
+- `portal-rs/crates/identity/src/termination/README.md`
+- `portal-rs/crates/identity/src/termination/fixtures/SOURCE.md`
+- `portal-rs/crates/identity/src/termination/fixtures/closure.json`
+- `portal-rs/crates/identity/src/termination/game_closure.rs`
+- `portal-rs/crates/identity/src/termination/game_closure/tests.rs`
+- `portal-rs/crates/identity/src/termination/game_closure/wire.rs`
+- `portal-rs/crates/identity/src/termination_tests.rs`
+- `portal-rs/crates/minigames/Cargo.toml`
+- `portal-rs/crates/minigames/src/league/README.md`
+- `portal-rs/crates/minigames/src/league/en.ftl`
+- `portal-rs/crates/minigames/src/league/fixtures/CROSS_REPOSITORY_CONTRACT_LOCK.json`
+- `portal-rs/crates/minigames/src/league/fixtures/GAME_EVENT_FOUNDATION_REGISTRY.json`
+- `portal-rs/crates/minigames/src/league/fixtures/SOURCE.md`
+- `portal-rs/crates/minigames/src/league/fixtures/plat3_authority.proto`
+- `portal-rs/crates/minigames/src/league/fixtures/snapshots.json`
+- `portal-rs/crates/minigames/src/league/mod.rs`
+- `portal-rs/crates/minigames/src/league/pl.ftl`
+- `portal-rs/crates/minigames/src/league/schema.rs`
+- `portal-rs/crates/minigames/src/league/store.rs`
+- `portal-rs/crates/minigames/src/league/tests.rs`
+- `portal-rs/crates/minigames/src/league/web.rs`
+- `portal-rs/crates/minigames/src/lib.rs`
+- `portal-rs/crates/minigames/src/navigation.rs`
+- `portal-rs/crates/ui/i18n/en.ftl`
+- `portal-rs/crates/ui/i18n/pl.ftl`
+- `portal-rs/e2e/ENVIRONMENT.md`
+- `portal-rs/e2e/local.mjs`
+- `portal-rs/e2e/specs/bazaar.spec.mjs`
+- `portal-rs/e2e/support/bazaar-game.mjs`
 - `portal-rs/migrations/20261106090001_plat3_bazaar_authority.sql`
+- `portal-rs/migrations/20261106090002_plat3_account_closure.sql`
+- `portal-rs/migrations/20261106090003_plat3_world_event_guild_season.sql`
+
+## Validation record (2026-11-06)
+
+- `cargo fmt --all --check`: passed.
+- `cargo clippy -q --workspace --all-targets -- -D warnings`: passed.
+- `cargo test -q --workspace`: 1085 passed, 3 pre-existing browser tests ignored.
+  PostgreSQL-backed tests ran on PostgreSQL 18.6 with the repository harness.
+- Final focused Bazaar rerun: 91 passed (75 unit, 3 domain, 13 PostgreSQL).
+- Playwright `specs/bazaar.spec.mjs`: 24 passed, 0 failed, Polish/English at
+  1440/390 widths. Six cases per project cover character/item Coin sales,
+  refusal, character/item Gold settlement and explicit safe item return.
+- Test producer: 100 retained receipts, all receipt/status/audit publications
+  acknowledged, zero producer alarms. These are local fixture-backed results;
+  no live Game deployment or production activation is claimed.
+
+The composed-binary test requires its existing fixed admission port to be free.
+Run the Rust suite before starting the local E2E services. All disposable test
+services/databases are task-owned; fixture signing keys stay outside the repository.

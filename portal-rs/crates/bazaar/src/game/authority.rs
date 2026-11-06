@@ -2,6 +2,7 @@
 //! never recovered from this database or inferred from a receipt.
 use super::authority_wire::{number, same};
 use super::game_wire::{decimal, digest, id, text};
+use super::runtime;
 use super::{Error, PreparedIntent, Receipt, SnapshotBinding, verify_snapshot};
 use ed25519_dalek::VerifyingKey;
 use oteryn_internal_api::canonical::{self};
@@ -30,6 +31,9 @@ pub struct AuthorityConfig {
     pub receipt_authority: String,
     pub projection_authority: String,
     pub snapshot_keys: Vec<(String, VerifyingKey)>,
+    pub escrow_account_id: Option<Uuid>,
+    pub character_cooldown_seconds: Option<u64>,
+    pub character_history_complete_since: Option<u64>,
 }
 impl AuthorityConfig {
     pub fn available(&self) -> bool {
@@ -238,11 +242,15 @@ impl Authority {
         }
         // Binding/payout require additional durable Character/financial interlocks.
         // Absence must remain pending; a hash supplied by Game is not that proof.
-        if matches!(
-            receipt.command,
-            Command::Bind | Command::Unlock | Command::Payout
-        ) {
-            return Err(Error::Unavailable);
+        match receipt.command {
+            Command::Bind => runtime::characters::validate_bind(self, db, intent).await?,
+            Command::Unlock => {
+                runtime::characters::verify_unlock(self, db, intent, Some(d)).await?
+            }
+            Command::Hold => runtime::gold::validate_hold(self, db, intent, Some(d)).await?,
+            Command::Release => runtime::gold::validate_release(self, db, intent, Some(d)).await?,
+            Command::Payout => runtime::gold::validate_payout(self, db, intent, Some(d)).await?,
+            _ => {}
         }
         Ok(())
     }
