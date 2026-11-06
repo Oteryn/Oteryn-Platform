@@ -11,7 +11,7 @@ use axum::{
 };
 use oteryn_admin::{
     rbac::{AccountStateReader, Authorizer, CheckContext, Permission},
-    web::{PanelConfig, PendingAuthentication, StaffSession},
+    web::{PanelConfig, PortalIdentity, StaffSession},
 };
 use oteryn_web::session::BrowserSession;
 use sqlx::PgPool;
@@ -19,7 +19,7 @@ use std::sync::Arc;
 use time::{PrimitiveDateTime, format_description};
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    let routes = staff_routes(pool.clone(), PendingAuthentication);
+    let routes = staff_routes(pool.clone(), PortalIdentity::configured(pool.clone()));
     let admin =
         oteryn_admin::web::configured_guard(routes, pool.clone(), Permission::ManageEvents)?;
     Ok(public_router(pool).merge(admin))

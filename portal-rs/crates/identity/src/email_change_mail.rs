@@ -67,11 +67,13 @@ impl Worker {
             env("OTERYN_SMTP_FROM")?,
         )
         .map_err(|_| "email delivery configuration invalid".to_owned())?;
+        let mfa = crate::mfa::Mfa::configured(pool.clone())
+            .map_err(|_| "email security configuration unavailable".to_owned())?;
         Ok(Some(Self {
             service: Service {
                 pool,
                 enabled: true,
-                security: Arc::new(DenySecurity),
+                security: Arc::new(TransactionalSecurity(mfa)),
                 origin: env("OTERYN_PUBLIC_ORIGIN")?,
             },
             sender: Arc::new(sender),

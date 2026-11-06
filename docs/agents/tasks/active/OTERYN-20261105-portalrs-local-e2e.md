@@ -30,7 +30,7 @@ Owned: this task record, bounded fixes within `portal-rs/`, external test script
 checkpoint_version: 1
 updated_at: 2026-11-05T22:36:32Z
 head: 4ea9b99e8eaaba01c71ffd19bcad922735144862
-branch: portalrs-e2e-fixes
+branch: none
 pr: none
 status: waiting
 context_routes:

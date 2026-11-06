@@ -582,6 +582,31 @@ impl Mfa {
         tx.commit().await?;
         Ok(true)
     }
+    /// Consume an account-bound TOTP proof under the caller's account lock.
+    pub async fn verify_totp_in_connection(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        id: AccountId,
+        code: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL)").bind(id).fetch_one(&mut *conn).await?;
+        let state: Option<State> = sqlx::query_as("SELECT secret,confirmed,last_step,generation FROM account_mfa_totp WHERE account_id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *conn).await?;
+        let step = match state.as_ref() {
+            Some(state) if active && state.confirmed => self.step(id, state, code, now()?)?,
+            _ => None,
+        };
+        let Some(step) = step else {
+            return Ok(false);
+        };
+        sqlx::query(
+            "UPDATE account_mfa_totp SET last_step=$2,updated_at=now() WHERE account_id=$1",
+        )
+        .bind(id)
+        .bind(step)
+        .execute(conn)
+        .await?;
+        Ok(true)
+    }
     /// Safe identifiers only; bearer material is never listed.
     pub async fn devices(&self, id: AccountId) -> Result<Vec<String>, sqlx::Error> {
         sqlx::query_scalar("SELECT encode(token_hash,'hex') FROM account_mfa_tokens WHERE account_id=$1 AND purpose='trusted' AND expires_at>now() ORDER BY created_at").bind(id).fetch_all(&self.pool).await

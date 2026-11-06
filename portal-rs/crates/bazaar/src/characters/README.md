@@ -21,8 +21,11 @@ bids; it does not release custody or funds or invent a receipt outcome.
 `browser_routes` supplies real T02 sessions and synchronizer CSRF/origin checks through
 `SessionSecurity`. The lower-level `routes` accepts a security port for actor-to-result tests.
 Form mutations refuse unknown fields; success redirects with 303. Public and owner pages are
-no-store. Flags default off. `configured_router` deliberately registers no production route group,
-as in Laravel when disabled. There is no environment-only override for missing game capability.
+no-store. Flags default off. `OTERYN_BAZAAR_CHARACTERS_ENABLED=true` mounts explicit
+503 HTML refusal pages at the list, owner-list and sell destinations. The shared shell
+wraps these documents. Accepted G-7 character custody and signing authority are absent;
+no listing, bid, transfer or fabricated Game data is exposed by startup. There is no
+environment-only override for missing game capability.
 
 ## Dependency and contract boundaries
 

@@ -384,3 +384,42 @@ async fn postgres_ambiguous_editorial_binding_denies() {
     assert!(!body.contains("Uncertain prose"));
     db.close().await;
 }
+
+#[tokio::test]
+async fn entity_refusals_are_localized_documents_with_unchanged_status() {
+    for lang in ["pl", "en"] {
+        for status in [
+            StatusCode::NOT_FOUND,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            let response = error(status, lang);
+            assert_eq!(response.status(), status);
+            assert!(
+                response.headers()["content-type"]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("text/html")
+            );
+            let body = String::from_utf8(
+                axum::body::to_bytes(response.into_body(), 100_000)
+                    .await
+                    .unwrap()
+                    .to_vec(),
+            )
+            .unwrap();
+            assert!(body.starts_with("<!doctype html>"));
+            assert!(body.contains(&format!("<html lang=\"{lang}\">")));
+            assert!(body.contains("<title>Wiki · Oteryn</title>"));
+            assert!(body.contains("<main"));
+            let key = if status == StatusCode::NOT_FOUND {
+                "missing"
+            } else if status == StatusCode::UNPROCESSABLE_ENTITY {
+                "invalid"
+            } else {
+                "unavailable"
+            };
+            assert!(body.contains(&t(lang, key)));
+        }
+    }
+}

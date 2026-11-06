@@ -1,0 +1,16 @@
+preferences = Preferencje powiadomień
+unsubscribe = Wypisz się
+unsubscribe-info = Wyłącz opcjonalne wiadomości e-mail w tej kategorii. Powiadomienia bezpieczeństwa pozostają włączone.
+security = Powiadomienia bezpieczeństwa są zawsze włączone w obu kanałach.
+news = Aktualności
+support = Pomoc
+email = E-mail
+portal = Portal
+save = Zapisz
+password = Obecne hasło
+confirmation = Wpisz TERMINATE, aby potwierdzić
+pending = Usunięcie konta jest zaplanowane. Możesz je anulować przed zakończeniem.
+explanation = Poproś o usunięcie konta po okresie karencji. Najpierw potwierdź hasło na stronie potwierdzenia bezpieczeństwa. Konta z postaciami, transakcjami, rezerwami środków lub zmianą adresu e-mail otrzymają odmowę. Zakończenie oczekuje na kontrakt cyklu życia gry.
+cancel = Anuluj usunięcie
+delete = Poproś o usunięcie konta
+unsubscribed = Opcjonalne wiadomości e-mail są wyłączone.

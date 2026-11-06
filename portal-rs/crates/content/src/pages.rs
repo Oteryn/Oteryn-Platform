@@ -78,6 +78,8 @@ pub fn router(pool: PgPool) -> Router {
         app = app.route(&format!("/{lang}/pages/{{slug}}"), get(custom));
         for (route, slug) in [
             ("rules", "rules"),
+            ("help", "support"),
+            ("support", "support"),
             ("legal/terms", "terms-of-service"),
             ("legal/privacy", "privacy-policy"),
             ("legal/cookies", "cookie-policy"),
@@ -127,8 +129,19 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
             )
         }
         Ok(None) => (
-            StatusCode::NOT_FOUND,
-            text(lang, "unavailable"),
+            if reserved(slug) {
+                StatusCode::OK
+            } else {
+                StatusCode::NOT_FOUND
+            },
+            text(
+                lang,
+                if reserved(slug) {
+                    "not-published"
+                } else {
+                    "unavailable"
+                },
+            ),
             String::new(),
             String::new(),
         ),

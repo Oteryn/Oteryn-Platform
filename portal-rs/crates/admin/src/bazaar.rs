@@ -98,7 +98,11 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         return Ok(Router::new());
     }
     web::configured_guard(
-        routes(pool.clone(), web::PendingAuthentication, enabled),
+        routes(
+            pool.clone(),
+            web::PortalIdentity::configured(pool.clone()),
+            enabled,
+        ),
         pool,
         Permission::ManageMarketplace,
     )

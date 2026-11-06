@@ -286,3 +286,15 @@ impl oteryn_admin::rbac::AccountStateReader for Identity {
         Ok(oteryn_admin::rbac::AccountState::Active)
     }
 }
+
+#[test]
+fn news_document_keeps_body_in_the_selected_theme() {
+    for lang in ["pl", "en"] {
+        let html = page(lang, "<Untrusted title>", "<p>Article</p>".into()).0;
+        assert!(html.contains(&format!("lang=\"{lang}\"")));
+        assert!(html.contains("</head><body class=\"op-theme\">"));
+        assert!(!html.contains("<Untrusted title>"));
+        assert!(html.contains("Untrusted title"));
+        assert!(html.ends_with("</main></body></html>"));
+    }
+}

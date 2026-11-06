@@ -22,10 +22,110 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
     let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let path = request.uri().path();
+    let local = path
+        .strip_prefix("/pl/")
+        .or_else(|| path.strip_prefix("/en/"))
+        .unwrap_or(path.trim_start_matches('/'));
+    if request.method() == axum::http::Method::GET
+        && matches!(account, oteryn_ui::Account::Anonymous)
+        && (local == "account"
+            || local.starts_with("account/")
+            || local.starts_with("panel/")
+            || local.starts_with("support/tickets")
+            || local.starts_with("support/reports")
+            || matches!(local, "pass" | "atlas/places"))
+    {
+        use axum::response::IntoResponse;
+        return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
+    }
     let chrome = shell.registry.chrome(lang, request.uri().path(), account);
     request.extensions_mut().insert(chrome.clone());
-    let response = next.run(request).await;
-    wrap_document(response, &chrome).await
+    let browser = request.method() == axum::http::Method::GET
+        && !request.uri().path().starts_with("/api/")
+        && !request.uri().path().starts_with("/internal/")
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"));
+    let mut response = next.run(request).await;
+    if browser && (response.status().is_client_error() || response.status().is_server_error()) {
+        let html = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.starts_with("text/html"));
+        if !html {
+            let mut replacement = oteryn_ui::error(&chrome, response.status());
+            for name in [
+                header::ALLOW,
+                header::RETRY_AFTER,
+                header::CONTENT_SECURITY_POLICY,
+                header::STRICT_TRANSPORT_SECURITY,
+                header::X_CONTENT_TYPE_OPTIONS,
+                header::REFERRER_POLICY,
+                header::CONTENT_LANGUAGE,
+                header::VARY,
+                axum::http::HeaderName::from_static("permissions-policy"),
+            ] {
+                if let Some(value) = response.headers().get(&name) {
+                    replacement.headers_mut().insert(name, value.clone());
+                }
+            }
+            for value in response.headers().get_all(header::SET_COOKIE) {
+                replacement
+                    .headers_mut()
+                    .append(header::SET_COOKIE, value.clone());
+            }
+            for (name, value) in [
+                (
+                    "content-security-policy",
+                    "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+                ),
+                (
+                    "strict-transport-security",
+                    "max-age=63072000; includeSubDomains",
+                ),
+                ("x-content-type-options", "nosniff"),
+                ("referrer-policy", "strict-origin-when-cross-origin"),
+                (
+                    "permissions-policy",
+                    "camera=(), microphone=(), geolocation=()",
+                ),
+            ] {
+                replacement
+                    .headers_mut()
+                    .entry(axum::http::HeaderName::from_static(name))
+                    .or_insert(axum::http::HeaderValue::from_static(value));
+            }
+            replacement.headers_mut().insert(
+                header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("no-store"),
+            );
+            response = replacement;
+        }
+    }
+    let mut response = wrap_document(response, &chrome).await;
+    if response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("text/html"))
+        && let Some(policy) = response
+            .headers()
+            .get(header::CONTENT_SECURITY_POLICY)
+            .and_then(|v| v.to_str().ok())
+        && !policy
+            .split(';')
+            .any(|v| v.trim_start().starts_with("font-src "))
+        && let Ok(value) = format!("{policy}; font-src 'self'").parse()
+    {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_SECURITY_POLICY, value);
+    }
+    response
 }
 
 /// Largest module document the shell adapter buffers; larger bodies pass through unchanged.
@@ -104,7 +204,7 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         ),
         None => format!("{body_tag} class=\"{}\"", oteryn_ui::SHELL_MARKER),
     };
-    let head = &page[html_end..body_open];
+    let head = &page[html_end + 1..body_open];
     let styles = if lower.contains("/static/css/components.css") {
         String::new()
     } else {
@@ -115,7 +215,7 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         None => format!("{styles}{head}"),
     };
     Some(format!(
-        "{}{html_tag} data-theme=\"dark\"{head}{body_tag}>{header}<div class=\"op-shell__page\">{}</div>{footer}{}",
+        "{}{html_tag} data-theme=\"dark\">{head}{body_tag}>{header}<div class=\"op-shell__page\">{}</div>{footer}{}",
         &page[..html_open],
         &page[body_end + 1..body_close],
         &page[body_close..]
@@ -165,7 +265,122 @@ mod tests {
         let out =
             inject(implied, "H", "F").ok_or("document with an implied body must be wrapped")?;
         assert!(out.find("components.css") < out.find("<body"));
+        assert!(out.contains("<html lang=\"pl\" data-theme=\"dark\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\">"));
         assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\"><main>m</main></div>F</body></html>"));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod response_tests {
+    use super::*;
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode},
+        routing::get,
+    };
+    use tower::ServiceExt;
+    #[tokio::test]
+    async fn public_refusals_are_documents_and_api_statuses_stay_intact()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+        let app = Router::new()
+            .route(
+                "/{lang}/cold",
+                get(|| async {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        [
+                            (header::RETRY_AFTER, "17"),
+                            (header::STRICT_TRANSPORT_SECURITY, "max-age=7"),
+                            (header::REFERRER_POLICY, "no-referrer"),
+                            (header::SET_COOKIE, "probe=value; Secure; HttpOnly"),
+                        ],
+                        "",
+                    )
+                }),
+            )
+            .route("/api/refused", get(|| async { StatusCode::FORBIDDEN }))
+            .route(
+                "/{lang}/account/privacy",
+                get(|| async { StatusCode::FORBIDDEN }).post(|| async { StatusCode::FORBIDDEN }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Shell {
+                    registry: Registry::default(),
+                    sessions: SessionLayer::new(pool),
+                },
+                middleware,
+            ));
+        for lang in ["pl", "en"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(format!("/{lang}/cold"))
+                        .header(header::ACCEPT, "text/html")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert!(
+                response.headers()[header::CONTENT_TYPE]
+                    .to_str()?
+                    .starts_with("text/html")
+            );
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(
+                response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+                "nosniff"
+            );
+            assert_eq!(
+                response.headers()[header::STRICT_TRANSPORT_SECURITY],
+                "max-age=7"
+            );
+            assert_eq!(response.headers()[header::RETRY_AFTER], "17");
+            assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+            assert_eq!(
+                response.headers()[header::SET_COOKIE],
+                "probe=value; Secure; HttpOnly"
+            );
+            assert!(
+                response.headers()[header::CONTENT_SECURITY_POLICY]
+                    .to_str()?
+                    .contains("frame-ancestors 'none'")
+            );
+            let html = String::from_utf8(
+                axum::body::to_bytes(response.into_body(), 100000)
+                    .await?
+                    .to_vec(),
+            )?;
+            assert!(html.contains(&format!("lang=\"{lang}\"")));
+            assert!(html.contains("op-shell__header"));
+            assert!(html.contains("op-shell__footer"));
+            let response = app
+                .clone()
+                .oneshot(Request::get(format!("/{lang}/account/privacy")).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(
+                response.headers()[header::LOCATION],
+                format!("/{lang}/login")
+            );
+            let response = app
+                .clone()
+                .oneshot(Request::post(format!("/{lang}/account/privacy")).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+        let response = app
+            .oneshot(
+                Request::get("/api/refused")
+                    .header(header::ACCEPT, "application/json")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(!response.headers().contains_key(header::CONTENT_TYPE));
         Ok(())
     }
 }

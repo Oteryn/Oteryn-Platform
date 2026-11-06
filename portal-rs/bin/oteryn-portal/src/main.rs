@@ -77,47 +77,28 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_gameauth::admission::start_private_listener(db.clone()).await?;
             let static_dir =
                 std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
-            let app = oteryn_web::router(AppState { db }, &static_dir);
-            let app = app.merge(oteryn_community::ingest::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_community::deaths::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_community::guilds::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_community::houses::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
+            let app = oteryn_web::router(AppState { db: db.clone() }, &static_dir);
+            let app = app.merge(oteryn_community::ingest::configured_router(db.clone()));
+            let app = app.merge(oteryn_web::favicon::router());
+            let app = app.merge(oteryn_community::deaths::configured_router(db.clone()));
+            let app = app.merge(oteryn_community::guilds::configured_router(db.clone()));
+            let app = app.merge(oteryn_community::houses::configured_router(db.clone()));
             let app = app.merge(oteryn_community::v2_watermark::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
+                db.clone(),
             ));
-            let app = app.merge(oteryn_community::worlds::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_community::online::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
+            let app = app.merge(oteryn_community::worlds::configured_router(db.clone()));
+            let app = app.merge(oteryn_community::online::configured_router(db.clone()));
             let app = app.merge(oteryn_downloads::router(
-                oteryn_db::lazy_pool(config.database_url())?,
+                db.clone(),
                 oteryn_downloads::FeatureFlags {
                     downloads: std::env::var("OTERYN_DOWNLOADS_ENABLED")
                         .is_ok_and(|value| value == "true"),
                 },
             ));
-            let app = app.merge(oteryn_community::profiles::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_community::rankings::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_wiki::calculators::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_community::party::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
+            let app = app.merge(oteryn_community::profiles::configured_router(db.clone()));
+            let app = app.merge(oteryn_community::rankings::configured_router(db.clone()));
+            let app = app.merge(oteryn_wiki::calculators::configured_router(db.clone()));
+            let app = app.merge(oteryn_community::party::configured_router(db.clone())?);
             let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")
                 .unwrap_or_else(|_| "http://localhost:3000".to_owned());
             let production = std::env::var("OTERYN_ENV").is_ok_and(|value| value == "production");
@@ -131,67 +112,29 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // module routes on the same paths never overlap with them.
             let app = app.merge(oteryn_web::seo::router(seo));
             let app = oteryn_web::register::configured(app);
-            let app = app.merge(oteryn_admin::console::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(oteryn_admin::web::configured_router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?)?);
+            let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
+            let app = app.merge(oteryn_admin::web::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::console::access::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
+                db.clone(),
             )?);
-            let app = app.merge(oteryn_payments::account::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_atlas::web::configured_router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?));
-            let app = app.merge(login_http::configured_router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?));
-            let app = app.merge(oteryn_content::pages::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(oteryn_content::events::web::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(oteryn_wiki::web::configured_router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?)?);
-            let app = app.merge(oteryn_world::admin::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(oteryn_content::news::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(oteryn_stats::character::http::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_stats::watch::http::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_stats::rankings::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_stats::world::http::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_stats::guilds::http::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_content::media::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(oteryn_player_api::configured_router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?));
-            let app = app.merge(oteryn_support::reports::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_admin::players::http::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let wizard_pool = oteryn_db::lazy_pool(config.database_url())?;
+            let app = app.merge(oteryn_payments::account::configured_router(db.clone()));
+            let app = app.merge(oteryn_atlas::web::configured_router(db.clone()));
+            let app = app.merge(login_http::configured_router(db.clone()));
+            let app = app.merge(oteryn_content::pages::configured_router(db.clone())?);
+            let app = app.merge(oteryn_content::events::web::configured_router(db.clone())?);
+            let app = app.merge(oteryn_wiki::web::configured_router(db.clone())?);
+            let app = app.merge(oteryn_world::admin::configured_router(db.clone())?);
+            let app = app.merge(oteryn_content::news::configured_router(db.clone())?);
+            let app = app.merge(oteryn_stats::character::http::configured_router(db.clone()));
+            let app = app.merge(oteryn_stats::watch::http::configured_router(db.clone()));
+            let app = app.merge(oteryn_stats::rankings::configured_router(db.clone()));
+            let app = app.merge(oteryn_stats::world::http::configured_router(db.clone()));
+            let app = app.merge(oteryn_stats::guilds::http::configured_router(db.clone()));
+            let app = app.merge(oteryn_content::media::configured_router(db.clone())?);
+            let app = app.merge(oteryn_player_api::configured_router(db.clone()));
+            let app = app.merge(oteryn_support::reports::configured_router(db.clone()));
+            let app = app.merge(oteryn_admin::players::http::configured_router(db.clone())?);
+            let wizard_pool = db.clone();
             let wizard = oteryn_identity::security_wizard::configured(wizard_pool.clone())
                 .layer(axum::middleware::from_fn(
                     |mut request: axum::extract::Request, next: axum::middleware::Next| async move {
@@ -212,19 +155,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     oteryn_web::session::middleware,
                 ));
             let app = app.merge(wizard);
-            let app = app.merge(oteryn_hirelings::web::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
+            let app = app.merge(oteryn_hirelings::web::configured_router(db.clone()));
             let app = app.merge(oteryn_bazaar::characters::http::configured_router());
-            let app = app.merge(reset_http::configured_router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?));
-            let app = app.merge(passkeys_http::configured_router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?)?);
-            let mut oauth_login_sessions = oteryn_web::session::SessionLayer::new(
-                oteryn_db::lazy_pool(config.database_url())?,
-            );
+            let app = app.merge(reset_http::configured_router(db.clone()));
+            let app = app.merge(passkeys_http::configured_router(db.clone())?);
+            let mut oauth_login_sessions = oteryn_web::session::SessionLayer::new(db.clone());
             oauth_login_sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
                 .ok()
                 .into_iter()
@@ -298,73 +233,44 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 ));
             let app = oteryn_wiki::entities::mount(
                 app,
-                oteryn_wiki::entities::EntityState::configured(oteryn_db::lazy_pool(
-                    config.database_url(),
-                )?),
+                oteryn_wiki::entities::EntityState::configured(db.clone()),
             );
-            let app = app.merge(oteryn_support::tickets::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(credentials_http::configured_router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?));
-            let app = app.merge(oteryn_identity::export::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_content::today::router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?));
+            let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
+            let app = app.merge(credentials_http::configured_router(db.clone()));
+            let app = app.merge(oteryn_identity::export::configured_router(db.clone()));
+            let app = app.merge(oteryn_content::today::router(db.clone()));
             let app = app.layer(axum::middleware::from_fn_with_state(
-                oteryn_db::lazy_pool(config.database_url())?,
+                db.clone(),
                 oteryn_content::announcements::banner,
             ));
-            let app = app.merge(email_change_http::configured_router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?));
-            let app = app.merge(oteryn_admin::commerce::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(oteryn_admin::controls::http::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = sessions_http::configured(app, oteryn_db::lazy_pool(config.database_url())?);
-            let app = app.merge(privacy_web::configured_router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?));
-            let app = app.merge(shop_web::router(oteryn_db::lazy_pool(
-                config.database_url(),
-            )?));
+            let app = app.merge(email_change_http::configured_router(db.clone()));
+            let app = app.merge(oteryn_admin::commerce::configured_router(db.clone())?);
+            let app = app.merge(oteryn_admin::controls::http::configured_router(db.clone())?);
+            let app = sessions_http::configured(app, db.clone());
+            let app = app.merge(privacy_web::configured_router(db.clone()));
+            let app = app.merge(account_lifecycle_http::configured_router(db.clone()));
+            let app = app.merge(shop_web::router(db.clone()));
             let app = app.merge(oteryn_player_api::account_feed::configured_router());
-            let app = app.merge(oteryn_admin::support::web::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(oteryn_atlas::spawns::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
+            let app = app.merge(oteryn_admin::support::web::configured_router(db.clone())?);
+            let app = app.merge(oteryn_atlas::spawns::configured_router(db.clone()));
             let app = app.layer(axum::middleware::from_fn(
                 oteryn_atlas::spawns::viewer_policy,
             ));
-            let app = app.merge(oteryn_minigames::puzzles::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
+            let app = app.merge(oteryn_minigames::puzzles::configured_router(db.clone()));
             let app = app.merge(oteryn_bazaar::items::web::configured_router());
-            let app = app.merge(oteryn_playerdata::hunts::web::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_playerdata::items::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
+            let app = app.merge(oteryn_playerdata::hunts::web::configured_router(db.clone()));
+            let app = app.merge(oteryn_playerdata::items::configured_router(db.clone()));
             let app = app.merge(oteryn_playerdata::dashboard::configured_router());
             let app = app.merge(oteryn_playerdata::logins::web::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
+                db.clone(),
             ));
-            let app = mfa_http::configured(app, oteryn_db::lazy_pool(config.database_url())?)?;
+            let app = mfa_http::configured(app, db.clone())?;
             let app = app.merge(oteryn_web::search::routes(
                 oteryn_web::search::SearchState {
-                    pool: oteryn_db::lazy_pool(config.database_url())?,
+                    pool: db.clone(),
                     characters: None,
                     world: Some(std::sync::Arc::new({
-                        let pool = oteryn_db::lazy_pool(config.database_url())?;
+                        let pool = db.clone();
                         move |lang, query, page| {
                             let pool = pool.clone();
                             Box::pin(async move {
@@ -412,42 +318,25 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 },
             ));
             let app = app.merge(oteryn_bazaar::moderation::web::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
+                db.clone(),
             ));
-            let app = app.merge(oteryn_admin::bazaar::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(oteryn_playerdata::places::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
+            let app = app.merge(oteryn_admin::bazaar::configured_router(db.clone())?);
+            let app = app.merge(oteryn_playerdata::places::configured_router(db.clone()));
             let app = app.merge(oteryn_playerdata::reports::http::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
+                db.clone(),
             ));
             let app = app.merge(oteryn_wiki::places::configured_router());
-            let app = app.merge(oteryn_minigames::pass::web::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
+            let app = app.merge(oteryn_minigames::pass::web::configured_router(db.clone()));
             let app = app.merge(oteryn_minigames::collection_pvp::http::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
+                db.clone(),
             ));
-            let app = app.merge(oteryn_minigames::collection::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = app.merge(oteryn_admin::control_http::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            )?);
-            let app = app.merge(oteryn_atlas::bestiary::web::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
+            let app = app.merge(oteryn_minigames::collection::configured_router(db.clone()));
+            let app = app.merge(oteryn_admin::control_http::configured_router(db.clone())?);
+            let app = app.merge(oteryn_atlas::bestiary::web::configured_router(db.clone()));
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
-            let app = app.merge(oteryn_atlas::delivery::configured_router(
-                oteryn_db::lazy_pool(config.database_url())?,
-            ));
-            let app = oteryn_community::today::configured_mount(
-                app,
-                oteryn_db::lazy_pool(config.database_url())?,
-            );
+            let app = app.merge(oteryn_atlas::delivery::configured_router(db.clone()));
+            let app = oteryn_community::today::configured_mount(app, db.clone());
             let mut navigation = oteryn_ui::Registry::default();
             navigation.registration = true; // register::routes is always mounted.
             navigation.login = std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true");
@@ -468,9 +357,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.layer(axum::middleware::from_fn_with_state(
                 oteryn_web::chrome::Shell {
                     registry: navigation,
-                    sessions: oteryn_web::session::SessionLayer::new(oteryn_db::lazy_pool(
-                        config.database_url(),
-                    )?),
+                    sessions: oteryn_web::session::SessionLayer::new(db.clone()),
                 },
                 oteryn_web::chrome::middleware,
             ));
@@ -527,3 +414,6 @@ mod mfa_http;
 mod registration_delivery;
 
 mod import;
+
+#[path = "../../../crates/identity/src/account_lifecycle_http.rs"]
+mod account_lifecycle_http;

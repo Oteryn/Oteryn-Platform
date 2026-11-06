@@ -68,7 +68,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     }
     let service = Arc::new(Commerce::new(
         pool.clone(),
-        web::PendingAuthentication,
+        web::PortalIdentity::configured(pool.clone()),
         PendingEffects,
         flags,
     ));

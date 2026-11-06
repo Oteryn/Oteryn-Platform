@@ -1,0 +1,1 @@
+{"name":"portal-browser-qualification","private":true,"type":"module","scripts":{"test":"playwright test"},"devDependencies":{"@axe-core/playwright":"4.11.1","@playwright/test":"1.58.2","otpauth":"9.4.1","pg":"8.16.3","smtp-server":"3.21.3"}}

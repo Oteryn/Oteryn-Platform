@@ -67,3 +67,5 @@ world-transfer = World transfer eligible
 yes = Yes
 no = No
 blessings = Blessings
+authority-title = Character auctions unavailable
+authority-unavailable = Accepted character custody and signing authority are unavailable. No listing, bid or transfer can be accepted.

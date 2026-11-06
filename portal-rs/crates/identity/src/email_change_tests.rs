@@ -323,3 +323,55 @@ async fn suspended_account_and_unconfirmed_backup_deny() -> TestResult {
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_integrated_recovery_proof_confirm_revert_and_refusals() -> TestResult {
+    let Some((db, mut service, account)) = setup().await? else {
+        return Ok(());
+    };
+    service.security = Arc::new(TransactionalSecurity(crate::mfa::Mfa::new(
+        db.pool.clone(),
+        [9; 32],
+    )));
+    let mut keys = crate::recovery_key::RecoveryKeys::new(db.pool.clone());
+    keys.enabled = crate::recovery_key::Enabled(true);
+    let key = keys.generate(account, "test-password").await?;
+    keys.confirm(account, "test-password", &key).await?;
+    let mut request = input(true, false);
+    request.proof = key.clone();
+    request.current_password = "wrong password".into();
+    assert_eq!(service.request(account, request).await?, Outcome::Refused);
+    let used: bool = sqlx::query_scalar(
+        "SELECT used_at IS NOT NULL FROM account_recovery_keys WHERE account_id=$1",
+    )
+    .bind(account)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(!used);
+    let mut request = input(true, false);
+    request.proof = key.clone();
+    request.email = "invalid".into();
+    assert_eq!(service.request(account, request).await?, Outcome::Refused);
+    let mut request = input(true, false);
+    request.proof = key.clone();
+    assert_eq!(service.request(account, request).await?, Outcome::Requested);
+    let mut replay = input(true, false);
+    replay.proof = key;
+    assert_eq!(service.request(account, replay).await?, Outcome::Refused);
+    sqlx::query("INSERT INTO oauth_token_families(id,account_id,client_id,credential_hash) VALUES(uuidv7(),$1,'test',decode(repeat('00',32),'hex'))").bind(account).execute(&db.pool).await?;
+    let (confirm, revert) = tokens(&db.pool).await?;
+    assert_eq!(service.confirm(&confirm).await?, Outcome::Changed);
+    let state:(String,i64,bool)=sqlx::query_as("SELECT email,native_security_generation,(SELECT bool_and(revoked_at IS NOT NULL) FROM oauth_token_families WHERE account_id=$1) FROM accounts WHERE id=$1").bind(account).fetch_one(&db.pool).await?;
+    assert_eq!(state, ("new@example.invalid".into(), 2, true));
+    assert_eq!(service.confirm(&confirm).await?, Outcome::Refused);
+    assert_eq!(service.revert(&revert).await?, Outcome::Reverted);
+    assert_eq!(service.revert(&revert).await?, Outcome::Refused);
+    let state: (String, i64) =
+        sqlx::query_as("SELECT email,native_security_generation FROM accounts WHERE id=$1")
+            .bind(account)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(state, ("old@example.invalid".into(), 3));
+    db.close().await?;
+    Ok(())
+}

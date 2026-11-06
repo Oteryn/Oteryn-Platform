@@ -424,6 +424,9 @@ async fn compare(
     };
     let mut page = page(&lang, &text);
     page.comparison = true;
+    if state.enabled && raw.as_deref().is_none_or(str::is_empty) {
+        return finish(page, &text, Ok(()));
+    }
     let result = async {
         if !state.enabled {
             return Err(Error::Disabled);

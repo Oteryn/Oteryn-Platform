@@ -114,6 +114,10 @@ impl IntoResponse for Error {
 }
 /// Narrow permission interface pending P2A. The permission is always selected by a route.
 pub trait Permissions: Send + Sync + 'static {
+    fn navigation(&self, context: CheckContext) -> impl Future<Output = Result<(), Error>> + Send {
+        self.check(context, Operation::Overview)
+    }
+
     fn check(
         &self,
         context: CheckContext,
@@ -126,6 +130,20 @@ pub struct PgPermissions<A> {
     pub accounts: A,
 }
 impl<A: AccountStateReader + 'static> Permissions for PgPermissions<A> {
+    async fn navigation(&self, context: CheckContext) -> Result<(), Error> {
+        if !context.require_staff_mfa
+            || !context.mfa_verified
+            || !matches!(
+                self.accounts.state(context.account).await,
+                Ok(rbac::AccountState::Active)
+            )
+        {
+            return Err(Error::Denied);
+        }
+        let access:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_roles a JOIN role_permissions p ON p.role_id=a.role_id WHERE a.account_id=$1 AND p.permission='admin.access')").bind(context.account).fetch_one(&self.pool).await?;
+        if access { Ok(()) } else { Err(Error::Denied) }
+    }
+
     async fn check(&self, context: CheckContext, operation: Operation) -> Result<(), Error> {
         if context.account.is_nil()
             || !context.require_staff_mfa
@@ -320,7 +338,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         enabled: std::env::var("OTERYN_ADMIN_CONSOLE").is_ok_and(|v| v == "true"),
         permissions: PgPermissions {
             pool: pool.clone(),
-            accounts: web::PendingAuthentication,
+            accounts: web::PortalIdentity::configured(pool.clone()),
         },
         channel: UnavailableChannel,
         pool: pool.clone(),
@@ -506,8 +524,15 @@ async fn render<P: Permissions, C: Channel>(
     {
         return Err(Error::Invalid);
     }
+    s.permissions.navigation(context).await?;
+    let mut allowed = true;
     for op in operations {
-        s.permissions.check(context, *op).await?;
+        if s.permissions.check(context, *op).await.is_err() {
+            allowed = false;
+        }
+    }
+    if !allowed && (q.agent.is_some() || q.target.is_some() || q.request.is_some()) {
+        return Err(Error::Denied);
     }
     let language = lang(&headers, &q);
     let mut sections = Vec::new();
@@ -522,7 +547,8 @@ async fn render<P: Permissions, C: Channel>(
             operation: op.name(),
             can_query: false,
         };
-        if let Some(agent) = &q.agent
+        if allowed
+            && let Some(agent) = &q.agent
             && let Ok(view) = s
                 .channel
                 .read(context.account, agent, *op, q.target.as_deref(), q.request)
@@ -571,7 +597,7 @@ async fn render<P: Permissions, C: Channel>(
         }
         sections.push(section);
     }
-    if operations.contains(&Operation::Overview) {
+    if allowed && operations.contains(&Operation::Overview) {
         sections.push(dashboard::section(&s.pool, language).await);
     }
     let mut nav = Vec::new();

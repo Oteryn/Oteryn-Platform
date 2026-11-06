@@ -1,6 +1,6 @@
 //! SSR routes; always wrapped in the existing staff host/session/CSRF/MFA guard.
 use super::*;
-use crate::web::{self, PanelConfig, PendingAuthentication, StaffSession};
+use crate::web::{self, PanelConfig, PortalIdentity, StaffSession};
 use askama::Template;
 use axum::{
     Extension, Form, Router,
@@ -22,7 +22,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     let routes = routes(Players::new(
         pool.clone(),
         flags,
-        PendingAuthentication,
+        PortalIdentity::configured(pool.clone()),
         IdentityAccounts {
             accounts: oteryn_identity::accounts::Accounts { pool: pool.clone() },
             projection: Some(super::projection::configured(
