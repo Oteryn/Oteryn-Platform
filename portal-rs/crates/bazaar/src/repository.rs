@@ -443,6 +443,9 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         if has_activity {
             return Err(Error::IllegalTransition);
         }
+        if !self.evidence.cancellation_ready(&mut tx, &listing).await? {
+            return Err(Error::Denied);
+        }
         set_state(&mut tx, id, State::Cancelled).await?;
         tx.commit().await?;
         Ok(())
@@ -462,6 +465,9 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         let offers = pending(&mut tx, id).await?;
         self.funds_lock(&mut tx, offers.iter().map(|o| o.account).collect())
             .await?;
+        if !self.evidence.cancellation_ready(&mut tx, &listing).await? {
+            return Err(Error::Denied);
+        }
         if listing.form == Form::FixedPrice {
             for offer in offers {
                 self.reservations

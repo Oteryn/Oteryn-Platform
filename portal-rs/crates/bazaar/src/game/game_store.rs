@@ -91,9 +91,8 @@ impl Outbox {
         if revision <= previous {
             return Err(Error::Conflict);
         }
-        let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_game_outbox")
-            .fetch_one(&mut **db)
-            .await?;
+        let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_game_outbox o WHERE NOT EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id AND r.recovery_generation=$1::text::numeric)")
+            .bind(generation.to_string()).fetch_one(&mut **db).await?;
         if pending >= 24 {
             return Err(Error::Backlog);
         }

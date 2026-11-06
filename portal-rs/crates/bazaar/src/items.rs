@@ -137,6 +137,15 @@ pub struct ItemView {
 /// watermark (30s/1s), owner/privacy floors, epoch and recovery generation. Unknown denies.
 /// Raw receipt decoding belongs to T58; this does not invent a Bazaar receipt schema.
 pub trait ItemAuthority: Send + Sync {
+    /// Default-deny terminal cancellation/expiry without authoritative return.
+    fn cancellation_ready(
+        &self,
+        _db: &mut PgConnection,
+        _listing: &Listing,
+    ) -> impl Future<Output = Result<bool, Error>> + Send {
+        async { Ok(false) }
+    }
+
     fn preflight(
         &self,
         db: &mut PgConnection,

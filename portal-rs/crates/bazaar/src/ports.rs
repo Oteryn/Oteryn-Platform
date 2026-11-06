@@ -96,6 +96,16 @@ pub trait Reservations: Send + Sync {
 /// Transaction-local evidence supplied by the future game integration. Unknown evidence denies.
 /// This interface reads durable verified evidence; it must never issue a game command here.
 pub trait Evidence: Send + Sync {
+    /// Terminal cancellation/expiry requires a committed safe return and current
+    /// intended owner. Time alone and missing custody never prove a return.
+    fn cancellation_ready(
+        &self,
+        _db: &mut PgConnection,
+        _listing: &Listing,
+    ) -> impl Future<Output = Result<bool, Error>> + Send {
+        async { Ok(false) }
+    }
+
     /// Verify the selected seller's deposited item, including a want-to-buy response.
     fn offer_ready(
         &self,

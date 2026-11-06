@@ -1,7 +1,7 @@
-//! G-7 revision 2 preparation boundary. Stored intents are not executable authority.
+//! G-7 preparation and PLAT3 candidate consumer. Stored intents are not executable authority.
 //!
-//! The proposed CHAR_CMD result-data representation and capability advertisement
-//! are unallocated. No staged command is listable, no receipt is synthesized and
+//! The candidate v2 receipt consumer is separately gated by AuthorityConfig.
+//! The original preparation settings cannot activate it; no receipt is synthesized and
 //! no timeout releases custody or money. Existing Character transfer bytes remain
 //! owned by the Character command API; a digest here cannot authorize a transfer.
 mod game_snapshot;
@@ -35,6 +35,8 @@ pub enum Error {
     Denied,
     #[error("immutable bazaar binding conflict")]
     Conflict,
+    #[error("bazaar operation not found")]
+    NotFound,
     #[error("bazaar command backlog full")]
     Backlog,
     #[error(transparent)]
@@ -46,3 +48,22 @@ mod game_tests;
 
 mod game_projection;
 pub use game_projection::IngestResult;
+
+mod authority_wire;
+pub use authority_wire::Receipt;
+mod authority;
+pub use authority::{
+    Authority, AuthorityConfig, BazaarAuthorityDecisionV1, DecisionIdentity,
+    PINNED_CONTRACT_SHA256, ReceiptResult, RecoveryFence,
+};
+mod coin_ports;
+pub use coin_ports::{CoinReservations, PlatformAccounts};
+mod authority_evidence;
+mod authority_exchange;
+
+#[cfg(test)]
+mod authority_tests;
+pub mod event_wire;
+
+pub mod authority_http;
+mod authority_items;

@@ -29,6 +29,21 @@ impl Command {
             Self::Payout => "PayoutBazaarGold",
         }
     }
+    pub fn from_wire(value: &str) -> Option<Self> {
+        [
+            Self::Lock,
+            Self::Bind,
+            Self::Unlock,
+            Self::Escrow,
+            Self::Deliver,
+            Self::Return,
+            Self::Hold,
+            Self::Release,
+            Self::Payout,
+        ]
+        .into_iter()
+        .find(|c| c.wire() == value)
+    }
     fn fields(self) -> &'static [&'static str] {
         match self {
             Self::Lock => &[

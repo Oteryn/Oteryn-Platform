@@ -2751,6 +2751,7 @@ dependencies = [
  "oteryn-db",
  "oteryn-internal-api",
  "oteryn-web",
+ "prost",
  "serde",
  "serde_json",
  "serde_urlencoded",
