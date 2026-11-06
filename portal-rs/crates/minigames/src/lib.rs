@@ -5,3 +5,5 @@ pub mod puzzles;
 
 /// Shared portal navigation registration.
 pub mod navigation;
+
+pub mod league;

@@ -1,0 +1,15 @@
+title = World events and guild seasons
+unavailable = Authoritative results are currently unavailable.
+pending = Predictions remain closed. These results carry no rewards or stakes.
+outcomes = Decided world events
+standings = Guild season standings
+world = World
+result = Result
+rank = Rank
+guild = Guild
+points = Display points
+settled = Decided
+closed = Final result
+void = Voided
+open = Provisional standings
+frozen = Final standings

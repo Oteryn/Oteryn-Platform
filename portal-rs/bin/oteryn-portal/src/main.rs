@@ -327,6 +327,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             ));
             let app = app.merge(oteryn_wiki::places::configured_router());
             let app = app.merge(oteryn_minigames::pass::web::configured_router(db.clone()));
+            let app = app.merge(oteryn_minigames::league::web::configured_router(db.clone()));
             let app = app.merge(oteryn_minigames::collection_pvp::http::configured_router(
                 db.clone(),
             ));
