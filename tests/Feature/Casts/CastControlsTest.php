@@ -36,7 +36,7 @@ final class CastControlsTest extends TestCase
         } catch (CastUnavailable $failure) {
             self::assertSame('Cast unavailable', $failure->getMessage());
         }
-        self::assertSame(0, DB::table('cast_viewer_reservations')->count());
+        self::assertSame(0, $this->reservationCount());
         $private = $service->reserve($viewer, self::CAST, 'correct cast password', '127.0.0.1');
         self::assertSame(2, $private->accessRevision);
     }
@@ -55,7 +55,7 @@ final class CastControlsTest extends TestCase
             $service->reserve($viewer, self::CAST, null, '127.0.0.1');
             self::fail('Third global account slot was admitted.');
         } catch (CastUnavailable) {
-            self::assertSame(2, DB::table('cast_viewer_reservations')->count());
+            self::assertSame(2, $this->reservationCount());
         }
         $service->release(self::NODE, $first->reservationId);
         $service->reserve($viewer, self::CAST, null, '127.0.0.1');
@@ -70,24 +70,26 @@ final class CastControlsTest extends TestCase
         $viewer = Identity::query()->create(['email' => 'viewer@example.invalid', 'password' => 'unused']);
         $service->announce(self::NODE, $owner->account_id, self::CAST, 1, 1, 0, 1);
         $grant = $service->reserve($viewer, self::CAST, null, '127.0.0.1');
-        self::assertNotEmpty($grant->ticket);
-        $service->consumeTicket(self::NODE, $grant->ticket);
+        $ticket = $grant->ticket;
+        self::assertIsString($ticket);
+        self::assertNotSame('', $ticket);
+        $service->consumeTicket(self::NODE, $ticket);
         try {
-            $service->consumeTicket(self::NODE, $grant->ticket);
+            $service->consumeTicket(self::NODE, $ticket);
             self::fail('Replayed observer ticket was admitted.');
         } catch (CastUnavailable) {
-            self::assertSame(1, DB::table('cast_viewer_reservations')->count());
+            self::assertSame(1, $this->reservationCount());
         }
         try {
             $service->reserve($viewer, self::CAST, null, '127.0.0.1');
             self::fail('Cast viewer limit was exceeded.');
         } catch (CastUnavailable) {
-            self::assertSame(1, DB::table('cast_viewer_reservations')->count());
+            self::assertSame(1, $this->reservationCount());
         }
         $service->release('0192b3c4-5d6e-7f80-9a1b-2c3d4e5f6a70', $grant->reservationId);
-        self::assertSame(1, DB::table('cast_viewer_reservations')->count());
+        self::assertSame(1, $this->reservationCount());
         $service->release(self::NODE, $grant->reservationId);
-        self::assertSame(0, DB::table('cast_viewer_reservations')->count());
+        self::assertSame(0, $this->reservationCount());
         $service->reserve($viewer, self::CAST, null, '127.0.0.1');
     }
 
@@ -106,7 +108,7 @@ final class CastControlsTest extends TestCase
                     $service->reserve($viewer, self::CAST, null, '127.0.0.99');
                     self::fail('Viewer 51 was admitted.');
                 } catch (CastUnavailable) {
-                    self::assertSame(50, DB::table('cast_viewer_reservations')->count());
+                    self::assertSame(50, $this->reservationCount());
                 }
             }
         }
@@ -115,12 +117,12 @@ final class CastControlsTest extends TestCase
             $service->reserve($viewer, self::CAST, null, '127.0.0.99');
             self::fail('Expired cast lease was admitted.');
         } catch (CastUnavailable) {
-            self::assertSame(50, DB::table('cast_viewer_reservations')->count());
+            self::assertSame(50, $this->reservationCount());
         }
         $service->announce(self::NODE, $owner->account_id, self::CAST, 1, 1, 0, 50);
         $service->reserve($viewer, self::CAST, null, '127.0.0.99');
         $service->stop(self::NODE, self::CAST);
-        self::assertSame(0, DB::table('cast_viewer_reservations')->count());
+        self::assertSame(0, $this->reservationCount());
     }
 
     public function test_concurrent_cross_cast_admissions_lock_the_global_account_budget(): void
@@ -154,7 +156,10 @@ final class CastControlsTest extends TestCase
                     $process->isRunning();
                 }
                 DB::select('SELECT pg_stat_clear_snapshot()');
-                $waiting = (int) DB::selectOne("SELECT count(*) AS n FROM pg_stat_activity WHERE application_name='s17_cast_race' AND wait_event_type='Lock'")->n;
+                $waiting = DB::table('pg_stat_activity')
+                    ->where('application_name', 's17_cast_race')
+                    ->where('wait_event_type', 'Lock')
+                    ->count();
                 if ($waiting === 2) {
                     break;
                 }
@@ -185,10 +190,16 @@ final class CastControlsTest extends TestCase
             $service->reserve($viewer, self::CAST, null, '127.0.0.1');
             self::fail('A requested private cast opened before its verifier existed.');
         } catch (CastUnavailable) {
-            self::assertSame(0, DB::table('cast_viewer_reservations')->count());
+            self::assertSame(0, $this->reservationCount());
         }
         $service->password($owner, self::CAST, 1, 'private cast password');
         $grant = $service->reserve($viewer, self::CAST, 'private cast password', '127.0.0.1');
-        self::assertSame(2,$grant->accessRevision);
+        self::assertSame(2, $grant->accessRevision);
+    }
+
+    /** @phpstan-impure */
+    private function reservationCount(): int
+    {
+        return DB::table('cast_viewer_reservations')->count();
     }
 }

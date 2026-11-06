@@ -4,13 +4,18 @@ use App\Casts\CastControls;
 use App\Casts\CastUnavailable;
 use App\Identity\Models\Identity;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 require dirname(__DIR__, 3).'/vendor/autoload.php';
+/** @var Application $app */
 $app = require dirname(__DIR__, 3).'/bootstrap/app.php';
-$app->make(Kernel::class)->bootstrap();
-$input = json_decode(stream_get_contents(STDIN), true, 8, JSON_THROW_ON_ERROR);
+/** @var Kernel $kernel */
+$kernel = $app->make(Kernel::class);
+$kernel->bootstrap();
+/** @var array{now: string, viewer: int|string, cast: string} $input */
+$input = json_decode((string) stream_get_contents(STDIN), true, 8, JSON_THROW_ON_ERROR);
 Carbon::setTestNow($input['now']);
 DB::statement("SET application_name = 's17_cast_race'");
 $viewer = Identity::query()->findOrFail($input['viewer']);
