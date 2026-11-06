@@ -272,14 +272,13 @@ impl Terminations {
             if let Some(locked) = lock(&mut tx, account).await?
                 && let Some(termination) = pending(&mut tx, account).await?
             {
-                if !matches!(locked.status.as_str(), "active" | "suspended") {
-                    return Err(Error::Unavailable);
-                }
+                // Status refusals and closed no-ops stay owned by the finalizing transaction.
+                let eligible = matches!(locked.status.as_str(), "active" | "suspended");
                 let due: bool = sqlx::query_scalar("SELECT $1::timestamptz <= now()")
                     .bind(termination.scheduled_for)
                     .fetch_one(&mut *tx)
                     .await?;
-                if due {
+                if eligible && due {
                     self.boundary.prepare(&mut tx, &termination).await?;
                 }
             }
