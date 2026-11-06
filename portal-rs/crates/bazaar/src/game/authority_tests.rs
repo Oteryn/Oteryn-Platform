@@ -687,6 +687,16 @@ async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
         .unwrap();
     a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
     assert!(a.escrow_ready(&mut tx, &listing).await.unwrap());
+    sqlx::query("SAVEPOINT moderation_hold")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,1,$2,'fixture moderation hold')").bind(listing.id).bind(listing.owner).execute(&mut *tx).await.unwrap();
+    assert!(!a.escrow_ready(&mut tx, &listing).await.unwrap());
+    sqlx::query("ROLLBACK TO SAVEPOINT moderation_hold")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     let mut accounts = [uid("11"), uid("13")];
     accounts.sort();
     funds.lock_accounts(&mut tx, &accounts).await.unwrap();

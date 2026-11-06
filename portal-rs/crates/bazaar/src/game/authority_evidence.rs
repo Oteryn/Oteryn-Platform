@@ -188,6 +188,15 @@ impl Authority {
         if !self.fresh(db).await? {
             return Ok(None);
         }
+        let held: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1)",
+        )
+        .bind(listing.id)
+        .fetch_one(&mut *db)
+        .await?;
+        if held && state != "RETURNED" {
+            return Ok(None);
+        }
         let Some(s) = self.projection(db, "STATUS", listing.id).await? else {
             return Ok(None);
         };
