@@ -216,3 +216,4 @@ home-step3-title = Log in to the game
 home-step3-text = Start the client and enter the world with your new character.
 home-final-title = The world of Oteryn awaits
 home-final-lead = The account is free. Start now.
+shell-league = Leagues

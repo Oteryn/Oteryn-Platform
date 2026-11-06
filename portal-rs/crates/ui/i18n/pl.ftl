@@ -216,3 +216,4 @@ home-step3-title = Zaloguj się do gry
 home-step3-text = Uruchom klienta i wejdź do świata swoją nową postacią.
 home-final-title = Świat Oteryn czeka na Ciebie
 home-final-lead = Konto jest darmowe. Zacznij teraz.
+shell-league = Rozgrywki
