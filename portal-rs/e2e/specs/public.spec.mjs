@@ -23,6 +23,7 @@ test('all public header and footer links: shell, links, keyboard, accessibility 
       let response;
       try { response = await page.goto(href); } catch (error) { failures.push(`${href}: ${error.message}`); return; }
       if (response.status() !== 200) failures.push(`${href}: HTTP ${response.status()}`);
+      if (!response.headers()['content-type']?.startsWith('text/html')) { failures.push(`${href}: non-HTML response cannot qualify as a public page`); return; }
       const targetLanguage = /^\/(?:language\/)?(pl|en)(?:\/|$)/.exec(href)?.[1] || lang;
       if (await page.locator('html').getAttribute('lang') !== targetLanguage) failures.push(`${href}: wrong page language`);
       if (await page.locator('body.op-shell > header.op-shell__header').count() !== 1) failures.push(`${href}: shared header missing`);
