@@ -4,6 +4,8 @@
 //! recent sudo, CSRF and rate limit, and revoke all credential families transactionally.
 //! Blocker checks must serialize with email changes, bazaar activity and wallet reserves.
 //! Unknown state must return a refusal. No production adapter is assumed here.
+pub mod game_closure;
+
 use crate::{AccountId, accounts::Account, password};
 use sqlx::{PgPool, Postgres, Transaction, types::time::OffsetDateTime};
 use std::{future::Future, pin::Pin, sync::Arc};
@@ -97,6 +99,29 @@ impl std::fmt::Debug for ActorProof {
 /// Revocation includes web sessions, OAuth families, devices, MFA, passkeys,
 /// recovery credentials and outstanding email/reset tokens on finalization.
 pub trait Boundary: std::fmt::Debug + Send + Sync {
+    /// Lifecycle hooks commit with the account transaction; never perform network I/O.
+    fn requested<'a>(
+        &'a self,
+        _: &'a mut Transaction<'_, Postgres>,
+        _: &'a Termination,
+    ) -> BoundaryFuture<'a> {
+        Box::pin(async { Ok(()) })
+    }
+    fn prepare<'a>(
+        &'a self,
+        _: &'a mut Transaction<'_, Postgres>,
+        _: &'a Termination,
+    ) -> BoundaryFuture<'a> {
+        Box::pin(async { Ok(()) })
+    }
+    fn cancelled<'a>(
+        &'a self,
+        _: &'a mut Transaction<'_, Postgres>,
+        _: &'a Termination,
+    ) -> BoundaryFuture<'a> {
+        Box::pin(async { Ok(()) })
+    }
+
     fn authorize<'a>(
         &'a self,
         tx: &'a mut Transaction<'_, Postgres>,
@@ -202,6 +227,7 @@ impl Terminations {
         self.boundary.check_blockers(&mut tx, account).await?;
         let termination: Termination = sqlx::query_as("INSERT INTO account_terminations (account_id,scheduled_for) VALUES ($1,now()+make_interval(days=>$2)) RETURNING *")
             .bind(account).bind(self.config.grace_days).fetch_one(&mut *tx).await?;
+        self.boundary.requested(&mut tx, &termination).await?;
         self.boundary.revoke(&mut tx, account, false).await?;
         sqlx::query("UPDATE accounts SET native_security_generation=native_security_generation+1,updated_at=now() WHERE id=$1")
             .bind(account).execute(&mut *tx).await?;
@@ -225,6 +251,7 @@ impl Terminations {
         self.boundary.authorize(&mut tx, account, proof).await?;
         verify_password(current_password, locked.password_hash).await?;
         let termination = pending(&mut tx, account).await?.ok_or(Error::NoPending)?;
+        self.boundary.cancelled(&mut tx, &termination).await?;
         sqlx::query(
             "UPDATE account_terminations SET cancelled_at=now(),updated_at=now() WHERE id=$1",
         )
@@ -238,6 +265,26 @@ impl Terminations {
     /// Worker-only operation; retries and concurrent cancellation serialize on the account.
     async fn finalize(&self, account: AccountId) -> Result<bool> {
         self.enabled()?;
+        // Persist the immutable close intent independently of proof availability. Network
+        // delivery is an outbox concern outside both account-lock transactions.
+        {
+            let mut tx = self.pool.begin().await?;
+            if let Some(locked) = lock(&mut tx, account).await?
+                && let Some(termination) = pending(&mut tx, account).await?
+            {
+                if !matches!(locked.status.as_str(), "active" | "suspended") {
+                    return Err(Error::Unavailable);
+                }
+                let due: bool = sqlx::query_scalar("SELECT $1::timestamptz <= now()")
+                    .bind(termination.scheduled_for)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                if due {
+                    self.boundary.prepare(&mut tx, &termination).await?;
+                }
+            }
+            tx.commit().await?;
+        }
         let mut tx = self.pool.begin().await?;
         let Some(locked) = lock(&mut tx, account).await? else {
             return Ok(false);

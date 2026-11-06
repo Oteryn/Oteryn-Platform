@@ -1,13 +1,13 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 type TestResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
-struct Database {
-    pool: PgPool,
+pub(super) struct Database {
+    pub(super) pool: PgPool,
     admin: PgPool,
     schema: String,
 }
 impl Database {
-    async fn new() -> TestResult<Option<Self>> {
+    pub(super) async fn new() -> TestResult<Option<Self>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("SKIPPED termination PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
             return Ok(None);
@@ -39,16 +39,16 @@ impl Database {
             schema,
         }))
     }
-    async fn account(&self) -> TestResult<AccountId> {
+    pub(super) async fn account(&self) -> TestResult<AccountId> {
         let hash = password::hash("termination test password")?;
         Ok(sqlx::query_scalar("INSERT INTO accounts (email,password_hash,status,locale,email_verified_at,public_account_association,public_status_visible) VALUES ($1,$2,'active','en',now(),true,true) RETURNING id")
             .bind(format!("{}@example.test",Uuid::now_v7())).bind(hash).fetch_one(&self.pool).await?)
     }
-    async fn due(&self, id: Uuid) -> TestResult {
+    pub(super) async fn due(&self, id: Uuid) -> TestResult {
         sqlx::query("UPDATE account_terminations SET created_at=now()-interval '15 days',scheduled_for=now()-interval '1 day' WHERE id=$1").bind(id).execute(&self.pool).await?;
         Ok(())
     }
-    async fn close(self) -> TestResult {
+    pub(super) async fn close(self) -> TestResult {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",
