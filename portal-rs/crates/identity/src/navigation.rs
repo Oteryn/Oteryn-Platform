@@ -34,4 +34,12 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+    registry.section(
+        std::env::var("OTERYN_ACCOUNT_RECOVERY_KEYS").as_deref() == Ok("true"),
+        "account-recovery-key",
+        "shell-account-security",
+        "account/recovery-key",
+        Group::Account,
+        false,
+    );
 }
