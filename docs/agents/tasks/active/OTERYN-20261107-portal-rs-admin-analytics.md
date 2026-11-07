@@ -64,7 +64,7 @@ checkpoint_version: 1
 updated_at: 2026-11-07T16:13:30Z
 head: 1f9326444049c66840e3e295d4b9ce9091279403
 branch: claude/portal-rs-admin-analytics
-pr: none
+pr: 1772
 status: ready
 context_routes:
   - admin-rbac
