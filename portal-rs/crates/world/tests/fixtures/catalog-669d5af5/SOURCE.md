@@ -59,3 +59,11 @@ independently chosen SHA-256 and provenance fences. Game `main` CI builds the
 real export as the `game-platform-catalog` artifact (notes lines 111–126); at this
 revision it still declares every capability unsupported/unknown, so the wiki
 correctly stays 503 when pointed at it.
+
+Observed CI evidence at 669d5af5 (reported by the programme coordinator, not
+re-downloaded here): `rust.yml` run 42409329543, artifact `game-platform-catalog`
+(id 13589446076), `game-platform-catalog.json.sha256` =
+`892caf99952c3bc8b920abdd7f9c8b5aca1d5630f0c6f916ef2e11290247139d`;
+`capability_manifest` has 8 entries, all `unsupported`, and
+`completeness_manifest` has 8 entries, all `unknown`. This hash is provenance
+only; operators still choose their own SHA-256 fence for a configured artifact.
