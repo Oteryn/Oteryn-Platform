@@ -28,11 +28,11 @@ Owned: this task record, bounded fixes within `portal-rs/`, external test script
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-07T12:07:31Z
+updated_at: 2026-11-07T12:45:00Z
 head: 541af097dd9e0c0031afb4fee269050ac70096b3
-branch: portalrs-e2e-r2
-pr: none
-status: completed
+branch: claude/portal-rs-e2e-r2
+pr: 1763
+status: ready
 context_routes:
   - testing
   - auth-identity
@@ -79,15 +79,15 @@ validation:
     evidence: 1094 passed; zero failed; three existing ignores; optional external Game fixture absent
 blockers:
   - none
-next_action: owner reviews local report and patch; accepted cold-data sources are needed before zero-5xx qualification
+next_action: land PR 1763; accepted cold-data sources are needed before zero-5xx qualification
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: retain for owner review at task completion; local commits and patch only, no push or PR authorized
-source_branch_evidence: task instruction in chat
+source_branch_reason: same-repository PR 1763 is open; disposition becomes terminal at merge
+source_branch_evidence: PR 1763 for governing Issue 530
 ```
 
 ## First-run qualification outcome and recovery (historical)
