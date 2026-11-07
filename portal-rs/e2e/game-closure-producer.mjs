@@ -34,6 +34,15 @@ export function createGameClosureProducer({baseURL,ca,character,portfolio,author
   if(!['CloseAccount','ResolveAccountClosure'].includes(intent.command)||intent.expected_recovery_generation!=='3')return;
   if(operations.has(intent.operation_id)){if(operations.get(intent.operation_id).intent!==raw)throw new Error('Immutable intent conflict');return;}
   if(faults.get(intent.account_id)==='hold')return;
+  const lifecycleRead=await request(`${prefix}/account-closure/lifecycle/read`,{contract_version:2,operation:'ReadAccountClosureLifecycleV1',source_authority:authority,account_id:intent.account_id,termination_id:intent.termination_id,recovery_generation:'3',audience:'OTERYN_PLATFORM_CHARACTER_AUTHORITY'});
+  if(lifecycleRead.status!==200)return;
+  if(Buffer.byteLength(lifecycleRead.raw)>2048)return;
+  const lifecycle=JSON.parse(lifecycleRead.raw),phase=intent.command==='CloseAccount'?'CLOSE':intent.decision;
+  const fields=['contract_version','operation','source_authority','account_id','termination_id','lifecycle_generation','source_revision','phase','financial_obligations_clear','recovery_generation','observed_at','valid_until'];
+  if(Object.keys(lifecycle).join(',')!==fields.join(',')||JSON.stringify(lifecycle)!==lifecycleRead.raw||/[\s\\]/.test(lifecycleRead.raw)||lifecycle.contract_version!==2||lifecycle.operation!=='ReadAccountClosureLifecycleV1')return;
+  for(const key of ['lifecycle_generation','source_revision','recovery_generation','observed_at','valid_until'])if(typeof lifecycle[key]!=='string'||! /^[1-9][0-9]*$/.test(lifecycle[key])||BigInt(lifecycle[key])>18446744073709551615n)return;
+  if(BigInt(lifecycle.valid_until)>9223372036854775807n||BigInt(lifecycle.valid_until)<=BigInt(lifecycle.observed_at))return;
+  if(lifecycle.source_authority!=='OTERYN_PLATFORM_CHARACTER_AUTHORITY'||lifecycle.account_id!==intent.account_id||lifecycle.termination_id!==intent.termination_id||lifecycle.recovery_generation!=='3'||lifecycle.lifecycle_generation!==intent.lifecycle_generation||lifecycle.phase!==phase||Number(lifecycle.observed_at)>Math.floor(Date.now()/1000)||Number(lifecycle.valid_until)<=Math.floor(Date.now()/1000)||Number(lifecycle.valid_until)-Number(lifecycle.observed_at)>5||typeof lifecycle.financial_obligations_clear!=='boolean'||(phase!=='CANCEL'&&!lifecycle.financial_obligations_clear))return;
   const previous=accounts.get(intent.account_id);
   if(intent.command==='ResolveAccountClosure'&&intent.decision==='FINALIZE'&&!operations.has(intent.close_operation_id))return;
   if(intent.command==='CloseAccount'&&previous?.decision==='CANCEL')return;

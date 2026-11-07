@@ -40,6 +40,12 @@ pub fn router(
     let mut routes = Router::new();
     for (path, handler, max, depth) in [
         (
+            "/internal/v1/game-auth/account-closure/lifecycle/read",
+            post(lifecycle),
+            512,
+            3,
+        ),
+        (
             "/internal/v1/game-auth/character-commands/pending",
             post(pending),
             512,
@@ -280,4 +286,8 @@ async fn watermark(State(state): State<StateData>, headers: HeaderMap, body: Byt
         }
         .await,
     )
+}
+
+async fn lifecycle(State(state): State<StateData>, body: Bytes) -> Response {
+    response(state.boundary.read_lifecycle(&state.pool, &body).await)
 }
