@@ -14,7 +14,7 @@ routes and `/[pl|en/]deaths`, `/[pl|en/]characters/{name}/deaths` GET routes.
 The optional `world` query is an exact public world name, never a canonical ID.
 The list shows the latest 50 visible records; character lists show at most 20
 within 30 days, ordered by descending receipt time and occurrence ID.
-Historical killer labels are plain text without identity or account resolution.
+Historical killer labels are never resolved to current identities and are withheld.
 No cause is inferred from an empty killer list.
 
 All activation requires `APP_ENV=testing|preproduction` and
@@ -28,13 +28,17 @@ All activation requires `APP_ENV=testing|preproduction` and
   Invalid settings disable ingestion. The shared database budget is per route
   for the entire certificate group, stricter than per-certificate limits.
 
-The binary deliberately supplies `FailClosed` until the profile privacy authority
-is available. Enabling environment flags alone cannot disclose records. Consumers
-of `router` must supply `Privacy`: `ready` proves the current privacy service is
-available even for empty lists, and `allows_deaths` must enforce the stable
-subject's current hidden/deaths switches and all relevant historical killer-label
-privacy floors. Missing settings, unresolved identities and failed purge/fence
-acknowledgements deny. A mock allow policy exists only in tests.
+The binary supplies the real T45/T09c privacy authority, requiring current unique
+LCFA ownership, a saved visible character and deaths permission. Historical killer
+labels are withheld because this wire carries names without stable killer identity
+or proven privacy floors. Unknown/reused names cannot authorize disclosure.
+
+The configured public router independently retains a contract-acceptance gate:
+Game main d34807f5bd234ee8318e57ba454ba39be0df113d, public projections rev 2,
+marks deaths CANDIDATE rev 1 with no producer (coordinator update 2026-11-07).
+Enabled pages therefore return localized 503 until Game acceptance and producer
+qualification; environment flags do not bypass the gate. The injectable router
+remains available for isolated consumer qualification tests.
 
 Presentation also requires eligible same-epoch T24 profile facts and fresh profile
 and deaths watermarks (`now - complete_through + 1 <= 30`). Missing/stale evidence

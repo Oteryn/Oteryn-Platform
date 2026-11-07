@@ -30,7 +30,9 @@ pub trait PublicVisibility: Send + Sync {
         members: &'a [MemberRef],
     ) -> VisibilityResult<'a>;
 }
+#[cfg(test)]
 pub(super) struct FailClosed;
+#[cfg(test)]
 impl PublicVisibility for FailClosed {
     fn visible_batch<'a>(&'a self, _: &'a str, _: &'a [MemberRef]) -> VisibilityResult<'a> {
         Box::pin(async { Err(Unavailable::Evidence) })
@@ -43,11 +45,20 @@ pub struct Config {
 }
 #[derive(Clone)]
 struct Guilds {
+    contract_accepted: bool,
     db: PgPool,
     visibility: Arc<dyn PublicVisibility>,
     config: Config,
 }
 pub fn router(db: PgPool, visibility: Arc<dyn PublicVisibility>, config: Config) -> Router {
+    router_with_contract(db, visibility, config, true)
+}
+pub(crate) fn router_with_contract(
+    db: PgPool,
+    visibility: Arc<dyn PublicVisibility>,
+    config: Config,
+    contract_accepted: bool,
+) -> Router {
     Router::new()
         .route("/guilds", get(page))
         .route("/guilds/{name}", get(page))
@@ -56,6 +67,7 @@ pub fn router(db: PgPool, visibility: Arc<dyn PublicVisibility>, config: Config)
         .route("/en/guilds", get(page))
         .route("/en/guilds/{name}", get(page))
         .with_state(Guilds {
+            contract_accepted,
             db,
             visibility,
             config,
@@ -159,6 +171,9 @@ fn encoded(s: &str) -> String {
     percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).to_string()
 }
 async fn load(state: &Guilds, lang: &str, labels: &[String]) -> Result<Vec<Guild>, Unavailable> {
+    if !state.contract_accepted {
+        return Err(Unavailable::Evidence);
+    }
     let wm=sqlx::query("SELECT epoch::text,watermark,payload FROM public_snapshots WHERE family='guild' AND subject='v2' AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_optional(&state.db).await.map_err(|_|Unavailable::Database)?.ok_or(Unavailable::Evidence)?;
     let watermark_payload: serde_json::Value =
         wm.try_get("payload").map_err(|_| Unavailable::Evidence)?;
@@ -344,7 +359,7 @@ async fn page(
         Err(Unavailable::Evidence)
     };
     let unavailable = result.is_err();
-    let status = if matches!(result, Err(Unavailable::Database)) {
+    let status = if !state.contract_accepted || matches!(result, Err(Unavailable::Database)) {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
         StatusCode::OK

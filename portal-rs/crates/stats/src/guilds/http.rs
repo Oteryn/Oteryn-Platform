@@ -1,5 +1,4 @@
 use super::{Config, Error, History, Source, Summary, history, list};
-use crate::store::{Permissions, Visibility};
 use askama::Template;
 use axum::{
     Router,
@@ -11,18 +10,6 @@ use axum::{
 use sqlx::PgPool;
 use std::sync::Arc;
 use time::{Date, Duration, OffsetDateTime};
-use uuid::Uuid;
-struct Deny;
-impl Visibility for Deny {
-    fn permissions(&self, _: Uuid) -> Permissions {
-        Permissions::default()
-    }
-}
-impl Source for Deny {
-    fn current(&self) -> Result<Vec<super::Guild>, Error> {
-        Err(Error::Unavailable)
-    }
-}
 #[derive(Clone)]
 struct App {
     db: PgPool,
@@ -42,11 +29,11 @@ pub fn router<S: Clone + Send + Sync + 'static>(
 }
 pub fn configured_router<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router<S> {
     router(
-        db,
+        db.clone(),
         Config {
             enabled: std::env::var("PORTAL_GUILD_STATS_ENABLED").as_deref() == Ok("true"),
         },
-        Arc::new(Deny),
+        Arc::new(crate::privacy::GuildSource::configured(db)),
     )
 }
 #[derive(Default, serde::Deserialize)]
@@ -134,7 +121,7 @@ async fn render(state: App, uri: axum::http::Uri, raw: Option<String>) -> Respon
         return StatusCode::BAD_REQUEST.into_response();
     }
     let result = async {
-        let mut summaries = list(state.config, state.source.as_ref())?;
+        let mut summaries = list(state.config, state.source.as_ref()).await?;
         if let Some(name) = &guild {
             for selected in std::iter::once(name).chain(compare.iter()) {
                 if summaries

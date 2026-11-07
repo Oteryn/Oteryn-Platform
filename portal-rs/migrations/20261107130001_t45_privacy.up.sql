@@ -1,0 +1,11 @@
+ALTER TABLE accounts ADD COLUMN character_profiles_hidden boolean NOT NULL DEFAULT false;
+ALTER TABLE character_profiles ADD COLUMN comment text NOT NULL DEFAULT '' CHECK (char_length(comment)<=500);
+ALTER TABLE character_profiles ADD COLUMN hidden boolean NOT NULL DEFAULT true;
+ALTER TABLE character_profiles ADD COLUMN show_account boolean NOT NULL DEFAULT false;
+ALTER TABLE character_profiles ADD COLUMN show_status boolean NOT NULL DEFAULT false;
+ALTER TABLE character_profiles ADD COLUMN show_house boolean NOT NULL DEFAULT false;
+ALTER TABLE character_profiles ADD COLUMN show_skills boolean NOT NULL DEFAULT false;
+ALTER TABLE character_profiles ADD COLUMN show_deaths boolean NOT NULL DEFAULT false;
+ALTER TABLE character_profiles ADD COLUMN show_kills boolean NOT NULL DEFAULT false;
+ALTER TABLE character_profiles ADD COLUMN show_online_time boolean NOT NULL DEFAULT false;
+ALTER TABLE character_profiles ALTER COLUMN show_guild SET DEFAULT false;

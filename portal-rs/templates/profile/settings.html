@@ -21,6 +21,16 @@
 <input type="checkbox" id="is_main_character" name="is_main_character" value="1"{% if value.is_main_character %} checked{% endif %}>
 <span>{{ main }}</span>
 </label>
+<label for="hidden"><input type="checkbox" id="hidden" name="hidden" value="1"{% if value.hidden %} checked{% endif %}>{{ labels[0] }}</label>
+<label for="hide_all_characters"><input type="checkbox" id="hide_all_characters" name="hide_all_characters" value="1"{% if value.hide_all_characters %} checked{% endif %}>{{ labels[1] }}</label>
+<label for="show_account"><input type="checkbox" id="show_account" name="show_account" value="1"{% if value.show_account %} checked{% endif %}>{{ labels[2] }}</label>
+<label for="show_status"><input type="checkbox" id="show_status" name="show_status" value="1"{% if value.show_status %} checked{% endif %}>{{ labels[3] }}</label>
+<label for="show_house"><input type="checkbox" id="show_house" name="show_house" value="1"{% if value.show_house %} checked{% endif %}>{{ labels[4] }}</label>
+<label for="show_skills"><input type="checkbox" id="show_skills" name="show_skills" value="1"{% if value.show_skills %} checked{% endif %}>{{ labels[5] }}</label>
+<label for="show_deaths"><input type="checkbox" id="show_deaths" name="show_deaths" value="1"{% if value.show_deaths %} checked{% endif %}>{{ labels[6] }}</label>
+<label for="show_kills"><input type="checkbox" id="show_kills" name="show_kills" value="1"{% if value.show_kills %} checked{% endif %}>{{ labels[7] }}</label>
+<label for="show_online_time"><input type="checkbox" id="show_online_time" name="show_online_time" value="1"{% if value.show_online_time %} checked{% endif %}>{{ labels[8] }}</label>
+<label for="comment">{{ labels[9] }}</label><textarea id="comment" name="comment" maxlength="500">{{ value.comment }}</textarea>
 <button type="submit" class="op-button">{{ save }}</button>
 </form>
 </main>
