@@ -1,6 +1,16 @@
-Status: PROPOSED revision 3 by Platform, pending acceptance by the game owner (coordinator).
+Status: ACCEPTED revision 3 by the game owner (coordinator), 2026-11-07. Revision 3 proposed by Platform; the game owner accepted it through the coordinator with the clarifications in the acceptance record (revision 3), which this text applies. Acceptance covers the wire and semantics only; open questions stay open for the Game producer lanes, and producer delivery, consumer qualification and production activation remain separate gates.
 
 # G-9 private game journal and hunting sessions — contract proposal
+
+## Acceptance record (revision 3)
+
+Coordinator verdict on 2026-11-07: **ACCEPT**, with three clarifications:
+
+- **(i) Transfer scope:** character transfer hides and purges only character-scoped data. BANK entries, account achievements and premium stay with the account.
+- **(ii) Owner-only sums:** "no aggregates" means nothing across accounts and nothing for staff. Totals computed from one account's own BANK history may be shown to that account's owner, as the owner's own data. Nothing else: no cross-account sums, no G-10 values in admin analytics, no analytical export. G-10 is not a source for any admin analytics family; aggregate economy statistics come from a separate Game producer (ADMINAN lane).
+- **(iii) Windows:** every other rev 2 seven-day window is unchanged.
+
+Open questions are resolved in the Game producer lanes and do not block this acceptance. Acceptance does not start Game producers.
 
 ## Revision 3 changes
 
