@@ -35,7 +35,7 @@ checkpoint_version: 1
 updated_at: 2026-11-07T16:10:13Z
 head: 2a224efb54ac117f5e11e85d206006f841b68da6
 branch: claude/portal-rs-world-read
-pr: none
+pr: 1771
 status: ready
 context_routes:
   - database
