@@ -64,15 +64,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
         .connect(&url)
         .await
         .unwrap();
-    for migration in oteryn_db::MIGRATOR.iter() {
-        if migration.migration_type.is_down_migration() {
-            continue;
-        }
-        sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref()))
-            .execute(&pool)
-            .await
-            .unwrap();
-    }
+    oteryn_db::migrate(&pool).await.unwrap();
     browser_lifecycle(&pool).await;
     let id = Uuid::now_v7();
     let processed = process("x.png", &fixture(ImageFormat::Png, 10, 10)).unwrap();

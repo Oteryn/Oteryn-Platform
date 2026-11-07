@@ -143,15 +143,7 @@ impl Harness {
             .connect(&url)
             .await
             .unwrap();
-        for migration in oteryn_db::MIGRATOR.iter() {
-            if migration.migration_type.is_down_migration() {
-                continue;
-            }
-            sqlx::raw_sql(AssertSqlSafe(migration.sql.as_ref()))
-                .execute(&pool)
-                .await
-                .unwrap();
-        }
+        oteryn_db::migrate(&pool).await.unwrap();
         let actor = Uuid::now_v7();
         let second = Uuid::now_v7();
         let target = Uuid::now_v7();

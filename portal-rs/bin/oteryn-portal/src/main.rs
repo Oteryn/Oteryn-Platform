@@ -73,6 +73,21 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tokio::signal::ctrl_c().await?;
         }
         Role::Serve => {
+            let catalog_db = db.clone();
+            let catalog_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let refresh_ready = catalog_ready.clone();
+            tokio::spawn(async move {
+                match oteryn_world::catalog::refresh_in_background(catalog_db, refresh_ready).await
+                {
+                    Ok(Ok(Some(snapshot))) => {
+                        tracing::info!(%snapshot, "native catalog refresh verified")
+                    }
+                    Ok(Ok(None)) => {}
+                    _ => tracing::warn!(
+                        "native catalog refresh refused; configured public source unavailable"
+                    ),
+                }
+            });
             let _league_listener =
                 oteryn_minigames::league::transport::start_private_listener(db.clone()).await?;
             let bazaar = oteryn_bazaar::game::runtime::Runtime::configured(db.clone()).await?;
@@ -247,7 +262,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 ));
             let app = oteryn_wiki::entities::mount(
                 app,
-                oteryn_wiki::entities::EntityState::configured(db.clone()),
+                oteryn_wiki::entities::EntityState::configured(db.clone(), catalog_ready),
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
             let app = app.merge(credentials_http::configured_router(db.clone()));

@@ -129,6 +129,7 @@ struct Page {
     rows: Vec<Row>,
     differences: Vec<Difference>,
     report: String,
+    catalog: bool,
 }
 struct Labels {
     title: String,
@@ -204,11 +205,21 @@ async fn load_page<A>(
     }
     let offset = i64::from(number - 1) * 200;
     let store = WorldStore::new(s.pool.clone(), WorldOptions { enabled: s.enabled });
-    let active = store
+    let legacy_active = store
         .active_version_id()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let catalog_active: Option<Uuid> = sqlx::query_scalar("SELECT v.version_id FROM world_catalog_publication p JOIN world_catalog_versions v USING(snapshot_id) WHERE p.singleton")
+        .fetch_optional(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
+    let active = catalog_active.or(legacy_active);
     let selected = q.version.or(active);
+    let catalog: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM world_catalog_versions WHERE version_id=$1)",
+    )
+    .bind(selected)
+    .fetch_one(&s.pool)
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let versions = sqlx::query_as("SELECT id,source_commit,status FROM world_versions ORDER BY created_at DESC,id DESC LIMIT 100").fetch_all(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     let mut rows = Vec::new();
     let mut report = String::new();
@@ -247,6 +258,7 @@ async fn load_page<A>(
     };
     macro_rules! labels { ($($key:ident),*) => { Labels { $($key: text(lang,stringify!($key))),* } }; }
     Ok(Page {
+        catalog,
         lang,
         labels: labels!(
             title, version, compare, inspect, active, publish, entities, allowed, names, save,
@@ -329,6 +341,24 @@ async fn mutate<A: AccountStateReader>(
     if status != "ready" {
         return Err(StatusCode::CONFLICT);
     }
+    let catalog_snapshot: Option<String> =
+        sqlx::query_scalar("SELECT snapshot_id FROM world_catalog_versions WHERE version_id=$1")
+            .bind(form.version)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+    let (catalog_active,): (Option<String>,) = sqlx::query_as(
+        "SELECT snapshot_id FROM world_catalog_publication WHERE singleton FOR UPDATE",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(unavailable)?;
+    // Native publication belongs exclusively to verified background refresh. Staff
+    // may approve its records, but cannot route it through the legacy/map pointer
+    // or author replacement Game names.
+    if catalog_snapshot.is_some() && form.action != "visibility" {
+        return Err(StatusCode::CONFLICT);
+    }
     let (target, before, after) = if form.action == "publish" {
         if active == Some(form.version) {
             return Err(StatusCode::CONFLICT);
@@ -340,7 +370,8 @@ async fn mutate<A: AccountStateReader>(
             json!({"version":form.version}),
         )
     } else {
-        if active != Some(form.version) {
+        let current_catalog = catalog_snapshot.is_some() && catalog_snapshot == catalog_active;
+        if active != Some(form.version) && !current_catalog {
             return Err(StatusCode::CONFLICT);
         }
         let kind = form

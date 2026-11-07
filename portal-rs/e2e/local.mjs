@@ -38,10 +38,32 @@ Object.assign(env,{
  OTERYN_WEBAUTHN_RP_ID:'localhost',OTERYN_MFA_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_RESET_DELIVERY_KEY:crypto.randomBytes(32).toString('hex'),
  OTERYN_NOTIFY_UNSUBSCRIBE_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_NOTIFY_UNSUBSCRIBE_URL:'https://localhost:18443/en/unsubscribe',
  OTERYN_ACTIVE_CHARACTER_LIMIT:'10',OTERYN_TOTAL_CHARACTER_LIMIT:'20',OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY:'e2e-local',OTERYN_LCFA_SOURCE_AUTHORITY:'e2e-local',OTERYN_ACCOUNT_CHARACTERS_AUTHORITY:'e2e-local',
- PORTAL_PUBLIC_PROJECTIONS_AUTHORITY:'e2e-local',PORTAL_PUBLIC_PROJECTIONS_SAN:'e2e-local',PORTAL_WORLD_DAILY_WORLDS:'local',PORTAL_ATLAS_DELIVERY_ENABLED:'1',PORTAL_WORLD_ENABLED:'1',
+ PORTAL_PUBLIC_PROJECTIONS_AUTHORITY:'e2e-local',PORTAL_PUBLIC_PROJECTIONS_SAN:'e2e-local',PORTAL_WORLD_DAILY_WORLDS:'019b0760-0000-7000-8000-000000000001',PORTAL_ATLAS_DELIVERY_ENABLED:'1',PORTAL_WORLD_ENABLED:'1',
  OTERYN_ATLAS_DIRECTORY:path.join(scratch,'atlas'),SSL_CERT_FILE:path.join(scratch,'ca.pem'),
  PORTAL_ADMIN_CONTROL_AGENTS_JSON:JSON.stringify([{cn:'oteryn-admin-agent/e2e-local',identity:{san:'spiffe://local.test/admin/e2e'}}]),
 });
+// The pinned lane producer still emits an unsupported negative compatibility candidate.
+// Never read raw Game content or fabricate a Today producer/catalogue.
+const catalogFile=process.env.PORTAL_E2E_CATALOG_FILE||path.join(scratch,'game-platform-catalog.json');
+if(!process.env.PORTAL_E2E_CATALOG_FILE){
+ const generated=spawnSync('python3',[path.join(root,'e2e/support/catalog-producer.py'),'produce',path.join(root,'crates/world/tests/fixtures/catalog-fd4be4e2/unsupported-native-input.json'),catalogFile],{stdio:'ignore'});
+ if(generated.status!==0)throw new Error('Pinned negative catalog fixture generation failed');
+}
+if(process.env.PORTAL_E2E_CATALOG_FILE&&!process.env.OTERYN_WORLD_CATALOG_SHA256)throw new Error('External artifact requires independently configured OTERYN_WORLD_CATALOG_SHA256');
+const catalog=JSON.parse(fs.readFileSync(catalogFile,'utf8'));
+Object.assign(env,{
+ OTERYN_WORLD_CATALOG_FILE:catalogFile,
+ OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED:'true',
+ OTERYN_WORLD_CATALOG_SHA256:process.env.OTERYN_WORLD_CATALOG_SHA256||'4fe8ce4488c21396b588dc6b04179cde93c7a9b22b87427b6e4af3cda6e60d7d',
+ OTERYN_WORLD_CATALOG_SOURCE_REVISION:process.env.OTERYN_WORLD_CATALOG_SOURCE_REVISION||catalog.source_revision,
+ OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH:process.env.OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH||catalog.authority_epoch,
+ OTERYN_WORLD_CATALOG_RULESET_ID:process.env.OTERYN_WORLD_CATALOG_RULESET_ID||catalog.ruleset_id,
+ OTERYN_WORLD_CATALOG_PROFILE_ID:process.env.OTERYN_WORLD_CATALOG_PROFILE_ID||catalog.content_profile_id,
+ OTERYN_WORLD_CATALOG_SNAPSHOT_ID:process.env.OTERYN_WORLD_CATALOG_SNAPSHOT_ID||catalog.snapshot_id,
+});
+// A URL may be exercised against the same independently pinned negative fixture.
+// The server must remain ready while bounded background transport is pending.
+if(process.env.OTERYN_WORLD_CATALOG_URL){delete env.OTERYN_WORLD_CATALOG_FILE;env.OTERYN_WORLD_CATALOG_URL=process.env.OTERYN_WORLD_CATALOG_URL;}
 fs.mkdirSync(env.OTERYN_ATLAS_DIRECTORY,{recursive:true});
 function command(program,args,options={}){const result=spawnSync(program,args,{cwd:root,env,stdio:'inherit',...options});if(result.status!==0)throw new Error(`${program} failed`);}
 function openssl(args){command('openssl',args,{stdio:'ignore'});}

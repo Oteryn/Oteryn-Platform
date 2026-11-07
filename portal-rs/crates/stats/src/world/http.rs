@@ -62,6 +62,9 @@ struct Page {
     labels: Vec<String>,
     unavailable: bool,
     days: Vec<Day>,
+    picker: bool,
+    worlds: Vec<(Uuid, String)>,
+    today: String,
 }
 fn labels(en: bool) -> Vec<String> {
     let source = if en {
@@ -88,6 +91,11 @@ fn labels(en: bool) -> Vec<String> {
         "day",
         "count",
         "kills",
+        "picker",
+        "select",
+        "start",
+        "end",
+        "show",
     ]
     .iter()
     .map(|key| {
@@ -129,14 +137,31 @@ async fn page(
         }
         if raw.as_deref().is_none_or(str::is_empty) {
             let en = uri.path().starts_with("/en/");
+            let worlds: Result<Vec<(Uuid, String)>, _> =
+                sqlx::query_as("SELECT id, name FROM world_status ORDER BY name COLLATE \"C\", id")
+                    .fetch_all(&state.db)
+                    .await;
+            let worlds = worlds.unwrap_or_default();
+            let unavailable = worlds.is_empty();
             let page = Page {
                 lang: if en { "en" } else { "pl" },
                 labels: labels(en),
-                unavailable: true,
+                unavailable,
                 days: vec![],
+                picker: true,
+                worlds,
+                today: time::OffsetDateTime::now_utc().date().to_string(),
             };
             return match page.render() {
-                Ok(body) => (StatusCode::SERVICE_UNAVAILABLE, Html(body)).into_response(),
+                Ok(body) => (
+                    if unavailable {
+                        StatusCode::SERVICE_UNAVAILABLE
+                    } else {
+                        StatusCode::OK
+                    },
+                    Html(body),
+                )
+                    .into_response(),
                 Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             };
         }
@@ -170,6 +195,9 @@ async fn page(
             labels: labels(en),
             unavailable,
             days: result.map(|r| r.days).unwrap_or_default(),
+            picker: false,
+            worlds: vec![],
+            today: String::new(),
         };
         match page.render() {
             Ok(body) => (

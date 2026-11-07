@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 
 // These cold public projections have no accepted source in a fresh local database.
 // Each remains a 503 HTML refusal; they are never counted as successful data reads.
-const coldPath = value => /^\/(pl|en)\/(online|rankings\/experience|deaths|guilds|stats\/guilds|stats\/rankings\/(yesterday|week|month|record|oldest|anniversaries|name-changes|transfers|sold)|wiki|houses|stats\/world|atlas|atlas\/delivery)$/.test(new URL(value,'https://localhost').pathname);
+const coldPath = value => /^\/(pl|en)\/(online|rankings\/experience|deaths|guilds|stats\/guilds|stats\/rankings\/(yesterday|week|month|record|oldest|anniversaries|name-changes|transfers|sold)|wiki(?:\/search)?|houses|atlas|atlas\/delivery)$/.test(new URL(value,'https://localhost').pathname) || (/^\/(pl|en)\/stats\/world$/.test(new URL(value,'https://localhost').pathname) && new URL(value,'https://localhost').search.length>0);
 function consoleError(message, errors, diagnostics) {
   if(message.type()!=='error')return;
   if(coldPath(message.location().url) && /^Failed to load resource: the server responded with a status of 503 \(Service Unavailable\)$/.test(message.text())) {diagnostics.push(new URL(message.location().url).pathname);return;}

@@ -161,16 +161,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .connect(&url)
         .await
         .unwrap();
-    // Build isolated fixtures with forward migrations only.
-    for migration in oteryn_db::MIGRATOR.iter() {
-        if migration.migration_type.is_down_migration() {
-            continue;
-        }
-        sqlx::raw_sql(AssertSqlSafe(migration.sql.as_ref()))
-            .execute(&pool)
-            .await
-            .unwrap();
-    }
+    oteryn_db::migrate(&pool).await.unwrap();
     portal_identity_lifecycle(&pool).await;
     let actor = Uuid::now_v7();
     let identity = Some(StaffIdentity {

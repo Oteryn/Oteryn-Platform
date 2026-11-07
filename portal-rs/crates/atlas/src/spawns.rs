@@ -17,10 +17,11 @@ fn unavailable(_: impl std::fmt::Display) -> StatusCode {
 }
 pub fn configured_router(pool: PgPool) -> Router {
     let flag = |name| std::env::var(name).is_ok_and(|v| v == "true");
+    let flags = crate::config::Flags::configured();
     router(
         pool,
         flag("OTERYN_ATLAS_SPAWNS_ENABLED"),
-        flag("OTERYN_ATLAS_ENABLED") && flag("OTERYN_WORLD_ENABLED"),
+        flags.viewer && flags.world,
     )
     .layer(Extension(oteryn_web::csrf::CsrfConfig {
         trusted_origins: std::env::var("OTERYN_PUBLIC_ORIGIN")

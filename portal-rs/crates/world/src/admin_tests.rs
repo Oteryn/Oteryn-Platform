@@ -340,6 +340,62 @@ async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
             StatusCode::FORBIDDEN
         );
     }
+    // The real audited admin action works on the dedicated native catalogue pointer.
+    let fixture = catalog_fixture::supported();
+    let candidate = crate::catalog::verify(
+        &fixture.bytes,
+        &fixture.sidecar,
+        &crate::catalog::Fence {
+            source_revision: fixture.text("source_revision"),
+            authority_epoch: fixture.text("authority_epoch"),
+            ruleset_id: fixture.text("ruleset_id"),
+            content_profile_id: fixture.text("content_profile_id"),
+            snapshot_id: fixture.text("snapshot_id"),
+        },
+    )
+    .unwrap();
+    candidate.persist_inactive(&pool).await.unwrap();
+    candidate.publish(&pool).await.unwrap();
+    let native: Uuid =
+        sqlx::query_scalar("SELECT version_id FROM world_catalog_versions WHERE snapshot_id=$1")
+            .bind(candidate.snapshot_id())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    for (action, status) in [
+        (
+            "visibility&kind=Item&key=oteryn%3Aitem.training_sword&allowed=true",
+            StatusCode::SEE_OTHER,
+        ),
+        ("publish", StatusCode::CONFLICT),
+        (
+            "names&kind=Item&key=oteryn%3Aitem.training_sword&pl=Changed&en=Changed",
+            StatusCode::CONFLICT,
+        ),
+    ] {
+        assert_eq!(
+            post(
+                app(pool.clone(), identity.clone()),
+                &cookie,
+                csrf,
+                format!("action={action}&version={native}")
+            )
+            .await
+            .status(),
+            status
+        );
+    }
+    let approved:bool=sqlx::query_scalar("SELECT allowed FROM world_visibility WHERE kind='Item' AND key='oteryn:item.training_sword'").fetch_one(&pool).await.unwrap();
+    assert!(approved);
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='world.visibility' AND target=$1",
+    )
+    .bind(native.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audits, 1);
+    assert_eq!(store.active_version_id().await.unwrap(), Some(two));
     // An audit failure must roll back the pointer and visibility change.
     sqlx::query("CREATE FUNCTION fail_world_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test audit failure'; END; $$").execute(&pool).await.unwrap();
     sqlx::query("CREATE TRIGGER fail_world_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION fail_world_audit()").execute(&pool).await.unwrap();
@@ -392,3 +448,5 @@ async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
         .unwrap();
     root.close().await;
 }
+
+use crate::catalog_fixture;

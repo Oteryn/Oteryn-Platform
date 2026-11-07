@@ -24,15 +24,16 @@ pub struct Viewer {
 
 /// Requires explicit enablement and a private T40 output directory, outside static/.
 pub fn configured_router(pool: sqlx::PgPool) -> Router {
+    let flags = crate::config::Flags::configured();
     router(Viewer {
-        enabled: std::env::var("OTERYN_ATLAS_ENABLED").is_ok_and(|v| v == "true"),
+        enabled: flags.viewer,
         directory: std::env::var_os("OTERYN_ATLAS_DIRECTORY")
             .map(PathBuf::from)
             .unwrap_or_default(),
         world: WorldStore::new(
             pool,
             WorldOptions {
-                enabled: std::env::var("OTERYN_WORLD_ENABLED").is_ok_and(|v| v == "true"),
+                enabled: flags.world,
             },
         ),
     })
