@@ -1,5 +1,6 @@
 //! Platform-owned preferences. Projection facts only establish presentation ownership;
 //! they never authorize commands against the game.
+pub mod authority;
 mod http;
 use crate::lcfa::{AccountId, CharacterId, Settings};
 pub use http::{edit, update};
@@ -11,22 +12,44 @@ pub enum Error {
     NotFound,
     Unavailable,
     BadInput,
+    RateLimited,
 }
 impl From<sqlx::Error> for Error {
     fn from(_: sqlx::Error) -> Self {
         Self::Unavailable
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct Preferences {
+    pub comment: String,
+    pub hidden: bool,
+    pub hide_all_characters: bool,
+    pub show_account: bool,
+    pub show_status: bool,
+    pub show_house: bool,
+    pub show_skills: bool,
+    pub show_deaths: bool,
+    pub show_kills: bool,
+    pub show_online_time: bool,
+
     pub show_guild: bool,
     pub is_main_character: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            show_guild: true,
+            show_guild: false,
             is_main_character: false,
+            comment: String::new(),
+            hidden: true,
+            hide_all_characters: false,
+            show_account: false,
+            show_status: false,
+            show_house: false,
+            show_skills: false,
+            show_deaths: false,
+            show_kills: false,
+            show_online_time: false,
         }
     }
 }
@@ -76,20 +99,7 @@ impl Service {
             .await?;
         Ok(tx)
     }
-    async fn characters(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        account: Uuid,
-        now: i64,
-    ) -> Result<Vec<(Uuid, String)>, Error> {
-        AccountId::parse(&account.to_string()).map_err(|_| Error::NotFound)?;
-        let status = sqlx::query_scalar::<_, String>("SELECT status FROM accounts WHERE id=$1")
-            .bind(account)
-            .fetch_optional(&mut **tx)
-            .await?;
-        if status.as_deref() != Some("active") {
-            return Err(Error::NotFound);
-        }
+    async fn feed(&self, tx: &mut Transaction<'_, Postgres>, now: i64) -> Result<String, Error> {
         let feed = sqlx::query("SELECT highest_epoch,watermark_epoch,source_authority,complete_through FROM account_character_feed WHERE id=1").fetch_one(&mut **tx).await?;
         let highest: Option<String> = feed.try_get("highest_epoch")?;
         let watermark: Option<String> = feed.try_get("watermark_epoch")?;
@@ -110,9 +120,27 @@ impl Service {
         {
             return Err(Error::Unavailable);
         }
+        highest.ok_or(Error::Unavailable)
+    }
+    async fn characters(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+        now: i64,
+    ) -> Result<Vec<(Uuid, String)>, Error> {
+        AccountId::parse(&account.to_string()).map_err(|_| Error::NotFound)?;
+        let status = sqlx::query_scalar::<_, String>("SELECT status FROM accounts WHERE id=$1")
+            .bind(account)
+            .fetch_optional(&mut **tx)
+            .await?;
+        if status.as_deref() != Some("active") {
+            return Err(Error::NotFound);
+        }
+        let highest = self.feed(tx, now).await?;
+        let s = &self.settings;
         let snapshot = sqlx::query("SELECT projection_epoch,source_authority,invalid FROM account_character_snapshots WHERE account_id=$1").bind(account).fetch_optional(&mut **tx).await?.ok_or(Error::NotFound)?;
         if snapshot.try_get::<bool, _>("invalid")?
-            || Some(snapshot.try_get::<String, _>("projection_epoch")?) != highest
+            || Some(snapshot.try_get::<String, _>("projection_epoch")?) != Some(highest)
             || snapshot.try_get::<String, _>("source_authority")? != s.source_authority
         {
             return Err(Error::Unavailable);
@@ -169,19 +197,21 @@ impl Service {
         account: Uuid,
         character: Uuid,
     ) -> Result<Preferences, Error> {
-        let row = sqlx::query_as::<_, (bool,bool)>("SELECT show_guild,is_main_character FROM character_profiles WHERE account_id=$1 AND character_id=$2").bind(account).bind(character).fetch_optional(&mut **tx).await?;
-        if let Some((show_guild, is_main_character)) = row {
-            return Ok(Preferences {
-                show_guild,
-                is_main_character,
-            });
+        let row = sqlx::query_as::<_, Preferences>("SELECT p.show_guild,p.is_main_character,p.hidden,p.comment,p.show_account,p.show_status,p.show_house,p.show_skills,p.show_deaths,p.show_kills,p.show_online_time,a.character_profiles_hidden AS hide_all_characters FROM character_profiles p JOIN accounts a ON a.id=p.account_id WHERE p.account_id=$1 AND p.character_id=$2").bind(account).bind(character).fetch_optional(&mut **tx).await?;
+        if let Some(row) = row {
+            return Ok(row);
         }
-        let hidden: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_profiles WHERE account_id=$1 AND character_id IS NULL AND NOT show_guild)").bind(account).fetch_one(&mut **tx).await?;
+        let hide_all_characters: bool =
+            sqlx::query_scalar("SELECT character_profiles_hidden FROM accounts WHERE id=$1")
+                .bind(account)
+                .fetch_one(&mut **tx)
+                .await?;
         Ok(Preferences {
-            show_guild: !hidden,
-            is_main_character: false,
+            hide_all_characters,
+            ..Preferences::default()
         })
     }
+
     pub async fn edit(
         &self,
         account: Uuid,
@@ -206,9 +236,14 @@ impl Service {
         value: Preferences,
         now: i64,
     ) -> Result<(), Error> {
+        if value.comment.chars().count() > 500
+            || value.comment.chars().any(|c| c.is_control() && c != '\n')
+        {
+            return Err(Error::BadInput);
+        }
         // Retry only rolled-back serialization/deadlock failures, with bounded attempts.
         for attempt in 0..3 {
-            match self.save(account, name, value, now).await {
+            match self.save(account, name, value.clone(), now).await {
                 Err(SaveError::Sql(e))
                     if attempt < 2
                         && e.as_database_error().is_some_and(|e| {
@@ -251,7 +286,13 @@ impl Service {
         if value.is_main_character {
             sqlx::query("UPDATE character_profiles SET is_main_character=false,updated_at=now() WHERE account_id=$1 AND is_main_character AND character_id IS DISTINCT FROM $2").bind(account).bind(id).execute(&mut *tx).await?;
         }
-        sqlx::query("INSERT INTO character_profiles(account_id,character_id,show_guild,is_main_character) VALUES($1,$2,$3,$4) ON CONFLICT(account_id,character_id) DO UPDATE SET show_guild=$3,is_main_character=$4,updated_at=now()").bind(account).bind(id).bind(value.show_guild).bind(value.is_main_character).execute(&mut *tx).await?;
+        let attempts: i64 = sqlx::query_scalar("SELECT count(*) FROM character_profile_events WHERE account_id=$1 AND event_type='character.profile_preferences_updated' AND created_at > now()-interval '1 minute'").bind(account).fetch_one(&mut *tx).await?;
+        if attempts >= 30 {
+            return Err(SaveError::Domain(Error::RateLimited));
+        }
+        sqlx::query("UPDATE accounts SET character_profiles_hidden=$2,privacy_revision=privacy_revision+1 WHERE id=$1").bind(account).bind(value.hide_all_characters).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO character_profiles(account_id,character_id,show_guild,is_main_character,hidden,comment,show_account,show_status,show_house,show_skills,show_deaths,show_kills,show_online_time) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(account_id,character_id) DO UPDATE SET show_guild=$3,is_main_character=$4,hidden=$5,comment=$6,show_account=$7,show_status=$8,show_house=$9,show_skills=$10,show_deaths=$11,show_kills=$12,show_online_time=$13,updated_at=now()")
+            .bind(account).bind(id).bind(value.show_guild).bind(value.is_main_character).bind(value.hidden).bind(value.comment).bind(value.show_account).bind(value.show_status).bind(value.show_house).bind(value.show_skills).bind(value.show_deaths).bind(value.show_kills).bind(value.show_online_time).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO character_profile_events(account_id,event_type) VALUES($1,'character.profile_preferences_updated')").bind(account).execute(&mut *tx).await?;
         if value.is_main_character && !previous.is_main_character {
             sqlx::query("INSERT INTO character_profile_events(account_id,event_type) VALUES($1,'character.main_character_selected')").bind(account).execute(&mut *tx).await?;
@@ -265,6 +306,14 @@ impl Service {
         self.read_public(character, now).await.ok()
     }
     async fn read_public(&self, character: Uuid, now: i64) -> Result<Preferences, Error> {
+        self.read_public_reference(character, now, None).await
+    }
+    async fn read_public_reference(
+        &self,
+        character: Uuid,
+        now: i64,
+        reference: Option<(&str, &str)>,
+    ) -> Result<Preferences, Error> {
         let mut tx = self.lock().await?;
         let candidates = sqlx::query_scalar::<_, Uuid>(
             "SELECT DISTINCT account_id FROM account_characters WHERE character_id=$1",
@@ -283,12 +332,29 @@ impl Service {
         if owners.len() != 1 {
             return Err(Error::NotFound);
         }
+        if let Some((world, name)) = reference {
+            let matches: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1 AND character_id=$2 AND world_id::text=$3 AND name=$4)").bind(owners[0]).bind(character).bind(world).bind(name).fetch_one(&mut *tx).await?;
+            if !matches {
+                return Err(Error::NotFound);
+            }
+        }
         // The Rust identity schema has one identity per canonical account.
         sqlx::query("SELECT id FROM accounts WHERE id=$1 AND status='active' FOR SHARE")
             .bind(owners[0])
             .fetch_one(&mut *tx)
             .await?;
-        let p = Self::preferences(&mut tx, owners[0], character).await?;
+        let saved: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_profiles WHERE account_id=$1 AND character_id=$2)").bind(owners[0]).bind(character).fetch_one(&mut *tx).await?;
+        if !saved {
+            return Err(Error::NotFound);
+        }
+        let mut p = Self::preferences(&mut tx, owners[0], character).await?;
+        // Same current T09c policy and verified-account predicate, in the locked
+        // transaction: no second pool checkout while ownership/account locks are held.
+        let account = sqlx::query_as::<_, oteryn_identity::privacy::Preferences>("SELECT public_account_association,public_status_visible,locale,privacy_revision FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL").bind(owners[0]).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        p.hidden |= p.hide_all_characters;
+        p.show_account &= account.public_account_association;
+        p.show_status &= account.public_status_visible;
+        p.show_online_time &= account.public_status_visible;
         tx.commit().await?;
         Ok(p)
     }
@@ -324,7 +390,7 @@ impl Service {
             && self
                 .public_preferences(character, now)
                 .await
-                .is_some_and(|p| p.show_guild)
+                .is_some_and(|p| !p.hidden && p.show_guild)
     }
 }
 enum SaveError {

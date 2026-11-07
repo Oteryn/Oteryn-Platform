@@ -6,3 +6,14 @@ missing = Nie znaleziono postaci.
 unavailable = Ustawienia postaci są chwilowo niedostępne.
 invalid = Nieprawidłowe ustawienia. Sprawdź formularz i spróbuj ponownie.
 updated = Zapisano ustawienia profilu postaci.
+
+hidden = Ukryj postać
+hide-all = Ukryj wszystkie moje postacie
+account = Pokaż powiązanie z kontem
+status = Pokaż status
+house = Pokaż dom
+skills = Pokaż umiejętności
+deaths = Pokaż zgony
+kills = Pokaż zabójstwa
+online-time = Pokaż czas online
+comment = Komentarz publiczny (500 znaków)

@@ -30,6 +30,8 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
         include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
         include_str!("../../../../migrations/20261105231104_t45_profile_preferences.sql"),
+        include_str!("../../../../migrations/20261105220226_t09c_privacy.sql"),
+        include_str!("../../../../migrations/20261107130001_t45_privacy.up.sql"),
     ] {
         sqlx::raw_sql(sql).execute(&pool).await?;
     }
@@ -45,6 +47,9 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
     for (id, name) in [(one, "Aldric"), (two, "Belric")] {
         sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,$4,'AVAILABLE')").bind(account).bind(id).bind(Uuid::now_v7()).bind(name).execute(&pool).await?;
     }
+    sqlx::query("UPDATE accounts SET email_verified_at=now()")
+        .execute(&pool)
+        .await?;
     let settings = Settings {
         enabled: true,
         environment: oteryn_core::Environment::Testing,
@@ -79,7 +84,7 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         service.edit(account, "aldric", 1000).await.map(|v| v.1),
         Ok(Preferences::default())
     );
-    assert!(service.guild_visible(one, true, 1000).await);
+    assert!(!service.guild_visible(one, true, 1000).await);
     assert!(!service.guild_visible(one, false, 1000).await);
     sqlx::query("INSERT INTO character_profiles(account_id,show_guild,is_main_character) VALUES($1,false,true)").bind(account).execute(&pool).await?;
     assert!(!service.guild_visible(one, true, 1000).await);
@@ -93,22 +98,28 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
     let selected = Preferences {
         show_guild: true,
         is_main_character: true,
+        hidden: false,
+        ..Preferences::default()
     };
     assert_eq!(
-        service.update(account, "Aldric", selected, 1000).await,
+        service
+            .update(account, "Aldric", selected.clone(), 1000)
+            .await,
         Ok(())
     );
     assert!(service.guild_visible(one, true, 1000).await);
     assert!(!service.guild_visible(two, true, 1000).await);
     assert_eq!(
-        service.update(account, "Aldric", selected, 1000).await,
+        service
+            .update(account, "Aldric", selected.clone(), 1000)
+            .await,
         Ok(())
     );
     let count:i64=sqlx::query_scalar("SELECT count(*) FROM character_profile_events WHERE event_type='character.main_character_selected'").fetch_one(&pool).await?;
     assert_eq!(count, 1);
     let (a, b) = tokio::join!(
-        service.update(account, "Aldric", selected, 1000),
-        service.update(account, "Belric", selected, 1000)
+        service.update(account, "Aldric", selected.clone(), 1000),
+        service.update(account, "Belric", selected.clone(), 1000)
     );
     assert_eq!(a, Ok(()));
     assert_eq!(b, Ok(()));
@@ -131,7 +142,8 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
                 "Aldric",
                 Preferences {
                     show_guild: false,
-                    is_main_character: false
+                    is_main_character: false,
+                    ..Preferences::default()
                 },
                 1000
             )
@@ -158,7 +170,9 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
     drop(publisher);
     assert!(!service.guild_visible(one, true, 1100).await);
     assert_eq!(
-        service.update(account, "Aldric", selected, 1100).await,
+        service
+            .update(account, "Aldric", selected.clone(), 1100)
+            .await,
         Err(Error::Unavailable)
     );
     sqlx::query("UPDATE account_character_snapshots SET invalid=true WHERE account_id=$1")
@@ -167,7 +181,9 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         .await?;
     assert!(!service.guild_visible(one, true, 1000).await);
     assert_eq!(
-        service.update(account, "Aldric", selected, 1000).await,
+        service
+            .update(account, "Aldric", selected.clone(), 1000)
+            .await,
         Err(Error::Unavailable)
     );
     sqlx::query("UPDATE account_character_snapshots SET invalid=false WHERE account_id=$1")
@@ -181,7 +197,9 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         Err(Error::NotFound)
     );
     assert_eq!(
-        service.update(account, "Aldric", selected, 1000).await,
+        service
+            .update(account, "Aldric", selected.clone(), 1000)
+            .await,
         Err(Error::NotFound)
     );
     sqlx::query("DELETE FROM account_characters WHERE account_id=$1")
@@ -193,7 +211,9 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         .execute(&pool)
         .await?;
     assert_eq!(
-        service.update(account, "Aldric", selected, 1000).await,
+        service
+            .update(account, "Aldric", selected.clone(), 1000)
+            .await,
         Err(Error::NotFound)
     );
     assert!(!service.guild_visible(one, true, 1000).await);
@@ -201,13 +221,101 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         .bind(account)
         .execute(&pool)
         .await?;
+    // Current hidden and individual switches override every previous allow.
+    assert!(
+        service
+            .public_preferences(Uuid::now_v7(), 1000)
+            .await
+            .is_none()
+    );
+    let mut switches = selected.clone();
+    switches.show_status = true;
+    switches.show_account = true;
+    switches.show_deaths = true;
+    switches.show_skills = true;
+    switches.show_house = true;
+    switches.show_kills = true;
+    switches.show_online_time = true;
+    switches.comment = "<script>escaped on render</script>".into();
+    assert_eq!(
+        service
+            .update(account, "Aldric", switches.clone(), 1000)
+            .await,
+        Ok(())
+    );
+    let p = service
+        .public_preferences(one, 1000)
+        .await
+        .ok_or("missing saved policy")?;
+    assert!(p.show_deaths && p.show_skills && p.show_house && p.show_kills);
+    assert!(!p.show_status && !p.show_account && !p.show_online_time);
+    assert_eq!(p.comment, switches.comment);
+    switches.hidden = true;
+    assert_eq!(
+        service
+            .update(account, "Aldric", switches.clone(), 1000)
+            .await,
+        Ok(())
+    );
+    assert!(!service.guild_visible(one, true, 1000).await);
+    switches.hidden = false;
+    switches.show_guild = false;
+    switches.show_deaths = false;
+    assert_eq!(
+        service
+            .update(account, "Aldric", switches.clone(), 1000)
+            .await,
+        Ok(())
+    );
+    assert!(!service.guild_visible(one, true, 1000).await);
+    assert!(
+        !service
+            .public_preferences(one, 1000)
+            .await
+            .ok_or("missing policy")?
+            .show_deaths
+    );
+    switches.hide_all_characters = true;
+    assert_eq!(
+        service
+            .update(account, "Aldric", switches.clone(), 1000)
+            .await,
+        Ok(())
+    );
+    assert!(
+        service
+            .public_preferences(two, 1000)
+            .await
+            .ok_or("missing second policy")?
+            .hidden
+    );
+    switches.comment = "a".repeat(501);
+    assert_eq!(
+        service
+            .update(account, "Aldric", switches.clone(), 1000)
+            .await,
+        Err(Error::BadInput)
+    );
+    // A shared account budget is serialized by the account lock, across characters.
+    let used:i64=sqlx::query_scalar("SELECT count(*) FROM character_profile_events WHERE account_id=$1 AND event_type='character.profile_preferences_updated'").bind(account).fetch_one(&pool).await?;
+    for _ in used..30 {
+        sqlx::query("INSERT INTO character_profile_events(account_id,event_type) VALUES($1,'character.profile_preferences_updated')").bind(account).execute(&pool).await?;
+    }
+    assert_eq!(
+        service
+            .update(account, "Aldric", selected.clone(), 1000)
+            .await,
+        Err(Error::RateLimited)
+    );
     sqlx::query("DELETE FROM account_characters WHERE account_id=$1 AND character_id=$2")
         .bind(account)
         .bind(one)
         .execute(&pool)
         .await?;
     assert_eq!(
-        service.update(account, "Aldric", selected, 1000).await,
+        service
+            .update(account, "Aldric", selected.clone(), 1000)
+            .await,
         Err(Error::NotFound)
     );
     assert!(service.public_preferences(one, 1000).await.is_none());

@@ -13,3 +13,5 @@ pub mod online;
 
 /// Shared portal navigation registration.
 pub mod navigation;
+
+pub mod privacy;
