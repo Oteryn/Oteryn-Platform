@@ -1,4 +1,6 @@
-Status: ACCEPTED revision 2. Revision 1 proposed by Platform; the game owner accepted all nine §9 decisions through the coordinator on 2026-11-07, with the clarifications recorded in §10. Acceptance covers the wire and semantics only; producer delivery, consumer qualification and production activation remain separate gates.
+Status: ACCEPTED revision 3 by the game owner (coordinator), 2026-11-07. Revision 2 stays ACCEPTED; revision 3 adds the ECONOMY family group with the conditions in §12, which this text applies. Acceptance covers the wire and semantics only; producer delivery, consumer qualification and production activation remain separate gates.
+
+Revision 2 remains ACCEPTED: revision 1 was proposed by Platform; the game owner accepted all nine §9 decisions through the coordinator on 2026-11-07, with the clarifications recorded in §10. The six revision-2 families stay accepted unchanged and keep §4 suppression. Revision 3 (§11), accepted on 2026-11-07 with the answers in §12, adds the ECONOMY family group, revokes the economy exclusion and adds the economy-only `low_n` row state.
 
 # Oteryn-v2 ADMIN game analytics feed
 
@@ -10,7 +12,7 @@ Owner decision, 2026-11-07, relayed by the Game coordinator: **Game will impleme
 
 Game owns source truth, counting, cohort qualification, durable aggregation, corrections and replay. Platform owns strict ingestion, disposable admin read models, RBAC, audit, retention enforcement and presentation. Acceptance belongs to the game owner through the coordinator. Proposal acceptance, producer delivery, consumer qualification and production activation are separate gates. This document implements none of them and authorizes no Game change, gameplay mutation, shared SQL, deployment or collection from a restricted-purpose audit source.
 
-Revision 1 excludes player drill-down, identities or pseudonyms, hunt logs, raw session intervals, location/channel breakdowns, live surveillance, arbitrary SQL, security investigation, automatic enforcement, wallet/premium currency and public statistics/rankings. Admin access to this feed grants no access to private journals or identity re-linking.
+Revision 1 excludes player drill-down, identities or pseudonyms, hunt logs, raw session intervals, location/channel breakdowns, live surveillance, arbitrary SQL, security investigation, automatic enforcement, wallet/premium currency and public statistics/rankings. Admin access to this feed grants no access to private journals or identity re-linking. Revision 3 (§11) removes economy from this exclusion list as aggregate-only families; every other exclusion stays.
 
 ## 2. Sources and compatibility baseline
 
@@ -61,7 +63,7 @@ For activity, an ONLINE transition starts an analytics session; reconnect withou
 
 Creature kills are the deaths of those creatures, not a second additive death metric. They include boss kills; **do not add boss counts to creature counts**. Count physical deaths once across parties, channels, producer retries and recovery; bestiary bonuses do not add deaths. Exclude despawn, reset cleanup and summoned companions unless the owner accepts a different versioned eligibility rule. Boss classification uses the occurrence's Game content definition; unknown classification blocks completeness instead of guessing from a display name. Game retains creature/world keys and classification provenance internally even when a public total omits those keys. Corrections replace whole bucket snapshots at a higher revision, never increment counts on delivery.
 
-**Economy is excluded from revision 1.** S9 does not establish the candidate's required existing world/day aggregate. Gold in/out per world/day **requires new Game aggregation** and approved source coverage; it cannot be manufactured from wallet balances, bank transfers, loot values or a subset of fee receipts. A later revision must separate mint/burn from transfers, define currency units/refunds and classify every included source. If accepted later, propose UTC-day granularity and 400-day aggregate retention, subject to its own owner decision. No economy family/route member is accepted by the closed enum here.
+**Economy is excluded from revision 1.** S9 does not establish the candidate's required existing world/day aggregate. Gold in/out per world/day **requires new Game aggregation** and approved source coverage; it cannot be manufactured from wallet balances, bank transfers, loot values or a subset of fee receipts. A later revision must separate mint/burn from transfers, define currency units/refunds and classify every included source. If accepted later, propose UTC-day granularity and 400-day aggregate retention, subject to its own owner decision. No economy family/route member is accepted by the closed enum here. **Revision 3 (§11, accepted §12) revokes this exclusion** by owner decision; the requirements in this paragraph (mint/burn separated from transfers, units, classified sources, UTC day, 400 days) are carried into §11.
 
 ## 4. Who may see it: RBAC, privacy and audit
 
@@ -71,7 +73,7 @@ Every successful view and export, and every denied attempt, creates a durable ac
 
 **Minimum cohort: five distinct Game accounts per positive cell.** Game evaluates distinct contributing accounts internally, never exports the IDs or exact small cohort size, and sends only a suppression state. For kills/bosses use participating accounts for the counted occurrences; deaths use victim accounts; creations use creating accounts; activity uses accounts contributing ONLINE occupancy; level buckets use accounts owning counted characters at the snapshot cut. Multiple characters/sessions from one account do not satisfy five accounts. Unprovable account attribution means suppression. Zero is allowed only when positively proven complete and safe under the same disclosure policy; absence of evidence is unavailable, not zero.
 
-Apply suppression **before transmission**, again on every Platform serve/cache/export boundary, and to all values of an activity row together. Cells with 1–4 accounts, unknown qualification or unsafe disclosure carry `state:"suppressed",values:[]`. Use complementary suppression: withhold totals/other cells that would let subtraction recover a suppressed cell. Check fixed buckets across dimensions, releases and revisions; a correction must not reveal a change attributable to fewer than five accounts. If Game cannot prove that release/difference safety, withhold the affected bucket and related totals. No arbitrary regrouping, top-N, cross-world totals, overlapping custom windows or query joins that bypass suppression. No claims that k=5 alone proves anonymization; the owner must accept the remaining aggregate disclosure risk.
+Apply suppression **before transmission**, again on every Platform serve/cache/export boundary, and to all values of an activity row together. Cells with 1–4 accounts, unknown qualification or unsafe disclosure carry `state:"suppressed",values:[]`. Use complementary suppression: withhold totals/other cells that would let subtraction recover a suppressed cell. Check fixed buckets across dimensions, releases and revisions; a correction must not reveal a change attributable to fewer than five accounts. If Game cannot prove that release/difference safety, withhold the affected bucket and related totals. No arbitrary regrouping, top-N, cross-world totals, overlapping custom windows or query joins that bypass suppression. No claims that k=5 alone proves anonymization; the owner must accept the remaining aggregate disclosure risk. Revision 3: economy members are not suppressed in the admin view but flagged `low_n` (§11.5); this section still binds the six revision-2 families and any future export.
 
 Publish only complete closed buckets, **at least 24 hours after bucket end**, on a fixed release schedule. No provisional/intrahour admin graph in revision 1. This reduces schedule inference and repeated-query differencing; it does not replace cohort/complementary suppression. Small worlds or rare bosses can legitimately remain suppressed. The panel distinguishes suppressed, unavailable, expired and confirmed zero without exposing a small sample count.
 
@@ -101,13 +103,13 @@ Canonical JSON follows Store conventions: exactly the specified members in the l
 
 `contract_version` is JSON number `1`; all other integers/timestamps are canonical decimal **strings** (`0` or `[1-9][0-9]{0,19}`, checked to u64). Epoch/revision and nonzero times are 1..u64::MAX. Unix timestamps are seconds UTC, never milliseconds. `world_id` is canonical lowercase non-nil UUIDv7. `source_authority` matches `[A-Za-z0-9._:/-]{1,128}` and the configured peer. `creature_key` is a case-sensitive Game catalogue key matching `[A-Za-z0-9][A-Za-z0-9_./:-]{0,511}`; unrepresentable keys block the family pending a version decision, never truncate or normalize. `hex64` is lowercase SHA-256. Arithmetic/expiry overflow is invalid.
 
-The closed `family` enum is precisely the six metric families in §3. No new public-projection family is introduced. A snapshot subject is `(source_authority,family,world_id,bucket_start)`; `bucket_end` is derived from the family interval and validated. All pages and commit for one revision agree on all common fields. `privacy_policy_revision` is a 1..64-byte `[A-Za-z0-9._-]+` identifier of the accepted suppression/release rules, matched against Platform's current privacy floor; unknown or older policy denies serving. `source_observed_at` records Game's observation when constructing the frozen release, not the historical bucket cut. Require `bucket_end+86400 <= source_observed_at <= platform_now+2`, and independently enforce the release delay at every serve.
+The closed `family` enum is precisely the six metric families in §3 (revision 3 adds five economy members, §11.2). No new public-projection family is introduced. A snapshot subject is `(source_authority,family,world_id,bucket_start)`; `bucket_end` is derived from the family interval and validated. All pages and commit for one revision agree on all common fields. `privacy_policy_revision` is a 1..64-byte `[A-Za-z0-9._-]+` identifier of the accepted suppression/release rules, matched against Platform's current privacy floor; unknown or older policy denies serving. `source_observed_at` records Game's observation when constructing the frozen release, not the historical bucket cut. Require `bucket_end+86400 <= source_observed_at <= platform_now+2`, and independently enforce the release delay at every serve.
 
 Page members, in order: `contract_version`, `operation`, `source_authority`, `family`, `world_id`, `bucket_start`, `bucket_end`, `analytics_epoch`, `snapshot_revision`, `source_observed_at`, `privacy_policy_revision`, `page_index`, `page_count`, `rows`.
 
 - `page_count` is 1..64; `page_index` is 0..page_count−1. Each page has 0..128 rows; only a single-page empty snapshot may have zero rows. Total snapshot bound: 8192 distinct rows and 8 MiB page bytes. Rows have exactly `key`, `state`, `values`, in that order. Sort rows strictly by ASCII key across page boundaries; no duplicates, omissions or arbitrary top-N truncation.
 - `key` is creature key for the two kill families; for player deaths a creature content key or the literal `player` or `unknown`; literal `world` for activity/creations; one of the nine fixed level bucket names for level distribution. Activity and creation families have exactly one row; level distribution exactly nine, sorted by key; player deaths enumerate every attributed killer key present in the bucket, plus `player` and `unknown` whenever their counts are non-zero or suppressed. Kill families enumerate the complete Game catalogue eligibility set at that bucket's cut, including safe zeros and suppressed keys, or refuse completeness. Missing keys are never inferred as zero.
-- `state` is `visible`, `suppressed` or `incomplete`. `incomplete` marks a cell whose Game source coverage has a gap (§10 decision 2); it is never backfilled or shown as zero. `values` is empty for suppressed and incomplete; otherwise it is an ordered array of decimal strings: `[kills]`, `[deaths]`, `[sessions_started,online_character_seconds,peak_online,avg_online_milli]`, `[created]` or `[characters]` according to family. No omitted value or negative count. Page data is complete closed-bucket data only; no partial-count field.
+- `state` is `visible`, `suppressed` or `incomplete`. `incomplete` marks a cell whose Game source coverage has a gap (§10 decision 2); it is never backfilled or shown as zero. Revision 3: `low_n` is valid only for economy members, which never carry `suppressed` (§11.5). `values` is empty for suppressed and incomplete; otherwise it is an ordered array of decimal strings: `[kills]`, `[deaths]`, `[sessions_started,online_character_seconds,peak_online,avg_online_milli]`, `[created]` or `[characters]` according to family. No omitted value or negative count. Page data is complete closed-bucket data only; no partial-count field.
 
 Commit members, in order: `contract_version`, `operation`, `source_authority`, `family`, `world_id`, `bucket_start`, `bucket_end`, `analytics_epoch`, `snapshot_revision`, `source_observed_at`, `privacy_policy_revision`, `state`, `row_count`, `page_digests`. `state` is `replace` or `erase`; `page_digests` is the ordered array of exact canonical page-body SHA-256 digests. `replace` binds 1..64 pages and their total row count; digest-array length must equal every page's `page_count`. `erase` has `row_count:"0",page_digests:[]` and removes the entire subject while retaining its fence. A known-empty kill eligibility set is a one-page empty replacement, not erasure and not proof of zero for unlisted creatures. The consumer stages pages off-path and exposes a replacement only after the commit verifies all pages, digests, row coverage, privacy and bounds atomically. A page acknowledgement means durable staging, not visibility. Apply restrictive corrections to released data immediately after verification; do not wait for the next scheduled release.
 
@@ -171,6 +173,11 @@ Wire/source decisions and the resync envelope require owner acceptance before pr
 - [ ] Privacy/RBAC tests deny anonymous/player/support/GM/custom-role reads, unconfirmed MFA, revoked grants, indirect APIs/caches/exports and public-projection ingestion. Prove every read/download audit, audit-outage denial, k=5 by accounts, unknown-cohort suppression, complementary/revision differencing suppression and 24-hour release delay.
 - [ ] Retention tests prove serve-time expiry, purge/backup windows, privacy-floor invalidation, deletion corrections, download revocation and no replay resurrection. Load/restore tests qualify 400-day daily and 30-day hourly replay with the stated bounds.
 - [ ] Exact-revision testing/preproduction qualification precedes any enablement. Production needs separately approved PKI/purpose mapping, measured capacity/SLA and retention/privacy obligations. Documentation validation is not runtime qualification.
+- [x] (Revision 3) Coordinator accepted §11 on 2026-11-07 with the answers in §12: five economy members, keys, value orders and bounds, the median rule, `low_n`, the contributor definitions and the analytics purpose of E1–E14.
+- [ ] (Revision 3) Game re-pins every §11.3 source at its producer commit and, per metric, proves coverage or reports the row `incomplete`; no economy row is `visible` or `low_n` from a `partial` or `no source` input until Game delivers the missing capture (E2, E3, E4, E5, E10, E11, E14).
+- [ ] (Revision 3) Shared golden fixtures cover every economy member: visible, zero, `low_n`, `incomplete`, median odd/even/no-trade, bound edges (0, maximum, maximum+1), the four circulation keys including `guild`, the six flow keys including `npc_service` and `refund`, the `spent_in_game/` and `refund/` Store split, unsorted or duplicate keys, an unknown economy key, a `suppressed` economy row, a `low_n` row with empty values and a `low_n` row in a revision-2 family.
+- [ ] (Revision 3) Privacy tests prove `low_n` per economy row from the §11.5 contributor definitions and the per-side market floor, values shown with the marker and never hidden, revision-2 families still suppressed under §4, no cross-row or cross-world sums in panel or cache, export still disabled with the k=5, complementary and dominance rules ready for it, and that no economy row is derived from the G-10 journal or names an account or character.
+- [ ] (Revision 3) Source tests prove coins valued only through Game's coin-worth rule, mint and burn separated from transfers, `guild` never added to `bank`, `npc_service` kept apart from `npc_trade`, refunds reported in `refund` rows and never netted, player-trade gold counted once per trade, and Store spending kept in its own currency unit, never added to gold and never mixed with Platform's `purchased` figures.
 
 ## 9. Open questions for the game owner (coordinator)
 
@@ -195,5 +202,159 @@ The game owner accepted the nine §9 questions through the coordinator on 2026-1
 5. **Channel.** The separate `game-admin-analytics` push identity and the §5.1 routes are accepted. Pull is not used.
 6. **Replay and restore.** The independent analytics epoch and fence and operator-driven push resync are accepted. Game proposes the exact manifest/control envelope, baseline coverage and absence proof and the recovery SLA in its producer PR; Platform activation waits for them. Replay reaches back only as far as Game's durable retention: up to 400 days for daily families and 30 days for hourly.
 7. **Retention and capacity.** Accepted as proposed: 400/30 days, 256 worlds, 8192 keys, and the freshness and rate defaults.
-8. **Delivery.** Platform task: T10b admin-analytics consumer. Game producer task: lane ADMINAN, migrations 1380–1389, starting after the PUBPROJ package merges and reusing its durable G-8 sources. Game owns producer fixtures; Platform owns consumer fixtures. The coordinator records acceptance on PR #1768. Production qualification needs the owner, and nothing deploys until the owner writes "deploy".
+8. **Delivery.** Platform task: T10b admin-analytics consumer. Game producer task: lane ADMINAN, migrations 1380–1389 (superseded by revision 3: 1380–1399, §12 decision 8), starting after the PUBPROJ package merges and reusing its durable G-8 sources. Game owns producer fixtures; Platform owns consumer fixtures. The coordinator records acceptance on PR #1768. Production qualification needs the owner, and nothing deploys until the owner writes "deploy".
 9. **Economy.** Stays excluded until a complete, approved world/day gold aggregate exists, and then only as a separate contract.
+
+## 11. Revision 3 changes
+
+Status of this section: **ACCEPTED revision 3 by the game owner (coordinator), 2026-11-07**, additive to ACCEPTED revision 2, with the conditions recorded in §12, which this text applies. The six revision-2 families are unchanged: they keep §4 suppression and every other §§1–10 rule. Where §1, §3, §5.2 or §10 decision 9 exclude economy, this section supersedes that exclusion.
+
+### 11.1 Owner decision and scope
+
+Owner decision, 2026-11-07, relayed by the Game coordinator: **"admin statistics must be complete".** Revision 3 therefore revokes the economy exclusion of revision 1/2 and adds an ECONOMY family group, aggregated per `WorldId × UTC day` only.
+
+- **Aggregate only.** No row is keyed or filtered by account, character, guild, house, offer, trade or session; every §4 exclusion of identifiers still holds. `WorldId`, the fixed economy keys below, Game item definition keys and Store currency keys are the only dimensions.
+- **G-10 is never a source.** The [G-10 private items and economic history journal](OTERYN_V2_GAME_JOURNAL_ITEMS_CONTRACT_PROPOSAL.md), including private bank history, remains owner-only. Neither its wire, its Platform projection nor a player's private history view feeds admin analytics, and admin analytics never joins with it. Game computes economy aggregates from its own authority tables, under the analytics purpose the game owner approved for E1–E14 (§12 decision 5). Admin access to a single account's economy data would need a separate contract and a separate owner decision; this feed does not provide it.
+- **Same rules as revision 2, except suppression.** The §5 envelope, routes, purpose-scoped mTLS identity, canonical JSON, decimal-string integers, fence, epoch, idempotency, commit/watermark semantics, §6 failure modes and limits, §7 storage, 400-day daily retention, 24-hour release delay, `platform_admin`-only `admin.analytics.view` and audit-before-read apply unchanged to every economy member. §4 k=5 suppression does **not** withhold economy cells in the admin view: economy members use the `low_n` row state instead (§11.5). Economy members never carry `suppressed`; a `suppressed` economy row is a `400`.
+- **Export stays disabled at first activation** (§10 decision 4, unchanged). Any future export applies k=5 suppression, complementary suppression and the dominance rule of §11.5 to economy rows, and needs a separate owner decision.
+- **Delivery.** Game delivers the economy members inside lane ADMINAN (migrations **1380–1399**, §12 decision 8), starting after the PUBPROJ package merges, together with the six revision-2 families. Platform consumes them in the same T10b admin-analytics consumer task.
+
+### 11.2 Family members, keys and values
+
+ECONOMY is a group of five wire `family` members, so each member keeps one fixed value order, as every revision-2 family does. All are `UTC day` buckets (`bucket_end = bucket_start + 86400`) with 400-day retention. Rows are sorted strictly by ASCII key, as §5.2 requires. Row `state` is `visible`, `low_n` or `incomplete`.
+
+| `family` | Rows (`key`) | `values` order for `visible` and `low_n` rows |
+|---|---|---|
+| `economy_circulation_daily` | exactly four: `bank`, `character`, `depot`, `guild` | `[gold]`: end-of-day stock |
+| `economy_flows_daily` | exactly six: `creature_loot`, `house_rent`, `market_fee`, `npc_service`, `npc_trade`, `refund` | `[gold_in,gold_out]` |
+| `economy_market_daily` | one per item definition key in the world's market book at the cut (§11.4) | `[traded_units,traded_gold,offers_created,median_unit_price]` |
+| `economy_trades_daily` | exactly one: `world` | `[trades,traded_gold]` |
+| `economy_store_daily` | `refund/<currency>` and `spent_in_game/<currency>` for every currency in Game's Store catalogue at the cut, at most 16 currencies (32 rows) | `[count,amount]` |
+
+Semantics:
+
+- **Gold unit.** Every gold amount is an integer count of gold coins (1 platinum coin = 100, 1 crystal coin = 10000), valued only through Game's coin-worth rule (E2). No other item is valued in gold: items, houses, Store goods and bazaar lots carry no gold value here.
+- **Circulation** is a stock: the gold held at the committed cut immediately before day end, in that world. `bank` is the sum of account bank balances; `character` is coins carried by eligible characters (inventory and containers, nested included); `depot` is coins in character depots (nested included); `guild` is the sum of guild bank balances, kept as its own key and never added to `bank`. Each coin or balance is counted once, at its location at the cut. The four rows are **not total money supply**: gold on the ground, in houses, market escrow, mail/inbox or in flight is outside them. Stocks are never summed with flows.
+- **Flows** separate mint and burn from transfers. `gold_in` is gold newly created into the world economy; `gold_out` is gold destroyed. A transfer between players, bank and character, bank and depot or bank and guild bank is neither. `creature_loot` is gold minted as creature loot output (`gold_out` always `0`); `npc_trade` is gold paid out by NPCs for items (`gold_in`) and gold burned when buying items from NPCs (`gold_out`), bank-paid included; `npc_service` is gold burned for NPC services such as travel, blessings, promotion and other NPC services (`gold_in` always `0`), kept apart from `npc_trade`; `market_fee` is Market placement fees burned (`gold_in` always `0`); `house_rent` is house rent debited (`gold_in` always `0`); `refund` is gold returned by reversals and refunds (`gold_in`) and gold taken back by reversals (`gold_out`).
+- **Refunds are reported separately**, in the `refund` flow and the `refund/<currency>` Store rows, on the day the compensating commit occurs. They are never netted with the original flow, and a reversal never rewrites an earlier day (classification changes apply forward, §10 decision 2).
+- **Market** counts settled Market trades and offers per item definition key. `traded_units` is units settled that day; `traded_gold` is the sum of `piece price × units` over those settlements; `offers_created` counts offers of both sides created that day, whatever their later state; `median_unit_price` follows §11.4. Market trades are not counted again in `economy_trades_daily`.
+- **Trades** are completed direct player-to-player trades. `trades` counts each committed trade once, not once per side; `traded_gold` is the gold value of coins that changed hands in them, each coin counted once.
+- **Store** is kept separate from gold and is never added to, compared with or converted into it. Game produces only in-game coin spending: `spent_in_game/<currency>` counts accepted in-game Store purchases and sums their price; `refund/<currency>` counts refunds and sums the refunded amount; both in that currency's unit. Real-money coin purchases (`purchased`) are Platform data: Platform shows them from its own wallet ledger (`portal-rs/crates/wallet`) next to these rows, in a separate Platform task, and they never appear on the Game wire. Store coin **balances** are not a Game metric (E12). A currency key matches `[A-Za-z0-9._:-]{1,128}`; it cannot contain `/`, so the prefix split is unambiguous.
+
+Every value is a canonical decimal string (§5.2), checked to u64, no floats, no negative values, with these explicit inclusive bounds; a value outside its bound is a `400` on ingestion and blocks that scope on Game:
+
+| Value | Bound |
+|---|---|
+| any gold amount (`gold`, `gold_in`, `gold_out`, `traded_gold`) | `0..1000000000000000000` |
+| `traded_units` | `0..1000000000000000` |
+| `offers_created`, `trades`, Store `count` | `0..1000000000000` |
+| `median_unit_price` | `0..999999999999`; `0` if and only if `traded_units` is `0` |
+| Store `amount` | `0..1000000000000000000` |
+
+Game computes sums with checked arithmetic and refuses the bucket on overflow; it never saturates or truncates.
+
+### 11.3 Sources at the pinned Game SHA
+
+Read-only inspection, outside the Platform checkout, against **Oteryn/Oteryn-Game main at `bbb3e06d04875fc1e63f024b853194f7580cc875`**. Paths are relative to [that immutable tree](https://github.com/Oteryn/Oteryn-Game/tree/bbb3e06d04875fc1e63f024b853194f7580cc875); revision-2 refs S1–S10 stay pinned at `d34807f5bd234ee8318e57ba454ba39be0df113d`. Migrations are under `apps/game-server/migrations/`; Rust modules under `crates/gameplay/durability/src/durability/`. The highest migration number found is `1095`, so the ADMINAN range 1380–1399 is unused at this SHA. **No economy aggregate, daily rollup or analytics capture exists at this SHA**: every row below also requires new Game aggregation in ADMINAN. The classification is about the input, not a delivered producer. The owner approved the analytics purpose of E1–E14 (§12 decision 5).
+
+| Ref | Metric | Game source at the pinned SHA | Class |
+|---|---|---|---|
+| E1 | circulation `bank` | `0071_account_bank.sql`: `game_account_bank_balances` (account × world current balance, 0..999999999999); `bank.rs` | **source exists** (current state); the end-of-day stock must be captured at the cut |
+| E2 | circulation `character` | `0010_item_mint_ground.sql`: `game_item_instances` (world, definition key, quantity); `0031_character_gold_fee_change_mint.sql`: `game_item_coin_worth` (i3031 = 1, i3035 = 100, i3043 = 10000); custody tables `game_item_container_slots`, `game_item_container_entries`, `game_item_nested_entries`, used by `0317_coin_exchange_receipts.sql` (their defining migration not located) | **partial**: current custody exists; no historical snapshot, and eligibility of each custody location is not proven |
+| E3 | circulation `depot` | `0151_character_depot.sql`: `game_item_character_depot_locations`; `0157_depot_transfers.sql`; `character_depot.rs` | **partial**: top-level depot custody exists; nested coins need the nested custody walk; no historical snapshot |
+| E4 | flow `creature_loot` | `0010_item_mint_ground.sql`: `game_item_mint_reservations` (death world, `occurred_at`, minted item instance); `0533_nested_kill_loot.sql` | **partial**: loot mints carry world/time and the minted instance, so gold can be valued by coin worth; the contributing accounts need the kill-participation source of the G-8 family Game builds in PUBPROJ, not located at this SHA |
+| E5 | flow `npc_trade` | `0082_npc_trade.sql`: `game_npc_trades` (world, `burned_gold_units`, `minted_gold_units`, `occurred_at`); `0114_npc_bank_confirmation.sql`; `0211_npc_shop_sell_all.sql`; `npc_trade.rs`, `npc_trade_audit.rs`, `npc_purchase.rs` | **partial**: per-trade mint/burn exists for the main path; coverage of every NPC item-trade path (bank-paid, sell-all) as one complete flow is not proven |
+| E6 | flow `market_fee` | `0191_market_settlement.sql`: `game_market_settlements` (world, account, `fee`, `occurred_at_us`); `0296_market_fee_2026_10.sql`; fee burns `cause_kind = 6` in `game_item_fee_burns` | **source exists** (per settlement) |
+| E7 | flow `house_rent` | `0914_house_rent.sql`: `game_house_rent_payments` (world, account, `amount`, `paid_at`); `0941_house_rent_parity.sql`; `house_rent.rs` | **source exists** (per payment); `paid_at` is a timestamp that Game floors to Unix seconds (§3) |
+| E8 | market volume, offers, median | `0155_market_offer_book.sql`: `game_market_books` (world × definition key), `game_market_offers` (world, definition key, side, account, `piece_price`, `created_at_us`); `0191_market_settlement.sql`: `game_market_settlements` (`moved_units`), `game_market_history` (`amount`, `price`, `occurred_at_us`); `market.rs` | **source exists**: offers and settlements with world, item, account, price and time |
+| E9 | trades count | `0147_player_trade.sql`: `game_player_trades` (world, `occurred_at`), `game_player_trade_participants` | **source exists** |
+| E10 | trades `traded_gold` | `0147_player_trade.sql`: `game_player_trade_receipts` (item per side), `game_item_transfer_quantity_evidence`; coin worth from E2 | **partial**: no stored gold amount per trade; Game must derive it from transferred coin items and quantity evidence |
+| E11 | Store `spent_in_game/<currency>` | STORE-1 receipts (`docs/agents/tasks/STORE-1.md`; storage in `store/storage.rs`): `0345_store_delivery_receipts.sql` (`store_purchase_requests`; `store_delivery_receipts` with world and `decided_at` but no price, documented as never a purchase or coin ledger); `0790_store_receipt_shapes.sql`; `0927_store_purchase_history.sql`: `game_store_purchase_history` (account, character, offer, `price`, `currency`, `purchased_at_ms`, no world column) | **partial**: price and currency are on the history row but the event-time world is not; world is on the delivery receipt, which has no price |
+| E12 | Store coin balances | not located in Game; STORE-1 keeps the coin balance and purchase ledger Platform-owned (`portal-rs/crates/wallet`) | **no source** in Game; not carried by this feed and does not block revision 3 |
+| E13 | circulation `guild` | `0174_guild_bank.sql`: `game_guild_bank_balances` (guild current balance, 0..999999999999), `game_guild_bank_operations` (world); `guild_bank.rs` | **source exists** (current state); the end-of-day stock must be captured at the cut, attributed to the guild's world |
+| E14 | flow `npc_service` | `game_item_fee_burns` service causes: `0133_character_promotion_purchases.sql` (promotion and NPC purchase services, cause kinds 2–3), `0315_henricus_blessing_purchase.sql` (blessings), `0223_npc_paid_travel.sql` (travel, cause kind 8), plus later causes added by other migrations; `0072_character_gold_fee_bank_debit.sql` (bank-debited fees); `npc_purchase.rs`, `npc_travel.rs` | **partial**: fee burns carry world, time and gold for each cause, but no proof yet that every NPC service path, bank-debited ones included, writes one |
+| — | flow `refund`; Store `refund/<currency>` | not located; STORE-1 excludes refunds and chargebacks | **no source** |
+
+Wire consequence: a row whose input is **partial** or **no source** is sent as `state:"incomplete",values:[]` until Game delivers and qualifies the missing capture for that bucket. Game adds the missing captures for E2, E3, E4, E5, E10, E11 and E14 in ADMINAN (§12 decision 6). Delivery of a capture applies forward only: buckets before it stay `incomplete` and are never backfilled or reconstructed (§10 decision 2). A **source exists** row can be `visible` or `low_n` only once the ADMINAN aggregate captures it.
+
+### 11.4 Market row set and median rule
+
+Market rows enumerate every item definition key that has a `game_market_books` entry for that world at the cut, bounded by the existing 8192-key ceiling (§6); exceeding it blocks the scope. A listed item with no offer or settlement that day is a zero row (`["0","0","0","0"]`) only when Game proves completeness; a missing key is never inferred as zero. Market keys use the `creature_key` grammar of §5.2 (`[A-Za-z0-9][A-Za-z0-9_./:-]{0,511}`), case-sensitive, never truncated or normalized.
+
+`median_unit_price` is the unit-weighted median of settled piece prices: list the piece price once per settled unit of that item on that UTC day, sorted ascending, giving `N = traded_units` integers `p[0..N-1]`. If `N` is odd the median is `p[(N-1)/2]`; if `N` is even it is `p[N/2-1] + floor((p[N/2] - p[N/2-1]) / 2)`, which rounds the mean of the two middle prices **down** using integers only and cannot overflow. If `N = 0` the median is `0`. Game computes it from its settlement authority, never from Platform-visible values.
+
+### 11.5 Small cohorts
+
+The admin view is internal and complete: **no economy cell is withheld**, neither by k=5 nor by a dominance rule. Instead, a row whose values would be withheld under the export rule carries `state:"low_n"`, with its values present exactly as for `visible`. A row is `low_n` when fewer than five distinct Game accounts contribute to it, or, for a market row with `traded_units > 0`, when its counted settlements have fewer than five distinct seller accounts or fewer than five distinct buyer accounts. Game counts contributors internally and never exports the count, the accounts or any per-account value; `low_n` says only "below five". A row that is all zero is `visible`. Contributors are distinct `AccountId`s, so several characters of one account count once:
+
+| Row | Contributing accounts (distinct, in that world, that bucket) |
+|---|---|
+| circulation `bank` | accounts whose bank balance is greater than zero at the cut |
+| circulation `character` | accounts owning an eligible character that carries more than zero coins at the cut |
+| circulation `depot` | accounts owning a character whose depot holds more than zero coins at the cut |
+| circulation `guild` | accounts with a character in a guild whose guild bank balance is greater than zero at the cut |
+| flow `creature_loot` | accounts participating in the counted kills whose loot minted gold, using the creature-kill participation definition of §4 |
+| flow `npc_trade` | accounts of characters with at least one counted NPC trade that minted or burned gold |
+| flow `npc_service` | accounts charged a counted NPC service fee |
+| flow `market_fee` | accounts charged a counted Market fee |
+| flow `house_rent` | accounts debited a counted rent payment |
+| flow `refund` | accounts receiving or giving up gold in a counted reversal or refund |
+| market item | the union of accounts owning an offer of that item created that day and accounts on either side of a counted settlement of it |
+| trades `world` | accounts of the characters on either side of a counted trade |
+| Store `spent_in_game/<currency>` | accounts with a counted in-game purchase in that currency |
+| Store `refund/<currency>` | accounts with a counted refund in that currency |
+
+Rules:
+
+- **Economy only.** `low_n` is valid only on the five economy members. The six revision-2 families keep §4 suppression unchanged; a `low_n` row in any of them is a `400`, as is a `suppressed` row in an economy member.
+- **Panel.** Platform shows a `low_n` value with a visible low-n marker and never hides, rounds or perturbs it. Platform never sums economy rows across keys, members, worlds or days, and never derives a stock difference between days as a new metric.
+- **Export.** Export stays disabled. A future economy export, if the owner enables it, withholds every `low_n` row, applies §4 complementary and cross-revision suppression across the rows of one bucket, and also withholds a row where one account contributes more than half of the row's gold or units (dominance rule). The export rule needs its own fixtures before it is enabled.
+- **Still aggregate.** `low_n` never carries a per-account or per-character row, an account count or a contributor list.
+
+### 11.6 Wire examples
+
+These are illustrative canonical bodies, consistent with §5.2, the §6 response bodies and the revision-2 conventions; they are not the shared golden fixtures, which Game (producer) and Platform (consumer) still own per §10 decision 8. The world, authority and item keys are examples. The bucket is 2026-11-01 UTC (`1793491200`..`1793577600`); `source_observed_at` is 24 hours and 600 seconds after bucket end. Each body is one line with no trailing newline; byte lengths and SHA-256 digests are of exactly those bytes.
+
+Circulation page (647 bytes; `depot` is `incomplete` because E3 is partial; SHA-256 `d17393e355da190bb5a9e04658519835fa4b55fcffb29f35625fc3d458794b0b`):
+
+```json
+{"contract_version":1,"operation":"PublishAdminAnalyticsPageV1","source_authority":"game.example:world-authority","family":"economy_circulation_daily","world_id":"0192f4a0-7c00-7000-8000-000000000001","bucket_start":"1793491200","bucket_end":"1793577600","analytics_epoch":"1","snapshot_revision":"1","source_observed_at":"1793664600","privacy_policy_revision":"admin-analytics-k5.r3","page_index":"0","page_count":"1","rows":[{"key":"bank","state":"visible","values":["48210377"]},{"key":"character","state":"visible","values":["3120554"]},{"key":"depot","state":"incomplete","values":[]},{"key":"guild","state":"visible","values":["15400000"]}]}
+```
+
+Market page (672 bytes; one visible item with median 50, one `low_n` item whose three settled units at 1500 come from fewer than five sellers or buyers, one item with offers but no settlement and therefore median `0`; SHA-256 `d6ee5157fef3e99e8da53a6bf8207d41fc3e07e46e3db42d9dbd1f26f8b017ac`):
+
+```json
+{"contract_version":1,"operation":"PublishAdminAnalyticsPageV1","source_authority":"game.example:world-authority","family":"economy_market_daily","world_id":"0192f4a0-7c00-7000-8000-000000000001","bucket_start":"1793491200","bucket_end":"1793577600","analytics_epoch":"1","snapshot_revision":"1","source_observed_at":"1793664600","privacy_policy_revision":"admin-analytics-k5.r3","page_index":"0","page_count":"1","rows":[{"key":"oteryn:item.tibia.i3003","state":"visible","values":["412","20600","37","50"]},{"key":"oteryn:item.tibia.i3725","state":"low_n","values":["3","4500","2","1500"]},{"key":"oteryn:item.tibia.i7618","state":"visible","values":["0","0","6","0"]}]}
+```
+
+Commit binding the market page above:
+
+```json
+{"contract_version":1,"operation":"CommitAdminAnalyticsSnapshotV1","source_authority":"game.example:world-authority","family":"economy_market_daily","world_id":"0192f4a0-7c00-7000-8000-000000000001","bucket_start":"1793491200","bucket_end":"1793577600","analytics_epoch":"1","snapshot_revision":"1","source_observed_at":"1793664600","privacy_policy_revision":"admin-analytics-k5.r3","state":"replace","row_count":"3","page_digests":["d6ee5157fef3e99e8da53a6bf8207d41fc3e07e46e3db42d9dbd1f26f8b017ac"]}
+```
+
+Watermark for the same member and world:
+
+```json
+{"contract_version":1,"operation":"PublishAdminAnalyticsWatermarkV1","source_authority":"game.example:world-authority","family":"economy_market_daily","world_id":"0192f4a0-7c00-7000-8000-000000000001","analytics_epoch":"1","privacy_policy_revision":"admin-analytics-k5.r3","complete_through":"1793577600","observed_at":"1793664600"}
+```
+
+Responses are the §6 bodies unchanged, for example `{"contract_version":1,"result":"accepted"}`. Invalid examples the fixtures must cover include: an economy row with `"state":"suppressed"`; a `low_n` row with `"values":[]`; a `low_n` row in a revision-2 family; a `values` member with a float or a negative number; `median_unit_price` `"0"` with `traded_units` `"1"`; a gold value of `"1000000000000000001"`; circulation rows out of order or missing `guild`; a flows row set missing `npc_service` or `refund`; a Store key without a `spent_in_game/` or `refund/` prefix or with a second `/`; a market key that breaks the key grammar; and a visible `npc_trade` row with one value.
+
+### 11.7 Panel
+
+Add one admin-only economy page to the §7 set: per world and UTC day, circulation by location (bank, character, depot, guild), the six flows, player trades, a market table by item and Store rows. Store shows `spent_in_game` and `refund` from Game and `purchased` from the Platform wallet ledger, each in its own unit and labelled with its source; none is added to gold. Each value shows `visible`, `low_n` (the value with a low-n marker), `incomplete` (with the source gap named, for example "depot gold not yet delivered by Game") or expired, and the data cut and freshness, exactly as the revision-2 pages do. No row links to an account, character or private journal, and the page offers no per-account search.
+
+## 12. Acceptance record (revision 3)
+
+The game owner accepted revision 3 through the coordinator on 2026-11-07, under the owner decision "admin statistics must be complete". Answers to the revision-3 questions, as applied in §11:
+
+1. **Family shape.** Five members, `WorldId × UTC day`, integers only, median rounded down: accepted as proposed.
+2. **Guild bank.** Included as circulation key `guild`, never added to `bank` (E13, source exists). Contributors: accounts with a character in a guild whose bank balance is above zero at the cut.
+3. **Service fees.** Included as flow key `npc_service` (travel, blessings, promotion and other NPC services), separate from `npc_trade`, `gold_in` always `0` (E14, partial until every service path is proven).
+4. **Small cohorts.** The admin view withholds no cell. Economy members use `low_n` (values present, flagged) instead of `suppressed`; a `suppressed` economy row is a `400`. k=5, complementary suppression and the dominance rule (one account above half of a row's gold or units) bind any future export, which stays disabled. The six revision-2 families keep §4 suppression unchanged. Nothing is per account or per character.
+5. **Analytics purpose.** Approved by the owner for E1–E14.
+6. **Partial sources.** Game adds the missing captures for E2, E3, E4, E5, E10, E11 and E14 in ADMINAN; until then those rows are `incomplete`. E12 stays absent until a source exists and does not block revision 3.
+7. **Store.** Real-money coin purchases are Platform data; Game produces only in-game coin spending from the STORE-1 receipts, as `spent_in_game/<currency>` and `refund/<currency>` rows with `[count,amount]`, at most 16 currencies. Platform shows `purchased` from its own wallet ledger, never on the Game wire, in a separate Platform task.
+8. **Lane capacity.** ADMINAN uses migrations 1380–1399, superseding 1380–1389 in §10 decision 8.
+9. **Refunds.** Reported separately in the `refund` flow and the `refund/<currency>` Store rows, never netted with the original flow; reversals never rewrite an earlier day.
