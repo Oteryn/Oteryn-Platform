@@ -1,6 +1,15 @@
-Status: PROPOSED revision 2 by Platform, pending acceptance by the game owner (coordinator).
+Status: ACCEPTED revision 3 by the game owner (coordinator), 2026-11-07. Revision 3 proposed by Platform; the game owner accepted it through the coordinator with the conditions in the acceptance record (revision 3), which this text applies. Acceptance covers the wire and semantics only; producer delivery, consumer qualification and production activation remain separate gates.
 
 # World daily public projection family — G-12
+
+## Revision 3 changes
+
+Owner review verdict on revision 2: **CHANGES-NEEDED**, relayed by the coordinator, only on the points below. Every other revision 2 decision is kept unchanged; acceptance and implementation evidence remain pending.
+
+- G-12 is an additive revision of the PUBPROJ public-projection contract family, not a separate feed: same envelope, same external epoch fence `F_pub` and same operator resync as the public projection. It adds one family and its watermark to that family; nothing else in the envelope changes.
+- Sequencing: G-12 lands only after the PUBPROJ package now in flight in Game (branch `claude/happy-davinci-ijz3wy-pubproj` at `16aca0cc1`, not merged) merges. Nothing is added to that package. Game delivers G-12 as a separate lane with its own migration range (at acceptance: Game migrations 1410–1419).
+- Name the Game sources: daily boost mechanic `0351` and raid schedule mechanic `0434` (partial), pinned at Game main `bbb3e06d04875fc1e63f024b853194f7580cc875`.
+- Add an explicit per-element readiness table: mechanic exists without a producer, no mechanic, or ready, with evidence for each.
 
 ## Revision 2 changes
 
@@ -19,6 +28,18 @@ Game owns committed boost selections, reset boundaries, raid scheduling, public-
 
 Docs only: no runtime, schema, workflow, transport deployment, gameplay mutation or production activation is authorized. Every new operation, field profile, bound and flag below is proposed, not a claim of an existing Game endpoint.
 
+## Contract family and delivery lane
+
+G-12 is an additive revision of the PUBPROJ public-projection contract family ([public projection](OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md) and its [G-4 V2 extension](OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md)), not a separate feed. It reuses that family's envelope (`contract_version`, `operation`, `source_authority`, `projection_epoch`, `projection_revision`, `source_observed_at`), its external durable epoch fence `F_pub`, its outbox acknowledgement and watermark rules and its operator resync path. The only additions are the `world_daily` member of the V2 family enum, the `PublishWorldDailyV2` snapshot body and the `world_daily` watermark family. No new transport, identity, signing, fence, resync mechanism or Platform → Game command is introduced.
+
+Sequencing is fixed by the coordinator:
+
+1. The PUBPROJ package now in flight in Game (branch `claude/happy-davinci-ijz3wy-pubproj` at `16aca0cc1eafe4a2dec574c57fd717a32f5e6aeb`, not merged) merges first, under its own acceptance. G-12 neither waits on nor adds anything to that package; its acceptance does not cover G-12.
+2. G-12 is delivered afterwards by Game as a separate lane, with its own task, branch and evidence, on top of the merged V2 family.
+3. That lane uses Game migrations **1410–1419**, reserved for G-12 at acceptance. Platform does not allocate Game migration numbers.
+
+Platform consumer work for G-12 likewise starts only after the merged V2 family exists and this revision is accepted.
+
 ## Existing conventions and pinned evidence
 
 Platform references, read together:
@@ -28,7 +49,7 @@ Platform references, read together:
 - `OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md`: authority separation, bounded authority and unknown-state denial; it also defers exact transport. This feed conveys no entitlement or benefit authorization.
 - `OTERYN_V2_STORE_WIRE_CONTRACT.md` §§2–4, 9: bounded canonical JSON, source namespace, dedicated mTLS identities, internal listener, digest/idempotency conventions. That document is itself **PROPOSED**; it is not evidence of accepted Store activation. Where its Store-specific rules differ from the accepted public publisher (depth, response vocabulary, oversize status), the public publisher governs this proposal.
 
-Read-only Game evidence is pinned to [857f15f376907c592bb28d854fccff18a15cdf87](https://github.com/Oteryn/Oteryn-Game/tree/857f15f376907c592bb28d854fccff18a15cdf87). All following paths are relative to that revision:
+Read-only Game evidence is pinned to Game `main` at [bbb3e06d04875fc1e63f024b853194f7580cc875](https://github.com/Oteryn/Oteryn-Game/tree/bbb3e06d04875fc1e63f024b853194f7580cc875), resolved for revision 3 (revision 2 pinned `857f15f376907c592bb28d854fccff18a15cdf87`; every path it cited still exists at the new pin). All following paths are relative to that revision:
 
 | Game path | Evidence used |
 |---|---|
@@ -38,14 +59,39 @@ Read-only Game evidence is pinned to [857f15f376907c592bb28d854fccff18a15cdf87](
 | `crates/gameplay/durability/src/durability/public_projections.rs` and `apps/game-server/migrations/0091_public_projections.sql` | Reconciled-authority reads, same-transaction revisions/outboxes, clear only through acknowledged revisions |
 | `apps/game-server/migrations/0148_world_reset.sql` and `apps/game-server/migrations/0333_daily_boost.sql` | Reset epochs and daily boost keys admit epoch zero (`CHECK >= 0`); reset history stores `calendar_revision` and activation, not `effective_until` |
 | `apps/game-server/migrations/0562_server_save_berlin_06.sql` and `crates/gameplay/durability/src/durability/world_reset/active_epoch.rs` | Revision-bound reset calendar and next-slot calculation at 06:00 Europe/Berlin, including DST; no stored interval-end field |
+| `crates/gameplay/dispatch/mechanics/0351-daily_boost.mechanic` | Daily boost mechanic `0351`: registers command 177 with transport, composed/authority methods and capability offer `daily_boost_available`; player-facing read path only |
+| `crates/gameplay/dispatch/mechanics/0434-raid_schedule.mechanic` | Raid schedule mechanic `0434`, **partial**: registers only query command 171, with no transport/composed/authority/offer entries; subscribe 172 and notice ACK 173 are declared in the protocol crate but not registered by this fragment |
+| `apps/game-server/migrations/0153_raid_schedule.sql` | `game_world_raid_schedules` (metadata, `next_check_at_ms`, `last_fixed_slot_ms`) and immutable `game_world_raid_firings` (`fired_at_ms`, state 1/2/3 = Running/Done/Cancelled, one running per World/raid); raid `reset_epoch` is ≥1; no per-firing fixed-slot or source classification |
 | `crates/gameplay/durability/src/durability/daily_boost.rs` | `DailyBoostBinding`, `prepare_daily_boost`, `game_world_daily_boosts`; durable selection per World/reset, restart/concurrent-Channel reuse; reset epoch is not a calendar day |
 | `crates/protocol-oteryn/src/daily_boost.rs` | `DailyBoostView`, `reset_epoch`, `creature_key`, `boss_key`; query command 177, capability 151; keys bounded to 255 bytes by codec/durable preparation |
 | `crates/gameplay/durability/src/durability/raid_schedule.rs` | Metadata CAS with `RaidWrite::{Applied,Replayed,CompareFailed}`; metadata disposition is not a commit token |
 | `crates/gameplay/encounter-rules/src/raid/schedule.rs` and `raid/calendar.rs` | `RaidSchedule`, `FiringState::{Running,Done,Cancelled}`, fixed calendar slots, random/source scheduling; `next_check_at_ms` is not a promised raid time |
-| `crates/protocol-oteryn/src/raid_schedule.rs` | `RaidScheduleState`; query 171, subscribe 172, notice ACK 173, capability 149; read-only gameplay protocol, no command to start/advance/cancel raids |
+| `crates/protocol-oteryn/src/raid_schedule.rs` | `RaidScheduleState` (`raid_key`, `running`, `committed_steps`, `active_creatures`): current per-Channel progress, not a World schedule; query 171, subscribe 172, notice ACK 173 constants, capability 149; read-only gameplay protocol, no command to start/advance/cancel raids |
 | `crates/gameplay/content/src/content/production.rs` | Production key ASCII alphabet; public profile below narrows lengths explicitly |
 
 These are source citations, not instructions to modify Game. Existing client binary query payloads are not service-to-service publication payloads. This proposal adds no gameplay opcode or reused Character/Store command with unrelated meaning.
+
+## Readiness per element
+
+Each element of the family is classified at the pinned Game `main` as **ready**, **mechanic exists, no producer** (the gameplay source is committed but nothing projects it into this family) or **no mechanic** (no committed Game source; the element must be withheld or is excluded). "No producer" holds for every family element because the public publisher's `Family` enum at the pin has only `Highscores`, `CharacterProfile`, `WorldOnline` and `WorldTotals` (`crates/gameplay/native-admission-source/src/public_projections.rs`).
+
+| Element (wire member) | Classification | Evidence at `bbb3e06d0487` |
+|---|---|---|
+| Boosted creature (`creature_key`) | Mechanic exists, no producer | Mechanic `0351`; `game_world_daily_boosts.creature_key` (`0333_daily_boost.sql`, 1..255 bytes); durable per World/reset selection in `durability/daily_boost.rs` |
+| Boosted boss (`boss_key`) | Mechanic exists, no producer | Same row, `boss_key` (1..255 bytes); same mechanic `0351` |
+| Current interval start (`reset_epoch`, `effective_from`) | Mechanic exists, no producer | `game_world_reset_epochs` with `activated_at` and `calendar_revision` (`0148_world_reset.sql`); boost epoch admits zero (`0333`) |
+| Current interval end (`effective_until`) | Mechanic exists, no producer | Not stored; derivable from the revision-bound calendar (`0562_server_save_berlin_06.sql`) and next-slot calculation (`world_reset/active_epoch.rs`); the producer derivation does not exist |
+| Boost history (`history`, `history_complete_from`) | Mechanic exists, no producer | One immutable row per (World, reset epoch): primary key `(world_id, reset_epoch)`, runtime granted only `SELECT, INSERT` (`0333`); the coverage floor and the 30-day/32-interval bound are producer-derived, not stored |
+| Raid occurrence (`raid_key`, `started_at`, `state`) | Mechanic exists, no producer | `game_world_raid_firings` with `reset_epoch`, `fired_at_ms`, `bundle_digest` and state Running/Done/Cancelled, immutable facts and terminal state (`0153_raid_schedule.sql`); fixed-calendar versus random/chance class is a per-definition fact of the verified raid catalogue (`encounter-rules/src/raid/catalogue.rs` `CatalogueSchedule`, `definition.rs` `RaidPolicy`); mechanic `0434` exposes only per-Channel current progress (query 171) |
+| Raid fixed slot of an occurrence (`scheduled_at`) | No mechanic; v1 publishes `unavailable` | Firing rows store `fired_at_ms` only; schedule metadata keeps a single `last_fixed_slot_ms` per raid; nothing records per firing which fixed slot it served. Does not block v1: the record is published with `scheduled_at: "unavailable"`, never a guessed slot |
+| Raid schedule of future slots | Mechanic exists (partial), excluded by design | Mechanic `0434` is partial (query 171 only; the unregistered commands 172/173 are a separate Game mechanic gap outside G-12); fixed calendar slots exist in `encounter-rules/src/raid/calendar.rs`, but `next_check_at_ms` is not a promised time; revision 2 already excludes future and skipped slots |
+| Raid outcome, participants, rewards, prediction result (T94) | No mechanic, excluded | No accepted outcome source; T94 stays blocked |
+| Explicit World withdrawal (`daily: []`) | No mechanic; unavailable in v1 | No committed Game release/withdrawal decision for a World daily view at the pin. Does not block v1: there is no gameplay withdrawal decision in v1, and `daily: []` is emitted only when a World leaves the configured publication scope (exported-subject inventory) |
+| Content key grammar (`content_key(n)`) | Ready | Production key alphabet in `content/production.rs`; bounds 255 (boost) and 128 (`MAX_RAID_KEY_BYTES`) |
+| Envelope, `F_pub` fence, outbox ACK, watermark rules, operator resync | Ready (v1), V2 pending the in-flight merge | Accepted `OTERYN_GAME_PUBLIC_PROJECTIONS_V1.md` §§3–6, 11, `0091_public_projections.sql`, `durability/public_projections.rs`; the V2 profile G-12 extends is in the unmerged in-flight package |
+| `world_daily` watermark family and operator resync coverage | Mechanic exists, no producer | Watermark and resync machinery exist for v1 families only; `world_daily` is in neither |
+
+Not counted as evidence: the world daily draft in commit `16aca0cc` ("PUBPROJ-C", including `apps/game-server/migrations/1353_public_world_daily.sql` and a per-firing public fixed-slot classification). Per the acceptance record, Game removes it from the PUBPROJ package by a new commit without rewriting history, which frees migration number 1353, and preserves it on Game branch `claude/happy-davinci-ijz3wy-g12world` at `16aca0cc1eafe4a2dec574c57fd717a32f5e6aeb` as the base of the G-12 lane. It remains a draft, not evidence, until delivered and qualified in that lane at migrations 1410–1419.
 
 ## Flows and transport
 
@@ -78,6 +124,7 @@ Every table is ordered; all fields are required and non-null. Empty arrays repre
 | `uuid7` | Lowercase non-nil UUIDv7, `^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` |
 | `authority` | ASCII `[A-Za-z0-9._:/-]{1,128}`, exact configured namespace |
 | `content_key(n)` | ASCII `[A-Za-z0-9:._/-]{1,n}`, exact Game content key, case preserved; no URL, display-name inference or truncation |
+| `slot` | Either a `seconds` string or the exact literal string `unavailable`; no other value, no null |
 
 Snapshot members:
 
@@ -103,7 +150,7 @@ Daily record members:
 | `boss_key` | `content_key(255)` | Boosted boss |
 | `history_complete_from` | `seconds` | Inclusive source coverage floor for history |
 | `history` | array 0..32 of history records | All completed boost intervals within coverage; descending `reset_epoch`, unique |
-| `raids` | array 0..256 of raid records | Complete publishable fixed-slot raid records from running onward within current interval; sorted by (`scheduled_at`, `raid_key`), unique pair |
+| `raids` | array 0..256 of raid records | Complete publishable fixed-calendar raid occurrences from running onward within current interval; sorted by (`started_at`, `raid_key`), unique pair |
 
 `effective_until` is a producer-derived value, not a Game column: calculate the next reset slot after the interval start using that reset's authoritative calendar and the same `calendar_revision`. Apply the same rule to historical intervals. Do not assume a fixed 86400-second day, infer the end from a different calendar revision or substitute the next observed boost selection. The pinned calendar is 06:00 Europe/Berlin and must account for DST. The calendar revision remains producer-side derivation evidence, not an extra wire member. A missing/ambiguous next slot withholds publication and completeness. Calendar changes must transactionally revise the projected interval before affected claims are served.
 
@@ -114,12 +161,13 @@ Raid record members:
 | Field | Type | Meaning |
 |---|---|---|
 | `raid_key` | `content_key(128)` | Game raid definition key; narrowed to existing client raid key bound |
-| `scheduled_at` | `seconds` | Fixed calendar slot in `[effective_from,effective_until)`, no later than `source_observed_at` |
+| `started_at` | `seconds` | Committed firing time (`fired_at_ms` floored to whole seconds), in `[effective_from,effective_until)` and no later than `source_observed_at` |
+| `scheduled_at` | `slot` | Fixed calendar slot this occurrence served, or literal `unavailable` when Game has not committed it |
 | `state` | enum string `running`, `done`, `cancelled` | Public scheduling state only |
 
-Only Game-approved fixed-slot raids with committed runtime evidence appear, starting at `Running`, mapped to `running`; `Done` maps to `done` and `Cancelled` to `cancelled`. Game has no `scheduled` state or source for skipped slots. This first daily profile exposes no future slots; time passing, metadata `Applied` or slot consumption never fabricates a raid or cancellation. No random trigger, source-scheduled future trigger or `next_check_at_ms` becomes a predicted firing time. Unsupported/ambiguous source classification withholds the family watermark rather than inventing state. Subsecond fixed slots cannot be rounded: refuse until an accepted representation exists. `raids: []` means no publishable raids in this interval, not no possible random raids. There is no running-creature/player count, participant list, reward, score or prediction outcome.
+Only occurrences of raid definitions whose class in the verified catalogue at the firing's `bundle_digest` is fixed calendar, with committed runtime evidence and a firing `reset_epoch` equal to the record's `reset_epoch`, appear, starting at `Running`, mapped to `running`; `Done` maps to `done` and `Cancelled` to `cancelled`. Game has no `scheduled` state or source for skipped slots. This first daily profile exposes no future slots; time passing, metadata `Applied` or slot consumption never fabricates a raid or cancellation. No random trigger, source-scheduled future trigger or `next_check_at_ms` becomes a predicted firing time. Unsupported/ambiguous source classification withholds the family watermark rather than inventing state. `scheduled_at` is availability-typed: when Game has committed the exact fixed slot of that occurrence, it is that slot as `seconds`, with `effective_from ≤ scheduled_at ≤ started_at`; otherwise it is `unavailable`. `unavailable` is a closed state, not a value: it is never replaced by a guessed, nearest, derived-from-calendar or rounded slot, and Platform displays it as an unknown time. A subsecond slot is not rounded; it is `unavailable`. When Game later commits per-occurrence slots, the producer sends `seconds` under the same wire version, because the `slot` type already admits both. Two occurrences with the same (`started_at`, `raid_key`) withhold publication rather than drop or merge one. `raids: []` means no publishable raids in this interval, not no possible random raids. There is no running-creature/player count, participant list, reward, score or prediction outcome.
 
-A daily record requires both committed boost keys and a fully classified set of publishable raid records. Unknown boosts, uncertain interval end or an over-bound schedule must not become `daily: []` or `raids: []`. Hold publication and freshness instead. `daily: []` is reserved for an explicit committed withdrawal/no-public-view decision and removes current facts and history from public serving. Static catalogue names/artwork resolve through separately accepted content snapshots; an unresolved key is shown as unavailable, never guessed.
+A daily record requires both committed boost keys and a fully classified set of publishable raid records; an `unavailable` slot is classified and does not withhold the record. Unknown boosts, uncertain interval end or an over-bound schedule must not become `daily: []` or `raids: []`. Hold publication and freshness instead. `daily: []` is reserved for an explicit committed withdrawal/no-public-view decision and removes current facts and history from public serving. Game has no such gameplay decision in v1 (readiness table): the v1 producer emits `daily: []` only when a World leaves the configured publication scope through the exported-subject inventory, and Platform's own flags and privacy floor remain the only other way to stop public serving. Static catalogue names/artwork resolve through separately accepted content snapshots; an unresolved key is shown as unavailable, never guessed.
 
 Watermark members in order: `contract_version` (integer `2`), `operation` (literal `PublishPublicProjectionWatermarkV2`), `source_authority` (`authority`), `family` (literal `world_daily`), `projection_epoch` (`u64+`), `complete_through` (`seconds`), `observed_at` (`seconds`). Require `complete_through ≤ observed_at`; neither may exceed Platform now +1 second. No other member or null is valid.
 
@@ -177,16 +225,16 @@ Proposed switches `world_daily.publish_enabled`, `world_daily.ingest_enabled`, `
 
 ## Versioning and compatibility
 
-This is a proposed additive family of `oteryn-game-public-projections-v2`, with `contract_version: 2`, `PublishWorldDailyV2` at `/internal/v2/game-public/world-daily` and `PublishPublicProjectionWatermarkV2` at `/internal/v2/game-public/watermark`. The V2 family enum is defined in [G-4](OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md) and includes `world_daily`; the v1 watermark enum stays closed and unchanged. Both peers must explicitly support the new V2 operation and family before activation; an older consumer's `400` stalls this family. Existing v1 payloads and responses remain unchanged, with no downgrade or redirect. G-8 supplies the single source of online time: owner-only online intervals and public world totals. G-4 drops its own `character_activity` family; this daily family supplies no online time. Adding a field, changing its order/type/nullability/bound, changing identity, public release, coverage or response semantics requires a new accepted wire version and coordinated rollout. No ignore-unknown-fields rule or mixed-version read model. Source revisions, reset epochs, recovery epochs and wire versions are different dimensions.
+This is a proposed additive revision of the PUBPROJ family `oteryn-game-public-projections-v2` (same envelope, `F_pub` fence and operator resync), with `contract_version: 2`, `PublishWorldDailyV2` at `/internal/v2/game-public/world-daily` and `PublishPublicProjectionWatermarkV2` at `/internal/v2/game-public/watermark`. The V2 family enum is defined in [G-4](OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md) and includes `world_daily`; the v1 watermark enum stays closed and unchanged. Both peers must explicitly support the new V2 operation and family before activation; an older consumer's `400` stalls this family. Existing v1 payloads and responses remain unchanged, with no downgrade or redirect. G-8 supplies the single source of online time: owner-only online intervals and public world totals. G-4 drops its own `character_activity` family; this daily family supplies no online time. Adding a field, changing its order/type/nullability/bound, changing identity, public release, coverage or response semantics requires a new accepted wire version and coordinated rollout. No ignore-unknown-fields rule or mixed-version read model. Source revisions, reset epochs, recovery epochs and wire versions are different dimensions.
 
 ## Golden proposed payloads
 
 Synthetic keys below illustrate wire syntax, not catalogue membership. In a deployed fixture they must resolve to the pinned Game content. Fenced bodies are exact single-line JSON; the newline before the closing fence is documentation only.
 
-Valid complete snapshot with a current boost, one historical interval and one committed running fixed-slot raid (observation is after its slot):
+Valid complete snapshot with a current boost, one historical interval, one finished fixed-calendar raid whose slot Game has not committed (`unavailable`) and one committed running raid with a known slot (observation is after both):
 
 ```json
-{"contract_version":2,"operation":"PublishWorldDailyV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":"17","source_observed_at":"1790003610","daily":[{"reset_epoch":"42","effective_from":"1790000000","effective_until":"1790086400","creature_key":"rat","boss_key":"ferumbras","history_complete_from":"1789913600","history":[{"reset_epoch":"41","effective_from":"1789913600","effective_until":"1790000000","creature_key":"dragon","boss_key":"orshabaal"}],"raids":[{"raid_key":"raid:badger","scheduled_at":"1790003600","state":"running"}]}]}
+{"contract_version":2,"operation":"PublishWorldDailyV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":"17","source_observed_at":"1790003610","daily":[{"reset_epoch":"42","effective_from":"1790000000","effective_until":"1790086400","creature_key":"rat","boss_key":"ferumbras","history_complete_from":"1789913600","history":[{"reset_epoch":"41","effective_from":"1789913600","effective_until":"1790000000","creature_key":"dragon","boss_key":"orshabaal"}],"raids":[{"raid_key":"raid:orc_camp","started_at":"1790001800","scheduled_at":"unavailable","state":"done"},{"raid_key":"raid:badger","started_at":"1790003600","scheduled_at":"1790003600","state":"running"}]}]}
 ```
 
 Valid explicit withdrawal (not a producer outage):
@@ -222,9 +270,11 @@ Invalid `409` after accepting the first complete example: exact same pair now wi
 ## Acceptance checklist — Game owner/producer
 
 - [ ] Coordinator accepts this exact proposal revision, disclosure only from committed running onward and the answers below; confirms Game source mapping and content-key bounds.
+- [ ] Deliver G-12 as a separate lane after the PUBPROJ package merges, on migrations 1410–1419, adding nothing to that package; remove the world daily draft from the package by a new commit (no history rewrite), freeing 1353, with the draft kept on `claude/happy-davinci-ijz3wy-g12world`.
+- [ ] Publish **no mechanic** elements as unavailable in v1: `scheduled_at: "unavailable"` until a per-occurrence slot is committed, and `daily: []` only for Worlds leaving the configured scope; never fabricate either. Prove fixed-calendar classification per definition at the firing's bundle digest.
 - [ ] Add V2 daily family and watermark using the G-4 V2 family enum under the existing purpose-bound publisher; preserve the closed v1 enum, without changing gameplay query opcodes or granting Platform mutations.
 - [ ] Prove next-slot derivation within the same calendar revision, committed World/reset interval and durable boost selection mapping (including epoch zero); same-day restarts and concurrent Channels do not redraw or duplicate.
-- [ ] Prove fixed-slot state mappings against runtime commit evidence; skipped, random and source-scheduled raids cannot become fabricated promises/results.
+- [ ] Prove fixed-calendar state mappings and `started_at` against runtime commit evidence; skipped, random and source-scheduled raids cannot become fabricated promises/results.
 - [ ] Transactional revision/outbox covers every projected field, withdrawal and coverage change; exact retry, changed-content conflict and ACK races are exercised.
 - [ ] Restore external fence, higher-epoch full resync, deleted-World inventory, late transaction watermark and poison/oversize withholding are tested.
 - [ ] Operator resync includes the new family and bounded history; retry/timeout/resource limits are measured under maximum World/schedule size.
@@ -233,9 +283,10 @@ Invalid `409` after accepting the first complete example: exact same pair now wi
 ## Acceptance checklist — Platform consumer
 
 - [ ] Accept exact Game producer revision and this wire profile; retain PROPOSED until coordinator acceptance, without marking G-12 complete from prose alone.
+- [ ] Start consumer work only after the V2 PUBPROJ family has merged in Game and this revision is accepted; reuse the PUBPROJ envelope, fence and resync handling rather than a separate feed.
 - [ ] Guard identity/authority/World scope, TLS, closed schema, canonical encoding, bounds, unsupported versions and disabled/misconfigured surfaces.
 - [ ] Atomic snapshot+watermark/fence storage; duplicate, conflicting pair, superseded pair, cross-family epoch raise and post-restore replay tests pass.
-- [ ] Verify completeness, interval edges, history coverage, empty versus unknown, withheld poison row, timeout-after-commit and lost ACK recovery.
+- [ ] Verify completeness, interval edges, history coverage, empty versus unknown, `unavailable` slot shown as unknown time (never a guessed slot), withheld poison row, timeout-after-commit and lost ACK recovery.
 - [ ] T88 current/history/cache/API paths fail closed and T94 stays blocked without an outcome source; dependent paths fail closed on stale or ambiguous evidence; no page-render call to Game.
 - [ ] Current privacy floor fences every public cache/search/SSR generation, including rollback and withdrawal; owner-only diagnostics and retention are verified.
 - [ ] Baseline/resync/tail rebuild proves all configured Worlds and watermark before switching; flags remain off until exact-revision cross-repository E2E succeeds.
@@ -243,7 +294,7 @@ Invalid `409` after accepting the first complete example: exact same pair now wi
 
 ## Open questions for the game owner (coordinator)
 
-Closed questions are recorded below as answered; they no longer request an owner decision. Implementation qualifications in the acceptance checklists remain open and do not imply acceptance of this revision.
+All questions are closed and recorded below as answered; none requests an owner decision. Implementation qualifications in the acceptance checklists remain open; acceptance of revision 3 does not satisfy them.
 
 1. **Answered — V2 compatibility:** use `/internal/v2/game-public/*` and the V2 family enum defined in G-4, as for G-8. The v1 watermark enum remains closed and unchanged. Exact producer allocation/revision remains implementation evidence for acceptance.
 2. **Answered — interval end and epoch:** `reset_epoch` is an unsigned integer ≥0. Game does not store `effective_until`; derive it from the next reset slot within the same `calendar_revision`, never across revisions. If that next slot cannot be established, withhold publication/freshness. Calendar changes require a new consistent snapshot/revision before affected interval claims are served.
@@ -252,3 +303,17 @@ Closed questions are recorded below as answered; they no longer request an owner
 5. **Answered — yes:** accept 30-day/32-interval boost history with explicit coverage, 256 raid records and the 131072-byte snapshot bound, including multiple resets per day, and the proposed content-key grammar/128-byte raid key bound.
 6. **Answered — yes:** accept retention, owner-only diagnostics, testing/preproduction freshness of 30 seconds with 1-second uncertainty, rate limits and no stale display. Production cadence, transaction bound, external fence location and measured load evidence remain implementation/activation qualifications.
 7. **Answered — operator resync only:** rebuild through the authorized Game operator process, with exported-World withdrawal inventory under the existing public epoch fence. No Platform → Game resync command. Rollout environments, exact peer revisions and acceptance evidence are still required before G-12 closure.
+8. **Answered — family and sequencing:** G-12 is an additive revision of the PUBPROJ family (same envelope, fence and resync), lands only after the in-flight PUBPROJ package merges, adds nothing to that package, and is delivered by Game as a separate lane on migrations 1410–1419.
+9. **Answered — no-mechanic elements:** the per-occurrence raid slot and the explicit World withdrawal do not block v1. They carry an explicit unavailable state (`scheduled_at: "unavailable"`; no gameplay withdrawal in v1) and are never fabricated.
+10. **Answered — raid commands 172/173:** declared but not registered; a separate Game mechanic gap outside G-12.
+
+## Acceptance record (revision 3)
+
+The game owner accepted revision 3 (`980e48e8`) through the coordinator on 2026-11-07. Conditions binding this revision:
+
+1. **Sequencing and migrations.** The Game G-12 lane starts only after the PUBPROJ package merges. Game migrations 1410–1419 are reserved for G-12. G-12 remains an additive revision of the PUBPROJ family with the same envelope, `F_pub` fence and operator resync.
+2. **In-flight draft.** The world daily draft (commit `16aca0cc`, "PUBPROJ-C") is removed from the PUBPROJ package by a new Game commit, without rewriting history; migration number 1353 is freed. The draft is preserved on Game branch `claude/happy-davinci-ijz3wy-g12world` at `16aca0cc1eafe4a2dec574c57fd717a32f5e6aeb` as the base of the G-12 lane. It is still not evidence.
+3. **No-mechanic elements.** The per-occurrence raid fixed slot (`scheduled_at`) and the explicit World withdrawal do not block v1. In v1 they carry an explicit unavailable state, never fabricated data: `scheduled_at` has the closed `slot` type (`seconds` or the literal `unavailable`, no null), each raid occurrence carries its committed `started_at` for identity and order, and no gameplay withdrawal is emitted. The readiness table, wire profile, golden payload and checklists apply this.
+4. **Raid commands 172/173.** Declared in the protocol crate but not registered by mechanic `0434`; a separate Game mechanic gap, outside G-12 scope.
+
+Acceptance closes no checklist item that needs evidence. Platform consumer work (T88) and Game producer delivery still require the checklists above, shared fixtures and exact-revision cross-repository evidence; production activation remains a separate owner decision.
