@@ -18,11 +18,8 @@ const surfaces=[
 ];
 // These startup adapters explicitly deny access until accepted game authority exists.
 const gameRefusals={
- 'bazaar':'accepted character custody and signing authority are unavailable',
- 'account/bazaar':'accepted character custody and signing authority are unavailable',
  'account/dashboard':'closed-session and timer producers are unavailable; runtime defaults to empty 503',
  [`account/journal/reports?week=${previousWeek()}`]:'accepted private journal projection source is unavailable',
- 'bazaar/items':'capability and escrow receipt integration is absent',
  'account/game-logins':'accepted ownership and baseline authority is absent',
  'pass':'accepted season source and cosmetic authority is absent',
 };
@@ -47,17 +44,6 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
    if (path.startsWith('account/journal/reports?')) {
      const navigation=await page.request.get(target.split('?')[0],{headers:{accept:'text/html'}});expect(navigation.status()).toBe(503);expect(navigation.headers()['cache-control']).toContain('no-store');expect(await navigation.text()).toContain('op-shell__header');
    }
-   if (['bazaar','account/bazaar'].includes(path)) {
-     expect(refused.headers()['content-type']).toContain('text/html');
-     const html=await refused.text();expect(html).toContain('op-shell__header');expect(html).toContain('op-shell__footer');
-     expect(html).toContain(lang==='pl'?'Aukcje postaci są niedostępne':'Character auctions unavailable');
-     if(path==='bazaar') {
-       const detail=await page.request.get(`/${lang}/bazaar/019a541b-a000-7000-8000-000000000001`,{headers:{accept:'text/html'}});
-       expect(detail.status()).toBe(503);expect(detail.headers()['cache-control']).toContain('no-store');expect(await detail.text()).toContain('op-shell__header');expect(await detail.text()).not.toContain(account.email);
-       const invalid=await page.request.get(`/${lang}/bazaar/invalid`,{headers:{accept:'text/html'}});expect(invalid.status()).toBe(404);expect(await invalid.text()).toContain('op-shell__header');
-     }
-
-   }
    return;
  }
  if(path.endsWith('/export')) {
@@ -71,6 +57,22 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
  }
  const response=await page.goto(target);
  expect(response.status(),target).toBe(200);
+ // The local harness supplies the real Bazaar transport and disposable Game
+ // producer. These pages must succeed; a 503 cannot satisfy this regression.
+ if(['bazaar','account/bazaar','bazaar/items'].includes(path)) {
+   expect(process.env.OTERYN_BAZAAR_ENABLED).toBe('true');
+   expect(response.headers()['cache-control']).toContain('no-store');
+   await expect(page.locator('body.op-shell > header.op-shell__header')).toHaveCount(1);
+   await expect(page.locator('body.op-shell > footer.op-shell__footer')).toHaveCount(1);
+   if(path==='bazaar') {
+     for(const [reference,status] of [['019a541b-a000-7000-8000-000000000001',404],['invalid',400]]) {
+       const detail=await page.request.get(`/${lang}/bazaar/${reference}`,{headers:{accept:'text/html'}});
+       expect(detail.status()).toBe(status);
+       expect(detail.headers()['cache-control']).toContain('no-store');
+       const html=await detail.text();expect(html).toContain('op-shell__header');expect(html).toContain('op-shell__footer');expect(html).not.toContain(account.email);
+     }
+   }
+ }
  await expect(page.locator('html')).toHaveAttribute('lang',lang);
  await expect(page.locator('main')).toBeVisible();
  if(label==='wallet balance') {expect(await page.locator('main dl dd').count()).toBeGreaterThanOrEqual(3);await expect(page.locator('main dl dd').first()).toHaveText('0');}
