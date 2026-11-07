@@ -19,7 +19,7 @@ No PR, deployment, workflow changes or Game writes. Game read-only contract base
 Owned paths: portal-rs/crates/minigames/src/league/**,
 portal-rs/crates/minigames/Cargo.toml, portal-rs/Cargo.lock,
 portal-rs/e2e/league-producer.mjs, portal-rs/e2e/specs/league.spec.mjs,
-portal-rs/e2e/ENVIRONMENT.md. Branch: fix/plat3-t94-wire-align.
+portal-rs/e2e/ENVIRONMENT.md. Branch: claude/portal-rs-t94-wire (PR 1760).
 Live Issue and PR searches found no overlapping task; #1756 confirmed by owner.
 Jira mapping unknown; synchronization pending coordinator.
 
@@ -70,10 +70,10 @@ Source branch disposition: retain for owner integration; no autonomous publicati
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-07T11:08:49Z
+updated_at: 2026-11-07T12:05:00Z
 head: 541af097dd9e0c0031afb4fee269050ac70096b3
-branch: fix/plat3-t94-wire-align
-pr: none
+branch: claude/portal-rs-t94-wire
+pr: 1760
 status: ready
 context_routes:
   - security
@@ -120,13 +120,13 @@ validation:
     evidence: 8 passed (2.2m), real dedicated mTLS listener
 blockers:
   - none
-next_action: owner integrates the local Conventional Commit for Issue 1756
+next_action: PR 1760 merges through the Merge Queue; then archive this record
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: owner requested local commit and will integrate; no PR or push authorized
-source_branch_evidence: current owner instruction and governing Issue 1756
+source_branch_reason: same-repository PR 1760 is open; disposition becomes terminal at merge
+source_branch_evidence: PR 1760 for governing Issue 1756
 ```
