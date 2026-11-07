@@ -26,11 +26,11 @@ Validation: all required Rust checks PASS; E2E 8/8 PASS and final binary recheck
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-07T12:20:00Z
-head: 541af097dd9e0c0031afb4fee269050ac70096b3
+updated_at: 2026-11-07T12:30:00Z
+head: 960874eb0d9026a0166f40d70571d915e3896b77
 branch: claude/portal-rs-acl-lifecycle
 pr: 1762
-status: ready
+status: completed
 context_routes:
   - api
 owned_paths:
@@ -67,15 +67,15 @@ validation:
     evidence: 8 passed across all projects; final binary recheck 2 passed; /tmp/aclose-final-e2e.log
 blockers:
   - none
-next_action: land PR 1762 through auto-merge and archive this task after merge
+next_action: none; PR 1762 merged and Issue 1755 closed.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: same-repository PR 1762 is open; disposition becomes terminal at merge
-source_branch_evidence: PR 1762 for governing Issue 1755
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR; head branch deleted after merge
+source_branch_evidence: PR 1762 merged as 960874eb0d9026a0166f40d70571d915e3896b77
 ```
 
 ## Validation environment
