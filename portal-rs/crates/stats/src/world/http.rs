@@ -1,5 +1,5 @@
 use super::{Config, Day, Error, read};
-use crate::store::{Permissions, Visibility};
+use crate::store::Visibility;
 use askama::Template;
 use axum::{
     Router,
@@ -17,15 +17,9 @@ use uuid::Uuid;
 pub trait Policy: Visibility + Send + Sync {
     fn available(&self) -> bool;
 }
-struct Deny;
-impl Visibility for Deny {
-    fn permissions(&self, _: Uuid) -> Permissions {
-        Permissions::default()
-    }
-}
-impl Policy for Deny {
+impl Policy for crate::privacy::Authority {
     fn available(&self) -> bool {
-        false
+        self.enabled() && crate::privacy::GAME_STATISTICS_ACCEPTED
     }
 }
 #[derive(Clone)]
@@ -47,11 +41,11 @@ pub fn router<S: Clone + Send + Sync + 'static>(
 }
 pub fn configured_router<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router<S> {
     router(
-        db,
+        db.clone(),
         Config {
             enabled: std::env::var("PORTAL_WORLD_STATS_ENABLED").as_deref() == Ok("true"),
         },
-        Arc::new(Deny),
+        Arc::new(crate::privacy::Authority::configured(db)),
     )
 }
 #[derive(serde::Deserialize)]
@@ -249,7 +243,7 @@ async fn page(
 }
 struct PolicyRef<'a>(&'a dyn Policy);
 impl Visibility for PolicyRef<'_> {
-    fn permissions(&self, id: Uuid) -> Permissions {
-        self.0.permissions(id)
+    fn current_permissions(&self, id: Uuid) -> crate::store::PermissionFuture<'_> {
+        Box::pin(async move { self.0.current_permissions(id).await })
     }
 }

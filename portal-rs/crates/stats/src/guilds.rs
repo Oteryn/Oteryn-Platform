@@ -18,8 +18,13 @@ pub enum Error {
 /// T24e adapter seam: return only current, eligible guilds and same-world members.
 /// Suppressed, ambiguous, stale or missing source evidence must return Unavailable.
 /// Permission checks must use current T45 visibility, never historical snapshots.
+pub type GuildFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<Guild>, Error>> + Send + 'a>>;
 pub trait Source: Visibility + Send + Sync {
-    fn current(&self) -> Result<Vec<Guild>, Error>;
+    fn contract_accepted(&self) -> bool {
+        true
+    }
+    fn current_guilds(&self) -> GuildFuture<'_>;
 }
 #[derive(Clone, Debug)]
 pub struct Member {
@@ -50,11 +55,14 @@ pub struct Summary {
 }
 /// Derived ranking over the current visible cohort; not a Game ranking.
 /// Internal stable IDs break ties but must never appear in public output.
-pub fn list(config: Config, source: &dyn Source) -> Result<Vec<Summary>, Error> {
+pub async fn list(config: Config, source: &dyn Source) -> Result<Vec<Summary>, Error> {
     if !config.enabled {
         return Err(Error::Disabled);
     }
-    let guilds = source.current()?;
+    if !source.contract_accepted() {
+        return Err(Error::Unavailable);
+    }
+    let guilds = source.current_guilds().await?;
     if guilds.len() > 1000 {
         return Err(Error::BadInput);
     }
@@ -85,10 +93,14 @@ pub fn list(config: Config, source: &dyn Source) -> Result<Vec<Summary>, Error> 
                 return Err(Error::BadInput);
             }
         }
-        guild.members.retain(|m| {
-            let p = source.permissions(m.id);
-            p.visible && p.guild
-        });
+        let mut visible = Vec::new();
+        for m in guild.members {
+            let p = source.current_permissions(m.id).await;
+            if p.visible && p.guild {
+                visible.push(m);
+            }
+        }
+        guild.members = visible;
         guild.members.sort_by_key(|m| (m.rank, m.id));
         let count = guild.members.len();
         let total_level = if count == 0 {
@@ -153,7 +165,8 @@ pub async fn history(
     if guild_id.is_nil() || start > end || (end - start).whole_days() > 30 {
         return Err(Error::BadInput);
     }
-    let guild = list(config, source)?
+    let guild = list(config, source)
+        .await?
         .into_iter()
         .find(|s| s.guild.id == guild_id)
         .ok_or(Error::Unavailable)?

@@ -211,13 +211,14 @@ fn configured(db: PgPool, part: Part) -> Router {
     if part == Part::Watermark {
         return ingest;
     }
-    router(
-        db,
-        Arc::new(pages::FailClosed),
+    pages::router_with_contract(
+        db.clone(),
+        Arc::new(crate::privacy::Authority::configured(db)),
         Config {
             source_authority,
             enabled: environment && std::env::var("PORTAL_GUILDS_ENABLED").as_deref() == Ok("true"),
         },
+        false, // G-4 rev 1 is CANDIDATE, without a Game producer.
     )
     .merge(ingest)
 }

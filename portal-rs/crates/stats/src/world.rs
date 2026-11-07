@@ -71,7 +71,7 @@ pub async fn read(
         let character = row
             .try_get("character_ref")
             .map_err(|_| Error::Unavailable)?;
-        let permissions = visibility.permissions(character);
+        let permissions = visibility.current_permissions(character).await;
         if !permissions.visible {
             continue;
         }

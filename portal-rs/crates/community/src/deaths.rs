@@ -261,13 +261,14 @@ fn configured(db: PgPool, part: Part) -> Router {
     if part == Part::Watermark {
         return ingest;
     }
-    ingest.merge(router(
-        db,
-        Arc::new(FailClosed),
+    ingest.merge(web::router_with_contract(
+        db.clone(),
+        Arc::new(crate::privacy::Authority::configured(db)),
         Config {
             enabled: base && std::env::var("PORTAL_DEATHS_ENABLED").as_deref() == Ok("true"),
             source_authority: authority,
         },
+        false, // G-4 rev 1 is CANDIDATE, without a Game producer.
     ))
 }
 #[cfg(test)]

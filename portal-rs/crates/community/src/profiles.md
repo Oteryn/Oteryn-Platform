@@ -16,10 +16,12 @@ refusal. Set `PORTAL_TEST_DATABASE_URL` to run it; otherwise it prints a skip.
 ## Integration seams
 
 T09c is merged. Its public `identity::privacy::Privacy::current` API is the account
-upper bound, but does not prove ownership or character visibility. T45 did not
-exist at task admission. `profiles::Privacy` must be implemented using current
-unique ownership, T45 character/account-wide hiding, field switches and current
-T09c account preferences. A missing adapter cannot allow a public profile.
+upper bound, but does not prove ownership or character visibility. The configured `profiles::Privacy` implementation now combines current unique
+LCFA ownership, saved T45 character/account-wide hiding and field switches with
+current verified-account T09c preferences. The exact current World/name reference
+must agree with LCFA. Missing/ambiguous/unreadable evidence denies; allows are
+never cached. New characters remain hidden until the owner explicitly saves.
+The public comment is limited to 500 Unicode characters and escaped by Askama.
 Account association and account status have no representation in this reader;
 there are no account identifiers, other-character links or account groupings.
 

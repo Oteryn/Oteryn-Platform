@@ -8,17 +8,19 @@ struct Fixture {
     hidden: Uuid,
 }
 impl Visibility for Fixture {
-    fn permissions(&self, id: Uuid) -> Permissions {
-        Permissions {
-            visible: id != self.hidden,
-            guild: id != self.hidden,
-            ..Permissions::default()
-        }
+    fn current_permissions(&self, id: Uuid) -> crate::store::PermissionFuture<'_> {
+        Box::pin(async move {
+            Permissions {
+                visible: id != self.hidden,
+                guild: id != self.hidden,
+                ..Permissions::default()
+            }
+        })
     }
 }
 impl Source for Fixture {
-    fn current(&self) -> std::result::Result<Vec<Guild>, Error> {
-        Ok(self.guilds.clone())
+    fn current_guilds(&self) -> GuildFuture<'_> {
+        Box::pin(async move { Ok(self.guilds.clone()) })
     }
 }
 fn fixture() -> Fixture {
@@ -47,27 +49,27 @@ fn fixture() -> Fixture {
         }],
     }
 }
-#[test]
-fn aggregates_refuse_hidden_bad_and_missing_evidence() -> Result {
+#[tokio::test]
+async fn aggregates_refuse_hidden_bad_and_missing_evidence() -> Result {
     let mut source = fixture();
     let config = Config { enabled: true };
-    let summaries = list(config, &source).map_err(|e| format!("{e:?}"))?;
+    let summaries = list(config, &source).await.map_err(|e| format!("{e:?}"))?;
     assert_eq!(summaries[0].members, 1);
     assert_eq!(summaries[0].total_level, Some(10));
     assert_eq!(summaries[0].experience, Some(100));
     assert!(summaries[0].achievement_points.is_none());
     assert_eq!(
-        list(Config::default(), &source).err(),
+        list(Config::default(), &source).await.err(),
         Some(Error::Disabled)
     );
     source.guilds[0].members[1].level = None;
     assert!(
-        list(config, &source).map_err(|e| format!("{e:?}"))?[0]
+        list(config, &source).await.map_err(|e| format!("{e:?}"))?[0]
             .total_level
             .is_none()
     );
     source.guilds[0].members[1].rank = 0;
-    assert_eq!(list(config, &source).err(), Some(Error::BadInput));
+    assert_eq!(list(config, &source).await.err(), Some(Error::BadInput));
     Ok(())
 }
 #[tokio::test]
@@ -233,8 +235,8 @@ async fn postgres_guild_history_growth_privacy_and_missing_endpoints() -> Result
     Ok(())
 }
 
-#[test]
-fn ranking_is_stable_and_duplicate_members_deny() -> Result {
+#[tokio::test]
+async fn ranking_is_stable_and_duplicate_members_deny() -> Result {
     let mut source = fixture();
     let mut second = source.guilds[0].clone();
     second.id = Uuid::now_v7();
@@ -249,13 +251,13 @@ fn ranking_is_stable_and_duplicate_members_deny() -> Result {
     });
     source.guilds.push(second);
     let config = Config { enabled: true };
-    let ranked = list(config, &source).map_err(|e| format!("{e:?}"))?;
+    let ranked = list(config, &source).await.map_err(|e| format!("{e:?}"))?;
     assert_eq!(ranked[0].guild.name, "Second");
     assert!(ranked[0].experience.is_none());
     source.guilds[1].members[0].level = Some(10);
-    let tied = list(config, &source).map_err(|e| format!("{e:?}"))?;
+    let tied = list(config, &source).await.map_err(|e| format!("{e:?}"))?;
     assert!(tied[0].guild.id < tied[1].guild.id);
     source.guilds[1].members[0].id = source.guilds[0].members[1].id;
-    assert_eq!(list(config, &source).err(), Some(Error::BadInput));
+    assert_eq!(list(config, &source).await.err(), Some(Error::BadInput));
     Ok(())
 }

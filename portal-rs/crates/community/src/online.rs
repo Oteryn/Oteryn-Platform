@@ -19,6 +19,8 @@ use std::{
 pub struct CharacterRef {
     pub world: String,
     pub name: String,
+    pub epoch: String,
+    pub observed_at: i64,
 }
 #[derive(Debug)]
 pub struct Unavailable;
@@ -73,8 +75,8 @@ pub fn router<S: Clone + Send + Sync + 'static>(
 }
 pub fn configured_router<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router<S> {
     router(
-        db,
-        Arc::new(FailClosed),
+        db.clone(),
+        Arc::new(crate::privacy::Authority::configured(db)),
         Config {
             enabled: std::env::var("PORTAL_ONLINE_ENABLED").as_deref() == Ok("true"),
             stale_after: Duration::from_secs(
@@ -153,7 +155,14 @@ fn labels(en: bool) -> Vec<String> {
     .collect()
 }
 async fn load(state: &Online, query: &Query) -> Result<(Vec<String>, Vec<World>), Unavailable> {
-    let rows = sqlx::query("SELECT subject, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject").fetch_all(&state.db).await.map_err(|_| Unavailable)?;
+    // The existing publisher takes this fence exclusively, including suppression.
+    let mut fence = state.db.begin().await.map_err(|_| Unavailable)?;
+    sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
+        .fetch_one(&mut *fence)
+        .await
+        .map_err(|_| Unavailable)?;
+    let mut visible_refs = Vec::new();
+    let rows = sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject").fetch_all(&state.db).await.map_err(|_| Unavailable)?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| Unavailable)?
@@ -177,6 +186,8 @@ async fn load(state: &Online, query: &Query) -> Result<(Vec<String>, Vec<World>)
             .iter()
             .map(|c| {
                 Ok(CharacterRef {
+                    epoch: row.try_get("epoch").map_err(|_| Unavailable)?,
+                    observed_at: watermark,
                     world: id.clone(),
                     name: c["name"].as_str().ok_or(Unavailable)?.to_owned(),
                 })
@@ -187,10 +198,11 @@ async fn load(state: &Online, query: &Query) -> Result<(Vec<String>, Vec<World>)
             return Err(Unavailable);
         }
         let mut characters = vec![];
-        for (c, hidden) in entries.iter().zip(hidden) {
+        for ((c, reference), hidden) in entries.iter().zip(refs).zip(hidden) {
             if hidden {
                 continue;
             }
+            visible_refs.push(reference);
             characters.push(Character {
                 name: c["name"].as_str().ok_or(Unavailable)?.into(),
                 level: c["level"].as_str().ok_or(Unavailable)?.into(),
@@ -209,6 +221,10 @@ async fn load(state: &Online, query: &Query) -> Result<(Vec<String>, Vec<World>)
                 name
             }
         });
+        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='world_online' AND NOT is_watermark AND subject=$1 AND payload=$2 AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1))").bind(&id).bind(&payload).fetch_one(&state.db).await.map_err(|_|Unavailable)?;
+        if !current {
+            return Err(Unavailable);
+        }
         worlds.push(World {
             id,
             as_of: row.try_get("as_of").map_err(|_| Unavailable)?,
@@ -218,6 +234,11 @@ async fn load(state: &Online, query: &Query) -> Result<(Vec<String>, Vec<World>)
         });
     }
     state.visibility.hidden_batch(&[]).await?;
+    let final_hidden = state.visibility.hidden_batch(&visible_refs).await?;
+    if final_hidden.len() != visible_refs.len() || final_hidden.into_iter().any(|hidden| hidden) {
+        return Err(Unavailable);
+    }
+    fence.commit().await.map_err(|_| Unavailable)?;
     Ok((ids, worlds))
 }
 async fn page(

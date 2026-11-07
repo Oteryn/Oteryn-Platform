@@ -48,9 +48,9 @@ struct Profiles {
 }
 pub fn configured_router(db: PgPool) -> Router {
     router(
-        db,
+        db.clone(),
         std::env::var("PORTAL_PUBLIC_PROFILES_ENABLED").as_deref() == Ok("true"),
-        Arc::new(FailClosed),
+        Arc::new(crate::privacy::Authority::configured(db)),
     )
 }
 pub fn router(db: PgPool, enabled: bool, privacy: Arc<dyn Privacy>) -> Router {

@@ -20,6 +20,24 @@ struct Page<'a> {
     main: String,
     save: String,
     value: Preferences,
+    labels: Vec<String>,
+}
+fn labels(lang: &str) -> Vec<String> {
+    [
+        "hidden",
+        "hide-all",
+        "account",
+        "status",
+        "house",
+        "skills",
+        "deaths",
+        "kills",
+        "online-time",
+        "comment",
+    ]
+    .iter()
+    .map(|key| text(lang, key))
+    .collect()
 }
 fn text(lang: &str, key: &str) -> String {
     let source = if lang == "en" {
@@ -58,6 +76,7 @@ fn failure(error: Error, lang: &str) -> Response {
     let (status, key) = match error {
         Error::NotFound => (StatusCode::NOT_FOUND, "missing"),
         Error::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
+        Error::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "invalid"),
         Error::BadInput => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
     };
     (status, text(lang, key)).into_response()
@@ -117,6 +136,7 @@ async fn edit_inner(
             main: text(lang, "main"),
             save: text(lang, "save"),
             value,
+            labels: labels(lang),
         })
         .render()
         {
@@ -134,7 +154,8 @@ fn parse(body: &[u8]) -> Result<Preferences, Error> {
         serde_urlencoded::from_bytes(body).map_err(|_| Error::BadInput)?;
     let mut p = Preferences {
         show_guild: false,
-        is_main_character: false,
+        hidden: false,
+        ..Preferences::default()
     };
     let mut seen = std::collections::HashSet::new();
     for (key, value) in fields {
@@ -143,20 +164,45 @@ fn parse(body: &[u8]) -> Result<Preferences, Error> {
         }
         match key.as_str() {
             "_csrf" => {}
-            "show_guild" | "is_main_character" => {
+            "comment" => {
+                p.comment = value.replace("\r\n", "\n");
+            }
+            "show_guild"
+            | "is_main_character"
+            | "hidden"
+            | "hide_all_characters"
+            | "show_account"
+            | "show_status"
+            | "show_house"
+            | "show_skills"
+            | "show_deaths"
+            | "show_kills"
+            | "show_online_time" => {
                 let value = match value.as_str() {
                     "1" | "true" => true,
                     "0" | "false" => false,
                     _ => return Err(Error::BadInput),
                 };
-                if key == "show_guild" {
-                    p.show_guild = value;
-                } else {
-                    p.is_main_character = value;
+                match key.as_str() {
+                    "show_guild" => p.show_guild = value,
+                    "is_main_character" => p.is_main_character = value,
+                    "hidden" => p.hidden = value,
+                    "hide_all_characters" => p.hide_all_characters = value,
+                    "show_account" => p.show_account = value,
+                    "show_status" => p.show_status = value,
+                    "show_house" => p.show_house = value,
+                    "show_skills" => p.show_skills = value,
+                    "show_deaths" => p.show_deaths = value,
+                    "show_kills" => p.show_kills = value,
+                    "show_online_time" => p.show_online_time = value,
+                    _ => return Err(Error::BadInput),
                 }
             }
             _ => return Err(Error::BadInput),
         }
+    }
+    if p.comment.chars().count() > 500 || p.comment.chars().any(|c| c.is_control() && c != '\n') {
+        return Err(Error::BadInput);
     }
     Ok(p)
 }
@@ -204,17 +250,29 @@ mod tests {
             parse(b"show_guild=1&is_main_character=true").ok(),
             Some(Preferences {
                 show_guild: true,
-                is_main_character: true
+                is_main_character: true,
+                hidden: false,
+                ..Preferences::default()
             })
         );
         assert!(parse(b"show_guild=banana").is_err());
+        assert!(parse(format!("comment={}", "a".repeat(501)).as_bytes()).is_err());
+        assert!(parse(b"hidden=true&hidden=false").is_err());
+        assert!(parse(b"comment=%00").is_err());
+        assert_eq!(
+            parse(b"comment=first%0D%0Asecond").ok().map(|p| p.comment),
+            Some("first\nsecond".into())
+        );
+        assert!(parse("comment=żółć".as_bytes()).is_ok());
         assert!(parse(b"show_guild=1&show_guild=0").is_err());
         assert!(parse(b"account_id=foreign").is_err());
         assert_eq!(
             parse(b"").ok(),
             Some(Preferences {
                 show_guild: false,
-                is_main_character: false
+                is_main_character: false,
+                hidden: false,
+                ..Preferences::default()
             })
         );
         for lang in ["pl", "en"] {
@@ -242,7 +300,11 @@ mod tests {
             guild: text("en", "guild"),
             main: text("en", "main"),
             save: text("en", "save"),
-            value: Preferences::default(),
+            value: Preferences {
+                comment: "<script>comment</script>".into(),
+                ..Preferences::default()
+            },
+            labels: labels("en"),
         }
         .render()?;
         assert!(!html.contains("<script>"));
