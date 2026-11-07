@@ -36,9 +36,9 @@ stats/world/http.rs privacy wiring allowed. No live PR claims these paths in pre
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-07T13:00:00Z
-head: bc4179837459adb7a52630c0c04f3c0b4edfd87d
+head: 65b0839f2a2e4213e4d34c082096e5a418c8fbd9
 branch: claude/portal-rs-t45-privacy
-pr: none
+pr: 1766
 status: ready
 context_routes: []
 owned_paths:
@@ -115,15 +115,15 @@ validation:
     evidence: 1101 passed, 0 failed, 3 ignored; fresh PostgreSQL 18.6, locks=1024, connections=300, threads=4
 blockers:
   - Game public projection qualification and G-9 share contract
-next_action: owner reviews codex/portal-rs-t45-privacy; no PR or deployment requested
+next_action: land PR 1766; Game G-4/G-8 acceptance gates remain owner decisions
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: owner requests pushed branch without PR; owner reviews this branch after delivery
-source_branch_evidence: user task instruction
+source_branch_reason: same-repository PR 1766 is open; disposition becomes terminal at merge
+source_branch_evidence: PR 1766 for governing Issue 277
 ```
 
 Publication: owner-authorized new branch push only; no PR, merge or deployment.
