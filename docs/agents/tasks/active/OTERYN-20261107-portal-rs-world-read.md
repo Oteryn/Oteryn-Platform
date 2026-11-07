@@ -7,8 +7,6 @@ required_reads:
   - docs/architecture/TEST_STRATEGY.md
   - docs/agents/BUILD_TEST_MATRIX.md
   - docs/agents/EXECUTION_RESOURCE_HYGIENE.md
-  - portal-rs/crates/world/tests/fixtures/catalog-fd4be4e2/CONTRACT.md
-  - portal-rs/crates/world/tests/fixtures/catalog-fd4be4e2/CATALOG-CONTRACT-NOTES.md
 search_first:
   - portal-rs/crates/world
   - portal-rs/crates/wiki
@@ -36,7 +34,7 @@ rendering or Today producer. Areas await Game's later additive export revision.
 checkpoint_version: 1
 updated_at: 2026-11-07T16:10:13Z
 head: 2a224efb54ac117f5e11e85d206006f841b68da6
-branch: codex/portal-rs-world-read
+branch: claude/portal-rs-world-read
 pr: none
 status: ready
 context_routes:

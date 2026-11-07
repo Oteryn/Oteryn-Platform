@@ -37,8 +37,8 @@ No display names are reconstructed from keys in the native cache.
 Source references:
 
 - `crates/wiki/src/entities.rs`: `KINDS`, `world_kind`, `name`, `row`, `collect`, `detail`.
-- [Contract vocabulary](tests/fixtures/catalog-fd4be4e2/CONTRACT.md#L54).
-- [Payload evolution gate](tests/fixtures/catalog-fd4be4e2/CONTRACT.md#L222).
+- [Contract vocabulary](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md#L54).
+- [Payload evolution gate](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md#L222).
 
 ## Deliberately separate gaps
 
@@ -70,7 +70,7 @@ are invalid at verification. Unknown/incomplete inventory cannot prove absence,
 removal, or an empty public catalogue.
 
 The real lane still marks all native categories unsupported/unknown, as explicitly
-recorded in [lane notes](tests/fixtures/catalog-fd4be4e2/CATALOG-CONTRACT-NOTES.md#L38).
+recorded in [lane notes](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/reference/CATALOG-CONTRACT-NOTES.md#L38).
 Its negative input cannot publish. With the opt-in production publication switch,
 complete categories project verified cache records through a separate wiki pointer;
 home/search aggregate only complete categories and refuse when none exists.

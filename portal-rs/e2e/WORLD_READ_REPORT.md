@@ -106,10 +106,10 @@ vectors remain unchanged.
 
 - Wiki/search with the real lane remain **503**: all eight native capabilities
   are explicitly unsupported/unknown and empty. Evidence:
-  [lane notes:39–63](../crates/world/tests/fixtures/catalog-fd4be4e2/CATALOG-CONTRACT-NOTES.md#L39).
+  [lane notes:39–63](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/reference/CATALOG-CONTRACT-NOTES.md#L39).
 - `/wiki/areas` remains **503**, pending the scheduled later additive `area`
   category; v1 has no such capability:
-  [contract:54](../crates/world/tests/fixtures/catalog-fd4be4e2/CONTRACT.md#L54).
+  [contract:54](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md#L54).
 - Atlas/delivery remain **503**, requiring a Game-side atlas export; no Atlas
   code changes in Update 5.
 - Today data/widget remain **503**, with G-12 still

@@ -5,11 +5,16 @@ Read-only source: `Oteryn/Oteryn-Game`, branch
 `fd4be4e214ef33ad65d3ce465dab7160377e62f5`.
 **Lane branch, re-pin on merge.** This is not a merged Game release.
 
-Exact copied sources:
+Exact copied source:
 
 - `tools/game-platform-catalog/fixtures/unsupported-native-input.json`.
-- `docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md` (`CONTRACT.md`).
-- `docs/reference/CATALOG-CONTRACT-NOTES.md`.
+
+Referenced at the same revision, not vendored (read them through the pinned links):
+
+- [`docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md`](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md),
+  SHA-256 `9bc87fba5b565e5c7d4d3f6ca7a9bd75d45d8110de64a2a50f8f74d9ba181cad`.
+- [`docs/reference/CATALOG-CONTRACT-NOTES.md`](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/reference/CATALOG-CONTRACT-NOTES.md),
+  SHA-256 `66ac4f1870326c7a6245f3a7090f60fce9da188380925a7e0eadbb0109f74c02`.
 - `tools/game-platform-catalog/producer.py`, retained as test tooling in
   `portal-rs/e2e/support/catalog-producer.py`. SHA-256:
   `c3a69662610d8e52430f24a04e0878ea3055dc62675283626a708e24f41dcc7e`.
