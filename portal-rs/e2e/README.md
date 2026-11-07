@@ -81,7 +81,7 @@ exact reference producer from Game
 `d34807f5bd234ee8318e57ba454ba39be0df113d`, with its byte sidecar and explicit
 provenance fence. The fixture's internal source revision is `a2a5da955dd8f580c9e768c8ac6a741db388cb22`;
 that is distinct from the producer evidence pin. See
-[`SOURCE.md`](../crates/world/tests/fixtures/catalog-fd4be4e2/SOURCE.md).
+[`SOURCE.md`](../crates/world/tests/fixtures/catalog-669d5af5/SOURCE.md).
 No generated artifact or sidecar is committed. Use `PORTAL_E2E_CATALOG_FILE`
 for another local export, supply `OTERYN_WORLD_CATALOG_SHA256` independently,
 and set the five
@@ -105,15 +105,15 @@ Expected native results are deliberate fail-closed, not successful data reads:
 
 | Pages | Expected | Exact blocker/evidence |
 | --- | --- | --- |
-| `/{pl,en}/wiki`, `/wiki/search`, entity lists | 503 + no-store + shared shell | All eight export capabilities are `unsupported/unknown`, with no entities: [input fixture](../crates/world/tests/fixtures/catalog-fd4be4e2/unsupported-native-input.json#L9). The lane explicitly refuses promotion of native capability payloads: [lane notes:38–62](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/reference/CATALOG-CONTRACT-NOTES.md#L38). There are no approved catalogue names/stats/relations to render. |
+| `/{pl,en}/wiki`, `/wiki/search`, entity lists | 503 + no-store + shared shell | All eight export capabilities are `unsupported/unknown`, with no entities: [input fixture](../crates/world/tests/fixtures/catalog-669d5af5/unsupported-native-input.json#L9). Merged Game `main` explicitly refuses promotion of native capability payloads: [contract notes:54–78](https://github.com/Oteryn/Oteryn-Game/blob/669d5af5261a60d347167b7c880a4498aebe72ed/docs/reference/CATALOG-CONTRACT-NOTES.md#L54). There are no approved catalogue names/stats/relations to render. |
 | `/{lang}/atlas` | 503 + no-store + shared shell | Needs a **Game-side atlas export**. At Game `d34807f5`, [`content/world/assets/catalog.json:1`](https://github.com/Oteryn/Oteryn-Game/blob/d34807f5bd234ee8318e57ba454ba39be0df113d/content/world/assets/catalog.json#L1) contains `assets:[]`; CATALOG_EXPORT_V1 has no map capability. No terrain/B3 substitute is rendered. |
 | `/{lang}/atlas/delivery` | 503 + no-store + shared shell | Item/creature/loot/quest capabilities remain unsupported; no public active catalogue or accepted payloads. |
 | `/{lang}/today/data`, `/today/widget` | 503 + no-store (JSON / HTML fragment) | G-12 is [PROPOSED, changes needed](../../docs/contracts/OTERYN_V2_WORLD_DAILY_FAMILY_CONTRACT_PROPOSAL.md#L1), with no accepted Game producer. No ingest evidence or supported catalogue names are invented. |
 | `/{lang}/stats/world` without query | 200 + no-store + shared shell when registered worlds exist | Real registry picker; empty/unavailable registry still returns 503. |
 | `/{lang}/stats/world?world=…&start=…&end=…` | 503 + no-store | Existing privacy/visibility policy is unavailable; the picker grants no metrics access. |
 
-G-2 is resolved at lane `fd4be4e214ef33ad65d3ce465dab7160377e62f5` (re-pin on
-merge): hidden identities never enter the export; an explicit `visibility` member
+G-2 is resolved at Game `main` `669d5af5261a60d347167b7c880a4498aebe72ed`
+(merged #3025): hidden identities never enter the export; an explicit `visibility` member
 must be the string `public`. Independent admin approval remains required. The
 For an intentional transport failure probe, set
 `PORTAL_E2E_CATALOG_EXPECT_UNAVAILABLE=1` alongside the URL; a healthy URL serving

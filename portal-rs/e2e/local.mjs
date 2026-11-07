@@ -47,7 +47,7 @@ Object.assign(env,{
 // Never read raw Game content or fabricate a Today producer/catalogue.
 const catalogFile=process.env.PORTAL_E2E_CATALOG_FILE||path.join(scratch,'game-platform-catalog.json');
 if(!process.env.PORTAL_E2E_CATALOG_FILE){
- const generated=spawnSync('python3',[path.join(root,'e2e/support/catalog-producer.py'),'produce',path.join(root,'crates/world/tests/fixtures/catalog-fd4be4e2/unsupported-native-input.json'),catalogFile],{stdio:'ignore'});
+ const generated=spawnSync('python3',[path.join(root,'e2e/support/catalog-producer.py'),'produce',path.join(root,'crates/world/tests/fixtures/catalog-669d5af5/unsupported-native-input.json'),catalogFile],{stdio:'ignore'});
  if(generated.status!==0)throw new Error('Pinned negative catalog fixture generation failed');
 }
 if(process.env.PORTAL_E2E_CATALOG_FILE&&!process.env.OTERYN_WORLD_CATALOG_SHA256)throw new Error('External artifact requires independently configured OTERYN_WORLD_CATALOG_SHA256');

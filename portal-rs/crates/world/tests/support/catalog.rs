@@ -68,7 +68,7 @@ pub fn emit(mut source: Value) -> Fixture {
 pub fn negative() -> Fixture {
     let fixture = emit(
         serde_json::from_str(include_str!(
-            "../fixtures/catalog-fd4be4e2/unsupported-native-input.json"
+            "../fixtures/catalog-669d5af5/unsupported-native-input.json"
         ))
         .unwrap(),
     );

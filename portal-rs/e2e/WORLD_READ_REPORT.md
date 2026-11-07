@@ -99,17 +99,18 @@ checks are not skipped or weakened.
 
 ## Unchanged source gaps and refusals
 
-Game pin remains `fd4be4e214ef33ad65d3ce465dab7160377e62f5`, a lane branch:
-**re-pin on merge**. No new Game access or artifact generation is needed by this
+Game pin is `669d5af5261a60d347167b7c880a4498aebe72ed`, Game `main` after the
+CATALOG lane (#3025) merged; it replaces the earlier lane pin `fd4be4e2`.
+No new Game access or artifact generation is needed by this
 review update. The committed negative reference input and test-only supported
 vectors remain unchanged.
 
-- Wiki/search with the real lane remain **503**: all eight native capabilities
+- Wiki/search with merged Game `main` remain **503**: all eight native capabilities
   are explicitly unsupported/unknown and empty. Evidence:
-  [lane notes:39–63](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/reference/CATALOG-CONTRACT-NOTES.md#L39).
+  [contract notes:55–79](https://github.com/Oteryn/Oteryn-Game/blob/669d5af5261a60d347167b7c880a4498aebe72ed/docs/reference/CATALOG-CONTRACT-NOTES.md#L55).
 - `/wiki/areas` remains **503**, pending the scheduled later additive `area`
   category; v1 has no such capability:
-  [contract:54](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md#L54).
+  [contract:54](https://github.com/Oteryn/Oteryn-Game/blob/669d5af5261a60d347167b7c880a4498aebe72ed/docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md#L54).
 - Atlas/delivery remain **503**, requiring a Game-side atlas export; no Atlas
   code changes in Update 5.
 - Today data/widget remain **503**, with G-12 still

@@ -66,19 +66,19 @@ versions cannot be published through the legacy/map action or given Platform-aut
 replacement names. Source changes/removals never inherit public facts from an old
 snapshot; approvals alone cannot publish missing entries.
 
-G-2 is resolved at Game lane `fd4be4e214ef33ad65d3ce465dab7160377e62f5`:
+G-2 is resolved at Game `main` `669d5af5261a60d347167b7c880a4498aebe72ed` (merged #3025):
 the producer omits hidden records, hidden NPC shop relations and secret achievements.
 No visibility decoding/default is needed. If any record/payload carries a
 `visibility` member, only the string `public` is accepted; anything else rejects
 the whole artifact. Absence is the ordinary export form. Platform approval remains
 an additional gate.
 
-The lane is **not merged; re-pin on merge**. Its notes explicitly keep all eight
-native capabilities unsupported/unknown, so its actual output still cannot
+The CATALOG lane is merged. Its notes still explicitly keep all eight native
+capabilities unsupported/unknown, so the real `main` export still cannot
 publish wiki data. `/wiki/areas` remains 503 pending the later additive `area`
 category. Atlas needs a Game-side atlas export; Today needs an accepted producer.
 See [wiki capability requirements](CATALOG_WIKI_REQUIREMENTS.md) and the pinned
-[SOURCE note](tests/fixtures/catalog-fd4be4e2/SOURCE.md).
+[SOURCE note](tests/fixtures/catalog-669d5af5/SOURCE.md).
 
 ## Historical directory-parser API
 
