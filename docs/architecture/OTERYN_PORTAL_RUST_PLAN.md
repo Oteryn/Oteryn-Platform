@@ -650,6 +650,8 @@ Licencja: `LICENSE-ASSETS.md` gry zastrzega grafikę, mapy i metadane („all ri
 
 Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie część danych świata.
 
+**OPEN QUESTION — signed content release manifest.** Should a signed manifest bind the pinned game release, wiki/catalog data, Atlas assets and rule test vectors, with verification and atomic activation/rollback? This remains non-binding and Game-contract dependent; it does not replace the direct `content/**` import above. Source: #1643 draft:55 @ 1c9c638f (draft D12).
+
 ## 7. Bezpieczeństwo
 
 - Hasła: argon2id z rehashem; sprawdzanie haseł w wyciekach (k-anonymity); rate limity logowania, rejestracji i odzyskiwania; ochrona przed enumeracją kont.
@@ -672,6 +674,15 @@ Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie cz�
 - Uploady: limit rozmiaru, sprawdzanie typu po zawartości, przetwarzanie obrazów, brak wykonywania.
 - Audyt: każda akcja zespołu trafia do `audit_log` (kto, co, kiedy, przed i po).
 - Sekrety: tylko zmienne środowiska lub pliki na hoście; nic w repozytorium.
+
+### 7.1 Security proposals salvaged from #1643
+
+These are non-binding design notes for later implementation tasks, not evidence of delivered controls or authorization to change existing contracts. In the citations below, `draft` means `docs/architecture/OTERYN_PLATFORM_2_DESIGN_DRAFT.md` on the source branch; the draft is not copied here.
+
+- **Audit integrity:** append-only daily hash chains, with each chain head exported to logs. Retain actor, peer, action, target, before/after digests, request ID and IP alongside the existing audit fields. Source: #1643 draft:249-266 @ 1c9c638f.
+- **Supply chain:** produce an SBOM and apply keyless sigstore signing to each image. Source: #1643 draft:249-266 @ 1c9c638f.
+- **Single-approver fallback:** where only one eligible approver exists, allow self-approval only after a 15-minute cooldown and email the owner. This proposed exception needs explicit acceptance before it can alter the four-eyes controls in §5.4 or other accepted contracts. Source: #1643 draft:37 @ 1c9c638f.
+- **OPEN OWNER DECISION — secret-file permissions:** should the loader require secret files in `/run/secrets` with mode `0400` and reject group- or world-readable files? The draft's file-only policy conflicts with §7's “environment variables or files”; §7 remains unchanged pending the owner's decision. Source: #1643 draft:249-266 @ 1c9c638f.
 
 ## 8. Wygląd i jakość
 
@@ -700,6 +711,18 @@ Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie cz�
 6. Przełączenie domeny i gatewaya na nowy portal (rola `gateway` zamiast `services/game-gateway`). Laravel i gateway w Go zostają wyłączone, a ich kod i workflowy CI są usuwane z repozytorium osobnym PR-em.
 
 Każdy krok wymaga zgody właściciela („deploy”).
+
+### 9.1 Rollback and cutover gate
+
+Non-binding rehearsal and gate proposals, to be qualified in the deployment task. Every deployment still requires the owner's authorization above. Apply them only to the accepted first-release scope; node management and GM observe remain deferred (D1).
+
+- **Rollback triggers:** successful logins below 95% for 15 minutes; admission or evidence errors above the measured baseline; any monotonic-counter regression; or failed import verification. Source: #1643 draft:1002-1013 @ 1c9c638f.
+- **Rollback boundary:** before the new portal accepts writes, restore the previous routing and processes. After writes begin, use a rehearsed reverse import before returning to Laravel and the Go gateway. Preserve identities, password hashes, generations, floors, witnesses, intents and acknowledgements, epochs and ledgers; reconcile accepted payments into the legacy ledger. A route-only rollback would regress Game floors/revisions and is unsafe. Retain new-portal-only data for a later attempt. Source: #1643 draft:1002-1013 @ 1c9c638f.
+- **Data gate:** three cutover rehearsals and one reverse-import rehearsal; fourteen nightly imports against an isolated production-like copy with zero differences; measured cutover window at most 60 minutes. Source: #1643 draft:1068-1095 @ 1c9c638f.
+- **Scope gate:** accepted first-release features pass preprod and dark-production qualification, including the Atlas parity checklist and legacy-URL redirects checked against a crawl. Source: #1643 draft:1068-1095 @ 1c9c638f.
+- **Compatibility and security gate:** all applicable wire/rule vectors pass; verify legacy password hashes, TOTP decryption and keyed-hash lookups on a controlled snapshot; review authentication and payments, and verify CSRF, rate limits, sudo and CSP. Source: #1643 draft:1068-1095 @ 1c9c638f.
+- **Performance gate:** `/internal/v1` p99 below 250 ms at twice expected load; tools p95 below 200 ms; gateway p99 no worse than the Go gateway; cold Atlas overview first frame below 2.5 s at 50 Mbit/s, CPU frame time p95 below 16 ms on an agreed reference machine, and incremental content build below 45 minutes. The draft's public-page p95 below 300 ms does not relax §8's stricter below-150-ms budget. Source: #1643 draft:1068-1095 @ 1c9c638f.
+- **Operational and product gate:** successful restore drill, working alerts for projections, command age, admission, disk, payment webhooks, content builds/validation and CDN failures; reviewed runbooks, staff training, applicable legal/privacy review, EN/PL coverage, SPF/DKIM/DMARC, reviewed map visuals and signed owner UAT. Source: #1643 draft:1068-1095 @ 1c9c638f.
 
 ## 10. Zadania dla Codexa
 
