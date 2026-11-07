@@ -6,6 +6,8 @@ use super::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Permission {
     Access,
+    AdminAnalyticsView,
+    AdminAnalyticsExport,
     ManageRoles,
     ViewAudit,
     ManageNews,
@@ -83,6 +85,8 @@ impl Permission {
 
     pub const ALL: &'static [Self] = &[
         Self::Access,
+        Self::AdminAnalyticsView,
+        Self::AdminAnalyticsExport,
         Self::ManageRoles,
         Self::ViewAudit,
         Self::ManageNews,
@@ -148,6 +152,8 @@ impl Permission {
 
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::AdminAnalyticsView => "admin.analytics.view",
+            Self::AdminAnalyticsExport => "admin.analytics.export",
             Self::Access => "admin.access",
             Self::ManageRoles => "admin.roles.manage",
             Self::ViewAudit => "audit.view",
@@ -288,6 +294,8 @@ impl BuiltInRole {
     pub const fn permissions(self) -> &'static [Permission] {
         match self {
             Self::PlatformAdmin => &[
+                Permission::AdminAnalyticsView,
+                Permission::AdminAnalyticsExport,
                 Permission::Access,
                 Permission::ManageRoles,
                 Permission::ViewAudit,

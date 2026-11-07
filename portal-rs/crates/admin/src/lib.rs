@@ -15,3 +15,5 @@ pub mod console;
 pub mod control;
 
 pub use control::control_http;
+
+pub mod analytics;

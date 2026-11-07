@@ -105,7 +105,7 @@ struct Panel<I, A> {
     pool: PgPool,
 }
 
-fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
+pub(crate) fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
     let enabled = std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|v| v == "true");
     let host = std::env::var("OTERYN_ADMIN_HOST").unwrap_or_default();
     if enabled && (host.is_empty() || host.parse::<axum::http::uri::Authority>().is_err()) {
@@ -210,15 +210,25 @@ async fn host<I: StaffSession, A: AccountStateReader>(
     request: Request,
     next: Next,
 ) -> Response {
+    host_guard(State((s.config.clone(), false)), request, next).await
+}
+
+/// Shared outer host boundary: reject before session, authorization or audit work.
+/// Analytics opts into private cache headers; the existing panel keeps no-store.
+pub(crate) async fn host_guard(
+    State((config, private)): State<(PanelConfig, bool)>,
+    request: Request,
+    next: Next,
+) -> Response {
     let hosts = request.headers().get_all(header::HOST);
-    if !s.config.admin_panel
-        || s.config.host.is_empty()
+    if !config.admin_panel
+        || config.host.is_empty()
         || hosts.iter().count() != 1
         || !hosts
             .iter()
             .next()
             .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.eq_ignore_ascii_case(&s.config.host))
+            .is_some_and(|v| v.eq_ignore_ascii_case(&config.host))
     {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -238,11 +248,24 @@ async fn host<I: StaffSession, A: AccountStateReader>(
             "permissions-policy",
             "camera=(), microphone=(), geolocation=()",
         ),
-        ("cache-control", "no-store"),
+        (
+            "cache-control",
+            if private {
+                "no-store, private"
+            } else {
+                "no-store"
+            },
+        ),
     ] {
         response
             .headers_mut()
             .insert(name, axum::http::HeaderValue::from_static(value));
+    }
+    if private {
+        response.headers_mut().insert(
+            header::PRAGMA,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
     }
     response
 }

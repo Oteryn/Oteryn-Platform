@@ -28,7 +28,18 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 62);
+    assert_eq!(Permission::ALL.len(), 64);
+    for role in BuiltInRole::ALL {
+        for permission in [
+            Permission::AdminAnalyticsView,
+            Permission::AdminAnalyticsExport,
+        ] {
+            assert_eq!(
+                role.permissions().contains(&permission),
+                *role == BuiltInRole::PlatformAdmin
+            );
+        }
+    }
     let ids: BTreeSet<_> = Permission::ALL.iter().map(|p| p.as_str()).collect();
     assert_eq!(ids.len(), Permission::ALL.len());
     for permission in Permission::ALL {
