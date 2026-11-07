@@ -70,11 +70,11 @@ Source branch disposition: retain for owner integration; no autonomous publicati
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-07T12:05:00Z
-head: 541af097dd9e0c0031afb4fee269050ac70096b3
+updated_at: 2026-11-07T12:30:00Z
+head: e986a89e5590334d5452693f75440a735be804f8
 branch: claude/portal-rs-t94-wire
 pr: 1760
-status: ready
+status: completed
 context_routes:
   - security
   - testing
@@ -120,13 +120,13 @@ validation:
     evidence: 8 passed (2.2m), real dedicated mTLS listener
 blockers:
   - none
-next_action: PR 1760 merges through the Merge Queue; then archive this record
+next_action: none; PR 1760 merged and Issue 1756 closed.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: same-repository PR 1760 is open; disposition becomes terminal at merge
-source_branch_evidence: PR 1760 for governing Issue 1756
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR; head branch deleted after merge
+source_branch_evidence: PR 1760 merged as e986a89e5590334d5452693f75440a735be804f8
 ```
