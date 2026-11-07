@@ -26,10 +26,10 @@ Validation: all required Rust checks PASS; E2E 8/8 PASS and final binary recheck
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-07T10:54:55Z
+updated_at: 2026-11-07T12:20:00Z
 head: 541af097dd9e0c0031afb4fee269050ac70096b3
-branch: feat/plat3-aclose-lifecycle-read
-pr: none
+branch: claude/portal-rs-acl-lifecycle
+pr: 1762
 status: ready
 context_routes:
   - api
@@ -67,15 +67,15 @@ validation:
     evidence: 8 passed across all projects; final binary recheck 2 passed; /tmp/aclose-final-e2e.log
 blockers:
   - none
-next_action: owner integrates the committed candidate for Issue 1755
+next_action: land PR 1762 through auto-merge and archive this task after merge
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: owner will integrate; retain until owner confirms integration
-source_branch_evidence: user instruction prohibits opening a PR
+source_branch_reason: same-repository PR 1762 is open; disposition becomes terminal at merge
+source_branch_evidence: PR 1762 for governing Issue 1755
 ```
 
 ## Validation environment
@@ -87,4 +87,4 @@ pre-existing wallet tables without matching migration history and is unsuitable.
 Initial attempts exposed these environment issues; final acceptance uses the
 isolated migrated database, with serve/worker stopped. Logs remain in /tmp.
 
-Final source review: all 11 changed files inspected; fixture cmp PASS; git diff --check PASS; no .github/workflows changes. No PR opened or deployment performed.
+Final source review: all 11 changed files inspected; fixture cmp PASS; git diff --check PASS; no .github/workflows changes. PR 1762 opened; no deployment performed.
