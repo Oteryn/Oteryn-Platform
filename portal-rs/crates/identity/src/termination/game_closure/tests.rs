@@ -801,6 +801,37 @@ async fn postgres_production_factory_and_guarded_http_pull_read_signed_receipt()
             .status(),
         StatusCode::UNAUTHORIZED
     );
+    let lifecycle_path = "/internal/v1/game-auth/account-closure/lifecycle/read";
+    let lifecycle_raw = serde_json::to_vec(&wire::LifecycleRequest {
+        contract_version: 2,
+        operation: "ReadAccountClosureLifecycleV1".into(),
+        source_authority: "oteryn:character-authority:primary".into(),
+        account_id: account.to_string(),
+        termination_id: intent.termination_id.clone(),
+        recovery_generation: "3".into(),
+        audience: "OTERYN_PLATFORM_CHARACTER_AUTHORITY".into(),
+    })?;
+    let mut wrong_identity = raw_request(lifecycle_path, &lifecycle_raw);
+    wrong_identity
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(Identity::san(
+            "wrong-character",
+        )?));
+    assert_eq!(
+        app.clone().oneshot(wrong_identity).await?.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let mut lifecycle_request = raw_request(lifecycle_path, &lifecycle_raw);
+    lifecycle_request
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+    let lifecycle_response = app.clone().oneshot(lifecycle_request).await?;
+    assert_eq!(lifecycle_response.status(), StatusCode::OK);
+    assert!(
+        lifecycle_response.headers()["cache-control"]
+            .to_str()?
+            .contains("no-store")
+    );
     let mut request = raw_request(path, pending);
     request
         .extensions_mut()
@@ -963,4 +994,161 @@ async fn postgres_source_revision_behind_committed_cursor_stays_pending() -> Tes
     .await?;
     assert_eq!(s.run_worker(100).await?, WorkerResult::default());
     db.close().await
+}
+
+#[test]
+fn lifecycle_exact_vectors_and_refusals() {
+    let fixture: Value =
+        serde_json::from_slice(include_bytes!("../fixtures/lifecycle.json")).unwrap();
+    for vector in fixture["vectors"].as_array().unwrap() {
+        let raw = vector["wire"].as_str().unwrap().as_bytes();
+        assert_eq!(wire::hex(&digest(raw)), vector["sha256"].as_str().unwrap());
+        if vector["name"] == "lifecycle_request" {
+            let request =
+                wire::LifecycleRequest::parse(raw, "oteryn:character-authority:primary").unwrap();
+            assert_eq!(serde_json::to_vec(&request).unwrap(), raw);
+            assert!(wire::LifecycleRequest::parse(raw, "wrong-identity").is_err());
+            let wrong = String::from_utf8(raw.to_vec()).unwrap().replace(
+                "OTERYN_PLATFORM_CHARACTER_AUTHORITY",
+                "OTERYN_GAME_CHARACTER_AUTHORITY",
+            );
+            assert!(
+                wire::LifecycleRequest::parse(
+                    wrong.as_bytes(),
+                    "oteryn:character-authority:primary"
+                )
+                .is_err()
+            );
+        } else {
+            let observation: wire::LifecycleObservation = wire::canonical(raw, 2048).unwrap();
+            let request_vector = fixture["vectors"][0]["wire"].as_str().unwrap();
+            let request = wire::LifecycleRequest::parse(
+                request_vector.as_bytes(),
+                "oteryn:character-authority:primary",
+            )
+            .unwrap();
+            let generated =
+                runtime::lifecycle_observation(request, 8, 30, "CLOSE", true, 1_790_000_002)
+                    .unwrap();
+            assert_eq!(serde_json::to_vec(&generated).unwrap(), raw);
+            let controlled_now = 1_790_000_002;
+            assert_eq!(
+                wire::number(&observation.observed_at, true).unwrap(),
+                controlled_now
+            );
+            assert_eq!(
+                wire::number(&observation.valid_until, true).unwrap(),
+                controlled_now + 5
+            );
+            assert!(observation.financial_obligations_clear);
+        }
+    }
+}
+
+#[tokio::test]
+async fn postgres_lifecycle_current_state_and_unknown_refusal() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = db.account().await?;
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let s = service(&db, b.clone());
+    let t = request(&s, account).await;
+    let mut req = wire::LifecycleRequest {
+        contract_version: 2,
+        operation: "ReadAccountClosureLifecycleV1".into(),
+        source_authority: "oteryn:character-authority:primary".into(),
+        account_id: account.to_string(),
+        termination_id: t.id.to_string(),
+        recovery_generation: "3".into(),
+        audience: "OTERYN_PLATFORM_CHARACTER_AUTHORITY".into(),
+    };
+    let raw = serde_json::to_vec(&req)?;
+    let observation: wire::LifecycleObservation =
+        serde_json::from_slice(&b.read_lifecycle(&db.pool, &raw).await?)?;
+    assert_eq!(observation.phase, "CLOSE");
+    assert!(observation.financial_obligations_clear);
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1) ON CONFLICT DO NOTHING")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    let reservation = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'reserve',$2,1)",
+    )
+    .bind(reservation)
+    .bind(account)
+    .execute(&db.pool)
+    .await?;
+    sqlx::query("INSERT INTO wallet_reservations(id,account_id,amount) VALUES($1,$2,1)")
+        .bind(reservation)
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    let blocked: wire::LifecycleObservation =
+        serde_json::from_slice(&b.read_lifecycle(&db.pool, &raw).await?)?;
+    assert!(!blocked.financial_obligations_clear);
+    assert!(
+        wire::number(&blocked.source_revision, true)?
+            > wire::number(&observation.source_revision, true)?
+    );
+    req.termination_id = Uuid::now_v7().to_string();
+    assert!(
+        b.read_lifecycle(&db.pool, &serde_json::to_vec(&req)?)
+            .await
+            .is_err()
+    );
+    sqlx::query("UPDATE account_terminations SET cancelled_at=now() WHERE id=$1")
+        .bind(t.id)
+        .execute(&db.pool)
+        .await?;
+    assert!(b.read_lifecycle(&db.pool, &raw).await.is_err());
+    sqlx::query("UPDATE account_terminations SET cancelled_at=NULL,finalized_at=now() WHERE id=$1")
+        .bind(t.id)
+        .execute(&db.pool)
+        .await?;
+    assert!(b.read_lifecycle(&db.pool, &raw).await.is_err());
+    sqlx::query("UPDATE plat3_closure_work SET resolution='FINALIZE' WHERE termination_id=$1")
+        .bind(t.id)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("UPDATE plat3_closure_lifecycle SET generation=generation+1 WHERE account_id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    assert!(b.read_lifecycle(&db.pool, &raw).await.is_err());
+    sqlx::query("UPDATE accounts SET status='closed' WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    let finalized: wire::LifecycleObservation =
+        serde_json::from_slice(&b.read_lifecycle(&db.pool, &raw).await?)?;
+    assert_eq!(finalized.phase, "FINALIZE");
+    assert!(!finalized.financial_obligations_clear);
+    sqlx::query("UPDATE account_terminations SET finalized_at=NULL,cancelled_at=now() WHERE id=$1")
+        .bind(t.id)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("UPDATE plat3_closure_work SET resolution='CANCEL' WHERE termination_id=$1")
+        .bind(t.id)
+        .execute(&db.pool)
+        .await?;
+    assert!(b.read_lifecycle(&db.pool, &raw).await.is_err());
+    sqlx::query("UPDATE accounts SET status='active' WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    let cancelled: wire::LifecycleObservation =
+        serde_json::from_slice(&b.read_lifecycle(&db.pool, &raw).await?)?;
+    assert_eq!(cancelled.phase, "CANCEL");
+    assert!(!cancelled.financial_obligations_clear);
+    req.termination_id = t.id.to_string();
+    req.recovery_generation = "4".into();
+    assert!(
+        b.read_lifecycle(&db.pool, &serde_json::to_vec(&req)?)
+            .await
+            .is_err()
+    );
+    db.close().await?;
+    Ok(())
 }
