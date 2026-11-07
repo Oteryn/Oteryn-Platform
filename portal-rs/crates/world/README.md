@@ -20,43 +20,47 @@ Configure the administrator-selected source and exact provenance together:
 - `OTERYN_WORLD_CATALOG_PROFILE_ID`;
 - `OTERYN_WORLD_CATALOG_SNAPSHOT_ID`: exact `sha256:` snapshot identity.
 
-Boot performs a bounded read of the configured file or URL. It never reads raw
-Game content, rewrites an artifact, follows redirects, uses ambient HTTP credentials
-or bypasses TLS verification. URL reads have a 30-second deadline and the same
-256 MiB body bound as files. Both the configured transport hash and semantic digest,
-canonical encoding, all
-provenance fences, manifests, identities, endpoints and tombstones are verified
-before a transaction stores an immutable, idempotent **inactive** candidate.
-Missing/partial configuration, mismatched fences or changed bytes refuse intake.
-Diagnostics contain only stable failure categories. The database cache is derived,
-rebuildable evidence and confers no native authority.
+Serve schedules a bounded read/verification/refresh off startup and readiness.
+Even a 30-second URL failure cannot hold the listening socket or `/readyz`.
+Each process keeps catalogue routes closed until its refresh succeeds; an old
+persisted pointer alone cannot release them. File reads and verification run on
+blocking workers; network I/O is asynchronous. No network fetch of Game source
+or raw `content/**` parsing is performed.
 
-Boot is chosen because it deterministically reads the administrator-selected exact
-candidate when a process starts; there is no new mutation endpoint or CLI. It
-writes only `world_catalog_candidates` and `world_catalog_records`, never
-`world_active_version`, public
-entities, visibility approvals or audit/account tables. An intake failure leaves
-public serving cold. Existing admin `world_visibility` approval remains mandatory
-for public reads and cannot activate an offline candidate.
+Verification checks canonical JSON, byte SHA-256, semantic snapshot identity,
+provenance fences, support/completeness, keys/endpoints and resource bounds before
+transactionally storing the immutable artifact and derived carrier cache.
 
-CATALOG_EXPORT_V1 is accepted. The Game native adapter is not merged at the
-current evidence pin; the pinned transport still permits only inactive intake. All real reference
-fixture capabilities are unsupported/unknown. Even a synthetically supported
-carrier cannot publish: v1 has no accepted capability payload revision, current
-epoch proof or authenticated production publication profile. No activation switch
-is exposed. A separately accepted Game publication/payload successor is required
-before projecting candidates into public `world_entities`. See the exact
-[contract snapshot](tests/fixtures/catalog-d34807f5/CONTRACT.md) sections 11–15 and
-[pinned provenance](tests/fixtures/catalog-d34807f5/SOURCE.md).
+`OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED=true` additionally enables production
+wiki publication; it defaults **off**. Only `supported + complete` categories
+are projected from verified cache carriers. Unsupported, partial or unknown
+categories return 503. A category missing required wiki names (or quest
+classification) also refuses; no name is inferred from a native key. Wiki
+home/search aggregate the complete, presentable categories; none
+available means 503. A complete empty category may return an empty 200.
 
-Supported entities, relations and tombstones are materialized in the same
-transaction as candidate intake. Cache rebuilds are atomic and repeatable.
-`Candidate::require_complete` and `cached_entities` refuse unsupported, partial
-or unknown inventory; cached reads also reject missing or corrupted records.
-These generic carrier reads are not native publication authorization.
+Publication atomically replaces a dedicated wiki pointer and rebuilds derived
+`world_entities`. It does not switch the legacy/map pointer, build atlas tiles,
+or insert/change `world_visibility` approvals. Refresh is idempotent per snapshot.
+The existing `/admin/world` staff action independently approves or denies each
+native key under the same RBAC, MFA, CSRF and transactional audit controls. Native
+versions cannot be published through the legacy/map action or given Platform-authored
+replacement names. Source changes/removals never inherit public facts from an old
+snapshot; approvals alone cannot publish missing entries.
 
-See [the exact wiki capability requirements](CATALOG_WIKI_REQUIREMENTS.md) and
-the test-only synthetic supported-cache-to-HTTP-200 proof.
+G-2 is resolved at Game lane `fd4be4e214ef33ad65d3ce465dab7160377e62f5`:
+the producer omits hidden records, hidden NPC shop relations and secret achievements.
+No visibility decoding/default is needed. If any record/payload carries a
+`visibility` member, only the string `public` is accepted; anything else rejects
+the whole artifact. Absence is the ordinary export form. Platform approval remains
+an additional gate.
+
+The lane is **not merged; re-pin on merge**. Its notes explicitly keep all eight
+native capabilities unsupported/unknown, so its actual output still cannot
+publish wiki data. `/wiki/areas` remains 503 pending the later additive `area`
+category. Atlas needs a Game-side atlas export; Today needs an accepted producer.
+See [wiki capability requirements](CATALOG_WIKI_REQUIREMENTS.md) and the pinned
+[SOURCE note](tests/fixtures/catalog-fd4be4e2/SOURCE.md).
 
 ## Historical directory-parser API
 

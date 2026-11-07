@@ -1,7 +1,7 @@
 # Wiki requirements for the Game native catalogue adapter
 
 Evidence: CATALOG_EXPORT_V1 at Game
-`d34807f5bd234ee8318e57ba454ba39be0df113d`. The committed input declares every
+`fd4be4e214ef33ad65d3ce465dab7160377e62f5` (lane branch, re-pin on merge). The committed input declares every
 capability unsupported/unknown and contains no entities. Raw native content is
 not an integration fallback. The consumer verifies the artifact, builds inactive
 capability-scoped entity/relation/tombstone records, and refuses complete reads
@@ -37,8 +37,8 @@ No display names are reconstructed from keys in the native cache.
 Source references:
 
 - `crates/wiki/src/entities.rs`: `KINDS`, `world_kind`, `name`, `row`, `collect`, `detail`.
-- [Contract vocabulary](tests/fixtures/catalog-d34807f5/CONTRACT.md#L54).
-- [Payload evolution gate](tests/fixtures/catalog-d34807f5/CONTRACT.md#L222).
+- [Contract vocabulary](tests/fixtures/catalog-fd4be4e2/CONTRACT.md#L54).
+- [Payload evolution gate](tests/fixtures/catalog-fd4be4e2/CONTRACT.md#L222).
 
 ## Deliberately separate gaps
 
@@ -55,11 +55,11 @@ Source references:
   capability. This consumer does not render B3/terrain substitutes.
 - Today additionally needs an accepted G-12 producer. Catalogue names do not
   supply a daily selection or authorize proposed live publication.
-- G-2 is accepted as a `public|hidden` content-schema field. Its exported field
-  path and omission semantics must come from the CATALOG schema/producer pin;
-  the supplied unmerged branch currently returns 404. Publication stays closed
-  until that mapping is available. Existing independent `world_visibility`
-  approval remains an additional gate and must never release a hidden entry.
+- G-2 is resolved: the shared public view omits hidden identities, hidden NPC shop
+  relations and secret achievements. Exported records are public by construction.
+  An explicit `visibility` member must be the string `public`; another string,
+  null or a wrong type rejects the whole artifact. Absence is the normal wire form.
+  Independent `world_visibility` approval still applies to every public record.
 
 ## Coverage and activation
 
@@ -69,17 +69,17 @@ only `supported + complete` passes a complete-capability read. Unsupported recor
 are invalid at verification. Unknown/incomplete inventory cannot prove absence,
 removal, or an empty public catalogue.
 
-The real unsupported fixture can be retained only as an inactive candidate; its
-complete-capability checks fail and it never changes the active world pointer.
-Even a supported carrier is not production activation authority: v1 still requires
-accepted payload profiles, authenticated publication/current-epoch evidence, exact
-profile selection and Platform authorization. No production activation toggle or
-allow-all adapter is supplied by this task.
+The real lane still marks all native categories unsupported/unknown, as explicitly
+recorded in [lane notes](tests/fixtures/catalog-fd4be4e2/CATALOG-CONTRACT-NOTES.md#L38).
+Its negative input cannot publish. With the opt-in production publication switch,
+complete categories project verified cache records through a separate wiki pointer;
+home/search aggregate only complete categories and refuse when none exists.
+Per-category routes refuse unsupported/partial/unknown inventory and categories
+missing required presentation fields (names in both languages or a common name;
+quest classification). An empty complete category is valid. Area stays 503
+pending the scheduled additive category. Publication never grants an approval.
 
-A **test-only** Item publication setup consumes the Game producer's existing
-synthetic supported vector through the real cache read API, exercises independent
-admin allow/deny, and proves HTTP 200 with `Training Sword` on wiki home, item
-list/detail and search in both languages. The same setup refuses the real
-unsupported fixture before touching public rows. Synthetic vectors and that
-publication setup exist only under test paths/`cfg(test)` and do not authorize
-native availability in the binary.
+Test-only supported vectors exercise the **production** publisher and HTTP routes
+for all seven current wiki categories, independent approvals/denials, idempotence,
+empty complete replacement and configured-source mismatch. No test publication
+adapter is compiled into serve. No native positive fixture is fabricated.

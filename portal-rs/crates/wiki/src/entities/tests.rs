@@ -23,6 +23,7 @@ struct Database {
     root: PgPool,
     schema: String,
     version: Uuid,
+    catalog: Option<oteryn_world::catalog::CatalogStore>,
 }
 impl Database {
     async fn open() -> Option<Self> {
@@ -72,6 +73,7 @@ impl Database {
             root,
             schema,
             version,
+            catalog: None,
         })
     }
     fn world(&self) -> WorldStore {
@@ -91,10 +93,9 @@ impl Database {
         }
     }
     fn app(&self, enabled: bool) -> Router {
-        mount(
-            crate::web::public_router(self.pool.clone()),
-            EntityState::new(self.pool.clone(), enabled),
-        )
+        let mut state = EntityState::new(self.pool.clone(), enabled);
+        state.catalog = self.catalog.clone();
+        mount(crate::web::public_router(self.pool.clone()), state)
     }
     async fn get(&self, url: &str, enabled: bool) -> (StatusCode, String) {
         let mut request = Request::builder().uri(url).body(Body::empty()).unwrap();
@@ -424,56 +425,41 @@ async fn entity_refusals_are_localized_documents_with_unchanged_status() {
     }
 }
 
-// Test-only publication seam. It models an accepted Item payload/publication
-// profile for the Game producer's synthetic vector. It is never built into serve.
-async fn publish_synthetic_item_for_test(
-    db: &Database,
-    candidate: &oteryn_world::catalog::Candidate,
-) -> Result<(), oteryn_world::catalog::Error> {
-    let entities = candidate.cached_entities(&db.pool, "item").await?;
-    for entity in entities {
-        assert_eq!(entity.entity_type, "item");
-        assert_eq!(entity.capability_id, "item");
-        db.entity("items", &entity.content_key, entity.data, true, false)
-            .await;
-    }
-    sqlx::query("UPDATE world_active_version SET version_id=$1 WHERE singleton")
-        .bind(db.version)
-        .execute(&db.pool)
-        .await
-        .unwrap();
-    Ok(())
-}
+// Synthetic input only; publication below calls the production API unchanged.
 #[tokio::test]
 async fn postgres_native_export_cache_refuses_unknown_and_proves_synthetic_200() {
-    use oteryn_world::catalog::{Error, Fence};
-    let Some(db) = Database::open().await else {
+    use oteryn_world::catalog::{CatalogStore, Fence, Source};
+    let Some(mut db) = Database::open().await else {
         return;
     };
-    sqlx::query("UPDATE world_active_version SET version_id=NULL WHERE singleton")
-        .execute(&db.pool)
-        .await
-        .unwrap();
     let source = |fixture: &catalog_fixture::Fixture| {
-        oteryn_world::catalog::verify(
-            &fixture.bytes,
-            &fixture.sidecar,
-            &Fence {
+        Source::local(
+            std::path::PathBuf::from("test-only.json"),
+            Fence {
                 source_revision: fixture.text("source_revision"),
                 authority_epoch: fixture.text("authority_epoch"),
                 ruleset_id: fixture.text("ruleset_id"),
                 content_profile_id: fixture.text("content_profile_id"),
                 snapshot_id: fixture.text("snapshot_id"),
             },
+            fixture.sha256(),
         )
-        .unwrap()
     };
-    let unavailable = source(&catalog_fixture::negative());
-    unavailable.persist_inactive(&db.pool).await.unwrap();
+    let candidate = |fixture: &catalog_fixture::Fixture| {
+        oteryn_world::catalog::verify(&fixture.bytes, &fixture.sidecar, &source(fixture).fence)
+            .unwrap()
+    };
+    // No configured source may fall back to the legacy pointer initialized by setup.
+    db.catalog = Some(CatalogStore::new(db.pool.clone(), None));
     assert_eq!(
-        publish_synthetic_item_for_test(&db, &unavailable).await,
-        Err(Error::UnsupportedCapability)
+        db.get("/en/wiki", true).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
     );
+    let negative = catalog_fixture::negative();
+    let unavailable = candidate(&negative);
+    unavailable.persist_inactive(&db.pool).await.unwrap();
+    unavailable.publish(&db.pool).await.unwrap();
+    db.catalog = Some(CatalogStore::new(db.pool.clone(), Some(source(&negative))));
     for lang in ["pl", "en"] {
         for path in ["wiki", "wiki/search", "wiki/items"] {
             assert_eq!(
@@ -482,16 +468,55 @@ async fn postgres_native_export_cache_refuses_unknown_and_proves_synthetic_200()
             );
         }
     }
-    let supported = source(&catalog_fixture::supported());
+    let fixture = catalog_fixture::supported();
+    let supported = candidate(&fixture);
     supported.persist_inactive(&db.pool).await.unwrap();
-    // Supported carrier caching alone still cannot activate public native data.
-    assert_eq!(db.world().active_version_id().await.unwrap(), None);
-    publish_synthetic_item_for_test(&db, &supported)
+    // Intake never grants publication or independent visibility.
+    db.catalog = Some(CatalogStore::new(db.pool.clone(), Some(source(&fixture))));
+    assert_eq!(
+        db.get("/en/wiki/items", true).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    supported.publish(&db.pool).await.unwrap();
+    let version = db
+        .catalog
+        .as_ref()
+        .unwrap()
+        .active_version_id()
         .await
         .unwrap();
+    supported.publish(&db.pool).await.unwrap();
+    assert_eq!(
+        db.catalog
+            .as_ref()
+            .unwrap()
+            .active_version_id()
+            .await
+            .unwrap(),
+        version
+    );
+    assert_ne!(version, Some(db.version));
+    assert_eq!(
+        db.world().active_version_id().await.unwrap(),
+        Some(db.version)
+    );
     let key = "oteryn:item.training_sword";
     let detail = format!("/en/wiki/items/{}", segment(key));
     assert_eq!(db.get(&detail, true).await.0, StatusCode::NOT_FOUND);
+    assert!(
+        !db.get("/en/wiki/items", true)
+            .await
+            .1
+            .contains("Training Sword")
+    );
+    for lang in ["pl", "en"] {
+        for path in ["npcs", "creatures", "areas"] {
+            assert_eq!(
+                db.get(&format!("/{lang}/wiki/{path}"), true).await.0,
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+        }
+    }
     db.world().allow("Item", key).await.unwrap();
     for lang in ["pl", "en"] {
         for path in [
@@ -506,6 +531,166 @@ async fn postgres_native_export_cache_refuses_unknown_and_proves_synthetic_200()
         }
     }
     db.world().deny("Item", key).await.unwrap();
+    assert_eq!(db.get(&detail, true).await.0, StatusCode::NOT_FOUND);
+    assert!(
+        !db.get("/en/wiki/search?q=Training", true)
+            .await
+            .1
+            .contains("Training Sword")
+    );
+    // Exact independent source selection: neither wrong revision nor wrong hash can read it.
+    let mut wrong = source(&fixture);
+    wrong.expected_sha256 = "0".repeat(64);
+    db.catalog = Some(CatalogStore::new(db.pool.clone(), Some(wrong)));
+    assert_eq!(
+        db.get("/en/wiki", true).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let mut wrong = source(&fixture);
+    wrong.fence.source_revision = "b".repeat(40);
+    db.catalog = Some(CatalogStore::new(db.pool.clone(), Some(wrong)));
+    assert_eq!(
+        db.get("/en/wiki", true).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    // Partial and unknown inventory cannot serve an apparently complete empty list.
+    for completeness in ["partial", "unknown"] {
+        let mut value = catalog_fixture::supported_source();
+        value["completeness_manifest"][0]["state"] = completeness.into();
+        let partial = catalog_fixture::emit(value);
+        let c = candidate(&partial);
+        c.persist_inactive(&db.pool).await.unwrap();
+        c.publish(&db.pool).await.unwrap();
+        db.catalog = Some(CatalogStore::new(db.pool.clone(), Some(source(&partial))));
+        assert_eq!(
+            db.get("/en/wiki/items", true).await.0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+    // A supported/complete carrier missing the UI's required name is not an empty 200.
+    let mut nameless = catalog_fixture::supported_source();
+    nameless["entities"][0]["data"] = json!({});
+    let nameless = catalog_fixture::emit(nameless);
+    let c = candidate(&nameless);
+    c.persist_inactive(&db.pool).await.unwrap();
+    c.publish(&db.pool).await.unwrap();
+    db.catalog = Some(CatalogStore::new(db.pool.clone(), Some(source(&nameless))));
+    assert_eq!(
+        db.get("/en/wiki/items", true).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    // Every current wiki capability uses the same production publisher and admin gate.
+    let categories = [
+        ("achievement", "achievements", "Achievement"),
+        ("creature", "creatures", "Creature"),
+        ("creature_loot", "loot", "Loot"),
+        ("item", "items", "Item"),
+        ("npc", "npcs", "NPC"),
+        ("quest", "quests", "Quest"),
+        ("spell", "spells", "Spell"),
+    ];
+    let mut value = catalog_fixture::supported_source();
+    value["capability_manifest"] = categories
+        .iter()
+        .map(|(c, _, _)| json!({"capability_id":c,"support":"supported"}))
+        .collect();
+    value["completeness_manifest"] = categories
+        .iter()
+        .map(|(c, _, _)| json!({"capability_id":c,"state":"complete"}))
+        .collect();
+    value["entities"]=categories.iter().map(|(c,_,_)|json!({"type":c,"content_key":format!("oteryn:{c}.synthetic"),"capability_id":c,"data":{"name":format!("Synthetic {c}"),"visibility":"public","classification":"synthetic"}})).collect();
+    value["entities"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|e| e["capability_id"] != "creature_loot");
+    value["relations"] = json!([{"type":"drop","relation_key":"oteryn:creature_loot.synthetic","capability_id":"creature_loot","source":"oteryn:creature.synthetic","target":"oteryn:item.synthetic","data":{"name":"Synthetic creature_loot","visibility":"public"}}]);
+    let fixture = catalog_fixture::emit(value);
+    let all = candidate(&fixture);
+    all.persist_inactive(&db.pool).await.unwrap();
+    all.publish(&db.pool).await.unwrap();
+    let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    db.catalog = Some(
+        CatalogStore::new(db.pool.clone(), Some(source(&fixture))).with_readiness(ready.clone()),
+    );
+    assert_eq!(
+        db.get("/en/wiki", true).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    ready.store(true, std::sync::atomic::Ordering::Release);
+    for (cap, route, kind) in categories {
+        sqlx::query("DELETE FROM web_rate_limits WHERE limiter_name='wiki-search'")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        let key = format!("oteryn:{cap}.synthetic");
+        db.world().allow(kind, &key).await.unwrap();
+        for lang in ["pl", "en"] {
+            for path in [
+                format!("wiki/{route}"),
+                format!("wiki/{route}/{}", segment(&key)),
+                format!("wiki/search?kind={route}&q=Synthetic"),
+            ] {
+                let (status, body) = db.get(&format!("/{lang}/{path}"), true).await;
+                assert_eq!(status, StatusCode::OK, "{path}");
+                assert!(body.contains(&format!("Synthetic {cap}")));
+            }
+        }
+    }
+    // Mixed coverage must not let complete NPCs mask a partial Item category.
+    let mut mixed = fixture.value.clone();
+    mixed.as_object_mut().unwrap().remove("snapshot_id");
+    mixed.as_object_mut().unwrap().remove("payload_digest");
+    mixed["completeness_manifest"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|c| c["capability_id"] == "item")
+        .unwrap()["state"] = "partial".into();
+    let mixed = catalog_fixture::emit(mixed);
+    let mixed_candidate = candidate(&mixed);
+    mixed_candidate.persist_inactive(&db.pool).await.unwrap();
+    mixed_candidate.publish(&db.pool).await.unwrap();
+    db.catalog = Some(CatalogStore::new(db.pool.clone(), Some(source(&mixed))));
+    for path in [
+        "wiki/items",
+        "wiki/search?kind=items&q=Synthetic",
+        "wiki/areas",
+    ] {
+        assert_eq!(
+            db.get(&format!("/en/{path}"), true).await.0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+    assert_eq!(db.get("/en/wiki/npcs", true).await.0, StatusCode::OK);
+    // A failed projection must retain the predecessor pointer and roll back all rows.
+    let before = db
+        .catalog
+        .as_ref()
+        .unwrap()
+        .active_version_id()
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE FUNCTION refuse_catalog_projection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test projection refusal'; END; $$; CREATE TRIGGER refuse_catalog_projection BEFORE INSERT ON world_entities FOR EACH ROW EXECUTE FUNCTION refuse_catalog_projection();").execute(&db.pool).await.unwrap();
+    assert!(all.publish(&db.pool).await.is_err());
+    assert_eq!(
+        db.catalog
+            .as_ref()
+            .unwrap()
+            .active_version_id()
+            .await
+            .unwrap(),
+        before
+    );
+    sqlx::raw_sql("DROP TRIGGER refuse_catalog_projection ON world_entities; DROP FUNCTION refuse_catalog_projection();").execute(&db.pool).await.unwrap();
+    // Complete replacement removes old identities despite retained approvals.
+    let mut empty = catalog_fixture::supported_source();
+    empty["entities"] = json!([]);
+    let fixture = catalog_fixture::emit(empty);
+    let empty = candidate(&fixture);
+    empty.persist_inactive(&db.pool).await.unwrap();
+    empty.publish(&db.pool).await.unwrap();
+    db.catalog = Some(CatalogStore::new(db.pool.clone(), Some(source(&fixture))));
+    assert_eq!(db.get("/en/wiki/items", true).await.0, StatusCode::OK);
     assert_eq!(db.get(&detail, true).await.0, StatusCode::NOT_FOUND);
     db.close().await;
 }

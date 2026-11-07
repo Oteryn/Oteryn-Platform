@@ -7,34 +7,38 @@ required_reads:
   - docs/architecture/TEST_STRATEGY.md
   - docs/agents/BUILD_TEST_MATRIX.md
   - docs/agents/EXECUTION_RESOURCE_HYGIENE.md
-  - portal-rs/crates/world/tests/fixtures/catalog-d34807f5/CONTRACT.md
+  - portal-rs/crates/world/tests/fixtures/catalog-fd4be4e2/CONTRACT.md
+  - portal-rs/crates/world/tests/fixtures/catalog-fd4be4e2/CATALOG-CONTRACT-NOTES.md
 search_first:
   - portal-rs/crates/world
-  - portal-rs/crates/atlas
+  - portal-rs/crates/wiki
 optional_reads: []
 ---
 
-# Pinned world read cache
+# Pinned world read cache and production wiki publication
 
-Owner's latest Game-coordinator update governs scope and supersedes raw content reading. Programme: https://github.com/Oteryn/Oteryn-Platform/issues/530 (open at admission). Branch only; no PR, workflow edits or deployment. Prior uncommitted import CLI draft discarded. Jira mapping unknown; synchronization pending.
+Owner's latest coordinator update governs scope. Governing Issue:
+https://github.com/Oteryn/Oteryn-Platform/issues/530 (open at resume).
+One writer on `codex/portal-rs-world-read`; no PR, workflow edits or deployment.
+Game access is explicitly read-only. Jira mapping unknown; synchronization pending.
 
 ## Goal and acceptance
 
-Verify the locked CATALOG_EXPORT_V1 offline artifact into an immutable inactive read-cache candidate, preserve admin approval and all unavailable-source gates, expose the registry world picker, and qualify negative native evidence. No raw Game layout reader, tile rendering, Today producer, Game writes or runtime fetches.
-
-## Ownership
-
-Owned: portal-rs native catalog consumer, small Atlas flag aliases, Today documentation/UUID configuration, world stats and focused E2E support/specs; this packet. One writer. PR #1763 merged at the branch base 3d6a1ae2; account spec is untouched and README edits are bounded to world provisioning. Main later advanced to 682a764f with only the old local-E2E packet archival; affected runtime and governing instructions are unchanged. Game repository access is explicitly read-only at the owner-specified commit.
+Verify CATALOG_EXPORT_V1 from an explicit path/URL and independent SHA/provenance
+fences, rebuild the cache transactionally, and opt-in publish complete categories
+through the existing independent admin visibility gate. Refresh must not delay
+startup/readiness. No raw Game content fallback, Platform native adapter, atlas
+rendering or Today producer. Areas await Game's later additive export revision.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-07T14:48:22Z
-head: faa77e570704834c8d148eedd5bfe5e4a30c5e33
+updated_at: 2026-11-07T15:37:57Z
+head: 6d6176db693af85b9c8cc48d41c37cebf89e1382
 branch: codex/portal-rs-world-read
 pr: none
-status: waiting
+status: ready
 context_routes:
   - database
   - testing
@@ -42,73 +46,74 @@ owned_paths:
   - portal-rs/**
   - docs/agents/tasks/active/OTERYN-20261107-portal-rs-world-read.md
 proven:
-  - Locked export at Game d34807f5 allows inactive candidates only and all real fixture capabilities are unsupported/unknown.
-  - No accepted capability payload or production publication profile permits public native entities.
-  - Atlas needs a Game-side atlas export; Game asset catalogue is empty at d34807f5.
-  - Today G-12 remains PROPOSED with no producer.
-  - G-2 is accepted, but exported field placement/omission semantics are not available at the pinned merged source.
-  - The supplied Game CATALOG branch returned 404; clarification requested.
+  - Game lane resolves to fd4be4e214ef33ad65d3ce465dab7160377e62f5; re-pin on merge.
+  - G-2 omission is resolved; optional explicit visibility accepts only public and otherwise rejects the whole artifact.
+  - Lane notes explicitly keep all eight native capabilities unsupported/unknown; no populated native fixture is claimed.
+  - Production publication uses a dedicated wiki pointer, complete-category cache records and independent admin approval.
+  - Existing audited staff visibility changes now accept the native pointer; native legacy publication and name replacement are refused.
+  - Slow URL probe returned healthz 200 in 0.066s, readyz 200 in 0.092s, wiki 503 in 0.138s after the stalled GET.
+  - Atlas still needs a Game-side atlas export; Today G-12 is PROPOSED without a producer.
 derived: []
 unknown:
-  - Exact G-2 exported field path and omission semantics; supplied Game ref is not reachable
+  - Game CATALOG merge revision and future capability-payload promotion schedule
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
-  - raw content layout is an accepted native integration contract
+  - raw content layout may substitute for an unsupported export capability
 changed_paths:
   - portal-rs/bin/oteryn-portal/src/main.rs
   - portal-rs/crates/world/**
-  - portal-rs/crates/atlas/src/**
-  - portal-rs/crates/stats/src/world/**
-  - portal-rs/crates/community/src/today/README.md
-  - portal-rs/templates/stats/world/**
-  - portal-rs/migrations/20261107120001_world_catalog_candidates.*.sql
+  - portal-rs/crates/wiki/src/entities*
+  - portal-rs/migrations/20261107120003_world_catalog_publication.*.sql
+  - portal-rs/templates/admin/world/index.html
   - portal-rs/e2e/**
 validation:
-  - command: cargo test --locked --no-fail-fast
-    result: PASS
-    evidence: 1115 passed, 0 failed, 3 ignored; PostgreSQL 18.6, max_locks_per_transaction=1024, max_connections=300
   - command: cargo fmt --all --check
     result: PASS
     evidence: final material tree
   - command: cargo clippy --locked --workspace --all-targets -- -D warnings
     result: PASS
-    evidence: final material tree, no warnings
-  - command: node run.mjs /tmp/portal-world-read-u3-e2e/env.json test specs/world-read.spec.mjs specs/public.spec.mjs
+    evidence: final material code; /tmp/portal-world-read-u4-clippy-final2.log
+  - command: cargo test --locked --no-fail-fast
     result: PASS
-    evidence: 12 passed across four locale/viewport projects; existing registration fixture prepared with repository helper
-blockers:
-  - G-2 exported field mapping/omission policy unavailable; coordinator question pending
-next_action: obtain reachable Game CATALOG producer/schema pin and exact G-2 encoding, then implement marked/omitted visibility tests
+    evidence: 1117 passed, 0 failed, 3 ignored across 82 targets; PostgreSQL 18.6, locks 1024, connections 300
+  - command: node run.mjs /tmp/portal-world-read-u4-slow-final/env.json test specs/world-read.spec.mjs
+    result: PASS
+    evidence: 8 passed with stalled/unavailable artifact URL, wiki publication switch on
+  - command: node run.mjs /tmp/portal-world-read-u4-qualified-e2e/env.json test specs/world-read.spec.mjs specs/public.spec.mjs
+    result: PASS
+    evidence: 12 passed across PL/EN and 1440px/390px on the final binary; /tmp/portal-world-read-u4-qualified-browser.log
+blockers: []
+next_action: push the qualified successor on the owner-requested branch for coordinator review; re-pin when CATALOG merges
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: Owner requested branch-only delivery for coordinator review; retain until coordinator disposition.
-source_branch_evidence: corrected owner brief
+source_branch_reason: Owner requested branch-only delivery for coordinator review; re-pin fixtures when CATALOG merges.
+source_branch_evidence: latest owner brief; no PR requested
 ```
 
-Qualification and complete changed-file inventory: `portal-rs/e2e/WORLD_READ_REPORT.md`. Task-owned databases, container/volume, services and generated keys were cleaned up.
+Prior checkpoints `faa77e57` and `6d6176db` qualified the inactive consumer,
+source transport/cache, stats picker, Atlas flag aliases and Today UUID/docs.
+The former G-2 mapping issue is resolved by the latest owner decision and reachable
+lane evidence. Current positive tests use synthetic input only, through the
+production publisher and real wiki routes; the audited admin route also has
+PostgreSQL coverage. No supported native artifact is fabricated.
 
-Update 2: add supported-carrier cache construction and capability-complete read checks; test-only publication from Game producer synthetic vector proves wiki/search HTTP 200. Production activation remains unavailable. Exact wiki adapter scope is in `portal-rs/crates/world/CATALOG_WIKI_REQUIREMENTS.md`.
+Qualification, exact changed-file inventory and source line evidence are in
+`portal-rs/e2e/WORLD_READ_REPORT.md`. Final full Rust qualification passed 1117
+with 0 failures and 3 ignored; strict Clippy/fmt pass. Normal browser 12/12 and
+stalled/unavailable URL browser 8/8 pass. The first broad run had two binary
+startup collisions with E2E private listeners; the final full Rust suite ran in
+isolation and both startup tests passed. Required wiki fields are checked rather
+than inventing presentation names from keys.
 
-Update 3: accepted catalog/G-2 decisions; configured SHA-256 required for local files and URLs; HTTPS bounded GET with no redirects; generated artifacts removed from the tree and generated only in test/scratch. No additional Atlas changes. Exact G-2 path and absent-field semantics requested because the supplied unmerged Game branch returns 404.
-
-Current continuation: uncommitted Updates 2/3 extend supported carrier cache, URL/file + independent SHA transport, remove committed generated artifacts, and add test-only synthetic supported cache -> wiki/search 200. G-2 field path/omission semantics remain REQUIRED and requested via async question; the supplied Game ref returned 404. Do not guess an export layout or claim G-2 completion. Production remains inactive.
-
-Validation logs: `/tmp/portal-world-read-u3-focused.log` contains passing cache PostgreSQL, synthetic wiki 200 and 12 catalogue unit tests. `/tmp/portal-world-read-u3-clippy.log` is clean after test lints. Current full run `/tmp/portal-world-read-u3-tests-final2.log` (exec session 84858) validates migration fixture fixes but started before the last per-snapshot FOR UPDATE lock/concurrent-refresh regression; run final validation after this run finishes. Seven old Admin/Content fixtures incorrectly executed down migrations; now use `oteryn_db::migrate`. `crates/db/build.rs` tracks additions to the migrations directory.
-
-Resource recovery: disk filled with task-built test ELFs. Auto-reviewed escalation removed 108 task-log-referenced, task-timestamped, inactive test executables, preserving sources/libraries/shared services. Workspace now has about 8 GiB free. Avoid additional feature-profile builds; use workspace tests. Task PostgreSQL: `oteryn-portal-world-read-pg18-u2`, label `portal-rs-world-read-update2`, loopback 15432, PostgreSQL 18.6 / locks 1024 / connections 300; databases `oteryn_test` and `portal_world_read_u3_final` are task-owned. No local portal currently runs. After final checks run the generated-negative-fixture local E2E harness, then clean only task-owned services/keys/container/volume.
-
-Update 2/3 qualified checkpoint: fmt and strict Clippy pass; full Rust suite
-1115 passed / 0 failed / 3 ignored; all 12 affected browser cases pass with the
-scratch-generated negative export. Concurrent cache rebuild, rollback/repair,
-URL pin/bounds/redirect refusal and test-only synthetic wiki 200 are exercised.
-Task-owned U2/U3 PostgreSQL, processes, databases, volume and scratch keys were
-removed after qualification. G-2 exact export decoding remains blocked and is not
-claimed complete. Production publication stays inactive. All other described
-consumer/cache/transport changes are reviewable. See WORLD_READ_REPORT.md.
+Cleanup complete: task portal/worker/producers, slow URL server, disposable
+PostgreSQL databases/container/anonymous volume and scratch certificates/keys/env
+were removed. Shared environment containers remain in their initial stopped state.
+Build caches and non-secret validation logs remain for review. Owner requested
+branch retention; no PR or integration action is authorized here.

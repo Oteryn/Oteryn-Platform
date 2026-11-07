@@ -1,9 +1,11 @@
 import {test,expect} from '@playwright/test';
 import {pool} from '../helpers.mjs';
 
-test('locked native export stays inactive and unsupported public sources refuse',async({page},info)=>{
+test('lane export cannot publish unsupported categories and public sources refuse',async({page},info)=>{
  const lang=info.project.metadata.locale;
- for(const suffix of ['wiki','wiki/search','wiki/items','wiki/creatures','wiki/npcs','atlas','atlas/delivery']){
+ expect(process.env.OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED).toBe('true');
+ const budget=pool();try{await expect.poll(async()=>Number((await budget.query("SELECT COALESCE(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='wiki-search' AND window_start=date_trunc('minute',clock_timestamp())")).rows[0].count),{timeout:65000,intervals:[1000]}).toBeLessThanOrEqual(15);}finally{await budget.end();}
+ for(const suffix of ['wiki','wiki/search','wiki/items','wiki/creatures','wiki/npcs','wiki/spells','wiki/quests','wiki/achievements','wiki/loot','wiki/areas','atlas','atlas/delivery']){
   const response=await page.goto(`/${lang}/${suffix}`);
   expect(response.status(),suffix).toBe(503);
   expect(response.headers()['cache-control']).toContain('no-store');
@@ -18,8 +20,11 @@ test('locked native export stays inactive and unsupported public sources refuse'
  expect(widget.headers()['content-type']).toContain('text/html');
  const client=pool();
  try{
+  await expect.poll(async()=>Number((await client.query("SELECT count(*) FROM world_catalog_candidates")).rows[0].count)).toBe(process.env.PORTAL_E2E_CATALOG_EXPECT_UNAVAILABLE==='1'?0:1);
   const rows=await client.query("SELECT status,artifact FROM world_catalog_candidates");
-  expect(rows.rows).toHaveLength(1);expect(rows.rows[0].status).toBe('inactive');expect(JSON.parse(rows.rows[0].artifact.toString('utf8')).entities).toEqual([]);
+  expect(rows.rows).toHaveLength(process.env.PORTAL_E2E_CATALOG_EXPECT_UNAVAILABLE==='1'?0:1);
+  for(const row of rows.rows){expect(row.status).toBe('inactive');expect(JSON.parse(row.artifact.toString('utf8')).entities).toEqual([]);}
+  const publication=await client.query('SELECT snapshot_id FROM world_catalog_publication WHERE singleton');expect(publication.rows[0].snapshot_id).toBeNull();
   const records=await client.query('SELECT count(*)::int AS count FROM world_catalog_records');expect(records.rows[0].count).toBe(0);
   const active=await client.query('SELECT version_id FROM world_active_version WHERE singleton');expect(active.rows[0].version_id).toBeNull();
   const visibility=await client.query('SELECT count(*)::int AS count FROM world_visibility');expect(visibility.rows[0].count).toBe(0);

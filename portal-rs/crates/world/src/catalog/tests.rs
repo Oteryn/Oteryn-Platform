@@ -1,7 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
-#[path = "../../tests/support/catalog.rs"]
-mod catalog_fixture;
+use crate::catalog_fixture;
 static FIXTURE: std::sync::LazyLock<catalog_fixture::Fixture> =
     std::sync::LazyLock::new(catalog_fixture::negative);
 fn raw() -> &'static [u8] {
@@ -306,5 +305,79 @@ async fn configured_url_reads_are_bounded_pinned_and_do_not_follow_redirects() {
         let result = source.fetch().await;
         assert_eq!(result.err(), expected);
         server.await.unwrap();
+    }
+}
+
+#[test]
+fn g2_visibility_rejects_the_whole_artifact_without_inventing_absence() {
+    // The lane exports no hidden identities. Absence is its ordinary wire form.
+    for field in [None, Some(serde_json::json!("public"))] {
+        for path in ["record", "data", "nested"] {
+            let mut value = supported();
+            if let Some(field) = &field {
+                match path {
+                    "record" => value["entities"][0]["visibility"] = field.clone(),
+                    "data" => value["entities"][0]["data"]["visibility"] = field.clone(),
+                    _ => {
+                        value["entities"][0]["data"]["nested"] =
+                            serde_json::json!({"visibility":field})
+                    }
+                }
+            }
+            let (raw, sidecar, fence) = artifact(value);
+            assert!(verify(&raw, &sidecar, &fence).is_ok(), "{path}");
+        }
+    }
+    for bad in [
+        serde_json::json!("hidden"),
+        serde_json::json!("other"),
+        serde_json::json!(true),
+        serde_json::json!(12),
+        serde_json::Value::Null,
+        serde_json::json!([]),
+    ] {
+        for path in ["record", "data", "nested"] {
+            let mut value = supported();
+            match path {
+                "record" => value["entities"][0]["visibility"] = bad.clone(),
+                "data" => value["entities"][0]["data"]["visibility"] = bad.clone(),
+                _ => value["entities"][0]["data"]["nested"] = serde_json::json!({"visibility":bad}),
+            }
+            let (raw, sidecar, fence) = artifact(value);
+            assert_eq!(
+                verify(&raw, &sidecar, &fence).err(),
+                Some(Error::InvalidInput),
+                "{path} {bad}"
+            );
+        }
+    }
+}
+
+#[test]
+fn g2_also_fences_relation_and_tombstone_record_visibility() {
+    for collection in ["relations", "tombstones"] {
+        for visibility in [
+            None,
+            Some(serde_json::json!("public")),
+            Some(serde_json::json!("hidden")),
+            Some(serde_json::json!("private")),
+            Some(serde_json::json!(false)),
+            Some(serde_json::Value::Null),
+        ] {
+            let mut value = supported();
+            value["relations"] = serde_json::json!([{"type":"drop","relation_key":"oteryn:relation.synthetic","capability_id":"creature","source":"oteryn:creature.synthetic","target":null,"data":{}}]);
+            value["tombstones"] = serde_json::json!([{"content_key":"oteryn:creature.removed","capability_id":"creature","reason":"removed"}]);
+            if let Some(v) = &visibility {
+                value[collection][0]["visibility"] = v.clone();
+            }
+            let (raw, sidecar, fence) = artifact(value);
+            assert_eq!(
+                verify(&raw, &sidecar, &fence).is_ok(),
+                visibility
+                    .as_ref()
+                    .is_none_or(|v| v.as_str() == Some("public")),
+                "{collection}: {visibility:?}"
+            );
+        }
     }
 }

@@ -150,3 +150,56 @@ impl Candidate {
         Ok(entities)
     }
 }
+
+impl Candidate {
+    /// Relation carriers are fenced exactly like entities. This allows the wiki's
+    /// generic loot record view without inventing a drop formula or graph renderer.
+    pub(super) async fn cached_loot_relations(&self, db: &PgPool) -> Result<Vec<(String, Value)>> {
+        self.require_complete(&["creature_loot"])?;
+        let mut tx = db.begin().await.map_err(|_| Error::Unavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        let digest: Option<String> = sqlx::query_scalar(
+            "SELECT artifact_sha256 FROM world_catalog_candidates WHERE snapshot_id=$1",
+        )
+        .bind(self.snapshot_id())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+        if digest.as_deref() != Some(self.artifact_sha256.as_str()) {
+            return Err(Error::IntegrityMismatch);
+        }
+        let rows:Vec<(String,Vec<u8>)>=sqlx::query_as("SELECT record_key,record FROM world_catalog_records WHERE snapshot_id=$1 AND capability_id='creature_loot' AND record_class='relation' ORDER BY record_key COLLATE \"C\" LIMIT 1000001")
+            .bind(self.snapshot_id()).fetch_all(&mut *tx).await.map_err(|_|Error::Unavailable)?;
+        let expected: BTreeMap<_, _> = self
+            .snapshot
+            .relations
+            .iter()
+            .filter(|r| r.capability_id == "creature_loot")
+            .map(|r| (r.relation_key.as_str(), r))
+            .collect();
+        if rows.len() != expected.len() {
+            return Err(Error::IntegrityMismatch);
+        }
+        let mut result = Vec::new();
+        for (key, bytes) in rows {
+            let relation = expected.get(key.as_str()).ok_or(Error::IntegrityMismatch)?;
+            if bytes
+                != record(
+                    "relation",
+                    &relation.relation_key,
+                    &relation.capability_id,
+                    relation,
+                )?
+                .bytes
+            {
+                return Err(Error::IntegrityMismatch);
+            }
+            result.push((key, relation.data.clone()));
+        }
+        tx.commit().await.map_err(|_| Error::Unavailable)?;
+        Ok(result)
+    }
+}

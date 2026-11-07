@@ -15,3 +15,7 @@ pub mod admin;
 
 /// Locked native offline catalogue consumer (inactive candidates only).
 pub mod catalog;
+
+#[cfg(test)]
+#[path = "../tests/support/catalog.rs"]
+mod catalog_fixture;

@@ -163,6 +163,11 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
     assert_eq!(store.active_version_id().await?, None);
     // The additive migration is reversible, without touching old world tables.
     sqlx::raw_sql(include_str!(
+        "../../../migrations/20261107120003_world_catalog_publication.down.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
         "../../../migrations/20261107120002_world_catalog_records.down.sql"
     ))
     .execute(&db)
@@ -180,6 +185,11 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
     .await?;
     sqlx::raw_sql(include_str!(
         "../../../migrations/20261107120002_world_catalog_records.up.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261107120003_world_catalog_publication.up.sql"
     ))
     .execute(&db)
     .await?;

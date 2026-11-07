@@ -1,10 +1,10 @@
-//! CATALOG_EXPORT_V1 offline consumer. Valid artifacts are immutable INACTIVE
-//! candidates and supported-carrier caches. Publication remains closed until the
-//! producer payload/visibility mapping and publication profile are pinned.
+//! Verified CATALOG_EXPORT_V1 read cache with independently gated public projection.
 mod cache;
 mod json;
+mod publication;
 mod transport;
 pub use cache::CachedEntity;
+pub use publication::CatalogStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -61,6 +61,12 @@ struct Entity {
     content_key: String,
     capability_id: String,
     data: Value,
+    #[serde(
+        default,
+        deserialize_with = "public_visibility",
+        skip_serializing_if = "Option::is_none"
+    )]
+    visibility: Option<String>,
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -72,6 +78,12 @@ struct Relation {
     #[serde(deserialize_with = "nullable_target")]
     target: Option<String>,
     data: Value,
+    #[serde(
+        default,
+        deserialize_with = "public_visibility",
+        skip_serializing_if = "Option::is_none"
+    )]
+    visibility: Option<String>,
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -79,6 +91,12 @@ struct Tombstone {
     content_key: String,
     capability_id: String,
     reason: String,
+    #[serde(
+        default,
+        deserialize_with = "public_visibility",
+        skip_serializing_if = "Option::is_none"
+    )]
+    visibility: Option<String>,
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -100,6 +118,15 @@ struct Snapshot {
     tombstones: Vec<Tombstone>,
     payload_digest: String,
 }
+fn public_visibility<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    let value = String::deserialize(d)?;
+    if value != "public" {
+        return Err(serde::de::Error::custom("non-public catalogue record"));
+    }
+    Ok(Some(value))
+}
 fn nullable_target<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> std::result::Result<Option<String>, D::Error> {
@@ -114,7 +141,7 @@ pub struct Fence {
     pub content_profile_id: String,
     pub snapshot_id: String,
 }
-/// A verified artifact is intentionally not convertible to public WorldStore entities.
+/// Verified immutable source; only complete categories are eligible for publication.
 #[derive(Debug)]
 pub struct Candidate {
     snapshot: Snapshot,
@@ -227,7 +254,11 @@ impl Source {
             if !self.file.as_os_str().is_empty() {
                 return Err(Error::InvalidInput);
             }
-            self.verify_bytes(&transport::fetch(url).await?)
+            let raw = transport::fetch(url).await?;
+            let source = self.clone();
+            tokio::task::spawn_blocking(move || source.verify_bytes(&raw))
+                .await
+                .map_err(|_| Error::Unavailable)?
         } else {
             let source = self.clone();
             tokio::task::spawn_blocking(move || source.read())
@@ -287,6 +318,9 @@ fn data(value: &Value, depth: usize) -> Result<()> {
             }
             for (k, v) in map {
                 if k.is_empty() || k.len() > 2048 {
+                    return Err(Error::InvalidInput);
+                }
+                if k == "visibility" && v.as_str() != Some("public") {
                     return Err(Error::InvalidInput);
                 }
                 data(v, depth + 1)?;
@@ -557,15 +591,36 @@ impl Candidate {
         Ok(())
     }
 }
-/// Boot reads only explicit local artifacts. The reference profile is permanently
-/// inactive; feature flags do not promote generic v1 `data` to public authority.
+/// Refresh is invoked in a background task by serve. Only the explicit publication
+/// switch enables complete-category projection; intake alone never grants visibility.
 pub async fn read_configured(db: &PgPool) -> Result<Option<String>> {
     let Some(source) = Source::configured()? else {
         return Ok(None);
     };
     let candidate = source.fetch().await?;
     candidate.persist_inactive(db).await?;
+    if publication_enabled() {
+        candidate.publish(db).await?;
+    }
     Ok(Some(candidate.snapshot_id().into()))
+}
+pub fn publication_enabled() -> bool {
+    std::env::var("OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED").as_deref() == Ok("true")
+}
+/// Never awaited by server startup/readiness. The task owns bounded source I/O.
+pub fn refresh_in_background(
+    db: PgPool,
+    ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> tokio::task::JoinHandle<Result<Option<String>>> {
+    ready.store(false, std::sync::atomic::Ordering::Release);
+    tokio::spawn(async move {
+        let result = read_configured(&db).await;
+        ready.store(
+            matches!(result, Ok(Some(_))),
+            std::sync::atomic::Ordering::Release,
+        );
+        result
+    })
 }
 #[cfg(test)]
 mod tests;

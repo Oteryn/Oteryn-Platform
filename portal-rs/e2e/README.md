@@ -81,7 +81,7 @@ exact reference producer from Game
 `d34807f5bd234ee8318e57ba454ba39be0df113d`, with its byte sidecar and explicit
 provenance fence. The fixture's internal source revision is `a2a5da955dd8f580c9e768c8ac6a741db388cb22`;
 that is distinct from the producer evidence pin. See
-[`SOURCE.md`](../crates/world/tests/fixtures/catalog-d34807f5/SOURCE.md).
+[`SOURCE.md`](../crates/world/tests/fixtures/catalog-fd4be4e2/SOURCE.md).
 No generated artifact or sidecar is committed. Use `PORTAL_E2E_CATALOG_FILE`
 for another local export, supply `OTERYN_WORLD_CATALOG_SHA256` independently,
 and set the five
@@ -105,17 +105,23 @@ Expected native results are deliberate fail-closed, not successful data reads:
 
 | Pages | Expected | Exact blocker/evidence |
 | --- | --- | --- |
-| `/{pl,en}/wiki`, `/wiki/search`, entity lists | 503 + no-store + shared shell | All eight export capabilities are `unsupported/unknown`, with no entities: [input fixture](../crates/world/tests/fixtures/catalog-d34807f5/unsupported-native-input.json#L9). Capability payload revisions and publication authority are also absent: [contract §15](../crates/world/tests/fixtures/catalog-d34807f5/CONTRACT.md#L222). There are no approved catalogue names/stats/relations to render. |
+| `/{pl,en}/wiki`, `/wiki/search`, entity lists | 503 + no-store + shared shell | All eight export capabilities are `unsupported/unknown`, with no entities: [input fixture](../crates/world/tests/fixtures/catalog-fd4be4e2/unsupported-native-input.json#L9). The lane explicitly refuses promotion of native capability payloads: [lane notes:38–62](../crates/world/tests/fixtures/catalog-fd4be4e2/CATALOG-CONTRACT-NOTES.md#L38). There are no approved catalogue names/stats/relations to render. |
 | `/{lang}/atlas` | 503 + no-store + shared shell | Needs a **Game-side atlas export**. At Game `d34807f5`, [`content/world/assets/catalog.json:1`](https://github.com/Oteryn/Oteryn-Game/blob/d34807f5bd234ee8318e57ba454ba39be0df113d/content/world/assets/catalog.json#L1) contains `assets:[]`; CATALOG_EXPORT_V1 has no map capability. No terrain/B3 substitute is rendered. |
 | `/{lang}/atlas/delivery` | 503 + no-store + shared shell | Item/creature/loot/quest capabilities remain unsupported; no public active catalogue or accepted payloads. |
 | `/{lang}/today/data`, `/today/widget` | 503 + no-store (JSON / HTML fragment) | G-12 is [PROPOSED, changes needed](../../docs/contracts/OTERYN_V2_WORLD_DAILY_FAMILY_CONTRACT_PROPOSAL.md#L1), with no accepted Game producer. No ingest evidence or supported catalogue names are invented. |
 | `/{lang}/stats/world` without query | 200 + no-store + shared shell when registered worlds exist | Real registry picker; empty/unavailable registry still returns 503. |
 | `/{lang}/stats/world?world=…&start=…&end=…` | 503 + no-store | Existing privacy/visibility policy is unavailable; the picker grants no metrics access. |
 
-G-2 visibility is accepted; exported field layout must match the producer/schema
-pin. Hidden entries must remain non-public regardless of admin approval. Existing
-per-entity admin approval is an additional gate. Deaths, online, stats/guilds and wiki/places are outside this task and
-retain their existing documented behavior.
+G-2 is resolved at lane `fd4be4e214ef33ad65d3ce465dab7160377e62f5` (re-pin on
+merge): hidden identities never enter the export; an explicit `visibility` member
+must be the string `public`. Independent admin approval remains required. The
+For an intentional transport failure probe, set
+`PORTAL_E2E_CATALOG_EXPECT_UNAVAILABLE=1` alongside the URL; a healthy URL serving
+the pinned negative artifact still creates one inactive candidate. The
+harness enables the real publication switch, but the lane's unsupported negative
+fixture still cannot publish any category. `/wiki/areas` awaits the scheduled
+additive `area` export category. Deaths, online, stats/guilds and wiki/places are
+outside this task and retain their existing behavior.
 
 Atlas flag aliases are centralized: `OTERYN_ATLAS_DELIVERY_ENABLED=true` aliases
 `PORTAL_ATLAS_DELIVERY_ENABLED=1`; `OTERYN_WORLD_ENABLED=true` aliases
