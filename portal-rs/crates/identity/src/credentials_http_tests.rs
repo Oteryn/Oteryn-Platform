@@ -129,6 +129,18 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
         .execute(&pool)
         .await?;
     assert_eq!(service.require_sudo(&hash).await?, None);
+    // The limiter uses fixed database-clock windows. Start the 11 charged
+    // requests in the first half of a window so a boundary cannot reset the count.
+    let window = NamedPolicy::IdentitySecurityMutation.window_seconds();
+    while sqlx::query_scalar::<_, bool>(
+        "SELECT mod(extract(epoch FROM statement_timestamp()), $1::bigint) * 2 > $1::bigint",
+    )
+    .bind(window)
+    .fetch_one(&pool)
+    .await?
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
     for _ in 0..10 {
         let _ = app
             .clone()
