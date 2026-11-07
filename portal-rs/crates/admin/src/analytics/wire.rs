@@ -321,9 +321,6 @@ fn economy_rows(family: Family, rows: &[Row], complete: bool) -> Result<(), Inva
         {
             return Err(Invalid);
         }
-        if row.state == "low_n" && values.iter().all(|value| *value == 0) {
-            return Err(Invalid);
-        }
         if family == Family::EconomyMarketDaily && (values[0] == 0) != (values[3] == 0) {
             return Err(Invalid);
         }

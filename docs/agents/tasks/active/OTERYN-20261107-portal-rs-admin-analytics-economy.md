@@ -1,7 +1,7 @@
 ---
 task_id: OTERYN-20261107-portal-rs-admin-analytics-economy
 governing_issue: 530
-branch: codex/portal-rs-admin-analytics-economy
+branch: claude/portal-rs-admin-analytics-economy
 required_reads:
   - docs/contracts/OTERYN_V2_ADMIN_ANALYTICS_CONTRACT_PROPOSAL.md
   - docs/agents/BUILD_TEST_MATRIX.md
@@ -66,7 +66,7 @@ The checkpoint is a durable context/evidence/ownership/handoff mirror. Its lifec
 checkpoint_version: 1
 updated_at: 2026-11-07T17:42:27Z
 head: c25414d8ff0fbf20a1f6059265c62bb7f9501353
-branch: codex/portal-rs-admin-analytics-economy
+branch: claude/portal-rs-admin-analytics-economy
 pr: none
 status: blocked
 context_routes:

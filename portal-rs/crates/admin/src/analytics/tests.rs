@@ -941,6 +941,18 @@ fn economy_members() -> Vec<wire::Page> {
     result
 }
 #[test]
+fn economy_low_n_depends_on_contributors_not_values() {
+    // §11.5: an all-zero row with one to four contributors is a valid `low_n` row.
+    for p in economy_members() {
+        let mut rows = p.rows.clone();
+        for row in rows.iter_mut().filter(|row| !row.values.is_empty()) {
+            row.state = "low_n".into();
+            row.values.iter_mut().for_each(|v| *v = "0".into());
+        }
+        assert!(wire::rows(p.family, &rows, true).is_ok(), "{:?}", p.family);
+    }
+}
+#[test]
 fn economy_member_validation_and_family_states() {
     for p in economy_members() {
         assert!(wire::rows(p.family, &p.rows, true).is_ok());
@@ -948,9 +960,6 @@ fn economy_member_validation_and_family_states() {
         for state in ["visible", "low_n", "incomplete", "suppressed"] {
             let mut rows = p.rows.clone();
             rows[0].state = state.into();
-            if state == "low_n" && rows[0].values.iter().all(|v| v == "0") {
-                rows[0].values[0] = "1".into();
-            }
             if matches!(state, "incomplete" | "suppressed") {
                 rows[0].values.clear();
             }
