@@ -189,6 +189,11 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         {
             return Err(Refusal::InvalidReason.into());
         }
+        if self.adjustment_kind == AdjustmentKind::TopUp
+            && (amount <= 0 || actor != account || reason != format!("wallet-top-up:{key}"))
+        {
+            return Err(Refusal::InvalidReason.into());
+        }
         lock(tx, account).await?;
         self.active(tx, account).await?;
         let operation = Operation {

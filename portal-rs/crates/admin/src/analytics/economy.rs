@@ -15,6 +15,7 @@ struct EconomyCell {
 #[derive(serde::Serialize)]
 struct Group {
     family: String,
+    source: &'static str,
     columns: &'static str,
     state: &'static str,
     epoch: String,
@@ -82,6 +83,7 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     ] {
         let mut group = Group {
             family: family.into(),
+            source: "Game",
             columns,
             state: if expired { "expired" } else { "unavailable" },
             epoch: String::new(),
@@ -131,18 +133,50 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
         }
         groups.push(group);
     }
-    // The current wallet has no qualified purchase-credit/currency evidence.
-    // A positive operator adjustment, payment intent or browser return is not a purchase.
-    let purchased = Group {
+    let released = end.checked_add(86400).is_some_and(|release| release <= now);
+    let mut purchased = Group {
         family: "purchased — Platform wallet ledger (all worlds)".into(),
-        columns: "count / amount (wallet currency units)",
-        state: if expired { "expired" } else { "incomplete" },
+        source: "Platform",
+        columns: "credited top-ups / coins; paid amounts in minor units by payment currency",
+        state: if expired {
+            "expired"
+        } else if released {
+            "available"
+        } else {
+            "unavailable"
+        },
         epoch: String::new(),
         revision: String::new(),
-        cut: String::new(),
+        cut: utc(&now.to_string()),
         age: 0,
         cells: Vec::new(),
     };
+    if !expired && released {
+        let aggregate = match super::super::purchased::read_in(&mut tx, start, end).await {
+            Ok(v) => v,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        };
+        let cell = |key, values| EconomyCell {
+            key,
+            values,
+            state: "visible".into(),
+            gap: String::new(),
+            cut: utc(&now.to_string()),
+            age: 0,
+            epoch: String::new(),
+            revision: String::new(),
+        };
+        purchased.cells.push(cell(
+            "purchased/coins".into(),
+            vec![aggregate.count, aggregate.coins],
+        ));
+        for paid in aggregate.paid {
+            purchased.cells.push(cell(
+                format!("paid/{}/minor_units", paid.currency),
+                vec![paid.count, paid.minor_units],
+            ));
+        }
+    }
     groups.push(purchased);
     let metadata = json!({"world":selection.world,"start":start,"end":end,"privacy_policy_revision":s.config.privacy,"sources":groups.iter().map(|g|json!({"family":g.family,"state":g.state,"epoch":g.epoch,"revision":g.revision,"cut":g.cut,"age_seconds":g.age})).collect::<Vec<_>>()});
     if audit::append(
@@ -165,7 +199,7 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
         attempt.recorded.store(true, Ordering::SeqCst);
     }
     if request.uri().path().ends_with("/data") {
-        return axum::Json(json!({"state":if expired {"expired"} else if groups.iter().take(5).all(|g|g.state=="unavailable") {"unavailable"} else {"available"},"groups":groups})).into_response();
+        return axum::Json(json!({"state":if expired {"expired"} else if groups.iter().all(|g|g.state=="unavailable") {"unavailable"} else {"available"},"groups":groups})).into_response();
     }
     let english = request
         .headers()

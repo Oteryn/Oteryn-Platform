@@ -1,4 +1,5 @@
 //! Purpose-isolated T10b aggregate consumer. Export has no route.
+pub mod purchased;
 pub mod store;
 pub mod web;
 pub mod wire;

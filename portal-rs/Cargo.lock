@@ -3190,6 +3190,7 @@ dependencies = [
  "oteryn-store",
  "oteryn-support",
  "oteryn-ui",
+ "oteryn-wallet",
  "oteryn-web",
  "oteryn-wiki",
  "oteryn-world",

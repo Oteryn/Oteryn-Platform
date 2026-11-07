@@ -107,16 +107,20 @@ relabel existing `low_n` payloads: those must first drain through the retention
 or an explicitly authorized operator procedure. Rollback/reapply and refusal
 with existing `low_n` data are covered by PostgreSQL tests.
 
-### Platform purchased source gap
+### Platform purchased
 
-The base wallet is one unnamed transferable coin. Its operation kinds are
-`transfer`, `adjustment`, `reserve`, `release`, `capture`, and `store_purchase`;
-the last is a negative in-game purchase debit. There is no purchase-credit
-classification or currency dimension. Payments' `TopUpJob` explicitly describes
-a future wallet handler; payment intents and requested top-ups do not prove
-wallet credit. Consequently the page labels `purchased` as **incomplete** with
-this named Platform source gap, including for empty days. It does not invent a
-zero or count operator adjustments as real-money purchases. The wallet schema
-and ledger remain untouched. A qualified credit classification, coin currency
-mapping and capture coverage are needed before numeric purchased aggregation
-and its empty-day test can be delivered. Owner clarification is pending.
+`wallet.top_up` credits the immutable checkout package coins using the payment
+intent ID as the wallet operation ID, classified `top_up`. The separate Platform
+`purchased` group joins those credited entries to `store_web_topups`, counts each
+credit once and sums coins per UTC day of credit. `paid/<ISO currency>/minor_units`
+rows sum paid amounts separately by payment currency; they are never converted,
+combined with gold, or accepted on the Game wire. Requested top-ups, pending
+intents, operator adjustments and in-game purchase debits are excluded. An empty
+credited day has count 0 and coins 0, with no inferred paid-currency rows.
+
+The group covers all worlds and contains no account identifiers. It keeps the
+page's one-day range, 24-hour release delay, 400-day display retention,
+permission/MFA, presentation switch and audit-before-response boundary. Its
+Platform source is independent of Game baseline/freshness evidence. Refunds do
+not rewrite an earlier credit day's gross purchased count. Historical payment
+requests that never produced a classified credit are not reconstructed.

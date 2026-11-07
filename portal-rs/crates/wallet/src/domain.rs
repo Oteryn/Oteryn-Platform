@@ -198,12 +198,14 @@ pub enum AdjustmentKind {
     #[default]
     Operator,
     StorePurchase,
+    TopUp,
 }
 impl AdjustmentKind {
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Operator => "adjustment",
             Self::StorePurchase => "store_purchase",
+            Self::TopUp => "top_up",
         }
     }
 }

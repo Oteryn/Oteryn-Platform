@@ -110,9 +110,10 @@ pub struct Intent {
     pub provider_reference: String,
 }
 
-/// Stable contract for the future wallet handler. `amount` is the purchased minor-unit quantity.
+/// Stable contract for the wallet handler. `amount` is the purchased minor-unit quantity.
 /// The handler must deduplicate by intent_id and apply the configured conversion policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TopUpJob {
     pub intent_id: Uuid,
     pub account_id: Uuid,
