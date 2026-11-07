@@ -73,6 +73,15 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tokio::signal::ctrl_c().await?;
         }
         Role::Serve => {
+            match oteryn_world::catalog::read_configured(&db).await {
+                Ok(Some(snapshot)) => {
+                    tracing::info!(%snapshot, "native catalog candidate verified; publication remains inactive")
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(%error, "native catalog intake refused; public source remains unavailable")
+                }
+            }
             let _league_listener =
                 oteryn_minigames::league::transport::start_private_listener(db.clone()).await?;
             let bazaar = oteryn_bazaar::game::runtime::Runtime::configured(db.clone()).await?;

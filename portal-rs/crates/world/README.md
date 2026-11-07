@@ -1,5 +1,47 @@
 # World data store
 
+## Native catalog source (current)
+
+The production binary reads only the locked CATALOG_EXPORT_V1 offline artifact,
+with a sidecar, into `world_catalog_candidates`. It does **not** read Game's raw
+`content/**` layout. The older raw-directory APIs/configuration below remain
+compatibility test infrastructure, with no binary caller.
+
+Configure all six administrator-selected values together:
+
+- `OTERYN_WORLD_CATALOG_FILE`: absolute local `game-platform-catalog.json` path;
+- `OTERYN_WORLD_CATALOG_SOURCE_REVISION`: exact source revision inside the export;
+- `OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH`;
+- `OTERYN_WORLD_CATALOG_RULESET_ID`;
+- `OTERYN_WORLD_CATALOG_PROFILE_ID`;
+- `OTERYN_WORLD_CATALOG_SNAPSHOT_ID`: exact `sha256:` snapshot identity.
+
+Boot performs bounded read-only local file intake, never fetching or rewriting the
+artifact. Both the byte sidecar and semantic digest, canonical encoding, all
+provenance fences, manifests, identities, endpoints and tombstones are verified
+before a transaction stores an immutable, idempotent **inactive** candidate.
+Missing/partial configuration, mismatched fences or changed bytes refuse intake.
+Diagnostics contain only stable failure categories. The database cache is derived,
+rebuildable evidence and confers no native authority.
+
+Boot is chosen because it deterministically reads the administrator-selected exact
+candidate when a process starts; there is no new mutation endpoint or CLI. It
+writes only `world_catalog_candidates`, never `world_active_version`, public
+entities, visibility approvals or audit/account tables. An intake failure leaves
+public serving cold. Existing admin `world_visibility` approval remains mandatory
+for public reads and cannot activate an offline candidate.
+
+The Game contract permits only inactive intake at this stage. All real reference
+fixture capabilities are unsupported/unknown. Even a synthetically supported
+carrier cannot publish: v1 has no accepted capability payload revision, current
+epoch proof or authenticated production publication profile. No activation switch
+is exposed. A separately accepted Game publication/payload successor is required
+before projecting candidates into public `world_entities`. See the exact
+[contract snapshot](tests/fixtures/catalog-d34807f5/CONTRACT.md) sections 11–15 and
+[pinned provenance](tests/fixtures/catalog-d34807f5/SOURCE.md).
+
+## Historical directory-parser API
+
 T14 provides a trusted Rust service API, with no HTTP routes or UI. Construct
 `WorldStore` with a PostgreSQL pool and `WorldOptions`; its default options disable
 every operation. Callers must authorize import, rollback, report access and
@@ -50,7 +92,7 @@ the pinned Game configuration uses `/secret` for achievements. Reader APIs never
 expose arbitrary historical versions. Authoritative raw documents remain in the
 database for trusted tooling.
 
-## Pinned Game reference
+## Historical pinned raw-layout reference (not a native source)
 
 `config/game-857f15f3.json` describes the owner-authorized read-only reference
 `Oteryn/Oteryn-Game@857f15f376907c592bb28d854fccff18a15cdf87`. It imports

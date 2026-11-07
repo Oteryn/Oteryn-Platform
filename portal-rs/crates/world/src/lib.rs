@@ -12,3 +12,6 @@ pub use types::{
 };
 
 pub mod admin;
+
+/// Locked native offline catalogue consumer (inactive candidates only).
+pub mod catalog;

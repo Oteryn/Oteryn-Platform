@@ -72,3 +72,49 @@ script errors. Missing routes and arbitrary failures remain failures.
 Registration allows 90 seconds for the real browser proof of work. Native form
 actions allow 30 seconds for password hashing and navigation. These waits retain
 the exact destination assertions, production proof difficulty and zero retries.
+
+
+## Native world source and expected refusals
+
+`local.mjs` supplies the exact CATALOG_EXPORT_V1 negative export produced by Game
+`d34807f5bd234ee8318e57ba454ba39be0df113d`, with its byte sidecar and explicit
+provenance fence. The fixture's internal source revision is `a2a5da955dd8f580c9e768c8ac6a741db388cb22`;
+that is distinct from the producer evidence pin. See
+[`SOURCE.md`](../crates/world/tests/fixtures/catalog-d34807f5/SOURCE.md).
+Use `PORTAL_E2E_CATALOG_FILE` for another local export and set the five
+`OTERYN_WORLD_CATALOG_*` provenance values explicitly to qualify a different
+candidate. The runtime never fetches, reads raw Game layout, seeds world rows,
+activates a candidate or grants visibility. `PORTAL_E2E_GAME_DIR` is superseded by
+the offline export contract and is not consumed. Today uses a fixed UUIDv7 in the
+harness; no `world_daily` producer is fabricated.
+
+Run the focused browser qualification in all four locale/viewport projects.
+A standalone public sweep also needs the existing synthetic registration fixture
+normally prepared by earlier identity/account specs. Use its existing helper on
+the disposable database; this does not create a world catalogue or Today snapshot:
+
+```sh
+node --input-type=module -e 'import fs from "node:fs"; import {seedPasswordRange,password} from "./helpers.mjs"; Object.assign(process.env,JSON.parse(fs.readFileSync(process.argv[1],"utf8"))); await seedPasswordRange(password());' /absolute/scratch/env.json
+node run.mjs /absolute/scratch/env.json test specs/world-read.spec.mjs specs/public.spec.mjs
+```
+
+Expected native results are deliberate fail-closed, not successful data reads:
+
+| Pages | Expected | Exact blocker/evidence |
+| --- | --- | --- |
+| `/{pl,en}/wiki`, `/wiki/search`, entity lists | 503 + no-store + shared shell | All eight export capabilities are `unsupported/unknown`, with no entities: [input fixture](../crates/world/tests/fixtures/catalog-d34807f5/unsupported-native-input.json#L9). Capability payload revisions and publication authority are also absent: [contract §15](../crates/world/tests/fixtures/catalog-d34807f5/CONTRACT.md#L222). There are no approved catalogue names/stats/relations to render. |
+| `/{lang}/atlas` | 503 + no-store + shared shell | Needs a **Game-side atlas export**. At Game `d34807f5`, [`content/world/assets/catalog.json:1`](https://github.com/Oteryn/Oteryn-Game/blob/d34807f5bd234ee8318e57ba454ba39be0df113d/content/world/assets/catalog.json#L1) contains `assets:[]`; CATALOG_EXPORT_V1 has no map capability. No terrain/B3 substitute is rendered. |
+| `/{lang}/atlas/delivery` | 503 + no-store + shared shell | Item/creature/loot/quest capabilities remain unsupported; no public active catalogue or accepted payloads. |
+| `/{lang}/today/data`, `/today/widget` | 503 + no-store (JSON / HTML fragment) | G-12 is [PROPOSED, changes needed](../../docs/contracts/OTERYN_V2_WORLD_DAILY_FAMILY_CONTRACT_PROPOSAL.md#L1), with no accepted Game producer. No ingest evidence or supported catalogue names are invented. |
+| `/{lang}/stats/world` without query | 200 + no-store + shared shell when registered worlds exist | Real registry picker; empty/unavailable registry still returns 503. |
+| `/{lang}/stats/world?world=…&start=…&end=…` | 503 + no-store | Existing privacy/visibility policy is unavailable; the picker grants no metrics access. |
+
+G-2 source visibility remains missing. Existing per-entity admin approval is not
+bypassed. Deaths, online, stats/guilds and wiki/places are outside this task and
+retain their existing documented behavior.
+
+Atlas flag aliases are centralized: `OTERYN_ATLAS_DELIVERY_ENABLED=true` aliases
+`PORTAL_ATLAS_DELIVERY_ENABLED=1`; `OTERYN_WORLD_ENABLED=true` aliases
+`PORTAL_WORLD_ENABLED=1`. If both aliases are supplied, **both must enable** the
+gate; false, invalid or conflicting values refuse. Viewer enablement still needs
+`OTERYN_ATLAS_ENABLED=true` and `OTERYN_ATLAS_DIRECTORY`.

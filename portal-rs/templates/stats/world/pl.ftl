@@ -8,3 +8,9 @@ world-level = Poziom
 world-day = Dzień UTC
 world-count = Postacie
 world-kills = Zgony potworów i bossów (dzień UTC)
+
+world-picker = Świat
+world-select = Wybierz zarejestrowany świat i zakres dat UTC. Statystyki wymagają dostępnych danych o prywatności i obserwacji.
+world-start = Od (UTC)
+world-end = Do (UTC)
+world-show = Pokaż obserwacje

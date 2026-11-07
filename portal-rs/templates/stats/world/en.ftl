@@ -8,3 +8,9 @@ world-level = Level
 world-day = UTC day
 world-count = Characters
 world-kills = Monster and boss deaths (UTC day)
+
+world-picker = World
+world-select = Select a registered world and a UTC date range. Statistics require available privacy and observation evidence.
+world-start = From (UTC)
+world-end = To (UTC)
+world-show = Show observations
