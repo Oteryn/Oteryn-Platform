@@ -88,3 +88,35 @@ For the unavailable-state panel E2E, start the existing test-only local launcher
 with `OTERYN_ADMIN_ANALYTICS_PRESENT=true`, a synthetic
 `OTERYN_ADMIN_ANALYTICS_AUTHORITY` and `OTERYN_ADMIN_ANALYTICS_PRIVACY`. Leave
 ingestion off and create no fence/baseline. Production defaults remain OFF.
+
+## Revision 3 economy
+
+The five economy members share the existing ingestion switches, envelope,
+transactions, fences, retention and baseline gate. `low_n` retains its numeric
+values only for economy; economy `suppressed` is rejected. Fixed row sets and
+paired Store currencies are checked across the entire committed snapshot.
+The economy page is `/admin/analytics/economy` (and `/data`), limited to one
+world and UTC day. It never sums rows or combines currency units with gold.
+The four contract §11.6 example bodies are consumer-owned byte-exact vectors;
+the test records all four SHA-256 digests. No Game source files are included.
+
+Migration `20261107170001_admin_analytics_economy` changes only the private
+aggregate row-state constraint. Disable both switches before rollback. Its
+inverse preserves fences, receipts and rev-2 data, and refuses to erase or
+relabel existing `low_n` payloads: those must first drain through the retention
+or an explicitly authorized operator procedure. Rollback/reapply and refusal
+with existing `low_n` data are covered by PostgreSQL tests.
+
+### Platform purchased source gap
+
+The base wallet is one unnamed transferable coin. Its operation kinds are
+`transfer`, `adjustment`, `reserve`, `release`, `capture`, and `store_purchase`;
+the last is a negative in-game purchase debit. There is no purchase-credit
+classification or currency dimension. Payments' `TopUpJob` explicitly describes
+a future wallet handler; payment intents and requested top-ups do not prove
+wallet credit. Consequently the page labels `purchased` as **incomplete** with
+this named Platform source gap, including for empty days. It does not invent a
+zero or count operator adjustments as real-money purchases. The wallet schema
+and ledger remain untouched. A qualified credit classification, coin currency
+mapping and capture coverage are needed before numeric purchased aggregation
+and its empty-day test can be delivered. Owner clarification is pending.

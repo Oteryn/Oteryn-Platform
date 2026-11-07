@@ -1,4 +1,6 @@
 //! Audit-before-response admin boundary, using the panel's trusted identity adapters.
+#[path = "economy.rs"]
+mod economy;
 use super::{Config, wire};
 use crate::{
     audit::{self, AuditContext, Entry},
@@ -112,6 +114,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
         "/admin/analytics/activity",
         "/admin/analytics/levels",
         "/admin/analytics/health",
+        "/admin/analytics/economy",
     ] {
         routes = routes
             .route(path, get(read::<I, A>))
@@ -225,6 +228,9 @@ async fn read<I: StaffSession, A: AccountStateReader>(
     let Some(context) = request.extensions().get::<AuditContext>().copied() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
+    if request.uri().path().starts_with("/admin/analytics/economy") {
+        return economy::read(s, request, context).await;
+    }
     let selection = match selection(request.uri().query(), request.uri().path()) {
         Ok(selection) => selection,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
@@ -430,7 +436,9 @@ fn selection(query: Option<&str>, path: &str) -> Result<Selection, ()> {
     }
     let mut selection: Selection = serde_urlencoded::from_str(query).map_err(|_| ())?;
     if selection.family.is_none() {
-        selection.family = Some(if path.contains("/activity") {
+        selection.family = Some(if path.contains("/economy") {
+            wire::Family::EconomyCirculationDaily
+        } else if path.contains("/activity") {
             wire::Family::WorldActivityHourly
         } else if path.contains("/levels") {
             wire::Family::LevelDistributionDaily
@@ -439,6 +447,9 @@ fn selection(query: Option<&str>, path: &str) -> Result<Selection, ()> {
         } else {
             wire::Family::CharactersCreatedDaily
         });
+    }
+    if selection.family.is_some_and(wire::Family::economy) != path.contains("/economy") {
+        return Err(());
     }
     match (&selection.from, &selection.to) {
         (Some(from), Some(to)) if selection.start.is_none() && selection.end.is_none() => {

@@ -1,4 +1,4 @@
-//! Accepted revision-2 wire. This module never accepts a resync/control envelope.
+//! Accepted revision-3 wire. This module never accepts a resync/control envelope.
 use oteryn_internal_api::canonical::{self, Value};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -12,8 +12,23 @@ pub enum Family {
     WorldActivityHourly,
     CharactersCreatedDaily,
     LevelDistributionDaily,
+    EconomyCirculationDaily,
+    EconomyFlowsDaily,
+    EconomyMarketDaily,
+    EconomyTradesDaily,
+    EconomyStoreDaily,
 }
 impl Family {
+    pub fn economy(self) -> bool {
+        matches!(
+            self,
+            Self::EconomyCirculationDaily
+                | Self::EconomyFlowsDaily
+                | Self::EconomyMarketDaily
+                | Self::EconomyTradesDaily
+                | Self::EconomyStoreDaily
+        )
+    }
     pub fn interval(self) -> u64 {
         if self == Self::WorldActivityHourly {
             3600
@@ -168,6 +183,9 @@ const LEVELS: [&str; 9] = [
     "unknown",
 ];
 pub fn rows(family: Family, rows: &[Row], complete: bool) -> Result<(), Invalid> {
+    if family.economy() {
+        return economy_rows(family, rows, complete);
+    }
     let mut previous: Option<&str> = None;
     for row in rows {
         if previous.is_some_and(|p| p >= row.key.as_str()) {
@@ -227,6 +245,114 @@ pub fn rows(family: Family, rows: &[Row], complete: bool) -> Result<(), Invalid>
     }
     Ok(())
 }
+const CIRCULATION: [&str; 4] = ["bank", "character", "depot", "guild"];
+const FLOWS: [&str; 6] = [
+    "creature_loot",
+    "house_rent",
+    "market_fee",
+    "npc_service",
+    "npc_trade",
+    "refund",
+];
+fn store_key(key: &str) -> Result<(&str, &str), Invalid> {
+    let (kind, currency) = key.split_once('/').ok_or(Invalid)?;
+    if !matches!(kind, "refund" | "spent_in_game") || !token(currency, 128, b"._:-") {
+        return Err(Invalid);
+    }
+    Ok((kind, currency))
+}
+fn economy_rows(family: Family, rows: &[Row], complete: bool) -> Result<(), Invalid> {
+    const GOLD: u64 = 1_000_000_000_000_000_000;
+    const COUNT: u64 = 1_000_000_000_000;
+    let mut previous: Option<&str> = None;
+    let mut currencies = std::collections::BTreeMap::<&str, u8>::new();
+    for row in rows {
+        if previous.is_some_and(|key| key >= row.key.as_str()) {
+            return Err(Invalid);
+        }
+        previous = Some(&row.key);
+        let key_ok = match family {
+            Family::EconomyCirculationDaily => CIRCULATION.contains(&row.key.as_str()),
+            Family::EconomyFlowsDaily => FLOWS.contains(&row.key.as_str()),
+            Family::EconomyTradesDaily => row.key == "world",
+            Family::EconomyStoreDaily => {
+                let (kind, currency) = store_key(&row.key)?;
+                *currencies.entry(currency).or_default() |= if kind == "refund" { 1 } else { 2 };
+                true
+            }
+            Family::EconomyMarketDaily => {
+                token(&row.key, 512, b"_./:-")
+                    && row
+                        .key
+                        .as_bytes()
+                        .first()
+                        .is_some_and(u8::is_ascii_alphanumeric)
+            }
+            _ => false,
+        };
+        if !key_ok {
+            return Err(Invalid);
+        }
+        if row.state == "incomplete" && row.values.is_empty() {
+            continue;
+        }
+        if !matches!(row.state.as_str(), "visible" | "low_n") {
+            return Err(Invalid);
+        }
+        let bounds: &[u64] = match family {
+            Family::EconomyCirculationDaily => &[GOLD],
+            Family::EconomyFlowsDaily => &[GOLD, GOLD],
+            Family::EconomyMarketDaily => &[1_000_000_000_000_000, GOLD, COUNT, 999_999_999_999],
+            Family::EconomyTradesDaily | Family::EconomyStoreDaily => &[COUNT, GOLD],
+            _ => return Err(Invalid),
+        };
+        if row.values.len() != bounds.len() {
+            return Err(Invalid);
+        }
+        let values: Vec<u64> = row
+            .values
+            .iter()
+            .map(|value| uint(value))
+            .collect::<Result<_, _>>()?;
+        if values
+            .iter()
+            .zip(bounds)
+            .any(|(value, bound)| value > bound)
+        {
+            return Err(Invalid);
+        }
+        if row.state == "low_n" && values.iter().all(|value| *value == 0) {
+            return Err(Invalid);
+        }
+        if family == Family::EconomyMarketDaily && (values[0] == 0) != (values[3] == 0) {
+            return Err(Invalid);
+        }
+        if family == Family::EconomyFlowsDaily
+            && ((row.key == "creature_loot" && values[1] != 0)
+                || (matches!(
+                    row.key.as_str(),
+                    "house_rent" | "market_fee" | "npc_service"
+                ) && values[0] != 0))
+        {
+            return Err(Invalid);
+        }
+    }
+    if currencies.len() > 16 || (family == Family::EconomyStoreDaily && rows.len() > 32) {
+        return Err(Invalid);
+    }
+    if complete {
+        let expected = match family {
+            Family::EconomyCirculationDaily => Some(4),
+            Family::EconomyFlowsDaily => Some(6),
+            Family::EconomyTradesDaily => Some(1),
+            _ => None,
+        };
+        if expected.is_some_and(|n| n != rows.len()) || currencies.values().any(|mask| *mask != 3) {
+            return Err(Invalid);
+        }
+    }
+    Ok(())
+}
 fn decode<T: serde::de::DeserializeOwned + Serialize>(
     raw: &[u8],
     max: usize,
@@ -267,7 +393,7 @@ pub fn parse(operation: &str, raw: &[u8], now: u64) -> Result<Message, Invalid> 
             {
                 return Err(Invalid);
             }
-            rows(p.family, &p.rows, false)?;
+            rows(p.family, &p.rows, p.family.economy() && count == 1)?;
             Ok(Message::Page(p))
         }
         "commit" => {
