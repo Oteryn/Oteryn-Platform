@@ -26,10 +26,12 @@ Platform profile/guild preferences. The module independently checks eligible sam
 profile/guild membership using the public T24 read API, and also requires a fresh
 same-epoch character-profile watermark. It receives stable IDs, world, epoch and a
 name consistency check; implementations must never join privacy by name. Missing
-profile/ownership/privacy evidence denies. The base branch exposes no public
-character-privacy API, so the configured router deliberately uses `FailClosed`.
-An integrator must supply that adapter through `router` before public activation.
-This task does not infer permission from absent preferences or fabricate profiles.
+profile/ownership/privacy evidence denies. The configured router now supplies T45/T09c current saved preferences and exact
+World/name LCFA ownership checks. Missing state denies. Production composition
+independently gates G-4 acceptance: Game public projections rev 2 at
+ d34807f5bd234ee8318e57ba454ba39be0df113d marks guilds CANDIDATE rev 1,
+without a producer (coordinator update 2026-11-07). Enabled pages remain 503.
+The injectable router supports consumer qualification, without enabling production.
 
 Reference: Game commit 857f15f376907c592bb28d854fccff18a15cdf87,
 `crates/gameplay/durability/src/durability/public_projections.rs` (profiles have

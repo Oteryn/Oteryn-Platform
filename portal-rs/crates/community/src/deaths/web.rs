@@ -35,11 +35,20 @@ pub struct Config {
 }
 #[derive(Clone)]
 struct StateData {
+    contract_accepted: bool,
     db: PgPool,
     privacy: Arc<dyn Privacy>,
     config: Config,
 }
 pub fn router(db: PgPool, privacy: Arc<dyn Privacy>, config: Config) -> Router {
+    router_with_contract(db, privacy, config, true)
+}
+pub(crate) fn router_with_contract(
+    db: PgPool,
+    privacy: Arc<dyn Privacy>,
+    config: Config,
+    contract_accepted: bool,
+) -> Router {
     Router::new()
         .route("/deaths", get(world))
         .route("/pl/deaths", get(world))
@@ -48,6 +57,7 @@ pub fn router(db: PgPool, privacy: Arc<dyn Privacy>, config: Config) -> Router {
         .route("/pl/characters/{name}/deaths", get(character))
         .route("/en/characters/{name}/deaths", get(character))
         .with_state(StateData {
+            contract_accepted,
             db,
             privacy,
             config,
@@ -153,6 +163,9 @@ async fn load(
     name: Option<&str>,
     en: bool,
 ) -> Result<Option<Vec<Entry>>, Unavailable> {
+    if !s.contract_accepted {
+        return Err(Unavailable);
+    }
     if !wire::authority(&s.config.source_authority) {
         return Err(Unavailable);
     }
@@ -260,7 +273,9 @@ async fn load(
                 world: world.clone(),
                 occurred,
                 level: d.level,
-                killers: d.killers.join(", "),
+                // G-4 carries historical names without stable identity/floors.
+                // Withhold labels rather than associating a reused name.
+                killers: String::new(),
                 pvp: d.pvp,
                 href: format!(
                     "/{}/characters/{}/deaths",

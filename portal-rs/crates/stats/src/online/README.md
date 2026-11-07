@@ -97,3 +97,15 @@ the accepted bound, a durable rebuild/privacy/ownership adapter, external fence
 integration and private-listener PKI configuration. Public online-time ranking
 requires a separately accepted duration aggregate/exposure contract. None of these
 activation gates is inferred from a successful consumer test run.
+
+## T45 integration (2026-11-07)
+
+`privacy::Authority` now supplies live T45/T09c field permissions. The
+`privacy::OnlineOwner::configured` adapter narrows an existing qualified
+`OwnerPolicy` with current hidden/online-time settings; it never invents
+`owned_since`, ownership history or retained-set coverage from LCFA. No owner
+route was added or changed. Production composition still has no qualified
+ownership-history/coverage source to wrap. Per the coordinator update at Game
+main d34807f5bd234ee8318e57ba454ba39be0df113d, statistics has no accepted contract
+or producer. The repository proposal and synthetic consumer fixtures do not
+remove that Game activation blocker. Public durations remain unavailable.

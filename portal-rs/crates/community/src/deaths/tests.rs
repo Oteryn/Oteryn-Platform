@@ -418,7 +418,8 @@ async fn postgres_public_pages_privacy_freshness_names_and_window() -> TestResul
             )?;
         }
         assert!(body.contains("Aldric"));
-        assert!(body.contains("Beren, Mira"));
+        assert!(!body.contains("Beren"));
+        assert!(!body.contains("Mira"));
         assert!(!body.contains(SUBJECT));
         assert!(!body.contains(WORLD));
         assert!(!body.contains("01934f10-7c05"));
@@ -592,7 +593,9 @@ async fn postgres_suppression_waits_for_inflight_profile_read() -> TestResult {
     privacy.release.notify_one();
     let response = read.await?;
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(text(response).await.contains("Beren"));
+    let body = text(response).await;
+    assert!(body.contains("Aldric"));
+    assert!(!body.contains("Beren"));
     assert_eq!(write.await?.unwrap(), "accepted");
     let response = get(pages(d.db.clone(), true), "/en/deaths").await;
     assert_eq!(response.status(), StatusCode::OK);

@@ -50,6 +50,7 @@ pub struct Config {
 }
 #[derive(Clone)]
 struct Houses {
+    contract_accepted: bool,
     db: PgPool,
     config: Config,
     privacy: Arc<dyn OwnerVisibility>,
@@ -65,7 +66,7 @@ pub fn router<S: Clone + Send + Sync + 'static>(
     privacy: Arc<dyn OwnerVisibility>,
     config: Config,
 ) -> Router<S> {
-    routes(db, identities, privacy, config, Part::All)
+    routes(db, identities, privacy, config, Part::All, true)
 }
 fn routes<S: Clone + Send + Sync + 'static>(
     db: PgPool,
@@ -73,8 +74,10 @@ fn routes<S: Clone + Send + Sync + 'static>(
     privacy: Arc<dyn OwnerVisibility>,
     config: Config,
     part: Part,
+    contract_accepted: bool,
 ) -> Router<S> {
     let state = Houses {
+        contract_accepted,
         db,
         config: config.clone(),
         privacy,
@@ -154,6 +157,7 @@ fn configured<S: Clone + Send + Sync + 'static>(db: PgPool, part: Part) -> Route
                 && std::env::var("PORTAL_HOUSES_SERVING_ENABLED").as_deref() == Ok("true"),
         },
         part,
+        false, // G-4 house rev 1 is CANDIDATE, without a Game producer.
     )
 }
 #[derive(serde::Deserialize, Default)]
@@ -214,6 +218,9 @@ async fn load(
     en: bool,
 ) -> Result<Vec<House>, StatusCode> {
     let unavailable = StatusCode::SERVICE_UNAVAILABLE;
+    if !state.contract_accepted {
+        return Err(unavailable);
+    }
     // One committed cut covers the watermark, shared epoch and all catalogue rows.
     let rows=sqlx::query("SELECT m.epoch::text AS generation,m.complete_through,h.payload,h.observed FROM public_houses_v2_watermark m JOIN public_projection_state s ON s.id=1 AND s.highest_epoch=m.epoch LEFT JOIN public_houses_v2 h ON h.epoch=m.epoch AND h.source_authority=m.source_authority WHERE m.id=1 AND m.source_authority=$1 ORDER BY h.subject") .bind(&state.config.ingest.source_authority).fetch_all(&state.db).await.map_err(|_|unavailable)?;
     if rows.is_empty() {

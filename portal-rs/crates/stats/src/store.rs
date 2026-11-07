@@ -22,8 +22,15 @@ pub struct Snapshot {
 }
 
 /// Every public read requires an explicit policy. Unknown characters must be denied.
-pub trait Visibility {
-    fn permissions(&self, character: Uuid) -> Permissions;
+pub type PermissionFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Permissions> + Send + 'a>>;
+pub trait Visibility: Send + Sync {
+    fn permissions(&self, _character: Uuid) -> Permissions {
+        Permissions::default()
+    }
+    fn current_permissions(&self, character: Uuid) -> PermissionFuture<'_> {
+        Box::pin(async move { self.permissions(character) })
+    }
 }
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Permissions {
@@ -179,7 +186,7 @@ pub async fn history(
     visibility: &impl Visibility,
 ) -> Result<History> {
     range(start, end)?;
-    let p = visibility.permissions(character);
+    let p = visibility.current_permissions(character).await;
     let mut result = History {
         daily: Vec::new(),
         events: Vec::new(),
@@ -216,7 +223,7 @@ pub async fn top_growth(
     let mut result = Vec::new();
     for row in rows {
         let character_ref = row.try_get("character_ref")?;
-        if visibility.permissions(character_ref).visible {
+        if visibility.current_permissions(character_ref).await.visible {
             result.push(Growth {
                 character_ref,
                 experience_gain: row.try_get("gain")?,

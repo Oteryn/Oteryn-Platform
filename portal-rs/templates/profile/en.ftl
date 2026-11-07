@@ -6,3 +6,14 @@ missing = Character not found.
 unavailable = Character settings are temporarily unavailable.
 invalid = Invalid settings. Check the form and try again.
 updated = Character profile settings saved.
+
+hidden = Hide character
+hide-all = Hide all my characters
+account = Show account association
+status = Show status
+house = Show house
+skills = Show skills
+deaths = Show deaths
+kills = Show kills
+online-time = Show online time
+comment = Public comment (500 characters)
