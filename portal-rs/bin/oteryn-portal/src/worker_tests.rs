@@ -320,3 +320,316 @@ async fn shutdown_drains_in_flight_job() -> TestResult {
     assert_eq!(outbox::counts(&db.pool).await?.done, 1);
     db.close().await
 }
+
+#[tokio::test]
+async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    use oteryn_payments::{
+        Amount, IntentState, PaymentEvent, PaymentFlags, Payments, TestProvider,
+    };
+    struct Active;
+    impl oteryn_payments::AccountReader for Active {
+        async fn state(
+            &self,
+            _: Uuid,
+        ) -> Result<oteryn_payments::AccountState, oteryn_payments::Error> {
+            Ok(oteryn_payments::AccountState::Active)
+        }
+    }
+    // Empty reversible migration preserves all history through rollback/reapply.
+    oteryn_db::MIGRATOR.undo(&db.pool, 20261107170001).await?;
+    oteryn_db::migrate(&db.pool).await?;
+    let account = Uuid::now_v7();
+    query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'topup@example.invalid',now(),'unused','active','en')").bind(account).execute(&db.pool).await?;
+    let provider = TestProvider::new(&[5; 32])?;
+    let payments = Payments::new(
+        db.pool.clone(),
+        provider.clone(),
+        Active,
+        PaymentFlags { enabled: true },
+    );
+    let intent = payments
+        .create_intent(
+            account,
+            Amount {
+                minor_units: 250,
+                currency: "PLN".into(),
+            },
+        )
+        .await?;
+    query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'fixed',1234,250,'PLN',$3)").bind(Uuid::now_v7()).bind(account).bind(intent.id).execute(&db.pool).await?;
+    let body = serde_json::to_vec(&PaymentEvent {
+        event_id: "paid".into(),
+        intent_id: intent.id,
+        provider_reference: intent.provider_reference,
+        amount: intent.amount,
+        state: IntentState::Succeeded,
+    })?;
+    payments.webhook(&body, &provider.sign(&body)?).await?;
+    // Deliver two distinct outbox jobs for the same intent concurrently on the
+    // first credit, then replay again after acknowledgement.
+    let payload: String =
+        query_scalar("SELECT payload::text FROM outbox WHERE kind='wallet.top_up'")
+            .fetch_one(&db.pool)
+            .await?;
+    let mut tx = db.pool.begin().await?;
+    outbox::enqueue(
+        &mut tx,
+        "wallet.top_up",
+        &payload,
+        "concurrent-copy",
+        OffsetDateTime::now_utc(),
+        10,
+    )
+    .await?;
+    tx.commit().await?;
+    let mut registry = Registry::default();
+    registry.register(
+        "wallet.top_up",
+        Arc::new(crate::wallet_topup::Delivery {
+            pool: db.pool.clone(),
+            payments_enabled: true,
+            wallet_enabled: true,
+        }),
+    )?;
+    registry.batch(&db.pool).await?;
+    let balance: i64 = query_scalar(
+        "SELECT COALESCE(SUM(available_delta),0)::bigint FROM wallet_entries WHERE account_id=$1",
+    )
+    .bind(account)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(
+        balance, 1234,
+        "paid checkout must credit package coins, not minor units"
+    );
+    assert_eq!(outbox::counts(&db.pool).await?.done, 2);
+    let payload: String =
+        query_scalar("SELECT payload::text FROM outbox WHERE kind='wallet.top_up'")
+            .fetch_one(&db.pool)
+            .await?;
+    let delivery = crate::wallet_topup::Delivery {
+        pool: db.pool.clone(),
+        payments_enabled: true,
+        wallet_enabled: true,
+    };
+    let replay = Job {
+        id: Uuid::now_v7(),
+        kind: "wallet.top_up".into(),
+        payload,
+        attempts: 1,
+    };
+    delivery.run(&replay).await?;
+    let other = Job {
+        id: Uuid::now_v7(),
+        ..replay.clone()
+    };
+    let (a, b) = tokio::join!(delivery.run(&replay), delivery.run(&other));
+    a?;
+    b?;
+    let count: i64 = query_scalar("SELECT count(*) FROM wallet_entries WHERE operation_id=$1")
+        .bind(intent.id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 1);
+    let audit: i64 =
+        query_scalar("SELECT count(*) FROM audit_log WHERE action='wallet.top_up.credited'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(audit, 1);
+    let mut tx = db.pool.begin().await?;
+    let day = OffsetDateTime::now_utc().unix_timestamp() as u64 / 86400 * 86400;
+    let aggregate = oteryn_admin::analytics::purchased::read_in(&mut tx, day, day + 86400).await?;
+    assert_eq!(aggregate.count, "1");
+    assert_eq!(aggregate.coins, "1234");
+    assert_eq!(aggregate.paid[0].minor_units, "250");
+    assert_eq!(aggregate.paid[0].currency, "PLN");
+    let empty = oteryn_admin::analytics::purchased::read_in(&mut tx, day - 86400, day).await?;
+    assert_eq!(empty.count, "0");
+    assert_eq!(empty.coins, "0");
+    assert!(empty.paid.is_empty());
+    tx.rollback().await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(
+        sqlx::raw_sql(include_str!(
+            "../../../migrations/20261107180001_wallet_topup.down.sql"
+        ))
+        .execute(&mut *tx)
+        .await
+        .is_err(),
+        "populated top_up rollback must refuse"
+    );
+    tx.rollback().await?;
+    oteryn_db::migrate(&db.pool).await?;
+
+    db.close().await
+}
+
+#[tokio::test]
+async fn topup_refusals_are_audited_and_dead_lettered_without_credit() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    for case in [
+        "amount",
+        "currency",
+        "account",
+        "intent_amount",
+        "intent_currency",
+        "intent_account",
+        "checkout_amount",
+        "checkout_currency",
+        "checkout_account",
+        "audit_outage",
+        "missing_checkout",
+        "missing_intent",
+        "suspended",
+        "closed",
+        "unverified",
+        "unknown_account",
+        "payments_off",
+        "wallet_off",
+        "pending",
+        "refunded",
+        "malformed",
+    ] {
+        let account = Uuid::now_v7();
+        query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,$2,now(),'unused','active','en')").bind(account).bind(format!("{case}@example.invalid")).execute(&db.pool).await?;
+        let intent = Uuid::now_v7();
+        query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,250,'PLN','succeeded')").bind(intent).bind(account).bind(intent.to_string()).execute(&db.pool).await?;
+        query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'fixed',1234,250,'PLN',$3)").bind(Uuid::now_v7()).bind(account).bind(intent).execute(&db.pool).await?;
+        let mut payload = oteryn_payments::TopUpJob {
+            intent_id: intent,
+            account_id: account,
+            amount: 250,
+            currency: "PLN".into(),
+        };
+        match case {
+            "amount" => payload.amount = 251,
+            "currency" => payload.currency = "EUR".into(),
+            "account" => payload.account_id = Uuid::now_v7(),
+            "intent_amount" => {
+                query("UPDATE payment_intents SET amount=251 WHERE id=$1")
+                    .bind(intent)
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "intent_currency" => {
+                query("UPDATE payment_intents SET currency='EUR' WHERE id=$1")
+                    .bind(intent)
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "intent_account" => {
+                query("UPDATE payment_intents SET account_id=$2 WHERE id=$1")
+                    .bind(intent)
+                    .bind(Uuid::now_v7())
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "checkout_amount" => {
+                query("UPDATE store_web_topups SET minor_units=251 WHERE payment_intent_id=$1")
+                    .bind(intent)
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "checkout_currency" => {
+                query("UPDATE store_web_topups SET currency='EUR' WHERE payment_intent_id=$1")
+                    .bind(intent)
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "checkout_account" => {
+                query("UPDATE store_web_topups SET account_id=$2 WHERE payment_intent_id=$1")
+                    .bind(intent)
+                    .bind(Uuid::now_v7())
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "audit_outage" => {
+                sqlx::raw_sql("CREATE FUNCTION reject_test_topup_credit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='wallet.top_up.credited' THEN RAISE EXCEPTION 'test credit audit outage'; END IF; RETURN NEW; END $$; CREATE TRIGGER test_topup_credit_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_test_topup_credit()") .execute(&db.pool).await?;
+            }
+            "missing_checkout" => {
+                query("DELETE FROM store_web_topups WHERE payment_intent_id=$1")
+                    .bind(intent)
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "missing_intent" => {
+                query("DELETE FROM payment_intents WHERE id=$1")
+                    .bind(intent)
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "suspended" | "closed" => {
+                query("UPDATE accounts SET status=$2 WHERE id=$1")
+                    .bind(account)
+                    .bind(case)
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "unverified" => {
+                query("UPDATE accounts SET email_verified_at=NULL WHERE id=$1")
+                    .bind(account)
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "unknown_account" => {
+                query("DELETE FROM accounts WHERE id=$1")
+                    .bind(account)
+                    .execute(&db.pool)
+                    .await?;
+            }
+            "pending" | "refunded" => {
+                query("UPDATE payment_intents SET state=$2 WHERE id=$1")
+                    .bind(intent)
+                    .bind(case)
+                    .execute(&db.pool)
+                    .await?;
+            }
+            _ => {}
+        }
+        let body = if case == "malformed" {
+            "{}".into()
+        } else {
+            serde_json::to_string(&payload)?
+        };
+        let mut tx = db.pool.begin().await?;
+        outbox::enqueue(
+            &mut tx,
+            "wallet.top_up",
+            &body,
+            &intent.to_string(),
+            OffsetDateTime::now_utc(),
+            1,
+        )
+        .await?;
+        tx.commit().await?;
+        let mut registry = Registry::default();
+        registry.register(
+            "wallet.top_up",
+            Arc::new(crate::wallet_topup::Delivery {
+                pool: db.pool.clone(),
+                payments_enabled: case != "payments_off",
+                wallet_enabled: case != "wallet_off",
+            }),
+        )?;
+        registry.batch(&db.pool).await?;
+        let count: i64 = query_scalar("SELECT count(*) FROM wallet_entries")
+            .fetch_one(&db.pool)
+            .await?;
+        assert_eq!(count, 0, "{case}");
+        if case == "audit_outage" {
+            sqlx::raw_sql("DROP TRIGGER test_topup_credit_audit ON audit_log; DROP FUNCTION reject_test_topup_credit()") .execute(&db.pool).await?;
+        }
+    }
+    assert_eq!(outbox::counts(&db.pool).await?.dead, 21);
+    let audit: i64 =
+        query_scalar("SELECT count(*) FROM audit_log WHERE action='wallet.top_up.denied'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(audit, 21);
+    db.close().await
+}

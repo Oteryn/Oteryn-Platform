@@ -54,3 +54,12 @@ returns. With the URL set, eight tests exercise concurrency, idempotency, accoun
 and block denial, reservations, auditing, immutable history, bad input and overflow.
 Run `cargo test --locked -p oteryn-wallet -- --nocapture` to see skip notices.
 No browser testing applies because this task exposes only a Rust API.
+
+Paid top-ups use the caller-owned adjustment transaction with `AdjustmentKind::TopUp`
+(`top_up` in `wallet_operations`; entries inherit their operation's kind). This
+classification accepts only positive, self-account credits with the stable
+`wallet-top-up:<operation UUID>` reason. Binary composition validates the paid
+intent and fixed checkout package before calling it. The intent UUIDv7 is the
+operation key, independent of outbox delivery ID. Existing APIs keep their kinds.
+Migration `20261107180001_wallet_topup` extends only the kind constraint; its
+inverse refuses while any immutable `top_up` operation exists.

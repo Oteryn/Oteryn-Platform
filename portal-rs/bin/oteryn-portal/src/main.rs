@@ -423,6 +423,7 @@ mod tests {
 }
 
 mod gateway;
+mod wallet_topup;
 mod worker;
 
 #[path = "../../../crates/identity/src/login_http.rs"]

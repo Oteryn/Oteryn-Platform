@@ -114,7 +114,13 @@ pub(super) fn router(pool: PgPool) -> axum::Router {
         packages.filter(|p| valid_packages(p)).and_then(|packages| {
             let mut key = [0; 32];
             getrandom::fill(&mut key).ok()?;
-            let provider = TestProvider::new(&key).ok()?;
+            let configured_key = std::env::var("OTERYN_SHOP_TEST_PAYMENT_KEY").ok();
+            let provider = TestProvider::new(
+                configured_key
+                    .as_ref()
+                    .map_or(key.as_slice(), |k| k.as_bytes()),
+            )
+            .ok()?;
             Some(Arc::new(PaymentTopUps {
                 payments: Payments::new(
                     pool.clone(),
@@ -129,7 +135,52 @@ pub(super) fn router(pool: PgPool) -> axum::Router {
     } else {
         None
     };
-    oteryn_store::web::configured_router_with_topups(pool, topups)
+    let mut router = oteryn_store::web::configured_router_with_topups(pool.clone(), topups);
+    // An explicit ephemeral test key enables signed local-provider ingress only
+    // in testing. Production has no route, key or real-provider integration.
+    if testing
+        && enabled
+        && let Ok(key) = std::env::var("OTERYN_SHOP_TEST_PAYMENT_KEY")
+        && let Ok(provider) = TestProvider::new(key.as_bytes())
+    {
+        let payments = Arc::new(Payments::new(
+            pool.clone(),
+            provider,
+            Accounts(pool),
+            PaymentFlags {
+                enabled: std::env::var("OTERYN_PAYMENTS_ENABLED").as_deref() == Ok("true"),
+            },
+        ));
+        router = router.merge(
+            axum::Router::new()
+                .route(
+                    "/__test/payments/webhook",
+                    axum::routing::post(test_webhook),
+                )
+                .layer(axum::extract::DefaultBodyLimit::max(65536))
+                .with_state(payments),
+        );
+    }
+    router
+}
+
+async fn test_webhook(
+    axum::extract::State(payments): axum::extract::State<Arc<Payments<TestProvider, Accounts>>>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::http::StatusCode {
+    use base64::Engine;
+    let signature = headers
+        .get("x-test-payment-signature")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| base64::engine::general_purpose::STANDARD.decode(s).ok());
+    let Some(signature) = signature else {
+        return axum::http::StatusCode::BAD_REQUEST;
+    };
+    match payments.webhook(&body, &signature).await {
+        Ok(_) => axum::http::StatusCode::NO_CONTENT,
+        Err(_) => axum::http::StatusCode::BAD_REQUEST,
+    }
 }
 
 #[cfg(test)]

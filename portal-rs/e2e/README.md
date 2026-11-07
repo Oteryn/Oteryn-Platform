@@ -128,3 +128,13 @@ Atlas flag aliases are centralized: `OTERYN_ATLAS_DELIVERY_ENABLED=true` aliases
 `PORTAL_WORLD_ENABLED=1`. If both aliases are supplied, **both must enable** the
 gate; false, invalid or conflicting values refuse. Viewer enablement still needs
 `OTERYN_ATLAS_ENABLED=true` and `OTERYN_ATLAS_DIRECTORY`.
+
+The focused paid top-up flow is `test specs/wallet-topup.spec.mjs`. The local
+launcher configures a synthetic 1,234-coin / 250 PLN-minor-unit package and an
+ephemeral test-provider HMAC key. Only `OTERYN_ENV=testing` plus
+`OTERYN_SHOP_TEST_PAYMENTS_ENABLED=true` plus that explicit key registers
+`/__test/payments/webhook`. It verifies the signature before parsing, and the
+payments switch must permit processing. Production has no such route. The spec
+creates the checkout through the CSRF-protected browser form, sends the signed
+test webhook, waits for the real worker and reads the credited browser balance;
+webhook and outbox replays must leave exactly one classified credit.

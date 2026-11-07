@@ -37,7 +37,7 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
   await expect(page.locator('main a[href*="/characters/"]')).toHaveCount(0);
   const json=await page.request.get(`${path}/data`);
   expect(json.status()).toBe(200);
-  expect((await json.json()).state).toBe('unavailable');
+  expect((await json.json()).state).toBe(suffix==='/economy'?'available':'unavailable');
   expect(json.headers()['cache-control']).toBe('no-store, private');
  }
  const audit=pool();

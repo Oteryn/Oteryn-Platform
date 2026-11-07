@@ -1439,3 +1439,79 @@ fn economy_wire_refuses_non_strings_unknown_members_and_purchased() {
         assert!(wire::parse("page", bad.as_bytes(), NOW).is_err());
     }
 }
+
+#[tokio::test]
+async fn postgres_platform_purchased_units_empty_day_and_boundaries() {
+    let Some((pool, root, name)) = database().await else {
+        return;
+    };
+    let admin = staff(&pool, "platform_admin").await;
+    let start = now() / 86400 * 86400 - 2 * 86400;
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+        .bind(account)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for (currency, coins, minor, at, kind) in [
+        ("PLN", 100, 250, start, "top_up"),
+        ("EUR", 200, 999, start + 86399, "top_up"),
+        ("PLN", 400, 500, start + 86400, "top_up"),
+        ("PLN", 500, 600, start, "adjustment"),
+    ] {
+        let id = Uuid::now_v7();
+        sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'fixed',$3,$4,$5,$6)")
+            .bind(Uuid::now_v7()).bind(account).bind(coins as i64).bind(minor as i64).bind(currency).bind(id).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,$2,$3,$4)")
+            .bind(id)
+            .bind(kind)
+            .bind(account)
+            .bind(coins as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta,created_at) VALUES($1,$2,$3,$4,0,to_timestamp($5::double precision))")
+            .bind(Uuid::now_v7()).bind(id).bind(account).bind(coins as i64).bind(at as f64).execute(&pool).await.unwrap();
+    }
+    let mut tx = pool.begin().await.unwrap();
+    let v = purchased::read_in(&mut tx, start, start + 86400)
+        .await
+        .unwrap();
+    assert_eq!((v.count.as_str(), v.coins.as_str()), ("2", "300"));
+    assert_eq!(
+        v.paid
+            .iter()
+            .map(|p| (p.currency.as_str(), p.minor_units.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("EUR", "999"), ("PLN", "250")]
+    );
+    let empty = purchased::read_in(&mut tx, start - 86400, start)
+        .await
+        .unwrap();
+    assert_eq!((empty.count.as_str(), empty.coins.as_str()), ("0", "0"));
+    assert!(empty.paid.is_empty());
+    assert!(
+        purchased::read_in(&mut tx, start + 1, start + 86401)
+            .await
+            .is_err()
+    );
+    tx.rollback().await.unwrap();
+    let path = format!(
+        "/admin/analytics/economy/data?start={start}&end={}",
+        start + 86400
+    );
+    let response = get(panel(pool.clone(), Some(admin), true), &path).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 200000).await.unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let group = &value["groups"][5];
+    assert_eq!(group["source"], "Platform");
+    assert_eq!(group["state"], "available");
+    assert_eq!(group["cells"][0]["key"], "purchased/coins");
+    assert_eq!(group["cells"][0]["values"], serde_json::json!(["2", "300"]));
+    assert_eq!(group["cells"][1]["key"], "paid/EUR/minor_units");
+    assert!(!String::from_utf8_lossy(&body).contains(&account.to_string()));
+    // Game freshness cannot qualify or invalidate the separate Platform source.
+    assert_eq!(value["groups"][0]["state"], "unavailable");
+    clean(pool, root, name).await;
+}
