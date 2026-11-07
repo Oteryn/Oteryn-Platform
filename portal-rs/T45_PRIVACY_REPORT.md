@@ -78,7 +78,30 @@ PostgreSQL 18.6, max_locks_per_transaction=1024, max_connections=300. Tests use
 throwaway local databases and isolated schemas, with `PORTAL_TEST_DATABASE_URL`.
 No production credentials, personal data or browser traces are committed.
 
-Results are being finalized.
+Material implementation validated: `bc4179837459adb7a52630c0c04f3c0b4edfd87d`. The subsequent evidence commit
+changes only this report and the task checkpoint.
+
+| Command / check | Exact result |
+| --- | --- |
+| `cargo fmt --all --check` | PASS, exit 0. |
+| `cargo clippy --locked --workspace --all-targets -- -D warnings` | PASS, exit 0; no warnings. |
+| `cargo test --locked --no-fail-fast` | PASS, exit 0; 1,101 passed, 0 failed, 3 ignored across 83 test/doc-test targets. Fresh migrated PostgreSQL 18.6; `RUST_TEST_THREADS=4`; requested 1024 locks / 300 connections. |
+| `CHROMIUM_PATH=/usr/bin/chromium node run.mjs /tmp/portal-t45-e2e-run3/env.json test privacy.spec.mjs` | PASS: 4 passed, 0 failed, 0 retries, 47.1s; PL/EN at 1440 and 390 pixels. Local harness stopped afterward. |
+| `cargo sqlx migrate revert`, then `cargo sqlx migrate run` | PASS: 20261107130001 down/up round trip on an isolated database. The full chain also migrated successfully on the fresh final test database. |
+| `node --check` for both changed E2E specs | PASS. |
+| `git diff --check`; task checkpoint validation | PASS. |
+
+The three pre-existing ignored Rust tests are the 360px premium/account browser
+layout, 360px store browser page, and search keyboard/accessibility tests.
+They require `PORTAL_BROWSER_MODULES` (and browser dependencies). The separate
+Playwright privacy matrix above ran all four selected projects with Chromium.
+
+The final workspace run includes the new owner/privacy/audit PostgreSQL test,
+real-ingest/real-online-adapter regression, and real statistics history/ranking
+privacy regression. Hidden and unknown characters are excluded, off switches
+remove fields/events, missing/error state denies, and foreign mutations refuse.
+Browser proof additionally covers real sessions, CSRF, account upper bounds,
+comment escaping and all documented contract-gated 503s.
 
 Development verification found and corrected the normalized-payload authority
 assumption, stale killer-label test expectations, the browser CSRF selector's

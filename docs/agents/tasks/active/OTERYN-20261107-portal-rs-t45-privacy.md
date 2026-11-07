@@ -36,10 +36,10 @@ stats/world/http.rs privacy wiring allowed. No live PR claims these paths in pre
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-07T13:00:00Z
-head: UNKNOWN
+head: bc4179837459adb7a52630c0c04f3c0b4edfd87d
 branch: codex/portal-rs-t45-privacy
 pr: none
-status: validating
+status: ready
 context_routes: []
 owned_paths:
   - portal-rs/crates/characters/src/profile
@@ -47,6 +47,8 @@ owned_paths:
   - portal-rs/crates/stats/src/privacy.rs
 proven:
   - issue 277 open; no conflicting live PR found
+  - final fmt/clippy/workspace tests pass at the material implementation head
+  - four privacy browser projects pass; migration down/up passes
 derived: []
 unknown:
   - Game acceptance/producer/coverage evidence for G-4, G-8 and G-9
@@ -56,23 +58,64 @@ first_failure:
   evidence: none
 rejected_hypotheses:
   - historical killer names cannot establish current privacy identity
-changed_paths: []
+changed_paths:
+  - docs/agents/tasks/active/OTERYN-20261107-portal-rs-t45-privacy.md
+  - portal-rs/Cargo.lock
+  - portal-rs/T45_PRIVACY_REPORT.md
+  - portal-rs/crates/characters/src/profile/README.md
+  - portal-rs/crates/characters/src/profile/authority.rs
+  - portal-rs/crates/characters/src/profile/http.rs
+  - portal-rs/crates/characters/src/profile/mod.rs
+  - portal-rs/crates/characters/src/profile/tests.rs
+  - portal-rs/crates/community/Cargo.toml
+  - portal-rs/crates/community/src/deaths.rs
+  - portal-rs/crates/community/src/deaths/README.md
+  - portal-rs/crates/community/src/deaths/tests.rs
+  - portal-rs/crates/community/src/deaths/web.rs
+  - portal-rs/crates/community/src/guilds.md
+  - portal-rs/crates/community/src/guilds.rs
+  - portal-rs/crates/community/src/guilds_pages.rs
+  - portal-rs/crates/community/src/houses.rs
+  - portal-rs/crates/community/src/lib.rs
+  - portal-rs/crates/community/src/online.rs
+  - portal-rs/crates/community/src/privacy.rs
+  - portal-rs/crates/community/src/profiles.md
+  - portal-rs/crates/community/src/profiles.rs
+  - portal-rs/crates/community/tests/privacy_authority.rs
+  - portal-rs/crates/stats/Cargo.toml
+  - portal-rs/crates/stats/src/guilds.rs
+  - portal-rs/crates/stats/src/guilds/http.rs
+  - portal-rs/crates/stats/src/guilds/tests.rs
+  - portal-rs/crates/stats/src/lib.rs
+  - portal-rs/crates/stats/src/online/README.md
+  - portal-rs/crates/stats/src/privacy.rs
+  - portal-rs/crates/stats/src/store.rs
+  - portal-rs/crates/stats/src/world.rs
+  - portal-rs/crates/stats/src/world/http.rs
+  - portal-rs/crates/stats/tests/privacy.rs
+  - portal-rs/e2e/specs/privacy.spec.mjs
+  - portal-rs/e2e/specs/public.spec.mjs
+  - portal-rs/migrations/20261107130001_t45_privacy.down.sql
+  - portal-rs/migrations/20261107130001_t45_privacy.up.sql
+  - portal-rs/templates/profile/en.ftl
+  - portal-rs/templates/profile/pl.ftl
+  - portal-rs/templates/profile/settings.html
 validation:
   - command: cargo fmt --all --check
     result: PASS
     evidence: final material tree formatted
   - command: cargo clippy --locked --workspace --all-targets -- -D warnings
     result: PASS
-    evidence: passed; final exact command running again with workspace acceptance
+    evidence: PASS, exit 0, final material implementation
   - command: Playwright privacy.spec.mjs (PL/EN, 1440/390)
     result: PASS
     evidence: 4 passed, zero retries, 47.1 seconds
   - command: cargo test --locked --no-fail-fast
-    result: NOT_RUN
-    evidence: final run in progress on fresh migrated PostgreSQL 18.6, threads=4
+    result: PASS
+    evidence: 1101 passed, 0 failed, 3 ignored; fresh PostgreSQL 18.6, locks=1024, connections=300, threads=4
 blockers:
   - Game public projection qualification and G-9 share contract
-next_action: finish final workspace verification and push the requested branch
+next_action: owner reviews codex/portal-rs-t45-privacy; no PR or deployment requested
 ```
 
 ## Source branch closeout
@@ -82,3 +125,6 @@ source_branch_disposition: retain
 source_branch_reason: owner requests pushed branch without PR; owner reviews this branch after delivery
 source_branch_evidence: user task instruction
 ```
+
+Publication: owner-authorized new branch push only; no PR, merge or deployment.
+Detailed files, qualification evidence and exact Game blockers: `portal-rs/T45_PRIVACY_REPORT.md`.
