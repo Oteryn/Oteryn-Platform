@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20261107-portal-rs-admin-analytics
-governing_issue: UNKNOWN
+governing_issue: 530
 required_reads:
   - docs/contracts/OTERYN_V2_ADMIN_ANALYTICS_CONTRACT_PROPOSAL.md
   - docs/architecture/SECURITY_ARCHITECTURE.md
@@ -15,9 +15,9 @@ optional_reads: []
 
 Owner task: implement accepted admin-analytics revision 2 on current origin/main,
 push `codex/portal-rs-admin-analytics`, no PR, workflow changes or deployment.
-Live Issue searches did not identify an allocated implementation Issue; PR 1768
-is merged contract acceptance, not the implementation lifecycle. Do not invent an
-Issue mapping or reopen that PR. Jira synchronization remains unknown/pending.
+Governed by the Portal RS programme Issue #530, as the other portal-rs tasks are;
+no separate implementation Issue is allocated. PR 1768 is merged contract
+acceptance, not the implementation lifecycle; implementation PR is #1772. Jira synchronization remains unknown/pending.
 
 ## Acceptance criteria
 
