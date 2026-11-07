@@ -49,6 +49,7 @@ impl<A: AccountStateReader> Authorizer<A> {
             Change::CreateRole { key, permissions } => {
                 validate_key(key)?;
                 validate_permissions(permissions)?;
+                restrict_analytics(key, false, permissions)?;
                 let role: Uuid =
                     sqlx::query_scalar("INSERT INTO roles (key) VALUES ($1) RETURNING id")
                         .bind(key)
@@ -66,6 +67,12 @@ impl<A: AccountStateReader> Authorizer<A> {
             Change::SetPermissions { role, permissions } => {
                 validate_permissions(permissions)?;
                 require_role(&mut tx, role).await?;
+                let (key, built_in): (String, bool) =
+                    sqlx::query_as("SELECT key,built_in FROM roles WHERE id=$1")
+                        .bind(role)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                restrict_analytics(&key, built_in, permissions)?;
                 let before: Vec<String> = sqlx::query_scalar(
                     "SELECT permission FROM role_permissions WHERE role_id = $1 ORDER BY permission")
                     .bind(role).fetch_all(&mut *tx).await?;
@@ -205,6 +212,20 @@ async fn write_permissions(
             .bind(permission.as_str())
             .execute(&mut **tx)
             .await?;
+    }
+    Ok(())
+}
+
+fn restrict_analytics(key: &str, built_in: bool, permissions: &[Permission]) -> Result<(), Error> {
+    if (key != "platform_admin" || !built_in)
+        && permissions.iter().any(|p| {
+            matches!(
+                p,
+                Permission::AdminAnalyticsView | Permission::AdminAnalyticsExport
+            )
+        })
+    {
+        return Err(Error::Denied);
     }
     Ok(())
 }

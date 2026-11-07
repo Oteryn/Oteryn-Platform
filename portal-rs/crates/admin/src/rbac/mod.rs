@@ -130,7 +130,9 @@ impl<A: AccountStateReader> Authorizer<A> {
             "SELECT EXISTS (
                 SELECT 1 FROM account_roles ar
                 JOIN role_permissions rp ON rp.role_id = ar.role_id
+                JOIN roles r ON r.id=ar.role_id
                 WHERE ar.account_id = $1 AND rp.permission = $2
+                AND ($2 NOT IN ('admin.analytics.view','admin.analytics.export') OR (r.key='platform_admin' AND r.built_in))
              )",
         )
         .bind(account)

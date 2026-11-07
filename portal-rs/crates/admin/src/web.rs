@@ -105,7 +105,7 @@ struct Panel<I, A> {
     pool: PgPool,
 }
 
-fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
+pub(crate) fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
     let enabled = std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|v| v == "true");
     let host = std::env::var("OTERYN_ADMIN_HOST").unwrap_or_default();
     if enabled && (host.is_empty() || host.parse::<axum::http::uri::Authority>().is_err()) {
