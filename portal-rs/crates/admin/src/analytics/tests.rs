@@ -383,19 +383,23 @@ async fn postgres_audit_before_read_outage_and_rbac_denials() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(
-            get(panel(pool.clone(), actor, true), "/admin/analytics")
-                .await
-                .status(),
-            StatusCode::FORBIDDEN
-        );
+        for path in [
+            "/admin/analytics",
+            "/admin/analytics/economy",
+            "/admin/analytics/economy/data",
+        ] {
+            assert_eq!(
+                get(panel(pool.clone(), actor, true), path).await.status(),
+                StatusCode::FORBIDDEN
+            );
+        }
         let after: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM audit_log WHERE action='admin.analytics.denied'",
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(after, before + i64::from(actor.is_some()));
+        assert_eq!(after, before + 3 * i64::from(actor.is_some()));
     }
     for path in [
         "/admin/analytics",
@@ -403,6 +407,8 @@ async fn postgres_audit_before_read_outage_and_rbac_denials() {
         "/admin/analytics/activity",
         "/admin/analytics/levels",
         "/admin/analytics/health",
+        "/admin/analytics/economy",
+        "/admin/analytics/economy/data",
         "/admin/analytics/data",
     ] {
         let response = get(panel(pool.clone(), Some(admin), true), path).await;
@@ -595,11 +601,14 @@ async fn postgres_retention_privacy_watermark_and_baseline_gates() {
     for family in [
         wire::Family::WorldActivityHourly,
         wire::Family::CharactersCreatedDaily,
+        wire::Family::EconomyTradesDaily,
     ] {
         p.family = family;
         p.rows[0].key = "world".into();
         p.rows[0].values = if family == wire::Family::WorldActivityHourly {
             vec!["0".into(); 4]
+        } else if family == wire::Family::EconomyTradesDaily {
+            vec!["0".into(); 2]
         } else {
             vec!["0".into()]
         };
@@ -626,9 +635,14 @@ async fn postgres_retention_privacy_watermark_and_baseline_gates() {
         )
         .await
         .unwrap();
+        let prefix = if family.economy() {
+            "/admin/analytics/economy/data"
+        } else {
+            "/admin/analytics/data"
+        };
         let family = serde_json::to_value(family).unwrap();
         let path = format!(
-            "/admin/analytics/data?world={}&family={}&start={}&end={}",
+            "{prefix}?world={}&family={}&start={}&end={}",
             p.world_id,
             family.as_str().unwrap(),
             p.bucket_start,
@@ -685,7 +699,7 @@ async fn postgres_host_gate_refuses_before_session_and_audit() {
         // An invalid cookie would be rejected by session middleware if the outer
         // host guard did not return first. Repeated probes must write no audit.
         for _ in 0..3 {
-            let mut request = Request::get("/admin/analytics")
+            let mut request = Request::get("/admin/analytics/economy")
                 .header("host", host)
                 .header("cookie", "__Host-oteryn_session=invalid")
                 .body(Body::empty())
@@ -853,4 +867,566 @@ async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
         0
     );
     clean(pool, root, name).await;
+}
+
+#[test]
+fn economy_contract_byte_exact_vectors() {
+    for (name, op, hash) in [
+        (
+            "circulation",
+            "page",
+            "d17393e355da190bb5a9e04658519835fa4b55fcffb29f35625fc3d458794b0b",
+        ),
+        (
+            "market",
+            "page",
+            "d6ee5157fef3e99e8da53a6bf8207d41fc3e07e46e3db42d9dbd1f26f8b017ac",
+        ),
+        (
+            "commit-market",
+            "commit",
+            "d53044c346577e0cffe14962110b831b52054d2fda35c0e73ec5a6e8573e70db",
+        ),
+        (
+            "watermark-market",
+            "watermark",
+            "49f9807db6bfa7102a73a738eebb235c94493018ed09c72fb25bf47b361d6e46",
+        ),
+    ] {
+        let raw = std::fs::read(format!("{FIXTURE}/economy/{name}.json")).unwrap();
+        assert_eq!(store::digest(&raw), hash);
+        assert!(wire::parse(op, &raw, 1793664600).is_ok(), "{name}");
+    }
+}
+
+fn economy_page(name: &str) -> wire::Page {
+    serde_json::from_slice(&std::fs::read(format!("{FIXTURE}/economy/{name}.json")).unwrap())
+        .unwrap()
+}
+fn economy_members() -> Vec<wire::Page> {
+    let circulation = economy_page("circulation");
+    let mut result = vec![circulation.clone(), economy_page("market")];
+    for (family, keys, values) in [
+        (
+            "economy_flows_daily",
+            vec![
+                "creature_loot",
+                "house_rent",
+                "market_fee",
+                "npc_service",
+                "npc_trade",
+                "refund",
+            ],
+            vec!["0", "0"],
+        ),
+        ("economy_trades_daily", vec!["world"], vec!["1", "5"]),
+        (
+            "economy_store_daily",
+            vec!["refund/coin", "spent_in_game/coin"],
+            vec!["1", "5"],
+        ),
+    ] {
+        let mut p = circulation.clone();
+        p.family = serde_json::from_value(serde_json::json!(family)).unwrap();
+        p.rows = keys
+            .into_iter()
+            .map(|key| wire::Row {
+                key: key.into(),
+                state: "visible".into(),
+                values: values.iter().map(|v| (*v).into()).collect(),
+            })
+            .collect();
+        result.push(p);
+    }
+    result
+}
+#[test]
+fn economy_member_validation_and_family_states() {
+    for p in economy_members() {
+        assert!(wire::rows(p.family, &p.rows, true).is_ok());
+        assert!(wire::parse("page", &serde_json::to_vec(&p).unwrap(), NOW).is_ok());
+        for state in ["visible", "low_n", "incomplete", "suppressed"] {
+            let mut rows = p.rows.clone();
+            rows[0].state = state.into();
+            if state == "low_n" && rows[0].values.iter().all(|v| v == "0") {
+                rows[0].values[0] = "1".into();
+            }
+            if matches!(state, "incomplete" | "suppressed") {
+                rows[0].values.clear();
+            }
+            assert_eq!(
+                wire::rows(p.family, &rows, true).is_ok(),
+                state != "suppressed",
+                "{:?} {state}",
+                p.family
+            );
+            if state == "low_n" {
+                rows[0].values.clear();
+                assert!(wire::rows(p.family, &rows, true).is_err());
+            }
+            if state == "incomplete" {
+                rows[0].values.push("1".into());
+                assert!(wire::rows(p.family, &rows, true).is_err());
+            }
+        }
+        let mut bad = p.clone();
+        bad.rows[0].values = vec!["18446744073709551616".into()];
+        assert!(wire::parse("page", &serde_json::to_vec(&bad).unwrap(), NOW).is_err());
+        if p.rows.len() > 1 {
+            let mut rows = p.rows.clone();
+            rows.swap(0, 1);
+            assert!(wire::rows(p.family, &rows, true).is_err());
+            rows = p.rows.clone();
+            rows[1].key = rows[0].key.clone();
+            assert!(wire::rows(p.family, &rows, true).is_err());
+        }
+        if !matches!(
+            p.family,
+            wire::Family::EconomyMarketDaily | wire::Family::EconomyStoreDaily
+        ) {
+            let mut rows = p.rows.clone();
+            rows.pop();
+            assert!(wire::rows(p.family, &rows, true).is_err());
+            let mut missing = p.clone();
+            missing.rows = rows;
+            assert!(wire::parse("page", &serde_json::to_vec(&missing).unwrap(), NOW).is_err());
+            rows = p.rows.clone();
+            rows[0].key = "extra".into();
+            rows.sort_by(|a, b| a.key.cmp(&b.key));
+            assert!(wire::rows(p.family, &rows, true).is_err());
+        }
+        let mut bad = p.clone();
+        bad.source_observed_at = (wire::uint(&p.bucket_end).unwrap() + 86399).to_string();
+        assert!(wire::parse("page", &serde_json::to_vec(&bad).unwrap(), NOW).is_err());
+        bad = p.clone();
+        bad.bucket_start = (wire::uint(&p.bucket_start).unwrap() + 1).to_string();
+        assert!(wire::parse("page", &serde_json::to_vec(&bad).unwrap(), NOW).is_err());
+    }
+    for family in [
+        wire::Family::CreatureKillsDaily,
+        wire::Family::BossKillsDaily,
+        wire::Family::PlayerDeathsDaily,
+        wire::Family::WorldActivityHourly,
+        wire::Family::CharactersCreatedDaily,
+        wire::Family::LevelDistributionDaily,
+    ] {
+        let key = if family == wire::Family::LevelDistributionDaily {
+            "unknown"
+        } else {
+            "world"
+        };
+        let mut row = wire::Row {
+            key: key.into(),
+            state: "low_n".into(),
+            values: vec!["1".into()],
+        };
+        assert!(wire::rows(family, &[row.clone()], false).is_err());
+        row.state = "suppressed".into();
+        row.values.clear();
+        assert!(wire::rows(family, &[row], false).is_ok());
+    }
+}
+#[test]
+fn economy_inclusive_bounds_fixed_zero_and_store_coverage() {
+    for mut p in economy_members() {
+        for row in &mut p.rows {
+            row.state = "visible".into();
+            let bounds: Vec<u64> = match p.family {
+                wire::Family::EconomyCirculationDaily => vec![1_000_000_000_000_000_000],
+                wire::Family::EconomyFlowsDaily => vec![
+                    if matches!(
+                        row.key.as_str(),
+                        "house_rent" | "market_fee" | "npc_service"
+                    ) {
+                        0
+                    } else {
+                        1_000_000_000_000_000_000
+                    },
+                    if row.key == "creature_loot" {
+                        0
+                    } else {
+                        1_000_000_000_000_000_000
+                    },
+                ],
+                wire::Family::EconomyMarketDaily => vec![
+                    1_000_000_000_000_000,
+                    1_000_000_000_000_000_000,
+                    1_000_000_000_000,
+                    999_999_999_999,
+                ],
+                _ => vec![1_000_000_000_000, 1_000_000_000_000_000_000],
+            };
+            row.values = bounds.iter().map(u64::to_string).collect();
+            assert!(wire::rows(p.family, std::slice::from_ref(row), false).is_ok());
+            for (i, bound) in bounds.iter().enumerate() {
+                let mut bad = row.clone();
+                bad.values[i] = (bound + 1).to_string();
+                assert!(
+                    wire::rows(p.family, &[bad], false).is_err(),
+                    "{:?} {} {i}",
+                    p.family,
+                    row.key
+                );
+            }
+            for value in ["-1", "01", "1.0", "", "18446744073709551616"] {
+                let mut bad = row.clone();
+                bad.values[0] = value.into();
+                assert!(wire::rows(p.family, &[bad], false).is_err());
+            }
+        }
+    }
+    let mut p = economy_page("market");
+    for values in [["1", "0", "0", "0"], ["0", "0", "0", "1"]] {
+        p.rows[0].values = values.map(str::to_owned).to_vec();
+        assert!(wire::rows(p.family, &p.rows, true).is_err());
+    }
+    for key in ["/item", "bad key", "é", "", &"a".repeat(513)] {
+        p.rows[0].key = key.into();
+        assert!(wire::rows(p.family, &p.rows, false).is_err());
+    }
+    let mut p = economy_members().pop().unwrap();
+    for key in [
+        "purchased/coin",
+        "coin",
+        "spent_in_game/",
+        "refund/a/b",
+        "refund/é",
+        "refund/a b",
+        &format!("refund/{}", "a".repeat(129)),
+    ] {
+        let mut row = p.rows[0].clone();
+        row.key = key.into();
+        assert!(wire::rows(p.family, &[row], false).is_err());
+    }
+    assert!(wire::rows(p.family, &p.rows[..1], true).is_err());
+    p.rows.clear();
+    for i in 0..16 {
+        for prefix in ["refund", "spent_in_game"] {
+            p.rows.push(wire::Row {
+                key: format!("{prefix}/c{i:02}.A_:-"),
+                state: "visible".into(),
+                values: vec!["0".into(); 2],
+            });
+        }
+    }
+    p.rows.sort_by(|a, b| a.key.cmp(&b.key));
+    assert!(wire::rows(p.family, &p.rows, true).is_ok());
+    p.rows.push(wire::Row {
+        key: "spent_in_game/extra".into(),
+        state: "visible".into(),
+        values: vec!["0".into(); 2],
+    });
+    assert!(wire::rows(p.family, &p.rows, true).is_err());
+}
+
+async fn accept_test_baseline(pool: &PgPool) {
+    // TEST ONLY; no production resync operation is introduced.
+    sqlx::query("UPDATE admin_analytics.generations SET baseline_digest=$1,baseline_cut=1,accepted_at=now()")
+        .bind("a".repeat(64)).execute(pool).await.unwrap();
+    sqlx::query("UPDATE admin_analytics.fence SET active_generation=(SELECT id FROM admin_analytics.generations LIMIT 1)")
+        .execute(pool).await.unwrap();
+}
+async fn economy_watermark(s: &store::Store, p: &wire::Page) {
+    let current = now();
+    let w = wire::Watermark {
+        contract_version: 1,
+        operation: "PublishAdminAnalyticsWatermarkV1".into(),
+        source_authority: p.source_authority.clone(),
+        family: p.family,
+        world_id: p.world_id.clone(),
+        analytics_epoch: p.analytics_epoch.clone(),
+        privacy_policy_revision: p.privacy_policy_revision.clone(),
+        complete_through: current.to_string(),
+        observed_at: current.to_string(),
+    };
+    let raw = serde_json::to_vec(&w).unwrap();
+    s.ingest(
+        wire::parse("watermark", &raw, current).unwrap(),
+        &raw,
+        current,
+    )
+    .await
+    .unwrap();
+}
+#[tokio::test]
+async fn postgres_economy_members_panel_and_refusal_fence() {
+    let Some((pool, root, name)) = database().await else {
+        return;
+    };
+    let s = store(pool.clone()).await;
+    let admin = staff(&pool, "platform_admin").await;
+    let mut members = economy_members();
+    for p in &mut members {
+        p.source_authority = "test-game".into();
+        p.privacy_policy_revision = "policy-1".into();
+        if p.rows[0].state == "visible" {
+            p.rows[0].state = "low_n".into();
+            if p.rows[0].values.iter().all(|v| v == "0") {
+                p.rows[0].values[0] = "1".into();
+            }
+        }
+        publish(&s, p).await.unwrap();
+        apply(&s, &commit(p)).await.unwrap();
+        economy_watermark(&s, p).await;
+    }
+    accept_test_baseline(&pool).await;
+    let p = &members[0];
+    let path = format!(
+        "/admin/analytics/economy?world={}&start={}&end={}",
+        p.world_id, p.bucket_start, p.bucket_end
+    );
+    let response = get(panel(pool.clone(), Some(admin), true), &path).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "no-store, private"
+    );
+    let body = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    for text in [
+        "48210377",
+        "low-n (below five)",
+        "depot source coverage not yet delivered by Game",
+        "gold_in / gold_out",
+        "median_unit_price",
+        "purchased",
+        "Platform wallet ledger",
+        "spent_in_game/coin",
+        "refund/coin",
+        "Data cut",
+        "freshness",
+    ] {
+        assert!(body.contains(text), "{text}");
+    }
+    assert!(!body.contains("/characters/"));
+    assert!(!body.contains("/journal"));
+    let audit:i64=sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='admin.analytics.read' AND target='/admin/analytics/economy'").fetch_one(&pool).await.unwrap();
+    assert_eq!(audit, 1);
+    for query in [
+        "family=characters_created_daily",
+        "account=0192f4a0-7c00-7000-8000-000000000001",
+        "start=1793491200&end=1793664000",
+        "start=1793491201&end=1793577601",
+    ] {
+        assert_eq!(
+            get(
+                panel(pool.clone(), Some(admin), true),
+                &format!("/admin/analytics/economy?{query}")
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(
+        get(
+            panel(pool.clone(), Some(admin), true),
+            "/admin/analytics/data?family=economy_market_daily"
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Serve-time release delay is independent of the ingestion check.
+    let recent_end = now() / 86400 * 86400;
+    sqlx::query("UPDATE admin_analytics.subjects SET bucket_start=$1::text::numeric,bucket_end=$2::text::numeric WHERE family='economy_circulation_daily'")
+        .bind((recent_end-86400).to_string()).bind(recent_end.to_string()).execute(&pool).await.unwrap();
+    let recent = format!(
+        "/admin/analytics/economy/data?world={}&start={}&end={recent_end}",
+        p.world_id,
+        recent_end - 86400
+    );
+    let response = get(panel(pool.clone(), Some(admin), true), &recent).await;
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 200000).await.unwrap()).unwrap();
+    assert_eq!(body["groups"][0]["state"], "unavailable");
+    assert_eq!(body["groups"][0]["cells"], serde_json::json!([]));
+    sqlx::query("UPDATE admin_analytics.subjects SET bucket_start=$1::text::numeric,bucket_end=$2::text::numeric WHERE family='economy_circulation_daily'")
+        .bind(&p.bucket_start).bind(&p.bucket_end).execute(&pool).await.unwrap();
+    // Missing fixed key is detected at commit, rolling back a higher tentative epoch.
+    let mut incomplete = p.clone();
+    incomplete.analytics_epoch = "2".into();
+    incomplete.rows.pop();
+    incomplete.page_count = "2".into();
+    let mut second = incomplete.clone();
+    second.page_index = "1".into();
+    second.rows = incomplete.rows.split_off(2);
+    publish(&s, &incomplete).await.unwrap();
+    publish(&s, &second).await.unwrap();
+    let mut missing_commit = commit(&incomplete);
+    missing_commit.row_count = "3".into();
+    missing_commit
+        .page_digests
+        .push(store::digest(&serde_json::to_vec(&second).unwrap()));
+    // Re-establish an old active generation to prove the refusal leaves it unchanged.
+    sqlx::query("UPDATE admin_analytics.fence SET epoch=1,active_generation=(SELECT id FROM admin_analytics.generations LIMIT 1)").execute(&pool).await.unwrap();
+    let before: (String, Option<Uuid>, i32, i64) = sqlx::query_as(
+        "SELECT epoch::text,active_generation,rate_count,rate_window FROM admin_analytics.fence",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        apply(&s, &missing_commit).await,
+        Err(store::Error::Invalid)
+    ));
+    let after: (String, Option<Uuid>, i32, i64) = sqlx::query_as(
+        "SELECT epoch::text,active_generation,rate_count,rate_window FROM admin_analytics.fence",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, after);
+    // Every malformed page must fail HTTP before it can affect the fence.
+    let identities = Arc::new(
+        guard::IdentityMap::new(vec![guard::Binding {
+            identity: guard::Identity::san("economy-test").unwrap(),
+            group: "game-admin-analytics".into(),
+        }])
+        .unwrap(),
+    );
+    let app = router(
+        pool.clone(),
+        Config {
+            ingest: true,
+            authority: "test-game".into(),
+            privacy: "policy-1".into(),
+            requests_per_minute: 1200,
+            max_staging_bytes: 268435456,
+            ..Config::default()
+        },
+        identities,
+    );
+    let mut invalids = Vec::new();
+    for p in &members {
+        let mut bad = p.clone();
+        bad.analytics_epoch = "99".into();
+        bad.rows[0].state = "suppressed".into();
+        bad.rows[0].values.clear();
+        invalids.push(bad);
+        let mut bad = p.clone();
+        bad.analytics_epoch = "99".into();
+        bad.rows[0].values[0] = "1000000000000000001".into();
+        invalids.push(bad);
+        let mut bad = p.clone();
+        bad.analytics_epoch = "99".into();
+        bad.rows[0].state = "low_n".into();
+        bad.rows[0].values.clear();
+        invalids.push(bad);
+    }
+    for bad in invalids {
+        let raw = serde_json::to_vec(&bad).unwrap();
+        let mut request = Request::post("/internal/v1/admin-analytics/page")
+            .header("content-type", "application/json")
+            .body(Body::from(raw))
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(guard::VerifiedClient::from_verified_tls13_http11(
+                guard::Identity::san("economy-test").unwrap(),
+            ));
+        assert_eq!(
+            app.clone().oneshot(request).await.unwrap().status(),
+            StatusCode::BAD_REQUEST
+        );
+        let after:(String,Option<Uuid>,i32,i64)=sqlx::query_as("SELECT epoch::text,active_generation,rate_count,rate_window FROM admin_analytics.fence").fetch_one(&pool).await.unwrap();
+        assert_eq!(before, after);
+    }
+    // Audit failure prevents values from leaving either economy response.
+    sqlx::raw_sql("CREATE FUNCTION reject_economy_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test outage'; END $$; CREATE TRIGGER economy_audit_outage BEFORE INSERT ON audit_log FOR EACH STATEMENT EXECUTE FUNCTION reject_economy_audit()") .execute(&pool).await.unwrap();
+    for path in [&path, &path.replacen("economy?", "economy/data?", 1)] {
+        let response = get(panel(pool.clone(), Some(admin), true), path).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            to_bytes(response.into_body(), 200000)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+    clean(pool, root, name).await;
+}
+#[tokio::test]
+async fn postgres_economy_migration_rollback_reapply() {
+    let Some((pool, root, name)) = database().await else {
+        return;
+    };
+    let s = store(pool.clone()).await;
+    let p = page();
+    publish(&s, &p).await.unwrap();
+    apply(&s, &commit(&p)).await.unwrap();
+    let before: (String, i64) = sqlx::query_as(
+        "SELECT epoch::text,(SELECT count(*) FROM admin_analytics.rows) FROM admin_analytics.fence",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    for _ in 0..2 {
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261107170001_admin_analytics_economy.down.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261107170001_admin_analytics_economy.up.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let after: (String, i64) = sqlx::query_as(
+        "SELECT epoch::text,(SELECT count(*) FROM admin_analytics.rows) FROM admin_analytics.fence",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, after);
+    let mut p = economy_page("market");
+    p.source_authority = "test-game".into();
+    p.privacy_policy_revision = "policy-1".into();
+    publish(&s, &p).await.unwrap();
+    apply(&s, &commit(&p)).await.unwrap();
+    // Rollback with low_n data fails transactionally without losing fences/data.
+    let mut tx = pool.begin().await.unwrap();
+    assert!(
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261107170001_admin_analytics_economy.down.sql"
+        ))
+        .execute(&mut *tx)
+        .await
+        .is_err()
+    );
+    tx.rollback().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM admin_analytics.rows WHERE state='low_n'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        1
+    );
+    clean(pool, root, name).await;
+}
+
+#[test]
+fn economy_wire_refuses_non_strings_unknown_members_and_purchased() {
+    let p = economy_page("market");
+    let raw = String::from_utf8(serde_json::to_vec(&p).unwrap()).unwrap();
+    for value in ["-1", "1.5", "null"] {
+        let bad = raw.replacen("\"412\"", value, 1);
+        assert!(wire::parse("page", bad.as_bytes(), NOW).is_err());
+    }
+    for bad in [
+        raw.replace("economy_market_daily", "economy_purchased_daily"),
+        raw.replace("\"rows\":[", "\"account_id\":\"hidden\",\"rows\":["),
+    ] {
+        assert!(wire::parse("page", bad.as_bytes(), NOW).is_err());
+    }
 }
