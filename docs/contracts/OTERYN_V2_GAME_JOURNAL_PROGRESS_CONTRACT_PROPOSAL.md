@@ -1,6 +1,16 @@
-Status: PROPOSED by Platform, pending acceptance by the game owner (coordinator).
+Status: PROPOSED revision 3 by Platform, pending acceptance by the game owner (coordinator).
 
 # G-11 private game journal: progress and events
+
+## Revision 3 changes
+
+Game-owner decisions relayed by the coordinator on 2026-11-07, common to G-9, G-10 and G-11. Every other revision 2 decision is unchanged; open questions in §11 stay open.
+
+- **1a, owner data export:** added a Platform-only obligation (§8.1): on the owner's request, one JSON export per account per rolling 24 hours with only that account's own G-9/G-10/G-11 data; owner-only, authenticated, rate-limited and audited. No Game wire change. Admin and analytical exports remain forbidden.
+- **2a, unified deletion:** account deletion purge changed from 7 days to 24 hours; character deletion, opt-out and character transfer follow the same rule (§8.2). Data is hidden immediately; only content-free tombstones (id, epoch, digest) remain, for 120 days, so replay cannot restore deleted data. The rev 2 fence (stream lifetime plus 90 days after closure) stays the replay guard for live and ordinarily closed streams and takes the tombstone form; a stream closed by deletion keeps its tombstones 120 days. Pre-sale character history is now purged within 24 hours instead of being retained suppressed. Backups expire on their own schedule; a restore re-applies tombstones before serving or ingest.
+- **3a:** applies to G-10 bank history only; no G-11 change. G-11 records are not a source for admin analytics or any other aggregate or analytical export.
+- **4a, legal hold:** only the project owner may place one; none exists by default; each is audited with who, when, scope, reason and expiry; it suspends purge only for its scope until expiry or release (§8.3).
+- Open questions 2, 3 and 8 in §11 are affected by these decisions and remain open until the coordinator accepts revision 3.
 
 ## Revision 2 (review of 2026-11-05)
 
@@ -430,7 +440,8 @@ Platform commit is resolved by exact retry. Retain pending exports until acknowl
 or explicitly quarantined; operator action cannot skip a revision and claim a complete
 watermark. If source retention no longer covers a gap, perform a fenced baseline;
 never guess missing events. Exact replay after payload expiry is acknowledged from the retained minimal
-digest/fence (§8), never reinserted as new history. Unverifiable replay is denied.
+digest/fence (§8), never reinserted as new history; a record matching a deletion
+tombstone or inside a deleted scope (§8.2) is refused. Unverifiable replay is denied.
 For a first delivery of already-expired historical content, accept only its digest,
 sequence and acknowledgement, discard the payload and advance completeness without
 resurrecting the expired history.
@@ -493,9 +504,8 @@ and APIs use private no-store responses; queues carry references rather than bod
 On `TransferCharacterOwnership`, use the accepted Character Authority receipt and
 account projection epoch/revisions to establish the cut. Revoke old-owner access to
 character-scoped projections, clear browser/server caches and cancel queued reminders
-before allowing post-transfer access. Historical private records remain partitioned
-under their original recipient and are suppressed for both accounts by default;
-the new owner receives a fresh current-state baseline, never the former owner's
+before allowing post-transfer access. Pre-cutoff character-scoped records are hidden
+from both accounts at the cut and purged under §8.2; the new owner receives a fresh current-state baseline, never the former owner's
 login/death/skill history. Account-level achievement grants and premium remain with
 the originating account. Until the transfer cut and both ownership publications are
 proven, deny character-scoped access to both sides. Runtime transfer support is not
@@ -509,13 +519,13 @@ Proposed Platform retention (coordinator must accept before enablement):
 | Skill history, death receipts/losses, PvP events | 90 days from occurred_at |
 | Detailed recap actions | UNAVAILABLE in v1; no actions captured or retained |
 | Game login history | 30 days |
-| Raw acknowledged canonical payloads | ≤7 days, encrypted at rest and unavailable to ordinary application logs |
-| Minimal record digest, key/sequence and epoch/ownership fences | While stream exists, plus 90 days after closure; no payload; reset/rebootstrap required before accepting older replay after expiry |
+| Raw acknowledged canonical payloads | ≤7 days, and within 24 hours of §8.2 deletion; encrypted at rest and unavailable to ordinary application logs |
+| Minimal record digest, key/sequence and epoch/ownership fences (tombstone form, §8.2) | While stream exists, plus 90 days after ordinary closure; 120 days after deletion for a stream or scope closed by §8.2; no payload; reset/rebootstrap required before accepting older replay after expiry |
 | Backups | Encrypted, bounded 35-day expiry; restore reapplies deletion/ownership fences before serving |
 
-Account deletion purges payloads within 7 days and cancels reminders immediately;
-retained replay fences are access-restricted pseudonymous security metadata, not
-available history. Game's authoritative retention remains Game policy; export replay
+Account deletion purges payloads within 24 hours (§8.2) and cancels reminders
+immediately; retained tombstones and replay fences are access-restricted
+pseudonymous security metadata, not available history. Game's authoritative retention remains Game policy; export replay
 must obey the recipient retention window, never resurrect erased content. Retention
 expiry does not emit invented game tombstones or alter gameplay.
 
@@ -526,6 +536,51 @@ notes, item inscriptions, counterpart AccountIds or unrestricted combat logs.
 Country/device data are excluded from this feed; no raw source fallback. Counterpart
 CharacterIds are minimized/redacted; names are resolved only through independently
 permitted presentation data. No telemetry is an authentication factor.
+
+### 8.1 Owner data export
+
+Platform obligation; no Game route, member or command changes. On the authenticated
+owner's explicit request, Platform produces one JSON document containing only that
+account's own G-9, G-10 and G-11 data as currently serveable to that owner under
+each contract, including stale, unavailable and gap labels. It excludes other
+accounts' data, counterpart identities, transferred-away records, raw canonical
+payloads, tombstones, fences and diagnostics. Owner-only (never moderators, support
+or a browser-supplied AccountId); fresh authentication and CSRF protection on the
+request; at most one export per account per rolling 24 hours across all three
+contracts; private no-store delivery to the owner only; the generated file is
+deleted within 24 hours. Every request, refusal and delivery is audited (account,
+time, families, result, size), never the payload. Default-off flag
+`playerdata.journal.export`. Admin, support and analytical or aggregate exports
+of journal data remain forbidden.
+
+### 8.2 Deletion and tombstones
+
+Account deletion, character deletion, journal opt-out and character transfer (for
+that character's pre-cutoff records) hide affected records immediately, cancel
+reminders and stop ingest use. Within 24 hours Platform purges payloads, raw
+canonical payloads, projections, caches and staging for that scope from active
+stores. Only content-free tombstones remain: id (record_id, or the deleted scope:
+AccountId, CharacterId with transfer cut, stream key), epoch (`projection_epoch`)
+and digest (SHA-256 of the canonical record bytes, or of the canonical scope key),
+kept 120 days from the later of deletion and purge. They are the same minimal fence
+as the retention table's row: the stream-lifetime-plus-90-days fence guards replay
+of ordinarily expired or closed streams, and a stream or scope closed by deletion
+keeps its tombstones 120 days. A replay matching a tombstone, or any record inside
+a deleted scope including a first delivery, is refused and never reinserted. After
+tombstone expiry a deleted or opted-out stream stays closed and accepts nothing
+without a newly authorized epoch, so replay still cannot restore deleted data.
+Backups expire on their own schedule (the 35-day bound above, shorter than the
+tombstone lifetime). Tombstones are preserved outside the state a restore or PITR
+rolls back and are re-applied before serving or ingest resumes; if they cannot be
+proven, the affected data stays unavailable.
+
+### 8.3 Legal hold
+
+No legal hold exists by default. Only the project owner may place one. Each hold
+and its release are audited with who, when, scope, reason and expiry. A hold
+suspends purge only for its scope until expiry or release, after which §8.2 purge
+completes within 24 hours. A hold does not make held data visible, exportable,
+replayable or usable for reminders or projections.
 
 ## 9. Flags, versioning and rollout
 
@@ -680,7 +735,10 @@ Platform acceptance (all unchecked until separately evidenced):
       account versus character achievement separation proven.
 - [ ] T77 progress/history, T78 receipt losses/PvP redaction and unavailable recap actions, T79 source-revalidated reminders,
       T80 admission/end history and unsupported security-action behavior proven.
-- [ ] Erasure, retention, replay-after-erasure, backup/PITR and lower-fence refusal proven.
+- [ ] Erasure within 24 hours, 120-day tombstones, retention, replay-after-erasure, backup/PITR
+      tombstone re-application and lower-fence refusal proven.
+- [ ] Owner export (owner-only, fresh authentication, once per 24 hours, audited, own data only)
+      and owner-only audited legal holds proven.
 - [ ] Premium observation cannot grant value; no new gameplay commands or direct SQL;
       timeout reconciliation and restore amendment accepted before activation.
 
@@ -732,6 +790,10 @@ Open questions for the game owner (activation blockers for the affected family):
    bounds, 3-second exchanges, 10-second freshness, 24-hour stale progress window,
    retention/deletion/backup durations and testing/preproduction-only rollout?
    Production remains disabled pending separate acceptance and authorization.
+
+Revision 3 note: owner decisions 1a–4a bear on questions 2 (tombstones and restore
+scope), 3 (pre-sale history is now purged, not suppressed) and 8 (deletion, backup
+and legal-hold policy). They remain open until the coordinator accepts revision 3.
 
 ## 12. Pinned source evidence and validation scope
 

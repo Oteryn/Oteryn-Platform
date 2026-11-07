@@ -1,6 +1,16 @@
-Status: PROPOSED by Platform, pending acceptance by the game owner (coordinator).
+Status: PROPOSED revision 3 by Platform, pending acceptance by the game owner (coordinator).
 
 # G-10 private game journal: items and economic history, v1 proposal
+
+## Revision 3 changes
+
+Game-owner decisions relayed by the coordinator on 2026-11-07, common to G-9, G-10 and G-11. Every other revision 2 decision is unchanged; open questions stay open.
+
+- **1a, owner data export:** added a Platform-only owner export (see *Owner data export*): on the owner's request, one JSON export per account per rolling 24 hours with only that account's own G-9/G-10/G-11 data; owner-only, authenticated, rate-limited and audited. No Game wire change. Admin and analytical exports remain forbidden.
+- **2a, unified deletion:** account or character deletion, opt-out and character transfer hide affected data immediately and purge it within 24 hours. Only content-free tombstones (id, epoch, digest) remain, for 120 days, so replay cannot restore deleted data. The rev 2 31-day replay fence after ordinary payload expiry is kept as a replay guard in the same tombstone form; after deletion the 120-day lifetime applies. Backups expire on their own schedule; a restore re-applies tombstones before serving.
+- **3a, bank gold amounts:** `BANK_ENTRY` keeps `amount`, `balance_before` and `balance_after`, visible only to the account owner. G-10 private records are never a source for, nor exposed through, admin analytics or any other aggregate or analytical export. Admin access to a single account's G-10 data would require a separate contract and owner decision.
+- **4a, legal hold:** only the project owner may place a hold on this private copy; none exists by default; each is audited with who, when, scope, reason and expiry; it suspends purge only for its scope until expiry or release.
+- Open questions 3 and 5 are affected by these decisions and remain open until the coordinator accepts revision 3.
 
 ## Revision 2 (review of 2026-11-05)
 
@@ -306,6 +316,15 @@ previous_entry_id chain and must not be represented as a new ledger origin. Exis
 held credits must not be mislabelled as DEPOSIT/WITHDRAW/TRANSFER. V1 coverage
 claims cover only these three supported kinds, never all bank-affecting causes.
 
+Gold amounts in BANK_ENTRY (`amount`, `balance_before`, `balance_after`) are
+retained and shown only to the authenticated account owner, under *Owner-only
+access, transfer and retention*. Platform derives no totals, sums or statistics
+from them. G-10 private records, bank amounts included, are never a source for,
+nor exposed through, admin analytics or any other aggregate or analytical export;
+any aggregate economy statistics come only from their own separate contract and
+Game source. Admin access to one account's G-10 data would require a separate
+contract and owner decision.
+
 `MARKET_EVENT` payload:
 
 | Member | Type / rule |
@@ -425,8 +444,9 @@ after payload erasure, reject expired replays without restoring private content.
 
 ## Owner-only access, transfer and retention
 
-No public feed, sharing link, guild/team/staff dashboard, public search index, CDN or
-analytics export receives this data. Authenticate the Identity, resolve AccountId
+No public feed, sharing link, guild/team/staff dashboard, public search index, CDN,
+admin analytics or other aggregate/analytical export receives this data; the owner's
+own export below is the only export. Authenticate the Identity, resolve AccountId
 server-side and require current authoritative ownership for every character read,
 search, download and cache hit. Staff status alone is insufficient. BANK requires
 current authenticated access to the account, independently of character ownership.
@@ -460,12 +480,44 @@ payload's replay fence is minimal non-content metadata retained for 31 days afte
 payload expiry, then replay below a durable per-stream retention floor is refused.
 Unresolved records cannot bypass these privacy limits: expiry becomes an explicit
 gap/unavailable state. Backups must age out within 30 days of deletion and restore
-must reapply deletion/ownership fences before any serving. Legal-hold policy for
-this private copy requires separate approval; no implicit indefinite hold.
+must reapply tombstones and ownership fences before any serving.
 
-On account/character erasure or ownership change, immediately hide affected records
-and purge payloads/caches/staging within 24 hours, retaining only minimal scoped
-fences needed to deny replay. Never send credentials, cookies, IP/device identifiers,
+On account deletion, character deletion, journal opt-out or ownership change (for
+the seller's character-family records before the receipt cut), immediately hide
+affected records and purge payloads, projections, caches and staging within 24
+hours. Account-scoped BANK history is not affected by a character transfer. Only
+content-free tombstones remain: id (record_id or the deleted scope: AccountId,
+CharacterId with receipt cut, stream key), epoch (`recovery_generation` and
+`projection_epoch`) and digest (SHA-256 of the canonical record bytes, or of the
+canonical scope key). Tombstones are kept 120 days from the later of deletion and
+purge. They and the 31-day replay fence above are one rule: a content-free fence in
+this form exists for 31 days after ordinary payload expiry and 120 days after
+deletion, the longer applying where both do; afterwards the per-stream retention
+floor and closed-stream refusal (409) still deny replay. A replay that matches a
+tombstone, or any record inside a deleted scope, is refused and never reinserted.
+Backups expire on their own schedule within the 30-day bound above, shorter than
+the tombstone lifetime. Tombstones are kept outside the state a restore rolls back
+and are re-applied before serving; if they cannot be proven, data stays unavailable.
+
+Legal hold on this private copy: none by default. Only the project owner may place
+one; each hold and its release are audited with who, when, scope, reason and
+expiry. A hold suspends purge only for its scope until expiry or release, after
+which purge completes within 24 hours. A held record is not served, exported,
+replayed or projected.
+
+Owner data export (Platform obligation; no Game route, member or command change):
+on the authenticated owner's explicit request, Platform produces one JSON document
+with only that account's own G-9, G-10 and G-11 data as currently serveable to the
+owner, including BANK gold amounts and unavailable/stale/gap labels; never other
+accounts, counterpart identity, transferred-away records, staging, tombstones,
+fences or diagnostics. It requires fresh authentication and CSRF protection, is
+limited to one per account per rolling 24 hours across all three contracts, is
+delivered private no-store to the owner only, and its file is deleted within 24
+hours. Every request, refusal and delivery is audited without payload. Default-off
+flag `playerdata.journal.export`. Admin, support and analytical exports remain
+forbidden.
+
+Never send credentials, cookies, IP/device identifiers,
 GameSessionId, gameplay lease/admission material, private topology, chat/mail/item
 text, trade before-state blobs, other participant account/name/character identity,
 payment/provider data or unrestricted game attributes. Do not log bodies; log
@@ -587,7 +639,8 @@ precede content/existence disclosure.
 - [ ] Test account bank does not follow character sale, market held credit is not spendable, economic events deduplicate and cross-family records are not double-counted.
 - [ ] Test all valid/invalid fixtures, conflicting keys, reordered/unknown members, excessive size/depth, wrong version, timeout before/after commit, duplicate ACK and expired replay.
 - [ ] Prove initial baseline, empty-history evidence, replay-window exhaustion, restore generation fencing and rollback never restore older privacy/ownership authority.
-- [ ] Prove no public/CDN/log leakage, deletion/backup expiry, separate default-off flags, truthful unavailable/invalid/stale states and exact-revision cross-repository qualification before activation.
+- [ ] Prove owner export limits and audit, BANK amounts visible only to the account owner and absent from every aggregate/admin path, legal holds owner-only and audited.
+- [ ] Prove no public/CDN/log leakage, 24-hour purge, 120-day tombstones, restore re-application, backup expiry, separate default-off flags, truthful unavailable/invalid/stale states and exact-revision cross-repository qualification before activation.
 
 ## Open questions for the game owner
 
@@ -597,6 +650,10 @@ precede content/existence disclosure.
 4. Which future version should cover BANK fees, market settlement and held credit beyond v1 DEPOSIT/WITHDRAW/TRANSFER? Are market partial-fill events and player-trade receipts complete and replayable for 30 days? Is the pinned two-leaf trade shape still the intended v1 scope?
 5. Accept or amend the proposed limits, 30-day payload/replay window, snapshot staging/backup deletion limits, request rate/deadline and dedicated mTLS purpose. Who approves private-copy legal holds?
 6. What exact initial/replacement baseline exchange proves complete or empty retained history, admits recovery generations and supplies tail replay after either side restores? Until accepted and qualified, these states remain unavailable.
+
+Revision 3 note: owner decisions 1a–4a bear on questions 3 (erasure fencing of
+queued exports) and 5 (retention, purge and private-copy legal holds). They remain
+open until the coordinator accepts revision 3.
 
 This document alone closes no G-10 gate and authorizes no runtime, schema, workflow,
 Game repository write, deployment or product activation. All proposal values await
