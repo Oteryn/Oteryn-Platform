@@ -72,7 +72,7 @@ checkpoint_version: 1
 updated_at: 2026-11-07T18:21:48Z
 head: 7b342713e7ff24bd3968d678d5d5b8b6c2c5113b
 branch: claude/portal-rs-wallet-topup
-pr: none
+pr: 1777
 status: ready
 context_routes:
   - payments
