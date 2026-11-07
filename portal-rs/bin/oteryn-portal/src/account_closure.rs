@@ -109,6 +109,7 @@ pub async fn start_listener(
             group: "native-account-characters".into(),
         },
     ])?);
+    // Includes lifecycle/read under the same pinned Character identity; no kid.
     let closure = game_closure::http::router(
         pool.clone(),
         game.clone(),

@@ -410,3 +410,5 @@ plus exact certificate pins. The Character identity cannot publish LCFA facts.
 The browser spec advances only its own termination's grace timestamps before
 issuance to simulate elapsed days. It never inserts commands, receipts, projections
 or eligibility. Request-time Character blockers, password, sudo and CSRF stay real.
+
+The closure producer reads `/internal/v1/game-auth/account-closure/lifecycle/read` with its Character mTLS identity before each new decision. It checks current phase, lifecycle/recovery generation, the five-second observation window and financial eligibility; refusal leaves the command pending. No key ID is used for this read.

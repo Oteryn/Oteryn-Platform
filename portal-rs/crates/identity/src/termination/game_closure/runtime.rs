@@ -150,3 +150,107 @@ impl RecoveryFence for DurableRecoveryFence {
         })
     }
 }
+
+impl GameBoundary {
+    /// Independently read under the same account lock used by lifecycle mutations.
+    pub async fn read_lifecycle(&self, pool: &PgPool, raw: &[u8]) -> Result<Vec<u8>> {
+        self.settings.ready()?;
+        let request = wire::LifecycleRequest::parse(raw, &self.authority)?;
+        let account = wire::id(&request.account_id)?;
+        let termination = wire::id(&request.termination_id)?;
+        let mut tx = pool.begin().await?;
+        let locked = lock(&mut tx, account).await?.ok_or(Error::NoPending)?;
+        if self.recovery(&mut tx).await? != wire::number(&request.recovery_generation, true)? {
+            return Err(Error::UnknownState);
+        }
+        let t: Termination = sqlx::query_as(
+            "SELECT * FROM account_terminations WHERE id=$1 AND account_id=$2 FOR UPDATE",
+        )
+        .bind(termination)
+        .bind(account)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::NoPending)?;
+        let (generation, current, resolution): (i64,i64,Option<String>) = sqlx::query_as("SELECT w.generation,l.generation,w.resolution FROM plat3_closure_work w JOIN plat3_closure_lifecycle l USING(account_id) WHERE w.termination_id=$1 AND w.account_id=$2 AND NOT w.invalid FOR UPDATE OF w,l")
+            .bind(termination).bind(account).fetch_optional(&mut *tx).await?.ok_or(Error::UnknownState)?;
+        let phase = match (
+            t.cancelled_at.is_some(),
+            t.finalized_at.is_some(),
+            resolution.as_deref(),
+        ) {
+            (false, false, None) if current == generation => "CLOSE",
+            (true, false, Some("CANCEL")) if generation.checked_add(1) == Some(current) => "CANCEL",
+            (false, true, Some("FINALIZE")) if generation.checked_add(1) == Some(current) => {
+                "FINALIZE"
+            }
+            _ => return Err(Error::UnknownState),
+        };
+        if !matches!(
+            (phase, locked.status.as_str()),
+            ("CLOSE" | "CANCEL", "active" | "suspended") | ("FINALIZE", "closed")
+        ) {
+            return Err(Error::UnknownState);
+        }
+        // Wallet writers use this lock. Credential and Character state are
+        // separate from the current financial attestation.
+        sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+            .bind(account)
+            .execute(&mut *tx)
+            .await?;
+        let financial_obligations_clear: bool = sqlx::query_scalar("SELECT NOT (EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active') OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery')))").bind(account).fetch_one(&mut *tx).await?;
+        let observed: i64 =
+            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+                .fetch_one(&mut *tx)
+                .await?;
+        let observed = u64::try_from(observed).map_err(|_| Error::UnknownState)?;
+        let revision: i64 =
+            sqlx::query_scalar("SELECT nextval('plat3_closure_observation_revision')")
+                .fetch_one(&mut *tx)
+                .await?;
+        let observation = lifecycle_observation(
+            request,
+            current,
+            revision,
+            phase,
+            financial_obligations_clear,
+            observed,
+        )?;
+        let body = serde_json::to_vec(&observation).map_err(|_| Error::InvalidInput)?;
+        if body.len() > 2048 {
+            return Err(Error::InvalidInput);
+        }
+        tx.commit().await?;
+        Ok(body)
+    }
+}
+
+pub(super) fn lifecycle_observation(
+    request: wire::LifecycleRequest,
+    current: i64,
+    revision: i64,
+    phase: &str,
+    financial_obligations_clear: bool,
+    observed: u64,
+) -> Result<wire::LifecycleObservation> {
+    if current <= 0 || revision <= 0 || observed == 0 {
+        return Err(Error::UnknownState);
+    }
+    let observation = wire::LifecycleObservation {
+        contract_version: 2,
+        operation: request.operation,
+        source_authority: "OTERYN_PLATFORM_CHARACTER_AUTHORITY".into(),
+        account_id: request.account_id,
+        termination_id: request.termination_id,
+        lifecycle_generation: current.to_string(),
+        source_revision: revision.to_string(),
+        phase: phase.into(),
+        financial_obligations_clear,
+        recovery_generation: request.recovery_generation,
+        observed_at: observed.to_string(),
+        valid_until: observed
+            .checked_add(5)
+            .ok_or(Error::UnknownState)?
+            .to_string(),
+    };
+    Ok(observation)
+}

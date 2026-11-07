@@ -416,3 +416,47 @@ fn hash(raw: &str) -> Result<()> {
 pub(super) fn hex(raw: &[u8]) -> String {
     raw.iter().map(|v| format!("{v:02x}")).collect()
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LifecycleRequest {
+    pub contract_version: u8,
+    pub operation: String,
+    pub source_authority: String,
+    pub account_id: String,
+    pub termination_id: String,
+    pub recovery_generation: String,
+    pub audience: String,
+}
+impl LifecycleRequest {
+    pub fn parse(raw: &[u8], authority: &str) -> Result<Self> {
+        let value: Self = canonical(raw, 512)?;
+        if value.contract_version != 2
+            || value.operation != "ReadAccountClosureLifecycleV1"
+            || value.source_authority != authority
+            || value.audience != "OTERYN_PLATFORM_CHARACTER_AUTHORITY"
+        {
+            return Err(Error::InvalidInput);
+        }
+        id(&value.account_id)?;
+        id(&value.termination_id)?;
+        number(&value.recovery_generation, true)?;
+        Ok(value)
+    }
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LifecycleObservation {
+    pub contract_version: u8,
+    pub operation: String,
+    pub source_authority: String,
+    pub account_id: String,
+    pub termination_id: String,
+    pub lifecycle_generation: String,
+    pub source_revision: String,
+    pub phase: String,
+    pub financial_obligations_clear: bool,
+    pub recovery_generation: String,
+    pub observed_at: String,
+    pub valid_until: String,
+}
