@@ -34,8 +34,8 @@ rendering or Today producer. Areas await Game's later additive export revision.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-07T15:37:57Z
-head: 6d6176db693af85b9c8cc48d41c37cebf89e1382
+updated_at: 2026-11-07T16:10:13Z
+head: 2a224efb54ac117f5e11e85d206006f841b68da6
 branch: codex/portal-rs-world-read
 pr: none
 status: ready
@@ -72,21 +72,21 @@ changed_paths:
 validation:
   - command: cargo fmt --all --check
     result: PASS
-    evidence: final material tree
+    evidence: Update 5 material Rust tree
   - command: cargo clippy --locked --workspace --all-targets -- -D warnings
     result: PASS
-    evidence: final material code; /tmp/portal-world-read-u4-clippy-final2.log
+    evidence: /tmp/portal-world-read-u5-clippy.log
+  - command: cargo test --locked -p oteryn-world --test catalog --test catalog_refresh --lib
+    result: PASS
+    evidence: 42 tests passed; retry recovery, stored fast path, bounded refusal, collision validation, rollback isolation and identity approval semantics
   - command: cargo test --locked --no-fail-fast
     result: PASS
-    evidence: 1117 passed, 0 failed, 3 ignored across 82 targets; PostgreSQL 18.6, locks 1024, connections 300
-  - command: node run.mjs /tmp/portal-world-read-u4-slow-final/env.json test specs/world-read.spec.mjs
+    evidence: 1123 passed, 0 failed, 3 ignored across 83 targets; PostgreSQL 18.6, locks 1024, connections 300; /tmp/portal-world-read-u5-full.log
+  - command: node run.mjs /tmp/portal-world-read-u5-e2e/env.json test specs/world-read.spec.mjs
     result: PASS
-    evidence: 8 passed with stalled/unavailable artifact URL, wiki publication switch on
-  - command: node run.mjs /tmp/portal-world-read-u4-qualified-e2e/env.json test specs/world-read.spec.mjs specs/public.spec.mjs
-    result: PASS
-    evidence: 12 passed across PL/EN and 1440px/390px on the final binary; /tmp/portal-world-read-u4-qualified-browser.log
+    evidence: 8 passed, PL/EN at 1440px/390px; /tmp/portal-world-read-u5-browser.log
 blockers: []
-next_action: push the qualified successor on the owner-requested branch for coordinator review; re-pin when CATALOG merges
+next_action: push the qualified Update 5 successor to the owner-requested branch for coordinator review; retain branch and re-pin when CATALOG merges
 ```
 
 ## Source branch closeout
@@ -104,16 +104,25 @@ lane evidence. Current positive tests use synthetic input only, through the
 production publisher and real wiki routes; the audited admin route also has
 PostgreSQL coverage. No supported native artifact is fabricated.
 
-Qualification, exact changed-file inventory and source line evidence are in
-`portal-rs/e2e/WORLD_READ_REPORT.md`. Final full Rust qualification passed 1117
-with 0 failures and 3 ignored; strict Clippy/fmt pass. Normal browser 12/12 and
-stalled/unavailable URL browser 8/8 pass. The first broad run had two binary
-startup collisions with E2E private listeners; the final full Rust suite ran in
-isolation and both startup tests passed. Required wiki fields are checked rather
-than inventing presentation names from keys.
+Update 5 scope is limited to the owner's five review items. Bounded source retries
+use configurable initial/capped intervals and attempt count, exponential jitter,
+and a whole-attempt deadline. A stored publication matching every source fence
+and SHA-256 becomes ready without producer I/O. A loot entity/relation key
+collision rejects the whole artifact at validation. Publication rollback deletes
+only catalogue-owned versions and dependents; legacy rows/approvals remain.
+Visibility intentionally remains stable-identity scoped, including legacy to
+catalogue transitions, with an explicit regression and documentation. The world
+picker remains required by corrected brief item 4 and the coordinator's first
+update; no stats code is changed by Update 5.
 
-Cleanup complete: task portal/worker/producers, slow URL server, disposable
-PostgreSQL databases/container/anonymous volume and scratch certificates/keys/env
-were removed. Shared environment containers remain in their initial stopped state.
-Build caches and non-secret validation logs remain for review. Owner requested
-branch retention; no PR or integration action is authorized here.
+Current qualification, source evidence and exact changed-file inventory are in
+`portal-rs/e2e/WORLD_READ_REPORT.md`. Update 5 passes fmt, strict workspace
+Clippy, full Rust suite (1123 passed / 0 failed / 3 ignored, 83 targets), and
+world-read E2E (8/8). Full Rust qualification ran before starting E2E services,
+with PostgreSQL 18.6, max_locks_per_transaction=1024, max_connections=300.
+
+Cleanup complete: task portal/worker/producers stopped; disposable PostgreSQL
+databases/container/anonymous volume and scratch certificates/keys/auth/env
+removed. Shared environment containers remain stopped. Build caches and
+non-secret validation logs are intentionally retained. No PR, workflow changes
+or deployment; owner-requested branch retention remains in effect.

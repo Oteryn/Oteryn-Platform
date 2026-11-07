@@ -381,3 +381,28 @@ fn g2_also_fences_relation_and_tombstone_record_visibility() {
         }
     }
 }
+
+#[test]
+fn loot_publication_key_collision_rejects_the_whole_artifact_before_persistence() {
+    let mut value = base();
+    value["capability_manifest"][2]["support"] = "supported".into();
+    value["completeness_manifest"][2]["state"] = "complete".into();
+    value["entities"] = serde_json::json!([{"type":"loot","content_key":"oteryn:loot.synthetic","capability_id":"creature_loot","data":{"name":"Synthetic loot"}}]);
+    value["relations"] = serde_json::json!([{"type":"drop","relation_key":"oteryn:loot.synthetic","capability_id":"creature_loot","source":"oteryn:loot.synthetic","target":null,"data":{"name":"Synthetic drop"}}]);
+    let (raw, sidecar, fence) = artifact(value.clone());
+    assert_eq!(
+        verify(&raw, &sidecar, &fence).err(),
+        Some(Error::PublicationKeyCollision)
+    );
+    assert!(
+        Error::PublicationKeyCollision
+            .to_string()
+            .contains("loot entity/relation publication key collision")
+    );
+    // Equal keys in different published kinds do not collide on (version,kind,key).
+    value["entities"][0]["capability_id"] = "creature".into();
+    value["capability_manifest"][1]["support"] = "supported".into();
+    value["completeness_manifest"][1]["state"] = "complete".into();
+    let (raw, sidecar, fence) = artifact(value);
+    assert!(verify(&raw, &sidecar, &fence).is_ok());
+}

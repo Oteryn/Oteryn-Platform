@@ -2,9 +2,11 @@
 mod cache;
 mod json;
 mod publication;
+mod refresh;
 mod transport;
 pub use cache::CachedEntity;
 pub use publication::CatalogStore;
+pub use refresh::{RetryPolicy, refresh_source_in_background};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -38,6 +40,8 @@ pub enum Error {
     IntegrityMismatch,
     #[error("PROVENANCE_CONFLICT")]
     ProvenanceConflict,
+    #[error("INVALID_INPUT: loot entity/relation publication key collision")]
+    PublicationKeyCollision,
     #[error("catalog source unavailable")]
     Unavailable,
 }
@@ -532,9 +536,18 @@ fn validate(s: &Snapshot) -> Result<()> {
         }
         data(&e.data, 0)?;
     }
+    let loot_keys: BTreeSet<_> = s
+        .entities
+        .iter()
+        .filter(|e| e.capability_id == "creature_loot")
+        .map(|e| e.content_key.as_str())
+        .collect();
     let mut relations = BTreeSet::new();
     for r in &s.relations {
         supported(&r.capability_id)?;
+        if r.capability_id == "creature_loot" && loot_keys.contains(r.relation_key.as_str()) {
+            return Err(Error::PublicationKeyCollision);
+        }
         if !token(&r.r#type, 64, true)
             || !key(&r.relation_key)
             || !relations.insert(r.relation_key.as_str())
@@ -597,13 +610,11 @@ pub async fn read_configured(db: &PgPool) -> Result<Option<String>> {
     let Some(source) = Source::configured()? else {
         return Ok(None);
     };
-    let candidate = source.fetch().await?;
-    candidate.persist_inactive(db).await?;
-    if publication_enabled() {
-        candidate.publish(db).await?;
-    }
-    Ok(Some(candidate.snapshot_id().into()))
+    refresh::read_source(db, &source, publication_enabled())
+        .await
+        .map(Some)
 }
+
 pub fn publication_enabled() -> bool {
     std::env::var("OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED").as_deref() == Ok("true")
 }
@@ -614,13 +625,20 @@ pub fn refresh_in_background(
 ) -> tokio::task::JoinHandle<Result<Option<String>>> {
     ready.store(false, std::sync::atomic::Ordering::Release);
     tokio::spawn(async move {
-        let result = read_configured(&db).await;
-        ready.store(
-            matches!(result, Ok(Some(_))),
-            std::sync::atomic::Ordering::Release,
-        );
-        result
+        let Some(source) = Source::configured()? else {
+            return Ok(None);
+        };
+        refresh::run(
+            &db,
+            &source,
+            publication_enabled(),
+            RetryPolicy::configured()?,
+            &ready,
+        )
+        .await
+        .map(Some)
     })
 }
+
 #[cfg(test)]
 mod tests;

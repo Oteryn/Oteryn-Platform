@@ -20,12 +20,30 @@ Configure the administrator-selected source and exact provenance together:
 - `OTERYN_WORLD_CATALOG_PROFILE_ID`;
 - `OTERYN_WORLD_CATALOG_SNAPSHOT_ID`: exact `sha256:` snapshot identity.
 
-Serve schedules a bounded read/verification/refresh off startup and readiness.
-Even a 30-second URL failure cannot hold the listening socket or `/readyz`.
-Each process keeps catalogue routes closed until its refresh succeeds; an old
-persisted pointer alone cannot release them. File reads and verification run on
-blocking workers; network I/O is asynchronous. No network fetch of Game source
-or raw `content/**` parsing is performed.
+Serve schedules read/verification/refresh off startup and readiness. A matching
+stored publication (all source fences plus independent SHA-256) is ready on the
+first database lookup without refetching the producer. Otherwise the process
+keeps catalogue reads closed while trying the explicitly configured source.
+File reads and CPU verification run on blocking workers; network I/O is async.
+No network fetch of Game source or raw `content/**` parsing is performed.
+
+Only transient `Unavailable` failures retry. Configuration, schema, provenance,
+integrity, G-2 and publication-key collision refusals stop closed immediately.
+The retry policy is conservative and bounded:
+
+| Setting | Default | Valid range |
+| --- | --- | --- |
+| `OTERYN_WORLD_CATALOG_RETRY_INITIAL_SECONDS` | 5 | 1–300 |
+| `OTERYN_WORLD_CATALOG_RETRY_MAX_SECONDS` | 300 | initial–3600 |
+| `OTERYN_WORLD_CATALOG_RETRY_MAX_ATTEMPTS` | 12 | 1–64, including the first immediate attempt |
+
+Each failed attempt sleeps 75–100% of the exponentially increasing interval,
+with independent jitter even at the cap. Each whole attempt has a 60-second
+deadline; the URL transport retains its tighter 30-second deadline. Exhausting
+the configured budget leaves the source closed and reports failure; operators
+can retry by restarting after correcting the outage/configuration. Stored matching
+publications require no producer availability and remain independently gated by
+`world_visibility`. Startup/listening sockets and `/readyz` never await retries.
 
 Verification checks canonical JSON, byte SHA-256, semantic snapshot identity,
 provenance fences, support/completeness, keys/endpoints and resource bounds before

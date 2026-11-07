@@ -83,3 +83,21 @@ Test-only supported vectors exercise the **production** publisher and HTTP route
 for all seven current wiki categories, independent approvals/denials, idempotence,
 empty complete replacement and configured-source mismatch. No test publication
 adapter is compiled into serve. No native positive fixture is fabricated.
+
+## Approval identity and legacy-to-catalogue transitions
+
+`world_visibility` deliberately approves a stable `(kind, key)` identity, not an
+artifact's payload revision. The original world-store migration explicitly makes
+visibility independent of versions and source data. A prior legacy approval thus
+applies to a catalogue record **only** when its kind and full canonical native
+`content_key` are identical. Rebuilding or switching the cache must not silently
+revoke that identity approval or create duplicate approval authorities.
+
+This is not approval of arbitrary facts: the configured artifact must still match
+all source fences/SHA-256, pass G-2 validation, and publish a complete, presentable
+category. A hidden/omitted record or unsupported category cannot be restored by an
+old allow row. Denial is also identity-wide: revocation immediately closes both
+legacy and catalogue reads. The audited staff visibility action remains the
+management path. `catalog_refresh` PostgreSQL tests pin cross-source carryover,
+list/detail reads, and revocation. Per-revision content review would be a different
+product policy; it is not implicitly introduced by a cache rebuild.

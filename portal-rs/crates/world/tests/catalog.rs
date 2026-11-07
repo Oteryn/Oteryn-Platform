@@ -161,12 +161,77 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
     parallel.close().await;
     assert_eq!(control.cached_entities(&db, "item").await?.len(), 1);
     assert_eq!(store.active_version_id().await?, None);
+    // Rollback must remove only catalogue-owned versions and their dependents,
+    // preserving legacy data and the independent identity approval store.
+    let fixture = catalog_fixture::supported();
+    let published = crate::source(directory.path().join("published.json"), &fixture).read()?;
+    published.persist_inactive(&db).await?;
+    published.publish(&db).await?;
+    let native: Uuid =
+        sqlx::query_scalar("SELECT version_id FROM world_catalog_versions WHERE snapshot_id=$1")
+            .bind(published.snapshot_id())
+            .fetch_one(&db)
+            .await?;
+    let legacy = Uuid::now_v7();
+    sqlx::query("INSERT INTO world_versions(id,source_commit,status) VALUES($1,$2,'ready')")
+        .bind(legacy)
+        .bind("c".repeat(40))
+        .execute(&db)
+        .await?;
+    sqlx::query("INSERT INTO world_entities(version_id,kind,key,data,publishable) VALUES($1,'Item','legacy-only','{\"name\":\"Legacy only\"}',true)").bind(legacy).execute(&db).await?;
+    store.allow("Item", "legacy-only").await?;
+    sqlx::query(
+        "UPDATE world_active_version SET version_id=$1,previous_version_id=$2 WHERE singleton",
+    )
+    .bind(legacy)
+    .bind(native)
+    .execute(&db)
+    .await?;
+    let legacy_puzzle = Uuid::now_v7();
+    let native_puzzle = Uuid::now_v7();
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'rollback@local.test','non-loginable-test','active','en')").bind(account).execute(&db).await?;
+    sqlx::query("INSERT INTO puzzles_daily(id,day,kind,world_version,definition) VALUES($1,'2026-11-01','quiz',$2,'{}'),($3,'2026-11-02','quiz',$4,'{}')")
+        .bind(legacy_puzzle).bind(legacy).bind(native_puzzle).bind(native).execute(&db).await?;
+    sqlx::query("INSERT INTO puzzles_answers(account_id,puzzle_id,choice,correct) VALUES($1,$2,0,false),($1,$3,0,false)").bind(account).bind(legacy_puzzle).bind(native_puzzle).execute(&db).await?;
     // The additive migration is reversible, without touching old world tables.
     sqlx::raw_sql(include_str!(
         "../../../migrations/20261107120003_world_catalog_publication.down.sql"
     ))
     .execute(&db)
     .await?;
+    let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM world_versions")
+        .fetch_all(&db)
+        .await?;
+    assert_eq!(remaining, vec![legacy]);
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM world_entities WHERE version_id=$1")
+        .bind(native)
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(rows, 0);
+    assert_eq!(store.active_version_id().await?, Some(legacy));
+    let previous: Option<Uuid> =
+        sqlx::query_scalar("SELECT previous_version_id FROM world_active_version WHERE singleton")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(previous, None);
+    assert!(store.get_entity("Item", "legacy-only").await?.is_some());
+    let puzzles: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM puzzles_daily")
+        .fetch_all(&db)
+        .await?;
+    assert_eq!(puzzles, vec![legacy_puzzle]);
+    let answers: Vec<Uuid> = sqlx::query_scalar("SELECT puzzle_id FROM puzzles_answers")
+        .fetch_all(&db)
+        .await?;
+    assert_eq!(answers, vec![legacy_puzzle]);
+    // The legacy immutable guard is restored after the scoped rollback cleanup.
+    assert!(
+        sqlx::query("DELETE FROM puzzles_daily WHERE id=$1")
+            .bind(legacy_puzzle)
+            .execute(&db)
+            .await
+            .is_err()
+    );
     sqlx::raw_sql(include_str!(
         "../../../migrations/20261107120002_world_catalog_records.down.sql"
     ))
@@ -177,7 +242,7 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
     ))
     .execute(&db)
     .await?;
-    assert_eq!(store.active_version_id().await?, None);
+    assert_eq!(store.active_version_id().await?, Some(legacy));
     sqlx::raw_sql(include_str!(
         "../../../migrations/20261107120001_world_catalog_candidates.up.sql"
     ))
