@@ -78,3 +78,6 @@ features = ["util"]
 version = "0.1"
 [dependencies.unicode-general-category]
 version = "1"
+
+[dependencies.x509-parser]
+version = "0.18"

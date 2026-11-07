@@ -1,5 +1,5 @@
 All copied files are byte-exact from **Oteryn/Oteryn-Game** at
-`3b49a20feec3ba29700bb4b2fa28fa9b539b79a2` (PR #3010, CANDIDATE rev 1).
+`9668e0a04e1a631ebfc8752772102a1fd98ce8fa` (PR #3015, T94 producer).
 Only raw URLs at this full SHA were fetched. No Game repository writes occurred.
 
 | Local file | Source path |
@@ -11,7 +11,8 @@ Only raw URLs at this full SHA were fetched. No Game repository writes occurred.
 
 Unit tests pin SHA-256 of all four complete files (including final LF), every
 exact embedded wire string (excluding JSON framing/LF), and provided record hashes.
-There are **no producer signatures** in these Game fixtures. Tests use a public,
-synthetic Ed25519 test seed to sign the unchanged wire strings, verify them, and
-reject mutated bytes, missing signatures and wrong keys. This proves the local
-verification utility, not Game PKI or producer/consumer runtime conformance.
+There are **no producer signatures** in these Game fixtures or the T94 HTTP wire.
+Production admission pins the verified dedicated mTLS client leaf SPKI SHA-256.
+Local adapter audit records retain canonical JSON and that verified identity;
+they are not Game ANL envelopes. Native ANL evidence remains on Game's side.
+Synthetic Ed25519 utility tests do not define the publisher wire or qualify PKI.

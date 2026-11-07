@@ -3055,6 +3055,7 @@ dependencies = [
  "unicode-general-category",
  "unicode-normalization",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]
