@@ -31,7 +31,7 @@ checkpoint_version: 1
 updated_at: 2026-11-07T20:30:00Z
 head: a60d84cc49e84eb46e6e5123cce23de12afd14bc
 branch: claude/catalog-repin-669d5af5
-pr: null
+pr: 1779
 status: ready
 context_routes:
   - testing
@@ -73,5 +73,5 @@ validation:
     result: PASS
     evidence: legacy token ratchet ok
 blockers: []
-next_action: open PR, enable squash auto-merge, archive packet after merge
+next_action: land PR 1779 via squash auto-merge, then archive this packet
 ```
