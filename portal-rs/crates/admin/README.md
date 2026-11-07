@@ -7,6 +7,7 @@ storage, configuration and qualification.
 Admin analytics ingestion and presentation default OFF. Enabling presentation
 cannot bypass the accepted resync baseline gate: contract §§5.3 and 10.6 require
 the Game-proposed manifest/control envelope and qualified coverage/absence proof.
-Pages, commits and fresh watermarks alone never establish a baseline. Until that
+No fence row is created until the resync envelope/baseline is accepted; missing
+evidence remains fail-closed. Pages, commits and fresh watermarks alone never establish a baseline. Until that
 separately accepted verifier exists and has accepted a baseline, all analytics
 pages and JSON remain unavailable. Export has no route (§10.4).

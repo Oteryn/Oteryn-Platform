@@ -1,4 +1,5 @@
 // Platform-owned consumer qualification; no Game producer or resync simulation.
+// Test launcher: presentation=true with synthetic authority/privacy; no fence or baseline.
 import {test,expect} from '@playwright/test';
 import {register,login,submit,pool} from '../helpers.mjs';
 import * as OTPAuth from 'otpauth';
@@ -25,6 +26,9 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
   const response=await page.goto(path);
   expect(response.status(),path).toBe(200);
   expect(response.headers()['cache-control']).toBe('no-store, private');
+  expect(response.headers()['strict-transport-security']).toBe('max-age=63072000; includeSubDomains');
+  expect(response.headers()['x-content-type-options']).toBe('nosniff');
+  expect(response.headers()['referrer-policy']).toBe('strict-origin-when-cross-origin');
   await expect(page.locator('html')).toHaveAttribute('lang',lang);
   await expect(page.locator('[data-state="unavailable"]')).toBeVisible();
   await expect(page.locator('main a[href*="/characters/"]')).toHaveCount(0);

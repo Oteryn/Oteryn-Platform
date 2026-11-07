@@ -93,17 +93,16 @@ impl Store {
         } else {
             0
         };
-        if i64::from(count) >= i64::from(self.rate) {
-            sqlx::query("UPDATE admin_analytics.fence SET epoch=GREATEST(epoch,$2::text::numeric),active_generation=CASE WHEN epoch<$2::text::numeric THEN NULL ELSE active_generation END WHERE authority=$1").bind(&authority).bind(&epoch).execute(&mut *tx).await?;
-            tx.commit().await?;
-            return Err(Error::Rate);
-        }
-        sqlx::query("UPDATE admin_analytics.fence SET rate_window=$2,rate_count=$3,epoch=GREATEST(epoch,$4::text::numeric),active_generation=CASE WHEN epoch<$4::text::numeric THEN NULL ELSE active_generation END WHERE authority=$1")
-            .bind(&authority).bind(window).bind(count+1).bind(&epoch).execute(&mut *tx).await?;
         if !policy_matches || !floor_matches {
-            tx.commit().await?;
             return Err(Error::Unavailable);
         }
+        if i64::from(count) >= i64::from(self.rate) {
+            return Err(Error::Rate);
+        }
+        // Tentative fence/rate updates commit only with an accepted operation or
+        // contract-defined conflict; every refusal rolls the transaction back.
+        sqlx::query("UPDATE admin_analytics.fence SET rate_window=$2,rate_count=$3,epoch=GREATEST(epoch,$4::text::numeric),active_generation=CASE WHEN epoch<$4::text::numeric THEN NULL ELSE active_generation END WHERE authority=$1")
+            .bind(&authority).bind(window).bind(count+1).bind(&epoch).execute(&mut *tx).await?;
         if epoch_number < high {
             let conflict = self
                 .remember_fenced(&mut tx, &family, world, &message, raw)
@@ -124,7 +123,6 @@ impl Store {
         let worlds:i64=sqlx::query_scalar("SELECT count(DISTINCT world) FROM (SELECT world FROM admin_analytics.pages WHERE authority=$1 UNION SELECT world FROM admin_analytics.subjects WHERE authority=$1 UNION SELECT world FROM admin_analytics.watermarks WHERE authority=$1) s WHERE world<>$2")
             .bind(&authority).bind(world).fetch_one(&mut *tx).await?;
         if worlds >= 256 {
-            tx.commit().await?;
             return Err(Error::Unavailable);
         }
         let result = match message {
@@ -159,14 +157,7 @@ impl Store {
                 Ok("accepted")
             }
         };
-        let result = match result {
-            Ok(result) => result,
-            Err(Error::Unavailable) => {
-                tx.commit().await?;
-                return Err(Error::Unavailable);
-            }
-            Err(error) => return Err(error),
-        };
+        let result = result?;
         tx.commit().await?;
         if result == "conflict" {
             eprintln!("admin analytics: conflicting evidence; presentation fenced");

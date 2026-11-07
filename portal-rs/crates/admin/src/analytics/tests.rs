@@ -144,6 +144,9 @@ async fn database() -> Option<(PgPool, PgPool, String)> {
         .await
         .unwrap();
     for migration in oteryn_db::MIGRATOR.iter() {
+        if migration.migration_type.is_down_migration() {
+            continue;
+        }
         sqlx::raw_sql(AssertSqlSafe(migration.sql.as_ref()))
             .execute(&pool)
             .await
@@ -284,7 +287,7 @@ async fn postgres_retries_conflicts_revisions_pages_and_fence() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(epoch, "3");
+    assert_eq!(epoch, "2");
     clean(pool, root, name).await;
 }
 
@@ -392,7 +395,7 @@ async fn postgres_audit_before_read_outage_and_rbac_denials() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(after, before + 1);
+        assert_eq!(after, before + i64::from(actor.is_some()));
     }
     for path in [
         "/admin/analytics",
@@ -407,6 +410,24 @@ async fn postgres_audit_before_read_outage_and_rbac_denials() {
         assert_eq!(
             response.headers()[header::CACHE_CONTROL],
             "no-store, private"
+        );
+        assert_eq!(
+            response.headers()[header::STRICT_TRANSPORT_SECURITY],
+            "max-age=63072000; includeSubDomains"
+        );
+        assert_eq!(
+            response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+            "nosniff"
+        );
+        assert_eq!(
+            response.headers()[header::REFERRER_POLICY],
+            "strict-origin-when-cross-origin"
+        );
+        assert!(
+            response.headers()[header::CONTENT_SECURITY_POLICY]
+                .to_str()
+                .unwrap()
+                .contains("frame-ancestors 'none'")
         );
         let count: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM audit_log WHERE action='admin.analytics.read' AND target=$1",
@@ -486,7 +507,14 @@ async fn postgres_audit_before_read_outage_and_rbac_denials() {
         .execute(&pool).await.unwrap();
     for actor in [Some(admin), None] {
         let response = get(panel(pool.clone(), actor, true), "/admin/analytics/data").await;
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.status(),
+            if actor.is_some() {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::FORBIDDEN
+            }
+        );
         assert!(
             to_bytes(response.into_body(), 100000)
                 .await
@@ -625,5 +653,204 @@ async fn postgres_retention_privacy_watermark_and_baseline_gates() {
         .await
         .unwrap();
     assert_eq!(staged, 0);
+    clean(pool, root, name).await;
+}
+
+#[tokio::test]
+async fn postgres_host_gate_refuses_before_session_and_audit() {
+    let Some((pool, root, name)) = database().await else {
+        eprintln!("PORTAL_TEST_DATABASE_URL unset");
+        return;
+    };
+    for (host, duplicate, enabled, present) in [
+        ("public.test", false, true, true),
+        ("staff.test", true, true, true),
+        ("staff.test", false, false, true),
+        ("staff.test", false, true, false),
+        ("public.test", false, false, false),
+    ] {
+        let app = web::router(
+            pool.clone(),
+            Config {
+                present,
+                ..Config::default()
+            },
+            crate::web::PanelConfig {
+                admin_panel: enabled,
+                host: "staff.test".into(),
+            },
+            Identity(None),
+            Identity(None),
+        );
+        // An invalid cookie would be rejected by session middleware if the outer
+        // host guard did not return first. Repeated probes must write no audit.
+        for _ in 0..3 {
+            let mut request = Request::get("/admin/analytics")
+                .header("host", host)
+                .header("cookie", "__Host-oteryn_session=invalid")
+                .body(Body::empty())
+                .unwrap();
+            if duplicate {
+                request.headers_mut().append(
+                    header::HOST,
+                    axum::http::HeaderValue::from_static("staff.test"),
+                );
+            }
+            assert_eq!(
+                app.clone().oneshot(request).await.unwrap().status(),
+                StatusCode::NOT_FOUND
+            );
+        }
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    let support = staff(&pool, "support").await;
+    assert_eq!(
+        get(panel(pool.clone(), Some(support), true), "/admin/analytics")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let denied: (Option<Uuid>, String) = sqlx::query_as("SELECT actor,action FROM audit_log")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        denied,
+        (Some(support.account), "admin.analytics.denied".into())
+    );
+    clean(pool, root, name).await;
+}
+
+#[tokio::test]
+async fn postgres_refused_messages_preserve_epoch_and_active_generation() {
+    let Some((pool, root, name)) = database().await else {
+        eprintln!("PORTAL_TEST_DATABASE_URL unset");
+        return;
+    };
+    let s = store(pool.clone()).await;
+    let p = page();
+    publish(&s, &p).await.unwrap();
+    apply(&s, &commit(&p)).await.unwrap();
+    let generation: Uuid = sqlx::query_scalar("SELECT id FROM admin_analytics.generations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE admin_analytics.fence SET active_generation=$1,rate_window=$2,rate_count=0",
+    )
+    .bind(generation)
+    .bind((NOW / 60) as i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut higher = p.clone();
+    higher.analytics_epoch = "2".into();
+    let w: wire::Watermark =
+        serde_json::from_slice(&std::fs::read(format!("{FIXTURE}/valid/watermark.json")).unwrap())
+            .unwrap();
+    for wrong_policy in [true, false] {
+        let limit = if wrong_policy { 0 } else { 1200 };
+        sqlx::query("UPDATE admin_analytics.fence SET rate_count=$1")
+            .bind(limit)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let before:(String,Option<Uuid>,i32,i64)=sqlx::query_as("SELECT epoch::text,active_generation,rate_count,rate_window FROM admin_analytics.fence").fetch_one(&pool).await.unwrap();
+        let mut page = higher.clone();
+        if wrong_policy {
+            page.privacy_policy_revision = "unaccepted-policy".into();
+        }
+        let mut watermark = w.clone();
+        watermark.analytics_epoch = "2".into();
+        watermark.privacy_policy_revision = page.privacy_policy_revision.clone();
+        for (operation, raw) in [
+            ("page", serde_json::to_vec(&page).unwrap()),
+            ("commit", serde_json::to_vec(&commit(&page)).unwrap()),
+            ("watermark", serde_json::to_vec(&watermark).unwrap()),
+        ] {
+            let result = s
+                .ingest(wire::parse(operation, &raw, NOW).unwrap(), &raw, NOW)
+                .await;
+            assert!(if wrong_policy {
+                matches!(result, Err(store::Error::Unavailable))
+            } else {
+                matches!(result, Err(store::Error::Rate))
+            });
+            let after:(String,Option<Uuid>,i32,i64)=sqlx::query_as("SELECT epoch::text,active_generation,rate_count,rate_window FROM admin_analytics.fence").fetch_one(&pool).await.unwrap();
+            assert_eq!(after, before, "{operation}, wrong policy={wrong_policy}");
+        }
+    }
+    sqlx::query("UPDATE admin_analytics.fence SET rate_count=0")
+        .execute(&pool)
+        .await
+        .unwrap();
+    // A dependency/capacity refusal must roll back the tentative fence too.
+    assert!(matches!(
+        apply(&s, &commit(&higher)).await,
+        Err(store::Error::Unavailable)
+    ));
+    let mut capped = s.clone();
+    capped.max_staging_bytes = 0;
+    assert!(matches!(
+        publish(&capped, &higher).await,
+        Err(store::Error::Unavailable)
+    ));
+    let after: (String, Option<Uuid>) =
+        sqlx::query_as("SELECT epoch::text,active_generation FROM admin_analytics.fence")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after, ("1".into(), Some(generation)));
+    assert_eq!(publish(&s, &higher).await.unwrap(), "accepted");
+    let after: (String, Option<Uuid>) =
+        sqlx::query_as("SELECT epoch::text,active_generation FROM admin_analytics.fence")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after, ("2".into(), None));
+    clean(pool, root, name).await;
+}
+
+#[tokio::test]
+async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
+    let Some((pool, root, name)) = database().await else {
+        eprintln!("PORTAL_TEST_DATABASE_URL unset");
+        return;
+    };
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261107140001_admin_analytics.down.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='admin_analytics')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261107140001_admin_analytics.up.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let grants:Vec<String>=sqlx::query_scalar("SELECT r.key FROM roles r JOIN role_permissions p ON p.role_id=r.id WHERE p.permission IN ('admin.analytics.view','admin.analytics.export') ORDER BY p.permission").fetch_all(&pool).await.unwrap();
+    assert_eq!(grants, vec!["platform_admin", "platform_admin"]);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM admin_analytics.fence")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
     clean(pool, root, name).await;
 }

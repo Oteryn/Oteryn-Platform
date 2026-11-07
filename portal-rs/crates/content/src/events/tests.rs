@@ -126,6 +126,9 @@ impl Database {
             .await
             .unwrap();
         for migration in oteryn_db::MIGRATOR.iter() {
+            if migration.migration_type.is_down_migration() {
+                continue;
+            }
             sqlx::raw_sql(AssertSqlSafe(migration.sql.as_ref()))
                 .execute(&pool)
                 .await

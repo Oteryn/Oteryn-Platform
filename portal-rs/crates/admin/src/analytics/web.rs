@@ -31,7 +31,6 @@ struct Attempt {
 struct Context<I, A> {
     pool: PgPool,
     config: Config,
-    panel: PanelConfig,
     identity: I,
     auth: Authorizer<A>,
 }
@@ -96,12 +95,13 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     identity: I,
     accounts: A,
 ) -> Router {
+    let mut host_config = panel.clone();
+    host_config.admin_panel &= config.present;
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![format!("https://{}", panel.host)];
     let state = Arc::new(Context {
         pool: pool.clone(),
         config,
-        panel,
         identity,
         auth: Authorizer::new(pool.clone(), accounts),
     });
@@ -125,7 +125,10 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
             oteryn_web::session::middleware,
         ))
         .layer(middleware::from_fn_with_state(pool, audit_boundary))
-        .layer(middleware::from_fn(cache))
+        .layer(middleware::from_fn_with_state(
+            (host_config, true),
+            crate::web::host_guard,
+        ))
 }
 async fn audit_boundary(State(pool): State<PgPool>, mut request: Request, next: Next) -> Response {
     let context = AuditContext {
@@ -141,9 +144,10 @@ async fn audit_boundary(State(pool): State<PgPool>, mut request: Request, next: 
     let mut response = next.run(request).await;
     if !attempt.recorded.load(Ordering::SeqCst) {
         let context = *attempt.context.lock().await;
-        if denial(&pool, context.actor, context.request_id, &target)
-            .await
-            .is_err()
+        if let Some(actor) = context.actor
+            && denial(&pool, actor, context.request_id, &target)
+                .await
+                .is_err()
         {
             response = StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
@@ -153,27 +157,9 @@ async fn audit_boundary(State(pool): State<PgPool>, mut request: Request, next: 
     }
     response
 }
-async fn cache(request: Request, next: Next) -> Response {
-    let mut response = next.run(request).await;
-    response.headers_mut().insert(
-        header::PRAGMA,
-        axum::http::HeaderValue::from_static("no-cache"),
-    );
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static("no-store, private"),
-    );
-    response.headers_mut().insert(
-        header::CONTENT_SECURITY_POLICY,
-        axum::http::HeaderValue::from_static(
-            "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'",
-        ),
-    );
-    response
-}
 async fn denial(
     pool: &PgPool,
-    actor: Option<Uuid>,
+    actor: Uuid,
     id: Uuid,
     target: &str,
 ) -> Result<(), crate::rbac::Error> {
@@ -182,7 +168,7 @@ async fn denial(
         &mut tx,
         Entry {
             context: AuditContext {
-                actor,
+                actor: Some(actor),
                 request_id: id,
             },
             action: "admin.analytics.denied",
@@ -205,13 +191,7 @@ async fn authorize<I: StaffSession, A: AccountStateReader>(
     };
     let mut actor = None;
     let mut allowed = false;
-    let host = request
-        .headers()
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok());
-    if s.panel.admin_panel
-        && host == Some(s.panel.host.as_str())
-        && let Some(session) = request.extensions().get::<BrowserSession>()
+    if let Some(session) = request.extensions().get::<BrowserSession>()
         && let Some(identity) = s.identity.resolve(session).await
     {
         actor = Some(identity.account);

@@ -161,8 +161,11 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .connect(&url)
         .await
         .unwrap();
-    // Isolated fixture executes each script once; main currently has duplicate versions.
+    // Build isolated fixtures with forward migrations only.
     for migration in oteryn_db::MIGRATOR.iter() {
+        if migration.migration_type.is_down_migration() {
+            continue;
+        }
         sqlx::raw_sql(AssertSqlSafe(migration.sql.as_ref()))
             .execute(&pool)
             .await

@@ -45,6 +45,9 @@ async fn postgres_news_lifecycle() {
         .await
         .unwrap();
     for migration in oteryn_db::MIGRATOR.iter() {
+        if migration.migration_type.is_down_migration() {
+            continue;
+        }
         sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref()))
             .execute(&pool)
             .await

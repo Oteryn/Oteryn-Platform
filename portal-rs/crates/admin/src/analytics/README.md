@@ -21,7 +21,10 @@ The existing admin host/panel switches, server-side session identity, current
 account state, confirmed MFA and effective grants remain mandatory. Only the
 built-in `platform_admin` role may hold either new permission. Both API role
 editing and SQL constraints enforce this; grants are read on every request.
-Every matched page/JSON request and denial is audited through `audit::append`.
+The shared panel host guard returns 404 before session or audit work on a wrong or
+duplicate Host header, disabled panel or disabled presentation. Successful reads
+and denials with a resolved staff actor are audited through `audit::append`;
+anonymous probes do not write audit rows.
 No aggregate values or free query text enter audit metadata. Audit failure denies
 release. Every response is `Cache-Control: no-store, private`.
 
@@ -33,16 +36,19 @@ PR. **No such envelope is implemented or invented here.** Pages, commits,
 watermarks, a process restart or an empty database can never accept a baseline.
 Generations begin off-path with no accepted baseline. Reads join the durable epoch
 and privacy fence, the active generation and its explicit accepted-baseline
-provenance, the subject revision and the fresh watermark. Without that evidence
-the pages and JSON report **unavailable**, including with the presentation switch
-set to true. There is no runtime endpoint or setter that accepts a baseline.
+provenance, the subject revision and the fresh watermark. With presentation
+enabled but without that evidence, the pages and JSON report **unavailable**.
+Disabled presentation returns 404 before session or audit work. There is no runtime endpoint or setter that accepts a baseline.
 The future accepted resync verifier owns baseline acceptance and the atomic switch;
 it must use these tables and locks, not infer coverage from received pages.
 
 A reconciled external analytics epoch fence and accepted privacy floor must already
 exist in `admin_analytics.fence` for the configured authority. Missing fence evidence
-returns 503; ingestion does not initialize or reconstruct it. Higher authenticated
-epochs fence old generations; no handler resets or lowers the high-water mark.
+returns 503; ingestion does not initialize or reconstruct it. Accepted higher authenticated epochs fence old generations; rate-limited or
+privacy-policy-refused messages never move the fence or active generation. No
+handler resets or lowers the high-water mark.
+No fence row is created until the contract resync envelope and baseline are
+accepted (§§5.3, 10.6); activation remains blocked and missing evidence fails closed.
 Operator provisioning/restoration of that evidence belongs to the accepted resync
 procedure, not to a seed or mock producer in application startup. Within-epoch
 rebuilds also require accepted manifest evidence. Consumer test fixtures that mark
@@ -50,13 +56,14 @@ an accepted baseline are explicitly test-only and do not qualify that procedure.
 
 ## Storage, cleanup and qualification
 
-Migration `20261107140001_admin_analytics.sql` is additive and revokes public
+Migration `20261107140001_admin_analytics.up.sql` is additive and revokes public
 schema/table access. Its explicit inverse is
-`portal-rs/migrations/rollback/20261107140001_admin_analytics.sql`, run by an
+`portal-rs/migrations/20261107140001_admin_analytics.down.sql`, run by an
 operator only after disabling presentation and ingestion. The inverse removes
 this consumer, its grants and its schema; ordinary rollback of a feature switch
-preserves fences. The inverse is outside the embedded forward migration directory
-because existing integration fixtures execute every embedded migration directly.
+preserves fences. This follows T45's reversible SQLx migration layout. Integration
+fixtures skip down migrations when building a schema; the rollback/reapply test
+explicitly executes this down file and then the up file.
 The application database principal owns the private schema; public readers must
 not receive schema USAGE or SELECT. Production least-privilege principal mapping
 still requires qualification (§8).
@@ -76,3 +83,8 @@ deletion/restore, payload-backup expiry within 30 days after purge and the
 400-day access-audit retention procedure through the protected audit boundary.
 These operational obligations do not become production-qualified from unit tests.
 Nothing here enables ingestion, presentation or deployment by default.
+
+For the unavailable-state panel E2E, start the existing test-only local launcher
+with `OTERYN_ADMIN_ANALYTICS_PRESENT=true`, a synthetic
+`OTERYN_ADMIN_ANALYTICS_AUTHORITY` and `OTERYN_ADMIN_ANALYTICS_PRIVACY`. Leave
+ingestion off and create no fence/baseline. Production defaults remain OFF.
