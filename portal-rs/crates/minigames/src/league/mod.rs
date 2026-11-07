@@ -79,7 +79,7 @@ pub struct Delivery<'a> {
     pub ordinal: u32,
     pub count: u32,
     pub event_type: u32,
-    /// Immutable ANL timestamp authenticated by the adapter; anchors audit expiry.
+    /// Adapter-authenticated observation timestamp; anchors local audit expiry.
     pub occurred_at_unix_ms: i64,
     pub payload: &'a [u8],
     pub wire: &'a [u8],
@@ -103,12 +103,10 @@ impl Fence {
             && now.saturating_sub(self.complete_through).saturating_add(1) <= 30
     }
 }
-/// Implementations must lock current nonrollback recovery/epoch authority in this
-/// transaction. Require complete retained-subject enumeration, reconciled correction
-/// history, trusted clock (<=1s uncertainty), source/rules/PKI approval and watermark.
-/// Verify the existing ANL envelope (hash, TransactionEventRef, identity, occurrence,
-/// privacy/retention/schema/ceilings) and its binding to this exact snapshot/payload.
-/// Hashes alone never establish native evidence. No caller-supplied fence is trusted.
+/// Implementations lock current nonrollback recovery/epoch authority and verify
+/// the exact admitted snapshot, dedicated peer, correction history and watermark.
+/// Native ANL envelopes remain Game-owned and are not part of the HTTP wire.
+/// Internal Delivery payloads are local adapter records, never native provenance.
 pub trait Authority: Send + Sync {
     fn verify_served(
         &self,

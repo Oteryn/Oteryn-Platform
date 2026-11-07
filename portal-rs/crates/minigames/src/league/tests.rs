@@ -9,7 +9,7 @@ fn vectors() -> std::result::Result<Vec<serde_json::Value>, serde_json::Error> {
     let v: serde_json::Value = serde_json::from_slice(include_bytes!("fixtures/snapshots.json"))?;
     Ok(v["vectors"].as_array().cloned().unwrap_or_default())
 }
-fn wire(name: &str) -> std::result::Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub(super) fn wire(name: &str) -> std::result::Result<Vec<u8>, Box<dyn std::error::Error>> {
     vectors()?
         .iter()
         .find(|v| v["name"] == name)
@@ -41,11 +41,11 @@ fn exact_pinned_files_and_wire_hashes() -> TestResult {
         ),
         (
             include_bytes!("fixtures/GAME_EVENT_FOUNDATION_REGISTRY.json").as_slice(),
-            "a0ea5a1494b8ff464c15683d788e4e2360eb674dc0a6362ed17854465d0ddfb6",
+            "5b84f471cae2a6d82875966edfded13cfe21bd2afeee0130697af777889cb8f1",
         ),
         (
             include_bytes!("fixtures/CROSS_REPOSITORY_CONTRACT_LOCK.json").as_slice(),
-            "fb9ed2f7e1f56d53336dc26409e37b94b1a5f27163544bcdab030ba1a90ff2ea",
+            "aa6f771bd709d0db246b511f38a7bd284f28666f1e31f4e83882aa62ec253742",
         ),
     ] {
         assert_eq!(schema::hash(bytes), expected);
@@ -239,13 +239,13 @@ fn delivery<'a>(
         finalized_at: Some(NOW),
     }
 }
-struct Db {
-    pool: PgPool,
+pub(super) struct Db {
+    pub(super) pool: PgPool,
     admin: PgPool,
     schema: String,
 }
 impl Db {
-    async fn new() -> std::result::Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub(super) async fn new() -> std::result::Result<Option<Self>, Box<dyn std::error::Error>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("league DB tests skipped: PORTAL_TEST_DATABASE_URL unset");
             return Ok(None);
@@ -278,7 +278,7 @@ impl Db {
             schema,
         }))
     }
-    async fn close(self) -> TestResult {
+    pub(super) async fn close(self) -> TestResult {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",
@@ -512,7 +512,7 @@ async fn database_bad_evidence_rolls_back_and_pair_conflict_quarantines() -> Tes
     db.close().await
 }
 
-fn real_config(path: &std::path::Path) -> config::Config {
+pub(super) fn real_config(path: &std::path::Path) -> config::Config {
     config::Config {
         authority: "oteryn:game:primary".into(),
         audience: "https://platform.example.test".into(),
@@ -520,17 +520,12 @@ fn real_config(path: &std::path::Path) -> config::Config {
         ca: path.join("unused-ca.der"),
         certificate: path.join("unused-cert.der"),
         private_key: path.join("unused-key.der"),
-        peer_certificate_sha256: "ab".repeat(32),
-        keys: std::collections::BTreeMap::from([(
-            "synthetic".into(),
-            SigningKey::from_bytes(&[42; 32]).verifying_key().to_bytes(),
-        )]),
+        client_spki_sha256: format!("sha256:{}", "ab".repeat(32)),
         recovery_file: path.join("recovery.json"),
         requests_per_minute: 120,
-        max_envelope_bytes: 4096,
     }
 }
-fn write_recovery(c: &config::Config, generation: &str) -> TestResult {
+pub(super) fn write_recovery(c: &config::Config, generation: &str) -> TestResult {
     std::fs::write(
         &c.recovery_file,
         serde_json::to_vec(&config::Recovery {
@@ -551,64 +546,13 @@ fn publication(
     c: &config::Config,
     path: &'static str,
     body: Vec<u8>,
-    envelope: Option<admission::Envelope>,
-    finalized: bool,
-    clock: u64,
 ) -> std::result::Result<Publication, Box<dyn std::error::Error>> {
-    use base64::Engine;
-    let id = match &envelope {
-        Some(e) => Uuid::from_slice(&e.event_id)?,
-        None => Uuid::now_v7(),
-    };
-    let meta = serde_json::to_vec(&admission::Meta {
-        contract_version: 1,
-        source_authority: c.authority.clone(),
-        projection_epoch: "3".into(),
-        recovery_generation: "1".into(),
-        key_id: "synthetic".into(),
-        request_id: id.to_string(),
-        envelope: envelope
-            .map(|e| base64::engine::general_purpose::STANDARD.encode(e.encode_to_vec()))
-            .unwrap_or_default(),
-        finalized_at: if finalized {
-            vec![clock.to_string()]
-        } else {
-            vec![]
-        },
-    })?;
-    let signature = SigningKey::from_bytes(&[42; 32])
-        .sign(&admission::signable(c, path, &meta, &body))
-        .to_bytes()
-        .to_vec();
+    let meta = serde_json::to_vec(&admission::prepare(c, path, &body, &c.client_spki_sha256)?)?;
     Ok(Publication {
         path,
         body,
         meta,
-        signature,
-    })
-}
-fn native_envelope(raw: &[u8], season: bool, clock: u64) -> Result<admission::Envelope> {
-    let s = schema::Snapshot::decode(raw, season, clock)?;
-    let payload = payload(raw, season)?;
-    let id = Uuid::now_v7();
-    Ok(admission::Envelope {
-        envelope_revision: 1,
-        event_id: id.as_bytes().to_vec(),
-        event_type_id: if season { 11 } else { 10 },
-        event_schema_revision: 1,
-        durability_class: 2,
-        privacy_class: 3,
-        retention_profile_id: "PLAT3_AUTHORITY_AUDIT_RETENTION_V1".into(),
-        occurred_at_unix_ms: (clock * 1000) as i64,
-        world_id: Some(schema::id(s.world())?.as_bytes().to_vec()),
-        transaction_event: Some(admission::TransactionRef {
-            transaction_id: id.as_bytes().to_vec(),
-            ordinal: 1,
-            count: 1,
-        }),
-        server_build_id: "synthetic-only".into(),
-        payload_sha256: Sha256::digest(&payload).to_vec(),
-        payload,
+        signature: c.client_spki_sha256.as_bytes().to_vec(),
     })
 }
 async fn enqueue_publication(db: &Db, c: &config::Config, p: &Publication) -> Result<bool> {
@@ -622,15 +566,10 @@ async fn real_authority_worker_enumeration_replay_and_restore() -> TestResult {
     let dir = tempfile::tempdir()?;
     let c = real_config(dir.path());
     write_recovery(&c, "1")?;
-    let clock = runtime::now()?;
-    let mut subjects = vec![];
     let mut publications = vec![];
     for name in ["settlement", "tied_guilds_frozen"] {
         let raw = wire(name)?;
         let season = name == "tied_guilds_frozen";
-        let s = schema::Snapshot::decode(&raw, season, clock)?;
-        subjects.push(runtime::subject(&s, false)?);
-        let envelope = native_envelope(&raw, season, clock)?;
         publications.push(publication(
             &c,
             if season {
@@ -639,29 +578,8 @@ async fn real_authority_worker_enumeration_replay_and_restore() -> TestResult {
                 admission::EVENT
             },
             raw,
-            Some(envelope),
-            s.final_state(),
-            clock,
         )?);
     }
-    subjects.sort();
-    let cut = admission::Cut {
-        contract_version: 1,
-        operation: "PublishLeagueCutV1".into(),
-        source_authority: c.authority.clone(),
-        projection_epoch: "3".into(),
-        recovery_generation: "1".into(),
-        subjects,
-    };
-    let cut = publication(
-        &c,
-        admission::CUT,
-        serde_json::to_vec(&cut)?,
-        None,
-        false,
-        clock,
-    )?;
-    assert!(!enqueue_publication(&db, &c, &cut).await?);
     for p in &publications {
         assert!(!enqueue_publication(&db, &c, p).await?);
     }
@@ -686,14 +604,7 @@ async fn real_authority_worker_enumeration_replay_and_restore() -> TestResult {
             complete_through: clock.to_string(),
             observed_at: clock.to_string(),
         };
-        let p = publication(
-            &c,
-            admission::WATERMARK,
-            serde_json::to_vec(&w)?,
-            None,
-            false,
-            clock,
-        )?;
+        let p = publication(&c, admission::WATERMARK, serde_json::to_vec(&w)?)?;
         enqueue_publication(&db, &c, &p).await?;
     }
     job.run_config(c.clone()).await?;
@@ -724,7 +635,7 @@ async fn real_authority_worker_enumeration_replay_and_restore() -> TestResult {
         .bind(&publications[0].signature)
         .execute(&db.pool)
         .await?;
-    let mut bad = publication(&c, admission::CUT, cut.body.clone(), None, false, clock)?;
+    let mut bad = publication(&c, admission::EVENT, publications[0].body.clone())?;
     bad.signature[0] ^= 1;
     assert!(enqueue_publication(&db, &c, &bad).await.is_err());
     assert_eq!(restarted.read(runtime::now()?).await?.len(), 2);
@@ -757,36 +668,46 @@ async fn real_authority_worker_enumeration_replay_and_restore() -> TestResult {
     assert!(control > 0);
     db.close().await
 }
-#[tokio::test]
-async fn real_authority_refuses_signed_bad_native_hash_and_wrong_audience() -> TestResult {
-    let Some(db) = Db::new().await? else {
-        return Ok(());
-    };
+#[test]
+fn exact_game_wire_admits_only_pinned_identity() -> TestResult {
     let dir = tempfile::tempdir()?;
     let c = real_config(dir.path());
     write_recovery(&c, "1")?;
-    let clock = runtime::now()?;
+    for v in vectors()? {
+        let raw = v["wire"].as_str().ok_or("wire")?.as_bytes();
+        let path = if String::from_utf8_lossy(raw).contains("PublishGuildSeasonV1") {
+            admission::SEASON
+        } else {
+            admission::EVENT
+        };
+        let meta = admission::prepare(&c, path, raw, &c.client_spki_sha256)?;
+        assert!(admission::prepare(&c, path, raw, &format!("sha256:{}", "cd".repeat(32))).is_err());
+        admission::authenticate(
+            &c,
+            path,
+            &serde_json::to_vec(&meta)?,
+            raw,
+            c.client_spki_sha256.as_bytes(),
+        )?;
+        let malformed = [raw, b" "].concat();
+        assert!(admission::prepare(&c, path, &malformed, &c.client_spki_sha256).is_err());
+    }
     let raw = wire("settlement")?;
-    let mut envelope = native_envelope(&raw, false, clock)?;
-    envelope.payload_sha256[0] ^= 1;
-    let bad = publication(&c, admission::EVENT, raw, Some(envelope), false, clock)?;
-    let mut other = c.clone();
-    other.audience = "https://other.example.test".into();
-    assert!(
-        admission::authenticate(&other, bad.path, &bad.meta, &bad.body, &bad.signature).is_err()
-    );
-    assert!(enqueue_publication(&db, &c, &bad).await.is_err());
-    let poisoned: bool =
-        sqlx::query_scalar("SELECT conflicted FROM league_feed_state WHERE authority=$1")
-            .bind(&c.authority)
-            .fetch_one(&db.pool)
-            .await?;
-    assert!(poisoned);
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM league_receipts")
-        .fetch_one(&db.pool)
-        .await?;
-    assert_eq!(count, 0);
-    db.close().await
+    let mut unknown = c.clone();
+    unknown.authority = "oteryn:game:other".into();
+    assert!(admission::prepare(&unknown, admission::EVENT, &raw, &c.client_spki_sha256).is_err());
+    let changed =
+        String::from_utf8(raw)?.replace("\"projection_epoch\":\"3\"", "\"projection_epoch\":\"2\"");
+    assert!(matches!(
+        admission::prepare(
+            &c,
+            admission::EVENT,
+            changed.as_bytes(),
+            &c.client_spki_sha256
+        ),
+        Err(Error::Conflict)
+    ));
+    Ok(())
 }
 #[test]
 fn names_follow_nfc_wire_policy_instead_of_ascii_only() -> TestResult {
@@ -807,7 +728,6 @@ async fn real_worker_keeps_scheduled_locked_pending_and_refuses_reopening() -> T
     let dir = tempfile::tempdir()?;
     let c = real_config(dir.path());
     write_recovery(&c, "1")?;
-    let clock = runtime::now()?;
     let scheduled = String::from_utf8(wire("advance_schedule")?)?;
     let job = runtime::FeedJob {
         pool: db.pool.clone(),
@@ -821,7 +741,7 @@ async fn real_worker_keeps_scheduled_locked_pending_and_refuses_reopening() -> T
             )
             .replace("\"state\":\"SCHEDULED\"", "\"state\":\"LOCKED\""),
     ] {
-        let p = publication(&c, admission::EVENT, raw.into_bytes(), None, false, clock)?;
+        let p = publication(&c, admission::EVENT, raw.into_bytes())?;
         enqueue_publication(&db, &c, &p).await?;
         job.run_config(c.clone()).await?;
     }
@@ -833,16 +753,9 @@ async fn real_worker_keeps_scheduled_locked_pending_and_refuses_reopening() -> T
         "\"projection_revision\":\"1\"",
         "\"projection_revision\":\"3\"",
     );
-    let p = publication(
-        &c,
-        admission::EVENT,
-        reopened.into_bytes(),
-        None,
-        false,
-        clock,
-    )?;
+    let p = publication(&c, admission::EVENT, reopened.into_bytes())?;
     enqueue_publication(&db, &c, &p).await?;
-    job.run_config(c.clone()).await?;
+    assert!(job.run_config(c.clone()).await.is_err());
     let blocked: bool =
         sqlx::query_scalar("SELECT conflicted FROM league_feed_state WHERE authority=$1")
             .bind(&c.authority)
@@ -852,7 +765,7 @@ async fn real_worker_keeps_scheduled_locked_pending_and_refuses_reopening() -> T
     write_recovery(&c, "2")?;
     assert!(matches!(
         admission::authenticate(&c, p.path, &p.meta, &p.body, &p.signature),
-        Err(Error::Superseded)
+        Err(Error::Invalid)
     ));
     let mut forged = p.signature.clone();
     forged[0] ^= 1;
@@ -863,12 +776,104 @@ async fn real_worker_keeps_scheduled_locked_pending_and_refuses_reopening() -> T
     db.close().await
 }
 #[test]
-fn duplicate_public_key_ids_are_not_an_owner_trust_decision() -> TestResult {
-    assert!(config::public_keys(r#"{"same":"a","same":"b"}"#).is_err());
-    assert!(config::public_keys(r#"{"same":"a"}{}"#).is_err());
+fn spki_configuration_is_strict() -> TestResult {
+    let hex = "ab".repeat(32);
+    assert_eq!(config::normalize_spki(&hex)?, format!("sha256:{hex}"));
     assert_eq!(
-        config::public_keys(r#"{ "first": "a", "second": "b" }"#)?.len(),
-        2
+        config::normalize_spki(&format!("sha256:{hex}"))?,
+        format!("sha256:{hex}")
     );
+    for bad in ["AB".repeat(32), "sha256:aa".into(), "unknown:abcd".into()] {
+        assert!(config::normalize_spki(&bad).is_err());
+    }
     Ok(())
+}
+
+#[tokio::test]
+async fn watermarks_do_not_enable_an_epoch_with_unknown_retained_subjects() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let job = runtime::FeedJob {
+        pool: db.pool.clone(),
+    };
+    let initial = publication(&c, admission::EVENT, wire("settlement")?)?;
+    enqueue_publication(&db, &c, &initial).await?;
+    job.run_config(c.clone()).await?;
+    std::fs::write(
+        &c.recovery_file,
+        serde_json::to_vec(&config::Recovery {
+            source_authority: c.authority.clone(),
+            projection_epoch: "4".into(),
+            recovery_generation: "1".into(),
+        })?,
+    )?;
+    let league = League::new(
+        db.pool.clone(),
+        flags(),
+        runtime::GameAuthority::new(c.clone()),
+    );
+    for family in ["world_event_outcome", "guild_season"] {
+        let clock = runtime::now()?;
+        let watermark = admission::Watermark {
+            contract_version: 1,
+            operation: "PublishLeagueWatermarkV1".into(),
+            source_authority: c.authority.clone(),
+            family: family.into(),
+            projection_epoch: "4".into(),
+            complete_through: clock.to_string(),
+            observed_at: clock.to_string(),
+        };
+        let p = publication(&c, admission::WATERMARK, serde_json::to_vec(&watermark)?)?;
+        enqueue_publication(&db, &c, &p).await?;
+    }
+    job.run_config(c.clone()).await?;
+    assert!(league.read(runtime::now()?).await.is_err());
+    assert!(matches!(
+        enqueue_publication(&db, &c, &initial).await,
+        Err(Error::Conflict)
+    ));
+    let replacement = String::from_utf8(initial.body)?
+        .replace("\"projection_epoch\":\"3\"", "\"projection_epoch\":\"4\"");
+    let p = publication(&c, admission::EVENT, replacement.into_bytes())?;
+    enqueue_publication(&db, &c, &p).await?;
+    job.run_config(c.clone()).await?;
+    assert_eq!(league.read(runtime::now()?).await?.len(), 1);
+    write_recovery(&c, "1")?; // A rolled-back operator file cannot lower the database fence.
+    let replay = publication(&c, admission::EVENT, wire("settlement")?)?;
+    assert!(matches!(
+        enqueue_publication(&db, &c, &replay).await,
+        Err(Error::Conflict)
+    ));
+    db.close().await
+}
+
+#[tokio::test]
+async fn equal_pair_conflict_in_nonterminal_game_snapshot_quarantines_feed() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let job = runtime::FeedJob {
+        pool: db.pool.clone(),
+    };
+    let raw = wire("advance_schedule")?;
+    let first = publication(&c, admission::EVENT, raw.clone())?;
+    enqueue_publication(&db, &c, &first).await?;
+    job.run_config(c.clone()).await?;
+    let changed =
+        String::from_utf8(raw)?.replace("\"state\":\"SCHEDULED\"", "\"state\":\"LOCKED\"");
+    let second = publication(&c, admission::EVENT, changed.into_bytes())?;
+    enqueue_publication(&db, &c, &second).await?;
+    assert!(job.run_config(c.clone()).await.is_err());
+    assert!(matches!(
+        enqueue_publication(&db, &c, &second).await,
+        Err(Error::Conflict)
+    ));
+    db.close().await
 }

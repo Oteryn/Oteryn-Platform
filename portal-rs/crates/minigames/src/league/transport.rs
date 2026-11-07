@@ -13,7 +13,6 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
-use base64::{Engine, engine::general_purpose::STANDARD};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use sqlx::PgPool;
 use std::{
@@ -44,7 +43,7 @@ fn response(status: StatusCode) -> Response {
     }
 }
 async fn ingest(State(s): State<Surface>, request: Request) -> Response {
-    if request.version() != axum::http::Version::HTTP_11 {
+    if request.version() != axum::http::Version::HTTP_11 || request.uri().query().is_some() {
         return response(StatusCode::BAD_REQUEST);
     }
     let path = request.uri().path().to_owned();
@@ -69,53 +68,35 @@ async fn ingest(State(s): State<Surface>, request: Request) -> Response {
     if !allowed {
         return response(StatusCode::TOO_MANY_REQUESTS);
     }
-    let Some(meta) = request
-        .headers()
-        .get("x-oteryn-league-admission")
-        .and_then(|h| h.to_str().ok())
-        .filter(|s| s.len() <= 44000)
-        .and_then(|s| STANDARD.decode(s).ok())
-    else {
+    let Some(peer) = request.extensions().get::<VerifiedPeer>().cloned() else {
         return response(StatusCode::UNAUTHORIZED);
     };
-    let Some(signature) = request
-        .headers()
-        .get("x-oteryn-league-signature")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| config::unhex(s).ok())
-        .filter(|s| s.len() == 64)
-    else {
+    if peer.0 != s.config.client_spki_sha256 {
         return response(StatusCode::UNAUTHORIZED);
-    };
+    }
     let max = match path.as_str() {
         admission::EVENT => 16384,
-        admission::SEASON | admission::CUT => 262144,
+        admission::SEASON => 262144,
         admission::WATERMARK => 512,
-        _ => return response(StatusCode::NOT_FOUND),
+        _ => return response(StatusCode::BAD_REQUEST),
     };
     let Ok(body) = to_bytes(request.into_body(), max).await else {
         return response(StatusCode::BAD_REQUEST);
     };
-    match admission::authenticate(&s.config, &path, &meta, &body, &signature) {
-        Ok(_) => {}
-        Err(Error::Superseded) => {
-            return (
-                StatusCode::OK,
-                [
-                    (header::CACHE_CONTROL, "no-store"),
-                    (header::CONTENT_TYPE, "application/json"),
-                ],
-                "{\"contract_version\":1,\"result\":\"superseded\"}",
-            )
-                .into_response();
-        }
+    let m = match admission::prepare(&s.config, &path, &body, &peer.0) {
+        Ok(m) => m,
+        Err(Error::Conflict | Error::Superseded) => return response(StatusCode::CONFLICT),
         Err(Error::Unavailable) => return response(StatusCode::SERVICE_UNAVAILABLE),
-        Err(_) => return response(StatusCode::UNAUTHORIZED),
-    }
-    match runtime::receive(&s.pool, &s.config, &path, &body, &meta, &signature).await {
+        Err(_) => return response(StatusCode::BAD_REQUEST),
+    };
+    let Ok(meta) = serde_json::to_vec(&m) else {
+        return response(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let signature = peer.0.as_bytes();
+    match runtime::receive(&s.pool, &s.config, &path, &body, &meta, signature).await {
         Ok(true) => response(StatusCode::OK),
         Ok(false) => response(StatusCode::SERVICE_UNAVAILABLE),
-        Err(Error::Superseded) => response(StatusCode::OK),
+        Err(Error::Superseded) => response(StatusCode::CONFLICT),
         Err(Error::Conflict) => response(StatusCode::CONFLICT),
         Err(Error::Invalid) => response(StatusCode::BAD_REQUEST),
         Err(_) => response(StatusCode::SERVICE_UNAVAILABLE),
@@ -166,15 +147,13 @@ async fn start(pool: PgPool, c: Config) -> Result<JoinHandle<()>> {
         rate: Arc::new(Mutex::new(VecDeque::new())),
     };
     let mut app = Router::new();
-    for path in [
-        admission::EVENT,
-        admission::SEASON,
-        admission::WATERMARK,
-        admission::CUT,
-    ] {
+    for path in [admission::EVENT, admission::SEASON, admission::WATERMARK] {
         app = app.route(path, post(ingest));
     }
-    let app = app.with_state(surface.clone());
+    let app = app
+        .fallback(|| async { response(StatusCode::BAD_REQUEST) })
+        .method_not_allowed_fallback(|| async { response(StatusCode::BAD_REQUEST) })
+        .with_state(surface.clone());
     let limit = Arc::new(tokio::sync::Semaphore::new(connection_limit));
     Ok(tokio::spawn(async move {
         while let Ok((tcp, _)) = listener.accept().await {
@@ -183,7 +162,7 @@ async fn start(pool: PgPool, c: Config) -> Result<JoinHandle<()>> {
             };
             let acceptor = acceptor.clone();
             let app = app.clone();
-            let expected = surface.config.peer_certificate_sha256.clone();
+            let expected = surface.config.client_spki_sha256.clone();
             tokio::spawn(async move {
                 let _permit = permit;
                 let Ok(Ok(tls)) =
@@ -195,18 +174,31 @@ async fn start(pool: PgPool, c: Config) -> Result<JoinHandle<()>> {
                 let (_, connection) = tls.get_ref();
                 if connection.protocol_version() != Some(rustls::ProtocolVersion::TLSv1_3)
                     || connection.alpn_protocol() != Some(b"http/1.1".as_slice())
-                    || !connection
-                        .peer_certificates()
-                        .and_then(|c| c.first())
-                        .is_some_and(|cert| schema::hash(cert.as_ref()) == expected)
                 {
                     return;
                 }
+                let Some(peer) = connection
+                    .peer_certificates()
+                    .and_then(|c| c.first())
+                    .and_then(|cert| certificate_identity(cert.as_ref()).ok())
+                else {
+                    return;
+                };
+                // Only this listener can inject VerifiedPeer, after WebPKI verifies
+                // chain, validity and clientAuth EKU. Headers never establish it.
+                let authorized = peer == expected;
                 let io = hyper_util::rt::TokioIo::new(tls);
                 let service = hyper::service::service_fn(
-                    move |request: hyper::Request<hyper::body::Incoming>| {
+                    move |mut request: hyper::Request<hyper::body::Incoming>| {
+                        let peer = peer.clone();
                         let app = app.clone();
-                        async move { app.oneshot(request.map(Body::new)).await }
+                        async move {
+                            if !authorized {
+                                return Ok(response(StatusCode::UNAUTHORIZED));
+                            }
+                            request.extensions_mut().insert(VerifiedPeer(peer));
+                            app.oneshot(request.map(Body::new)).await
+                        }
                     },
                 );
                 let mut builder = hyper::server::conn::http1::Builder::new();
@@ -219,4 +211,77 @@ async fn start(pool: PgPool, c: Config) -> Result<JoinHandle<()>> {
             });
         }
     }))
+}
+
+#[derive(Clone)]
+struct VerifiedPeer(String);
+fn certificate_identity(der: &[u8]) -> Result<String> {
+    use x509_parser::prelude::FromDer;
+    let (rest, certificate) =
+        x509_parser::certificate::X509Certificate::from_der(der).map_err(|_| Error::Invalid)?;
+    schema::ensure(rest.is_empty())?;
+    Ok(format!(
+        "sha256:{}",
+        schema::hash(certificate.public_key().raw)
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::league::tests::{Db, real_config, wire, write_recovery};
+
+    #[tokio::test]
+    async fn game_json_without_headers_is_admitted_only_for_verified_pinned_peer()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let Some(db) = Db::new().await? else {
+            return Ok(());
+        };
+        let dir = tempfile::tempdir()?;
+        let config = real_config(dir.path());
+        write_recovery(&config, "1")?;
+        let peer = config.client_spki_sha256.clone();
+        let app = Router::new()
+            .route(admission::EVENT, post(ingest))
+            .with_state(Surface {
+                pool: db.pool.clone(),
+                config: Arc::new(config.clone()),
+                rate: Arc::new(Mutex::new(VecDeque::new())),
+            });
+        let raw = wire("settlement")?;
+        let request = |identity: Option<&str>| -> std::result::Result<_, axum::http::Error> {
+            let mut req = axum::http::Request::builder()
+                .method("POST")
+                .uri(admission::EVENT)
+                .version(axum::http::Version::HTTP_11)
+                .header("content-type", "application/json")
+                .body(Body::from(raw.clone()))?;
+            if let Some(identity) = identity {
+                req.extensions_mut()
+                    .insert(VerifiedPeer(identity.to_owned()));
+            }
+            Ok(req)
+        };
+        for identity in [None, Some("sha256:another-purpose")] {
+            let reply = app.clone().oneshot(request(identity)?).await?;
+            assert_eq!(reply.status(), StatusCode::UNAUTHORIZED);
+            assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
+            assert!(to_bytes(reply.into_body(), 256).await?.is_empty());
+        }
+        // Initial 503 asks Game to retry retained bytes until the worker commits.
+        assert_eq!(
+            app.clone().oneshot(request(Some(&peer))?).await?.status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        runtime::FeedJob {
+            pool: db.pool.clone(),
+        }
+        .run_config(config)
+        .await?;
+        let reply = app.oneshot(request(Some(&peer))?).await?;
+        assert_eq!(reply.status(), StatusCode::OK);
+        assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(to_bytes(reply.into_body(), 256).await?.len() <= 256);
+        db.close().await
+    }
 }

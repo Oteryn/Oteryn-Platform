@@ -326,22 +326,36 @@ Game publisher authority. Keys and certificates are generated into scratch.
 | Variable | Purpose |
 | --- | --- |
 | `OTERYN_LEAGUE_ENABLED` | Public routes, private ingress, worker, navigation |
-| `OTERYN_LEAGUE_BASE_URL` | HTTPS Platform admission audience (push transport; no Game pull API) |
+| `OTERYN_LEAGUE_BASE_URL` | Advertised HTTPS Platform publisher endpoint (no Game pull API) |
 | `OTERYN_LEAGUE_BIND` | Dedicated private TLS listener |
 | `OTERYN_LEAGUE_SOURCE_AUTHORITY` | Exact dedicated Game purpose namespace |
-| `OTERYN_LEAGUE_PUBLIC_KEYS` | JSON key-id to Ed25519 public-key lowercase hex |
 | `OTERYN_LEAGUE_CLIENT_CA_DER` | Trusted client CA certificate file |
 | `OTERYN_LEAGUE_CERTIFICATE_DER` | Server certificate file |
 | `OTERYN_LEAGUE_PRIVATE_KEY_DER` | External PKCS8 key file; never committed |
-| `OTERYN_LEAGUE_PEER_CERTIFICATE_SHA256` | Pinned dedicated Game certificate digest |
+| `OTERYN_LEAGUE_CLIENT_SPKI_SHA256` | Dedicated Game leaf DER SubjectPublicKeyInfo SHA-256; `sha256:<64 lowercase hex>` (bare hex also accepted), bound only to `oteryn:game:primary` |
 | `OTERYN_LEAGUE_RECOVERY_FILE` | Operator-owned nonrollback epoch/generation file |
 | `OTERYN_LEAGUE_REQUESTS_PER_MINUTE` | Aggregate publisher cap (default 120) |
 | `PORTAL_E2E_LEAGUE_CONTROL` | Test-only producer control URL, never a production endpoint |
 | `OTERYN_LEAGUE_POLICY` | Optional accepted_* policy JSON; defaults follow owner acceptance |
-| `OTERYN_LEAGUE_MAX_ENVELOPE_BYTES` | Conservative ANL ceiling, default/max 4096; lower overrides allowed |
 | `OTERYN_LEAGUE_CONNECTION_LIMIT` | Default/max 16 simultaneous private TLS connections; lower overrides allowed |
 | `OTERYN_LEAGUE_BATCH_LIMIT` | Default/max 64 queued requests per worker tick; lower overrides allowed |
-| `OTERYN_LEAGUE_SUBJECT_LIMIT` | Default/max 1000 subjects in a complete cut; lower overrides allowed |
+
+The T94 producer uses HTTP/1.1 with TLS1.3 and a verified dedicated mTLS
+client identity for purpose `OTERYN_GAME_WORLD_EVENT_GUILD_SEASON`.
+Only canonical JSON POSTs to world-event-outcome (16384 bytes), guild-season
+(262144 bytes), and league-watermark (512 bytes) are accepted. No admission or
+signature headers, Ed25519 keys, or league-cut feed are used. The old
+`OTERYN_LEAGUE_PEER_CERTIFICATE_SHA256` and `OTERYN_LEAGUE_PUBLIC_KEYS` settings
+are retired; deployments must provision the new SPKI pin explicitly.
+The stub replays snapshots byte-exactly from Game @
+`9668e0a04e1a631ebfc8752772102a1fd98ce8fa`, then advances both watermarks only
+after every snapshot ACK. Stale watermarks close serving after 30 seconds;
+unknown retained subjects after an epoch change keep serving pending. The
+operator recovery file remains required; changing it does not certify missing
+correction lineage. Native ANL provenance remains Game-owned, off the HTTP wire;
+Platform retains the admitted canonical snapshot and verified peer identity.
+The test-only `/wrong-identity` control uses a second CA-valid, unpinned client
+certificate and expects 401 with an empty body and `Cache-Control: no-store`.
 
 ## Functional Bazaar authority
 
