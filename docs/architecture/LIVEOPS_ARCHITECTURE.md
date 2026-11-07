@@ -302,6 +302,24 @@ The following remain unavailable until separately proven and implemented:
 
 No absence above may be represented as an authoritative empty value.
 
+## Deferred design notes from #1643
+
+**DEFERRED / NON-BINDING / GAME-CONTRACT DEPENDENT.** These proposals are outside the Rust portal's first release (plan D1). They do not change the current projection/query boundary or authorize runtime operations. Implementation requires separately accepted Game contracts, owner decisions and bounded tasks. Here `draft` means `docs/architecture/OTERYN_PLATFORM_2_DESIGN_DRAFT.md` on the source branch at `1c9c638f`.
+
+### Game-server management
+
+- **Closed action list:** `status`, `start`, `stop`, `restart`, `deploy`, `apply-nodespec`, `provision-node`, `install-cert` and `clear-reconciliation`. No shell, arbitrary arguments, privileged containers, paths outside the node root or unrelated system administration. Source: #1643 draft:362-444 @ 1c9c638f.
+- **Signed commands:** an ops Ed25519 key separate from admission signs envelopes containing `command_id`, `host_id`, `node_id`, verb, typed arguments, monotonic per-host `seq`, `not_before` and `expires_at` (TTL at most 120 seconds). A local supervisor verifies the pinned key, sequence, expiry and idempotency. Deployments also verify a Game release signature binding image digest, Git SHA, package digest, rules ABI, migration scope and `rollback_safe`; rollback is limited to releases marked safe. Source: #1643 draft:362-444 @ 1c9c638f.
+- **Agent hardening:** an unprivileged agent with no sudo or Docker-group access makes outbound mTLS connections; a networkless root supervisor exposes only a credential-checked Unix socket. Use `NoNewPrivileges`, strict filesystem/home isolation, private temporary storage, an empty capability set, restricted address families/syscalls, SPKI pinning, revocation and a 15-minute one-use enrollment token. Source: #1643 draft:362-444 @ 1c9c638f.
+- **Logs and approval:** redact bearer tokens, seed material and Authorization lines before forwarding logs; bound local buffering and retention; authorize and audit exports. Production deploys, world stops, channel deletion and reconciliation require four eyes; destructive actions also require sudo, an impact preview and target confirmation. Audit every step. Source: #1643 draft:362-444 @ 1c9c638f.
+
+### GM observe
+
+- **Grant and fencing:** a signed `oteryn-observe-v1` grant carries `observe_id`, `approval_id`, `gm_account_id`, `target_character_id`, `world_id`, `mode`, `pm_escalation`, audience and expiry (at most 30 minutes). Game verifies the grant, requires the target online and GM on a different account, and binds observation to the target's session generation. Reject mismatched generations and replayed/out-of-order `seq`; end on logout, generation change, expiry, explicit end, GM disconnect or Game restart. Observation remains read-only; a client observer has no actor and may only detach. Source: #1643 draft:844-891 @ 1c9c638f.
+- **Privacy and approval:** require scoped permissions, sudo, a reason and a case reference. Exclude private messages at the Game source by default; any separately approved PM escalation includes only conversations involving the target. Four eyes apply to PM escalation, observation without an open case and every export; open-case observation receives a second GM review within 24 hours. Minimize feed data and keep staff views private with `no-store`. Source: #1643 draft:844-891 @ 1c9c638f.
+- **Recordings:** record sessions with the content release pinned for replay. Proposed retention is 30 days without a case, through case closure and appeals plus 90 days with a case, and a one-year maximum unless an administrator applies a legal hold. Log every view/export; watermark exports and require four eyes. Source: #1643 draft:844-891 @ 1c9c638f.
+- **Privacy gate:** complete a DPIA and legitimate-interest assessment, obtain qualified privacy-law review, disclose monitoring in the terms/privacy notice, and define access/redaction and objection procedures before activation. The draft's legal basis is a proposal for review. Source: #1643 draft:844-891 @ 1c9c638f.
+
 ## References
 
 - `docs/architecture/ARCHITECTURE_AUTHORITY.md`
