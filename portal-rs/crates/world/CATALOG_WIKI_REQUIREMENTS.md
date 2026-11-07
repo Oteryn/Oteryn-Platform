@@ -1,7 +1,7 @@
 # Wiki requirements for the Game native catalogue adapter
 
 Evidence: CATALOG_EXPORT_V1 at Game
-`fd4be4e214ef33ad65d3ce465dab7160377e62f5` (lane branch, re-pin on merge). The committed input declares every
+`669d5af5261a60d347167b7c880a4498aebe72ed` (Game `main`, merged #3025). The committed input declares every
 capability unsupported/unknown and contains no entities. Raw native content is
 not an integration fallback. The consumer verifies the artifact, builds inactive
 capability-scoped entity/relation/tombstone records, and refuses complete reads
@@ -37,8 +37,8 @@ No display names are reconstructed from keys in the native cache.
 Source references:
 
 - `crates/wiki/src/entities.rs`: `KINDS`, `world_kind`, `name`, `row`, `collect`, `detail`.
-- [Contract vocabulary](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md#L54).
-- [Payload evolution gate](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md#L222).
+- [Contract vocabulary](https://github.com/Oteryn/Oteryn-Game/blob/669d5af5261a60d347167b7c880a4498aebe72ed/docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md#L54).
+- [Payload evolution gate](https://github.com/Oteryn/Oteryn-Game/blob/669d5af5261a60d347167b7c880a4498aebe72ed/docs/contracts/OTERYN_GAME_PLATFORM_CATALOG_EXPORT_V1.md#L222).
 
 ## Deliberately separate gaps
 
@@ -69,8 +69,8 @@ only `supported + complete` passes a complete-capability read. Unsupported recor
 are invalid at verification. Unknown/incomplete inventory cannot prove absence,
 removal, or an empty public catalogue.
 
-The real lane still marks all native categories unsupported/unknown, as explicitly
-recorded in [lane notes](https://github.com/Oteryn/Oteryn-Game/blob/fd4be4e214ef33ad65d3ce465dab7160377e62f5/docs/reference/CATALOG-CONTRACT-NOTES.md#L38).
+Merged Game `main` still marks all native categories unsupported/unknown, as explicitly
+recorded in [contract notes](https://github.com/Oteryn/Oteryn-Game/blob/669d5af5261a60d347167b7c880a4498aebe72ed/docs/reference/CATALOG-CONTRACT-NOTES.md#L54).
 Its negative input cannot publish. With the opt-in production publication switch,
 complete categories project verified cache records through a separate wiki pointer;
 home/search aggregate only complete categories and refuse when none exists.
