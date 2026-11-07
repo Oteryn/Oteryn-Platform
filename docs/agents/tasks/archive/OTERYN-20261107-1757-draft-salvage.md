@@ -46,11 +46,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-07T11:20:15Z
-head: 541af097dd9e0c0031afb4fee269050ac70096b3
-branch: none
-pr: none
-status: waiting
+updated_at: 2026-11-07T12:05:00Z
+head: efa874f3fa2fd179c172231bb855616c01d6eb52
+branch: claude/platform-1643-docs-salvage
+pr: 1759
+status: completed
 context_routes:
   - architecture
 owned_paths:
@@ -99,15 +99,15 @@ validation:
     evidence: documentation-only proposals with no runtime or build changes
 blockers:
   - none
-next_action: Owner reviews the local commit on docs/1757-draft-salvage and selects integration handling for Issue 1757.
+next_action: none; PR 1759 merged and Issue 1757 closed.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Owner requested a local commit without a PR; retain for owner review and revisit when Issue 1757 is integrated or closed.
-source_branch_evidence: Local branch docs/1757-draft-salvage; no remote publication requested.
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository docs PR; head branch deleted after merge
+source_branch_evidence: PR 1759 merged as efa874f3fa2fd179c172231bb855616c01d6eb52
 ```
 
 ## Notes
