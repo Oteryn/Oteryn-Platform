@@ -1,6 +1,6 @@
 # Portal browser qualification
 
-Node 22+, OpenSSL, the repository Rust toolchain, PostgreSQL 18.6, and an installed Chromium are required. No browser download is performed. The suite has four projects: Polish and English, each at 1440 × 900 and 390 × 900. Retries are disabled. Traces and screenshots remain local and can contain throwaway authentication material; do not publish them.
+Node 22+, Python 3 (pinned negative fixture generation), OpenSSL, the repository Rust toolchain, PostgreSQL 18.6, and an installed Chromium are required. No browser download is performed. The suite has four projects: Polish and English, each at 1440 × 900 and 390 × 900. Retries are disabled. Traces and screenshots remain local and can contain throwaway authentication material; do not publish them.
 
 From the repository root in the supplied environment:
 
@@ -76,12 +76,15 @@ the exact destination assertions, production proof difficulty and zero retries.
 
 ## Native world source and expected refusals
 
-`local.mjs` supplies the exact CATALOG_EXPORT_V1 negative export produced by Game
+`local.mjs` generates the CATALOG_EXPORT_V1 negative export in scratch using the
+exact reference producer from Game
 `d34807f5bd234ee8318e57ba454ba39be0df113d`, with its byte sidecar and explicit
 provenance fence. The fixture's internal source revision is `a2a5da955dd8f580c9e768c8ac6a741db388cb22`;
 that is distinct from the producer evidence pin. See
 [`SOURCE.md`](../crates/world/tests/fixtures/catalog-d34807f5/SOURCE.md).
-Use `PORTAL_E2E_CATALOG_FILE` for another local export and set the five
+No generated artifact or sidecar is committed. Use `PORTAL_E2E_CATALOG_FILE`
+for another local export, supply `OTERYN_WORLD_CATALOG_SHA256` independently,
+and set the five
 `OTERYN_WORLD_CATALOG_*` provenance values explicitly to qualify a different
 candidate. The runtime never fetches, reads raw Game layout, seeds world rows,
 activates a candidate or grants visibility. `PORTAL_E2E_GAME_DIR` is superseded by
@@ -109,8 +112,9 @@ Expected native results are deliberate fail-closed, not successful data reads:
 | `/{lang}/stats/world` without query | 200 + no-store + shared shell when registered worlds exist | Real registry picker; empty/unavailable registry still returns 503. |
 | `/{lang}/stats/world?world=…&start=…&end=…` | 503 + no-store | Existing privacy/visibility policy is unavailable; the picker grants no metrics access. |
 
-G-2 source visibility remains missing. Existing per-entity admin approval is not
-bypassed. Deaths, online, stats/guilds and wiki/places are outside this task and
+G-2 visibility is accepted; exported field layout must match the producer/schema
+pin. Hidden entries must remain non-public regardless of admin approval. Existing
+per-entity admin approval is an additional gate. Deaths, online, stats/guilds and wiki/places are outside this task and
 retain their existing documented behavior.
 
 Atlas flag aliases are centralized: `OTERYN_ATLAS_DELIVERY_ENABLED=true` aliases

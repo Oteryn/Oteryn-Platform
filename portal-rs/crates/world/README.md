@@ -3,21 +3,28 @@
 ## Native catalog source (current)
 
 The production binary reads only the locked CATALOG_EXPORT_V1 offline artifact,
-with a sidecar, into `world_catalog_candidates`. It does **not** read Game's raw
+with an independently configured SHA-256, into `world_catalog_candidates` and its derived
+`world_catalog_records` capability cache. It does **not** read Game's raw
 `content/**` layout. The older raw-directory APIs/configuration below remain
 compatibility test infrastructure, with no binary caller.
 
-Configure all six administrator-selected values together:
+Configure the administrator-selected source and exact provenance together:
 
-- `OTERYN_WORLD_CATALOG_FILE`: absolute local `game-platform-catalog.json` path;
+- Exactly one of `OTERYN_WORLD_CATALOG_FILE` (read-only local artifact) or
+  `OTERYN_WORLD_CATALOG_URL` (HTTPS; HTTP is restricted to loopback);
+- `OTERYN_WORLD_CATALOG_SHA256`: independently supplied lowercase 64-hex digest
+  of the exact artifact bytes, including final LF;
 - `OTERYN_WORLD_CATALOG_SOURCE_REVISION`: exact source revision inside the export;
 - `OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH`;
 - `OTERYN_WORLD_CATALOG_RULESET_ID`;
 - `OTERYN_WORLD_CATALOG_PROFILE_ID`;
 - `OTERYN_WORLD_CATALOG_SNAPSHOT_ID`: exact `sha256:` snapshot identity.
 
-Boot performs bounded read-only local file intake, never fetching or rewriting the
-artifact. Both the byte sidecar and semantic digest, canonical encoding, all
+Boot performs a bounded read of the configured file or URL. It never reads raw
+Game content, rewrites an artifact, follows redirects, uses ambient HTTP credentials
+or bypasses TLS verification. URL reads have a 30-second deadline and the same
+256 MiB body bound as files. Both the configured transport hash and semantic digest,
+canonical encoding, all
 provenance fences, manifests, identities, endpoints and tombstones are verified
 before a transaction stores an immutable, idempotent **inactive** candidate.
 Missing/partial configuration, mismatched fences or changed bytes refuse intake.
@@ -26,12 +33,14 @@ rebuildable evidence and confers no native authority.
 
 Boot is chosen because it deterministically reads the administrator-selected exact
 candidate when a process starts; there is no new mutation endpoint or CLI. It
-writes only `world_catalog_candidates`, never `world_active_version`, public
+writes only `world_catalog_candidates` and `world_catalog_records`, never
+`world_active_version`, public
 entities, visibility approvals or audit/account tables. An intake failure leaves
 public serving cold. Existing admin `world_visibility` approval remains mandatory
 for public reads and cannot activate an offline candidate.
 
-The Game contract permits only inactive intake at this stage. All real reference
+CATALOG_EXPORT_V1 is accepted. The Game native adapter is not merged at the
+current evidence pin; the pinned transport still permits only inactive intake. All real reference
 fixture capabilities are unsupported/unknown. Even a synthetically supported
 carrier cannot publish: v1 has no accepted capability payload revision, current
 epoch proof or authenticated production publication profile. No activation switch
@@ -39,6 +48,15 @@ is exposed. A separately accepted Game publication/payload successor is required
 before projecting candidates into public `world_entities`. See the exact
 [contract snapshot](tests/fixtures/catalog-d34807f5/CONTRACT.md) sections 11–15 and
 [pinned provenance](tests/fixtures/catalog-d34807f5/SOURCE.md).
+
+Supported entities, relations and tombstones are materialized in the same
+transaction as candidate intake. Cache rebuilds are atomic and repeatable.
+`Candidate::require_complete` and `cached_entities` refuse unsupported, partial
+or unknown inventory; cached reads also reject missing or corrupted records.
+These generic carrier reads are not native publication authorization.
+
+See [the exact wiki capability requirements](CATALOG_WIKI_REQUIREMENTS.md) and
+the test-only synthetic supported-cache-to-HTTP-200 proof.
 
 ## Historical directory-parser API
 

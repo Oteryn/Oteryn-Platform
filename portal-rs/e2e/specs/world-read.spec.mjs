@@ -20,6 +20,7 @@ test('locked native export stays inactive and unsupported public sources refuse'
  try{
   const rows=await client.query("SELECT status,artifact FROM world_catalog_candidates");
   expect(rows.rows).toHaveLength(1);expect(rows.rows[0].status).toBe('inactive');expect(JSON.parse(rows.rows[0].artifact.toString('utf8')).entities).toEqual([]);
+  const records=await client.query('SELECT count(*)::int AS count FROM world_catalog_records');expect(records.rows[0].count).toBe(0);
   const active=await client.query('SELECT version_id FROM world_active_version WHERE singleton');expect(active.rows[0].version_id).toBeNull();
   const visibility=await client.query('SELECT count(*)::int AS count FROM world_visibility');expect(visibility.rows[0].count).toBe(0);
  }finally{await client.end();}

@@ -423,3 +423,92 @@ async fn entity_refusals_are_localized_documents_with_unchanged_status() {
         }
     }
 }
+
+// Test-only publication seam. It models an accepted Item payload/publication
+// profile for the Game producer's synthetic vector. It is never built into serve.
+async fn publish_synthetic_item_for_test(
+    db: &Database,
+    candidate: &oteryn_world::catalog::Candidate,
+) -> Result<(), oteryn_world::catalog::Error> {
+    let entities = candidate.cached_entities(&db.pool, "item").await?;
+    for entity in entities {
+        assert_eq!(entity.entity_type, "item");
+        assert_eq!(entity.capability_id, "item");
+        db.entity("items", &entity.content_key, entity.data, true, false)
+            .await;
+    }
+    sqlx::query("UPDATE world_active_version SET version_id=$1 WHERE singleton")
+        .bind(db.version)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    Ok(())
+}
+#[tokio::test]
+async fn postgres_native_export_cache_refuses_unknown_and_proves_synthetic_200() {
+    use oteryn_world::catalog::{Error, Fence};
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    sqlx::query("UPDATE world_active_version SET version_id=NULL WHERE singleton")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let source = |fixture: &catalog_fixture::Fixture| {
+        oteryn_world::catalog::verify(
+            &fixture.bytes,
+            &fixture.sidecar,
+            &Fence {
+                source_revision: fixture.text("source_revision"),
+                authority_epoch: fixture.text("authority_epoch"),
+                ruleset_id: fixture.text("ruleset_id"),
+                content_profile_id: fixture.text("content_profile_id"),
+                snapshot_id: fixture.text("snapshot_id"),
+            },
+        )
+        .unwrap()
+    };
+    let unavailable = source(&catalog_fixture::negative());
+    unavailable.persist_inactive(&db.pool).await.unwrap();
+    assert_eq!(
+        publish_synthetic_item_for_test(&db, &unavailable).await,
+        Err(Error::UnsupportedCapability)
+    );
+    for lang in ["pl", "en"] {
+        for path in ["wiki", "wiki/search", "wiki/items"] {
+            assert_eq!(
+                db.get(&format!("/{lang}/{path}"), true).await.0,
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+        }
+    }
+    let supported = source(&catalog_fixture::supported());
+    supported.persist_inactive(&db.pool).await.unwrap();
+    // Supported carrier caching alone still cannot activate public native data.
+    assert_eq!(db.world().active_version_id().await.unwrap(), None);
+    publish_synthetic_item_for_test(&db, &supported)
+        .await
+        .unwrap();
+    let key = "oteryn:item.training_sword";
+    let detail = format!("/en/wiki/items/{}", segment(key));
+    assert_eq!(db.get(&detail, true).await.0, StatusCode::NOT_FOUND);
+    db.world().allow("Item", key).await.unwrap();
+    for lang in ["pl", "en"] {
+        for path in [
+            "wiki".to_owned(),
+            "wiki/items".into(),
+            "wiki/search?q=Training".into(),
+            format!("wiki/items/{}", segment(key)),
+        ] {
+            let (status, body) = db.get(&format!("/{lang}/{path}"), true).await;
+            assert_eq!(status, StatusCode::OK);
+            assert!(body.contains("Training Sword"));
+        }
+    }
+    db.world().deny("Item", key).await.unwrap();
+    assert_eq!(db.get(&detail, true).await.0, StatusCode::NOT_FOUND);
+    db.close().await;
+}
+
+#[path = "../../../world/tests/support/catalog.rs"]
+mod catalog_fixture;

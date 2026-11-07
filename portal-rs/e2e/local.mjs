@@ -44,10 +44,16 @@ Object.assign(env,{
 });
 // The locked offline export is an inactive negative compatibility candidate.
 // Never read raw Game content or fabricate a Today producer/catalogue.
-const catalogFile=process.env.PORTAL_E2E_CATALOG_FILE||path.join(root,'crates/world/tests/fixtures/catalog-d34807f5/game-platform-catalog.json');
+const catalogFile=process.env.PORTAL_E2E_CATALOG_FILE||path.join(scratch,'game-platform-catalog.json');
+if(!process.env.PORTAL_E2E_CATALOG_FILE){
+ const generated=spawnSync('python3',[path.join(root,'e2e/support/catalog-producer.py'),'produce',path.join(root,'crates/world/tests/fixtures/catalog-d34807f5/unsupported-native-input.json'),catalogFile],{stdio:'ignore'});
+ if(generated.status!==0)throw new Error('Pinned negative catalog fixture generation failed');
+}
+if(process.env.PORTAL_E2E_CATALOG_FILE&&!process.env.OTERYN_WORLD_CATALOG_SHA256)throw new Error('External artifact requires independently configured OTERYN_WORLD_CATALOG_SHA256');
 const catalog=JSON.parse(fs.readFileSync(catalogFile,'utf8'));
 Object.assign(env,{
  OTERYN_WORLD_CATALOG_FILE:catalogFile,
+ OTERYN_WORLD_CATALOG_SHA256:process.env.OTERYN_WORLD_CATALOG_SHA256||'4fe8ce4488c21396b588dc6b04179cde93c7a9b22b87427b6e4af3cda6e60d7d',
  OTERYN_WORLD_CATALOG_SOURCE_REVISION:process.env.OTERYN_WORLD_CATALOG_SOURCE_REVISION||catalog.source_revision,
  OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH:process.env.OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH||catalog.authority_epoch,
  OTERYN_WORLD_CATALOG_RULESET_ID:process.env.OTERYN_WORLD_CATALOG_RULESET_ID||catalog.ruleset_id,

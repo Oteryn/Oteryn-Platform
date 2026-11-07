@@ -1,11 +1,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
-const RAW: &[u8] =
-    include_bytes!("../../tests/fixtures/catalog-d34807f5/game-platform-catalog.json");
-const SIDECAR: &[u8] =
-    include_bytes!("../../tests/fixtures/catalog-d34807f5/game-platform-catalog.json.sha256");
+#[path = "../../tests/support/catalog.rs"]
+mod catalog_fixture;
+static FIXTURE: std::sync::LazyLock<catalog_fixture::Fixture> =
+    std::sync::LazyLock::new(catalog_fixture::negative);
+fn raw() -> &'static [u8] {
+    &FIXTURE.bytes
+}
+fn sidecar() -> &'static [u8] {
+    &FIXTURE.sidecar
+}
 fn base() -> Value {
-    serde_json::from_slice(RAW).unwrap()
+    serde_json::from_slice(raw()).unwrap()
 }
 fn fence(v: &Value) -> Fence {
     Fence {
@@ -38,7 +44,7 @@ fn supported() -> Value {
 }
 #[test]
 fn exact_game_negative_fixture_and_synthetic_carriers_validate_as_inactive() {
-    let candidate = verify(RAW, SIDECAR, &fence(&base())).unwrap();
+    let candidate = verify(raw(), sidecar(), &fence(&base())).unwrap();
     assert!(candidate.snapshot.entities.is_empty());
     assert!(
         candidate
@@ -120,12 +126,12 @@ fn provenance_and_integrity_have_separate_failure_categories() {
             _ => f.authority_epoch = "other".into(),
         };
         assert_eq!(
-            verify(RAW, SIDECAR, &f).unwrap_err(),
+            verify(raw(), sidecar(), &f).unwrap_err(),
             Error::ProvenanceConflict
         );
     }
     assert_eq!(
-        verify(RAW, b"bad", &fence(&base())).unwrap_err(),
+        verify(raw(), b"bad", &fence(&base())).unwrap_err(),
         Error::IntegrityMismatch
     );
     let mut v = base();
@@ -150,45 +156,38 @@ fn duplicate_members_noncanonical_bytes_and_invalid_utf8_refuse() {
         let sidecar = format!("{:x}\n", Sha256::digest(raw));
         assert!(verify(raw, sidecar.as_bytes(), &fence(&base())).is_err());
     }
-    let mut raw = RAW.to_vec();
+    let mut raw = raw().to_vec();
     raw.insert(1, b' ');
     let sidecar = format!("{:x}\n", Sha256::digest(&raw));
     assert!(verify(&raw, sidecar.as_bytes(), &fence(&base())).is_err());
 }
 #[test]
-fn source_refuses_missing_or_mismatched_sidecar() {
+fn source_refuses_missing_file_or_mismatched_expected_sha256() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("game-platform-catalog.json");
-    let source = Source {
-        file: file.clone(),
-        fence: fence(&base()),
-    };
+    let file = dir.path().join("catalog.json");
+    let mut source = Source::local(file.clone(), fence(&base()), FIXTURE.sha256());
     assert_eq!(source.read().unwrap_err(), Error::Unavailable);
-    std::fs::write(&file, RAW).unwrap();
-    std::fs::write(file.with_extension("json.sha256"), SIDECAR).unwrap();
+    std::fs::write(&file, raw()).unwrap();
     assert!(source.read().is_ok());
-    std::fs::write(file.with_extension("json.sha256"), b"bad").unwrap();
+    source.expected_sha256 = "0".repeat(64);
     assert_eq!(source.read().unwrap_err(), Error::IntegrityMismatch);
 }
 
 #[test]
 fn reference_producer_supported_vector_matches_consumer() {
-    let raw = include_bytes!("../../tests/fixtures/catalog-d34807f5/synthetic-supported.json");
-    let sidecar =
-        include_bytes!("../../tests/fixtures/catalog-d34807f5/synthetic-supported.json.sha256");
-    let value: Value = serde_json::from_slice(raw).unwrap();
-    assert!(verify(raw, sidecar, &fence(&value)).is_ok());
+    let fixture = catalog_fixture::supported();
+    assert!(verify(&fixture.bytes, &fixture.sidecar, &fence(&fixture.value)).is_ok());
 }
 
 #[test]
 fn no_configuration_is_cold_and_partial_configuration_refuses() {
     let absent = || Err(std::env::VarError::NotPresent);
     assert!(
-        Source::from_values((0..6).map(|_| absent()).collect())
+        Source::from_values((0..8).map(|_| absent()).collect())
             .unwrap()
             .is_none()
     );
-    let mut partial: Vec<_> = (0..6).map(|_| absent()).collect();
+    let mut partial: Vec<_> = (0..8).map(|_| absent()).collect();
     partial[0] = Ok("catalog.json".into());
     assert_eq!(
         Source::from_values(partial).unwrap_err(),
@@ -204,12 +203,9 @@ fn oversized_artifact_refuses_before_reading_payload() {
         .set_len(MAX_FILE_BYTES as u64 + 1)
         .unwrap();
     assert_eq!(
-        Source {
-            file: path,
-            fence: fence(&base())
-        }
-        .read()
-        .unwrap_err(),
+        Source::local(path, fence(&base()), FIXTURE.sha256())
+            .read()
+            .unwrap_err(),
         Error::CapacityExceeded
     );
 }
@@ -222,4 +218,93 @@ fn relation_target_is_nullable_but_must_be_present() {
     v["relations"][0].as_object_mut().unwrap().remove("target");
     let (raw, sidecar, f) = artifact(v);
     assert!(verify(&raw, &sidecar, &f).is_err());
+}
+
+#[test]
+fn complete_supported_capabilities_are_required_and_never_inferred() {
+    let unavailable = verify(raw(), sidecar(), &fence(&base())).unwrap();
+    for required in [vec![], vec!["item"], vec!["creature"], vec!["future"]] {
+        assert_eq!(
+            unavailable.require_complete(&required),
+            Err(Error::UnsupportedCapability)
+        );
+    }
+    let (raw, sidecar, f) = artifact(supported());
+    let candidate = verify(&raw, &sidecar, &f).unwrap();
+    assert_eq!(candidate.require_complete(&["creature"]), Ok(()));
+    assert_eq!(
+        candidate.require_complete(&["creature", "creature"]),
+        Err(Error::InvalidInput)
+    );
+    assert_eq!(
+        candidate.require_complete(&["creature", "item"]),
+        Err(Error::UnsupportedCapability)
+    );
+    for state in ["partial", "unknown"] {
+        let mut value = supported();
+        value["completeness_manifest"][1]["state"] = state.into();
+        let (raw, sidecar, f) = artifact(value);
+        let candidate = verify(&raw, &sidecar, &f).unwrap();
+        assert_eq!(
+            candidate.require_complete(&["creature"]),
+            Err(Error::UnsupportedCapability)
+        );
+    }
+}
+
+#[test]
+fn artifact_urls_require_https_except_loopback_and_never_allow_credentials() {
+    for url in [
+        "http://example.test/catalog",
+        "file:///tmp/catalog",
+        "https://user:pass@example.test/catalog",
+        "https://example.test/catalog#fragment",
+    ] {
+        assert!(transport::validate(&url::Url::parse(url).unwrap()).is_err());
+    }
+    for url in [
+        "https://example.test/catalog",
+        "http://127.0.0.1:1234/catalog",
+    ] {
+        assert!(transport::validate(&url::Url::parse(url).unwrap()).is_ok());
+    }
+}
+#[tokio::test]
+async fn configured_url_reads_are_bounded_pinned_and_do_not_follow_redirects() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    async fn serve(response: Vec<u8>) -> (url::Url, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            assert!(socket.read(&mut request).await.unwrap() > 0);
+            let _ = socket.write_all(&response).await;
+        });
+        (
+            url::Url::parse(&format!("http://{address}/catalog")).unwrap(),
+            task,
+        )
+    }
+    let mut success = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        raw().len()
+    )
+    .into_bytes();
+    success.extend_from_slice(raw());
+    let cases=[(success.clone(),None),(success.clone(),Some(Error::IntegrityMismatch)),(success,Some(Error::ProvenanceConflict)),(b"HTTP/1.1 302 Found\r\nLocation: /other\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),Some(Error::Unavailable)),(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",MAX_FILE_BYTES+1).into_bytes(),Some(Error::CapacityExceeded))];
+    for (index, (response, expected)) in cases.into_iter().enumerate() {
+        let (url, server) = serve(response).await;
+        let mut source = Source::local(PathBuf::new(), fence(&base()), FIXTURE.sha256());
+        source.url = Some(url);
+        if index == 1 {
+            source.expected_sha256 = "0".repeat(64);
+        }
+        if index == 2 {
+            source.fence.source_revision = "b".repeat(40);
+        }
+        let result = source.fetch().await;
+        assert_eq!(result.err(), expected);
+        server.await.unwrap();
+    }
 }

@@ -3354,6 +3354,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
@@ -3371,6 +3372,9 @@ dependencies = [
  "axum",
  "fluent-bundle",
  "globset",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "image",
  "jsonschema",
  "lzma-rs",
@@ -3378,6 +3382,7 @@ dependencies = [
  "oteryn-db",
  "oteryn-web",
  "prost",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3385,10 +3390,12 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "tower",
  "unic-langid",
  "url",
  "uuid",
+ "webpki-roots",
 ]
 
 [[package]]

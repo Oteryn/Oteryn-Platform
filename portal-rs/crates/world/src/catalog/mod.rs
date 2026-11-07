@@ -1,6 +1,10 @@
 //! CATALOG_EXPORT_V1 offline consumer. Valid artifacts are immutable INACTIVE
-//! candidates. No capability payload or production publication gate is accepted.
+//! candidates and supported-carrier caches. Publication remains closed until the
+//! producer payload/visibility mapping and publication profile are pinned.
+mod cache;
 mod json;
+mod transport;
+pub use cache::CachedEntity;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -117,12 +121,29 @@ pub struct Candidate {
     artifact: Vec<u8>,
     artifact_sha256: String,
 }
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Source {
     pub file: PathBuf,
     pub fence: Fence,
+    pub expected_sha256: String,
+    pub url: Option<url::Url>,
+}
+impl std::fmt::Debug for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Source")
+            .field("fence", &self.fence)
+            .finish_non_exhaustive()
+    }
 }
 impl Source {
+    pub fn local(file: PathBuf, fence: Fence, expected_sha256: String) -> Self {
+        Self {
+            file,
+            fence,
+            expected_sha256,
+            url: None,
+        }
+    }
     pub fn configured() -> Result<Option<Self>> {
         let names = [
             "OTERYN_WORLD_CATALOG_FILE",
@@ -131,6 +152,8 @@ impl Source {
             "OTERYN_WORLD_CATALOG_RULESET_ID",
             "OTERYN_WORLD_CATALOG_PROFILE_ID",
             "OTERYN_WORLD_CATALOG_SNAPSHOT_ID",
+            "OTERYN_WORLD_CATALOG_SHA256",
+            "OTERYN_WORLD_CATALOG_URL",
         ];
         Self::from_values(names.iter().map(std::env::var).collect())
     }
@@ -143,27 +166,74 @@ impl Source {
         {
             return Ok(None);
         }
-        let values: Vec<_> = values
-            .into_iter()
-            .collect::<std::result::Result<_, _>>()
-            .map_err(|_| Error::ProvenanceConflict)?;
+        if values.len() != 8 {
+            return Err(Error::ProvenanceConflict);
+        }
+        let value = |index: usize| {
+            values[index]
+                .as_ref()
+                .map(String::as_str)
+                .map_err(|_| Error::ProvenanceConflict)
+        };
+        let file = values[0].as_ref().ok();
+        let url = values[7].as_ref().ok();
+        if file.is_some() == url.is_some() {
+            return Err(Error::ProvenanceConflict);
+        }
+        let expected_sha256 = value(6)?.to_owned();
+        if !sha(&expected_sha256, 64) {
+            return Err(Error::InvalidInput);
+        }
+        let url = url
+            .map(|s| url::Url::parse(s).map_err(|_| Error::InvalidInput))
+            .transpose()?;
+        if let Some(url) = &url {
+            transport::validate(url)?;
+        }
         Ok(Some(Self {
-            file: PathBuf::from(&values[0]),
+            file: file.map_or_else(PathBuf::new, PathBuf::from),
+            url,
+            expected_sha256,
             fence: Fence {
-                source_revision: values[1].clone(),
-                authority_epoch: values[2].clone(),
-                ruleset_id: values[3].clone(),
-                content_profile_id: values[4].clone(),
-                snapshot_id: values[5].clone(),
+                source_revision: value(1)?.into(),
+                authority_epoch: value(2)?.into(),
+                ruleset_id: value(3)?.into(),
+                content_profile_id: value(4)?.into(),
+                snapshot_id: value(5)?.into(),
             },
         }))
     }
+    fn verify_bytes(&self, raw: &[u8]) -> Result<Candidate> {
+        if !sha(&self.expected_sha256, 64) {
+            return Err(Error::InvalidInput);
+        }
+        verify(
+            raw,
+            format!("{}\n", self.expected_sha256).as_bytes(),
+            &self.fence,
+        )
+    }
     pub fn read(&self) -> Result<Candidate> {
-        let raw = read_regular(&self.file, MAX_FILE_BYTES)?;
-        let mut sidecar_path = self.file.clone().into_os_string();
-        sidecar_path.push(".sha256");
-        let sidecar = read_regular(Path::new(&sidecar_path), 65)?;
-        verify(&raw, &sidecar, &self.fence)
+        if self.url.is_some() || self.file.as_os_str().is_empty() {
+            return Err(Error::InvalidInput);
+        }
+        self.verify_bytes(&read_regular(&self.file, MAX_FILE_BYTES)?)
+    }
+    pub async fn fetch(&self) -> Result<Candidate> {
+        if !sha(&self.expected_sha256, 64) {
+            return Err(Error::InvalidInput);
+        }
+        if let Some(url) = &self.url {
+            if !self.file.as_os_str().is_empty() {
+                return Err(Error::InvalidInput);
+            }
+            self.verify_bytes(&transport::fetch(url).await?)
+        } else {
+            let source = self.clone();
+            tokio::task::spawn_blocking(move || source.read())
+                .await
+                .map_err(|_| Error::Unavailable)?
+        }
     }
 }
 fn read_regular(path: &Path, limit: usize) -> Result<Vec<u8>> {
@@ -466,13 +536,14 @@ impl Candidate {
     }
     /// Immutable, transactional, idempotent intake. Never changes the active pointer,
     /// public world_entities, independent visibility approvals or any non-world table.
+    /// Supported entity/relation/tombstone carriers are rebuilt in the same transaction.
     pub async fn persist_inactive(&self, db: &PgPool) -> Result<()> {
         let s = &self.snapshot;
         let mut tx = db.begin().await.map_err(|_| Error::Unavailable)?;
         sqlx::query("INSERT INTO world_catalog_candidates(snapshot_id,artifact_sha256,source_revision,authority_epoch,ruleset_id,content_profile_id,artifact) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(snapshot_id) DO NOTHING")
             .bind(&s.snapshot_id).bind(&self.artifact_sha256).bind(&s.source_revision).bind(&s.authority_epoch).bind(&s.ruleset_id).bind(&s.content_profile_id).bind(&self.artifact).execute(&mut *tx).await.map_err(|_|Error::Unavailable)?;
         let stored: (String, Vec<u8>) = sqlx::query_as(
-            "SELECT artifact_sha256,artifact FROM world_catalog_candidates WHERE snapshot_id=$1",
+            "SELECT artifact_sha256,artifact FROM world_catalog_candidates WHERE snapshot_id=$1 FOR UPDATE",
         )
         .bind(&s.snapshot_id)
         .fetch_one(&mut *tx)
@@ -481,19 +552,18 @@ impl Candidate {
         if stored != (self.artifact_sha256.clone(), self.artifact.clone()) {
             return Err(Error::IntegrityMismatch);
         }
+        self.rebuild_cache(&mut tx).await?;
         tx.commit().await.map_err(|_| Error::Unavailable)?;
         Ok(())
     }
 }
 /// Boot reads only explicit local artifacts. The reference profile is permanently
-/// inactive; adding a flag cannot promote generic v1 `data` to public authority.
+/// inactive; feature flags do not promote generic v1 `data` to public authority.
 pub async fn read_configured(db: &PgPool) -> Result<Option<String>> {
     let Some(source) = Source::configured()? else {
         return Ok(None);
     };
-    let candidate = tokio::task::spawn_blocking(move || source.read())
-        .await
-        .map_err(|_| Error::Unavailable)??;
+    let candidate = source.fetch().await?;
     candidate.persist_inactive(db).await?;
     Ok(Some(candidate.snapshot_id().into()))
 }

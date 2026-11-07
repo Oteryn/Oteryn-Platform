@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used)]
 use oteryn_world::{
     WorldOptions, WorldStore,
     catalog::{Candidate, Error, Fence, Source, verify},
@@ -6,19 +7,21 @@ use sqlx::postgres::PgPoolOptions;
 use std::path::PathBuf;
 use uuid::Uuid;
 
-fn source() -> Source {
-    Source {
-        file: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/catalog-d34807f5/game-platform-catalog.json"),
-        fence: Fence {
-            source_revision: "a2a5da955dd8f580c9e768c8ac6a741db388cb22".into(),
-            authority_epoch: "preproduction-unallocated".into(),
-            ruleset_id: "oteryn:ruleset.unbound".into(),
-            content_profile_id: "oteryn:profile.unbound".into(),
-            snapshot_id: "sha256:6d599c15564e1ad1b0ec307a73fa52e517a452ae6b0eab4056a0cd67e2d27f8e"
-                .into(),
+#[path = "support/catalog.rs"]
+mod catalog_fixture;
+fn source(file: PathBuf, fixture: &catalog_fixture::Fixture) -> Source {
+    std::fs::write(&file, &fixture.bytes).expect("test artifact");
+    Source::local(
+        file,
+        Fence {
+            source_revision: fixture.text("source_revision"),
+            authority_epoch: fixture.text("authority_epoch"),
+            ruleset_id: fixture.text("ruleset_id"),
+            content_profile_id: fixture.text("content_profile_id"),
+            snapshot_id: fixture.text("snapshot_id"),
         },
-    }
+        fixture.sha256(),
+    )
 }
 #[tokio::test]
 async fn verified_catalogue_is_idempotent_and_cannot_publish()
@@ -45,7 +48,11 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
     oteryn_db::migrate(&db).await?;
     let store = WorldStore::new(db.clone(), WorldOptions { enabled: true });
     assert_eq!(store.active_version_id().await?, None);
-    let source = source();
+    let directory = tempfile::tempdir()?;
+    let source = source(
+        directory.path().join("negative.json"),
+        &catalog_fixture::negative(),
+    );
     let mut mismatched = source.clone();
     mismatched.fence.source_revision = "a".repeat(40);
     assert_eq!(mismatched.read().err(), Some(Error::ProvenanceConflict));
@@ -57,7 +64,7 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
     let raw = std::fs::read(&source.file)?;
     let mut dirty = raw.clone();
     dirty.push(b' ');
-    let sidecar = std::fs::read(source.file.with_extension("json.sha256"))?;
+    let sidecar = format!("{}\n", source.expected_sha256).into_bytes();
     assert_eq!(
         verify(&dirty, &sidecar, &source.fence).err(),
         Some(Error::IntegrityMismatch)
@@ -65,6 +72,18 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
     let candidate: Candidate = source.read()?;
     candidate.persist_inactive(&db).await?;
     candidate.persist_inactive(&db).await?;
+    assert_eq!(
+        candidate.require_complete(&["item"]),
+        Err(Error::UnsupportedCapability)
+    );
+    assert_eq!(
+        candidate.cached_entities(&db, "item").await.err(),
+        Some(Error::UnsupportedCapability)
+    );
+    let records: i64 = sqlx::query_scalar("SELECT count(*) FROM world_catalog_records")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(records, 0);
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM world_catalog_candidates WHERE status='inactive'")
             .fetch_one(&db)
@@ -81,25 +100,9 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
     assert!(store.list_by_kind("Creature", None, 100).await?.is_empty());
     // JSON carrier strings may contain escaped NUL. Retain exact artifact bytes,
     // rather than normalizing through PostgreSQL JSONB (which rejects them).
-    let control_file = source
-        .file
-        .with_file_name("synthetic-control-character.json");
-    let control_raw = std::fs::read(&control_file)?;
-    let value: serde_json::Value = serde_json::from_slice(&control_raw)?;
-    let text = |name: &str| -> Result<String, Box<dyn std::error::Error>> {
-        Ok(value[name].as_str().ok_or("fixture field missing")?.into())
-    };
-    let control = Source {
-        file: control_file,
-        fence: Fence {
-            source_revision: text("source_revision")?,
-            authority_epoch: text("authority_epoch")?,
-            ruleset_id: text("ruleset_id")?,
-            content_profile_id: text("content_profile_id")?,
-            snapshot_id: text("snapshot_id")?,
-        },
-    }
-    .read()?;
+    let fixture = catalog_fixture::control_character();
+    let control_raw = fixture.bytes.clone();
+    let control = crate::source(directory.path().join("control.json"), &fixture).read()?;
     control.persist_inactive(&db).await?;
     let stored: Vec<u8> =
         sqlx::query_scalar("SELECT artifact FROM world_catalog_candidates WHERE snapshot_id=$1")
@@ -107,8 +110,63 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
             .fetch_one(&db)
             .await?;
     assert_eq!(stored, control_raw);
+    let entities = control.cached_entities(&db, "item").await?;
+    assert_eq!(entities.len(), 1);
+    assert_eq!(entities[0].content_key, "oteryn:item.training_sword");
+    assert_eq!(entities[0].data["name"], "Control\0Name");
+    assert_eq!(
+        control.cached_entities(&db, "npc").await.err(),
+        Some(Error::UnsupportedCapability)
+    );
+    // Failure halfway through a rebuild must preserve the previous cache.
+    sqlx::raw_sql("CREATE FUNCTION reject_catalog_record() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test rejection'; END $$; CREATE TRIGGER reject_catalog_record BEFORE INSERT ON world_catalog_records FOR EACH ROW EXECUTE FUNCTION reject_catalog_record();").execute(&db).await?;
+    assert_eq!(control.persist_inactive(&db).await, Err(Error::Unavailable));
+    assert_eq!(control.cached_entities(&db, "item").await?.len(), 1);
+    sqlx::raw_sql("DROP TRIGGER reject_catalog_record ON world_catalog_records; DROP FUNCTION reject_catalog_record();").execute(&db).await?;
+    sqlx::query("DELETE FROM world_catalog_records WHERE snapshot_id=$1")
+        .bind(control.snapshot_id())
+        .execute(&db)
+        .await?;
+    assert_eq!(
+        control.cached_entities(&db, "item").await.err(),
+        Some(Error::IntegrityMismatch)
+    );
+    control.persist_inactive(&db).await?;
+    assert_eq!(control.cached_entities(&db, "item").await?.len(), 1);
+    let search_path = schema.clone();
+    let parallel = PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(move |connection, _| {
+            let search_path = search_path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(search_path)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await?;
+    let (a, b, c, d) = tokio::join!(
+        control.persist_inactive(&parallel),
+        control.persist_inactive(&parallel),
+        control.persist_inactive(&parallel),
+        control.persist_inactive(&parallel)
+    );
+    a?;
+    b?;
+    c?;
+    d?;
+    parallel.close().await;
+    assert_eq!(control.cached_entities(&db, "item").await?.len(), 1);
     assert_eq!(store.active_version_id().await?, None);
     // The additive migration is reversible, without touching old world tables.
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261107120002_world_catalog_records.down.sql"
+    ))
+    .execute(&db)
+    .await?;
     sqlx::raw_sql(include_str!(
         "../../../migrations/20261107120001_world_catalog_candidates.down.sql"
     ))
@@ -117,6 +175,11 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
     assert_eq!(store.active_version_id().await?, None);
     sqlx::raw_sql(include_str!(
         "../../../migrations/20261107120001_world_catalog_candidates.up.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261107120002_world_catalog_records.up.sql"
     ))
     .execute(&db)
     .await?;
