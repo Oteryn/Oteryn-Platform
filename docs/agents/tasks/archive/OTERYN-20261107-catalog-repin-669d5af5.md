@@ -75,3 +75,11 @@ validation:
 blockers: []
 next_action: land PR 1779 via squash auto-merge, then archive this packet
 ```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR path; PR 1779 squash-merged as 83fe20bf
+source_branch_evidence: GET branches/claude/catalog-repin-669d5af5 returns 404 after the PR 1779 merge
+```
