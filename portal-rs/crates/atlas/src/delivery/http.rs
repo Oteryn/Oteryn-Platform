@@ -16,13 +16,14 @@ struct Service {
     options: Options,
 }
 pub fn configured_router(pool: PgPool) -> Router {
+    let flags = crate::config::Flags::configured();
     router(
         pool,
         Options {
-            enabled: std::env::var("PORTAL_ATLAS_DELIVERY_ENABLED").as_deref() == Ok("1"),
+            enabled: flags.delivery,
         },
         WorldOptions {
-            enabled: std::env::var("PORTAL_WORLD_ENABLED").as_deref() == Ok("1"),
+            enabled: flags.world,
         },
     )
 }

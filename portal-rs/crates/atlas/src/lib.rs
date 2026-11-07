@@ -11,3 +11,5 @@ pub mod bestiary;
 
 /// Shared portal navigation registration.
 pub mod navigation;
+
+mod config;

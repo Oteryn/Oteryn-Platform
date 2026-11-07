@@ -51,6 +51,7 @@ pub struct EntityState {
     pool: PgPool,
     world: WorldStore,
     enabled: bool,
+    catalog: Option<oteryn_world::catalog::CatalogStore>,
 }
 impl EntityState {
     pub fn new(pool: PgPool, enabled: bool) -> Self {
@@ -58,13 +59,62 @@ impl EntityState {
             world: WorldStore::new(pool.clone(), WorldOptions { enabled }),
             pool,
             enabled,
+            catalog: None,
         }
     }
-    pub fn configured(pool: PgPool) -> Self {
-        Self::new(
+    pub fn configured(pool: PgPool, ready: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
+        let catalog = oteryn_world::catalog::publication_enabled()
+            .then(|| oteryn_world::catalog::CatalogStore::configured(pool.clone(), ready));
+        let mut state = Self::new(
             pool,
             std::env::var("PORTAL_WIKI_ENTITIES_ENABLED").as_deref() == Ok("true"),
-        )
+        );
+        state.catalog = catalog;
+        state
+    }
+    async fn active_version_id(&self) -> Result<Option<uuid::Uuid>, StatusCode> {
+        match &self.catalog {
+            Some(c) => c
+                .active_version_id()
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE),
+            None => self
+                .world
+                .active_version_id()
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE),
+        }
+    }
+    async fn list_by_kind(
+        &self,
+        kind: &str,
+        after: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<Entity>, StatusCode> {
+        match &self.catalog {
+            Some(c) => c
+                .list_by_kind(kind, after, limit)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE),
+            None => self
+                .world
+                .list_by_kind(kind, after, limit)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE),
+        }
+    }
+    async fn get_entity(&self, kind: &str, key: &str) -> Result<Option<Entity>, StatusCode> {
+        match &self.catalog {
+            Some(c) => c
+                .get_entity(kind, key)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE),
+            None => self
+                .world
+                .get_entity(kind, key)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE),
+        }
     }
 }
 /// Mounts entity routes and extends the existing home/search without replacing T13 routes.
@@ -270,7 +320,6 @@ async fn collect(
     lang: &str,
 ) -> Result<(String, Vec<Row>), StatusCode> {
     let version = state
-        .world
         .active_version_id()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
@@ -283,11 +332,21 @@ async fn collect(
     };
     let needed = filters.page.unwrap_or(1) as usize * PAGE_SIZE + 1;
     'kinds: for kind in kinds {
+        if let Some(catalog) = &state.catalog
+            && !catalog
+                .available(world_kind(kind))
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        {
+            if !filters.kind.is_empty() {
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
+            continue;
+        }
         let mut after = None;
         // Bounded scan through the public keyset API. Never silently truncate results.
         for batch in 0..100 {
             let entities = state
-                .world
                 .list_by_kind(world_kind(kind), after.as_deref(), 1000)
                 .await
                 .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -322,7 +381,6 @@ async fn collect(
         }
     }
     if state
-        .world
         .active_version_id()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
@@ -351,7 +409,6 @@ async fn listing(
         && filters.classification.is_empty();
     let result = if empty_search {
         state
-            .world
             .active_version_id()
             .await
             .ok()
@@ -580,7 +637,7 @@ async fn detail(
     {
         return error(StatusCode::NOT_FOUND, lang);
     }
-    let entity = match state.world.get_entity(world_kind(kind), key).await {
+    let entity = match state.get_entity(world_kind(kind), key).await {
         Ok(Some(v)) => v,
         Ok(None) => return error(StatusCode::NOT_FOUND, lang),
         Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE, lang),
@@ -640,7 +697,7 @@ async fn detail(
         String::new()
     };
     // Recheck after editorial I/O, so a world switch or visibility denial cannot mix versions.
-    match state.world.get_entity(world_kind(kind), key).await {
+    match state.get_entity(world_kind(kind), key).await {
         Ok(Some(current)) if current.version_id == entity.version_id => {}
         Ok(None) => return error(StatusCode::NOT_FOUND, lang),
         _ => return error(StatusCode::SERVICE_UNAVAILABLE, lang),

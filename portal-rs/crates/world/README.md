@@ -1,5 +1,87 @@
 # World data store
 
+## Native catalog source (current)
+
+The production binary reads only the locked CATALOG_EXPORT_V1 offline artifact,
+with an independently configured SHA-256, into `world_catalog_candidates` and its derived
+`world_catalog_records` capability cache. It does **not** read Game's raw
+`content/**` layout. The older raw-directory APIs/configuration below remain
+compatibility test infrastructure, with no binary caller.
+
+Configure the administrator-selected source and exact provenance together:
+
+- Exactly one of `OTERYN_WORLD_CATALOG_FILE` (read-only local artifact) or
+  `OTERYN_WORLD_CATALOG_URL` (HTTPS; HTTP is restricted to loopback);
+- `OTERYN_WORLD_CATALOG_SHA256`: independently supplied lowercase 64-hex digest
+  of the exact artifact bytes, including final LF;
+- `OTERYN_WORLD_CATALOG_SOURCE_REVISION`: exact source revision inside the export;
+- `OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH`;
+- `OTERYN_WORLD_CATALOG_RULESET_ID`;
+- `OTERYN_WORLD_CATALOG_PROFILE_ID`;
+- `OTERYN_WORLD_CATALOG_SNAPSHOT_ID`: exact `sha256:` snapshot identity.
+
+Serve schedules read/verification/refresh off startup and readiness. A matching
+stored publication (all source fences plus independent SHA-256) is ready on the
+first database lookup without refetching the producer. Otherwise the process
+keeps catalogue reads closed while trying the explicitly configured source.
+File reads and CPU verification run on blocking workers; network I/O is async.
+No network fetch of Game source or raw `content/**` parsing is performed.
+
+Only transient `Unavailable` failures retry. Configuration, schema, provenance,
+integrity, G-2 and publication-key collision refusals stop closed immediately.
+The retry policy is conservative and bounded:
+
+| Setting | Default | Valid range |
+| --- | --- | --- |
+| `OTERYN_WORLD_CATALOG_RETRY_INITIAL_SECONDS` | 5 | 1–300 |
+| `OTERYN_WORLD_CATALOG_RETRY_MAX_SECONDS` | 300 | initial–3600 |
+| `OTERYN_WORLD_CATALOG_RETRY_MAX_ATTEMPTS` | 12 | 1–64, including the first immediate attempt |
+
+Each failed attempt sleeps 75–100% of the exponentially increasing interval,
+with independent jitter even at the cap. Each whole attempt has a 60-second
+deadline; the URL transport retains its tighter 30-second deadline. Exhausting
+the configured budget leaves the source closed and reports failure; operators
+can retry by restarting after correcting the outage/configuration. Stored matching
+publications require no producer availability and remain independently gated by
+`world_visibility`. Startup/listening sockets and `/readyz` never await retries.
+
+Verification checks canonical JSON, byte SHA-256, semantic snapshot identity,
+provenance fences, support/completeness, keys/endpoints and resource bounds before
+transactionally storing the immutable artifact and derived carrier cache.
+
+`OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED=true` additionally enables production
+wiki publication; it defaults **off**. Only `supported + complete` categories
+are projected from verified cache carriers. Unsupported, partial or unknown
+categories return 503. A category missing required wiki names (or quest
+classification) also refuses; no name is inferred from a native key. Wiki
+home/search aggregate the complete, presentable categories; none
+available means 503. A complete empty category may return an empty 200.
+
+Publication atomically replaces a dedicated wiki pointer and rebuilds derived
+`world_entities`. It does not switch the legacy/map pointer, build atlas tiles,
+or insert/change `world_visibility` approvals. Refresh is idempotent per snapshot.
+The existing `/admin/world` staff action independently approves or denies each
+native key under the same RBAC, MFA, CSRF and transactional audit controls. Native
+versions cannot be published through the legacy/map action or given Platform-authored
+replacement names. Source changes/removals never inherit public facts from an old
+snapshot; approvals alone cannot publish missing entries.
+
+G-2 is resolved at Game lane `fd4be4e214ef33ad65d3ce465dab7160377e62f5`:
+the producer omits hidden records, hidden NPC shop relations and secret achievements.
+No visibility decoding/default is needed. If any record/payload carries a
+`visibility` member, only the string `public` is accepted; anything else rejects
+the whole artifact. Absence is the ordinary export form. Platform approval remains
+an additional gate.
+
+The lane is **not merged; re-pin on merge**. Its notes explicitly keep all eight
+native capabilities unsupported/unknown, so its actual output still cannot
+publish wiki data. `/wiki/areas` remains 503 pending the later additive `area`
+category. Atlas needs a Game-side atlas export; Today needs an accepted producer.
+See [wiki capability requirements](CATALOG_WIKI_REQUIREMENTS.md) and the pinned
+[SOURCE note](tests/fixtures/catalog-fd4be4e2/SOURCE.md).
+
+## Historical directory-parser API
+
 T14 provides a trusted Rust service API, with no HTTP routes or UI. Construct
 `WorldStore` with a PostgreSQL pool and `WorldOptions`; its default options disable
 every operation. Callers must authorize import, rollback, report access and
@@ -50,7 +132,7 @@ the pinned Game configuration uses `/secret` for achievements. Reader APIs never
 expose arbitrary historical versions. Authoritative raw documents remain in the
 database for trusted tooling.
 
-## Pinned Game reference
+## Historical pinned raw-layout reference (not a native source)
 
 `config/game-857f15f3.json` describes the owner-authorized read-only reference
 `Oteryn/Oteryn-Game@857f15f376907c592bb28d854fccff18a15cdf87`. It imports

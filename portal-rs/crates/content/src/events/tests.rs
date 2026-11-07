@@ -125,12 +125,7 @@ impl Database {
             .connect(&url)
             .await
             .unwrap();
-        for migration in oteryn_db::MIGRATOR.iter() {
-            sqlx::raw_sql(AssertSqlSafe(migration.sql.as_ref()))
-                .execute(&pool)
-                .await
-                .unwrap();
-        }
+        oteryn_db::migrate(&pool).await.unwrap();
         Some(Self { root, pool, schema })
     }
     async fn close(self) {

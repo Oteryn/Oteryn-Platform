@@ -161,13 +161,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .connect(&url)
         .await
         .unwrap();
-    // Isolated fixture executes each script once; main currently has duplicate versions.
-    for migration in oteryn_db::MIGRATOR.iter() {
-        sqlx::raw_sql(AssertSqlSafe(migration.sql.as_ref()))
-            .execute(&pool)
-            .await
-            .unwrap();
-    }
+    oteryn_db::migrate(&pool).await.unwrap();
     portal_identity_lifecycle(&pool).await;
     let actor = Uuid::now_v7();
     let identity = Some(StaffIdentity {

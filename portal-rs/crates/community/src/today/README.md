@@ -1,6 +1,9 @@
 # World daily consumer
 
-T88 implements the accepted G-12 revision 2 wire profile. It adds no Game client,
+T88 implements a consumer of the **PROPOSED**, unaccepted G-12 revision 2 wire profile.
+Game has no accepted `world_daily` producer. The existing gate stays closed;
+this consumer and its tests do not establish producer availability or production authority.
+See [`OTERYN_V2_WORLD_DAILY_FAMILY_CONTRACT_PROPOSAL.md`](../../../../../docs/contracts/OTERYN_V2_WORLD_DAILY_FAMILY_CONTRACT_PROPOSAL.md#L1). It adds no Game client,
 mutation, scoring or T94 outcome source. The content crate's existing Today page
 is extended through appended registration; disabled public serving preserves its
 response unchanged.

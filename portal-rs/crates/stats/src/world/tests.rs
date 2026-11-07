@@ -202,3 +202,83 @@ async fn missing_privacy_is_localized_unavailable() -> Result {
     assert!(std::str::from_utf8(&body)?.contains("Unavailable"));
     Ok(())
 }
+
+#[tokio::test]
+async fn registered_world_picker_works_without_privacy_metrics() -> Result {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        eprintln!("SKIPPED picker PostgreSQL test: PORTAL_TEST_DATABASE_URL unset");
+        return Ok(());
+    };
+    let db = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await?;
+    let schema = format!("picker_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&db)
+        .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
+        .execute(&db)
+        .await?;
+    oteryn_db::migrate(&db).await?;
+    let config = Config { enabled: true };
+    let world = Uuid::now_v7();
+    for lang in ["pl", "en"] {
+        let app = http::router::<()>(db.clone(), config, std::sync::Arc::new(Unavailable));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/{lang}/stats/world"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()["cache-control"], "private, no-store");
+    }
+    sqlx::query("INSERT INTO world_status(id,name) VALUES($1,$2)")
+        .bind(world)
+        .bind("Registered <World>")
+        .execute(&db)
+        .await?;
+    for lang in ["pl", "en"] {
+        for suffix in ["", "?"] {
+            let app = http::router::<()>(db.clone(), config, std::sync::Arc::new(Unavailable));
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/{lang}/stats/world{suffix}"))
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["cache-control"], "private, no-store");
+            let body = to_bytes(response.into_body(), 65536).await?;
+            let body = std::str::from_utf8(&body)?;
+            assert!(body.contains("name=\"world\""));
+            assert!(body.contains("name=\"start\""));
+            assert!(body.contains("name=\"end\""));
+            assert!(body.contains(&world.to_string()));
+            assert!(body.contains("Registered &#60;World&#62;"));
+        }
+        let app = http::router::<()>(db.clone(), config, std::sync::Arc::new(Unavailable));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/{lang}/stats/world?world={world}&start=2026-11-01&end=2026-11-02"
+                    ))
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&db)
+        .await?;
+    Ok(())
+}

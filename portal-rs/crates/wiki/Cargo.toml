@@ -28,6 +28,7 @@ oteryn-web.workspace = true
 oteryn-world.workspace = true
 
 [dev-dependencies]
+sha2 = "0.10"
 oteryn-db.workspace = true
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }
