@@ -67,7 +67,7 @@ checkpoint_version: 1
 updated_at: 2026-11-07T17:42:27Z
 head: c25414d8ff0fbf20a1f6059265c62bb7f9501353
 branch: claude/portal-rs-admin-analytics-economy
-pr: none
+pr: 1775
 status: blocked
 context_routes:
   - accepted analytics contract §§5,7,10,11,12
