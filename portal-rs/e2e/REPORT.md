@@ -33,8 +33,8 @@ The launcher also omitted analytics switches whose names do not end in ENABLED;
 the explicit local configuration now enables them and a local OAuth client. All
 87 discovered environment switches ending ENABLED are on. See ENVIRONMENT.md.
 The internal journal weekly_email gate remains false until an authoritative
-JournalSource is wired; valid-token mail preference requests assert 503 and
-missing-token requests assert 403. No production authority is fabricated.
+JournalSource is wired; valid-token preference updates persist locally and
+missing-token requests assert 403; delivery remains disabled. No production authority is fabricated.
 
 ## Evidence so far
 

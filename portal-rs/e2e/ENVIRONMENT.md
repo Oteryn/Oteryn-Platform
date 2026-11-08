@@ -529,6 +529,6 @@ The full-shell harness enables every literal `*_ENABLED` switch discovered in cr
 The internal `playerdata::reports::Flags.weekly_email` gate cannot be enabled by
 local environment settings: configured_router deliberately sets it to false
 until a current, authoritative JournalSource is wired. Journal reads therefore
-qualify the documented 503 refusal, and preference POSTs must first refuse
-missing CSRF with 403. All 87 environment switches remain enabled. A runtime
+qualify the documented 503 refusal. Local preference updates still persist with
+a valid token; missing CSRF must be refused with 403 before any update. All 87 environment switches remain enabled. A runtime
 switch does not supply accepted Game data or authorize a production producer.

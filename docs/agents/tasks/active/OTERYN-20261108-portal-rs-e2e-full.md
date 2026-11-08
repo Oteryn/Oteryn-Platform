@@ -39,6 +39,7 @@ owned_paths:
 proven:
   - requested source branch fetched; newer than minimum source head
   - supplied PostgreSQL 18.6 and Chromium available
+derived: []
 unknown:
   - final complete composed route coverage and acceptance
 conflicts: []
