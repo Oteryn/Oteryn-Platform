@@ -14,7 +14,7 @@ rows = {}
 for file in sorted((ROOT / 'crates').rglob('*.rs')):
     if 'tests' in file.parts or file.name == 'tests.rs' or re.search(r'(?:_tests?|_test_db)\.rs$', file.name):
         continue
-    source = re.sub(r'#\[cfg\(test\)\]\s*(?:#\[[^\n]*\]\s*)*mod \w+;', '', file.read_text())
+    source = re.sub(r'#\[cfg\(test\)\]\s*(?:#\[[^\]\n]*\]\s*)*mod \w+;', '', file.read_text())
     source = source.split('#[cfg(test)]\nmod tests {')[0]
     crate = file.relative_to(ROOT).parts[1]
     if crate in {'gateway', 'internal-api'} or str(file.relative_to(ROOT)) in {'crates/admin/src/control/http.rs', 'crates/gameauth/src/health.rs', 'crates/store/src/purchase_http.rs', 'crates/store/src/delivery_http.rs', 'crates/gameauth/src/runtime.rs'}:
