@@ -2753,6 +2753,7 @@ dependencies = [
  "oteryn-core",
  "oteryn-db",
  "oteryn-internal-api",
+ "oteryn-ui",
  "oteryn-web",
  "prost",
  "rustls",

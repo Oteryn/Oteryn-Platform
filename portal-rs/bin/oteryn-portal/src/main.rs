@@ -392,6 +392,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             oteryn_playerdata::navigation::register(&mut navigation);
             oteryn_payments::navigation::register(&mut navigation);
             oteryn_support::navigation::register(&mut navigation);
+            oteryn_bazaar::navigation::register(&mut navigation);
             let app = app.layer(axum::middleware::from_fn_with_state(
                 oteryn_web::chrome::Shell {
                     registry: navigation,
