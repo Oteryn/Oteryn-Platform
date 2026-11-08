@@ -116,16 +116,28 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .headers()
             .get(header::CONTENT_SECURITY_POLICY)
             .and_then(|v| v.to_str().ok())
-        && !policy
-            .split(';')
-            .any(|v| v.trim_start().starts_with("font-src "))
-        && let Ok(value) = format!("{policy}; font-src 'self'").parse()
+        && let Ok(value) = shell_asset_policy(policy).parse()
     {
         response
             .headers_mut()
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
     response
+}
+
+// The shell requires only local fonts and images. Preserve every existing explicit
+// directive, including stricter image policies, and never permit scripts or inline styles.
+fn shell_asset_policy(policy: &str) -> String {
+    let mut result = policy.to_owned();
+    for name in ["font-src", "img-src"] {
+        if !policy
+            .split(';')
+            .any(|value| value.trim_start().starts_with(&format!("{name} ")))
+        {
+            result.push_str(&format!("; {name} 'self'"));
+        }
+    }
+    result
 }
 
 /// Largest module document the shell adapter buffers; larger bodies pass through unchanged.
@@ -257,7 +269,22 @@ fn without_attribute(tag: &str, name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::inject;
+    use super::{inject, shell_asset_policy};
+
+    #[test]
+    fn adapted_policy_permits_local_shell_assets_and_preserves_restrictions() {
+        let policy = shell_asset_policy(
+            "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'",
+        );
+        assert_eq!(
+            policy,
+            "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; font-src 'self'; img-src 'self'"
+        );
+        let strict = "default-src 'none'; img-src 'none'; font-src 'self'";
+        assert_eq!(shell_asset_policy(strict), strict);
+        assert!(!policy.contains("unsafe-inline"));
+        assert!(!policy.contains("script-src"));
+    }
 
     #[test]
     fn wraps_standalone_documents_once() -> Result<(), &'static str> {
