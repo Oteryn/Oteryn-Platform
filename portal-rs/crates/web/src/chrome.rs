@@ -251,7 +251,9 @@ mod tests {
         let out = inject(page, "<header>H</header>", "<footer>F</footer>")
             .ok_or("standalone page must be wrapped")?;
         assert!(out.contains("<html lang=\"pl\" data-theme=\"dark\">"));
-        assert!(out.contains("components.css\"><link rel=\"stylesheet\" href=\"/static/css/home.css\"></head>"));
+        assert!(out.contains(
+            "components.css\"><link rel=\"stylesheet\" href=\"/static/css/home.css\"></head>"
+        ));
         assert!(out.contains("<body class=\"op-theme op-shell page\"><header>H</header><div class=\"op-shell__page\"><main>tresc</main></div><footer>F</footer></body></html>"));
         assert!(inject(&out, "<header>H</header>", "<footer>F</footer>").is_none());
         Ok(())
