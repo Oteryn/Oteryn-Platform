@@ -43,6 +43,12 @@ the privacy reader. The producer and all local ownership readers now share one
 configured authority. The privacy flow asserts agreement with the live feed before
 seeding its isolated read models. No production authority guard was changed.
 
+The retained privacy flow also contained a stale landing-page assumption: the
+world statistics selector is a healthy 200 page. It now asserts that page has no
+character disclosure and submits a registered world/date query, retaining the
+exact 503/no-store Game-data refusal. Privacy and world-read passed all 12 cases
+across the four projects after these fixture corrections.
+
 ## Evidence so far
 
 - Focused UI, Web, Community, Wiki, Gameauth and Admin regressions pass.
