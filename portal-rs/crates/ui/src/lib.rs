@@ -453,6 +453,18 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn navigation_has_native_keyboard_and_touch_disclosure() -> Result<(), askama::Error> {
+        let chrome = registry().chrome("en", "/en/wiki", Account::Anonymous);
+        let html = ShellHeader { chrome: &chrome }.render()?;
+        assert!(html.contains("<details class=\"hx-nav__dropdown\"><summary"));
+        assert!(html.contains("aria-current=\"page\">Wiki</a>"));
+        let css = include_str!("../../../static/css/home.css");
+        assert!(css.contains(".hx-nav__dropdown[open] .hx-nav__menu"));
+        assert!(css.contains(".hx-nav__item--menu:focus-within .hx-nav__menu { display: block; }"));
+        assert!(!css.contains(":focus-within .hx-nav__menu { display: none; }"));
+        Ok(())
+    }
+    #[test]
     fn home_shows_live_data_or_says_unavailable() -> Result<(), askama::Error> {
         let chrome = registry().chrome("pl", "/pl/", Account::Anonymous);
         let html = Home::new(&chrome, &HomeData::default()).render()?;
