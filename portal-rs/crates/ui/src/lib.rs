@@ -119,8 +119,11 @@ impl Registry {
                 } else {
                     format!("/{lang}/{}", e.path)
                 };
-                let current = clean == url
-                    || clean.strip_prefix(&url).is_some_and(|tail| tail.starts_with('/'));
+                let section_path = e.path.trim_start_matches('/');
+                let current = suffix == section_path
+                    || suffix
+                        .strip_prefix(section_path)
+                        .is_some_and(|tail| tail.starts_with('/'));
                 NavLink {
                     section: e.section.to_owned(),
                     label: text(lang, e.label),
@@ -440,6 +443,25 @@ mod tests {
                     .chrome("pl", path, Account::Anonymous)
                     .alternate_url,
                 expected
+            );
+        }
+    }
+    #[test]
+    fn unprefixed_aliases_and_localized_paths_share_the_active_section() {
+        for lang in ["pl", "en"] {
+            for path in ["/wiki", "/wiki/articles/guide", "/pl/wiki", "/en/wiki"] {
+                let chrome = registry().chrome(lang, path, Account::Anonymous);
+                assert_eq!(chrome.current_section, "wiki");
+                assert_eq!(
+                    chrome.entries.iter().filter(|entry| entry.current).count(),
+                    1
+                );
+            }
+            assert!(
+                registry()
+                    .chrome(lang, "/wiki-other", Account::Anonymous)
+                    .current_section
+                    .is_empty()
             );
         }
     }
