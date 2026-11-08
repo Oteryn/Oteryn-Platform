@@ -631,3 +631,29 @@ async fn staff_host_flag_and_unknown_identity_deny_without_database() {
         StatusCode::FORBIDDEN
     );
 }
+
+#[test]
+fn revision_source_scroll_region_is_keyboard_reachable() -> Result<(), askama::Error> {
+    for lang in ["pl", "en"] {
+        let html = History {
+            lang,
+            id: Uuid::now_v7(),
+            version: 1,
+            rows: vec![Revision {
+                version: 1,
+                locale: lang.into(),
+                title: "Guide".into(),
+                slug: "guide".into(),
+                summary: "Summary".into(),
+                markdown: "long source line ".repeat(40),
+                editor: Uuid::now_v7(),
+                change_note: "Browser qualification".into(),
+                source_version: None,
+            }],
+            csrf: "test-csrf".into(),
+        }
+        .render()?;
+        assert!(html.contains("<pre class=\"op-table-wrap\" tabindex=\"0\">"));
+    }
+    Ok(())
+}
