@@ -941,3 +941,21 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
         })
     }
 }
+
+#[tokio::test]
+async fn refusal_documents_have_a_localized_nonempty_title() -> TestResult {
+    for (lang, expected) in [
+        ("pl", "Odmowa wykonania operacji"),
+        ("en", "This action is refused"),
+    ] {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::ACCEPT_LANGUAGE, lang.parse()?);
+        let response = http::refusal_response(&headers, Refusal::Denied);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = axum::body::to_bytes(response.into_body(), 65536).await?;
+        let html = String::from_utf8(body.to_vec())?;
+        assert!(html.contains(&format!("<title>{expected}</title>")));
+        assert!(html.contains(&format!("<h1>{expected}</h1>")));
+    }
+    Ok(())
+}
