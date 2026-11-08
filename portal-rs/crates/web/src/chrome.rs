@@ -29,6 +29,8 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         .unwrap_or(path.trim_start_matches('/'));
     if request.method() == axum::http::Method::GET
         && matches!(account, oteryn_ui::Account::Anonymous)
+        // The passkey page doubles as the anonymous passkey sign-in ceremony.
+        && local != "account/passkeys"
         && (local == "account"
             || local.starts_with("account/")
             || local.starts_with("panel/")
@@ -311,6 +313,7 @@ mod response_tests {
                 "/{lang}/account/privacy",
                 get(|| async { StatusCode::FORBIDDEN }).post(|| async { StatusCode::FORBIDDEN }),
             )
+            .route("/{lang}/account/passkeys", get(|| async { StatusCode::OK }))
             .layer(axum::middleware::from_fn_with_state(
                 Shell {
                     registry: Registry::default(),
@@ -376,6 +379,11 @@ mod response_tests {
                 .oneshot(Request::post(format!("/{lang}/account/privacy")).body(Body::empty())?)
                 .await?;
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            let response = app
+                .clone()
+                .oneshot(Request::get(format!("/{lang}/account/passkeys")).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
         }
         let response = app
             .oneshot(
