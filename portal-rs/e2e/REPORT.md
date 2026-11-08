@@ -49,6 +49,12 @@ character disclosure and submits a registered world/date query, retaining the
 exact 503/no-store Game-data refusal. Privacy and world-read passed all 12 cases
 across the four projects after these fixture corrections.
 
+With the shared feed healthy, missing-character profile routes correctly refuse
+with 404 rather than the old misconfigured-authority 503. Both localized and
+unprefixed inventory expectations now require exactly 404. All eight alias cases
+passed across the four projects. The completed Polish desktop diagnostic passed
+435/437 cases; these two obsolete fixture expectations were its only failures.
+
 ## Evidence so far
 
 - Focused UI, Web, Community, Wiki, Gameauth and Admin regressions pass.

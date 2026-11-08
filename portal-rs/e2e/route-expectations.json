@@ -1844,16 +1844,16 @@
     "route": "/account/characters/{name}/profile",
     "actor": "player",
     "method": "GET",
-    "status": 503,
-    "reason": "authority or projection unavailable"
+    "status": 404,
+    "reason": "healthy ownership authority: current player has no snapshot for this character"
   },
   {
     "crate": "web",
     "route": "/{lang}/account/characters/{name}/profile",
     "actor": "player",
     "method": "GET",
-    "status": 503,
-    "reason": "authority or projection unavailable"
+    "status": 404,
+    "reason": "healthy ownership authority: current player has no snapshot for this character"
   },
   {
     "crate": "web",
