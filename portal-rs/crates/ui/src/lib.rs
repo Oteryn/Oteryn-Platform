@@ -159,7 +159,23 @@ impl Registry {
             .collect();
         Chrome {
             lang: lang.to_owned(),
-            alternate_url: format!("/{other}/{suffix}"),
+            alternate_url: if matches!(clean, "/account" | "/account/badges")
+                || clean.starts_with("/oauth/")
+            {
+                format!("/language/{other}")
+            } else if let Some(rest) = clean
+                .strip_prefix("/admin/pl/")
+                .or_else(|| clean.strip_prefix("/admin/en/"))
+            {
+                format!("/admin/{other}/{rest}")
+            } else if clean == "/admin"
+                || clean.starts_with("/admin/")
+                || clean.starts_with("/console/")
+            {
+                format!("{clean}?lang={other}")
+            } else {
+                format!("/{other}/{suffix}")
+            },
             alternate_lang: other.to_owned(),
             entries,
             groups,
@@ -403,6 +419,25 @@ mod tests {
             ("/pl", "/en/"),
             ("/pl/news?token=secret", "/en/news"),
             ("/news?foo=bar", "/en/news"),
+        ] {
+            assert_eq!(
+                registry()
+                    .chrome("pl", path, Account::Anonymous)
+                    .alternate_url,
+                expected
+            );
+        }
+    }
+    #[test]
+    fn language_switch_uses_mounted_staff_route_shapes() {
+        for (path, expected) in [
+            ("/account", "/language/en"),
+            ("/oauth/authorize", "/language/en"),
+            ("/admin", "/admin?lang=en"),
+            ("/admin/news", "/admin/news?lang=en"),
+            ("/console/dashboard", "/console/dashboard?lang=en"),
+            ("/admin/pl/bazaar", "/admin/en/bazaar"),
+            ("/pl/admin/support/tickets", "/en/admin/support/tickets"),
         ] {
             assert_eq!(
                 registry()
