@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "status": "IN_PROGRESS",
-  "snapshotAt": "2026-11-08T15:47:17Z",
+  "snapshotAt": "2026-11-08T16:10:24Z",
   "testedHead": "7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a",
   "projects": {
     "pl-1440": {
@@ -26,17 +26,17 @@
       "retries": 0
     },
     "en-390": {
-      "passed": 1,
+      "passed": 110,
       "failed": 0,
-      "remaining": 436,
+      "remaining": 327,
       "skipped": 0,
       "retries": 0
     }
   },
   "total": {
-    "passed": 1312,
+    "passed": 1421,
     "failed": 0,
-    "remaining": 436,
+    "remaining": 327,
     "skipped": 0,
     "retries": 0
   },
@@ -46,7 +46,8 @@
     "neverExercised": 0,
     "completedAllProjects": 0,
     "notApplicable": 1,
-    "sections": 48
+    "sections": 48,
+    "sectionsCompletedAllProjects": 48
   },
   "note": "Progress snapshot from completed list-reporter events. Final qualification requires the complete four-project JSON report."
 }

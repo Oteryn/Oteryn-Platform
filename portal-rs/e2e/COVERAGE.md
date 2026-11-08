@@ -1,15 +1,15 @@
 # Portal route and navigation coverage
 
-IN_PROGRESS snapshot at 2026-11-08T15:47:17Z; tested source head `7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a`. This is an executed-progress record, not final four-project qualification. The sweep remains active; no failed, skipped or retried cases have been recorded.
+IN_PROGRESS snapshot at 2026-11-08T16:10:24Z; tested source head `7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a`. This is an executed-progress record, not final four-project qualification. The sweep remains active; no failed, skipped or retried cases have been recorded.
 
-Cases: 1312 passed / 0 failed / 436 remaining. Source inventory: 318 route rows and 48 registry sections. Routes exercised in at least one project: 318/318; routes not exercised in any project: 0. Fully completed in all four projects: 0/318. One compatibility item-action adapter is NOT_APPLICABLE because the selected Bazaar runtime does not mount it; its exact POST 404 absence is still executed. All other routes await the remaining projects before receiving a final PASS.
+Cases: 1421 passed / 0 failed / 327 remaining. Source inventory: 318 route rows and 48 registry sections. Routes exercised in at least one project: 318/318; routes not exercised in any project: 0. Fully completed in all four projects: 0/318. One compatibility item-action adapter is NOT_APPLICABLE because the selected Bazaar runtime does not mount it; its exact POST 404 absence is still executed. All other routes await the remaining projects before receiving a final PASS.
 
 | Project | Passed | Failed | Remaining | Retries |
 | --- | --- | --- | --- | --- |
 | pl-1440 | 437 | 0 | 0 | 0 |
 | pl-390 | 437 | 0 | 0 | 0 |
 | en-1440 | 437 | 0 | 0 | 0 |
-| en-390 | 1 | 0 | 436 | 0 |
+| en-390 | 110 | 0 | 327 | 0 |
 
 | Route | Module crate | Enabling flags / data gates | Actor | Spec + case | Result |
 | --- | --- | --- | --- | --- | --- |
@@ -336,55 +336,55 @@ Cases: 1312 passed / 0 failed / 436 remaining. Source inventory: 318 route rows 
 
 | Section | Route | Module | Group | Footer | Spec + case | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| account-overview | `/account` | identity | Account | False | navigation.spec.mjs — registry account-overview: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| account-security | `password/change` | identity | Account | False | navigation.spec.mjs — registry account-security: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| account-wizard | `account/security/wizard` | identity | Account | False | navigation.spec.mjs — registry account-wizard: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| account-passkeys | `account/passkeys` | identity | Account | False | navigation.spec.mjs — registry account-passkeys: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| account-recovery-key | `account/recovery-key` | identity | Account | False | navigation.spec.mjs — registry account-recovery-key: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| account-sessions | `account/sessions` | identity | Account | False | navigation.spec.mjs — registry account-sessions: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| account-privacy | `account/privacy` | identity | Account | False | navigation.spec.mjs — registry account-privacy: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| account-notifications | `account/notifications` | identity | Account | False | navigation.spec.mjs — registry account-notifications: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| create-character | `account/characters/new` | characters | Account | False | navigation.spec.mjs — registry create-character: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| shop | `shop` | store | Play | False | navigation.spec.mjs — registry shop: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| news | `news` | content | Community | True | navigation.spec.mjs — registry news: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| events | `events` | content | Community | False | navigation.spec.mjs — registry events: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| support | `support/report-a-bug` | content | Community | True | navigation.spec.mjs — registry support: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| privacy | `legal/privacy` | content | Account | True | navigation.spec.mjs — registry privacy: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| terms | `legal/terms` | content | Account | True | navigation.spec.mjs — registry terms: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| today | `today` | content | Community | False | navigation.spec.mjs — registry today: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| rules | `rules` | content | World | False | navigation.spec.mjs — registry rules: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| server | `server-information` | content | World | False | navigation.spec.mjs — registry server: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| wiki | `wiki` | wiki | World | True | navigation.spec.mjs — registry wiki: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| calculators | `wiki/calculators` | wiki | World | False | navigation.spec.mjs — registry calculators: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| worlds | `worlds` | community | World | False | navigation.spec.mjs — registry worlds: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| online | `online` | community | Community | False | navigation.spec.mjs — registry online: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| rankings | `rankings/experience` | community | Community | False | navigation.spec.mjs — registry rankings: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| party | `party` | community | Community | False | navigation.spec.mjs — registry party: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| guilds | `guilds` | community | Community | False | navigation.spec.mjs — registry guilds: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| houses | `houses` | community | World | False | navigation.spec.mjs — registry houses: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| deaths | `deaths` | community | Community | False | navigation.spec.mjs — registry deaths: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| world-stats | `stats/world` | stats | World | False | navigation.spec.mjs — registry world-stats: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| guild-stats | `stats/guilds` | stats | Community | False | navigation.spec.mjs — registry guild-stats: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| growth-rankings | `stats/rankings/yesterday` | stats | Community | False | navigation.spec.mjs — registry growth-rankings: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| compare | `stats/compare` | stats | Community | False | navigation.spec.mjs — registry compare: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| atlas | `atlas` | atlas | World | False | navigation.spec.mjs — registry atlas: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| delivery | `atlas/delivery` | atlas | World | False | navigation.spec.mjs — registry delivery: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| league | `league` | minigames | Play | False | navigation.spec.mjs — registry league: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| puzzles | `puzzles` | minigames | Play | False | navigation.spec.mjs — registry puzzles: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| collection | `collection` | minigames | Play | False | navigation.spec.mjs — registry collection: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| pass | `pass` | minigames | Play | False | navigation.spec.mjs — registry pass: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| hirelings | `panel/hirelings` | hirelings | Account | False | navigation.spec.mjs — registry hirelings: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| hunts | `account/hunts` | playerdata | Account | False | navigation.spec.mjs — registry hunts: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| reports | `account/journal/reports` | playerdata | Account | False | navigation.spec.mjs — registry reports: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| logins | `account/game-logins` | playerdata | Account | False | navigation.spec.mjs — registry logins: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| places | `atlas/places` | playerdata | World | False | navigation.spec.mjs — registry places: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| premium | `panel/premium` | payments | Account | False | navigation.spec.mjs — registry premium: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| payments | `panel/payments` | payments | Account | False | navigation.spec.mjs — registry payments: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| tickets | `support/tickets` | support | Account | False | navigation.spec.mjs — registry tickets: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| abuse-reports | `support/reports` | support | Account | False | navigation.spec.mjs — registry abuse-reports: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| bazaar | `bazaar` | bazaar | World | False | navigation.spec.mjs — registry bazaar: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
-| account-bazaar | `account/bazaar` | bazaar | Account | False | navigation.spec.mjs — registry account-bazaar: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: NOT_RUN |
+| account-overview | `/account` | identity | Account | False | navigation.spec.mjs — registry account-overview: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| account-security | `password/change` | identity | Account | False | navigation.spec.mjs — registry account-security: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| account-wizard | `account/security/wizard` | identity | Account | False | navigation.spec.mjs — registry account-wizard: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| account-passkeys | `account/passkeys` | identity | Account | False | navigation.spec.mjs — registry account-passkeys: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| account-recovery-key | `account/recovery-key` | identity | Account | False | navigation.spec.mjs — registry account-recovery-key: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| account-sessions | `account/sessions` | identity | Account | False | navigation.spec.mjs — registry account-sessions: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| account-privacy | `account/privacy` | identity | Account | False | navigation.spec.mjs — registry account-privacy: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| account-notifications | `account/notifications` | identity | Account | False | navigation.spec.mjs — registry account-notifications: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| create-character | `account/characters/new` | characters | Account | False | navigation.spec.mjs — registry create-character: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| shop | `shop` | store | Play | False | navigation.spec.mjs — registry shop: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| news | `news` | content | Community | True | navigation.spec.mjs — registry news: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| events | `events` | content | Community | False | navigation.spec.mjs — registry events: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| support | `support/report-a-bug` | content | Community | True | navigation.spec.mjs — registry support: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| privacy | `legal/privacy` | content | Account | True | navigation.spec.mjs — registry privacy: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| terms | `legal/terms` | content | Account | True | navigation.spec.mjs — registry terms: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| today | `today` | content | Community | False | navigation.spec.mjs — registry today: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| rules | `rules` | content | World | False | navigation.spec.mjs — registry rules: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| server | `server-information` | content | World | False | navigation.spec.mjs — registry server: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| wiki | `wiki` | wiki | World | True | navigation.spec.mjs — registry wiki: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| calculators | `wiki/calculators` | wiki | World | False | navigation.spec.mjs — registry calculators: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| worlds | `worlds` | community | World | False | navigation.spec.mjs — registry worlds: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| online | `online` | community | Community | False | navigation.spec.mjs — registry online: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| rankings | `rankings/experience` | community | Community | False | navigation.spec.mjs — registry rankings: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| party | `party` | community | Community | False | navigation.spec.mjs — registry party: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| guilds | `guilds` | community | Community | False | navigation.spec.mjs — registry guilds: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| houses | `houses` | community | World | False | navigation.spec.mjs — registry houses: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| deaths | `deaths` | community | Community | False | navigation.spec.mjs — registry deaths: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| world-stats | `stats/world` | stats | World | False | navigation.spec.mjs — registry world-stats: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| guild-stats | `stats/guilds` | stats | Community | False | navigation.spec.mjs — registry guild-stats: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| growth-rankings | `stats/rankings/yesterday` | stats | Community | False | navigation.spec.mjs — registry growth-rankings: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| compare | `stats/compare` | stats | Community | False | navigation.spec.mjs — registry compare: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| atlas | `atlas` | atlas | World | False | navigation.spec.mjs — registry atlas: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| delivery | `atlas/delivery` | atlas | World | False | navigation.spec.mjs — registry delivery: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| league | `league` | minigames | Play | False | navigation.spec.mjs — registry league: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| puzzles | `puzzles` | minigames | Play | False | navigation.spec.mjs — registry puzzles: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| collection | `collection` | minigames | Play | False | navigation.spec.mjs — registry collection: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| pass | `pass` | minigames | Play | False | navigation.spec.mjs — registry pass: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| hirelings | `panel/hirelings` | hirelings | Account | False | navigation.spec.mjs — registry hirelings: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| hunts | `account/hunts` | playerdata | Account | False | navigation.spec.mjs — registry hunts: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| reports | `account/journal/reports` | playerdata | Account | False | navigation.spec.mjs — registry reports: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| logins | `account/game-logins` | playerdata | Account | False | navigation.spec.mjs — registry logins: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| places | `atlas/places` | playerdata | World | False | navigation.spec.mjs — registry places: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| premium | `panel/premium` | payments | Account | False | navigation.spec.mjs — registry premium: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| payments | `panel/payments` | payments | Account | False | navigation.spec.mjs — registry payments: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| tickets | `support/tickets` | support | Account | False | navigation.spec.mjs — registry tickets: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| abuse-reports | `support/reports` | support | Account | False | navigation.spec.mjs — registry abuse-reports: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| bazaar | `bazaar` | bazaar | World | False | navigation.spec.mjs — registry bazaar: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
+| account-bazaar | `account/bazaar` | bazaar | Account | False | navigation.spec.mjs — registry account-bazaar: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: PASS; en-390: PASS |
 
 ## Current totals
 
-Routes exercised at least once: 317 applicable + 1 NOT_APPLICABLE absence assertion; never exercised: 0. Four-project qualification remains IN_PROGRESS; 317 applicable routes await final all-project coverage. Live Game reads assert documented refusal/unavailability; no live Game success is claimed. Final totals will be regenerated from the completed Playwright JSON report.
+Routes exercised at least once: 317 applicable + 1 NOT_APPLICABLE absence assertion; never exercised: 0. Four-project qualification remains IN_PROGRESS; 0/318 route rows have completed all projects. Live Game reads assert documented refusal/unavailability; no live Game success is claimed. Final totals will be regenerated from the completed Playwright JSON report.
