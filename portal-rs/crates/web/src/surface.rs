@@ -379,7 +379,7 @@ mod tests {
             "<main ",
             "<footer class=\"op-shell__footer\">",
             "href=\"#main\"",
-            "Everything in one place",
+            "Welcome to the world of Oteryn!",
             "href=\"/pl/\"",
         ] {
             assert!(body.contains(expected), "missing {expected}");

@@ -225,123 +225,24 @@ impl Chrome {
     pub fn home_url(&self) -> String {
         format!("/{}/", self.lang)
     }
+    /// The mounted navigation link of one section, if that module is enabled.
+    pub fn link(&self, section: &str) -> Option<&NavLink> {
+        self.entries.iter().find(|link| link.section == section)
+    }
+    /// The first mounted link among comma-separated `sections`, in order.
+    pub fn first_link(&self, sections: &str) -> Option<&NavLink> {
+        sections.split(',').find_map(|section| self.link(section))
+    }
 }
 
-/// One world fact shown on the home page.
-struct Fact {
-    label: &'static str,
-    value: &'static str,
-}
-/// One playable vocation shown on the home page.
-struct Vocation {
-    key: &'static str,
-    name: &'static str,
-    promotion: &'static str,
-    role: &'static str,
-    text: &'static str,
-    sprite: Option<&'static str>,
-}
-// World facts are counted from Oteryn/Oteryn-Game content at commit
-// 1fa04bbbddb5d96e21fecca0bc456f3c5e1109b7: content/world/definitions/declarations.json
-// (Creature, NPC), content/world/areas/cities/areas-00000-00021.json (areas with a
-// hometown temple) and content/world/areas/hunting-places/hunting-places-00000-00444.json.
-const FACTS: [Fact; 4] = [
-    Fact {
-        label: "home-fact-creatures",
-        value: "1 863",
-    },
-    Fact {
-        label: "home-fact-npcs",
-        value: "1 282",
-    },
-    Fact {
-        label: "home-fact-cities",
-        value: "19",
-    },
-    Fact {
-        label: "home-fact-hunts",
-        value: "445",
-    },
-];
-const CITIES: [&str; 19] = [
-    "Ab'Dendriel",
-    "Ankrahmun",
-    "Carlin",
-    "Darashia",
-    "Dawnport",
-    "Edron",
-    "Farmine",
-    "Gray Beach",
-    "Issavi",
-    "Kazordoon",
-    "Liberty Bay",
-    "Port Hope",
-    "Rathleton",
-    "Rookgaard",
-    "Roshamuul",
-    "Svargrond",
-    "Thais",
-    "Venore",
-    "Yalahar",
-];
-const VOCATIONS: [Vocation; 5] = [
-    Vocation {
-        key: "knight",
-        name: "Knight",
-        promotion: "Elite Knight",
-        role: "home-voc-knight-role",
-        text: "home-voc-knight",
-        sprite: Some("/static/img/sprites/knight.png"),
-    },
-    Vocation {
-        key: "paladin",
-        name: "Paladin",
-        promotion: "Royal Paladin",
-        role: "home-voc-paladin-role",
-        text: "home-voc-paladin",
-        sprite: Some("/static/img/sprites/paladin.png"),
-    },
-    Vocation {
-        key: "sorcerer",
-        name: "Sorcerer",
-        promotion: "Master Sorcerer",
-        role: "home-voc-sorcerer-role",
-        text: "home-voc-sorcerer",
-        sprite: Some("/static/img/sprites/sorcerer.png"),
-    },
-    Vocation {
-        key: "druid",
-        name: "Druid",
-        promotion: "Elder Druid",
-        role: "home-voc-druid-role",
-        text: "home-voc-druid",
-        sprite: Some("/static/img/sprites/druid.png"),
-    },
-    Vocation {
-        key: "monk",
-        name: "Monk",
-        promotion: "Exalted Monk",
-        role: "home-voc-monk-role",
-        text: "home-voc-monk",
-        sprite: Some("/static/img/sprites/monk.png"),
-    },
-];
 #[derive(Template)]
 #[template(path = "pages/home.html")]
 struct Home<'a> {
     chrome: &'a Chrome,
-    facts: &'static [Fact],
-    vocations: &'static [Vocation],
-    cities: &'static [&'static str],
 }
 impl<'a> Home<'a> {
     fn new(chrome: &'a Chrome) -> Self {
-        Self {
-            chrome,
-            facts: &FACTS,
-            vocations: &VOCATIONS,
-            cities: &CITIES,
-        }
+        Self { chrome }
     }
 }
 /// Render the home page from enabled sections only.
@@ -464,7 +365,12 @@ mod tests {
                 let chrome = registry.chrome(lang, &format!("/{lang}/"), Account::Anonymous);
                 let html = Home::new(&chrome).render()?;
                 assert!(html.contains(&format!("<html lang=\"{lang}\" data-theme=\"dark\">")));
-                assert!(html.contains("Elite Knight") && html.contains("Yalahar"));
+                assert!(html.contains(if lang == "en" {
+                    "Welcome to the world of Oteryn!"
+                } else {
+                    "Witaj w świecie Oteryn!"
+                }));
+                assert!(html.contains("/static/css/home.css"));
                 assert!(html.contains("class=\"op-theme op-shell\""));
                 assert_eq!(html.contains("/wiki\""), enabled);
                 assert!(!html.contains("/puzzles\""));

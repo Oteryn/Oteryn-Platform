@@ -9,10 +9,13 @@
   <link rel="preload" href="/static/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
+  {% block head %}{% endblock %}
 </head>
 <body class="op-theme op-shell">
+  {% block body %}
   {% include "components/shell-header.html" %}
   <main id="main" class="{% block main_class %}op-stack op-main{% endblock %}" tabindex="-1">{% block content %}{% endblock %}</main>
   {% include "components/shell-footer.html" %}
+  {% endblock %}
 </body>
 </html>
