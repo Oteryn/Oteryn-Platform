@@ -309,15 +309,16 @@ async fn postgres_http_owner_csrf_and_downloads() -> TestResult {
     for (token, body, status) in [
         (
             "a",
-            format!("csrf={}&body=hello", "c".repeat(64)),
+            format!("_csrf={}&body=hello", "c".repeat(64)),
             StatusCode::NO_CONTENT,
         ),
         (
             "b",
-            format!("csrf={}&body=stolen", "c".repeat(64)),
+            format!("_csrf={}&body=stolen", "c".repeat(64)),
             StatusCode::NOT_FOUND,
         ),
-        ("a", "csrf=wrong&body=bad".into(), StatusCode::FORBIDDEN),
+        ("a", "_csrf=wrong&body=bad".into(), StatusCode::FORBIDDEN),
+        ("a", "body=missing-token".into(), StatusCode::FORBIDDEN),
     ] {
         let response = app
             .clone()
@@ -337,6 +338,33 @@ async fn postgres_http_owner_csrf_and_downloads() -> TestResult {
             "private, no-store"
         );
     }
+    let foreign_origin = app
+        .clone()
+        .oneshot(
+            Request::post(&path)
+                .header(
+                    header::COOKIE,
+                    format!("__Host-oteryn_session={}", "a".repeat(64)),
+                )
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(header::ORIGIN, "https://foreign.test")
+                .body(Body::from(format!("_csrf={}&body=foreign", "c".repeat(64))))?,
+        )
+        .await?;
+    assert_eq!(foreign_origin.status(), StatusCode::FORBIDDEN);
+    let missing_preference_token = app
+        .clone()
+        .oneshot(
+            Request::post("/en/account/journal/reports/email")
+                .header(
+                    header::COOKIE,
+                    format!("__Host-oteryn_session={}", "a".repeat(64)),
+                )
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(missing_preference_token.status(), StatusCode::FORBIDDEN);
     for lang in ["pl", "en"] {
         let response = app
             .clone()
