@@ -70,6 +70,8 @@ path = "../../crates/bazaar"
 workspace = true
 [dev-dependencies]
 tower = { version = "0.5.3", features = ["util"] }
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+tempfile = "3"
 [dependencies.totp-rs]
 version = "5.7"
 
@@ -104,6 +106,8 @@ features = ["ring"]
 [dependencies.hyper]
 version = "1.12.0"
 features = ["server", "http1"]
+[dependencies.x509-parser]
+version = "0.18"
 [dependencies.hyper-util]
 version = "0.1.21"
 features = ["tokio", "service"]
