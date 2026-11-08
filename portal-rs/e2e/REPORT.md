@@ -1,7 +1,7 @@
 # Shared-template portal qualification
 
-Browser qualification: **PASS**. Full PostgreSQL workspace acceptance is running;
-its result is not yet claimed.
+**PASS** — the four-project browser matrix and PostgreSQL-backed Rust acceptance
+are complete.
 
 Fetched base: `26c767eec36c04b5227a9676ec827ec76c4e82e9`.
 The complete browser run started at source `7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a`.
@@ -82,7 +82,7 @@ response, while session-protected forms require 403.
   runner errors, incomplete projects, skips, retries and uncovered rows.
 - Three existing optional Rust browser cases were explicitly executed using native
   Node and installed Chromium: all three passed, with zero axe violations. They
-  will be executed again as part of final acceptance at the qualified source.
+  were executed again at final acceptance and all three passed.
 
 ## Environment and limits
 
@@ -102,21 +102,46 @@ are covered. The supplied negative catalogue remains inactive and unpublished.
 
 ## Rust acceptance
 
-Running with PORTAL_TEST_DATABASE_URL set to the private disposable test database:
+PORTAL_TEST_DATABASE_URL was set for the entire run to the private disposable
+PostgreSQL 18.6 test database. RUST_TEST_THREADS=1 serialized database fixtures.
 
 ```sh
 cd portal-rs
 cargo fmt --all --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked
 ```
 
-Serve and worker were stopped after browser completion to release private test
-listener ports. The launcher retains the database until acceptance completes.
-Final Rust pass/fail/ignored and identified PostgreSQL counts will be appended.
+| Check | Result |
+| --- | --- |
+| cargo fmt --all --check | PASS |
+| cargo clippy --locked --all-targets -- -D warnings | PASS |
+| cargo test --locked | 1159 passed, 0 failed, 3 default-ignored |
+| cargo test --locked -- --ignored | 3 passed, 0 failed, 0 ignored |
+| Combined executed Rust cases | 1162 passed, 0 failed |
+
+All three default-ignored browser cases were explicitly executed using native
+Node, PORTAL_BROWSER_MODULES pointing at e2e, and CHROMIUM_PATH=/usr/bin/chromium.
+They reported zero axe violations. There are no unexecuted opt-in browser cases.
+The composed-server PostgreSQL connection-budget test passed too.
+
+**508 explicitly database-named tests executed**: 505 in the standard run plus
+three opt-in browser cases. This conservative identified count uses test-name
+components beginning postgres_, database_, db_, pg_ or composed_modules_. Other
+database-backed tests with descriptive names also ran; none were disabled by an
+unset database URL. The complete locked run passed across every workspace crate.
+
+## Closeout
+
+The tested source digest was verified unchanged after all acceptance commands.
+Only the three evidence documents and the task record changed after the frozen
+source head. Both serve/worker children and the local launcher stopped; the two
+task-owned disposable databases were verified removed. Supplied environment
+services were left untouched.
+
+No portal failures or uncovered route rows remain. The live Game and internal
+journal delivery limitations above remain explicit refusal/pending coverage.
+The token ratchet printed `ratchet ok` before every push. No workflow, Rust
+dependency or lockfile changes were made. Every task commit uses a Conventional
+Commit title. No pull request was opened; the owner-requested branch is retained.
 
 Raw traces, cookies, captured mail, keys and database URLs remain private in
-scratch or ignored artifacts. Only sanitized evidence is committed. No workflow,
-Rust dependency or lockfile changes were made. No pull request was opened.
-
-Rust snapshot 2026-11-08T16:45:07Z: formatting and strict locked Clippy passed;
-568 individual Rust tests passed so far, with zero failed test groups.
-The full workspace run is still active, with PORTAL_TEST_DATABASE_URL set.
+scratch or ignored artifacts. Only sanitized evidence is committed.

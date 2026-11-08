@@ -22401,12 +22401,40 @@
   "status": "PASS",
   "runStartedHead": "7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a",
   "rustValidation": {
-    "status": "IN_PROGRESS",
-    "databaseEnvironmentVariable": "PORTAL_TEST_DATABASE_URL",
-    "snapshotAt": "2026-11-08T16:45:07Z",
+    "status": "PASS",
     "format": "PASS",
     "clippy": "PASS",
-    "testsPassedSoFar": 568,
-    "failedTestGroups": 0
+    "command": "cargo fmt --all --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked",
+    "standard": {
+      "passed": 1159,
+      "failed": 0,
+      "ignored": 3
+    },
+    "explicitOptInBrowser": {
+      "command": "cargo test --locked -- --ignored",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "axeViolations": 0
+    },
+    "executedTotal": 1162,
+    "postgresql": {
+      "databaseEnvironmentVariable": "PORTAL_TEST_DATABASE_URL",
+      "setForEntireRun": true,
+      "serverVersion": "18.6",
+      "explicitlyDatabaseNamedStandardTests": 505,
+      "explicitlyDatabaseNamedOptInTests": 3,
+      "identifiedDatabaseTestsExecuted": 508,
+      "countMethod": "Test names containing components starting postgres_, database_, db_, pg_ or composed_modules_; additional database-backed tests are included in the full run."
+    },
+    "testThreads": 1,
+    "sourceTreeSha256": "46978e4211aa6c76ece921cdc13cfcc0307bdb1d45c3e8cc1364faff277fdcb0"
+  },
+  "overallAcceptance": "PASS",
+  "qualifiedAt": "2026-11-08T17:04:30Z",
+  "cleanup": {
+    "serveAndWorkerStopped": true,
+    "localLauncherStopped": true,
+    "ownedDisposableDatabasesRemoved": 2
   }
 }
