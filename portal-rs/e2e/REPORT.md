@@ -72,12 +72,18 @@ scratch and ignored test artifacts. Only sanitized qualification is published.
 
 ## Live executed progress
 
-Snapshot 2026-11-08T14:39:12Z, tested source `7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a`.
-633 passed, 0 failed, 1115 remaining, 0 skipped, 0 retries.
-Polish desktop completed 437/437; remaining project counts are recorded in
-qualification.json and COVERAGE.md. All 318 route rows and all 48 registry
-sections have passed in at least one project. Final four-project coverage is
-still pending; no complete qualification is claimed. Source is frozen while
-the active sweep runs. Formatting, strict locked Clippy and three explicitly
-invoked Rust browser checks passed; full PostgreSQL workspace acceptance awaits
-completion of the browser sweep so private listener ports can be released.
+Snapshot 2026-11-08T14:58:36Z; tested source `7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a`.
+875 passed, 0 failed, 873 remaining, 0 skipped, 0 retries.
+
+| Project | Passed | Remaining |
+| --- | --- | --- |
+| pl-1440 | 437 | 0 |
+| pl-390 | 437 | 0 |
+| en-1440 | 1 | 436 |
+| en-390 | 0 | 437 |
+
+All 318 route rows and all 48 registry sections have passed in at least one
+project. Final four-project qualification remains pending. Source is frozen;
+only the three evidence documents are updated during the active sweep. Formatting,
+strict locked Clippy and three explicitly invoked Rust browser cases passed. Full
+PostgreSQL workspace acceptance follows the sweep after private ports are freed.

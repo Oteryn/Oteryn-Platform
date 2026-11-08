@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "status": "IN_PROGRESS",
-  "snapshotAt": "2026-11-08T14:39:12Z",
+  "snapshotAt": "2026-11-08T14:58:36Z",
   "testedHead": "7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a",
   "projects": {
     "pl-1440": {
@@ -12,16 +12,16 @@
       "retries": 0
     },
     "pl-390": {
-      "passed": 196,
+      "passed": 437,
       "failed": 0,
-      "remaining": 241,
+      "remaining": 0,
       "skipped": 0,
       "retries": 0
     },
     "en-1440": {
-      "passed": 0,
+      "passed": 1,
       "failed": 0,
-      "remaining": 437,
+      "remaining": 436,
       "skipped": 0,
       "retries": 0
     },
@@ -34,9 +34,9 @@
     }
   },
   "total": {
-    "passed": 633,
+    "passed": 875,
     "failed": 0,
-    "remaining": 1115,
+    "remaining": 873,
     "skipped": 0,
     "retries": 0
   },
