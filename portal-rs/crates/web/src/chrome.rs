@@ -205,11 +205,13 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         None => format!("{body_tag} class=\"{}\"", oteryn_ui::SHELL_MARKER),
     };
     let head = &page[html_end + 1..body_open];
-    let styles = if lower.contains("/static/css/components.css") {
-        String::new()
-    } else {
-        "<link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\">".to_owned()
-    };
+    let mut styles = String::new();
+    if !lower.contains("/static/css/components.css") {
+        styles.push_str("<link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\">");
+    }
+    if !lower.contains("/static/css/home.css") {
+        styles.push_str("<link rel=\"stylesheet\" href=\"/static/css/home.css\">");
+    }
     let head = match head.to_ascii_lowercase().find("</head>") {
         Some(at) => format!("{}{styles}{}", &head[..at], &head[at..]),
         None => format!("{styles}{head}"),
@@ -249,7 +251,7 @@ mod tests {
         let out = inject(page, "<header>H</header>", "<footer>F</footer>")
             .ok_or("standalone page must be wrapped")?;
         assert!(out.contains("<html lang=\"pl\" data-theme=\"dark\">"));
-        assert!(out.contains("components.css\"></head>"));
+        assert!(out.contains("components.css\"><link rel=\"stylesheet\" href=\"/static/css/home.css\"></head>"));
         assert!(out.contains("<body class=\"op-theme op-shell page\"><header>H</header><div class=\"op-shell__page\"><main>tresc</main></div><footer>F</footer></body></html>"));
         assert!(inject(&out, "<header>H</header>", "<footer>F</footer>").is_none());
         Ok(())
@@ -355,8 +357,9 @@ mod response_tests {
                     .to_vec(),
             )?;
             assert!(html.contains(&format!("lang=\"{lang}\"")));
-            assert!(html.contains("op-shell__header"));
-            assert!(html.contains("op-shell__footer"));
+            assert!(html.contains("class=\"hx-head\""));
+            assert!(html.contains("class=\"hx-foot\""));
+            assert!(html.contains("/static/css/home.css"));
             let response = app
                 .clone()
                 .oneshot(Request::get(format!("/{lang}/account/privacy")).body(Body::empty())?)

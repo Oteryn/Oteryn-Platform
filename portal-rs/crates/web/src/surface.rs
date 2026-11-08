@@ -480,7 +480,13 @@ mod tests {
                 }
                 let body = html(response).await?;
                 assert!(body.contains(title));
-                assert!(!body.contains("private"));
+                for detail in [
+                    "private database detail",
+                    "private failure",
+                    "private limiter detail",
+                ] {
+                    assert!(!body.contains(detail));
+                }
                 if accept == "text/html" {
                     assert!(body.contains("<main "));
                 } else {
