@@ -13,7 +13,8 @@ if(hash(fixtureBytes)!=='22ea70a219875c97d988cd5bf1a74303eb772ef2027dd89b7e22a34
 const vectors=JSON.parse(fixtureBytes).vectors;
 for(const vector of vectors)if(hash(vector.wire)!==vector.sha256)throw new Error('Pinned fixture wire hash mismatch');
 const template=name=>JSON.parse(vectors.find(v=>v.name===name).wire);
-export function createGameClosureProducer({baseURL,ca,character,portfolio,authority='oteryn:character-authority:primary',controlPort=18777}) {
+export const characterSourceAuthority='oteryn:character-authority:primary';
+export function createGameClosureProducer({baseURL,ca,character,portfolio,authority=characterSourceAuthority,controlPort=18777}) {
  if(!['127.0.0.1','localhost'].includes(new URL(baseURL).hostname))throw new Error('Test Game producer requires loopback');
  const keys=crypto.generateKeyPairSync('ed25519');
  const publicKeyHex=keys.publicKey.export({type:'spki',format:'der'}).subarray(-32).toString('hex');

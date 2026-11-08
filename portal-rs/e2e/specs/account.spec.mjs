@@ -1,4 +1,5 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from '../fixtures.mjs';
+import {assertShell} from '../shell.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {register,login,csrfRejected,submit,pool} from '../helpers.mjs';
@@ -42,7 +43,7 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
    expect(refused.headers()['cache-control']).toContain('no-store');
    expect(await refused.text()).not.toContain(account.email);
    if (path.startsWith('account/journal/reports?')) {
-     const navigation=await page.request.get(target.split('?')[0],{headers:{accept:'text/html'}});expect(navigation.status()).toBe(503);expect(navigation.headers()['cache-control']).toContain('no-store');expect(await navigation.text()).toContain('op-shell__header');
+     const navigation=await page.request.get(target.split('?')[0],{headers:{accept:'text/html'}});expect(navigation.status()).toBe(503);expect(navigation.headers()['cache-control']).toContain('no-store');expect(await navigation.text()).toContain('hx-head');
    }
    return;
  }
@@ -62,19 +63,20 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
  if(['bazaar','account/bazaar','bazaar/items'].includes(path)) {
    expect(process.env.OTERYN_BAZAAR_ENABLED).toBe('true');
    expect(response.headers()['cache-control']).toContain('no-store');
-   await expect(page.locator('body.op-shell > header.op-shell__header')).toHaveCount(1);
-   await expect(page.locator('body.op-shell > footer.op-shell__footer')).toHaveCount(1);
+   await expect(page.locator('body.op-shell > .hx > header.hx-head')).toHaveCount(1);
+   await expect(page.locator('body.op-shell > .hx > footer.hx-foot')).toHaveCount(1);
    if(path==='bazaar') {
      for(const [reference,status] of [['019a541b-a000-7000-8000-000000000001',404],['invalid',400]]) {
        const detail=await page.request.get(`/${lang}/bazaar/${reference}`,{headers:{accept:'text/html'}});
        expect(detail.status()).toBe(status);
        expect(detail.headers()['cache-control']).toContain('no-store');
-       const html=await detail.text();expect(html).toContain('op-shell__header');expect(html).toContain('op-shell__footer');expect(html).not.toContain(account.email);
+       const html=await detail.text();expect(html).toContain('hx-head');expect(html).toContain('hx-foot');expect(html).not.toContain(account.email);
      }
    }
  }
  await expect(page.locator('html')).toHaveAttribute('lang',lang);
  await expect(page.locator('main')).toBeVisible();
+ await assertShell(page);
  if(label==='wallet balance') {expect(await page.locator('main dl dd').count()).toBeGreaterThanOrEqual(3);await expect(page.locator('main dl dd').first()).toHaveText('0');}
  const forms=await page.locator('form[method=post],form[method=POST]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
  for(const form of forms) await csrfRejected(page,form.action,form.fields);

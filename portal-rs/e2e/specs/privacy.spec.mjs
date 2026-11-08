@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from '../fixtures.mjs';
 import crypto from 'node:crypto';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 const v7=()=>{const s=crypto.randomUUID().split('');s[14]='7';return s.join('');};
@@ -15,6 +15,8 @@ test('T45 owner settings control live online and public profile privacy',async({
  try {
   const owner=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
   baseline=(await db.query('SELECT * FROM account_character_feed WHERE id=1')).rows[0];
+  // The closure producer remains active across flows and shares this feed.
+  if(baseline.source_authority!==null)expect(baseline.source_authority,'live ownership publisher and privacy reader must trust the same authority').toBe(authority);
   const epoch=baseline.highest_epoch||'1';
   publicState=(await db.query('SELECT highest_epoch::text FROM public_projection_state WHERE id=1')).rows[0].highest_epoch;
   const publicEpoch=publicState||'1';
@@ -56,7 +58,9 @@ test('T45 owner settings control live online and public profile privacy',async({
   const invalid=await page.request.post(target,{form:{_csrf:csrf,comment:'a'.repeat(501)},headers:{origin:new URL(page.url()).origin},maxRedirects:0});expect(invalid.status()).toBe(422);
   expect(Number((await db.query('SELECT count(*) AS n FROM character_profile_events WHERE account_id=$1',[owner])).rows[0].n)).toBeGreaterThan(0);
   expect(Number((await db.query('SELECT count(*) AS n FROM character_profile_events WHERE account_id=$1',[foreign])).rows[0].n)).toBe(0);
-  for(const path of ['deaths','guilds','houses','stats/guilds','stats/world','wiki/places']){const response=await page.request.get(`/${lang}/${path}`);expect(response.status(),`${path}: Game contract gate`).toBe(503);expect(response.headers()['cache-control']).toContain('no-store');}
+  const picker=await page.request.get(`/${lang}/stats/world`);expect(picker.status()).toBe(200);expect(await picker.text()).not.toContain(name);
+  const registeredWorld=(await db.query("SELECT id FROM world_status WHERE name='Local Bazaar World'")).rows[0].id;
+  for(const path of ['deaths','guilds','houses','stats/guilds',`stats/world?world=${registeredWorld}&start=2026-11-01&end=2026-11-02`,'wiki/places']){const response=await page.request.get(`/${lang}/${path}`);expect(response.status(),`${path}: Game contract gate`).toBe(503);expect(response.headers()['cache-control']).toContain('no-store');}
  } finally {
   clearInterval(timer);
   await db.query("DELETE FROM public_snapshots WHERE NOT is_watermark AND subject=ANY($1)",[[character,world]]);

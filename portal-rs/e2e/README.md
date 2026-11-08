@@ -138,3 +138,44 @@ payments switch must permit processing. Production has no such route. The spec
 creates the checkout through the CSRF-protected browser form, sends the signed
 test webhook, waits for the real worker and reads the credited browser balance;
 webhook and outbox replays must leave exactly one classified credit.
+
+## Full shared-template matrix
+
+The original flow specs remain. `inventory.py` scans module route declarations,
+expands locale/prefix aliases and records module-owned navigation in startup order.
+`inventory.json` retains sources, flags and methods. `route-expectations.json`
+records the explicit actor, status and refusal reason for each executed route.
+`routes.spec.mjs` exercises every inventory row; `navigation.spec.mjs` checks all
+48 registry destinations, exact group links/labels, current section and keyboard
+and touch activation. `content.spec.mjs` additionally publishes bilingual news,
+events and Wiki articles and exercises media upload/read/delete. `oauth.spec.mjs`
+proves the browser consent/PKCE/refresh path. Staff storage states stay in the
+private per-run auth directory and are created by the existing admin flow.
+
+Every full HTML destination receives the same framed shell, single h1, working
+skip link, focus, overflow, local-link, form-CSRF and serious/critical axe checks.
+Fragments, images, CSS and native API envelopes retain their protocol assertions;
+they are not treated as standalone HTML pages. Expected HTTP failures in negative
+flows are recorded separately. Script errors, unexpected console errors and
+server errors other than explicitly qualified 503 refusals fail the suite.
+
+After adding or changing a router, from `portal-rs/`:
+
+```sh
+python3 e2e/inventory.py
+```
+
+Review its provisional inventory and update the explicit route expectations.
+Run the complete existing `node run.mjs ... test` command in all four projects.
+Do not select one project for acceptance. After that run, from `portal-rs/e2e/`:
+
+```sh
+node summarize.mjs
+```
+
+The summarizer writes sanitized qualification.json and COVERAGE.md and fails if
+any route or registry section lacks a passing case in any project, any case was
+skipped/interrupted, any test failed, or any retry occurred. REPORT.md records
+Rust acceptance and the concrete source fixes. The qualification source digest
+excludes only REPORT.md, qualification.json and COVERAGE.md so that a subsequent
+evidence-only commit can refer to the immutable tested source candidate.

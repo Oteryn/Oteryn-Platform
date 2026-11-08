@@ -27,12 +27,14 @@ fn previous_week() -> i64 {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NoteForm {
+    #[serde(rename = "_csrf", alias = "csrf")]
     csrf: String,
     body: String,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PreferenceForm {
+    #[serde(rename = "_csrf", alias = "csrf")]
     csrf: String,
     enabled: Option<String>,
 }
@@ -219,6 +221,11 @@ async fn private(request: axum::extract::Request, next: axum::middleware::Next) 
     response
 }
 pub fn router(service: Reports) -> Router {
+    let mut sessions = oteryn_web::session::SessionLayer::new(service.pool.clone());
+    sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
+        .ok()
+        .into_iter()
+        .collect();
     Router::new()
         .route("/{locale}/account/journal/reports", get(report))
         .route(
@@ -230,6 +237,10 @@ pub fn router(service: Reports) -> Router {
             get(notes_export),
         )
         .route("/{locale}/account/journal/reports/email", post(preference))
+        .route_layer(axum::middleware::from_fn_with_state(
+            sessions,
+            oteryn_web::session::middleware,
+        ))
         .layer(DefaultBodyLimit::max(16384))
         .layer(axum::middleware::from_fn(private))
         .with_state(service)

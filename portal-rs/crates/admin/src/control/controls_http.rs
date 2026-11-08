@@ -277,7 +277,8 @@ fn refusal(locale: Locale, e: Refusal) -> Response {
     message(locale, status, key)
 }
 fn message(locale: Locale, status: StatusCode, key: &str) -> Response {
-    (status,axum::response::Html(format!("<!doctype html><html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><main><h1>{}</h1><a href=\"/admin\">{}</a></main></html>",locale.0,locale.text(key),locale.text("back")))).into_response()
+    let title = locale.text(key);
+    (status, axum::response::Html(format!("<!doctype html><html lang=\"{}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title></head><body><main><h1>{title}</h1><a href=\"/admin\">{}</a></main></body></html>", locale.0, locale.text("back")))).into_response()
 }
 
 /// The guarded step-up page resolves current account-bound staff MFA. Operation

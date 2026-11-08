@@ -293,3 +293,12 @@ fn news_document_keeps_body_in_the_selected_theme() {
         assert!(html.ends_with("</main></body></html>"));
     }
 }
+#[test]
+fn home_excerpt_and_date() {
+    assert_eq!(super::excerpt("a  b\nc", 10), "a b c");
+    let long = "słowo ".repeat(40);
+    let cut = super::excerpt(&long, 30);
+    assert!(cut.ends_with('…') && cut.chars().count() <= 31);
+    assert_eq!(super::display_date("pl", "2026-11-07"), "07.11.2026");
+    assert_eq!(super::display_date("en", "2026-11-07"), "2026-11-07");
+}

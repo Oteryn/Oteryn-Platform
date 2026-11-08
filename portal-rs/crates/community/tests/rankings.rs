@@ -238,3 +238,42 @@ async fn database_visibility_failure_empty_and_epoch_fence() -> TestResult {
     );
     cleanup(pool, db, schema).await
 }
+#[tokio::test]
+async fn home_top_skips_hidden_and_fails_closed() -> TestResult {
+    let Some((pool, db, schema)) = seeded().await? else {
+        return Ok(());
+    };
+    let (rows, as_of) = rankings::home_top(&db, &Visible, oteryn_web::Language::Pl, 5, true)
+        .await
+        .map_err(|_| "home ranking unavailable")?;
+    let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "<script>alert(1)</script>",
+            "Player3",
+            "Player4",
+            "Player5",
+            "Player6"
+        ]
+    );
+    assert_eq!(rows[1].rank, "3");
+    assert_eq!(rows[1].url.as_deref(), Some("/pl/characters/Player3"));
+    assert_eq!(as_of, "2026-09-21 14:13");
+    let (rows, _) = rankings::home_top(&db, &Visible, oteryn_web::Language::En, 5, false)
+        .await
+        .map_err(|_| "home ranking unavailable")?;
+    assert!(rows.iter().all(|row| row.url.is_none()));
+    assert!(
+        rankings::home_top(
+            &db,
+            &UnavailableVisibility,
+            oteryn_web::Language::Pl,
+            5,
+            true
+        )
+        .await
+        .is_err()
+    );
+    cleanup(pool, db, schema).await
+}

@@ -34,6 +34,14 @@ pub enum Group {
     Account,
 }
 impl Group {
+    fn icon(self) -> &'static str {
+        match self {
+            Self::Play => "shop",
+            Self::Community => "community",
+            Self::World => "world",
+            Self::Account => "support",
+        }
+    }
     fn key(self) -> &'static str {
         match self {
             Self::Play => "shell-play",
@@ -102,7 +110,7 @@ impl Registry {
                     clean.trim_start_matches('/')
                 }
             });
-        let entries: Vec<NavLink> = self
+        let mut entries: Vec<NavLink> = self
             .entries
             .iter()
             .map(|e| {
@@ -111,9 +119,10 @@ impl Registry {
                 } else {
                     format!("/{lang}/{}", e.path)
                 };
-                let current = clean == url
-                    || clean
-                        .strip_prefix(&url)
+                let section_path = e.path.trim_start_matches('/');
+                let current = suffix == section_path
+                    || suffix
+                        .strip_prefix(section_path)
                         .is_some_and(|tail| tail.starts_with('/'));
                 NavLink {
                     section: e.section.to_owned(),
@@ -131,6 +140,9 @@ impl Registry {
             .max_by_key(|e| e.url.len())
             .map(|e| e.section.clone())
             .unwrap_or_default();
+        for entry in &mut entries {
+            entry.current = entry.section == current_section;
+        }
         let groups = [Group::Play, Group::Community, Group::World, Group::Account]
             .into_iter()
             .filter_map(|group| {
@@ -141,13 +153,27 @@ impl Registry {
                     .collect();
                 (!links.is_empty()).then(|| NavGroup {
                     label: text(lang, group.key()),
+                    icon: group.icon(),
                     links,
                 })
             })
             .collect();
         Chrome {
             lang: lang.to_owned(),
-            alternate_url: format!("/{other}/{suffix}"),
+            alternate_url: if let Some(rest) = clean
+                .strip_prefix("/admin/pl/")
+                .or_else(|| clean.strip_prefix("/admin/en/"))
+            {
+                format!("/admin/{other}/{rest}")
+            } else if clean.starts_with("/pl/")
+                || clean.starts_with("/en/")
+                || matches!(clean, "/" | "/pl" | "/en")
+            {
+                format!("/{other}/{suffix}")
+            } else {
+                // Unprefixed endpoints do not all have a translated route alias.
+                format!("/language/{other}")
+            },
             alternate_lang: other.to_owned(),
             entries,
             groups,
@@ -181,6 +207,8 @@ pub struct NavLink {
 #[derive(Clone, Debug)]
 pub struct NavGroup {
     pub label: String,
+    /// Template navigation icon name under `/static/img/home/nav-{icon}.webp`.
+    pub icon: &'static str,
     pub links: Vec<NavLink>,
 }
 impl NavGroup {
@@ -225,128 +253,74 @@ impl Chrome {
     pub fn home_url(&self) -> String {
         format!("/{}/", self.lang)
     }
+    /// The mounted navigation link of one section, if that module is enabled.
+    pub fn link(&self, section: &str) -> Option<&NavLink> {
+        self.entries.iter().find(|link| link.section == section)
+    }
+    /// The first mounted link among comma-separated `sections`, in order.
+    pub fn first_link(&self, sections: &str) -> Option<&NavLink> {
+        sections.split(',').find_map(|section| self.link(section))
+    }
 }
 
-/// One world fact shown on the home page.
-struct Fact {
-    label: &'static str,
-    value: &'static str,
+/// Live server status for the home page; built only from fresh read models.
+#[derive(Clone, Debug, Default)]
+pub struct HomeStatus {
+    /// Players on fresh worlds; `None` when no world has fresh evidence.
+    pub online: Option<i64>,
+    pub worlds_fresh: usize,
+    pub worlds_total: usize,
+    /// PvP type shared by every world, or `None` when worlds differ or none is set.
+    pub pvp: Option<String>,
+    /// UTC time of the newest accepted observation.
+    pub as_of: Option<String>,
 }
-/// One playable vocation shown on the home page.
-struct Vocation {
-    key: &'static str,
-    name: &'static str,
-    promotion: &'static str,
-    role: &'static str,
-    text: &'static str,
-    sprite: Option<&'static str>,
+/// One published news entry in the current language.
+#[derive(Clone, Debug)]
+pub struct HomeNews {
+    pub url: String,
+    pub title: String,
+    /// `YYYY-MM-DD` for `datetime`, and the localized display date.
+    pub date: String,
+    pub display_date: String,
+    pub excerpt: String,
 }
-// World facts are counted from Oteryn/Oteryn-Game content at commit
-// 1fa04bbbddb5d96e21fecca0bc456f3c5e1109b7: content/world/definitions/declarations.json
-// (Creature, NPC), content/world/areas/cities/areas-00000-00021.json (areas with a
-// hometown temple) and content/world/areas/hunting-places/hunting-places-00000-00444.json.
-const FACTS: [Fact; 4] = [
-    Fact {
-        label: "home-fact-creatures",
-        value: "1 863",
-    },
-    Fact {
-        label: "home-fact-npcs",
-        value: "1 282",
-    },
-    Fact {
-        label: "home-fact-cities",
-        value: "19",
-    },
-    Fact {
-        label: "home-fact-hunts",
-        value: "445",
-    },
-];
-const CITIES: [&str; 19] = [
-    "Ab'Dendriel",
-    "Ankrahmun",
-    "Carlin",
-    "Darashia",
-    "Dawnport",
-    "Edron",
-    "Farmine",
-    "Gray Beach",
-    "Issavi",
-    "Kazordoon",
-    "Liberty Bay",
-    "Port Hope",
-    "Rathleton",
-    "Rookgaard",
-    "Roshamuul",
-    "Svargrond",
-    "Thais",
-    "Venore",
-    "Yalahar",
-];
-const VOCATIONS: [Vocation; 5] = [
-    Vocation {
-        key: "knight",
-        name: "Knight",
-        promotion: "Elite Knight",
-        role: "home-voc-knight-role",
-        text: "home-voc-knight",
-        sprite: Some("/static/img/sprites/knight.png"),
-    },
-    Vocation {
-        key: "paladin",
-        name: "Paladin",
-        promotion: "Royal Paladin",
-        role: "home-voc-paladin-role",
-        text: "home-voc-paladin",
-        sprite: Some("/static/img/sprites/paladin.png"),
-    },
-    Vocation {
-        key: "sorcerer",
-        name: "Sorcerer",
-        promotion: "Master Sorcerer",
-        role: "home-voc-sorcerer-role",
-        text: "home-voc-sorcerer",
-        sprite: Some("/static/img/sprites/sorcerer.png"),
-    },
-    Vocation {
-        key: "druid",
-        name: "Druid",
-        promotion: "Elder Druid",
-        role: "home-voc-druid-role",
-        text: "home-voc-druid",
-        sprite: Some("/static/img/sprites/druid.png"),
-    },
-    Vocation {
-        key: "monk",
-        name: "Monk",
-        promotion: "Exalted Monk",
-        role: "home-voc-monk-role",
-        text: "home-voc-monk",
-        sprite: Some("/static/img/sprites/monk.png"),
-    },
-];
+/// One visible character from the accepted level ranking.
+#[derive(Clone, Debug)]
+pub struct HomeRank {
+    pub rank: String,
+    pub name: String,
+    pub level: String,
+    pub url: Option<String>,
+}
+/// Read-model data for the home page. `None` means the source is unavailable
+/// and the page says so; it never shows invented values.
+#[derive(Clone, Debug, Default)]
+pub struct HomeData {
+    pub status: Option<HomeStatus>,
+    pub news: Option<Vec<HomeNews>>,
+    pub ranking: Option<Vec<HomeRank>>,
+    pub ranking_as_of: Option<String>,
+}
+
 #[derive(Template)]
 #[template(path = "pages/home.html")]
 struct Home<'a> {
     chrome: &'a Chrome,
-    facts: &'static [Fact],
-    vocations: &'static [Vocation],
-    cities: &'static [&'static str],
+    data: &'a HomeData,
 }
 impl<'a> Home<'a> {
-    fn new(chrome: &'a Chrome) -> Self {
-        Self {
-            chrome,
-            facts: &FACTS,
-            vocations: &VOCATIONS,
-            cities: &CITIES,
-        }
+    fn new(chrome: &'a Chrome, data: &'a HomeData) -> Self {
+        Self { chrome, data }
+    }
+    /// Cycles the three template illustrations over the news entries.
+    fn news_art(&self, index: &usize) -> usize {
+        index % 3 + 1
     }
 }
-/// Render the home page from enabled sections only.
-pub fn home(chrome: &Chrome) -> Response {
-    render(&Home::new(chrome), StatusCode::OK)
+/// Render the home page from enabled sections and the given read-model data.
+pub fn home(chrome: &Chrome, data: &HomeData) -> Response {
+    render(&Home::new(chrome, data), StatusCode::OK)
 }
 #[derive(Template)]
 #[template(path = "components/shell-header.html")]
@@ -442,7 +416,7 @@ mod tests {
             ("/pl/", "/en/"),
             ("/pl", "/en/"),
             ("/pl/news?token=secret", "/en/news"),
-            ("/news?foo=bar", "/en/news"),
+            ("/news?foo=bar", "/language/en"),
         ] {
             assert_eq!(
                 registry()
@@ -451,6 +425,65 @@ mod tests {
                 expected
             );
         }
+    }
+    #[test]
+    fn language_switch_uses_mounted_staff_route_shapes() {
+        for (path, expected) in [
+            ("/atlas/spawns", "/language/en"),
+            ("/account", "/language/en"),
+            ("/oauth/authorize", "/language/en"),
+            ("/admin", "/language/en"),
+            ("/admin/news", "/language/en"),
+            ("/console/dashboard", "/language/en"),
+            ("/admin/pl/bazaar", "/admin/en/bazaar"),
+            ("/pl/admin/support/tickets", "/en/admin/support/tickets"),
+        ] {
+            assert_eq!(
+                registry()
+                    .chrome("pl", path, Account::Anonymous)
+                    .alternate_url,
+                expected
+            );
+        }
+    }
+    #[test]
+    fn unprefixed_aliases_and_localized_paths_share_the_active_section() {
+        for lang in ["pl", "en"] {
+            for path in ["/wiki", "/wiki/articles/guide", "/pl/wiki", "/en/wiki"] {
+                let chrome = registry().chrome(lang, path, Account::Anonymous);
+                assert_eq!(chrome.current_section, "wiki");
+                assert_eq!(
+                    chrome.entries.iter().filter(|entry| entry.current).count(),
+                    1
+                );
+            }
+            assert!(
+                registry()
+                    .chrome(lang, "/wiki-other", Account::Anonymous)
+                    .current_section
+                    .is_empty()
+            );
+        }
+    }
+    #[test]
+    fn only_the_most_specific_navigation_section_is_current() {
+        let mut registry = registry();
+        registry.section(
+            true,
+            "calculators",
+            "shell-calculators",
+            "wiki/calculators",
+            Group::World,
+            false,
+        );
+        let chrome = registry.chrome("en", "/en/wiki/calculators", Account::Anonymous);
+        let active: Vec<_> = chrome
+            .entries
+            .iter()
+            .filter(|entry| entry.current)
+            .map(|entry| entry.section.as_str())
+            .collect();
+        assert_eq!(active, ["calculators"]);
     }
     #[test]
     fn home_and_account_states_in_both_languages() -> Result<(), askama::Error> {
@@ -462,9 +495,14 @@ mod tests {
                     Registry::default()
                 };
                 let chrome = registry.chrome(lang, &format!("/{lang}/"), Account::Anonymous);
-                let html = Home::new(&chrome).render()?;
+                let html = Home::new(&chrome, &HomeData::default()).render()?;
                 assert!(html.contains(&format!("<html lang=\"{lang}\" data-theme=\"dark\">")));
-                assert!(html.contains("Elite Knight") && html.contains("Yalahar"));
+                assert!(html.contains(if lang == "en" {
+                    "Welcome to the world of Oteryn!"
+                } else {
+                    "Witaj w świecie Oteryn!"
+                }));
+                assert!(html.contains("/static/css/home.css"));
                 assert!(html.contains("class=\"op-theme op-shell\""));
                 assert_eq!(html.contains("/wiki\""), enabled);
                 assert!(!html.contains("/puzzles\""));
@@ -481,13 +519,84 @@ mod tests {
                     csrf: "escaped<&token".into(),
                 },
             );
-            let html = Home::new(&chrome).render()?;
+            let html = Home::new(&chrome, &HomeData::default()).render()?;
             assert!(html.contains(&format!("action=\"/{lang}/logout\" method=\"post\"")));
             assert!(html.contains("name=\"_csrf\" value=\"escaped&#60;&#38;token\""));
             assert!(html.contains("href=\"/account\""));
             assert!(!html.contains("/login\""));
             assert!(!html.contains("/register\""));
         }
+        Ok(())
+    }
+    #[test]
+    fn navigation_has_native_keyboard_and_touch_disclosure() -> Result<(), askama::Error> {
+        let chrome = registry().chrome("en", "/en/wiki", Account::Anonymous);
+        let html = ShellHeader { chrome: &chrome }.render()?;
+        assert!(html.contains("<details class=\"hx-nav__dropdown\"><summary"));
+        assert!(html.contains("aria-current=\"page\">Wiki</a>"));
+        let css = include_str!("../../../static/css/home.css");
+        assert!(css.contains(".hx-nav__dropdown[open] .hx-nav__menu"));
+        assert!(
+            css.contains(".hx-nav__item:nth-child(odd) .hx-nav__menu { left: 0; right: auto; }")
+        );
+        assert!(css.contains(".hx-nav__item--menu:focus-within .hx-nav__menu { display: block; }"));
+        assert!(!css.contains(":focus-within .hx-nav__menu { display: none; }"));
+        Ok(())
+    }
+    #[test]
+    fn home_shows_live_data_or_says_unavailable() -> Result<(), askama::Error> {
+        let chrome = registry().chrome("pl", "/pl/", Account::Anonymous);
+        let html = Home::new(&chrome, &HomeData::default()).render()?;
+        for key in [
+            "stage-status-unavailable",
+            "stage-news-unavailable",
+            "stage-ranking-unavailable",
+        ] {
+            assert!(html.contains(&chrome.text(key)), "{key}");
+        }
+        let data = HomeData {
+            status: Some(HomeStatus {
+                online: Some(58),
+                worlds_fresh: 2,
+                worlds_total: 3,
+                pvp: Some("Open PvP".into()),
+                as_of: Some("2026-11-08 00:46:04".into()),
+            }),
+            news: Some(vec![HomeNews {
+                url: "/pl/news/test-1".into(),
+                title: "Nowa <kraina>".into(),
+                date: "2026-11-07".into(),
+                display_date: "07.11.2026".into(),
+                excerpt: "Opis & zmiany".into(),
+            }]),
+            ranking: Some(vec![HomeRank {
+                rank: "1".into(),
+                name: "Valendor".into(),
+                level: "352".into(),
+                url: Some("/pl/characters/Valendor".into()),
+            }]),
+            ranking_as_of: Some("2026-11-08 00:40".into()),
+        };
+        let html = Home::new(&chrome, &data).render()?;
+        assert!(html.contains("hx-status__dot--on"));
+        assert!(html.contains(">58<"));
+        assert!(html.contains("2 / 3"));
+        assert!(html.contains("Nowa &#60;kraina&#62;"));
+        assert!(html.contains("Opis &#38; zmiany"));
+        assert!(html.contains("datetime=\"2026-11-07\""));
+        assert!(html.contains("href=\"/pl/characters/Valendor\""));
+        assert!(html.contains("medal-1.webp"));
+        assert!(!html.contains(&chrome.text("stage-ranking-unavailable")));
+        assert!(!html.contains("style="));
+        assert!(!html.contains("<script"));
+        let empty = HomeData {
+            news: Some(vec![]),
+            ranking: Some(vec![]),
+            ..HomeData::default()
+        };
+        let html = Home::new(&chrome, &empty).render()?;
+        assert!(html.contains(&chrome.text("stage-news-empty")));
+        assert!(html.contains(&chrome.text("stage-ranking-empty")));
         Ok(())
     }
     #[test]

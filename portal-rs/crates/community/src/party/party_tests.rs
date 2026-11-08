@@ -552,3 +552,15 @@ async fn db_staff_guard_and_audit_failure_roll_back() {
     assert!(db.board.list(&Filter::default()).await.unwrap().is_empty());
     db.close().await;
 }
+
+#[tokio::test]
+async fn public_board_does_not_link_to_the_staff_queue() -> Result<(), Box<dyn std::error::Error>> {
+    for lang in ["pl", "en"] {
+        let response = super::party_view::page(lang, "csrf", Vec::new(), false, false)
+            .map_err(|_| "public party template failed to render")?;
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
+        let html = String::from_utf8(bytes.to_vec())?;
+        assert!(!html.contains(&format!("href=\"/admin/{lang}/party\"")));
+    }
+    Ok(())
+}

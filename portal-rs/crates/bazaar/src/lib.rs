@@ -12,6 +12,8 @@ pub mod game;
 
 pub mod characters;
 pub mod items;
+/// Shared portal navigation registration.
+pub mod navigation;
 mod search;
 pub use search::*;
 mod notify;

@@ -26,6 +26,18 @@ fn request(
     Ok(request)
 }
 #[tokio::test]
+async fn security_landing_preserves_the_language() {
+    for (lang, target) in [
+        (Language::Pl, "/pl/password/change"),
+        (Language::En, "/en/password/change"),
+    ] {
+        let response = security_landing(Extension(lang)).await.into_response();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[header::LOCATION], target);
+    }
+}
+
+#[tokio::test]
 async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn std::error::Error>>
 {
     let Some(db) = database::Database::open().await? else {

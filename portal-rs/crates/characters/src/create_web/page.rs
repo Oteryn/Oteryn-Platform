@@ -33,7 +33,7 @@ fn text(lang: &str, key: &str) -> String {
 #[template(
     source = r##"<!doctype html>
 <html lang="{{ lang }}" class="op-theme"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><link rel="stylesheet" href="/static/css/surface.css"></head>
-<body class="op-theme"><header><a href="#main">{{ skip }}</a><nav aria-label="{{ navigation }}"><a href="/{{ lang }}/account">{{ account }}</a><a href="/{{ lang }}/account/characters/new">{{ title }}</a></nav></header>
+<body class="op-theme"><header><a href="#main">{{ skip }}</a><nav aria-label="{{ navigation }}"><a href="/account">{{ account }}</a><a href="/{{ lang }}/account/characters/new">{{ title }}</a></nav></header>
 <main id="main" tabindex="-1" class="op-stack"><h1>{{ title }}</h1>
 {% if !message.is_empty() %}<p class="op-alert" role="status">{{ message }}</p>{% endif %}
 {% if form %}<p id="rules">{{ rules }}</p><details class="op-disclosure"><summary>{{ reserved_label }}</summary><p>{{ reserved_words }}</p></details><p>{{ supported }}</p>

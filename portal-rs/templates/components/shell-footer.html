@@ -1,7 +1,8 @@
-  <footer class="op-shell__footer">
-    <div class="op-shell__columns">
-      <div class="op-shell__about"><a class="op-shell__brand" href="{{ chrome.home_url() }}">{% include "components/compass.html" %}<span class="op-shell__word op-gold">OTERYN</span></a><p>{{ chrome.text("shell-tagline") }}</p></div>
-      {% for group in chrome.groups %}<section><h2>{{ group.label }}</h2><ul>{% for link in group.links %}<li><a href="{{ link.url }}">{{ link.label }}</a></li>{% endfor %}</ul></section>{% endfor %}
-    </div>
-    <div class="op-shell__legal"><span>© 2026 Oteryn</span><span class="op-shell__legal-links">{% for link in chrome.entries %}{% if link.footer %}<a href="{{ link.url }}">{{ link.label }}</a>{% endif %}{% endfor %}<a href="{{ chrome.alternate_url }}" lang="{{ chrome.alternate_lang }}" hreflang="{{ chrome.alternate_lang }}">{{ chrome.text("language-switch") }}</a></span></div>
-  </footer>
+<footer class="hx-foot">
+<a class="hx-foot__logo" href="{{ chrome.home_url() }}"><img src="/static/img/home/logo-foot.webp" alt="Oteryn" width="160" height="66" loading="lazy"></a>
+<div class="hx-foot__body">
+<nav aria-label="{{ chrome.text("navigation") }}"><ul class="hx-foot__links">{% for link in chrome.entries %}{% if link.footer %}<li><a href="{{ link.url }}">{{ link.label }}</a></li>{% endif %}{% endfor %}<li><a href="{{ chrome.alternate_url }}" lang="{{ chrome.alternate_lang }}" hreflang="{{ chrome.alternate_lang }}">{{ chrome.text("stage-other-language") }}</a></li></ul></nav>
+<p class="hx-foot__copy">{{ chrome.text("stage-copyright") }}</p>
+</div>
+</footer>
+</div>

@@ -1,58 +1,97 @@
 {% extends "layout.html" %}
-{% block main_class %}op-home{% endblock %}
-{% block content %}
-<section class="op-hero" aria-labelledby="hero-title">
-  {% include "components/night-scene.html" %}
-  <div class="op-hero__inner">
-    <p class="op-pill"><span class="op-pill__tag">{{ chrome.text("home-pill-tag") }}</span>{{ chrome.text("home-pill") }}</p>
-    <h1 id="hero-title">{{ chrome.text("home-hero-before") }} <span class="op-gold">{{ chrome.text("home-hero-gold") }}</span><br>{{ chrome.text("home-hero-after") }}</h1>
-    <p class="op-lead">{{ chrome.text("home-hero-lead") }}</p>
-    <div class="op-row op-hero__actions">
-      {% if chrome.signed_in() %}{% if chrome.account_mounted %}<a class="op-button op-button--play" href="/account">{{ chrome.text("shell-account") }}</a>{% endif %}
-      {% else %}{% if chrome.registration_mounted %}<a class="op-button op-button--play" href="/{{ chrome.lang }}/register">{{ chrome.text("home-play-free") }}<svg class="op-icon" aria-hidden="true"><use href="#op-icon-arrow-right"/></svg></a>{% endif %}
-      {% if chrome.login_mounted %}<a class="op-button op-button--secondary op-button--play" href="/{{ chrome.lang }}/login">{{ chrome.text("shell-login") }}</a>{% endif %}{% endif %}
-    </div>
-  </div>
+{% block body %}
+{% include "components/shell-header.html" %}
+<main id="main" class="hx-main" tabindex="-1">
+<h1 class="op-sr-only">Oteryn – {{ chrome.text("stage-tagline") }}</h1>
+<section class="hx-hero" aria-labelledby="hx-hero-title">
+<img class="hx-hero__art hx-hero__art--l" src="/static/img/home/heroes.webp" alt="" width="530" height="226">
+<div class="hx-hero__copy">
+<h2 id="hx-hero-title" class="hx-hero__title">{{ chrome.text("stage-hero-title") }}</h2>
+<p class="hx-hero__lead">{{ chrome.text("stage-hero-lead") }}</p>
+<div class="hx-hero__actions">
+{% if chrome.registration_mounted && !chrome.signed_in() %}<a class="hx-btn hx-btn--red" href="/{{ chrome.lang }}/register"><img src="/static/img/home/ic-register.webp" alt="" width="30" height="32">{{ chrome.text("stage-btn-register") }}</a>{% endif %}
+<a class="hx-btn hx-btn--green" href="/{{ chrome.lang }}/server-information#download"><img src="/static/img/home/ic-download.webp" alt="" width="30" height="32">{{ chrome.text("stage-btn-download") }}</a>
+</div>
+</div>
+<section class="hx-panel hx-status" aria-labelledby="hx-status-title">
+<h2 id="hx-status-title" class="hx-panel__title"><span class="hx-status__dot{% if let Some(status) = data.status %}{% if status.worlds_fresh > 0 %} hx-status__dot--on{% endif %}{% endif %}" aria-hidden="true"></span>{{ chrome.text("stage-status-title") }}</h2>
+{% if let Some(status) = data.status %}
+<dl class="hx-status__list">
+<div><dt><img src="/static/img/home/st-online.webp" alt="" width="24" height="22">{{ chrome.text("stage-status-online") }}</dt><dd class="hx-good">{% if let Some(online) = status.online %}{{ online }}{% else %}<span class="hx-muted">{{ chrome.text("stage-status-no-data") }}</span>{% endif %}</dd></div>
+<div><dt><img src="/static/img/home/st-worlds.webp" alt="" width="24" height="22">{{ chrome.text("stage-status-worlds") }}</dt><dd>{{ status.worlds_fresh }} / {{ status.worlds_total }}</dd></div>
+<div><dt><img src="/static/img/home/st-pvp.webp" alt="" width="24" height="22">{{ chrome.text("stage-status-pvp") }}</dt><dd class="hx-warm">{% if let Some(pvp) = status.pvp %}{{ pvp }}{% else %}{{ chrome.text("stage-status-pvp-mixed") }}{% endif %}</dd></div>
+</dl>
+{% if let Some(as_of) = status.as_of %}<p class="hx-note">{{ chrome.text("stage-status-updated") }} <time>{{ as_of }}</time></p>{% else %}<p class="hx-note">{{ chrome.text("stage-status-no-data") }}</p>{% endif %}
+{% if let Some(link) = chrome.link("worlds") %}<a class="hx-more hx-more--light" href="{{ link.url }}">{{ chrome.text("stage-status-details") }} <span aria-hidden="true">→</span></a>{% endif %}
+{% else %}
+<p class="hx-empty">{{ chrome.text("stage-status-unavailable") }}</p>
+{% endif %}
 </section>
-<section class="op-wrap op-strip" aria-label="{{ chrome.text("home-facts-label") }}">
-  <dl class="op-glass op-facts">
-    {% for fact in facts %}<div><dt class="op-label">{{ chrome.text(fact.label) }}</dt><dd>{{ fact.value }}</dd></div>{% endfor %}
-  </dl>
-  <p class="op-source">{{ chrome.text("home-facts-source") }}</p>
+<img class="hx-hero__art hx-hero__art--r" src="/static/img/home/monster.webp" alt="" width="234" height="226">
 </section>
-<section class="op-wrap op-block" aria-labelledby="voc-title">
-  <header class="op-block__head"><p class="op-eyebrow">{{ chrome.text("home-voc-eyebrow") }}</p><h2 id="voc-title">{{ chrome.text("home-voc-title") }}</h2><p class="op-lead">{{ chrome.text("home-voc-lead") }}</p></header>
-  <ul class="op-paths">
-    {% for voc in vocations %}<li class="op-path op-path--{{ voc.key }}">
-      <div class="op-path__art">{% if let Some(sprite) = voc.sprite %}<img src="{{ sprite }}" alt="" width="128" height="128">{% endif %}</div>
-      <div class="op-path__body"><p class="op-label">{{ chrome.text(voc.role) }}</p><h3>{{ voc.name }}</h3><p>{{ chrome.text(voc.text) }}</p><p class="op-path__promo">{{ chrome.text("home-voc-promotion") }}: <strong>{{ voc.promotion }}</strong></p></div>
-    </li>{% endfor %}
-  </ul>
+<section class="hx-features" aria-label="{{ chrome.text("stage-features") }}">
+<ul class="hx-features__list">
+<li class="hx-feature">{% if let Some(link) = chrome.first_link("atlas,houses") %}<a class="hx-feature__link" href="{{ link.url }}"><img class="hx-feature__icon" src="/static/img/home/ft-atlas.webp" alt="" width="54" height="48"><div><h3 class="hx-feature__title">{{ chrome.text("stage-feat-atlas") }}</h3><p class="hx-feature__text">{{ chrome.text("stage-feat-atlas-text") }}</p></div></a>{% else %}<div class="hx-feature__link"><img class="hx-feature__icon" src="/static/img/home/ft-atlas.webp" alt="" width="54" height="48"><div><h3 class="hx-feature__title">{{ chrome.text("stage-feat-atlas") }}</h3><p class="hx-feature__text">{{ chrome.text("stage-feat-atlas-text") }}</p></div></div>{% endif %}</li>
+<li class="hx-feature">{% if let Some(link) = chrome.first_link("wiki,calculators") %}<a class="hx-feature__link" href="{{ link.url }}"><img class="hx-feature__icon" src="/static/img/home/ft-wiki.webp" alt="" width="54" height="48"><div><h3 class="hx-feature__title">{{ chrome.text("stage-feat-wiki") }}</h3><p class="hx-feature__text">{{ chrome.text("stage-feat-wiki-text") }}</p></div></a>{% else %}<div class="hx-feature__link"><img class="hx-feature__icon" src="/static/img/home/ft-wiki.webp" alt="" width="54" height="48"><div><h3 class="hx-feature__title">{{ chrome.text("stage-feat-wiki") }}</h3><p class="hx-feature__text">{{ chrome.text("stage-feat-wiki-text") }}</p></div></div>{% endif %}</li>
+<li class="hx-feature">{% if let Some(link) = chrome.first_link("deaths") %}<a class="hx-feature__link" href="{{ link.url }}"><img class="hx-feature__icon" src="/static/img/home/ft-bestiary.webp" alt="" width="54" height="48"><div><h3 class="hx-feature__title">{{ chrome.text("stage-feat-bestiary") }}</h3><p class="hx-feature__text">{{ chrome.text("stage-feat-bestiary-text") }}</p></div></a>{% else %}<div class="hx-feature__link"><img class="hx-feature__icon" src="/static/img/home/ft-bestiary.webp" alt="" width="54" height="48"><div><h3 class="hx-feature__title">{{ chrome.text("stage-feat-bestiary") }}</h3><p class="hx-feature__text">{{ chrome.text("stage-feat-bestiary-text") }}</p></div></div>{% endif %}</li>
+<li class="hx-feature">{% if let Some(link) = chrome.first_link("events,league,pass,puzzles") %}<a class="hx-feature__link" href="{{ link.url }}"><img class="hx-feature__icon" src="/static/img/home/ft-events.webp" alt="" width="54" height="48"><div><h3 class="hx-feature__title">{{ chrome.text("stage-feat-events") }}</h3><p class="hx-feature__text">{{ chrome.text("stage-feat-events-text") }}</p></div></a>{% else %}<div class="hx-feature__link"><img class="hx-feature__icon" src="/static/img/home/ft-events.webp" alt="" width="54" height="48"><div><h3 class="hx-feature__title">{{ chrome.text("stage-feat-events") }}</h3><p class="hx-feature__text">{{ chrome.text("stage-feat-events-text") }}</p></div></div>{% endif %}</li>
+<li class="hx-feature">{% if let Some(link) = chrome.first_link("bazaar,guilds,party,compare") %}<a class="hx-feature__link" href="{{ link.url }}"><img class="hx-feature__icon" src="/static/img/home/ft-bazaar.webp" alt="" width="54" height="48"><div><h3 class="hx-feature__title">{{ chrome.text("stage-feat-bazaar") }}</h3><p class="hx-feature__text">{{ chrome.text("stage-feat-bazaar-text") }}</p></div></a>{% else %}<div class="hx-feature__link"><img class="hx-feature__icon" src="/static/img/home/ft-bazaar.webp" alt="" width="54" height="48"><div><h3 class="hx-feature__title">{{ chrome.text("stage-feat-bazaar") }}</h3><p class="hx-feature__text">{{ chrome.text("stage-feat-bazaar-text") }}</p></div></div>{% endif %}</li>
+</ul>
 </section>
-<section class="op-wrap op-block" aria-labelledby="world-title">
-  <header class="op-block__head"><p class="op-eyebrow">{{ chrome.text("home-world-eyebrow") }}</p><h2 id="world-title">{{ chrome.text("home-world-title") }}</h2><p class="op-lead">{{ chrome.text("home-world-lead") }}</p></header>
-  <div class="op-bento">
-    {% for group in chrome.groups %}<article class="op-tile op-tile--{{ loop.index }}">
-      <h3>{{ group.label }}</h3>
-      <ul>{% for link in group.links %}<li><a href="{{ link.url }}">{{ link.label }}<svg class="op-icon" aria-hidden="true"><use href="#op-icon-arrow-right"/></svg></a></li>{% endfor %}</ul>
-    </article>{% endfor %}
-  </div>
+<div class="hx-split">
+<section class="hx-news" aria-labelledby="hx-news-title">
+<div class="hx-news__head">
+<h2 id="hx-news-title" class="hx-news__title"><img src="/static/img/home/ic-news.webp" alt="" width="39" height="38">{{ chrome.text("shell-news") }}</h2>
+<a class="hx-more" href="/{{ chrome.lang }}/news">{{ chrome.text("stage-news-all") }} <span aria-hidden="true">→</span></a>
+</div>
+{% if let Some(news) = data.news %}{% if news.is_empty() %}<p class="hx-empty hx-empty--dark">{{ chrome.text("stage-news-empty") }}</p>{% else %}
+<ul class="hx-news__list">
+{% for entry in news %}<li class="hx-card">
+<div class="hx-card__art hx-card__art--{{ self.news_art(loop.index0) }}"><span class="hx-card__tag">{{ chrome.text("stage-news-tag") }}</span></div>
+<div class="hx-card__body">
+<time class="hx-card__date" datetime="{{ entry.date }}">{{ entry.display_date }}</time>
+<h3 class="hx-card__title"><a href="{{ entry.url }}">{{ entry.title }}</a></h3>
+<p class="hx-card__text">{{ entry.excerpt }}</p>
+<a class="hx-more" href="{{ entry.url }}" aria-hidden="true" tabindex="-1">{{ chrome.text("stage-read-more") }} →</a>
+</div>
+</li>{% endfor %}
+</ul>{% endif %}
+{% else %}<p class="hx-empty hx-empty--dark">{{ chrome.text("stage-news-unavailable") }}</p>{% endif %}
 </section>
-<section class="op-wrap op-block" aria-labelledby="cities-title">
-  <header class="op-block__head"><p class="op-eyebrow">{{ chrome.text("home-cities-eyebrow") }}</p><h2 id="cities-title">{{ chrome.text("home-cities-title") }}</h2></header>
-  <ul class="op-tags">{% for city in cities %}<li>{{ city }}</li>{% endfor %}</ul>
+<section class="hx-panel hx-ranking" aria-labelledby="hx-ranking-title">
+<div class="hx-ranking__head">
+<h2 id="hx-ranking-title" class="hx-panel__title"><img src="/static/img/home/ic-ranking.webp" alt="" width="40" height="32">{{ chrome.text("stage-ranking-title") }}</h2>
+{% if let Some(link) = chrome.link("rankings") %}<a class="hx-more hx-more--light" href="{{ link.url }}">{{ chrome.text("stage-ranking-all") }} <span aria-hidden="true">→</span></a>{% endif %}
+</div>
+{% if let Some(rows) = data.ranking %}{% if rows.is_empty() %}<p class="hx-empty">{{ chrome.text("stage-ranking-empty") }}</p>{% else %}
+<table class="hx-ranking__table">
+<thead><tr><th scope="col">#</th><th scope="col">{{ chrome.text("stage-ranking-player") }}</th><th scope="col">{{ chrome.text("stage-ranking-level") }}</th></tr></thead>
+<tbody>
+{% for row in rows %}<tr>
+<td class="hx-ranking__pos">{% if loop.index <= 3 %}<img src="/static/img/home/medal-{{ loop.index }}.webp" alt="{{ row.rank }}" width="44" height="30">{% else %}{{ row.rank }}{% endif %}</td>
+<td class="hx-ranking__name"><img src="/static/img/home/avatar-{{ loop.index }}.webp" alt="" width="28" height="30">{% if let Some(url) = row.url %}<a href="{{ url }}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %}</td>
+<td class="hx-ranking__level">{{ row.level }}</td>
+</tr>{% endfor %}
+</tbody>
+</table>{% endif %}
+{% if let Some(as_of) = data.ranking_as_of %}<p class="hx-note">{{ chrome.text("stage-ranking-as-of") }} <time>{{ as_of }}</time></p>{% endif %}
+{% else %}<p class="hx-empty">{{ chrome.text("stage-ranking-unavailable") }}</p>{% endif %}
 </section>
-<section class="op-wrap op-block" aria-labelledby="steps-title">
-  <header class="op-block__head"><p class="op-eyebrow">{{ chrome.text("home-steps-eyebrow") }}</p><h2 id="steps-title">{{ chrome.text("home-steps-title") }}</h2></header>
-  <ol class="op-steps">
-    <li class="op-tile"><span class="op-steps__n" aria-hidden="true">1</span><h3>{{ chrome.text("home-step1-title") }}</h3><p>{{ chrome.text("home-step1-text") }}</p></li>
-    <li class="op-tile"><span class="op-steps__n" aria-hidden="true">2</span><h3>{{ chrome.text("home-step2-title") }}</h3><p>{{ chrome.text("home-step2-text") }}</p></li>
-    <li class="op-tile"><span class="op-steps__n" aria-hidden="true">3</span><h3>{{ chrome.text("home-step3-title") }}</h3><p>{{ chrome.text("home-step3-text") }}</p></li>
-  </ol>
+</div>
+<section class="hx-panel hx-gallery" aria-labelledby="hx-gallery-title">
+<div class="hx-gallery__head">
+<h2 id="hx-gallery-title" class="hx-panel__title"><img src="/static/img/home/ic-gallery.webp" alt="" width="36" height="30">{{ chrome.text("stage-gallery-title") }}</h2>
+<p class="hx-gallery__lead">{{ chrome.text("stage-gallery-lead") }}</p>
+{% if let Some(link) = chrome.first_link("events,news") %}<a class="hx-btn hx-btn--small" href="{{ link.url }}">{{ chrome.text("stage-gallery-join") }} <span aria-hidden="true">→</span></a>{% endif %}
+</div>
+<ul class="hx-gallery__list">
+<li><img src="/static/img/home/gallery-1.webp" alt="" width="275" height="87" loading="lazy"></li>
+<li><img src="/static/img/home/gallery-2.webp" alt="" width="259" height="87" loading="lazy"></li>
+<li><img src="/static/img/home/gallery-3.webp" alt="" width="259" height="87" loading="lazy"></li>
+<li><img src="/static/img/home/gallery-4.webp" alt="" width="259" height="87" loading="lazy"></li>
+<li><img src="/static/img/home/gallery-5.webp" alt="" width="262" height="87" loading="lazy"></li>
+</ul>
 </section>
-<section class="op-wrap op-final" aria-labelledby="final-title">
-  <h2 id="final-title">{{ chrome.text("home-final-title") }}</h2>
-  <p class="op-lead">{{ chrome.text("home-final-lead") }}</p>
-  {% if !chrome.signed_in() && chrome.registration_mounted %}<a class="op-button op-button--play" href="/{{ chrome.lang }}/register">{{ chrome.text("home-play-free") }}</a>{% endif %}
-</section>
+</main>
+{% include "components/shell-footer.html" %}
 {% endblock %}

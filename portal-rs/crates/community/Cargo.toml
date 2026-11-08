@@ -18,6 +18,7 @@ sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio
 regex = "1"
 unicode-normalization = "0.1"
 tower = { version = "0.5.3", features = ["util"] }
+tokio = { version = "1.54.1", features = ["macros"] }
 
 [dev-dependencies]
 oteryn-db = { path = "../db" }
@@ -38,7 +39,7 @@ version = "0.7"
 version = "1"
 [dependencies.time]
 version = "0.3"
-features = ["formatting"]
+features = ["formatting", "macros"]
 [dependencies.percent-encoding]
 version = "2"
 [dependencies.fluent-bundle]
@@ -54,7 +55,7 @@ path = "../notify"
 path = "../admin"
 [dependencies.oteryn-db]
 path = "../db"
-[dev-dependencies.oteryn-content]
+[dependencies.oteryn-content]
 path = "../content"
 
 [dependencies.oteryn-characters]

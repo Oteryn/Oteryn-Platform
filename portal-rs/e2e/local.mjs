@@ -12,7 +12,7 @@ import pg from 'pg';
 import { SMTPServer } from 'smtp-server';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
-import {createGameClosureProducer} from './game-closure-producer.mjs';
+import {createGameClosureProducer,characterSourceAuthority} from './game-closure-producer.mjs';
 dns.setDefaultResultOrder('ipv4first');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const scratch=process.env.PORTAL_E2E_SCRATCH || fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-'));
@@ -33,12 +33,14 @@ for(const file of [...walk(path.join(root,'crates')),...walk(path.join(root,'bin
 for(const key of ['OTERYN_ACCOUNT_LOGIN','OTERYN_ACCOUNT_MFA','OTERYN_ACCOUNT_PASSKEYS','OTERYN_ACCOUNT_PASSWORD_RESET','OTERYN_ACCOUNT_SESSIONS','OTERYN_ACCOUNT_CREDENTIALS','OTERYN_ACCOUNT_EMAIL_CHANGE','OTERYN_ACCOUNT_RECOVERY_KEYS','OTERYN_ADMIN_PANEL','OTERYN_ADMIN_CONSOLE','OTERYN_ADMIN_PLAYERS','OTERYN_ADMIN_PLAYER_CHARACTERS','OTERYN_ADMIN_COMMERCE','OTERYN_ADMIN_CONTROL','OTERYN_WORLD_ADMIN','OTERYN_BAZAAR_MODERATION','OTERYN_BAZAAR_PROFILES','OTERYN_BAZAAR_PROMOTIONS','OTERYN_SUPPORT_TICKETS','OTERYN_PLAYERDATA_HUNTS_READ','OTERYN_PLAYERDATA_PLACES_AGGREGATE']) env[key]='true';
 Object.assign(env,{
  OTERYN_SHOP_TEST_PAYMENT_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_SHOP_TOP_UP_PACKAGES:JSON.stringify([{key:'e2e-coins',coins:1234,minor_units:250,currency:'PLN'}]),
+ OTERYN_ADMIN_ANALYTICS_INGEST:'true',OTERYN_ADMIN_ANALYTICS_PRESENT:'true',OTERYN_ADMIN_ANALYTICS_AUTHORITY:'e2e-local',OTERYN_ADMIN_ANALYTICS_PRIVACY:'e2e-local',
+ PORTAL_OAUTH_CONFIG:JSON.stringify({enabled:true,clients:[{client_id:'e2e-local',redirect_uris:['https://localhost:18443/__oauth/callback']}]}),
  OTERYN_ENV:'testing',APP_ENV:'testing',PANEL_PREMIUM_PAYMENTS:'true',OTERYN_BIND:'127.0.0.1:18080',OTERYN_PUBLIC_ORIGIN:'https://localhost:18443',OTERYN_ADMIN_HOST:'localhost:18443',
  OTERYN_STATIC_DIR:path.join(root,'static'),OTERYN_DATABASE_URL:databaseURL(dbName),PORTAL_E2E_DATABASE_URL:databaseURL(dbName),PORTAL_TEST_DATABASE_URL:databaseURL(testName),
  OTERYN_SMTP_HOST:'localhost',OTERYN_SMTP_USERNAME:'local',OTERYN_SMTP_PASSWORD:crypto.randomBytes(24).toString('hex'),OTERYN_MAIL_FROM:'portal@local.test',OTERYN_SMTP_FROM:'portal@local.test',
  OTERYN_WEBAUTHN_RP_ID:'localhost',OTERYN_MFA_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_RESET_DELIVERY_KEY:crypto.randomBytes(32).toString('hex'),
  OTERYN_NOTIFY_UNSUBSCRIBE_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_NOTIFY_UNSUBSCRIBE_URL:'https://localhost:18443/en/unsubscribe',
- OTERYN_ACTIVE_CHARACTER_LIMIT:'10',OTERYN_TOTAL_CHARACTER_LIMIT:'20',OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY:'e2e-local',OTERYN_LCFA_SOURCE_AUTHORITY:'e2e-local',OTERYN_ACCOUNT_CHARACTERS_AUTHORITY:'e2e-local',
+ OTERYN_ACTIVE_CHARACTER_LIMIT:'10',OTERYN_TOTAL_CHARACTER_LIMIT:'20',OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY:characterSourceAuthority,OTERYN_LCFA_SOURCE_AUTHORITY:characterSourceAuthority,OTERYN_ACCOUNT_CHARACTERS_AUTHORITY:characterSourceAuthority,
  PORTAL_PUBLIC_PROJECTIONS_AUTHORITY:'e2e-local',PORTAL_PUBLIC_PROJECTIONS_SAN:'e2e-local',PORTAL_WORLD_DAILY_WORLDS:'019b0760-0000-7000-8000-000000000001',PORTAL_ATLAS_DELIVERY_ENABLED:'1',PORTAL_WORLD_ENABLED:'1',
  OTERYN_ATLAS_DIRECTORY:path.join(scratch,'atlas'),SSL_CERT_FILE:path.join(scratch,'ca.pem'),
  PORTAL_ADMIN_CONTROL_AGENTS_JSON:JSON.stringify([{cn:'oteryn-admin-agent/e2e-local',identity:{san:'spiffe://local.test/admin/e2e'}}]),

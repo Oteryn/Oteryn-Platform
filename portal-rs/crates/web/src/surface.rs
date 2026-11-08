@@ -148,9 +148,43 @@ fn request_chrome(request: &Request, lang: Language) -> oteryn_ui::Chrome {
         })
 }
 
+/// Future returned by a [`HomeFeed`].
+pub type HomeFuture = std::pin::Pin<Box<dyn Future<Output = oteryn_ui::HomeData> + Send>>;
+/// Live home-page data, composed by the binary from module read models. The
+/// web crate cannot depend on those modules, so they arrive as a request
+/// extension; without one the page shows every live block as unavailable.
+#[derive(Clone)]
+pub struct HomeFeed(pub std::sync::Arc<dyn Fn(Language) -> HomeFuture + Send + Sync>);
+impl std::fmt::Debug for HomeFeed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("HomeFeed")
+    }
+}
+impl HomeFeed {
+    /// Attach this feed to every home route of `router`.
+    pub fn layer(self, router: Router) -> Router {
+        router.layer(axum::Extension(self))
+    }
+}
+/// The request's feed future; resolved after the request is no longer borrowed.
+pub(crate) fn home_data(request: &Request, lang: Language) -> Option<HomeFuture> {
+    request
+        .extensions()
+        .get::<HomeFeed>()
+        .map(|feed| (feed.0)(lang))
+}
+pub(crate) async fn resolve(data: Option<HomeFuture>) -> oteryn_ui::HomeData {
+    match data {
+        Some(future) => future.await,
+        None => oteryn_ui::HomeData::default(),
+    }
+}
 async fn localized_home(request: Request) -> Response {
     let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
-    oteryn_ui::home(&request_chrome(&request, lang))
+    let chrome = request_chrome(&request, lang);
+    let data = home_data(&request, lang);
+    drop(request);
+    oteryn_ui::home(&chrome, &resolve(data).await)
 }
 pub(crate) fn path_language(path: &str) -> Option<Language> {
     Language::parse(path.split('/').nth(1).unwrap_or_default())
@@ -374,12 +408,12 @@ mod tests {
         let body = html(response).await?;
         for expected in [
             "<html lang=\"en\" data-theme=\"dark\">",
-            "<header class=\"op-shell__header\">",
+            "<header class=\"hx-head\">",
             "<nav ",
             "<main ",
-            "<footer class=\"op-shell__footer\">",
+            "<footer class=\"hx-foot\">",
             "href=\"#main\"",
-            "Everything in one place",
+            "Welcome to the world of Oteryn!",
             "href=\"/pl/\"",
         ] {
             assert!(body.contains(expected), "missing {expected}");
@@ -446,7 +480,13 @@ mod tests {
                 }
                 let body = html(response).await?;
                 assert!(body.contains(title));
-                assert!(!body.contains("private"));
+                for detail in [
+                    "private database detail",
+                    "private failure",
+                    "private limiter detail",
+                ] {
+                    assert!(!body.contains(detail));
+                }
                 if accept == "text/html" {
                     assert!(body.contains("<main "));
                 } else {

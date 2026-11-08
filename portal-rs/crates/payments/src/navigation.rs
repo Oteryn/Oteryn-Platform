@@ -12,4 +12,12 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+    registry.section(
+        on("PANEL_PREMIUM_PAYMENTS"),
+        "payments",
+        "shell-payments",
+        "panel/payments",
+        Group::Account,
+        false,
+    );
 }

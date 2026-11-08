@@ -228,3 +228,36 @@ async fn page(State(state): State<Worlds>, request: Request) -> Response {
     );
     response
 }
+
+/// Aggregate status for the home page from the same fresh evidence as the
+/// worlds page. `None` when the module is off or its source is unavailable.
+pub async fn home_status(db: &PgPool) -> Option<oteryn_ui::HomeStatus> {
+    let threshold = std::env::var("PORTAL_WORLDS_FRESHNESS_SECONDS")
+        .map_or(Some(120), |s| s.parse::<u64>().ok().filter(|n| *n > 0))?;
+    if std::env::var("PORTAL_WORLDS_ENABLED").as_deref() != Ok("true") {
+        return None;
+    }
+    let state = Worlds {
+        db: db.clone(),
+        config: Config {
+            enabled: true,
+            freshness_seconds: threshold,
+        },
+    };
+    let worlds = read(&state, now()).await.ok()?;
+    if worlds.is_empty() {
+        return None;
+    }
+    let fresh: Vec<&World> = worlds.iter().filter(|w| w.status == "online").collect();
+    let online =
+        (!fresh.is_empty()).then(|| fresh.iter().filter_map(|w| w.count).map(i64::from).sum());
+    let first = worlds[0].pvp.clone();
+    let pvp = first.filter(|p| !p.is_empty() && worlds.iter().all(|w| w.pvp.as_deref() == Some(p)));
+    Some(oteryn_ui::HomeStatus {
+        online,
+        worlds_fresh: fresh.len(),
+        worlds_total: worlds.len(),
+        pvp,
+        as_of: fresh.iter().filter_map(|w| w.as_of.clone()).max(),
+    })
+}

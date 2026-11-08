@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool} from '../helpers.mjs';
 test.setTimeout(240_000);
 async function sudo(page,lang,account){await page.goto(`/${lang}/account/sudo`);await submit(page,'main form',{current_password:account.password});}
