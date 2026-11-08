@@ -170,6 +170,49 @@ async fn local_index(
     language(&lang)?;
     listing(&pool, &lang, &q).await
 }
+/// Newest published entries for the home page, under the same language rule
+/// as the public listing. The excerpt is plain text; templates escape it.
+pub async fn headlines(
+    pool: &PgPool,
+    lang: oteryn_web::Language,
+    limit: i64,
+) -> Result<Vec<oteryn_ui::HomeNews>, sqlx::Error> {
+    let lang = lang.code();
+    let rows = sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,CASE WHEN $1='pl' THEN body_pl ELSE body END AS body,to_char(published_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS day FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT $2").bind(lang).bind(limit.clamp(0, 10)).fetch_all(pool).await?;
+    let mut entries = Vec::with_capacity(rows.len());
+    for row in rows {
+        let slug: String = row.try_get("slug")?;
+        if !slug_valid(&slug) {
+            continue;
+        }
+        let day: String = row.try_get("day")?;
+        let body: String = row.try_get("body")?;
+        entries.push(oteryn_ui::HomeNews {
+            url: format!("/{lang}/news/{slug}"),
+            title: row.try_get("title")?,
+            display_date: display_date(lang, &day),
+            date: day,
+            excerpt: excerpt(&body, 160),
+        });
+    }
+    Ok(entries)
+}
+fn display_date(lang: &str, day: &str) -> String {
+    match (lang, day.split('-').collect::<Vec<_>>().as_slice()) {
+        ("pl", [year, month, date]) => format!("{date}.{month}.{year}"),
+        _ => day.to_owned(),
+    }
+}
+/// First `limit` characters of the body's words, ending with an ellipsis when cut.
+fn excerpt(body: &str, limit: usize) -> String {
+    let text = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.chars().count() <= limit {
+        return text;
+    }
+    let cut: String = text.chars().take(limit).collect();
+    let cut = cut.rsplit_once(' ').map_or(cut.as_str(), |(head, _)| head);
+    format!("{}…", cut.trim_end_matches([',', '.', ';', ':', '-', '–']))
+}
 async fn listing(pool: &PgPool, lang: &str, q: &Options) -> Result<Html<String>, StatusCode> {
     let rows=sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 10 OFFSET $2").bind(lang).bind(q.offset(10)?).fetch_all(pool).await.map_err(unavailable)?;
     let mut html = String::new();

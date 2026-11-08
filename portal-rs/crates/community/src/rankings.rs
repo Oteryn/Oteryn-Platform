@@ -376,3 +376,72 @@ async fn load(
     }
     Ok(page)
 }
+
+/// Top `limit` visible characters of the level ranking on the first world, for
+/// the home page. Same snapshot rules as the page; each shown row passes the
+/// current privacy decision, and any doubt makes the whole block unavailable.
+pub async fn home_top(
+    db: &PgPool,
+    visibility: &dyn PublicVisibility,
+    lang: Language,
+    limit: usize,
+    profiles: bool,
+) -> Result<(Vec<oteryn_ui::HomeRank>, String), VisibilityUnavailable> {
+    fn fail(_: impl std::fmt::Display) -> VisibilityUnavailable {
+        VisibilityUnavailable
+    }
+    let world: Option<String> = sqlx::query_scalar("SELECT min(split_part(subject,':',1)) FROM public_snapshots WHERE family='highscores' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_one(db).await.map_err(fail)?;
+    let world = world.ok_or(VisibilityUnavailable)?;
+    let (payload, watermark): (serde_json::Value, i64) = sqlx::query_as(
+        "SELECT payload, watermark FROM public_snapshots WHERE family='highscores' AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
+    ).bind(format!("{world}:1:0")).fetch_optional(db).await.map_err(fail)?.ok_or(VisibilityUnavailable)?;
+    let snapshot: Snapshot = serde_json::from_value(payload).map_err(fail)?;
+    if snapshot.world_id != world
+        || snapshot.category != 1
+        || snapshot.filter != 0
+        || snapshot.rows.len() > 1000
+    {
+        return Err(VisibilityUnavailable);
+    }
+    let as_of = time::OffsetDateTime::from_unix_timestamp(watermark)
+        .ok()
+        .and_then(|t| {
+            t.format(time::macros::format_description!(
+                "[year]-[month]-[day] [hour]:[minute]"
+            ))
+            .ok()
+        })
+        .ok_or(VisibilityUnavailable)?;
+    let mut shown = Vec::with_capacity(limit);
+    // Bounded scan: privacy checks stop once enough visible rows are found.
+    for chunk in snapshot.rows.chunks(10).take(5) {
+        let refs: Vec<String> = chunk.iter().map(|r| r.character_id.clone()).collect();
+        let hidden = visibility.batch(&refs).await?;
+        if hidden.len() != refs.len() {
+            return Err(VisibilityUnavailable);
+        }
+        for (row, hidden) in chunk.iter().zip(hidden) {
+            if !hidden && shown.len() < limit {
+                shown.push(oteryn_ui::HomeRank {
+                    rank: row.rank.clone(),
+                    name: row.name.clone(),
+                    level: row.level.clone(),
+                    url: profiles.then(|| {
+                        format!(
+                            "/{}/characters/{}",
+                            lang.code(),
+                            percent_encoding::utf8_percent_encode(
+                                &row.name,
+                                percent_encoding::NON_ALPHANUMERIC
+                            )
+                        )
+                    }),
+                });
+            }
+        }
+        if shown.len() == limit {
+            break;
+        }
+    }
+    Ok((shown, as_of))
+}

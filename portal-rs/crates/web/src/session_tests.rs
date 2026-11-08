@@ -456,7 +456,7 @@ async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
             "/en/",
             get(
                 |Extension(chrome): Extension<oteryn_ui::Chrome>| async move {
-                    oteryn_ui::home(&chrome)
+                    oteryn_ui::home(&chrome, &oteryn_ui::HomeData::default())
                 },
             ),
         )

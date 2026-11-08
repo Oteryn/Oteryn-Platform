@@ -22,6 +22,17 @@ owned_paths:
   - portal-rs/crates/ui/**
   - portal-rs/crates/web/src/lib.rs
   - portal-rs/crates/web/src/surface.rs
+  - portal-rs/crates/web/src/session_tests.rs
+  - portal-rs/crates/community/src/home.rs
+  - portal-rs/crates/community/src/lib.rs
+  - portal-rs/crates/community/src/worlds.rs
+  - portal-rs/crates/community/src/rankings.rs
+  - portal-rs/crates/community/src/privacy.rs
+  - portal-rs/crates/community/tests/rankings.rs
+  - portal-rs/crates/community/Cargo.toml
+  - portal-rs/crates/content/src/news.rs
+  - portal-rs/crates/content/src/news_tests.rs
+  - portal-rs/bin/oteryn-portal/src/main.rs
   - docs/agents/tasks/active/OTERYN-20261108-portal-rs-home-template.md
 modules:
   - shared-portal-shell
@@ -52,7 +63,8 @@ owned_paths:
   - portal-rs/static/css/home.css
 proven:
   - oteryn-ui and oteryn-web tests pass locally
-  - live local portal screenshots match the template at 1672x941 (PL) and 1440x810 (EN), no horizontal overflow
+  - responsive home (390, 900, 1600, 1920 px) without horizontal overflow, rendered from live local read models
+  - status from fresh world_online evidence, news from published CMS rows, ranking rows each pass the current profile privacy decision (DB test home_top_skips_hidden_and_fails_closed)
 derived: []
 unknown:
   - live data for status, news and ranking blocks
@@ -75,5 +87,5 @@ validation:
     evidence: ui 3 passed, web 24 passed (1 existing ignored)
 blockers:
   - none
-next_action: CI on PR #1782; PC docker testenv deploy of this branch; wire live status, news and ranking blocks
+next_action: "CI on PR #1782; PC docker testenv deploy of the responsive home with live status, news and ranking"
 ```

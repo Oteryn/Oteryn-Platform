@@ -1,5 +1,5 @@
 //! Current unique ownership, saved T45 state and T09c bounds; never a cached allow.
-use crate::{deaths, guilds, online, profiles};
+use crate::{deaths, guilds, online, profiles, rankings};
 use oteryn_characters::profile::Preferences;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -200,6 +200,21 @@ impl guilds::PublicVisibility for Authority {
                 );
             }
             Ok(result)
+        })
+    }
+}
+impl rankings::PublicVisibility for Authority {
+    fn is_hidden<'a>(&'a self, character_ref: &'a str) -> rankings::VisibilityFuture<'a, bool> {
+        Box::pin(async move {
+            self.privacy
+                .ready()
+                .await
+                .map_err(|_| rankings::VisibilityUnavailable)?;
+            Ok(!self
+                .current(character_ref)
+                .await
+                .map_err(|_| rankings::VisibilityUnavailable)?
+                .is_some_and(|p| !p.hidden))
         })
     }
 }

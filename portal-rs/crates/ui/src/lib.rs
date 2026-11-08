@@ -235,19 +235,64 @@ impl Chrome {
     }
 }
 
+/// Live server status for the home page; built only from fresh read models.
+#[derive(Clone, Debug, Default)]
+pub struct HomeStatus {
+    /// Players on fresh worlds; `None` when no world has fresh evidence.
+    pub online: Option<i64>,
+    pub worlds_fresh: usize,
+    pub worlds_total: usize,
+    /// PvP type shared by every world, or `None` when worlds differ or none is set.
+    pub pvp: Option<String>,
+    /// UTC time of the newest accepted observation.
+    pub as_of: Option<String>,
+}
+/// One published news entry in the current language.
+#[derive(Clone, Debug)]
+pub struct HomeNews {
+    pub url: String,
+    pub title: String,
+    /// `YYYY-MM-DD` for `datetime`, and the localized display date.
+    pub date: String,
+    pub display_date: String,
+    pub excerpt: String,
+}
+/// One visible character from the accepted level ranking.
+#[derive(Clone, Debug)]
+pub struct HomeRank {
+    pub rank: String,
+    pub name: String,
+    pub level: String,
+    pub url: Option<String>,
+}
+/// Read-model data for the home page. `None` means the source is unavailable
+/// and the page says so; it never shows invented values.
+#[derive(Clone, Debug, Default)]
+pub struct HomeData {
+    pub status: Option<HomeStatus>,
+    pub news: Option<Vec<HomeNews>>,
+    pub ranking: Option<Vec<HomeRank>>,
+    pub ranking_as_of: Option<String>,
+}
+
 #[derive(Template)]
 #[template(path = "pages/home.html")]
 struct Home<'a> {
     chrome: &'a Chrome,
+    data: &'a HomeData,
 }
 impl<'a> Home<'a> {
-    fn new(chrome: &'a Chrome) -> Self {
-        Self { chrome }
+    fn new(chrome: &'a Chrome, data: &'a HomeData) -> Self {
+        Self { chrome, data }
+    }
+    /// Cycles the three template illustrations over the news entries.
+    fn news_art(&self, index: &usize) -> usize {
+        index % 3 + 1
     }
 }
-/// Render the home page from enabled sections only.
-pub fn home(chrome: &Chrome) -> Response {
-    render(&Home::new(chrome), StatusCode::OK)
+/// Render the home page from enabled sections and the given read-model data.
+pub fn home(chrome: &Chrome, data: &HomeData) -> Response {
+    render(&Home::new(chrome, data), StatusCode::OK)
 }
 #[derive(Template)]
 #[template(path = "components/shell-header.html")]
@@ -363,7 +408,7 @@ mod tests {
                     Registry::default()
                 };
                 let chrome = registry.chrome(lang, &format!("/{lang}/"), Account::Anonymous);
-                let html = Home::new(&chrome).render()?;
+                let html = Home::new(&chrome, &HomeData::default()).render()?;
                 assert!(html.contains(&format!("<html lang=\"{lang}\" data-theme=\"dark\">")));
                 assert!(html.contains(if lang == "en" {
                     "Welcome to the world of Oteryn!"
@@ -387,13 +432,69 @@ mod tests {
                     csrf: "escaped<&token".into(),
                 },
             );
-            let html = Home::new(&chrome).render()?;
+            let html = Home::new(&chrome, &HomeData::default()).render()?;
             assert!(html.contains(&format!("action=\"/{lang}/logout\" method=\"post\"")));
             assert!(html.contains("name=\"_csrf\" value=\"escaped&#60;&#38;token\""));
             assert!(html.contains("href=\"/account\""));
             assert!(!html.contains("/login\""));
             assert!(!html.contains("/register\""));
         }
+        Ok(())
+    }
+    #[test]
+    fn home_shows_live_data_or_says_unavailable() -> Result<(), askama::Error> {
+        let chrome = registry().chrome("pl", "/pl/", Account::Anonymous);
+        let html = Home::new(&chrome, &HomeData::default()).render()?;
+        for key in [
+            "stage-status-unavailable",
+            "stage-news-unavailable",
+            "stage-ranking-unavailable",
+        ] {
+            assert!(html.contains(&chrome.text(key)), "{key}");
+        }
+        let data = HomeData {
+            status: Some(HomeStatus {
+                online: Some(58),
+                worlds_fresh: 2,
+                worlds_total: 3,
+                pvp: Some("Open PvP".into()),
+                as_of: Some("2026-11-08 00:46:04".into()),
+            }),
+            news: Some(vec![HomeNews {
+                url: "/pl/news/test-1".into(),
+                title: "Nowa <kraina>".into(),
+                date: "2026-11-07".into(),
+                display_date: "07.11.2026".into(),
+                excerpt: "Opis & zmiany".into(),
+            }]),
+            ranking: Some(vec![HomeRank {
+                rank: "1".into(),
+                name: "Valendor".into(),
+                level: "352".into(),
+                url: Some("/pl/characters/Valendor".into()),
+            }]),
+            ranking_as_of: Some("2026-11-08 00:40".into()),
+        };
+        let html = Home::new(&chrome, &data).render()?;
+        assert!(html.contains("hx-status__dot--on"));
+        assert!(html.contains(">58<"));
+        assert!(html.contains("2 / 3"));
+        assert!(html.contains("Nowa &#60;kraina&#62;"));
+        assert!(html.contains("Opis &#38; zmiany"));
+        assert!(html.contains("datetime=\"2026-11-07\""));
+        assert!(html.contains("href=\"/pl/characters/Valendor\""));
+        assert!(html.contains("medal-1.webp"));
+        assert!(!html.contains(&chrome.text("stage-ranking-unavailable")));
+        assert!(!html.contains("style="));
+        assert!(!html.contains("<script"));
+        let empty = HomeData {
+            news: Some(vec![]),
+            ranking: Some(vec![]),
+            ..HomeData::default()
+        };
+        let html = Home::new(&chrome, &empty).render()?;
+        assert!(html.contains(&chrome.text("stage-news-empty")));
+        assert!(html.contains(&chrome.text("stage-ranking-empty")));
         Ok(())
     }
     #[test]

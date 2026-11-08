@@ -42,8 +42,10 @@ pub fn render(template: &impl Template) -> Response {
     }
 }
 
-async fn home() -> Response {
-    oteryn_ui::home(&oteryn_ui::Chrome::default())
+async fn home(request: axum::extract::Request) -> Response {
+    let data = surface::home_data(&request, surface::Language::Pl);
+    drop(request);
+    oteryn_ui::home(&oteryn_ui::Chrome::default(), &surface::resolve(data).await)
 }
 
 async fn healthz() -> &'static str {
@@ -524,7 +526,9 @@ mod tests {
 
 mod surface;
 
-pub use surface::{CspNonce, Language, WebOptions, module_router, router_with_options};
+pub use surface::{
+    CspNonce, HomeFeed, HomeFuture, Language, WebOptions, module_router, router_with_options,
+};
 
 /// Dedicated internal listener surface; the TLS adapter supplies verified peers.
 pub fn internal_character_router(
