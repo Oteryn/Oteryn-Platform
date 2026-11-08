@@ -70,7 +70,7 @@ source_branch_evidence: current task instruction
 - 318 route rows (including prefix aliases), 48 registry sections; one compatibility
   Bazaar item-action adapter is mutually exclusive with the qualified runtime.
   Its 404 absence is executed and it is marked NOT_APPLICABLE with the source reason.
-- Thirteen production defects repaired with owning regressions. See e2e/REPORT.md.
+- Fourteen production defects repaired with owning regressions. See e2e/REPORT.md.
 - UI, Web, Community, Wiki, Gameauth and Admin focused regressions pass. The
   journal PostgreSQL security regression ran with PORTAL_TEST_DATABASE_URL and
   passed owner writes, missing-token refusal and foreign-origin refusal.
@@ -88,3 +88,11 @@ source_branch_evidence: current task instruction
   results, retries, skipped/interrupted cases and uncovered routes/sections.
 - For composed Rust tests stop only the launcher's serve/worker children to free
   listener ports, keeping the launcher alive until acceptance has used its test DB.
+
+Confirmation: the repaired-case phone run passed 23 cases; the final journal
+preference case then passed after correcting the fixture to assert the documented
+204 local preference update and its persisted value (delivery remains gated).
+A further geometry probe found the Account phone menu at x=-15; odd-column
+alignment is repaired and PL/EN bounds now stay between x=17 and x=373 at 390px.
+The initial all-project acceptance attempt was stopped after 41 passes so the
+new bounds regression and fix are included in the final immutable candidate.

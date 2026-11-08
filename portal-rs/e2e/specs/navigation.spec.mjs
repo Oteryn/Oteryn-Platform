@@ -41,6 +41,9 @@ test('every enabled group opens by keyboard focus and touch',async({page,browser
    const summary=group.locator('summary');
    await summary.focus();
    await expect(group.locator('.hx-nav__menu')).toBeVisible();
+   const bounds=await group.locator('.hx-nav__menu').boundingBox();
+   expect(bounds.x,'menu left edge').toBeGreaterThanOrEqual(0);
+   expect(bounds.x+bounds.width,'menu right edge').toBeLessThanOrEqual(info.project.use.viewport.width);
    await page.keyboard.press('Enter');
    await expect(group.locator('details')).toHaveAttribute('open','');
    await page.keyboard.press('Tab');
@@ -52,6 +55,9 @@ test('every enabled group opens by keyboard focus and touch',async({page,browser
  for(const group of await screen.locator('.hx-nav__item--menu').all()) {
    await group.locator('summary').tap();
    await expect(group.locator('details')).toHaveAttribute('open','');
+   const bounds=await group.locator('.hx-nav__menu').boundingBox();
+   expect(bounds.x,'touch menu left edge').toBeGreaterThanOrEqual(0);
+   expect(bounds.x+bounds.width,'touch menu right edge').toBeLessThanOrEqual(info.project.use.viewport.width);
    const link=group.locator('.hx-nav__menu a').last();
    const destination=await link.getAttribute('href');
    await link.tap();

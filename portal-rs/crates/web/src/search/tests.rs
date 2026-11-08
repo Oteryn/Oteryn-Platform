@@ -300,6 +300,30 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
             oteryn_ui::Group::World,
             true,
         );
+        registry.section(
+            true,
+            "shop",
+            "shell-shop",
+            "shop",
+            oteryn_ui::Group::Play,
+            false,
+        );
+        registry.section(
+            true,
+            "news",
+            "shell-news",
+            "news",
+            oteryn_ui::Group::Community,
+            false,
+        );
+        registry.section(
+            true,
+            "security",
+            "shell-account-security",
+            "password/change",
+            oteryn_ui::Group::Account,
+            false,
+        );
         let chrome = registry.chrome(&lang, &format!("/{lang}/"), oteryn_ui::Account::Anonymous);
         let Some((header, footer)) = oteryn_ui::shell_parts(&chrome) else {
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();

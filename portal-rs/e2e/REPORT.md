@@ -16,6 +16,7 @@ Bazaar flows. All other rows require an executed passing case in every project.
 | Root cause | Fix and owning regression |
 | --- | --- |
 | Phone CSS hides dropdowns even on focus; anchor triggers cannot reliably toggle on touch | Native details/summary disclosure, preserved focus-within/hover, bounded menu scrolling; UI disclosure regression plus real keyboard/touch activation |
+| Desktop last-child alignment clips the Account dropdown in the phone grid | Reset odd phone columns to left alignment; UI CSS regression and keyboard/touch bounds checks for every group |
 | Parent and child sections both claim the current page | Select only the most specific current section; UI current-section regression |
 | Unprefixed aliases never match localized registry URLs | Compare canonical route suffixes; UI alias/current-section regression |
 | Standalone pages and the injected shell each render a skip link | Adapter retains one shared skip link; Web composition regression |

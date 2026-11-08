@@ -536,6 +536,9 @@ mod tests {
         assert!(html.contains("aria-current=\"page\">Wiki</a>"));
         let css = include_str!("../../../static/css/home.css");
         assert!(css.contains(".hx-nav__dropdown[open] .hx-nav__menu"));
+        assert!(
+            css.contains(".hx-nav__item:nth-child(odd) .hx-nav__menu { left: 0; right: auto; }")
+        );
         assert!(css.contains(".hx-nav__item--menu:focus-within .hx-nav__menu { display: block; }"));
         assert!(!css.contains(":focus-within .hx-nav__menu { display: none; }"));
         Ok(())

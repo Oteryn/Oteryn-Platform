@@ -307,6 +307,7 @@
   .op-theme .hx-nav__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 4px; }
   .op-theme .hx-nav__link { min-height: 40px; padding: 6px 8px; font-size: .9rem; }
   .op-theme .hx-nav__menu { max-width: calc(100vw - 64px); width: max-content; }
+  .op-theme .hx-nav__item:nth-child(odd) .hx-nav__menu { left: 0; right: auto; }
   .op-theme .hx-nav__item:nth-child(even) .hx-nav__menu { left: auto; right: 0; }
   .op-theme .hx-hero { grid-template-columns: 1fr; }
   .op-theme .hx-status { margin: 0 12px 6px; }
