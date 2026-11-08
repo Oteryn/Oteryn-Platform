@@ -12,7 +12,7 @@ import pg from 'pg';
 import { SMTPServer } from 'smtp-server';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
-import {createGameClosureProducer} from './game-closure-producer.mjs';
+import {createGameClosureProducer,characterSourceAuthority} from './game-closure-producer.mjs';
 dns.setDefaultResultOrder('ipv4first');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const scratch=process.env.PORTAL_E2E_SCRATCH || fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-'));
@@ -40,7 +40,7 @@ Object.assign(env,{
  OTERYN_SMTP_HOST:'localhost',OTERYN_SMTP_USERNAME:'local',OTERYN_SMTP_PASSWORD:crypto.randomBytes(24).toString('hex'),OTERYN_MAIL_FROM:'portal@local.test',OTERYN_SMTP_FROM:'portal@local.test',
  OTERYN_WEBAUTHN_RP_ID:'localhost',OTERYN_MFA_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_RESET_DELIVERY_KEY:crypto.randomBytes(32).toString('hex'),
  OTERYN_NOTIFY_UNSUBSCRIBE_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_NOTIFY_UNSUBSCRIBE_URL:'https://localhost:18443/en/unsubscribe',
- OTERYN_ACTIVE_CHARACTER_LIMIT:'10',OTERYN_TOTAL_CHARACTER_LIMIT:'20',OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY:'e2e-local',OTERYN_LCFA_SOURCE_AUTHORITY:'e2e-local',OTERYN_ACCOUNT_CHARACTERS_AUTHORITY:'e2e-local',
+ OTERYN_ACTIVE_CHARACTER_LIMIT:'10',OTERYN_TOTAL_CHARACTER_LIMIT:'20',OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY:characterSourceAuthority,OTERYN_LCFA_SOURCE_AUTHORITY:characterSourceAuthority,OTERYN_ACCOUNT_CHARACTERS_AUTHORITY:characterSourceAuthority,
  PORTAL_PUBLIC_PROJECTIONS_AUTHORITY:'e2e-local',PORTAL_PUBLIC_PROJECTIONS_SAN:'e2e-local',PORTAL_WORLD_DAILY_WORLDS:'019b0760-0000-7000-8000-000000000001',PORTAL_ATLAS_DELIVERY_ENABLED:'1',PORTAL_WORLD_ENABLED:'1',
  OTERYN_ATLAS_DIRECTORY:path.join(scratch,'atlas'),SSL_CERT_FILE:path.join(scratch,'ca.pem'),
  PORTAL_ADMIN_CONTROL_AGENTS_JSON:JSON.stringify([{cn:'oteryn-admin-agent/e2e-local',identity:{san:'spiffe://local.test/admin/e2e'}}]),

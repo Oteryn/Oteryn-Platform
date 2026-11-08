@@ -15,6 +15,8 @@ test('T45 owner settings control live online and public profile privacy',async({
  try {
   const owner=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
   baseline=(await db.query('SELECT * FROM account_character_feed WHERE id=1')).rows[0];
+  // The closure producer remains active across flows and shares this feed.
+  if(baseline.source_authority!==null)expect(baseline.source_authority,'live ownership publisher and privacy reader must trust the same authority').toBe(authority);
   const epoch=baseline.highest_epoch||'1';
   publicState=(await db.query('SELECT highest_epoch::text FROM public_projection_state WHERE id=1')).rows[0].highest_epoch;
   const publicEpoch=publicState||'1';

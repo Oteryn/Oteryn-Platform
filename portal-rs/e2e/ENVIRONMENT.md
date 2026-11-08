@@ -532,3 +532,8 @@ until a current, authoritative JournalSource is wired. Journal reads therefore
 qualify the documented 503 refusal. Local preference updates still persist with
 a valid token; missing CSRF must be refused with 403 before any update. All 87 environment switches remain enabled. A runtime
 switch does not supply accepted Game data or authorize a production producer.
+
+The closure producer and LCFA/privacy, account-character and character-command
+readers share `characterSourceAuthority` from game-closure-producer.mjs. This
+prevents a background closure watermark from replacing a differently configured
+privacy authority during the combined suite; authority checks remain enabled.

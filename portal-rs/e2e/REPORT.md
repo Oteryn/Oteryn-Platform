@@ -37,6 +37,12 @@ The internal journal weekly_email gate remains false until an authoritative
 JournalSource is wired; valid-token preference updates persist locally and
 missing-token requests assert 403; delivery remains disabled. No production authority is fabricated.
 
+The combined run also exposed a launcher authority mismatch: the continuing
+closure producer published ownership watermarks under a different authority from
+the privacy reader. The producer and all local ownership readers now share one
+configured authority. The privacy flow asserts agreement with the live feed before
+seeding its isolated read models. No production authority guard was changed.
+
 ## Evidence so far
 
 - Focused UI, Web, Community, Wiki, Gameauth and Admin regressions pass.

@@ -27,8 +27,8 @@ owner-requested follow-up on a separate branch and checkout.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-08T11:35:30Z
-head: c89465e59df312135033ec68305cf4232d05afd7
+updated_at: 2026-11-08T12:11:47Z
+head: 014b087325e2e954e86adece5051c0311a71233b
 branch: codex/portal-rs-e2e-full
 pr: none
 status: validating
@@ -79,7 +79,7 @@ source_branch_evidence: current task instruction
   All failures were reviewed: source defects above plus corrected fixture inputs,
   signed one-click authorization-token semantics, and redirect diagnostics.
   This diagnostic is not final qualification; a fresh-server rerun is required.
-- Current launcher scratch: /tmp/portal-e2e-hN6Snd; launcher PID 37348 owns its
+- Current launcher scratch: /tmp/portal-e2e-fhOFcd; the local launcher owns its
   serve/worker children, proxy/mail sinks and two disposable databases.
 - Logs: /tmp/portal-e2e-route-diagnostic.log, /tmp/portal-journal-csrf.log,
   /tmp/portal-admin-title.log and /tmp/portal-clippy-latest.log. Raw artifacts
