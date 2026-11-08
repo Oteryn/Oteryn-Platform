@@ -1,5 +1,6 @@
 import {test,expect} from '../fixtures.mjs';
 import path from 'node:path';
+import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
 import * as OTPAuth from 'otpauth';
@@ -27,7 +28,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
- await page.context().storageState({path:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`)});
+ fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
  const failures=[];
