@@ -42,9 +42,9 @@ The template background (owner art) is a static asset; every text sits at the te
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-08T00:40:00Z
-head: UNKNOWN
+head: b4518fe3e709c12591cd99897ad3786a88ab351f
 branch: claude/portal-rs-ui-2-fantasy-shell
-pr: none
+pr: 1782
 status: validating
 context_routes: []
 owned_paths:
@@ -75,5 +75,5 @@ validation:
     evidence: ui 3 passed, web 24 passed (1 existing ignored)
 blockers:
   - none
-next_action: open PR, run CI, deploy to PC docker testenv
+next_action: CI on PR #1782; PC docker testenv deploy of this branch; wire live status, news and ranking blocks
 ```
