@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures.mjs';
 import { register, login, logout, submit, csrfRejected, mailLink, password } from '../helpers.mjs';
 import * as OTPAuth from 'otpauth';
 

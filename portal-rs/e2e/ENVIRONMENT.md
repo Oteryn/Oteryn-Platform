@@ -426,3 +426,109 @@ issuance to simulate elapsed days. It never inserts commands, receipts, projecti
 or eligibility. Request-time Character blockers, password, sudo and CSRF stay real.
 
 The closure producer reads `/internal/v1/game-auth/account-closure/lifecycle/read` with its Character mTLS identity before each new decision. It checks current phase, lifecycle/recovery generation, the five-second observation window and financial eligibility; refusal leaves the command pending. No key ID is used for this read.
+
+## Full-shell qualification configuration
+
+The full-shell harness enables every literal `*_ENABLED` switch discovered in crates and bin source, the explicit non-suffix module switches in local.mjs, and analytics ingestion/presentation. `APP_ENV=testing` and `PORTAL_PUBLIC_PROJECTIONS_ENABLED=true` are mandatory. All 87 discovered `*_ENABLED` switches were locally enabled; no switch had to be disabled. Native HTTPS/mTLS, catalogue, atlas, journal, progress, season and authority seams can still refuse without their accepted producers; a true switch does not create those producers. OAuth uses one explicit local test client. Secrets remain generated in scratch and are excluded from this record.
+
+| Runtime setting | Value |
+| --- | --- |
+| `APP_ENV` | `testing` |
+| `GAME_AUTH_DEVICE_SESSIONS_ENABLED` | `true` |
+| `GAME_AUTH_NATIVE_EVIDENCE_ENABLED` | `true` |
+| `GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED` | `true` |
+| `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED` | `true` |
+| `GATEWAY_NATIVE_LOGIN_ENABLED` | `true` |
+| `OTERYN_ACCOUNT_BADGES_ENABLED` | `true` |
+| `OTERYN_ACCOUNT_BALANCE_ENABLED` | `true` |
+| `OTERYN_ACCOUNT_EXPORT_ENABLED` | `true` |
+| `OTERYN_ACCOUNT_OVERVIEW_ENABLED` | `true` |
+| `OTERYN_ACCOUNT_PRIVACY_ENABLED` | `true` |
+| `OTERYN_ADMIN_ANALYTICS_INGEST` | `true` |
+| `OTERYN_ADMIN_ANALYTICS_PRESENT` | `true` |
+| `OTERYN_ATLAS_BESTIARY_ENABLED` | `true` |
+| `OTERYN_ATLAS_DELIVERY_ENABLED` | `true` |
+| `OTERYN_ATLAS_ENABLED` | `true` |
+| `OTERYN_ATLAS_SPAWNS_ENABLED` | `true` |
+| `OTERYN_BAZAAR_ENABLED` | `true` |
+| `OTERYN_CHARACTER_COMMANDS_ENABLED` | `true` |
+| `OTERYN_CHARACTER_COMMAND_CREATE_ENABLED` | `true` |
+| `OTERYN_CHARACTER_CREATE_WEB_ENABLED` | `true` |
+| `OTERYN_CHARACTER_PROFILES_ENABLED` | `true` |
+| `OTERYN_CHARACTER_SERVICES_CANCEL_ENABLED` | `true` |
+| `OTERYN_CHARACTER_SERVICES_ENABLED` | `true` |
+| `OTERYN_CHARACTER_SERVICES_EXCHANGE_ENABLED` | `true` |
+| `OTERYN_CHARACTER_SERVICES_PROJECTION_ENABLED` | `true` |
+| `OTERYN_CHARACTER_SERVICES_RENAME_ENABLED` | `true` |
+| `OTERYN_CHARACTER_SERVICES_SCHEDULE_ENABLED` | `true` |
+| `OTERYN_COLLECTION_ENABLED` | `true` |
+| `OTERYN_COLLECTION_PVP_ENABLED` | `true` |
+| `OTERYN_COLLECTION_SETS_ENABLED` | `true` |
+| `OTERYN_DAILY_PUZZLES_ENABLED` | `true` |
+| `OTERYN_DOWNLOADS_ENABLED` | `true` |
+| `OTERYN_ENV` | `testing` |
+| `OTERYN_JOURNAL_REPORTS_ENABLED` | `true` |
+| `OTERYN_LCFA_ENABLED` | `true` |
+| `OTERYN_LEAGUE_ENABLED` | `true` |
+| `OTERYN_PAYMENTS_ENABLED` | `true` |
+| `OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED` | `true` |
+| `OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED` | `true` |
+| `OTERYN_PREMIUM_ENABLED` | `true` |
+| `OTERYN_REFUNDS_ENABLED` | `true` |
+| `OTERYN_REPORTS_ENABLED` | `true` |
+| `OTERYN_SEASON_PASS_ENABLED` | `true` |
+| `OTERYN_SECURITY_WIZARD_ENABLED` | `true` |
+| `OTERYN_SHOP_ENABLED` | `true` |
+| `OTERYN_SHOP_TEST_PAYMENTS_ENABLED` | `true` |
+| `OTERYN_SHOP_TOP_UPS_ENABLED` | `true` |
+| `OTERYN_WALLET_ENABLED` | `true` |
+| `OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED` | `true` |
+| `OTERYN_WORLD_ENABLED` | `true` |
+| `PANEL_PREMIUM_PAYMENTS` | `true` |
+| `PLAYERDATA_G10_HISTORY_ENABLED` | `true` |
+| `PLAYERDATA_G10_ITEMS_ENABLED` | `true` |
+| `PORTAL_ACCOUNT_CLOSURE_ENABLED` | `true` |
+| `PORTAL_ACCOUNT_TERMINATION_ENABLED` | `true` |
+| `PORTAL_ADMIN_CONTROL_ENABLED` | `true` |
+| `PORTAL_ATLAS_DELIVERY_ENABLED` | `1` |
+| `PORTAL_CALCULATORS_ENABLED` | `true` |
+| `PORTAL_CHARACTER_STATS_ENABLED` | `true` |
+| `PORTAL_DEATHS_ENABLED` | `true` |
+| `PORTAL_DEATHS_V2_INGEST_ENABLED` | `true` |
+| `PORTAL_GROWTH_RANKINGS_ENABLED` | `true` |
+| `PORTAL_GUILDS_ENABLED` | `true` |
+| `PORTAL_GUILDS_INGEST_ENABLED` | `true` |
+| `PORTAL_GUILD_STATS_ENABLED` | `true` |
+| `PORTAL_HIRELINGS_ENABLED` | `true` |
+| `PORTAL_HOUSES_INGEST_ENABLED` | `true` |
+| `PORTAL_HOUSES_SERVING_ENABLED` | `true` |
+| `PORTAL_IMPORT_CHARACTERS_ENABLED` | `true` |
+| `PORTAL_IMPORT_COMMERCE_ENABLED` | `true` |
+| `PORTAL_NATIVE_ADMISSIONS_ENABLED` | `true` |
+| `PORTAL_ONLINE_ENABLED` | `true` |
+| `PORTAL_PARTY_ENABLED` | `true` |
+| `PORTAL_PUBLIC_PROFILES_ENABLED` | `true` |
+| `PORTAL_PUBLIC_PROJECTIONS_ENABLED` | `true` |
+| `PORTAL_PUBLIC_RANKINGS_ENABLED` | `true` |
+| `PORTAL_STATS_ENABLED` | `true` |
+| `PORTAL_STATS_ONLINE_INTERVALS_ENABLED` | `true` |
+| `PORTAL_STATS_WATCHES_ENABLED` | `true` |
+| `PORTAL_STATS_WORLD_TOTALS_ENABLED` | `true` |
+| `PORTAL_WIKI_ENTITIES_ENABLED` | `true` |
+| `PORTAL_WIKI_PLACES_ENABLED` | `true` |
+| `PORTAL_WORLDS_ENABLED` | `true` |
+| `PORTAL_WORLD_DAILY_INGEST_ENABLED` | `true` |
+| `PORTAL_WORLD_DAILY_PUBLIC_ENABLED` | `true` |
+| `PORTAL_WORLD_ENABLED` | `1` |
+| `PORTAL_WORLD_STATS_ENABLED` | `true` |
+| `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_ENABLED` | `true` |
+| `PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_ENABLED` | `true` |
+| `PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED` | `true` |
+| `PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED` | `true` |
+
+The internal `playerdata::reports::Flags.weekly_email` gate cannot be enabled by
+local environment settings: configured_router deliberately sets it to false
+until a current, authoritative JournalSource is wired. Journal reads therefore
+qualify the documented 503 refusal, and preference POSTs must first refuse
+missing CSRF with 403. All 87 environment switches remain enabled. A runtime
+switch does not supply accepted Game data or authorize a production producer.

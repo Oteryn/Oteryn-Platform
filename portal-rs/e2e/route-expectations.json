@@ -1,0 +1,2546 @@
+[
+  {
+    "crate": "admin",
+    "route": "/admin/analytics",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/creatures",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/activity",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/levels",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/health",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/economy",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/{lang}/bazaar",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/commerce",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/commerce/{action}",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/commerce/approvals/{id}",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/console/players",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/console/audit",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/console/access",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/console/approvals",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/console/dashboard",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/console/worlds",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/console/nodes",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/console/database",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/control/step-up",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/control/approvals/{id}",
+    "actor": "staff",
+    "method": "GET",
+    "status": 403,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/players",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/players/{id}",
+    "actor": "staff",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/moderation/enforcement/create",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/roles",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "atlas",
+    "route": "/{lang}/atlas/bestiary/{character}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "atlas",
+    "route": "/{lang}/atlas/delivery",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "atlas",
+    "route": "/atlas/delivery.css",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "atlas",
+    "route": "/atlas/spawns-text/{lang}",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "atlas",
+    "route": "/atlas/spawns",
+    "actor": "player",
+    "method": "GET",
+    "status": 400,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "atlas",
+    "route": "/atlas/private-markers",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "atlas",
+    "route": "/atlas/private-markers/{id}",
+    "actor": "player",
+    "method": "DELETE",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "atlas",
+    "route": "/atlas/map-reports",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "atlas",
+    "route": "/{lang}/atlas",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "atlas",
+    "route": "/atlas/tiles/{version}/{floor}/{zoom}/{x}/{y}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/bazaar",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/account/bazaar",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/bazaar/{listing}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/account/bazaar/sell",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/account/bazaar/{listing}/bids",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/bazaar/items",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/bazaar/items/new",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/bazaar/items/{listing}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/account/bazaar/{listing}/control",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/bazaar/items/{id}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/bazaar/items/{id}/{action}",
+    "actor": "player",
+    "method": "POST",
+    "status": 404,
+    "reason": "compatibility item action adapter is unmounted with the qualified Bazaar runtime; real mutations use account/bazaar bids/control endpoints"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/bazaar/sellers/{seller}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/account/bazaar/{listing}/report",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "bazaar",
+    "route": "/{lang}/account/bazaar/{listing}/promote",
+    "actor": "player",
+    "method": "GET",
+    "status": 403,
+    "reason": "authorization required"
+  },
+  {
+    "crate": "characters",
+    "route": "/{lang}/account/characters/new",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "characters",
+    "route": "/{lang}/account/characters/requests/{operation}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "characters",
+    "route": "/{lang}/account/characters/suggest",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "community",
+    "route": "/deaths",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/deaths",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/characters/{name}/deaths",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/characters/{name}/deaths",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/guilds",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/guilds/{name}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/guilds",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/guilds/{name}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/houses",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/houses/{key}",
+    "actor": "player",
+    "method": "GET",
+    "status": 400,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "community",
+    "route": "/online",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/online",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/admin/{lang}/party",
+    "actor": "staff",
+    "method": "GET",
+    "status": 403,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "community",
+    "route": "/admin/{lang}/party/{id}/moderate",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/party",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/party/{id}/report",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/party/{id}/remove",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/characters",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/characters/{name}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/rankings/{kind}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/today/data",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/today/data",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/today/widget",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/today/widget",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/worlds",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "community",
+    "route": "/{lang}/worlds",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "community",
+    "route": "/api/v1/worlds",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/events",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/events/{slug}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/events",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/events/{slug}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/events",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/events/create",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/events/{id}/edit",
+    "actor": "staff",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/events/{id}",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/events/{id}/status",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/media",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/media/{id}/content",
+    "actor": "staff",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/media/{id}/thumbnail",
+    "actor": "staff",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/media/{id}",
+    "actor": "staff",
+    "method": "DELETE",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/media/{id}/delete",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "content",
+    "route": "/news",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/news/{slug}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/news",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/news/{slug}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/news",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/news/create",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/news/{id}/edit",
+    "actor": "staff",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/news/{id}",
+    "actor": "staff",
+    "method": "DELETE",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/news/{id}/delete",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/pages",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/admin/pages/{slug}/{lang}",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "known reserved page editor and CSRF refusal on its form"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/pages/{slug}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "content",
+    "route": "/today",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/today",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/announcements/ticker",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/announcements/ticker",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "downloads",
+    "route": "/updates/{channel}/metadata/{filename}",
+    "actor": "player",
+    "method": "GET",
+    "status": 400,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "downloads",
+    "route": "/updates/{channel}/policy-v1.json",
+    "actor": "player",
+    "method": "GET",
+    "status": 400,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "downloads",
+    "route": "/updates/{channel}/targets/{*target}",
+    "actor": "player",
+    "method": "GET",
+    "status": 400,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "gameauth",
+    "route": "/oauth/authorize",
+    "actor": "player",
+    "method": "GET",
+    "status": 400,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "gameauth",
+    "route": "/oauth/token",
+    "actor": "player",
+    "method": "POST",
+    "status": 400,
+    "reason": "OAuth protocol refuses an empty grant; positive PKCE flow in oauth.spec.mjs"
+  },
+  {
+    "crate": "hirelings",
+    "route": "/{lang}/panel/hirelings",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/register/abuse/challenge",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/register/abuse.js",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/notifications",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/unsubscribe",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/privacy/delete",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/privacy/delete/cancel",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/password/change",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/sudo",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/security/email",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/email-change/confirm/{token}",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/email-change/revert/{token}",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/privacy/export",
+    "actor": "player",
+    "method": "GET",
+    "status": 403,
+    "reason": "authorization required"
+  },
+  {
+    "crate": "identity",
+    "route": "/login",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/login",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/logout",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/logout",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/login",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/challenge",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/email",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/enroll",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/confirm",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/devices",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/passkeys",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/passkeys/register/start",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/passkeys/register/finish",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/passkeys/authenticate/start",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/passkeys/authenticate/finish",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/passkeys/{id}/remove",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/privacy",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/recovery-key",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/recovery-key",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/recovery-key/confirm",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/recovery-key/revoke",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/forgot-password",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/reset-password",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/forgot-password",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/reset-password",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/reset-password/{token}",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/security/wizard",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/sessions",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/sessions/others",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/sessions/all",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/sessions/{id}",
+    "actor": "player",
+    "method": "DELETE",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/collection",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/collection/{character}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/collection/{character}/decks",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/collection/{character}/cards/{id}/image",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/collection/decks/{id}/battle",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/collection/battles/{id}",
+    "actor": "player",
+    "method": "GET",
+    "status": 403,
+    "reason": "authorization required"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/collection/battles/{id}/forfeit",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/collection/decks/{id}/delete",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/collection-pvp",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/league",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/pass",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/pass/{season}/buy",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/pass/{season}/claim",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/puzzles",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/puzzles/{id}/answer",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "minigames",
+    "route": "/{lang}/puzzles/{id}/image",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "payments",
+    "route": "/{lang}/panel/premium",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "payments",
+    "route": "/{lang}/panel/payments",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "payments",
+    "route": "/{lang}/panel/payments/receipts/{id}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "player-api",
+    "route": "/api/v1/account/summary",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "player-api",
+    "route": "/api/v1/feed",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "player-api",
+    "route": "/api/v1/game-auth/tickets",
+    "actor": "player",
+    "method": "POST",
+    "status": 401,
+    "reason": "native API refuses absent verified HTTPS/authority or bearer token; no browser form"
+  },
+  {
+    "crate": "player-api",
+    "route": "/api/v1/game-auth/native-characters",
+    "actor": "player",
+    "method": "GET",
+    "status": 401,
+    "reason": "authorization required"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/dashboard",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/journal/{character}/deaths",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/hunts",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/hunts/compare",
+    "actor": "player",
+    "method": "GET",
+    "status": 400,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/hunts/{id}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/hunts/{id}/share",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/static/playerdata/hunts.css",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/panel/items/{world}/{character}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/panel/history/{world}/{family}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/panel/history/{world}/{family}/{character}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/game-logins",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/atlas/places",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/atlas/places/participation",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/journal/reports",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/journal/reports/notes",
+    "actor": "player",
+    "method": "GET",
+    "status": 400,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/journal/reports/notes/export",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/{lang}/account/journal/reports/email",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "stats",
+    "route": "/{lang}/stats/characters/{id}/{tab}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "valid experience tab refuses absent accepted character/privacy projection authority"
+  },
+  {
+    "crate": "stats",
+    "route": "/{lang}/stats/compare",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "stats",
+    "route": "/stats/guilds",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "stats",
+    "route": "/{lang}/stats/guilds",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "stats",
+    "route": "/{lang}/stats/rankings/{kind}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "stats",
+    "route": "/api/v1/stats/watches",
+    "actor": "player",
+    "method": "GET",
+    "status": 401,
+    "reason": "authorization required"
+  },
+  {
+    "crate": "stats",
+    "route": "/stats/world",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "stats",
+    "route": "/{lang}/stats/world",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "store",
+    "route": "/{lang}/shop",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "store",
+    "route": "/{lang}/shop/coins",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "store",
+    "route": "/{lang}/shop/history",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "store",
+    "route": "/{lang}/shop/transfer",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "store",
+    "route": "/__test/payments/webhook",
+    "actor": "player",
+    "method": "POST",
+    "status": 400,
+    "reason": "signed test-provider protocol refuses absent signature; positive flow in wallet-topup.spec.mjs"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/support/reports",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/support/reports/create",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/support/reports/{id}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/support/tickets",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/support/tickets/create",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/support/tickets/{id}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/support/tickets/{id}/reply",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/support/tickets/{id}/status",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/admin/support/tickets",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/admin/support/tickets/{id}",
+    "actor": "staff",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/admin/support/tickets/{id}/reply",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/admin/support/tickets/{id}/status",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "web",
+    "route": "/favicon.ico",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/healthz",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/readyz",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/account",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/account/badges",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/account/characters/{name}/profile",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "web",
+    "route": "/{lang}/account/characters/{name}/profile",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "web",
+    "route": "/{lang}/account/characters/{character}/services",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "web",
+    "route": "/register",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/{lang}/register",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/register/check-inbox",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/{lang}/register/check-inbox",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/verify-email",
+    "actor": "player",
+    "method": "GET",
+    "status": 422,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "web",
+    "route": "/{lang}/verify-email",
+    "actor": "player",
+    "method": "GET",
+    "status": 422,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "web",
+    "route": "/verify-email/resend",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/{lang}/verify-email/resend",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/search",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/{lang}/search",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/robots.txt",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/sitemap.xml",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/{lang}",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/{lang}/",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "web",
+    "route": "/language/{lang}",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "wiki",
+    "route": "/{lang}/wiki/calculators",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "wiki",
+    "route": "/wiki/{kind}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "wiki",
+    "route": "/wiki/{kind}/{key}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "wiki",
+    "route": "/{lang}/wiki/{kind}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "wiki",
+    "route": "/{lang}/wiki/{kind}/{key}",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "wiki",
+    "route": "/{lang}/wiki/places",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "wiki",
+    "route": "/wiki",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "wiki",
+    "route": "/wiki/search",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "wiki",
+    "route": "/wiki/articles/{slug}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "wiki",
+    "route": "/{lang}/wiki",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "wiki",
+    "route": "/{lang}/wiki/search",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "wiki",
+    "route": "/{lang}/wiki/articles/{slug}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "wiki",
+    "route": "/admin/wiki",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "wiki",
+    "route": "/admin/wiki/articles/create",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "wiki",
+    "route": "/admin/wiki/articles",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "wiki",
+    "route": "/admin/wiki/articles/{id}/edit",
+    "actor": "staff",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "wiki",
+    "route": "/admin/wiki/articles/{id}",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "wiki",
+    "route": "/admin/wiki/articles/{id}/revisions",
+    "actor": "staff",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "wiki",
+    "route": "/admin/wiki/articles/{id}/preview/{lang}",
+    "actor": "staff",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "wiki",
+    "route": "/admin/wiki/articles/{id}/revisions/{source}/restore",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "wiki",
+    "route": "/admin/wiki/articles/{id}/{action}",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "world",
+    "route": "/admin/world",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/rules",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/server-information",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/legal/terms",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/legal/privacy",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/legal/cookies",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/support/report-a-bug",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/help",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "content",
+    "route": "/{lang}/support",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "gameauth",
+    "route": "/api/v1/game-auth/device-sessions",
+    "actor": "player",
+    "method": "POST",
+    "status": 503,
+    "reason": "native API refuses absent verified HTTPS/authority or bearer token; no browser form"
+  },
+  {
+    "crate": "gameauth",
+    "route": "/api/v1/game-auth/device-sessions/native-characters",
+    "actor": "player",
+    "method": "POST",
+    "status": 503,
+    "reason": "native API refuses absent verified HTTPS/authority or bearer token; no browser form"
+  },
+  {
+    "crate": "gameauth",
+    "route": "/api/v1/game-auth/device-sessions/tickets",
+    "actor": "player",
+    "method": "POST",
+    "status": 503,
+    "reason": "native API refuses absent verified HTTPS/authority or bearer token; no browser form"
+  },
+  {
+    "crate": "gameauth",
+    "route": "/api/v1/game-auth/device-sessions/revoke",
+    "actor": "player",
+    "method": "POST",
+    "status": 503,
+    "reason": "native API refuses absent verified HTTPS/authority or bearer token; no browser form"
+  },
+  {
+    "crate": "gameauth",
+    "route": "/api/v1/game-auth/device-sessions/{*rest}",
+    "actor": "player",
+    "method": "POST",
+    "status": 503,
+    "reason": "native API refuses absent verified HTTPS/authority or bearer token; no browser form"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/moderation/reports",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/moderation/reports/{id}",
+    "actor": "staff",
+    "method": "GET",
+    "status": 503,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/moderation/enforcement",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/moderation/enforcement/{id}",
+    "actor": "staff",
+    "method": "GET",
+    "status": 503,
+    "reason": "missing fixture reference is refused"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/data",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/creatures/data",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/activity/data",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/levels/data",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/health/data",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/analytics/economy/data",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/security",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "security landing redirects to the localized credentials page"
+  },
+  {
+    "crate": "community",
+    "route": "/houses",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  },
+  {
+    "crate": "community",
+    "route": "/houses/{key}",
+    "actor": "player",
+    "method": "GET",
+    "status": 400,
+    "reason": "missing query/invalid fixture selection is refused"
+  },
+  {
+    "crate": "identity",
+    "route": "/password/change",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/account/sudo",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/account/security",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "security landing redirects to the localized credentials page"
+  },
+  {
+    "crate": "identity",
+    "route": "/account/security/email",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/email-change/confirm/{token}",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/email-change/revert/{token}",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/login",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/challenge",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/email",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/enroll",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/confirm",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/devices",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/recovery-key",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/account/recovery-key",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/account/recovery-key/confirm",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/account/recovery-key/revoke",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/account/sessions",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/account/sessions/others",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/account/sessions/all",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/account/sessions/{id}",
+    "actor": "player",
+    "method": "DELETE",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "playerdata",
+    "route": "/account/game-logins",
+    "actor": "player",
+    "method": "GET",
+    "status": 503,
+    "reason": "authority or projection unavailable"
+  }
+]

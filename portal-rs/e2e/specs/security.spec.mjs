@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from '../fixtures.mjs';
 import {register,login,logout,submit,password,csrfRejected,waitForLoginBudget,pool} from '../helpers.mjs';
 import crypto from 'node:crypto';
 

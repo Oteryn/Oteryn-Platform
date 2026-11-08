@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from '../fixtures.mjs';
 import crypto from 'node:crypto';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 const v7=()=>{const s=crypto.randomUUID().split('');s[14]='7';return s.join('');};

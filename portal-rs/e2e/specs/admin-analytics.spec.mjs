@@ -1,6 +1,6 @@
 // Platform-owned consumer qualification; no Game producer or resync simulation.
 // Test launcher: presentation=true with synthetic authority/privacy; no fence or baseline.
-import {test,expect} from '@playwright/test';
+import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool} from '../helpers.mjs';
 import * as OTPAuth from 'otpauth';
 import fs from 'node:fs';
