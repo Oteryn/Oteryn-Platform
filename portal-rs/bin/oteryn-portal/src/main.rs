@@ -400,6 +400,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 },
                 oteryn_web::chrome::middleware,
             ));
+            // Same router behind verified mTLS; the only adapter that admits /internal/v1 peers.
+            let _internal_listener = internal_tls::start(app.clone()).await?;
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             axum::serve(listener, app)
                 .with_graceful_shutdown(async {
@@ -425,6 +427,7 @@ mod tests {
 }
 
 mod gateway;
+mod internal_tls;
 mod wallet_topup;
 mod worker;
 
