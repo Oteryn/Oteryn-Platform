@@ -1,12 +1,52 @@
 {
   "schemaVersion": 2,
   "status": "IN_PROGRESS",
-  "base": "26c767eec36c04b5227a9676ec827ec76c4e82e9",
-  "sourceHead": "c89465e59df312135033ec68305cf4232d05afd7",
-  "coverageInventory": {
-    "routes": 318,
-    "registrySections": 48,
-    "notApplicable": 1
+  "snapshotAt": "2026-11-08T14:39:12Z",
+  "testedHead": "7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a",
+  "projects": {
+    "pl-1440": {
+      "passed": 437,
+      "failed": 0,
+      "remaining": 0,
+      "skipped": 0,
+      "retries": 0
+    },
+    "pl-390": {
+      "passed": 196,
+      "failed": 0,
+      "remaining": 241,
+      "skipped": 0,
+      "retries": 0
+    },
+    "en-1440": {
+      "passed": 0,
+      "failed": 0,
+      "remaining": 437,
+      "skipped": 0,
+      "retries": 0
+    },
+    "en-390": {
+      "passed": 0,
+      "failed": 0,
+      "remaining": 437,
+      "skipped": 0,
+      "retries": 0
+    }
   },
-  "acceptance": "Full current-candidate Rust/PostgreSQL and four-project browser qualification pending; diagnostic runs are not acceptance."
+  "total": {
+    "passed": 633,
+    "failed": 0,
+    "remaining": 1115,
+    "skipped": 0,
+    "retries": 0
+  },
+  "coverage": {
+    "routes": 318,
+    "exercisedAtLeastOnce": 318,
+    "neverExercised": 0,
+    "completedAllProjects": 0,
+    "notApplicable": 1,
+    "sections": 48
+  },
+  "note": "Progress snapshot from completed list-reporter events. Final qualification requires the complete four-project JSON report."
 }

@@ -27,8 +27,8 @@ owner-requested follow-up on a separate branch and checkout.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-08T12:11:47Z
-head: 014b087325e2e954e86adece5051c0311a71233b
+updated_at: 2026-11-08T13:32:48Z
+head: 7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a
 branch: codex/portal-rs-e2e-full
 pr: none
 status: validating
@@ -79,7 +79,7 @@ source_branch_evidence: current task instruction
   All failures were reviewed: source defects above plus corrected fixture inputs,
   signed one-click authorization-token semantics, and redirect diagnostics.
   This diagnostic is not final qualification; a fresh-server rerun is required.
-- Current launcher scratch: /tmp/portal-e2e-fhOFcd; the local launcher owns its
+- Current launcher scratch: /tmp/portal-e2e-tRPn5H; the local launcher owns its
   serve/worker children, proxy/mail sinks and two disposable databases.
 - Logs: /tmp/portal-e2e-route-diagnostic.log, /tmp/portal-journal-csrf.log,
   /tmp/portal-admin-title.log and /tmp/portal-clippy-latest.log. Raw artifacts
@@ -96,3 +96,13 @@ A further geometry probe found the Account phone menu at x=-15; odd-column
 alignment is repaired and PL/EN bounds now stay between x=17 and x=373 at 390px.
 The initial all-project acceptance attempt was stopped after 41 passes so the
 new bounds regression and fix are included in the final immutable candidate.
+
+Combined-flow harness corrections: the closure producer and ownership readers
+now share the same authority; privacy checks the live authority before its fixture
+writes. World statistics checks distinguish its 200 selector from the exact
+503/no-store data query. Healthy ownership feed missing-character aliases require
+404. Targeted privacy/world-read passed 12/12 and profile aliases passed 8/8,
+covering all four projects, without retries. All three optional Rust browser tests
+ran explicitly with native Node and installed Chromium and passed with zero axe
+violations; the wrapped Node command omitted required fixture environment, so the
+native executable is mandatory. Final matrix remains pending.

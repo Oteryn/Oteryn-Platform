@@ -1,377 +1,390 @@
-# Portal coverage inventory
+# Portal route and navigation coverage
 
-Source scan: `python3 e2e/inventory.py`. `{lang}` expands to pl and en in all four projects. Unprefixed aliases are retained separately. Source locations identify the owning router; route methods are retained in inventory.json. This inventory is provisional until the executed matrix is reconciled.
+IN_PROGRESS snapshot at 2026-11-08T14:39:12Z; tested source head `7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a`. This is an executed-progress record, not final four-project qualification. The sweep remains active; no failed, skipped or retried cases have been recorded.
 
-| Route | Module crate | Enabling flags | Actor | Spec + case | Result |
+Cases: 633 passed / 0 failed / 1115 remaining. Source inventory: 318 route rows and 48 registry sections. Routes exercised in at least one project: 318/318; routes not exercised in any project: 0. Fully completed in all four projects: 0/318. One compatibility item-action adapter is NOT_APPLICABLE because the selected Bazaar runtime does not mount it; its exact POST 404 absence is still executed. All other routes await the remaining projects before receiving a final PASS.
+
+| Project | Passed | Failed | Remaining | Retries |
+| --- | --- | --- | --- | --- |
+| pl-1440 | 437 | 0 | 0 | 0 |
+| pl-390 | 196 | 0 | 241 | 0 |
+| en-1440 | 0 | 0 | 437 | 0 |
+| en-390 | 0 | 0 | 437 | 0 |
+
+| Route | Module crate | Enabling flags / data gates | Actor | Spec + case | Result |
 | --- | --- | --- | --- | --- | --- |
-| `/admin/analytics` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/creatures` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/activity` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/levels` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/health` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/economy` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/{lang}/bazaar` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/commerce` | admin | OTERYN_ADMIN_PANEL, OTERYN_PAYMENTS_ENABLED, OTERYN_PREMIUM_ENABLED, OTERYN_REFUNDS_ENABLED, OTERYN_WALLET_ENABLED | staff | pending | NOT_RUN |
-| `/admin/commerce/{action}` | admin | OTERYN_ADMIN_PANEL, OTERYN_PAYMENTS_ENABLED, OTERYN_PREMIUM_ENABLED, OTERYN_REFUNDS_ENABLED, OTERYN_WALLET_ENABLED | staff | pending | NOT_RUN |
-| `/admin/commerce/approvals/{id}` | admin | OTERYN_ADMIN_PANEL, OTERYN_PAYMENTS_ENABLED, OTERYN_PREMIUM_ENABLED, OTERYN_REFUNDS_ENABLED, OTERYN_WALLET_ENABLED | staff | pending | NOT_RUN |
-| `/admin/console/players` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/console/audit` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/console/access` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/console/approvals` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/console/dashboard` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/console/worlds` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/console/nodes` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/console/database` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/control/step-up` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/control/approvals/{id}` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/players` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/players/{id}` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/moderation/enforcement/create` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/roles` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/{lang}/atlas/bestiary/{character}` | atlas | OTERYN_ATLAS_BESTIARY_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/atlas/delivery` | atlas | always mounted | anonymous/player | pending | NOT_RUN |
-| `/atlas/delivery.css` | atlas | always mounted | anonymous/player | pending | NOT_RUN |
-| `/atlas/spawns-text/{lang}` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_ATLAS_SPAWNS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/atlas/spawns` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_ATLAS_SPAWNS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/atlas/private-markers` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_ATLAS_SPAWNS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/atlas/private-markers/{id}` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_ATLAS_SPAWNS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/atlas/map-reports` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_ATLAS_SPAWNS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/atlas` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/atlas/tiles/{version}/{floor}/{zoom}/{x}/{y}` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/bazaar` | bazaar | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/bazaar` | bazaar | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/bazaar/{listing}` | bazaar | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/bazaar/sell` | bazaar | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/account/bazaar/{listing}/bids` | bazaar | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/bazaar/items` | bazaar | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/bazaar/items/new` | bazaar | OTERYN_BAZAAR_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/bazaar/items/{listing}` | bazaar | OTERYN_BAZAAR_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/bazaar/{listing}/control` | bazaar | OTERYN_BAZAAR_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/bazaar/items/{id}` | bazaar | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/bazaar/items/{id}/{action}` | bazaar | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/bazaar/sellers/{seller}` | bazaar | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/bazaar/{listing}/report` | bazaar | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/account/bazaar/{listing}/promote` | bazaar | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/account/characters/new` | characters | OTERYN_CHARACTER_COMMANDS_ENABLED, OTERYN_CHARACTER_COMMAND_CREATE_ENABLED, OTERYN_CHARACTER_CREATE_WEB_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/account/characters/requests/{operation}` | characters | OTERYN_CHARACTER_COMMANDS_ENABLED, OTERYN_CHARACTER_COMMAND_CREATE_ENABLED, OTERYN_CHARACTER_CREATE_WEB_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/account/characters/suggest` | characters | OTERYN_CHARACTER_COMMANDS_ENABLED, OTERYN_CHARACTER_COMMAND_CREATE_ENABLED, OTERYN_CHARACTER_CREATE_WEB_ENABLED | owner | pending | NOT_RUN |
-| `/deaths` | community | PORTAL_DEATHS_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/deaths` | community | PORTAL_DEATHS_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/characters/{name}/deaths` | community | PORTAL_DEATHS_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/characters/{name}/deaths` | community | PORTAL_DEATHS_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/guilds` | community | always mounted | anonymous/player | pending | NOT_RUN |
-| `/guilds/{name}` | community | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/guilds` | community | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/guilds/{name}` | community | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/houses` | community | PORTAL_HOUSES_INGEST_ENABLED, PORTAL_HOUSES_SERVING_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/houses` | community | PORTAL_HOUSES_INGEST_ENABLED, PORTAL_HOUSES_SERVING_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/houses/{key}` | community | PORTAL_HOUSES_INGEST_ENABLED, PORTAL_HOUSES_SERVING_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/houses/{key}` | community | PORTAL_HOUSES_INGEST_ENABLED, PORTAL_HOUSES_SERVING_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/online` | community | PORTAL_ONLINE_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/online` | community | PORTAL_ONLINE_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/admin/{lang}/party` | community | OTERYN_ADMIN_PANEL, PORTAL_PARTY_ENABLED | staff | pending | NOT_RUN |
-| `/admin/{lang}/party/{id}/moderate` | community | OTERYN_ADMIN_PANEL, PORTAL_PARTY_ENABLED | staff | pending | NOT_RUN |
-| `/{lang}/party` | community | PORTAL_PARTY_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/party/{id}/report` | community | PORTAL_PARTY_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/party/{id}/remove` | community | PORTAL_PARTY_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/characters` | community | PORTAL_PUBLIC_PROFILES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/characters/{name}` | community | PORTAL_PUBLIC_PROFILES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/rankings/{kind}` | community | PORTAL_PUBLIC_RANKINGS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/today/data` | community | PORTAL_PUBLIC_PROJECTIONS_ENABLED, PORTAL_WORLD_DAILY_INGEST_ENABLED, PORTAL_WORLD_DAILY_PUBLIC_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/today/data` | community | PORTAL_PUBLIC_PROJECTIONS_ENABLED, PORTAL_WORLD_DAILY_INGEST_ENABLED, PORTAL_WORLD_DAILY_PUBLIC_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/today/widget` | community | PORTAL_PUBLIC_PROJECTIONS_ENABLED, PORTAL_WORLD_DAILY_INGEST_ENABLED, PORTAL_WORLD_DAILY_PUBLIC_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/today/widget` | community | PORTAL_PUBLIC_PROJECTIONS_ENABLED, PORTAL_WORLD_DAILY_INGEST_ENABLED, PORTAL_WORLD_DAILY_PUBLIC_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/worlds` | community | PORTAL_WORLDS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/worlds` | community | PORTAL_WORLDS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/api/v1/worlds` | community | PORTAL_WORLDS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/events` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/events/{slug}` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/events` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/events/{slug}` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/admin/events` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/events/create` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/events/{id}/edit` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/events/{id}` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/events/{id}/status` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/media` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/media/{id}/content` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/media/{id}/thumbnail` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/media/{id}` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/media/{id}/delete` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/news` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/news/{slug}` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/news` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/news/{slug}` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/admin/news` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/news/create` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/news/{id}/edit` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/news/{id}` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/news/{id}/delete` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/pages` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/pages/{slug}/{lang}` | content | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/{lang}/pages/{slug}` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/today` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/today` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/announcements/ticker` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/announcements/ticker` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/updates/{channel}/metadata/{filename}` | downloads | always mounted | anonymous/player | pending | NOT_RUN |
-| `/updates/{channel}/policy-v1.json` | downloads | always mounted | anonymous/player | pending | NOT_RUN |
-| `/updates/{channel}/targets/{*target}` | downloads | always mounted | anonymous/player | pending | NOT_RUN |
-| `/oauth/authorize` | gameauth | always mounted | anonymous/player | pending | NOT_RUN |
-| `/oauth/token` | gameauth | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/panel/hirelings` | hirelings | PORTAL_HIRELINGS_ENABLED | owner | pending | NOT_RUN |
-| `/register/abuse/challenge` | identity | always mounted | anonymous/player | pending | NOT_RUN |
-| `/register/abuse.js` | identity | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/notifications` | identity | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/unsubscribe` | identity | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/privacy/delete` | identity | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/account/privacy/delete/cancel` | identity | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/password/change` | identity | OTERYN_ACCOUNT_CREDENTIALS | anonymous/player | pending | NOT_RUN |
-| `/password/change` | identity | OTERYN_ACCOUNT_CREDENTIALS | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/sudo` | identity | OTERYN_ACCOUNT_CREDENTIALS | owner | pending | NOT_RUN |
-| `/account/sudo` | identity | OTERYN_ACCOUNT_CREDENTIALS | owner | pending | NOT_RUN |
-| `/{lang}/account/security` | identity | OTERYN_ACCOUNT_CREDENTIALS | owner | pending | NOT_RUN |
-| `/account/security` | identity | OTERYN_ACCOUNT_CREDENTIALS | owner | pending | NOT_RUN |
-| `/{lang}/account/security/email` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | owner | pending | NOT_RUN |
-| `/account/security/email` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | owner | pending | NOT_RUN |
-| `/{lang}/email-change/confirm/{token}` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | anonymous/player | pending | NOT_RUN |
-| `/email-change/confirm/{token}` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | anonymous/player | pending | NOT_RUN |
-| `/{lang}/email-change/revert/{token}` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | anonymous/player | pending | NOT_RUN |
-| `/email-change/revert/{token}` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/privacy/export` | identity | OTERYN_ACCOUNT_EXPORT_ENABLED | owner | pending | NOT_RUN |
-| `/login` | identity | OTERYN_ACCOUNT_LOGIN | anonymous/player | pending | NOT_RUN |
-| `/{lang}/login` | identity | OTERYN_ACCOUNT_LOGIN | anonymous/player | pending | NOT_RUN |
-| `/logout` | identity | OTERYN_ACCOUNT_LOGIN | anonymous/player | pending | NOT_RUN |
-| `/{lang}/logout` | identity | OTERYN_ACCOUNT_LOGIN | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/login` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/mfa/login` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/challenge` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/mfa/challenge` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/email` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/mfa/email` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/mfa` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/enroll` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/mfa/enroll` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/confirm` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/mfa/confirm` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/devices` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/mfa/devices` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/passkeys` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
-| `/{lang}/account/passkeys/register/start` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
-| `/{lang}/account/passkeys/register/finish` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
-| `/{lang}/account/passkeys/authenticate/start` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
-| `/{lang}/account/passkeys/authenticate/finish` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
-| `/{lang}/account/passkeys/{id}/remove` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
-| `/{lang}/account/privacy` | identity | OTERYN_ACCOUNT_PRIVACY_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/recovery-key` | identity | always mounted | anonymous/player | pending | NOT_RUN |
-| `/recovery-key` | identity | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/recovery-key` | identity | always mounted | owner | pending | NOT_RUN |
-| `/account/recovery-key` | identity | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/account/recovery-key/confirm` | identity | always mounted | owner | pending | NOT_RUN |
-| `/account/recovery-key/confirm` | identity | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/account/recovery-key/revoke` | identity | always mounted | owner | pending | NOT_RUN |
-| `/account/recovery-key/revoke` | identity | always mounted | owner | pending | NOT_RUN |
-| `/forgot-password` | identity | OTERYN_ACCOUNT_PASSWORD_RESET | anonymous/player | pending | NOT_RUN |
-| `/reset-password` | identity | OTERYN_ACCOUNT_PASSWORD_RESET | anonymous/player | pending | NOT_RUN |
-| `/{lang}/forgot-password` | identity | OTERYN_ACCOUNT_PASSWORD_RESET | anonymous/player | pending | NOT_RUN |
-| `/{lang}/reset-password` | identity | OTERYN_ACCOUNT_PASSWORD_RESET | anonymous/player | pending | NOT_RUN |
-| `/{lang}/reset-password/{token}` | identity | OTERYN_ACCOUNT_PASSWORD_RESET | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/security/wizard` | identity | OTERYN_SECURITY_WIZARD_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/account/sessions` | identity | OTERYN_ACCOUNT_SESSIONS | owner | pending | NOT_RUN |
-| `/account/sessions` | identity | OTERYN_ACCOUNT_SESSIONS | owner | pending | NOT_RUN |
-| `/{lang}/account/sessions/others` | identity | OTERYN_ACCOUNT_SESSIONS | owner | pending | NOT_RUN |
-| `/account/sessions/others` | identity | OTERYN_ACCOUNT_SESSIONS | owner | pending | NOT_RUN |
-| `/{lang}/account/sessions/all` | identity | OTERYN_ACCOUNT_SESSIONS | owner | pending | NOT_RUN |
-| `/account/sessions/all` | identity | OTERYN_ACCOUNT_SESSIONS | owner | pending | NOT_RUN |
-| `/{lang}/account/sessions/{id}` | identity | OTERYN_ACCOUNT_SESSIONS | owner | pending | NOT_RUN |
-| `/account/sessions/{id}` | identity | OTERYN_ACCOUNT_SESSIONS | owner | pending | NOT_RUN |
-| `/{lang}/collection` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/collection/{character}` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/collection/{character}/decks` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/collection/{character}/cards/{id}/image` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/collection/decks/{id}/battle` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/collection/battles/{id}` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/collection/battles/{id}/forfeit` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/collection/decks/{id}/delete` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/collection-pvp` | minigames | OTERYN_COLLECTION_PVP_ENABLED, OTERYN_COLLECTION_SETS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/league` | minigames | OTERYN_LEAGUE_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/pass` | minigames | OTERYN_SEASON_PASS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/pass/{season}/buy` | minigames | OTERYN_SEASON_PASS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/pass/{season}/claim` | minigames | OTERYN_SEASON_PASS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/puzzles` | minigames | OTERYN_DAILY_PUZZLES_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/puzzles/{id}/answer` | minigames | OTERYN_DAILY_PUZZLES_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/puzzles/{id}/image` | minigames | OTERYN_DAILY_PUZZLES_ENABLED, OTERYN_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/panel/premium` | payments | PANEL_PREMIUM_PAYMENTS | owner | pending | NOT_RUN |
-| `/{lang}/panel/payments` | payments | PANEL_PREMIUM_PAYMENTS | owner | pending | NOT_RUN |
-| `/{lang}/panel/payments/receipts/{id}` | payments | PANEL_PREMIUM_PAYMENTS | owner | pending | NOT_RUN |
-| `/api/v1/account/summary` | player-api | always mounted | owner | pending | NOT_RUN |
-| `/api/v1/feed` | player-api | always mounted | anonymous/player | pending | NOT_RUN |
-| `/api/v1/game-auth/tickets` | player-api | always mounted | anonymous/player | pending | NOT_RUN |
-| `/api/v1/game-auth/native-characters` | player-api | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/dashboard` | playerdata | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/account/journal/{character}/deaths` | playerdata | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/account/hunts` | playerdata | OTERYN_PLAYERDATA_HUNTS_READ | owner | pending | NOT_RUN |
-| `/{lang}/account/hunts/compare` | playerdata | OTERYN_PLAYERDATA_HUNTS_READ | owner | pending | NOT_RUN |
-| `/{lang}/account/hunts/{id}` | playerdata | OTERYN_PLAYERDATA_HUNTS_READ | owner | pending | NOT_RUN |
-| `/{lang}/account/hunts/{id}/share` | playerdata | OTERYN_PLAYERDATA_HUNTS_READ | owner | pending | NOT_RUN |
-| `/static/playerdata/hunts.css` | playerdata | OTERYN_PLAYERDATA_HUNTS_READ | anonymous/player | pending | NOT_RUN |
-| `/{lang}/panel/items/{world}/{character}` | playerdata | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/panel/history/{world}/{family}` | playerdata | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/panel/history/{world}/{family}/{character}` | playerdata | always mounted | owner | pending | NOT_RUN |
-| `/{lang}/account/game-logins` | playerdata | OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED, OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED | owner | pending | NOT_RUN |
-| `/account/game-logins` | playerdata | OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED, OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/atlas/places` | playerdata | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/atlas/places/participation` | playerdata | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/account/journal/reports` | playerdata | OTERYN_JOURNAL_REPORTS_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/account/journal/reports/notes` | playerdata | OTERYN_JOURNAL_REPORTS_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/account/journal/reports/notes/export` | playerdata | OTERYN_JOURNAL_REPORTS_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/account/journal/reports/email` | playerdata | OTERYN_JOURNAL_REPORTS_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/stats/characters/{id}/{tab}` | stats | PORTAL_CHARACTER_STATS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/stats/compare` | stats | PORTAL_CHARACTER_STATS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/stats/guilds` | stats | PORTAL_GUILD_STATS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/stats/guilds` | stats | PORTAL_GUILD_STATS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/stats/rankings/{kind}` | stats | PORTAL_GROWTH_RANKINGS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/api/v1/stats/watches` | stats | PORTAL_STATS_WATCHES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/stats/world` | stats | PORTAL_WORLD_STATS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/stats/world` | stats | PORTAL_WORLD_STATS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/shop` | store | OTERYN_SHOP_ENABLED, OTERYN_SHOP_TOP_UPS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/shop/coins` | store | OTERYN_SHOP_ENABLED, OTERYN_SHOP_TOP_UPS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/shop/history` | store | OTERYN_SHOP_ENABLED, OTERYN_SHOP_TOP_UPS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/shop/transfer` | store | OTERYN_SHOP_ENABLED, OTERYN_SHOP_TOP_UPS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/__test/payments/webhook` | store | OTERYN_PAYMENTS_ENABLED, OTERYN_SHOP_TEST_PAYMENTS_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/support/reports` | support | OTERYN_REPORTS_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/support/reports/create` | support | OTERYN_REPORTS_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/support/reports/{id}` | support | OTERYN_REPORTS_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/support/tickets` | support | OTERYN_SUPPORT_TICKETS | owner | pending | NOT_RUN |
-| `/{lang}/support/tickets/create` | support | OTERYN_SUPPORT_TICKETS | owner | pending | NOT_RUN |
-| `/{lang}/support/tickets/{id}` | support | OTERYN_SUPPORT_TICKETS | owner | pending | NOT_RUN |
-| `/{lang}/support/tickets/{id}/reply` | support | OTERYN_SUPPORT_TICKETS | owner | pending | NOT_RUN |
-| `/{lang}/support/tickets/{id}/status` | support | OTERYN_SUPPORT_TICKETS | owner | pending | NOT_RUN |
-| `/{lang}/admin/support/tickets` | support | OTERYN_ADMIN_PANEL, OTERYN_SUPPORT_TICKETS | staff | pending | NOT_RUN |
-| `/{lang}/admin/support/tickets/{id}` | support | OTERYN_ADMIN_PANEL, OTERYN_SUPPORT_TICKETS | staff | pending | NOT_RUN |
-| `/{lang}/admin/support/tickets/{id}/reply` | support | OTERYN_ADMIN_PANEL, OTERYN_SUPPORT_TICKETS | staff | pending | NOT_RUN |
-| `/{lang}/admin/support/tickets/{id}/status` | support | OTERYN_ADMIN_PANEL, OTERYN_SUPPORT_TICKETS | staff | pending | NOT_RUN |
-| `/favicon.ico` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/healthz` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/readyz` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/account` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | owner | pending | NOT_RUN |
-| `/account/badges` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | owner | pending | NOT_RUN |
-| `/account/characters/{name}/profile` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/account/characters/{name}/profile` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | owner | pending | NOT_RUN |
-| `/{lang}/account/characters/{character}/services` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | owner | pending | NOT_RUN |
-| `/register` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/register` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/register/check-inbox` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/register/check-inbox` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/verify-email` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/verify-email` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/verify-email/resend` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/verify-email/resend` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/search` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/search` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/robots.txt` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/sitemap.xml` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/language/{lang}` | web | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/wiki/calculators` | wiki | PORTAL_CALCULATORS_ENABLED, PORTAL_WORLD_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/wiki/{kind}` | wiki | PORTAL_WIKI_ENTITIES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/wiki/{kind}/{key}` | wiki | PORTAL_WIKI_ENTITIES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/wiki/{kind}` | wiki | PORTAL_WIKI_ENTITIES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/wiki/{kind}/{key}` | wiki | PORTAL_WIKI_ENTITIES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/{lang}/wiki/places` | wiki | PORTAL_WIKI_PLACES_ENABLED | anonymous/player | pending | NOT_RUN |
-| `/wiki` | wiki | always mounted | anonymous/player | pending | NOT_RUN |
-| `/wiki/search` | wiki | always mounted | anonymous/player | pending | NOT_RUN |
-| `/wiki/articles/{slug}` | wiki | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/wiki` | wiki | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/wiki/search` | wiki | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/wiki/articles/{slug}` | wiki | always mounted | anonymous/player | pending | NOT_RUN |
-| `/admin/wiki` | wiki | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/wiki/articles/create` | wiki | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/wiki/articles` | wiki | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/wiki/articles/{id}/edit` | wiki | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/wiki/articles/{id}` | wiki | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/wiki/articles/{id}/revisions` | wiki | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/wiki/articles/{id}/preview/{lang}` | wiki | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/wiki/articles/{id}/revisions/{source}/restore` | wiki | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/wiki/articles/{id}/{action}` | wiki | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/world` | world | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/{lang}/rules` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/server-information` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/legal/terms` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/legal/privacy` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/legal/cookies` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/support/report-a-bug` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/help` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/{lang}/support` | content | always mounted | anonymous/player | pending | NOT_RUN |
-| `/api/v1/game-auth/device-sessions` | gameauth | always mounted | anonymous/player | pending | NOT_RUN |
-| `/api/v1/game-auth/device-sessions/native-characters` | gameauth | always mounted | anonymous/player | pending | NOT_RUN |
-| `/api/v1/game-auth/device-sessions/tickets` | gameauth | always mounted | anonymous/player | pending | NOT_RUN |
-| `/api/v1/game-auth/device-sessions/revoke` | gameauth | always mounted | anonymous/player | pending | NOT_RUN |
-| `/api/v1/game-auth/device-sessions/{*rest}` | gameauth | always mounted | anonymous/player | pending | NOT_RUN |
-| `/admin/moderation/reports` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/moderation/reports/{id}` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/moderation/enforcement` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/moderation/enforcement/{id}` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/creatures/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/activity/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/levels/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/health/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/analytics/economy/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
+| `/admin/analytics` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/creatures` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/creatures` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/activity` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/activity` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/levels` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/levels` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/health` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/health` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/economy` | admin | OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/economy` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/{lang}/bazaar` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/{lang}/bazaar` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/commerce` | admin | OTERYN_ADMIN_PANEL, OTERYN_PAYMENTS_ENABLED, OTERYN_PREMIUM_ENABLED, OTERYN_REFUNDS_ENABLED, OTERYN_WALLET_ENABLED | staff | routes.spec.mjs — `route admin /admin/commerce` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/commerce/{action}` | admin | OTERYN_ADMIN_PANEL, OTERYN_PAYMENTS_ENABLED, OTERYN_PREMIUM_ENABLED, OTERYN_REFUNDS_ENABLED, OTERYN_WALLET_ENABLED | staff | routes.spec.mjs — `route admin /admin/commerce/{action}` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/commerce/approvals/{id}` | admin | OTERYN_ADMIN_PANEL, OTERYN_PAYMENTS_ENABLED, OTERYN_PREMIUM_ENABLED, OTERYN_REFUNDS_ENABLED, OTERYN_WALLET_ENABLED | staff | routes.spec.mjs — `route admin /admin/commerce/approvals/{id}` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/console/players` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/console/players` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/console/audit` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/console/audit` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/console/access` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/console/access` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/console/approvals` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/console/approvals` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/console/dashboard` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /console/dashboard` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/console/worlds` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /console/worlds` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/console/nodes` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /console/nodes` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/console/database` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /console/database` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/control/step-up` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/control/step-up` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/control/approvals/{id}` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/control/approvals/{id}` | PENDING: GET 403; missing fixture reference is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/players` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/players` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/players/{id}` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/players/{id}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/moderation/enforcement/create` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/moderation/enforcement/create` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/roles` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/roles` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/atlas/bestiary/{character}` | atlas | OTERYN_ATLAS_BESTIARY_ENABLED | player | routes.spec.mjs — `route atlas /{lang}/atlas/bestiary/{character}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/atlas/delivery` | atlas | always mounted | player | routes.spec.mjs — `route atlas /{lang}/atlas/delivery` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/atlas/delivery.css` | atlas | always mounted | player | routes.spec.mjs — `route atlas /atlas/delivery.css` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/atlas/spawns-text/{lang}` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_ATLAS_SPAWNS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | player | routes.spec.mjs — `route atlas /atlas/spawns-text/{lang}` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/atlas/spawns` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_ATLAS_SPAWNS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | player | routes.spec.mjs — `route atlas /atlas/spawns` | PENDING: GET 400; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/atlas/private-markers` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_ATLAS_SPAWNS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | player | routes.spec.mjs — `route atlas /atlas/private-markers` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/atlas/private-markers/{id}` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_ATLAS_SPAWNS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | player | routes.spec.mjs — `route atlas /atlas/private-markers/{id}` | PENDING: DELETE 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/atlas/map-reports` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_ATLAS_SPAWNS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | player | routes.spec.mjs — `route atlas /atlas/map-reports` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/atlas` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | player | routes.spec.mjs — `route atlas /{lang}/atlas` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/atlas/tiles/{version}/{floor}/{zoom}/{x}/{y}` | atlas | OTERYN_ATLAS_DELIVERY_ENABLED, OTERYN_ATLAS_ENABLED, OTERYN_WORLD_ENABLED, PORTAL_ATLAS_DELIVERY_ENABLED, PORTAL_WORLD_ENABLED | player | routes.spec.mjs — `route atlas /atlas/tiles/{version}/{floor}/{zoom}/{x}/{y}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/bazaar` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/bazaar` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/bazaar` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/account/bazaar` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/bazaar/{listing}` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/bazaar/{listing}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/bazaar/sell` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/account/bazaar/sell` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/bazaar/{listing}/bids` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/account/bazaar/{listing}/bids` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/bazaar/items` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/bazaar/items` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/bazaar/items/new` | bazaar | OTERYN_BAZAAR_ENABLED | player | routes.spec.mjs — `route bazaar /{lang}/bazaar/items/new` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/bazaar/items/{listing}` | bazaar | OTERYN_BAZAAR_ENABLED | player | routes.spec.mjs — `route bazaar /{lang}/bazaar/items/{listing}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/bazaar/{listing}/control` | bazaar | OTERYN_BAZAAR_ENABLED | player | routes.spec.mjs — `route bazaar /{lang}/account/bazaar/{listing}/control` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/bazaar/items/{id}` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/bazaar/items/{id}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/bazaar/items/{id}/{action}` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/bazaar/items/{id}/{action}` | NOT_APPLICABLE: POST 404; Compatibility item action adapter is not mounted when the qualified Bazaar runtime is selected; current actions use account/bazaar listing bids and control endpoints (bazaar.spec.mjs). The absence is asserted as 404.; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/bazaar/sellers/{seller}` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/bazaar/sellers/{seller}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/bazaar/{listing}/report` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/account/bazaar/{listing}/report` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/bazaar/{listing}/promote` | bazaar | always mounted | player | routes.spec.mjs — `route bazaar /{lang}/account/bazaar/{listing}/promote` | PENDING: GET 403; authorization required; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/characters/new` | characters | OTERYN_CHARACTER_COMMANDS_ENABLED, OTERYN_CHARACTER_COMMAND_CREATE_ENABLED, OTERYN_CHARACTER_CREATE_WEB_ENABLED | player | routes.spec.mjs — `route characters /{lang}/account/characters/new` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/characters/requests/{operation}` | characters | OTERYN_CHARACTER_COMMANDS_ENABLED, OTERYN_CHARACTER_COMMAND_CREATE_ENABLED, OTERYN_CHARACTER_CREATE_WEB_ENABLED | player | routes.spec.mjs — `route characters /{lang}/account/characters/requests/{operation}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/characters/suggest` | characters | OTERYN_CHARACTER_COMMANDS_ENABLED, OTERYN_CHARACTER_COMMAND_CREATE_ENABLED, OTERYN_CHARACTER_CREATE_WEB_ENABLED | player | routes.spec.mjs — `route characters /{lang}/account/characters/suggest` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/deaths` | community | PORTAL_DEATHS_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | player | routes.spec.mjs — `route community /deaths` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/deaths` | community | PORTAL_DEATHS_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | player | routes.spec.mjs — `route community /{lang}/deaths` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/characters/{name}/deaths` | community | PORTAL_DEATHS_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | player | routes.spec.mjs — `route community /characters/{name}/deaths` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/characters/{name}/deaths` | community | PORTAL_DEATHS_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | player | routes.spec.mjs — `route community /{lang}/characters/{name}/deaths` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/guilds` | community | always mounted | player | routes.spec.mjs — `route community /guilds` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/guilds/{name}` | community | always mounted | player | routes.spec.mjs — `route community /guilds/{name}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/guilds` | community | always mounted | player | routes.spec.mjs — `route community /{lang}/guilds` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/guilds/{name}` | community | always mounted | player | routes.spec.mjs — `route community /{lang}/guilds/{name}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/houses` | community | PORTAL_HOUSES_INGEST_ENABLED, PORTAL_HOUSES_SERVING_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | player | routes.spec.mjs — `route community /{lang}/houses` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/houses` | community | PORTAL_HOUSES_INGEST_ENABLED, PORTAL_HOUSES_SERVING_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | player | routes.spec.mjs — `route community /houses` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/houses/{key}` | community | PORTAL_HOUSES_INGEST_ENABLED, PORTAL_HOUSES_SERVING_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | player | routes.spec.mjs — `route community /{lang}/houses/{key}` | PENDING: GET 400; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/houses/{key}` | community | PORTAL_HOUSES_INGEST_ENABLED, PORTAL_HOUSES_SERVING_ENABLED, PORTAL_PUBLIC_PROJECTIONS_ENABLED | player | routes.spec.mjs — `route community /houses/{key}` | PENDING: GET 400; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/online` | community | PORTAL_ONLINE_ENABLED | player | routes.spec.mjs — `route community /online` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/online` | community | PORTAL_ONLINE_ENABLED | player | routes.spec.mjs — `route community /{lang}/online` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/{lang}/party` | community | OTERYN_ADMIN_PANEL, PORTAL_PARTY_ENABLED | staff | routes.spec.mjs — `route community /admin/{lang}/party` | PENDING: GET 403; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/{lang}/party/{id}/moderate` | community | OTERYN_ADMIN_PANEL, PORTAL_PARTY_ENABLED | staff | routes.spec.mjs — `route community /admin/{lang}/party/{id}/moderate` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/party` | community | PORTAL_PARTY_ENABLED | player | routes.spec.mjs — `route community /{lang}/party` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/party/{id}/report` | community | PORTAL_PARTY_ENABLED | player | routes.spec.mjs — `route community /{lang}/party/{id}/report` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/party/{id}/remove` | community | PORTAL_PARTY_ENABLED | player | routes.spec.mjs — `route community /{lang}/party/{id}/remove` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/characters` | community | PORTAL_PUBLIC_PROFILES_ENABLED | player | routes.spec.mjs — `route community /{lang}/characters` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/characters/{name}` | community | PORTAL_PUBLIC_PROFILES_ENABLED | player | routes.spec.mjs — `route community /{lang}/characters/{name}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/rankings/{kind}` | community | PORTAL_PUBLIC_RANKINGS_ENABLED | player | routes.spec.mjs — `route community /{lang}/rankings/{kind}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/today/data` | community | PORTAL_PUBLIC_PROJECTIONS_ENABLED, PORTAL_WORLD_DAILY_INGEST_ENABLED, PORTAL_WORLD_DAILY_PUBLIC_ENABLED | player | routes.spec.mjs — `route community /today/data` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/today/data` | community | PORTAL_PUBLIC_PROJECTIONS_ENABLED, PORTAL_WORLD_DAILY_INGEST_ENABLED, PORTAL_WORLD_DAILY_PUBLIC_ENABLED | player | routes.spec.mjs — `route community /{lang}/today/data` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/today/widget` | community | PORTAL_PUBLIC_PROJECTIONS_ENABLED, PORTAL_WORLD_DAILY_INGEST_ENABLED, PORTAL_WORLD_DAILY_PUBLIC_ENABLED | player | routes.spec.mjs — `route community /today/widget` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/today/widget` | community | PORTAL_PUBLIC_PROJECTIONS_ENABLED, PORTAL_WORLD_DAILY_INGEST_ENABLED, PORTAL_WORLD_DAILY_PUBLIC_ENABLED | player | routes.spec.mjs — `route community /{lang}/today/widget` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/worlds` | community | PORTAL_WORLDS_ENABLED | player | routes.spec.mjs — `route community /worlds` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/worlds` | community | PORTAL_WORLDS_ENABLED | player | routes.spec.mjs — `route community /{lang}/worlds` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/worlds` | community | PORTAL_WORLDS_ENABLED | player | routes.spec.mjs — `route community /api/v1/worlds` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/events` | content | always mounted | player | routes.spec.mjs — `route content /events` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/events/{slug}` | content | always mounted | player | routes.spec.mjs — `route content /events/{slug}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/events` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/events` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/events/{slug}` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/events/{slug}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/events` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/events` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/events/create` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/events/create` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/events/{id}/edit` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/events/{id}/edit` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/events/{id}` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/events/{id}` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/events/{id}/status` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/events/{id}/status` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/media` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/media` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/media/{id}/content` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/media/{id}/content` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/media/{id}/thumbnail` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/media/{id}/thumbnail` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/media/{id}` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/media/{id}` | PENDING: DELETE 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/media/{id}/delete` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/media/{id}/delete` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/news` | content | always mounted | player | routes.spec.mjs — `route content /news` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/news/{slug}` | content | always mounted | player | routes.spec.mjs — `route content /news/{slug}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/news` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/news` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/news/{slug}` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/news/{slug}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/news` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/news` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/news/create` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/news/create` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/news/{id}/edit` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/news/{id}/edit` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/news/{id}` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/news/{id}` | PENDING: DELETE 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/news/{id}/delete` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/news/{id}/delete` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/pages` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/pages` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/pages/{slug}/{lang}` | content | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route content /admin/pages/{slug}/{lang}` | PENDING: GET 200; known reserved page editor and CSRF refusal on its form; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/pages/{slug}` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/pages/{slug}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/today` | content | always mounted | player | routes.spec.mjs — `route content /today` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/today` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/today` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/announcements/ticker` | content | always mounted | player | routes.spec.mjs — `route content /announcements/ticker` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/announcements/ticker` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/announcements/ticker` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/updates/{channel}/metadata/{filename}` | downloads | always mounted | player | routes.spec.mjs — `route downloads /updates/{channel}/metadata/{filename}` | PENDING: GET 400; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/updates/{channel}/policy-v1.json` | downloads | always mounted | player | routes.spec.mjs — `route downloads /updates/{channel}/policy-v1.json` | PENDING: GET 400; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/updates/{channel}/targets/{*target}` | downloads | always mounted | player | routes.spec.mjs — `route downloads /updates/{channel}/targets/{*target}` | PENDING: GET 400; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/oauth/authorize` | gameauth | always mounted | player | routes.spec.mjs — `route gameauth /oauth/authorize` | PENDING: GET 400; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/oauth/token` | gameauth | always mounted | player | routes.spec.mjs — `route gameauth /oauth/token` | PENDING: POST 400; OAuth protocol refuses an empty grant; positive PKCE flow in oauth.spec.mjs; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/panel/hirelings` | hirelings | PORTAL_HIRELINGS_ENABLED | player | routes.spec.mjs — `route hirelings /{lang}/panel/hirelings` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/register/abuse/challenge` | identity | always mounted | player | routes.spec.mjs — `route identity /register/abuse/challenge` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/register/abuse.js` | identity | always mounted | player | routes.spec.mjs — `route identity /register/abuse.js` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/notifications` | identity | always mounted | player | routes.spec.mjs — `route identity /{lang}/account/notifications` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/unsubscribe` | identity | always mounted | player | routes.spec.mjs — `route identity /{lang}/unsubscribe` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/privacy/delete` | identity | always mounted | player | routes.spec.mjs — `route identity /{lang}/account/privacy/delete` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/privacy/delete/cancel` | identity | always mounted | player | routes.spec.mjs — `route identity /{lang}/account/privacy/delete/cancel` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/password/change` | identity | OTERYN_ACCOUNT_CREDENTIALS | player | routes.spec.mjs — `route identity /{lang}/password/change` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/password/change` | identity | OTERYN_ACCOUNT_CREDENTIALS | player | routes.spec.mjs — `route identity /password/change` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/sudo` | identity | OTERYN_ACCOUNT_CREDENTIALS | player | routes.spec.mjs — `route identity /{lang}/account/sudo` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/sudo` | identity | OTERYN_ACCOUNT_CREDENTIALS | player | routes.spec.mjs — `route identity /account/sudo` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/security` | identity | OTERYN_ACCOUNT_CREDENTIALS | player | routes.spec.mjs — `route identity /{lang}/account/security` | PENDING: GET 200; security landing redirects to the localized credentials page; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/security` | identity | OTERYN_ACCOUNT_CREDENTIALS | player | routes.spec.mjs — `route identity /account/security` | PENDING: GET 200; security landing redirects to the localized credentials page; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/security/email` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | player | routes.spec.mjs — `route identity /{lang}/account/security/email` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/security/email` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | player | routes.spec.mjs — `route identity /account/security/email` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/email-change/confirm/{token}` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | player | routes.spec.mjs — `route identity /{lang}/email-change/confirm/{token}` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/email-change/confirm/{token}` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | player | routes.spec.mjs — `route identity /email-change/confirm/{token}` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/email-change/revert/{token}` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | player | routes.spec.mjs — `route identity /{lang}/email-change/revert/{token}` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/email-change/revert/{token}` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | player | routes.spec.mjs — `route identity /email-change/revert/{token}` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/privacy/export` | identity | OTERYN_ACCOUNT_EXPORT_ENABLED | player | routes.spec.mjs — `route identity /{lang}/account/privacy/export` | PENDING: GET 403; authorization required; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/login` | identity | OTERYN_ACCOUNT_LOGIN | player | routes.spec.mjs — `route identity /login` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/login` | identity | OTERYN_ACCOUNT_LOGIN | player | routes.spec.mjs — `route identity /{lang}/login` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/logout` | identity | OTERYN_ACCOUNT_LOGIN | player | routes.spec.mjs — `route identity /logout` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/logout` | identity | OTERYN_ACCOUNT_LOGIN | player | routes.spec.mjs — `route identity /{lang}/logout` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/mfa/login` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /{lang}/mfa/login` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/mfa/login` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /mfa/login` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/mfa/challenge` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /{lang}/mfa/challenge` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/mfa/challenge` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /mfa/challenge` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/mfa/email` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /{lang}/mfa/email` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/mfa/email` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /mfa/email` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/mfa` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /{lang}/mfa` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/mfa` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /mfa` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/mfa/enroll` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /{lang}/mfa/enroll` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/mfa/enroll` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /mfa/enroll` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/mfa/confirm` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /{lang}/mfa/confirm` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/mfa/confirm` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /mfa/confirm` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/mfa/devices` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /{lang}/mfa/devices` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/mfa/devices` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | player | routes.spec.mjs — `route identity /mfa/devices` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/passkeys` | identity | OTERYN_ACCOUNT_PASSKEYS | player | routes.spec.mjs — `route identity /{lang}/account/passkeys` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/passkeys/register/start` | identity | OTERYN_ACCOUNT_PASSKEYS | player | routes.spec.mjs — `route identity /{lang}/account/passkeys/register/start` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/passkeys/register/finish` | identity | OTERYN_ACCOUNT_PASSKEYS | player | routes.spec.mjs — `route identity /{lang}/account/passkeys/register/finish` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/passkeys/authenticate/start` | identity | OTERYN_ACCOUNT_PASSKEYS | player | routes.spec.mjs — `route identity /{lang}/account/passkeys/authenticate/start` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/passkeys/authenticate/finish` | identity | OTERYN_ACCOUNT_PASSKEYS | player | routes.spec.mjs — `route identity /{lang}/account/passkeys/authenticate/finish` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/passkeys/{id}/remove` | identity | OTERYN_ACCOUNT_PASSKEYS | player | routes.spec.mjs — `route identity /{lang}/account/passkeys/{id}/remove` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/privacy` | identity | OTERYN_ACCOUNT_PRIVACY_ENABLED | player | routes.spec.mjs — `route identity /{lang}/account/privacy` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/recovery-key` | identity | always mounted | player | routes.spec.mjs — `route identity /{lang}/recovery-key` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/recovery-key` | identity | always mounted | player | routes.spec.mjs — `route identity /recovery-key` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/recovery-key` | identity | always mounted | player | routes.spec.mjs — `route identity /{lang}/account/recovery-key` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/recovery-key` | identity | always mounted | player | routes.spec.mjs — `route identity /account/recovery-key` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/recovery-key/confirm` | identity | always mounted | player | routes.spec.mjs — `route identity /{lang}/account/recovery-key/confirm` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/recovery-key/confirm` | identity | always mounted | player | routes.spec.mjs — `route identity /account/recovery-key/confirm` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/recovery-key/revoke` | identity | always mounted | player | routes.spec.mjs — `route identity /{lang}/account/recovery-key/revoke` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/recovery-key/revoke` | identity | always mounted | player | routes.spec.mjs — `route identity /account/recovery-key/revoke` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/forgot-password` | identity | OTERYN_ACCOUNT_PASSWORD_RESET | player | routes.spec.mjs — `route identity /forgot-password` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/reset-password` | identity | OTERYN_ACCOUNT_PASSWORD_RESET | player | routes.spec.mjs — `route identity /reset-password` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/forgot-password` | identity | OTERYN_ACCOUNT_PASSWORD_RESET | player | routes.spec.mjs — `route identity /{lang}/forgot-password` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/reset-password` | identity | OTERYN_ACCOUNT_PASSWORD_RESET | player | routes.spec.mjs — `route identity /{lang}/reset-password` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/reset-password/{token}` | identity | OTERYN_ACCOUNT_PASSWORD_RESET | player | routes.spec.mjs — `route identity /{lang}/reset-password/{token}` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/security/wizard` | identity | OTERYN_SECURITY_WIZARD_ENABLED | player | routes.spec.mjs — `route identity /{lang}/account/security/wizard` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/sessions` | identity | OTERYN_ACCOUNT_SESSIONS | player | routes.spec.mjs — `route identity /{lang}/account/sessions` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/sessions` | identity | OTERYN_ACCOUNT_SESSIONS | player | routes.spec.mjs — `route identity /account/sessions` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/sessions/others` | identity | OTERYN_ACCOUNT_SESSIONS | player | routes.spec.mjs — `route identity /{lang}/account/sessions/others` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/sessions/others` | identity | OTERYN_ACCOUNT_SESSIONS | player | routes.spec.mjs — `route identity /account/sessions/others` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/sessions/all` | identity | OTERYN_ACCOUNT_SESSIONS | player | routes.spec.mjs — `route identity /{lang}/account/sessions/all` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/sessions/all` | identity | OTERYN_ACCOUNT_SESSIONS | player | routes.spec.mjs — `route identity /account/sessions/all` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/sessions/{id}` | identity | OTERYN_ACCOUNT_SESSIONS | player | routes.spec.mjs — `route identity /{lang}/account/sessions/{id}` | PENDING: DELETE 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/sessions/{id}` | identity | OTERYN_ACCOUNT_SESSIONS | player | routes.spec.mjs — `route identity /account/sessions/{id}` | PENDING: DELETE 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/collection` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/collection` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/collection/{character}` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/collection/{character}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/collection/{character}/decks` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/collection/{character}/decks` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/collection/{character}/cards/{id}/image` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/collection/{character}/cards/{id}/image` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/collection/decks/{id}/battle` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/collection/decks/{id}/battle` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/collection/battles/{id}` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/collection/battles/{id}` | PENDING: GET 403; authorization required; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/collection/battles/{id}/forfeit` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/collection/battles/{id}/forfeit` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/collection/decks/{id}/delete` | minigames | OTERYN_COLLECTION_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/collection/decks/{id}/delete` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/collection-pvp` | minigames | OTERYN_COLLECTION_PVP_ENABLED, OTERYN_COLLECTION_SETS_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/collection-pvp` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/league` | minigames | OTERYN_LEAGUE_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/league` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/pass` | minigames | OTERYN_SEASON_PASS_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/pass` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/pass/{season}/buy` | minigames | OTERYN_SEASON_PASS_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/pass/{season}/buy` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/pass/{season}/claim` | minigames | OTERYN_SEASON_PASS_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/pass/{season}/claim` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/puzzles` | minigames | OTERYN_DAILY_PUZZLES_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/puzzles` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/puzzles/{id}/answer` | minigames | OTERYN_DAILY_PUZZLES_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/puzzles/{id}/answer` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/puzzles/{id}/image` | minigames | OTERYN_DAILY_PUZZLES_ENABLED, OTERYN_WORLD_ENABLED | player | routes.spec.mjs — `route minigames /{lang}/puzzles/{id}/image` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/panel/premium` | payments | PANEL_PREMIUM_PAYMENTS | player | routes.spec.mjs — `route payments /{lang}/panel/premium` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/panel/payments` | payments | PANEL_PREMIUM_PAYMENTS | player | routes.spec.mjs — `route payments /{lang}/panel/payments` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/panel/payments/receipts/{id}` | payments | PANEL_PREMIUM_PAYMENTS | player | routes.spec.mjs — `route payments /{lang}/panel/payments/receipts/{id}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/account/summary` | player-api | always mounted | player | routes.spec.mjs — `route player-api /api/v1/account/summary` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/feed` | player-api | always mounted | player | routes.spec.mjs — `route player-api /api/v1/feed` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/game-auth/tickets` | player-api | always mounted | player | routes.spec.mjs — `route player-api /api/v1/game-auth/tickets` | PENDING: POST 401; native API refuses absent verified HTTPS/authority or bearer token; no browser form; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/game-auth/native-characters` | player-api | always mounted | player | routes.spec.mjs — `route player-api /api/v1/game-auth/native-characters` | PENDING: GET 401; authorization required; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/dashboard` | playerdata | always mounted | player | routes.spec.mjs — `route playerdata /{lang}/account/dashboard` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/journal/{character}/deaths` | playerdata | always mounted | player | routes.spec.mjs — `route playerdata /{lang}/account/journal/{character}/deaths` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/hunts` | playerdata | OTERYN_PLAYERDATA_HUNTS_READ | player | routes.spec.mjs — `route playerdata /{lang}/account/hunts` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/hunts/compare` | playerdata | OTERYN_PLAYERDATA_HUNTS_READ | player | routes.spec.mjs — `route playerdata /{lang}/account/hunts/compare` | PENDING: GET 400; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/hunts/{id}` | playerdata | OTERYN_PLAYERDATA_HUNTS_READ | player | routes.spec.mjs — `route playerdata /{lang}/account/hunts/{id}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/hunts/{id}/share` | playerdata | OTERYN_PLAYERDATA_HUNTS_READ | player | routes.spec.mjs — `route playerdata /{lang}/account/hunts/{id}/share` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/static/playerdata/hunts.css` | playerdata | OTERYN_PLAYERDATA_HUNTS_READ | player | routes.spec.mjs — `route playerdata /static/playerdata/hunts.css` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/panel/items/{world}/{character}` | playerdata | always mounted | player | routes.spec.mjs — `route playerdata /{lang}/panel/items/{world}/{character}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/panel/history/{world}/{family}` | playerdata | always mounted | player | routes.spec.mjs — `route playerdata /{lang}/panel/history/{world}/{family}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/panel/history/{world}/{family}/{character}` | playerdata | always mounted | player | routes.spec.mjs — `route playerdata /{lang}/panel/history/{world}/{family}/{character}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/game-logins` | playerdata | OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED, OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED | player | routes.spec.mjs — `route playerdata /{lang}/account/game-logins` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/game-logins` | playerdata | OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED, OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED | player | routes.spec.mjs — `route playerdata /account/game-logins` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/atlas/places` | playerdata | always mounted | player | routes.spec.mjs — `route playerdata /{lang}/atlas/places` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/atlas/places/participation` | playerdata | always mounted | player | routes.spec.mjs — `route playerdata /{lang}/atlas/places/participation` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/journal/reports` | playerdata | OTERYN_JOURNAL_REPORTS_ENABLED | player | routes.spec.mjs — `route playerdata /{lang}/account/journal/reports` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/journal/reports/notes` | playerdata | OTERYN_JOURNAL_REPORTS_ENABLED | player | routes.spec.mjs — `route playerdata /{lang}/account/journal/reports/notes` | PENDING: GET 400; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/journal/reports/notes/export` | playerdata | OTERYN_JOURNAL_REPORTS_ENABLED | player | routes.spec.mjs — `route playerdata /{lang}/account/journal/reports/notes/export` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/journal/reports/email` | playerdata | OTERYN_JOURNAL_REPORTS_ENABLED | player | routes.spec.mjs — `route playerdata /{lang}/account/journal/reports/email` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/stats/characters/{id}/{tab}` | stats | PORTAL_CHARACTER_STATS_ENABLED | player | routes.spec.mjs — `route stats /{lang}/stats/characters/{id}/{tab}` | PENDING: GET 503; valid experience tab refuses absent accepted character/privacy projection authority; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/stats/compare` | stats | PORTAL_CHARACTER_STATS_ENABLED | player | routes.spec.mjs — `route stats /{lang}/stats/compare` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/stats/guilds` | stats | PORTAL_GUILD_STATS_ENABLED | player | routes.spec.mjs — `route stats /stats/guilds` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/stats/guilds` | stats | PORTAL_GUILD_STATS_ENABLED | player | routes.spec.mjs — `route stats /{lang}/stats/guilds` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/stats/rankings/{kind}` | stats | PORTAL_GROWTH_RANKINGS_ENABLED | player | routes.spec.mjs — `route stats /{lang}/stats/rankings/{kind}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/stats/watches` | stats | PORTAL_STATS_WATCHES_ENABLED | player | routes.spec.mjs — `route stats /api/v1/stats/watches` | PENDING: GET 401; authorization required; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/stats/world` | stats | PORTAL_WORLD_STATS_ENABLED | player | routes.spec.mjs — `route stats /stats/world` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/stats/world` | stats | PORTAL_WORLD_STATS_ENABLED | player | routes.spec.mjs — `route stats /{lang}/stats/world` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/shop` | store | OTERYN_SHOP_ENABLED, OTERYN_SHOP_TOP_UPS_ENABLED | player | routes.spec.mjs — `route store /{lang}/shop` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/shop/coins` | store | OTERYN_SHOP_ENABLED, OTERYN_SHOP_TOP_UPS_ENABLED | player | routes.spec.mjs — `route store /{lang}/shop/coins` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/shop/history` | store | OTERYN_SHOP_ENABLED, OTERYN_SHOP_TOP_UPS_ENABLED | player | routes.spec.mjs — `route store /{lang}/shop/history` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/shop/transfer` | store | OTERYN_SHOP_ENABLED, OTERYN_SHOP_TOP_UPS_ENABLED | player | routes.spec.mjs — `route store /{lang}/shop/transfer` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/__test/payments/webhook` | store | OTERYN_PAYMENTS_ENABLED, OTERYN_SHOP_TEST_PAYMENTS_ENABLED | player | routes.spec.mjs — `route store /__test/payments/webhook` | PENDING: POST 400; signed test-provider protocol refuses absent signature; positive flow in wallet-topup.spec.mjs; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/support/reports` | support | OTERYN_REPORTS_ENABLED | player | routes.spec.mjs — `route support /{lang}/support/reports` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/support/reports/create` | support | OTERYN_REPORTS_ENABLED | player | routes.spec.mjs — `route support /{lang}/support/reports/create` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/support/reports/{id}` | support | OTERYN_REPORTS_ENABLED | player | routes.spec.mjs — `route support /{lang}/support/reports/{id}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/support/tickets` | support | OTERYN_SUPPORT_TICKETS | player | routes.spec.mjs — `route support /{lang}/support/tickets` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/support/tickets/create` | support | OTERYN_SUPPORT_TICKETS | player | routes.spec.mjs — `route support /{lang}/support/tickets/create` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/support/tickets/{id}` | support | OTERYN_SUPPORT_TICKETS | player | routes.spec.mjs — `route support /{lang}/support/tickets/{id}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/support/tickets/{id}/reply` | support | OTERYN_SUPPORT_TICKETS | player | routes.spec.mjs — `route support /{lang}/support/tickets/{id}/reply` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/support/tickets/{id}/status` | support | OTERYN_SUPPORT_TICKETS | player | routes.spec.mjs — `route support /{lang}/support/tickets/{id}/status` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/admin/support/tickets` | support | OTERYN_ADMIN_PANEL, OTERYN_SUPPORT_TICKETS | staff | routes.spec.mjs — `route support /{lang}/admin/support/tickets` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/admin/support/tickets/{id}` | support | OTERYN_ADMIN_PANEL, OTERYN_SUPPORT_TICKETS | staff | routes.spec.mjs — `route support /{lang}/admin/support/tickets/{id}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/admin/support/tickets/{id}/reply` | support | OTERYN_ADMIN_PANEL, OTERYN_SUPPORT_TICKETS | staff | routes.spec.mjs — `route support /{lang}/admin/support/tickets/{id}/reply` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/admin/support/tickets/{id}/status` | support | OTERYN_ADMIN_PANEL, OTERYN_SUPPORT_TICKETS | staff | routes.spec.mjs — `route support /{lang}/admin/support/tickets/{id}/status` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/favicon.ico` | web | always mounted | player | routes.spec.mjs — `route web /favicon.ico` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | player | routes.spec.mjs — `route web /` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/healthz` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | player | routes.spec.mjs — `route web /healthz` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/readyz` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | player | routes.spec.mjs — `route web /readyz` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | player | routes.spec.mjs — `route web /account` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/badges` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | player | routes.spec.mjs — `route web /account/badges` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/account/characters/{name}/profile` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | player | routes.spec.mjs — `route web /account/characters/{name}/profile` | PENDING: GET 404; healthy ownership authority: current player has no snapshot for this character; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/characters/{name}/profile` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | player | routes.spec.mjs — `route web /{lang}/account/characters/{name}/profile` | PENDING: GET 404; healthy ownership authority: current player has no snapshot for this character; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/account/characters/{character}/services` | web | OTERYN_ACCOUNT_OVERVIEW_ENABLED, OTERYN_ACCOUNT_RECOVERY_KEYS, OTERYN_CHARACTER_PROFILES_ENABLED | player | routes.spec.mjs — `route web /{lang}/account/characters/{character}/services` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/register` | web | always mounted | player | routes.spec.mjs — `route web /register` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/register` | web | always mounted | player | routes.spec.mjs — `route web /{lang}/register` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/register/check-inbox` | web | always mounted | player | routes.spec.mjs — `route web /register/check-inbox` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/register/check-inbox` | web | always mounted | player | routes.spec.mjs — `route web /{lang}/register/check-inbox` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/verify-email` | web | always mounted | player | routes.spec.mjs — `route web /verify-email` | PENDING: GET 422; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/verify-email` | web | always mounted | player | routes.spec.mjs — `route web /{lang}/verify-email` | PENDING: GET 422; missing query/invalid fixture selection is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/verify-email/resend` | web | always mounted | player | routes.spec.mjs — `route web /verify-email/resend` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/verify-email/resend` | web | always mounted | player | routes.spec.mjs — `route web /{lang}/verify-email/resend` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/search` | web | always mounted | player | routes.spec.mjs — `route web /search` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/search` | web | always mounted | player | routes.spec.mjs — `route web /{lang}/search` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/robots.txt` | web | always mounted | player | routes.spec.mjs — `route web /robots.txt` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/sitemap.xml` | web | always mounted | player | routes.spec.mjs — `route web /sitemap.xml` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}` | web | always mounted | player | routes.spec.mjs — `route web /{lang}` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/` | web | always mounted | player | routes.spec.mjs — `route web /{lang}/` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/language/{lang}` | web | always mounted | player | routes.spec.mjs — `route web /language/{lang}` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/wiki/calculators` | wiki | PORTAL_CALCULATORS_ENABLED, PORTAL_WORLD_ENABLED | player | routes.spec.mjs — `route wiki /{lang}/wiki/calculators` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/wiki/{kind}` | wiki | PORTAL_WIKI_ENTITIES_ENABLED | player | routes.spec.mjs — `route wiki /wiki/{kind}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/wiki/{kind}/{key}` | wiki | PORTAL_WIKI_ENTITIES_ENABLED | player | routes.spec.mjs — `route wiki /wiki/{kind}/{key}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/wiki/{kind}` | wiki | PORTAL_WIKI_ENTITIES_ENABLED | player | routes.spec.mjs — `route wiki /{lang}/wiki/{kind}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/wiki/{kind}/{key}` | wiki | PORTAL_WIKI_ENTITIES_ENABLED | player | routes.spec.mjs — `route wiki /{lang}/wiki/{kind}/{key}` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/wiki/places` | wiki | PORTAL_WIKI_PLACES_ENABLED | player | routes.spec.mjs — `route wiki /{lang}/wiki/places` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/wiki` | wiki | always mounted | player | routes.spec.mjs — `route wiki /wiki` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/wiki/search` | wiki | always mounted | player | routes.spec.mjs — `route wiki /wiki/search` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/wiki/articles/{slug}` | wiki | always mounted | player | routes.spec.mjs — `route wiki /wiki/articles/{slug}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/wiki` | wiki | always mounted | player | routes.spec.mjs — `route wiki /{lang}/wiki` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/wiki/search` | wiki | always mounted | player | routes.spec.mjs — `route wiki /{lang}/wiki/search` | PENDING: GET 503; authority or projection unavailable; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/wiki/articles/{slug}` | wiki | always mounted | player | routes.spec.mjs — `route wiki /{lang}/wiki/articles/{slug}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/wiki` | wiki | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route wiki /admin/wiki` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/wiki/articles/create` | wiki | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route wiki /admin/wiki/articles/create` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/wiki/articles` | wiki | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route wiki /admin/wiki/articles` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/wiki/articles/{id}/edit` | wiki | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route wiki /admin/wiki/articles/{id}/edit` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/wiki/articles/{id}` | wiki | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route wiki /admin/wiki/articles/{id}` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/wiki/articles/{id}/revisions` | wiki | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route wiki /admin/wiki/articles/{id}/revisions` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/wiki/articles/{id}/preview/{lang}` | wiki | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route wiki /admin/wiki/articles/{id}/preview/{lang}` | PENDING: GET 404; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/wiki/articles/{id}/revisions/{source}/restore` | wiki | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route wiki /admin/wiki/articles/{id}/revisions/{source}/restore` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/wiki/articles/{id}/{action}` | wiki | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route wiki /admin/wiki/articles/{id}/{action}` | PENDING: POST 403; missing CSRF is refused before mutation; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/world` | world | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route world /admin/world` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/rules` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/rules` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/server-information` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/server-information` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/legal/terms` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/legal/terms` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/legal/privacy` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/legal/privacy` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/legal/cookies` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/legal/cookies` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/support/report-a-bug` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/support/report-a-bug` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/help` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/help` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/{lang}/support` | content | always mounted | player | routes.spec.mjs — `route content /{lang}/support` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/game-auth/device-sessions` | gameauth | always mounted | player | routes.spec.mjs — `route gameauth /api/v1/game-auth/device-sessions` | PENDING: POST 503; native API refuses absent verified HTTPS/authority or bearer token; no browser form; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/game-auth/device-sessions/native-characters` | gameauth | always mounted | player | routes.spec.mjs — `route gameauth /api/v1/game-auth/device-sessions/native-characters` | PENDING: POST 503; native API refuses absent verified HTTPS/authority or bearer token; no browser form; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/game-auth/device-sessions/tickets` | gameauth | always mounted | player | routes.spec.mjs — `route gameauth /api/v1/game-auth/device-sessions/tickets` | PENDING: POST 503; native API refuses absent verified HTTPS/authority or bearer token; no browser form; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/game-auth/device-sessions/revoke` | gameauth | always mounted | player | routes.spec.mjs — `route gameauth /api/v1/game-auth/device-sessions/revoke` | PENDING: POST 503; native API refuses absent verified HTTPS/authority or bearer token; no browser form; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/api/v1/game-auth/device-sessions/{*rest}` | gameauth | always mounted | player | routes.spec.mjs — `route gameauth /api/v1/game-auth/device-sessions/{*rest}` | PENDING: POST 503; native API refuses absent verified HTTPS/authority or bearer token; no browser form; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/moderation/reports` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/moderation/reports` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/moderation/reports/{id}` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/moderation/reports/{id}` | PENDING: GET 503; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/moderation/enforcement` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/moderation/enforcement` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/moderation/enforcement/{id}` | admin | OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/moderation/enforcement/{id}` | PENDING: GET 503; missing fixture reference is refused; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/data` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/creatures/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/creatures/data` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/activity/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/activity/data` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/levels/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/levels/data` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/health/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/health/data` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
+| `/admin/analytics/economy/data` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_PANEL | staff | routes.spec.mjs — `route admin /admin/analytics/economy/data` | PENDING: GET 200; page, redirect alias or resource read; pl-1440: PASS; pl-390: NOT_RUN; en-1440: NOT_RUN; en-390: NOT_RUN |
 
-## Registry sections
+## Registry and footer sections
 
-| Section | Route | Group | Module | Footer | Result |
-| --- | --- | --- | --- | --- | --- |
-| account-overview | `/account` | Account | identity | False | NOT_RUN |
-| account-security | `password/change` | Account | identity | False | NOT_RUN |
-| account-wizard | `account/security/wizard` | Account | identity | False | NOT_RUN |
-| account-passkeys | `account/passkeys` | Account | identity | False | NOT_RUN |
-| account-recovery-key | `account/recovery-key` | Account | identity | False | NOT_RUN |
-| account-sessions | `account/sessions` | Account | identity | False | NOT_RUN |
-| account-privacy | `account/privacy` | Account | identity | False | NOT_RUN |
-| account-notifications | `account/notifications` | Account | identity | False | NOT_RUN |
-| create-character | `account/characters/new` | Account | characters | False | NOT_RUN |
-| shop | `shop` | Play | store | False | NOT_RUN |
-| news | `news` | Community | content | True | NOT_RUN |
-| events | `events` | Community | content | False | NOT_RUN |
-| support | `support/report-a-bug` | Community | content | True | NOT_RUN |
-| privacy | `legal/privacy` | Account | content | True | NOT_RUN |
-| terms | `legal/terms` | Account | content | True | NOT_RUN |
-| today | `today` | Community | content | False | NOT_RUN |
-| rules | `rules` | World | content | False | NOT_RUN |
-| server | `server-information` | World | content | False | NOT_RUN |
-| wiki | `wiki` | World | wiki | True | NOT_RUN |
-| calculators | `wiki/calculators` | World | wiki | False | NOT_RUN |
-| worlds | `worlds` | World | community | False | NOT_RUN |
-| online | `online` | Community | community | False | NOT_RUN |
-| rankings | `rankings/experience` | Community | community | False | NOT_RUN |
-| party | `party` | Community | community | False | NOT_RUN |
-| guilds | `guilds` | Community | community | False | NOT_RUN |
-| houses | `houses` | World | community | False | NOT_RUN |
-| deaths | `deaths` | Community | community | False | NOT_RUN |
-| world-stats | `stats/world` | World | stats | False | NOT_RUN |
-| guild-stats | `stats/guilds` | Community | stats | False | NOT_RUN |
-| growth-rankings | `stats/rankings/yesterday` | Community | stats | False | NOT_RUN |
-| compare | `stats/compare` | Community | stats | False | NOT_RUN |
-| atlas | `atlas` | World | atlas | False | NOT_RUN |
-| delivery | `atlas/delivery` | World | atlas | False | NOT_RUN |
-| league | `league` | Play | minigames | False | NOT_RUN |
-| puzzles | `puzzles` | Play | minigames | False | NOT_RUN |
-| collection | `collection` | Play | minigames | False | NOT_RUN |
-| pass | `pass` | Play | minigames | False | NOT_RUN |
-| hirelings | `panel/hirelings` | Account | hirelings | False | NOT_RUN |
-| hunts | `account/hunts` | Account | playerdata | False | NOT_RUN |
-| reports | `account/journal/reports` | Account | playerdata | False | NOT_RUN |
-| logins | `account/game-logins` | Account | playerdata | False | NOT_RUN |
-| places | `atlas/places` | World | playerdata | False | NOT_RUN |
-| premium | `panel/premium` | Account | payments | False | NOT_RUN |
-| payments | `panel/payments` | Account | payments | False | NOT_RUN |
-| tickets | `support/tickets` | Account | support | False | NOT_RUN |
-| abuse-reports | `support/reports` | Account | support | False | NOT_RUN |
-| bazaar | `bazaar` | World | bazaar | False | NOT_RUN |
-| account-bazaar | `account/bazaar` | Account | bazaar | False | NOT_RUN |
+| Section | Route | Module | Group | Footer | Spec + case | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| account-overview | `/account` | identity | Account | False | navigation.spec.mjs — registry account-overview: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| account-security | `password/change` | identity | Account | False | navigation.spec.mjs — registry account-security: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| account-wizard | `account/security/wizard` | identity | Account | False | navigation.spec.mjs — registry account-wizard: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| account-passkeys | `account/passkeys` | identity | Account | False | navigation.spec.mjs — registry account-passkeys: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| account-recovery-key | `account/recovery-key` | identity | Account | False | navigation.spec.mjs — registry account-recovery-key: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| account-sessions | `account/sessions` | identity | Account | False | navigation.spec.mjs — registry account-sessions: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| account-privacy | `account/privacy` | identity | Account | False | navigation.spec.mjs — registry account-privacy: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| account-notifications | `account/notifications` | identity | Account | False | navigation.spec.mjs — registry account-notifications: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| create-character | `account/characters/new` | characters | Account | False | navigation.spec.mjs — registry create-character: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| shop | `shop` | store | Play | False | navigation.spec.mjs — registry shop: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| news | `news` | content | Community | True | navigation.spec.mjs — registry news: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| events | `events` | content | Community | False | navigation.spec.mjs — registry events: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| support | `support/report-a-bug` | content | Community | True | navigation.spec.mjs — registry support: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| privacy | `legal/privacy` | content | Account | True | navigation.spec.mjs — registry privacy: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| terms | `legal/terms` | content | Account | True | navigation.spec.mjs — registry terms: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| today | `today` | content | Community | False | navigation.spec.mjs — registry today: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| rules | `rules` | content | World | False | navigation.spec.mjs — registry rules: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| server | `server-information` | content | World | False | navigation.spec.mjs — registry server: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| wiki | `wiki` | wiki | World | True | navigation.spec.mjs — registry wiki: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| calculators | `wiki/calculators` | wiki | World | False | navigation.spec.mjs — registry calculators: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| worlds | `worlds` | community | World | False | navigation.spec.mjs — registry worlds: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| online | `online` | community | Community | False | navigation.spec.mjs — registry online: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| rankings | `rankings/experience` | community | Community | False | navigation.spec.mjs — registry rankings: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| party | `party` | community | Community | False | navigation.spec.mjs — registry party: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| guilds | `guilds` | community | Community | False | navigation.spec.mjs — registry guilds: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| houses | `houses` | community | World | False | navigation.spec.mjs — registry houses: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| deaths | `deaths` | community | Community | False | navigation.spec.mjs — registry deaths: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| world-stats | `stats/world` | stats | World | False | navigation.spec.mjs — registry world-stats: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| guild-stats | `stats/guilds` | stats | Community | False | navigation.spec.mjs — registry guild-stats: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| growth-rankings | `stats/rankings/yesterday` | stats | Community | False | navigation.spec.mjs — registry growth-rankings: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| compare | `stats/compare` | stats | Community | False | navigation.spec.mjs — registry compare: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| atlas | `atlas` | atlas | World | False | navigation.spec.mjs — registry atlas: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| delivery | `atlas/delivery` | atlas | World | False | navigation.spec.mjs — registry delivery: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| league | `league` | minigames | Play | False | navigation.spec.mjs — registry league: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| puzzles | `puzzles` | minigames | Play | False | navigation.spec.mjs — registry puzzles: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| collection | `collection` | minigames | Play | False | navigation.spec.mjs — registry collection: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| pass | `pass` | minigames | Play | False | navigation.spec.mjs — registry pass: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| hirelings | `panel/hirelings` | hirelings | Account | False | navigation.spec.mjs — registry hirelings: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| hunts | `account/hunts` | playerdata | Account | False | navigation.spec.mjs — registry hunts: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| reports | `account/journal/reports` | playerdata | Account | False | navigation.spec.mjs — registry reports: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| logins | `account/game-logins` | playerdata | Account | False | navigation.spec.mjs — registry logins: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| places | `atlas/places` | playerdata | World | False | navigation.spec.mjs — registry places: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| premium | `panel/premium` | payments | Account | False | navigation.spec.mjs — registry premium: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| payments | `panel/payments` | payments | Account | False | navigation.spec.mjs — registry payments: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| tickets | `support/tickets` | support | Account | False | navigation.spec.mjs — registry tickets: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| abuse-reports | `support/reports` | support | Account | False | navigation.spec.mjs — registry abuse-reports: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| bazaar | `bazaar` | bazaar | World | False | navigation.spec.mjs — registry bazaar: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+| account-bazaar | `account/bazaar` | bazaar | Account | False | navigation.spec.mjs — registry account-bazaar: destination and shared shell | pl-1440: PASS; pl-390: PASS; en-1440: NOT_RUN; en-390: NOT_RUN |
+
+## Current totals
+
+Routes exercised at least once: 317 applicable + 1 NOT_APPLICABLE absence assertion; never exercised: 0. Four-project qualification remains IN_PROGRESS; 317 applicable routes await final all-project coverage. Live Game reads assert documented refusal/unavailability; no live Game success is claimed. Final totals will be regenerated from the completed Playwright JSON report.
