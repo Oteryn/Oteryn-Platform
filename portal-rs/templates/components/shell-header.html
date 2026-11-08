@@ -21,58 +21,11 @@
 <nav class="hx-nav" aria-label="{{ chrome.text("navigation") }}">
 <ul class="hx-nav__list">
 <li class="hx-nav__item"><a class="hx-nav__link" href="{{ chrome.home_url() }}"{% if chrome.home_current %} aria-current="page"{% endif %}><img class="hx-nav__icon" src="/static/img/home/nav-home.webp" alt="" width="26" height="26"><span>{{ chrome.text("stage-nav-home") }}</span></a></li>
-{% if let Some(top) = chrome.first_link("news,events,today") %}<li class="hx-nav__item hx-nav__item--menu">
-<a class="hx-nav__link" href="{{ top.url }}"><img class="hx-nav__icon" src="/static/img/home/nav-news.webp" alt="" width="26" height="26"><span>{{ chrome.text("stage-nav-news") }}</span><span class="hx-nav__caret" aria-hidden="true">▾</span></a>
+{% for group in chrome.groups %}{% if let Some(top) = group.links.first() %}<li class="hx-nav__item hx-nav__item--menu{% if group.current() %} hx-nav__item--on{% endif %}">
+<a class="hx-nav__link" href="{{ top.url }}"{% if group.current() %} aria-current="true"{% endif %}><img class="hx-nav__icon" src="/static/img/home/nav-{{ group.icon }}.webp" alt="" width="26" height="26"><span>{{ group.label }}</span><span class="hx-nav__caret" aria-hidden="true">▾</span></a>
 <ul class="hx-nav__menu">
-{% if let Some(link) = chrome.link("news") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-news") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("events") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-events") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("today") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-today") }}</a></li>{% endif %}
-</ul></li>{% endif %}
-<li class="hx-nav__item"><a class="hx-nav__link" href="/{{ chrome.lang }}/server-information#download"><img class="hx-nav__icon" src="/static/img/home/nav-download.webp" alt="" width="26" height="26"><span>{{ chrome.text("stage-nav-download") }}</span></a></li>
-{% if let Some(top) = chrome.first_link("online,guilds,deaths,party,compare") %}<li class="hx-nav__item hx-nav__item--menu">
-<a class="hx-nav__link" href="{{ top.url }}"><img class="hx-nav__icon" src="/static/img/home/nav-community.webp" alt="" width="26" height="26"><span>{{ chrome.text("stage-nav-community") }}</span><span class="hx-nav__caret" aria-hidden="true">▾</span></a>
-<ul class="hx-nav__menu">
-{% if let Some(link) = chrome.link("online") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-online") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("guilds") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-guilds") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("deaths") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-deaths") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("party") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-party") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("compare") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-compare") }}</a></li>{% endif %}
-</ul></li>{% endif %}
-{% if let Some(top) = chrome.first_link("rankings,growth-rankings,world-stats,guild-stats,league") %}<li class="hx-nav__item hx-nav__item--menu">
-<a class="hx-nav__link" href="{{ top.url }}"><img class="hx-nav__icon" src="/static/img/home/nav-rankings.webp" alt="" width="26" height="26"><span>{{ chrome.text("stage-nav-rankings") }}</span><span class="hx-nav__caret" aria-hidden="true">▾</span></a>
-<ul class="hx-nav__menu">
-{% if let Some(link) = chrome.link("rankings") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-rankings") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("growth-rankings") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-growth-rankings") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("world-stats") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-world-stats") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("guild-stats") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-guild-stats") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("league") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-league") }}</a></li>{% endif %}
-</ul></li>{% endif %}
-{% if let Some(top) = chrome.first_link("wiki,atlas,houses,calculators,rules") %}<li class="hx-nav__item hx-nav__item--menu">
-<a class="hx-nav__link" href="{{ top.url }}"><img class="hx-nav__icon" src="/static/img/home/nav-world.webp" alt="" width="26" height="26"><span>{{ chrome.text("stage-nav-world") }}</span><span class="hx-nav__caret" aria-hidden="true">▾</span></a>
-<ul class="hx-nav__menu">
-{% if let Some(link) = chrome.link("wiki") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-wiki") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("atlas") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-atlas") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("houses") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-houses") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("calculators") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-calculators") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("rules") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-rules") }}</a></li>{% endif %}
-</ul></li>{% endif %}
-{% if let Some(top) = chrome.first_link("tickets,support,abuse-reports,server") %}<li class="hx-nav__item hx-nav__item--menu">
-<a class="hx-nav__link" href="{{ top.url }}"><img class="hx-nav__icon" src="/static/img/home/nav-support.webp" alt="" width="26" height="26"><span>{{ chrome.text("stage-nav-support") }}</span><span class="hx-nav__caret" aria-hidden="true">▾</span></a>
-<ul class="hx-nav__menu">
-{% if let Some(link) = chrome.link("tickets") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-tickets") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("support") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-support") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("abuse-reports") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-abuse-reports") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("server") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-server") }}</a></li>{% endif %}
-</ul></li>{% endif %}
-{% if let Some(top) = chrome.first_link("shop,premium,pass,puzzles,collection") %}<li class="hx-nav__item hx-nav__item--menu">
-<a class="hx-nav__link" href="{{ top.url }}"><img class="hx-nav__icon" src="/static/img/home/nav-shop.webp" alt="" width="26" height="26"><span>{{ chrome.text("stage-nav-shop") }}</span><span class="hx-nav__caret" aria-hidden="true">▾</span></a>
-<ul class="hx-nav__menu">
-{% if let Some(link) = chrome.link("shop") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-shop") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("premium") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-premium") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("pass") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-pass") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("puzzles") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-puzzles") }}</a></li>{% endif %}
-{% if let Some(link) = chrome.link("collection") %}<li><a href="{{ link.url }}">{{ chrome.text("stage-dd-collection") }}</a></li>{% endif %}
-</ul></li>{% endif %}
+{% for link in group.links %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endfor %}
+</ul></li>{% endif %}{% endfor %}
 </ul>
 </nav>
 </header>

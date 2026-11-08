@@ -34,6 +34,14 @@ pub enum Group {
     Account,
 }
 impl Group {
+    fn icon(self) -> &'static str {
+        match self {
+            Self::Play => "shop",
+            Self::Community => "community",
+            Self::World => "world",
+            Self::Account => "support",
+        }
+    }
     fn key(self) -> &'static str {
         match self {
             Self::Play => "shell-play",
@@ -141,6 +149,7 @@ impl Registry {
                     .collect();
                 (!links.is_empty()).then(|| NavGroup {
                     label: text(lang, group.key()),
+                    icon: group.icon(),
                     links,
                 })
             })
@@ -181,6 +190,8 @@ pub struct NavLink {
 #[derive(Clone, Debug)]
 pub struct NavGroup {
     pub label: String,
+    /// Template navigation icon name under `/static/img/home/nav-{icon}.webp`.
+    pub icon: &'static str,
     pub links: Vec<NavLink>,
 }
 impl NavGroup {
