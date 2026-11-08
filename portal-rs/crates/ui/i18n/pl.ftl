@@ -171,6 +171,7 @@ shell-account-privacy = Prywatność konta
 shell-account-security = Bezpieczeństwo konta
 shell-account-sessions = Sesje konta
 shell-account-overview = Przegląd konta
+shell-account-recovery-key = Klucz odzyskiwania
 shell-start = Start
 shell-menu = Menu
 shell-tagline = Portal świata Oteryn: aktualności, społeczność, atlas świata i Twoje konto w jednym miejscu.

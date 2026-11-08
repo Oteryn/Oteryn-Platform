@@ -171,6 +171,7 @@ shell-account-privacy = Account privacy
 shell-account-security = Account security
 shell-account-sessions = Account sessions
 shell-account-overview = Account overview
+shell-account-recovery-key = Recovery key
 shell-start = Home
 shell-menu = Menu
 shell-tagline = The Oteryn portal: news, community, the world atlas and your account in one place.
