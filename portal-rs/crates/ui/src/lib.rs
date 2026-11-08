@@ -172,7 +172,7 @@ impl Registry {
                 || clean.starts_with("/admin/")
                 || clean.starts_with("/console/")
             {
-                format!("{clean}?lang={other}")
+                format!("/language/{other}")
             } else {
                 format!("/{other}/{suffix}")
             },
@@ -433,9 +433,9 @@ mod tests {
         for (path, expected) in [
             ("/account", "/language/en"),
             ("/oauth/authorize", "/language/en"),
-            ("/admin", "/admin?lang=en"),
-            ("/admin/news", "/admin/news?lang=en"),
-            ("/console/dashboard", "/console/dashboard?lang=en"),
+            ("/admin", "/language/en"),
+            ("/admin/news", "/language/en"),
+            ("/console/dashboard", "/language/en"),
             ("/admin/pl/bazaar", "/admin/en/bazaar"),
             ("/pl/admin/support/tickets", "/en/admin/support/tickets"),
         ] {
