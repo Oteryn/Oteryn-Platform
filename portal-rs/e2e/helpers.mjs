@@ -78,7 +78,6 @@ export async function logout(page,lang) {
  await page.goto(`/${lang}/`);
  const logout=page.locator('header form[action$="/logout"]');
  if(await logout.count()) {
-  if(!await logout.first().isVisible()) await page.locator('header details.op-shell__menu > summary').click();
   await submit(page,'header form[action$="/logout"]:visible');
  }
 }

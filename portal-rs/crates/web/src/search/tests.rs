@@ -295,7 +295,7 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
         registry.section(
             true,
             "information",
-            "shell-server-information",
+            "shell-server",
             "server-information",
             oteryn_ui::Group::World,
             true,
@@ -304,7 +304,7 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
         let Some((header, footer)) = oteryn_ui::shell_parts(&chrome) else {
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         };
-        axum::response::Html(format!("<!doctype html><html lang=\"{lang}\" data-theme=\"dark\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Shell</title><link rel=\"stylesheet\" href=\"/static/css/surface.css\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme op-shell\">{header}<main id=\"main\">Shell</main>{footer}</body></html>")).into_response()
+        axum::response::Html(format!("<!doctype html><html lang=\"{lang}\" data-theme=\"dark\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Shell</title><link rel=\"stylesheet\" href=\"/static/css/home.css\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme op-shell\">{header}<main id=\"main\" class=\"op-main\" tabindex=\"-1\"><h1>Shell</h1></main>{footer}</body></html>")).into_response()
     }
     async fn headless_fixture(
         axum::extract::Path(lang): axum::extract::Path<String>,
