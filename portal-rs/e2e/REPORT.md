@@ -116,3 +116,7 @@ Final Rust pass/fail/ignored and identified PostgreSQL counts will be appended.
 Raw traces, cookies, captured mail, keys and database URLs remain private in
 scratch or ignored artifacts. Only sanitized evidence is committed. No workflow,
 Rust dependency or lockfile changes were made. No pull request was opened.
+
+Rust snapshot 2026-11-08T16:45:07Z: formatting and strict locked Clippy passed;
+568 individual Rust tests passed so far, with zero failed test groups.
+The full workspace run is still active, with PORTAL_TEST_DATABASE_URL set.

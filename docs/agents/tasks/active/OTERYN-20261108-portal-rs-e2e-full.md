@@ -27,8 +27,8 @@ owner-requested follow-up on a separate branch and checkout.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-08T13:32:48Z
-head: 7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a
+updated_at: 2026-11-08T16:45:07Z
+head: efd1e4ce11f0c4817643287e2d8efa7a321004c7
 branch: codex/portal-rs-e2e-full
 pr: none
 status: validating
@@ -41,7 +41,7 @@ proven:
   - supplied PostgreSQL 18.6 and Chromium available
 derived: []
 unknown:
-  - final complete composed route coverage and acceptance
+  - final complete PostgreSQL workspace acceptance
 conflicts: []
 first_failure:
   marker: mobile-dropdown-hidden
@@ -54,7 +54,7 @@ validation:
     evidence: qualification in progress
 blockers:
   - none
-next_action: complete the expanded browser matrix and PostgreSQL workspace acceptance
+next_action: complete the active PostgreSQL workspace acceptance and publish final evidence
 ```
 
 ## Source branch closeout
@@ -106,3 +106,16 @@ covering all four projects, without retries. All three optional Rust browser tes
 ran explicitly with native Node and installed Chromium and passed with zero axe
 violations; the wrapped Node command omitted required fixture environment, so the
 native executable is mandatory. Final matrix remains pending.
+
+## Completed browser qualification
+
+At 2026-11-08T16:45:07Z, all four projects completed 437/437 cases: 1748 passed,
+0 failed, 0 skipped, 0 retries, zero runner errors. Coverage is 317 covered,
+1 NOT_APPLICABLE compatibility adapter with its 404 absence executed,
+0 uncovered, and 48/48 registry sections qualified in every project.
+The tested source SHA256 is 46978e4211aa6c76ece921cdc13cfcc0307bdb1d45c3e8cc1364faff277fdcb0.
+Only evidence documents changed after the frozen source head 7bcfe31a.
+Browser evidence was pushed at efd1e4ce11f0c4817643287e2d8efa7a321004c7.
+Serve/worker children 136059/136060 stopped after browser completion; launcher
+136005 retains the task test database. Full Rust acceptance is active with the
+private PORTAL_TEST_DATABASE_URL; 568 tests have passed, no failed groups.

@@ -22402,6 +22402,11 @@
   "runStartedHead": "7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a",
   "rustValidation": {
     "status": "IN_PROGRESS",
-    "databaseEnvironmentVariable": "PORTAL_TEST_DATABASE_URL"
+    "databaseEnvironmentVariable": "PORTAL_TEST_DATABASE_URL",
+    "snapshotAt": "2026-11-08T16:45:07Z",
+    "format": "PASS",
+    "clippy": "PASS",
+    "testsPassedSoFar": 568,
+    "failedTestGroups": 0
   }
 }
