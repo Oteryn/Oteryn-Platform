@@ -85,7 +85,8 @@ pub fn router(service: Credentials) -> Router {
                 &format!("{prefix}/password/change"),
                 get(show_password).post(change).put(change),
             )
-            .route(&format!("{prefix}/account/sudo"), get(show_sudo).post(sudo));
+            .route(&format!("{prefix}/account/sudo"), get(show_sudo).post(sudo))
+            .route(&format!("{prefix}/account/security"), get(security_landing));
     }
     let routes = routes
         .route_layer(axum::middleware::from_fn_with_state(
@@ -97,6 +98,10 @@ pub fn router(service: Credentials) -> Router {
         .with_state(service);
     oteryn_web::ratelimit::finish_routes(routes)
 }
+async fn security_landing(Extension(lang): Extension<Language>) -> Redirect {
+    Redirect::to(&format!("/{}/password/change", lang.code()))
+}
+
 #[derive(Template)]
 #[template(
     source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme\"><main class=\"op-card op-stack\" id=\"main\"><h1>{{ title }}</h1>{% if failed %}<p role=\"alert\">{{ error }}</p>{% endif %}<form class=\"op-stack\" method=\"post\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><p><label for=\"current\">{{ current }}</label><br><input class=\"op-input\" id=\"current\" type=\"password\" name=\"current_password\" autocomplete=\"current-password\" maxlength=\"1024\" required></p>{% if change %}<p><label for=\"new\">{{ new }}</label><br><input class=\"op-input\" id=\"new\" type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"10\" maxlength=\"256\" required></p><p><label for=\"confirm\">{{ confirm }}</label><br><input class=\"op-input\" id=\"confirm\" type=\"password\" name=\"password_confirmation\" autocomplete=\"new-password\" required></p>{% endif %}<button class=\"op-button op-button--primary\" type=\"submit\">{{ submit }}</button></form></main></body></html>",

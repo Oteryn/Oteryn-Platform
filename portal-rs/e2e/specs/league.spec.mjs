@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from '../fixtures.mjs';
 const control=process.env.PORTAL_E2E_LEAGUE_CONTROL;
 test.beforeEach(async({request})=>{expect(control,'fixture producer must be running').toBeTruthy();expect((await request.post(`${control}/resume`)).ok()).toBeTruthy();});
 test('league: Game push -> worker -> public decided outcomes and complete standings',async({page},info)=>{

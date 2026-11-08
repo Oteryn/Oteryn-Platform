@@ -25,15 +25,26 @@ const AxeBuilder = modules('@axe-core/playwright').default;
         assert.deepEqual(result.violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) })), []);
         await page.goto(`${process.env.PORTAL_BROWSER_URL}/browser-shell/${lang}`);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'closed navigation overflow');
-        const menu = page.locator('details.op-shell__menu');
-        assert.equal(await menu.locator('nav').isVisible(), false);
-        if (width === 360) {
-          await menu.locator('summary').click();
-          const dimensions = await menu.locator('nav').evaluate(n => ({ width:n.getBoundingClientRect().width, height:n.getBoundingClientRect().height, viewport:innerWidth, minimum:innerHeight-document.querySelector('header').getBoundingClientRect().height-2 }));
-          assert.ok(dimensions.width <= dimensions.viewport);
-          assert.ok(dimensions.height >= dimensions.minimum, 'mobile sheet must fill the available viewport');
-          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'open navigation overflow');
-          await menu.locator('summary').click();
+        assert.equal(await page.locator('details.hx-nav__dropdown').count(),4);
+        for(const menu of await page.locator('details.hx-nav__dropdown').all()) {
+        const items = menu.locator('.hx-nav__menu');
+        await page.mouse.move(0,0);
+        await page.locator('#main').focus();
+        assert.equal(await items.isVisible(), false);
+        await menu.locator('summary').focus();
+        assert.equal(await items.isVisible(), true, 'focus-within opens the template menu');
+        await page.keyboard.press('Enter');
+        assert.equal(await menu.getAttribute('open'), '');
+        const dimensions = await items.evaluate(n => ({ left:n.getBoundingClientRect().left, right:n.getBoundingClientRect().right, width:n.getBoundingClientRect().width, height:n.getBoundingClientRect().height, viewport:innerWidth, available:innerHeight }));
+        assert.ok(dimensions.left >= 0 && dimensions.right <= dimensions.viewport);
+        assert.ok(dimensions.height <= dimensions.available, 'dropdown stays within the viewport');
+        await page.keyboard.press('Tab');
+        assert.equal(await items.locator('a').first().evaluate(n=>n===document.activeElement), true);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'open navigation overflow');
+        await menu.locator('summary').click();
+        await page.locator('#main').focus();
+        await page.mouse.move(0,0);
+        assert.equal(await items.isVisible(), false);
         }
         await page.goto(`${process.env.PORTAL_BROWSER_URL}/browser-headless/${lang}`);
         assert.equal(await page.locator('link[href="/static/css/tokens.css"]').count(), 1);

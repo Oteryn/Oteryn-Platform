@@ -267,6 +267,19 @@ pub async fn secure_response(
     next: axum::middleware::Next,
 ) -> Response {
     let mut response = no_store(next.run(request).await);
+    // A no-referrer document gives native form POSTs an opaque Origin. Keep the
+    // consent query out of Referer while preserving the browser's real origin
+    // for the independent CSRF origin check. Protocol JSON stays no-referrer.
+    let referrer = if response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/html"))
+    {
+        "strict-origin"
+    } else {
+        "no-referrer"
+    };
     for (name, value) in [
         (
             "content-security-policy",
@@ -277,7 +290,7 @@ pub async fn secure_response(
             "max-age=63072000; includeSubDomains",
         ),
         ("x-content-type-options", "nosniff"),
-        ("referrer-policy", "no-referrer"),
+        ("referrer-policy", referrer),
         (
             "permissions-policy",
             "camera=(), microphone=(), geolocation=()",

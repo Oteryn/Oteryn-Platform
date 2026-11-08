@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures.mjs';
 import AxeBuilder from '@axe-core/playwright';
 
 // These cold public projections have no accepted source in a fresh local database.
@@ -39,8 +39,8 @@ test('all public header and footer links: shell, links, keyboard, accessibility 
       if (!response.headers()['content-type']?.startsWith('text/html')) { failures.push(`${href}: non-HTML response cannot qualify as a public page`); return; }
       const targetLanguage = /^\/(?:language\/)?(pl|en)(?:\/|$)/.exec(href)?.[1] || lang;
       if (await page.locator('html').getAttribute('lang') !== targetLanguage) failures.push(`${href}: wrong page language`);
-      if (await page.locator('body.op-shell > header.op-shell__header').count() !== 1) failures.push(`${href}: shared header missing`);
-      if (await page.locator('body.op-shell > footer.op-shell__footer').count() !== 1) failures.push(`${href}: shared footer missing`);
+      if (await page.locator('body.op-shell > .hx > header.hx-head').count() !== 1) failures.push(`${href}: shared header missing`);
+      if (await page.locator('body.op-shell > .hx > footer.hx-foot').count() !== 1) failures.push(`${href}: shared footer missing`);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
       if (overflow) failures.push(`${href}: horizontal overflow`);
       await page.keyboard.press('Tab');
@@ -54,7 +54,7 @@ test('all public header and footer links: shell, links, keyboard, accessibility 
         const expected=coldPath(target)?503:200;
         if (linked.status() !== expected) failures.push(`${href} -> ${target}: HTTP ${linked.status()}, expected ${expected}`);
         if(expected===503 && !linked.headers()['content-type']?.startsWith('text/html')) failures.push(`${href} -> ${target}: non-HTML refusal`);
-        if(expected===503) {expect(linked.headers()['cache-control']).toContain('no-store');expect(await linked.text()).toContain('op-shell__header');}
+        if(expected===503) {expect(linked.headers()['cache-control']).toContain('no-store');expect(await linked.text()).toContain('hx-head');}
       }
     });
     } finally { await page.close(); }

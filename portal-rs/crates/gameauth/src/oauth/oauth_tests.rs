@@ -573,3 +573,29 @@ async fn disabled_oauth_denies_without_database_access() -> TestResult {
     assert_eq!(r.status(), StatusCode::NOT_FOUND);
     Ok(())
 }
+
+#[tokio::test]
+async fn consent_policy_keeps_form_origin_and_does_not_send_query_referrers() -> TestResult {
+    use axum::{Router, middleware, response::Html, routing::get};
+    let app = Router::new()
+        .route("/consent", get(|| async { Html("<main>Consent</main>") }))
+        .route(
+            "/protocol",
+            get(|| async { axum::Json(serde_json::json!({"error":"invalid_request"})) }),
+        )
+        .layer(middleware::from_fn(oauth_http::secure_response));
+    for (path, expected) in [("/consent", "strict-origin"), ("/protocol", "no-referrer")] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.headers()["referrer-policy"], expected);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert!(
+            response.headers()["content-security-policy"]
+                .to_str()?
+                .contains("form-action 'self'")
+        );
+    }
+    Ok(())
+}

@@ -68,7 +68,7 @@ fn translate(bundle: &FluentBundle<FluentResource>, key: &str) -> Result<String,
 <main class="op-stack">
 <h1>{{ t.title }}</h1>
 <p>{{ t.hint }}</p>
-<a href="/admin/{{ lang }}/party">{{ t.moderation }}</a>
+{% if moderation %}<a href="/admin/{{ lang }}/party">{{ t.moderation }}</a>{% endif %}
 {% if !moderation %}<form class="op-stack" method="get">
 <label class="op-field">{{ t.world }}<input class="op-input" name="world" type="text"  required>
 </label>

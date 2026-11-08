@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from '../fixtures.mjs';
 import {pool} from '../helpers.mjs';
 
 test('lane export cannot publish unsupported categories and public sources refuse',async({page},info)=>{
@@ -9,8 +9,8 @@ test('lane export cannot publish unsupported categories and public sources refus
   const response=await page.goto(`/${lang}/${suffix}`);
   expect(response.status(),suffix).toBe(503);
   expect(response.headers()['cache-control']).toContain('no-store');
-  await expect(page.locator('body.op-shell > header.op-shell__header')).toHaveCount(1);
-  await expect(page.locator('body.op-shell > footer.op-shell__footer')).toHaveCount(1);
+  await expect(page.locator('body.op-shell > .hx > header.hx-head')).toHaveCount(1);
+  await expect(page.locator('body.op-shell > .hx > footer.hx-foot')).toHaveCount(1);
  }
  const data=await page.request.get(`/${lang}/today/data`);
  expect(data.status()).toBe(503);expect(data.headers()['cache-control']).toContain('no-store');expect(await data.json()).toEqual({status:'unavailable'});
@@ -35,7 +35,7 @@ test('world statistics opens a real registry picker and preserves the privacy ga
  const lang=info.project.metadata.locale;
  const response=await page.goto(`/${lang}/stats/world`);
  expect(response.status()).toBe(200);expect(response.headers()['cache-control']).toContain('no-store');
- await expect(page.locator('body.op-shell > header.op-shell__header')).toHaveCount(1);
+ await expect(page.locator('body.op-shell > .hx > header.hx-head')).toHaveCount(1);
  const select=page.locator('select[name=world]');await expect(select).toBeVisible();
  expect(await select.locator('option').count()).toBeGreaterThan(0);
  await expect(select).toContainText('Local Bazaar World');
@@ -43,5 +43,5 @@ test('world statistics opens a real registry picker and preserves the privacy ga
  await page.locator('input[name=start]').fill('2026-11-01');await page.locator('input[name=end]').fill('2026-11-02');
  const [refusal]=await Promise.all([page.waitForResponse(r=>r.url().includes('/stats/world?')&&r.request().isNavigationRequest()),page.locator('button[type=submit]').click()]);
  expect(refusal.status()).toBe(503);expect(refusal.headers()['cache-control']).toContain('no-store');
- await expect(page.locator('body.op-shell > header.op-shell__header')).toHaveCount(1);
+ await expect(page.locator('body.op-shell > .hx > header.hx-head')).toHaveCount(1);
 });

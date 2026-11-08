@@ -118,16 +118,28 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .headers()
             .get(header::CONTENT_SECURITY_POLICY)
             .and_then(|v| v.to_str().ok())
-        && !policy
-            .split(';')
-            .any(|v| v.trim_start().starts_with("font-src "))
-        && let Ok(value) = format!("{policy}; font-src 'self'").parse()
+        && let Ok(value) = shell_asset_policy(policy).parse()
     {
         response
             .headers_mut()
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
     response
+}
+
+// The shell requires only local fonts and images. Preserve every existing explicit
+// directive, including stricter image policies, and never permit scripts or inline styles.
+fn shell_asset_policy(policy: &str) -> String {
+    let mut result = policy.to_owned();
+    for name in ["font-src", "img-src"] {
+        if !policy
+            .split(';')
+            .any(|value| value.trim_start().starts_with(&format!("{name} ")))
+        {
+            result.push_str(&format!("; {name} 'self'"));
+        }
+    }
+    result
 }
 
 /// Largest module document the shell adapter buffers; larger bodies pass through unchanged.
@@ -218,12 +230,54 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         Some(at) => format!("{}{styles}{}", &head[..at], &head[at..]),
         None => format!("{styles}{head}"),
     };
+    let content = content_landmark(&without_module_skip(&page[body_end + 1..body_close]));
+    let target = if content.contains("id=\"main\"") || content.contains("id='main'") {
+        ""
+    } else {
+        " id=\"main\" tabindex=\"-1\""
+    };
     Some(format!(
-        "{}{html_tag} data-theme=\"dark\">{head}{body_tag}>{header}<div class=\"op-shell__page\">{}</div>{footer}{}",
+        "{}{html_tag} data-theme=\"dark\">{head}{body_tag}>{header}<div class=\"op-shell__page\"{target}>{}</div>{footer}{}",
         &page[..html_open],
-        &page[body_end + 1..body_close],
+        content,
         &page[body_close..]
     ))
+}
+
+// Older standalone documents have a main landmark but no skip-link target.
+fn content_landmark(content: &str) -> String {
+    let lower = content.to_ascii_lowercase();
+    let Some(start) = lower.find("<main") else {
+        return content.to_owned();
+    };
+    let Some(end) = lower[start..].find('>') else {
+        return content.to_owned();
+    };
+    let end = start + end;
+    let id = if lower[start..end].contains(" id=") {
+        ""
+    } else {
+        " id=\"main\""
+    };
+    let focus = if lower[start..end].contains("tabindex=") {
+        ""
+    } else {
+        " tabindex=\"-1\""
+    };
+    format!("{}{id}{focus}{}", &content[..end], &content[end..])
+}
+
+// Standalone modules keep their skip link when rendered alone. The composed shell
+// supplies that same landmark, so retain exactly one when adapting a document.
+fn without_module_skip(content: &str) -> String {
+    let marker = "<a class=\"op-skip\" href=\"#main\">";
+    let Some(start) = content.find(marker) else {
+        return content.to_owned();
+    };
+    let Some(end) = content[start..].find("</a>") else {
+        return content.to_owned();
+    };
+    format!("{}{}", &content[..start], &content[start + end + 4..])
 }
 
 /// Elements that open an implied HTML5 body when a document omits the body tag.
@@ -245,7 +299,36 @@ fn without_attribute(tag: &str, name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::inject;
+    use super::{content_landmark, inject, shell_asset_policy};
+
+    #[test]
+    fn skip_target_is_focusable_without_duplicate_landmark_ids() {
+        assert_eq!(
+            content_landmark("<main class=\"panel\"><h1>Account</h1></main>"),
+            "<main class=\"panel\" id=\"main\" tabindex=\"-1\"><h1>Account</h1></main>"
+        );
+        let existing = "<main id=\"main\" tabindex=\"-1\">Content</main>";
+        assert_eq!(content_landmark(existing), existing);
+        let custom = "<html><body><main id=\"console-main\">Console</main></body></html>";
+        let adapted = inject(custom, "H", "F").unwrap_or_default();
+        assert!(adapted.contains("<div class=\"op-shell__page\" id=\"main\" tabindex=\"-1\">"));
+        assert!(adapted.contains("<main id=\"console-main\" tabindex=\"-1\">Console</main>"));
+    }
+
+    #[test]
+    fn adapted_policy_permits_local_shell_assets_and_preserves_restrictions() {
+        let policy = shell_asset_policy(
+            "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'",
+        );
+        assert_eq!(
+            policy,
+            "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; font-src 'self'; img-src 'self'"
+        );
+        let strict = "default-src 'none'; img-src 'none'; font-src 'self'";
+        assert_eq!(shell_asset_policy(strict), strict);
+        assert!(!policy.contains("unsafe-inline"));
+        assert!(!policy.contains("script-src"));
+    }
 
     #[test]
     fn wraps_standalone_documents_once() -> Result<(), &'static str> {
@@ -256,8 +339,19 @@ mod tests {
         assert!(out.contains(
             "components.css\"><link rel=\"stylesheet\" href=\"/static/css/home.css\"></head>"
         ));
-        assert!(out.contains("<body class=\"op-theme op-shell page\"><header>H</header><div class=\"op-shell__page\"><main>tresc</main></div><footer>F</footer></body></html>"));
+        assert!(out.contains("<body class=\"op-theme op-shell page\"><header>H</header><div class=\"op-shell__page\"><main id=\"main\" tabindex=\"-1\">tresc</main></div><footer>F</footer></body></html>"));
         assert!(inject(&out, "<header>H</header>", "<footer>F</footer>").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn composed_document_has_only_the_shared_skip_link() -> Result<(), &'static str> {
+        let skip = "<a class=\"op-skip\" href=\"#main\">Skip</a>";
+        let page =
+            format!("<html><body>{skip}<main id=\"main\"><h1>Account</h1></main></body></html>");
+        let out = inject(&page, skip, "F").ok_or("document must be wrapped")?;
+        assert_eq!(out.matches("class=\"op-skip\"").count(), 1);
+        assert!(out.contains("<main id=\"main\" tabindex=\"-1\"><h1>Account</h1></main>"));
         Ok(())
     }
 
@@ -266,13 +360,13 @@ mod tests {
         assert!(inject("<section>widget</section>", "h", "f").is_none());
         let page = "<html><body><p>a</p></body></html>";
         let out = inject(page, "H", "F").ok_or("bare document must be wrapped")?;
-        assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\"><p>a</p></div>F</body>"));
+        assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\" id=\"main\" tabindex=\"-1\"><p>a</p></div>F</body>"));
         let implied = "<!doctype html><html lang=\"pl\"><meta charset=\"utf-8\"><title>t</title><main>m</main></html>";
         let out =
             inject(implied, "H", "F").ok_or("document with an implied body must be wrapped")?;
         assert!(out.find("components.css") < out.find("<body"));
         assert!(out.contains("<html lang=\"pl\" data-theme=\"dark\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\">"));
-        assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\"><main>m</main></div>F</body></html>"));
+        assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\"><main id=\"main\" tabindex=\"-1\">m</main></div>F</body></html>"));
         Ok(())
     }
 }

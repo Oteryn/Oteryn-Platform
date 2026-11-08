@@ -110,7 +110,7 @@ impl Registry {
                     clean.trim_start_matches('/')
                 }
             });
-        let entries: Vec<NavLink> = self
+        let mut entries: Vec<NavLink> = self
             .entries
             .iter()
             .map(|e| {
@@ -119,9 +119,10 @@ impl Registry {
                 } else {
                     format!("/{lang}/{}", e.path)
                 };
-                let current = clean == url
-                    || clean
-                        .strip_prefix(&url)
+                let section_path = e.path.trim_start_matches('/');
+                let current = suffix == section_path
+                    || suffix
+                        .strip_prefix(section_path)
                         .is_some_and(|tail| tail.starts_with('/'));
                 NavLink {
                     section: e.section.to_owned(),
@@ -139,6 +140,9 @@ impl Registry {
             .max_by_key(|e| e.url.len())
             .map(|e| e.section.clone())
             .unwrap_or_default();
+        for entry in &mut entries {
+            entry.current = entry.section == current_section;
+        }
         let groups = [Group::Play, Group::Community, Group::World, Group::Account]
             .into_iter()
             .filter_map(|group| {
@@ -156,7 +160,20 @@ impl Registry {
             .collect();
         Chrome {
             lang: lang.to_owned(),
-            alternate_url: format!("/{other}/{suffix}"),
+            alternate_url: if let Some(rest) = clean
+                .strip_prefix("/admin/pl/")
+                .or_else(|| clean.strip_prefix("/admin/en/"))
+            {
+                format!("/admin/{other}/{rest}")
+            } else if clean.starts_with("/pl/")
+                || clean.starts_with("/en/")
+                || matches!(clean, "/" | "/pl" | "/en")
+            {
+                format!("/{other}/{suffix}")
+            } else {
+                // Unprefixed endpoints do not all have a translated route alias.
+                format!("/language/{other}")
+            },
             alternate_lang: other.to_owned(),
             entries,
             groups,
@@ -399,7 +416,7 @@ mod tests {
             ("/pl/", "/en/"),
             ("/pl", "/en/"),
             ("/pl/news?token=secret", "/en/news"),
-            ("/news?foo=bar", "/en/news"),
+            ("/news?foo=bar", "/language/en"),
         ] {
             assert_eq!(
                 registry()
@@ -408,6 +425,65 @@ mod tests {
                 expected
             );
         }
+    }
+    #[test]
+    fn language_switch_uses_mounted_staff_route_shapes() {
+        for (path, expected) in [
+            ("/atlas/spawns", "/language/en"),
+            ("/account", "/language/en"),
+            ("/oauth/authorize", "/language/en"),
+            ("/admin", "/language/en"),
+            ("/admin/news", "/language/en"),
+            ("/console/dashboard", "/language/en"),
+            ("/admin/pl/bazaar", "/admin/en/bazaar"),
+            ("/pl/admin/support/tickets", "/en/admin/support/tickets"),
+        ] {
+            assert_eq!(
+                registry()
+                    .chrome("pl", path, Account::Anonymous)
+                    .alternate_url,
+                expected
+            );
+        }
+    }
+    #[test]
+    fn unprefixed_aliases_and_localized_paths_share_the_active_section() {
+        for lang in ["pl", "en"] {
+            for path in ["/wiki", "/wiki/articles/guide", "/pl/wiki", "/en/wiki"] {
+                let chrome = registry().chrome(lang, path, Account::Anonymous);
+                assert_eq!(chrome.current_section, "wiki");
+                assert_eq!(
+                    chrome.entries.iter().filter(|entry| entry.current).count(),
+                    1
+                );
+            }
+            assert!(
+                registry()
+                    .chrome(lang, "/wiki-other", Account::Anonymous)
+                    .current_section
+                    .is_empty()
+            );
+        }
+    }
+    #[test]
+    fn only_the_most_specific_navigation_section_is_current() {
+        let mut registry = registry();
+        registry.section(
+            true,
+            "calculators",
+            "shell-calculators",
+            "wiki/calculators",
+            Group::World,
+            false,
+        );
+        let chrome = registry.chrome("en", "/en/wiki/calculators", Account::Anonymous);
+        let active: Vec<_> = chrome
+            .entries
+            .iter()
+            .filter(|entry| entry.current)
+            .map(|entry| entry.section.as_str())
+            .collect();
+        assert_eq!(active, ["calculators"]);
     }
     #[test]
     fn home_and_account_states_in_both_languages() -> Result<(), askama::Error> {
@@ -450,6 +526,21 @@ mod tests {
             assert!(!html.contains("/login\""));
             assert!(!html.contains("/register\""));
         }
+        Ok(())
+    }
+    #[test]
+    fn navigation_has_native_keyboard_and_touch_disclosure() -> Result<(), askama::Error> {
+        let chrome = registry().chrome("en", "/en/wiki", Account::Anonymous);
+        let html = ShellHeader { chrome: &chrome }.render()?;
+        assert!(html.contains("<details class=\"hx-nav__dropdown\"><summary"));
+        assert!(html.contains("aria-current=\"page\">Wiki</a>"));
+        let css = include_str!("../../../static/css/home.css");
+        assert!(css.contains(".hx-nav__dropdown[open] .hx-nav__menu"));
+        assert!(
+            css.contains(".hx-nav__item:nth-child(odd) .hx-nav__menu { left: 0; right: auto; }")
+        );
+        assert!(css.contains(".hx-nav__item--menu:focus-within .hx-nav__menu { display: block; }"));
+        assert!(!css.contains(":focus-within .hx-nav__menu { display: none; }"));
         Ok(())
     }
     #[test]

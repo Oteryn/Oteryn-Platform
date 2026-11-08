@@ -22,10 +22,10 @@
 <ul class="hx-nav__list">
 <li class="hx-nav__item"><a class="hx-nav__link" href="{{ chrome.home_url() }}"{% if chrome.home_current %} aria-current="page"{% endif %}><img class="hx-nav__icon" src="/static/img/home/nav-home.webp" alt="" width="26" height="26"><span>{{ chrome.text("stage-nav-home") }}</span></a></li>
 {% for group in chrome.groups %}{% if let Some(top) = group.links.first() %}<li class="hx-nav__item hx-nav__item--menu{% if group.current() %} hx-nav__item--on{% endif %}">
-<a class="hx-nav__link" href="{{ top.url }}"{% if group.current() %} aria-current="true"{% endif %}><img class="hx-nav__icon" src="/static/img/home/nav-{{ group.icon }}.webp" alt="" width="26" height="26"><span>{{ group.label }}</span><span class="hx-nav__caret" aria-hidden="true">▾</span></a>
+<details class="hx-nav__dropdown"><summary class="hx-nav__link"{% if group.current() %} aria-current="true"{% endif %}><img class="hx-nav__icon" src="/static/img/home/nav-{{ group.icon }}.webp" alt="" width="26" height="26"><span>{{ group.label }}</span><span class="hx-nav__caret" aria-hidden="true">▾</span></summary>
 <ul class="hx-nav__menu">
 {% for link in group.links %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endfor %}
-</ul></li>{% endif %}{% endfor %}
+</ul></details></li>{% endif %}{% endfor %}
 </ul>
 </nav>
 </header>

@@ -12,10 +12,18 @@ export const pool = () => {
  return new pg.Pool({connectionString});
 };
 export async function csrfRejected(page, action, fields={}) {
-  const clean=Object.fromEntries(Object.entries(fields).filter(([key,value])=>key!=='_csrf' && value!==undefined));
-  const payload=new URL(action,page.url()).pathname==='/admin/media'?{multipart:{alt_text:'Local test image',image:{name:'local.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII=','base64')}}}:{form:clean};
-  const response=await page.request.post(action,{...payload,headers:{origin:new URL(page.url()).origin},maxRedirects:0});
-  expect(response.status(), `missing CSRF: ${action}`).toBe(403);
+  const clean=Object.fromEntries(Object.entries(fields).filter(([key,value])=>!['_csrf','csrf'].includes(key) && value!==undefined));
+  const payload=new URL(action,page.url()).pathname==='/admin/media'?{multipart:{alt_text:'Local test image',image:{name:'local.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAHklEQVR4nGNQzrP5T03MMGrgqIGjBo4aOGrgSDUQANpkzt/P0xIDAAAAAElFTkSuQmCC','base64')}}}:{form:clean};
+  const target=new URL(action,page.url());
+  const signedMail=/^\/(pl|en)\/unsubscribe$/.test(target.pathname);
+  if(signedMail) {
+    // One-click mail authenticates with the signed URL token instead of a session.
+    // Remove that token too and require its precise invalid-token refusal.
+    target.searchParams.delete('token');
+    delete clean.token;
+  }
+  const response=await page.request.post(target.href,{...payload,headers:{origin:new URL(page.url()).origin},maxRedirects:0});
+  expect(response.status(), `missing authorization token: ${target.pathname}`).toBe(signedMail?422:403);
 }
 export async function submit(page, selector='main form', values={}) {
   const form=page.locator(selector).first();
@@ -70,7 +78,6 @@ export async function logout(page,lang) {
  await page.goto(`/${lang}/`);
  const logout=page.locator('header form[action$="/logout"]');
  if(await logout.count()) {
-  if(!await logout.first().isVisible()) await page.locator('header details.op-shell__menu > summary').click();
   await submit(page,'header form[action$="/logout"]:visible');
  }
 }

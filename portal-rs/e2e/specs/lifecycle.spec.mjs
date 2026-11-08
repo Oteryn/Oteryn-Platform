@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from '../fixtures.mjs';
 import crypto from 'node:crypto';
 import AxeBuilder from '@axe-core/playwright';
 import {register,login,submit,csrfRejected,mailLink,pool} from '../helpers.mjs';
@@ -96,8 +96,8 @@ test('account lifecycle pages: shared shell, keyboard and accessibility at 360 p
  await page.setViewportSize({width:360,height:900});
  for(const path of ['account/notifications','account/privacy/delete','account/security/email']){
   expect((await page.goto(`/${lang}/${path}`)).status()).toBe(200);
-  await expect(page.locator('body.op-shell > header.op-shell__header')).toHaveCount(1);
-  await expect(page.locator('body.op-shell > footer.op-shell__footer')).toHaveCount(1);
+  await expect(page.locator('body.op-shell > .hx > header.hx-head')).toHaveCount(1);
+  await expect(page.locator('body.op-shell > .hx > footer.hx-foot')).toHaveCount(1);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
   await page.keyboard.press('Tab');
   expect(await page.evaluate(()=>{const s=getComputedStyle(document.activeElement);return document.activeElement.matches(':focus-visible')&&(s.outlineStyle!=='none'||s.boxShadow!=='none');})).toBe(true);
