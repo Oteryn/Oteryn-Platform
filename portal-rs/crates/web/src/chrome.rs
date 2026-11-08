@@ -228,13 +228,36 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         Some(at) => format!("{}{styles}{}", &head[..at], &head[at..]),
         None => format!("{styles}{head}"),
     };
-    let content = without_module_skip(&page[body_end + 1..body_close]);
+    let content = content_landmark(&without_module_skip(&page[body_end + 1..body_close]));
     Some(format!(
         "{}{html_tag} data-theme=\"dark\">{head}{body_tag}>{header}<div class=\"op-shell__page\">{}</div>{footer}{}",
         &page[..html_open],
         content,
         &page[body_close..]
     ))
+}
+
+// Older standalone documents have a main landmark but no skip-link target.
+fn content_landmark(content: &str) -> String {
+    let lower = content.to_ascii_lowercase();
+    let Some(start) = lower.find("<main") else {
+        return content.to_owned();
+    };
+    let Some(end) = lower[start..].find('>') else {
+        return content.to_owned();
+    };
+    let end = start + end;
+    let id = if lower[start..end].contains(" id=") {
+        ""
+    } else {
+        " id=\"main\""
+    };
+    let focus = if lower[start..end].contains("tabindex=") {
+        ""
+    } else {
+        " tabindex=\"-1\""
+    };
+    format!("{}{id}{focus}{}", &content[..end], &content[end..])
 }
 
 // Standalone modules keep their skip link when rendered alone. The composed shell
@@ -269,7 +292,17 @@ fn without_attribute(tag: &str, name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{inject, shell_asset_policy};
+    use super::{content_landmark, inject, shell_asset_policy};
+
+    #[test]
+    fn skip_target_is_focusable_without_duplicate_landmark_ids() {
+        assert_eq!(
+            content_landmark("<main class=\"panel\"><h1>Account</h1></main>"),
+            "<main class=\"panel\" id=\"main\" tabindex=\"-1\"><h1>Account</h1></main>"
+        );
+        let existing = "<main id=\"main\" tabindex=\"-1\">Content</main>";
+        assert_eq!(content_landmark(existing), existing);
+    }
 
     #[test]
     fn adapted_policy_permits_local_shell_assets_and_preserves_restrictions() {
@@ -295,7 +328,7 @@ mod tests {
         assert!(out.contains(
             "components.css\"><link rel=\"stylesheet\" href=\"/static/css/home.css\"></head>"
         ));
-        assert!(out.contains("<body class=\"op-theme op-shell page\"><header>H</header><div class=\"op-shell__page\"><main>tresc</main></div><footer>F</footer></body></html>"));
+        assert!(out.contains("<body class=\"op-theme op-shell page\"><header>H</header><div class=\"op-shell__page\"><main id=\"main\" tabindex=\"-1\">tresc</main></div><footer>F</footer></body></html>"));
         assert!(inject(&out, "<header>H</header>", "<footer>F</footer>").is_none());
         Ok(())
     }
@@ -307,7 +340,7 @@ mod tests {
             format!("<html><body>{skip}<main id=\"main\"><h1>Account</h1></main></body></html>");
         let out = inject(&page, skip, "F").ok_or("document must be wrapped")?;
         assert_eq!(out.matches("class=\"op-skip\"").count(), 1);
-        assert!(out.contains("<main id=\"main\"><h1>Account</h1></main>"));
+        assert!(out.contains("<main id=\"main\" tabindex=\"-1\"><h1>Account</h1></main>"));
         Ok(())
     }
 
@@ -322,7 +355,7 @@ mod tests {
             inject(implied, "H", "F").ok_or("document with an implied body must be wrapped")?;
         assert!(out.find("components.css") < out.find("<body"));
         assert!(out.contains("<html lang=\"pl\" data-theme=\"dark\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\">"));
-        assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\"><main>m</main></div>F</body></html>"));
+        assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\"><main id=\"main\" tabindex=\"-1\">m</main></div>F</body></html>"));
         Ok(())
     }
 }
