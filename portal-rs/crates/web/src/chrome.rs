@@ -229,8 +229,13 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         None => format!("{styles}{head}"),
     };
     let content = content_landmark(&without_module_skip(&page[body_end + 1..body_close]));
+    let target = if content.contains("id=\"main\"") || content.contains("id='main'") {
+        ""
+    } else {
+        " id=\"main\" tabindex=\"-1\""
+    };
     Some(format!(
-        "{}{html_tag} data-theme=\"dark\">{head}{body_tag}>{header}<div class=\"op-shell__page\">{}</div>{footer}{}",
+        "{}{html_tag} data-theme=\"dark\">{head}{body_tag}>{header}<div class=\"op-shell__page\"{target}>{}</div>{footer}{}",
         &page[..html_open],
         content,
         &page[body_close..]
@@ -302,6 +307,10 @@ mod tests {
         );
         let existing = "<main id=\"main\" tabindex=\"-1\">Content</main>";
         assert_eq!(content_landmark(existing), existing);
+        let custom = "<html><body><main id=\"console-main\">Console</main></body></html>";
+        let adapted = inject(custom, "H", "F").unwrap_or_default();
+        assert!(adapted.contains("<div class=\"op-shell__page\" id=\"main\" tabindex=\"-1\">"));
+        assert!(adapted.contains("<main id=\"console-main\" tabindex=\"-1\">Console</main>"));
     }
 
     #[test]
@@ -349,7 +358,7 @@ mod tests {
         assert!(inject("<section>widget</section>", "h", "f").is_none());
         let page = "<html><body><p>a</p></body></html>";
         let out = inject(page, "H", "F").ok_or("bare document must be wrapped")?;
-        assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\"><p>a</p></div>F</body>"));
+        assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\" id=\"main\" tabindex=\"-1\"><p>a</p></div>F</body>"));
         let implied = "<!doctype html><html lang=\"pl\"><meta charset=\"utf-8\"><title>t</title><main>m</main></html>";
         let out =
             inject(implied, "H", "F").ok_or("document with an implied body must be wrapped")?;
