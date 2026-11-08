@@ -216,12 +216,26 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         Some(at) => format!("{}{styles}{}", &head[..at], &head[at..]),
         None => format!("{styles}{head}"),
     };
+    let content = without_module_skip(&page[body_end + 1..body_close]);
     Some(format!(
         "{}{html_tag} data-theme=\"dark\">{head}{body_tag}>{header}<div class=\"op-shell__page\">{}</div>{footer}{}",
         &page[..html_open],
-        &page[body_end + 1..body_close],
+        content,
         &page[body_close..]
     ))
+}
+
+// Standalone modules keep their skip link when rendered alone. The composed shell
+// supplies that same landmark, so retain exactly one when adapting a document.
+fn without_module_skip(content: &str) -> String {
+    let marker = "<a class=\"op-skip\" href=\"#main\">";
+    let Some(start) = content.find(marker) else {
+        return content.to_owned();
+    };
+    let Some(end) = content[start..].find("</a>") else {
+        return content.to_owned();
+    };
+    format!("{}{}", &content[..start], &content[start + end + 4..])
 }
 
 /// Elements that open an implied HTML5 body when a document omits the body tag.
@@ -256,6 +270,17 @@ mod tests {
         ));
         assert!(out.contains("<body class=\"op-theme op-shell page\"><header>H</header><div class=\"op-shell__page\"><main>tresc</main></div><footer>F</footer></body></html>"));
         assert!(inject(&out, "<header>H</header>", "<footer>F</footer>").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn composed_document_has_only_the_shared_skip_link() -> Result<(), &'static str> {
+        let skip = "<a class=\"op-skip\" href=\"#main\">Skip</a>";
+        let page =
+            format!("<html><body>{skip}<main id=\"main\"><h1>Account</h1></main></body></html>");
+        let out = inject(&page, skip, "F").ok_or("document must be wrapped")?;
+        assert_eq!(out.matches("class=\"op-skip\"").count(), 1);
+        assert!(out.contains("<main id=\"main\"><h1>Account</h1></main>"));
         Ok(())
     }
 
