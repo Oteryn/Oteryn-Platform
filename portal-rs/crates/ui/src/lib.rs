@@ -110,7 +110,7 @@ impl Registry {
                     clean.trim_start_matches('/')
                 }
             });
-        let entries: Vec<NavLink> = self
+        let mut entries: Vec<NavLink> = self
             .entries
             .iter()
             .map(|e| {
@@ -139,6 +139,9 @@ impl Registry {
             .max_by_key(|e| e.url.len())
             .map(|e| e.section.clone())
             .unwrap_or_default();
+        for entry in &mut entries {
+            entry.current = entry.section == current_section;
+        }
         let groups = [Group::Play, Group::Community, Group::World, Group::Account]
             .into_iter()
             .filter_map(|group| {
@@ -408,6 +411,26 @@ mod tests {
                 expected
             );
         }
+    }
+    #[test]
+    fn only_the_most_specific_navigation_section_is_current() {
+        let mut registry = registry();
+        registry.section(
+            true,
+            "calculators",
+            "shell-calculators",
+            "wiki/calculators",
+            Group::World,
+            false,
+        );
+        let chrome = registry.chrome("en", "/en/wiki/calculators", Account::Anonymous);
+        let active: Vec<_> = chrome
+            .entries
+            .iter()
+            .filter(|entry| entry.current)
+            .map(|entry| entry.section.as_str())
+            .collect();
+        assert_eq!(active, ["calculators"]);
     }
     #[test]
     fn home_and_account_states_in_both_languages() -> Result<(), askama::Error> {
