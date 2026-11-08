@@ -72,15 +72,15 @@ scratch and ignored test artifacts. Only sanitized qualification is published.
 
 ## Live executed progress
 
-Snapshot 2026-11-08T14:58:36Z; tested source `7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a`.
-875 passed, 0 failed, 873 remaining, 0 skipped, 0 retries.
+Snapshot 2026-11-08T15:47:17Z; tested source `7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a`.
+1312 passed, 0 failed, 436 remaining, 0 skipped, 0 retries.
 
 | Project | Passed | Remaining |
 | --- | --- | --- |
 | pl-1440 | 437 | 0 |
 | pl-390 | 437 | 0 |
-| en-1440 | 1 | 436 |
-| en-390 | 0 | 437 |
+| en-1440 | 437 | 0 |
+| en-390 | 1 | 436 |
 
 All 318 route rows and all 48 registry sections have passed in at least one
 project. Final four-project qualification remains pending. Source is frozen;
