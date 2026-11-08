@@ -1,15 +1,47 @@
 # Shared-template portal qualification
 
-Qualification is in progress. No complete four-project result is claimed yet.
-The previous 200-case record belongs to the earlier shell and is superseded by
-this task. Base: 26c767eec36c04b5227a9676ec827ec76c4e82e9, fetched from the requested
-source branch. The suite is extended, with all original flows retained.
+Browser qualification: **PASS**. Full PostgreSQL workspace acceptance is running;
+its result is not yet claimed.
 
-The source inventory contains 318 route rows and 48 registry sections. One
-compatibility Bazaar item-action route is not mounted when the qualified Bazaar
-runtime is selected; its absence must be asserted as 404. Current listing
-mutations use the account Bazaar bid/control endpoints and the existing complete
-Bazaar flows. All other rows require an executed passing case in every project.
+Fetched base: `26c767eec36c04b5227a9676ec827ec76c4e82e9`.
+The complete browser run started at source `7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a`.
+Subsequent commits contain evidence and task-record updates only. The tested source
+digest matches `46978e4211aa6c76ece921cdc13cfcc0307bdb1d45c3e8cc1364faff277fdcb0`. Its exclusions are only COVERAGE.md,
+REPORT.md and qualification.json. All original flows from the fetched suite remain.
+
+## Executed browser results
+
+| Project | Passed | Failed | Skipped | Retries |
+| --- | --- | --- | --- | --- |
+| pl-1440 | 437 | 0 | 0 | 0 |
+| pl-390 | 437 | 0 | 0 | 0 |
+| en-1440 | 437 | 0 | 0 | 0 |
+| en-390 | 437 | 0 | 0 | 0 |
+| Total | 1748 | 0 | 0 | 0 |
+
+The single complete run finished in 3.06 hours, with zero runner
+errors and one attempt for every case. It used installed `/usr/bin/chromium`;
+no browsers were installed. Native Node was used because the environment's wrapper
+does not forward the browser fixture environment.
+
+## Coverage totals
+
+- 318 route rows: **317 covered / 1 NOT_APPLICABLE / 0 uncovered**.
+- All 48 registry sections covered in every locale/viewport project.
+- The compatibility Bazaar item-action adapter is not mounted when the full Bazaar
+  runtime is selected. Its exact POST 404 absence passed in all four projects;
+  current bid/control endpoints and positive Bazaar flows passed separately.
+- Missing fixture references assert exact 400/404 refusals. Cold Game projections
+  assert documented 503/no-store responses. These are executed assertions, never
+  skipped tests or fabricated Game success.
+
+COVERAGE.md maps every row to its module, flags, actor, spec/case and executed
+result. Full HTML cases check the shared header/nav/footer, framed content, one
+h1, current navigation, local links, visible keyboard focus, skip target, menus,
+overflow and serious/critical axe violations. APIs, fragments, signed webhooks
+and resources receive their protocol checks. Rendered form mutations require
+missing-token refusal; signed one-click mail uses its documented 422 invalid-token
+response, while session-protected forms require 403.
 
 ## Defects found and repaired
 
@@ -30,64 +62,57 @@ Bazaar flows. All other rows require an executed passing case in every project.
 | Journal mutations parse forms before checking CSRF and bypass the shared origin guard | Standard session/CSRF middleware precedes extraction, rendered fields use _csrf; PostgreSQL owner, missing-token and foreign-origin regression |
 | Staff control refusal documents omit a title | Complete localized document title and h1; Admin response regression |
 
-The launcher also omitted analytics switches whose names do not end in ENABLED;
-the explicit local configuration now enables them and a local OAuth client. All
-87 discovered environment switches ending ENABLED are on. See ENVIRONMENT.md.
-The internal journal weekly_email gate remains false until an authoritative
-JournalSource is wired; valid-token preference updates persist locally and
-missing-token requests assert 403; delivery remains disabled. No production authority is fabricated.
+## Harness corrections and regressions
 
-The combined run also exposed a launcher authority mismatch: the continuing
-closure producer published ownership watermarks under a different authority from
-the privacy reader. The producer and all local ownership readers now share one
-configured authority. The privacy flow asserts agreement with the live feed before
-seeding its isolated read models. No production authority guard was changed.
+- The continuing closure producer and local ownership readers previously trusted
+  different source authorities. They now share one setting; privacy asserts
+  agreement with the live feed before seeding isolated read models. Production
+  authority checks remain intact. Privacy/world-read passed 12 targeted cases.
+- World statistics has a healthy 200 registry selector. Privacy now asserts no
+  character disclosure on that page and submits a registered world/date query,
+  retaining exact 503/no-store data refusal. Healthy missing-character aliases
+  require exact 404, confirmed by eight targeted cases across all projects.
+- Existing shell selectors and logout handling now match the shared template.
+  Relative form actions resolve against the current page. Token refusal strips
+  both accepted CSRF aliases, and removes the signed mail authorization token for
+  the separate one-click protocol check. OAuth empty-client refusal remains 401;
+  a known local client with an invalid grant requires 400.
+- Multipart fixtures contain a valid PNG with correct checksums. Staff browser
+  state is stored only in private scratch with mode 0600. The summarizer rejects
+  runner errors, incomplete projects, skips, retries and uncovered rows.
+- Three existing optional Rust browser cases were explicitly executed using native
+  Node and installed Chromium: all three passed, with zero axe violations. They
+  will be executed again as part of final acceptance at the qualified source.
 
-The retained privacy flow also contained a stale landing-page assumption: the
-world statistics selector is a healthy 200 page. It now asserts that page has no
-character disclosure and submits a registered world/date query, retaining the
-exact 503/no-store Game-data refusal. Privacy and world-read passed all 12 cases
-across the four projects after these fixture corrections.
+## Environment and limits
 
-With the shared feed healthy, missing-character profile routes correctly refuse
-with 404 rather than the old misconfigured-authority 503. Both localized and
-unprefixed inventory expectations now require exactly 404. All eight alias cases
-passed across the four projects. The completed Polish desktop diagnostic passed
-435/437 cases; these two obsolete fixture expectations were its only failures.
+The launcher created fresh disposable databases, migrated, and ran serve plus
+worker with APP_ENV=testing and PORTAL_PUBLIC_PROJECTIONS_ENABLED=true. All 87
+literal environment switches ending ENABLED were enabled, including source-required
+value 1 for the two delivery/world switches; explicit non-suffix module switches,
+analytics ingestion/presentation and one local OAuth client were enabled too.
+No environment switch had to be disabled. ENVIRONMENT.md lists the switches and
+local producers. SMTP 465/587 used local TLS sinks and throwaway credentials.
 
-## Evidence so far
+The internal journal weekly_email delivery gate remains false until an accepted
+authoritative JournalSource is wired; no local environment switch can enable it.
+Preference writes still persist with 204 and missing-token requests refuse with
+403. Live Game publication/delivery is not claimed; its pending/unavailable states
+are covered. The supplied negative catalogue remains inactive and unpublished.
 
-- Focused UI, Web, Community, Wiki, Gameauth and Admin regressions pass.
-- The journal PostgreSQL regression ran with the disposable database URL and
-  passed, including valid owner writes and missing-token/foreign-origin refusal.
-- Strict locked Clippy passes after the source fixes validated so far.
-- A complete phone diagnostic ran 374 cases: 355 passed, 19 failed, no retries.
-  Its failures identify the defects and fixture corrections above. It is not
-  current-candidate qualification; those fixes require a fresh server and rerun.
-- Final Rust acceptance, full browser matrix, coverage reconciliation and normal
-  push remain pending. No pull request has been opened.
+## Rust acceptance
+
+Running with PORTAL_TEST_DATABASE_URL set to the private disposable test database:
+
+```sh
+cd portal-rs
+cargo fmt --all --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked
+```
+
+Serve and worker were stopped after browser completion to release private test
+listener ports. The launcher retains the database until acceptance completes.
+Final Rust pass/fail/ignored and identified PostgreSQL counts will be appended.
 
 Raw traces, cookies, captured mail, keys and database URLs remain private in
-scratch and ignored test artifacts. Only sanitized qualification is published.
-
-## Live executed progress
-
-Snapshot 2026-11-08T16:10:24Z; tested source `7bcfe31a6b53ac55115ef642ae37fa23aa0cee0a`.
-1421 passed, 0 failed, 327 remaining, 0 skipped, 0 retries.
-
-| Project | Passed | Remaining |
-| --- | --- | --- |
-| pl-1440 | 437 | 0 |
-| pl-390 | 437 | 0 |
-| en-1440 | 437 | 0 |
-| en-390 | 110 | 327 |
-
-All 318 route rows and all 48 registry sections have passed in at least one
-project. Final four-project qualification remains pending. Source is frozen;
-only the three evidence documents are updated during the active sweep. Formatting,
-strict locked Clippy and three explicitly invoked Rust browser cases passed. Full
-PostgreSQL workspace acceptance follows the sweep after private ports are freed.
-
-Navigation milestone: all 48 registry destinations and the keyboard/touch
-interaction case passed in each of the four projects. No serious/critical axe
-violations, overflow failures, unexpected browser errors or retries occurred.
+scratch or ignored artifacts. Only sanitized evidence is committed. No workflow,
+Rust dependency or lockfile changes were made. No pull request was opened.
