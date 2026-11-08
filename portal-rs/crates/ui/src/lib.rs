@@ -120,9 +120,7 @@ impl Registry {
                     format!("/{lang}/{}", e.path)
                 };
                 let current = clean == url
-                    || clean
-                        .strip_prefix(&url)
-                        .is_some_and(|tail| tail.starts_with('/'));
+                    || clean.strip_prefix(&url).is_some_and(|tail| tail.starts_with('/'));
                 NavLink {
                     section: e.section.to_owned(),
                     label: text(lang, e.label),
@@ -159,22 +157,19 @@ impl Registry {
             .collect();
         Chrome {
             lang: lang.to_owned(),
-            alternate_url: if matches!(clean, "/account" | "/account/badges")
-                || clean.starts_with("/oauth/")
-            {
-                format!("/language/{other}")
-            } else if let Some(rest) = clean
+            alternate_url: if let Some(rest) = clean
                 .strip_prefix("/admin/pl/")
                 .or_else(|| clean.strip_prefix("/admin/en/"))
             {
                 format!("/admin/{other}/{rest}")
-            } else if clean == "/admin"
-                || clean.starts_with("/admin/")
-                || clean.starts_with("/console/")
+            } else if clean.starts_with("/pl/")
+                || clean.starts_with("/en/")
+                || matches!(clean, "/" | "/pl" | "/en")
             {
-                format!("/language/{other}")
-            } else {
                 format!("/{other}/{suffix}")
+            } else {
+                // Unprefixed endpoints do not all have a translated route alias.
+                format!("/language/{other}")
             },
             alternate_lang: other.to_owned(),
             entries,
@@ -418,7 +413,7 @@ mod tests {
             ("/pl/", "/en/"),
             ("/pl", "/en/"),
             ("/pl/news?token=secret", "/en/news"),
-            ("/news?foo=bar", "/en/news"),
+            ("/news?foo=bar", "/language/en"),
         ] {
             assert_eq!(
                 registry()
@@ -431,6 +426,7 @@ mod tests {
     #[test]
     fn language_switch_uses_mounted_staff_route_shapes() {
         for (path, expected) in [
+            ("/atlas/spawns", "/language/en"),
             ("/account", "/language/en"),
             ("/oauth/authorize", "/language/en"),
             ("/admin", "/language/en"),
