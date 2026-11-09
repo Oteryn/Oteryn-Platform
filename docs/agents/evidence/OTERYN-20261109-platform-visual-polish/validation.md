@@ -1,6 +1,6 @@
 # Portal visual polish — validation evidence
 
-**Date:** 2026-11-09 (UTC). **Issue:** Oteryn/Oteryn-Platform#1798. **Base HEAD:** `dbd91f0325ff0b8a3c0512b7fb161db1b305f77d`. This record identifies the six changed files in the frozen working tree; it is not a claim about a later commit or deployment.
+**Date:** 2026-11-09 (UTC). **Issue:** Oteryn/Oteryn-Platform#1798. **Base HEAD:** `dbd91f0325ff0b8a3c0512b7fb161db1b305f77d`. This record identifies the six changed files in material candidate `98d0773863681c11f8c1b8f6a225121f0f109745`, published in PR #1799. The subsequent task-identity/evidence commit leaves these product bytes unchanged. It is not a claim about final CI or deployment.
 
 ## Verified scope and results
 

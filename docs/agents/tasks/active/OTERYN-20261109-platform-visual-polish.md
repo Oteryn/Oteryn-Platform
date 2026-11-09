@@ -18,7 +18,7 @@ Governing GitHub Issue: https://github.com/Oteryn/Oteryn-Platform/issues/1798.
 
 Improve the existing Rust portal at `/pl/` and `/en/`: refine the brand header, compose the supplied artwork without narrow character crops, improve typography and spacing, and keep navigation, status, news and rankings usable across desktop and mobile widths. Work remains within the existing Rust/Askama/Fluent presentation layer and uses the retained owner-supplied assets, including the logo already embedded in `sky.webp`.
 
-Admission main: `dbd91f0325ff0b8a3c0512b7fb161db1b305f77d`. The canonical task branch is `chatgpt/platform-visual-polish-20261109`. The root coordinator is the sole publisher. This packet initially records `pr: none`; after the first material publication, the coordinator creates the draft PR and records its returned identity in one required lifecycle/evidence successor.
+Admission main: `dbd91f0325ff0b8a3c0512b7fb161db1b305f77d`. The canonical task branch is `chatgpt/platform-visual-polish-20261109`. The root coordinator is the sole publisher. The material candidate is `98d0773863681c11f8c1b8f6a225121f0f109745`. Draft PR https://github.com/Oteryn/Oteryn-Platform/pull/1799 records the complete change. This required lifecycle/evidence successor records the returned PR identity; it does not change the product files.
 
 ## Acceptance criteria
 
@@ -58,10 +58,10 @@ Ownership of the predecessor packet is limited to reconciling its verified termi
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-09T18:51:03Z
-head: UNKNOWN
+updated_at: 2026-11-09T18:55:14Z
+head: 98d0773863681c11f8c1b8f6a225121f0f109745
 branch: chatgpt/platform-visual-polish-20261109
-pr: none
+pr: 1799
 status: validating
 context_routes:
   - web-cms
@@ -85,8 +85,7 @@ proven:
   - The existing predecessor PR 1782 is merged at 0571e5b73b3b30690861b38ba7bf5b39b215117f and cannot retain active implementation ownership.
 derived: []
 unknown:
-  - API-native candidate SHA and draft PR identity have not yet been created.
-  - Exact-candidate CI results are pending publication.
+  - Exact-candidate CI results for the final PR 1799 lifecycle successor remain pending.
 conflicts: []
 first_failure:
   marker: none
@@ -120,23 +119,23 @@ validation:
     evidence: The root coordinator completed final desktop and mobile visual inspection after the cosmetic changes and confirmed the result; the product delta is frozen.
   - command: Final candidate GitHub checks
     result: NOT_RUN
-    evidence: Publication has not yet selected a candidate SHA; observe Portal RS CI, CI/platform-gate, Agent Governance and the existing path-routed workflows after PR creation.
+    evidence: PR 1799 is open in draft with the verified material predecessor recorded above. Observe Portal RS CI, CI/platform-gate, Agent Governance and existing path-routed workflows on the final lifecycle successor; no final CI pass is claimed here.
 blockers:
   - none
-next_action: Publish the frozen bounded delta and create the draft PR so its returned identity can be recorded in the required lifecycle/evidence successor.
+next_action: Observe native GitHub checks on the final PR 1799 lifecycle successor and resolve concrete failures before readiness.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: The visual-polish task is active and the draft PR has not yet been created.
-source_branch_evidence: Admission main and canonical task branch are recorded above; final PR disposition remains pending.
+source_branch_reason: The visual-polish task is active in draft PR 1799 while final CI and review are pending.
+source_branch_evidence: https://github.com/Oteryn/Oteryn-Platform/pull/1799; the branch remains intentionally active until verified integration or terminal closeout.
 ```
 
 ## Notes
 
-`head: UNKNOWN` is deliberate before the API-native candidate is selected. It does not refer to the admission SHA or claim a validated commit. When the draft PR exists, its real number must replace `pr: none` before live task-liveness qualification. The required lifecycle/evidence successor can record its already observed material predecessor as checkpoint `head`; this does not claim that the successor itself has passed CI. Final exact-head CI cannot be replaced by the local rendered-fixture evidence.
+Checkpoint `head` records the last observed material candidate `98d0773863681c11f8c1b8f6a225121f0f109745`. The lifecycle-only successor records the actual PR identity and keeps all six material source files byte-identical. This checkpoint does not claim that the successor itself has passed CI. Final exact-head CI cannot be replaced by the local rendered-fixture evidence; its results belong to the native PR/check records.
 
 The report names above identify the retained scratch verification outputs. The compact durable evidence is `docs/agents/evidence/OTERYN-20261109-platform-visual-polish/validation.md`; it records outcomes, commands and limitations without committing screenshots or full JSON reports. Do not copy fixture values into product data.
 
