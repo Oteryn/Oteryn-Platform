@@ -3,19 +3,21 @@
 `Downloads::publish` accepts an actor UUID, a `PublishAccess` adapter and an
 `Upload` containing exact public metadata/policy bytes. The caller supplies
 channel-specific pinned public Root metadata through `Downloads::new`.
-No private keys, package upload, network fetch, signing, staff HTTP mutation
-or account-table dependency exists in this crate. An account must be positively
-active and its channel publication permission must be `Some(true)`.
+No private keys, package upload, network fetch, signing or staff HTTP mutation
+exists in this crate. The operator adapter reads account status and RBAC.
+An account must be positively active and its channel publication permission must be `Some(true)`.
 
 All operations require `FeatureFlags { downloads: true }`. The binary mounts
 GET routes with the flag off unless `OTERYN_DOWNLOADS_ENABLED=true` is set.
-Future staff/RBAC composition calls the Rust API and supplies its own public
-root configuration; setting the HTTP flag does not configure publication keys.
+The `downloads-publish` operator command supplies channel public Roots from
+`OTERYN_DOWNLOADS_ROOT_STABLE` / `OTERYN_DOWNLOADS_ROOT_BETA` file paths, requires
+an active actor with `downloads.manage`, and calls the same Rust API. Setting
+the HTTP flag does not configure publication trust anchors. See the accepted
+[origin contract](../../../../docs/contracts/OTERYN_V2_CLIENT_UPDATE_ORIGIN_CONTRACT.md).
 
 ## Bounded TUF upload profile
 
-Verification uses the `tough` 0.18 ring-based line: later releases unconditionally
-enable a second rustls provider, conflicting with the existing gateway. Every
+Verification uses the locked `tough` library without its HTTP feature. Every
 uploaded signature envelope is additionally checked for unique decoded key IDs
 before verification, including delegated roles; repeated signatures cannot count
 toward any threshold. No HTTP feature is enabled.
@@ -73,9 +75,9 @@ installed executable. There is no TUF implementation or updater policy parser
 in that commit's Rust application/crate sources to use as a compatibility oracle.
 The policy fixture therefore checks Platform's documented schema v1 (ADR 0035),
 not an asserted launcher contract. See `tests/fixtures/SOURCE.md`.
-The TUF profile, route names and policy parser compatibility require a real
-launcher source/contract before enabling distribution. No production activation
-or client compatibility is claimed. No player/staff pages are included.
+The origin contract fixes the distribution profile and paths. Actual launcher
+policy parser compatibility still requires client evidence before activation.
+No production activation or client compatibility is claimed. No player/staff pages are included.
 
 ## Tests
 
@@ -83,6 +85,7 @@ Set `PORTAL_TEST_DATABASE_URL` to an isolated PostgreSQL 18.6 test database.
 Tests create and drop UUID-named schemas, apply embedded workspace migrations,
 and cover publication/GET byte identity, invalid signatures, expiry/tampering,
 replay/rollback, immutable history, account/RBAC denial, invalid input and
-concurrent publication. Six database tests run; without the variable each prints
-an explicit skip notice. Test signing keys are generated in memory at runtime.
+concurrent publication. Eight database tests run, including operator publication
+and signed contract bundles; without the variable each prints an explicit skip
+notice. Test signing keys are generated in memory at runtime.
 No SQL query macros are added, so no new SQLx offline query data is required.

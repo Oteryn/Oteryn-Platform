@@ -11,3 +11,7 @@ The launcher only reads `current.txt` and launches an installed executable.
 No TUF metadata consumer or updater policy parser exists in those sources or
 elsewhere in the inspected Rust application/crate sources at that commit.
 No Game fixture was copied; this fixture does not prove launcher compatibility.
+
+`origin-v1/` contains synthetic signed stable/beta bundles produced by the
+downloads test signer. All private keys were generated in memory and discarded.
+The public Roots expire in 2099 for testing only; none is a production anchor.

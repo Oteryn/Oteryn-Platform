@@ -40,6 +40,15 @@ async fn db_upload_is_served_byte_identical_and_history_survives_publication() {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()["content-type"], "application/json");
+        assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+        assert_eq!(
+            response.headers()["cache-control"],
+            if filename == "timestamp.json" {
+                "no-store, no-transform"
+            } else {
+                "public, max-age=31536000, immutable, no-transform"
+            }
+        );
         assert_eq!(
             to_bytes(response.into_body(), 2_000_000)
                 .await
@@ -47,6 +56,23 @@ async fn db_upload_is_served_byte_identical_and_history_survives_publication() {
                 .as_ref(),
             expected
         );
+    }
+    for alias in ["root.json", "targets.json", "snapshot.json", "stable.json"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/updates/stable/metadata/{alias}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["cache-control"],
+            "no-store, no-transform"
+        );
+        assert_eq!(response.headers()["x-content-type-options"], "nosniff");
     }
     let hashed_path = format!(
         "{}.channels/stable/policy-v1.json",
@@ -58,10 +84,18 @@ async fn db_upload_is_served_byte_identical_and_history_survives_publication() {
     ] {
         let response = app
             .clone()
-            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .oneshot(Request::get(&path).body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["cache-control"],
+            if path.contains("/targets/") {
+                "public, max-age=31536000, immutable, no-transform"
+            } else {
+                "no-store, no-transform"
+            }
+        );
         assert_eq!(
             to_bytes(response.into_body(), 262144)
                 .await
@@ -406,6 +440,7 @@ async fn disabled_surface_does_not_connect_to_database() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.headers()["cache-control"], "no-store");
 }
 struct PgPoolForTest;
 impl PgPoolForTest {

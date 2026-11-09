@@ -32,6 +32,9 @@ async fn main() -> ExitCode {
         .init();
 
     let arg = std::env::args().nth(1);
+    if arg.as_deref() == Some("downloads-publish") {
+        return oteryn_downloads::command::run().await;
+    }
     if arg.as_deref() == Some("import") {
         return import::run().await;
     }
