@@ -197,6 +197,24 @@ async fn postgres_transfer_success_replay_refusal_and_bad_input() -> TestResult 
         .await?;
     let app = app(db.pool.clone(), Arc::new(d));
     let (cookie, csrf) = session(&db.pool, sender).await?;
+    for (lang, label) in [
+        ("pl", "Twój identyfikator do przelewów"),
+        ("en", "Your transfer ID"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::get(format!("/{lang}/shop/transfer"))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body(response).await?;
+        assert!(html.contains(label));
+        assert!(html.contains(&format!("value=\"{sender}\" readonly")));
+        assert!(html.contains("pattern=\"[0-9a-fA-F]{8}"));
+    }
     let key = Uuid::now_v7();
     let form = format!("_csrf={csrf}&operation={key}&recipient={recipient}&amount=20");
     for _ in 0..2 {
@@ -782,4 +800,37 @@ async fn postgres_configured_identity_d14_transfer_and_ownership_deny() -> TestR
         StatusCode::FORBIDDEN
     );
     db.close().await
+}
+
+#[test]
+fn localized_currency_and_coin_plurals() {
+    let pl = Locale("pl");
+    let en = Locale("en");
+    for (minor, polish, english) in [
+        (1000, "10,00 zł", "PLN 10.00"),
+        (4500, "45,00 zł", "PLN 45.00"),
+        (1, "0,01 zł", "PLN 0.01"),
+    ] {
+        assert_eq!(pl.currency(minor, "PLN"), polish);
+        assert_eq!(en.currency(minor, "PLN"), english);
+    }
+    for (count, suffix) in [
+        (1, "coin"),
+        (2, "coiny"),
+        (4, "coiny"),
+        (5, "coinów"),
+        (12, "coinów"),
+        (22, "coiny"),
+        (250, "coinów"),
+    ] {
+        assert_eq!(
+            pl.coin_count(count).replace(['\u{2068}', '\u{2069}'], ""),
+            format!("{count} {suffix}")
+        );
+        let suffix = if count == 1 { "coin" } else { "coins" };
+        assert_eq!(
+            en.coin_count(count).replace(['\u{2068}', '\u{2069}'], ""),
+            format!("{count} {suffix}")
+        );
+    }
 }

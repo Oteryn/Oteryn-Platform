@@ -12,6 +12,9 @@ const AxeBuilder = modules('@axe-core/playwright').default;
     const page = await context.newPage();
     for (const [index, lang] of ['pl', 'en'].entries()) {
       await page.goto(`${process.env.PORTAL_BROWSER_URL}/${lang}/shop/coins`);
+      assert.ok((await page.locator('main form').textContent()).includes(lang === 'pl' ? '2,50 zł' : 'PLN 2.50'));
+      assert.equal(await page.locator('main form button').textContent(), lang === 'pl' ? 'Kup' : 'Buy');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.locator('main form button').click();
       await page.waitForURL(`**/${lang}/shop/test-checkout/*`);
       assert.ok((await page.locator('main').textContent()).includes(lang === 'pl' ? 'TRYB TESTOWY – żadne prawdziwe pieniądze nie są pobierane' : 'TEST MODE – no real money is charged'));
@@ -32,6 +35,14 @@ const AxeBuilder = modules('@axe-core/playwright').default;
       assert.equal(await page.locator('main section dd').first().textContent(), expected);
     }
     await page.goto(`${process.env.PORTAL_BROWSER_URL}/en/shop/transfer`);
+    const ownId = page.getByLabel('Your transfer ID', { exact: true });
+    assert.equal(await ownId.getAttribute('readonly'), '');
+    assert.match(await ownId.inputValue(), /^[0-9a-f-]{36}$/);
+    await page.locator('[name=recipient]').fill('invalid');
+    assert.equal(await page.locator('[name=recipient]').evaluate(input => input.checkValidity()), false);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    const transferAxe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
+    assert.deepEqual(transferAxe.violations.map(v => v.id), []);
     await page.locator('[name=recipient]').fill(process.env.PORTAL_BROWSER_RECIPIENT);
     await page.locator('[name=amount]').fill('20');
     await page.locator('main button').click();

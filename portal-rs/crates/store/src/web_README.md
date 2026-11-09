@@ -79,7 +79,7 @@ key is required: there is no generated fallback. Start the existing worker with
 the same payment and wallet flags to deliver `wallet.top_up` jobs.
 
 Top-up creation redirects to `/{lang}/shop/test-checkout/{intent_id}`. The bank
-shows the stored package, integer minor units and an explicit test-mode banner.
+shows the stored package, localized currency amounts and an explicit test-mode banner.
 Pay sends a signed success event through `Payments::webhook`; reject and cancel
 send failure. Session authorization and CSRF apply to all browser mutations.
 Foreign intents return 404. Finished intents show their persisted status and
