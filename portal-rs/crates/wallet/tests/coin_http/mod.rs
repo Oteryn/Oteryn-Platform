@@ -205,6 +205,23 @@ async fn fixtures_round_trip_real_wallet_handlers_for_every_route() {
             normalize_receipt(&mut expected, &actual);
         }
         assert_eq!(canonical::encode(&expected).unwrap(), bytes, "{route}");
+        if route == "cancellations" {
+            let mut changed = parse(body.as_ref().unwrap());
+            set(
+                &mut changed,
+                "reservation_id",
+                Value::String(id().to_string()),
+            );
+            let (status, bytes) = call(
+                router.clone(),
+                &path,
+                Some(canonical::encode(&changed).unwrap()),
+                true,
+            )
+            .await;
+            assert_eq!(status, StatusCode::CONFLICT);
+            assert_eq!(bytes, fixture("idempotency_conflict.json"));
+        }
         if route == "transfers" {
             let (status, replay) = call(router, &path, body, true).await;
             assert_eq!(status, StatusCode::OK);
@@ -296,6 +313,40 @@ async fn refusal_fixtures_and_invalid_inputs_use_exact_bodies() {
     )
     .await;
     check("idempotency_conflict", s, r);
+    let mut absent_recipient = parse(&fixture("transfers-request.json"));
+    set(
+        &mut absent_recipient,
+        "recipient_account_id",
+        Value::String(id().to_string()),
+    );
+    let (status, bytes) = call(
+        router.clone(),
+        path,
+        Some(canonical::encode(&absent_recipient).unwrap()),
+        true,
+    )
+    .await;
+    check("idempotency_conflict", status, bytes);
+    let unrelated = id();
+    db.ledger(&[a, b]).reserve(unrelated, a, 1).await.unwrap();
+    for route in ["settlements", "cancellations"] {
+        let mut body = parse(&fixture(&format!("{route}-request.json")));
+        set(&mut body, "operation_id", Value::String(id().to_string()));
+        set(
+            &mut body,
+            "reservation_id",
+            Value::String(unrelated.to_string()),
+        );
+        let (status, bytes) = call(
+            router.clone(),
+            &format!("/internal/v1/coins/market/{route}"),
+            Some(canonical::encode(&body).unwrap()),
+            true,
+        )
+        .await;
+        check("invalid", status, bytes);
+    }
+    assert_eq!(db.ledger(&[a, b]).balance(a).await.unwrap().reserved, 1);
     for name in [
         "zero",
         "negative",

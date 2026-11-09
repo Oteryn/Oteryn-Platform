@@ -398,6 +398,21 @@ async fn execute<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook>(
         return Err(Refusal::InvalidIdentifier.into());
     }
     let key = id(&value, "operation_id", true)?;
+    let used = binding(ledger, &path, key, &value).await?;
+    if matches!(path.as_str(), "market/settlements" | "market/cancellations") {
+        let reservation = id(&value, "reservation_id", true)?;
+        // Operation bindings are immutable. A used key must reach the ledger's
+        // replay/conflict check; a new key can consume only a SELL-offer hold.
+        let admissible: bool = if used {
+            true
+        } else {
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wallet_operations WHERE id=$1 AND kind='reserve' AND reason LIKE 'gold-price:%')")
+                .bind(reservation).fetch_one(&ledger.pool).await?
+        };
+        if !admissible {
+            return Err(Refusal::ReservationMissing.into());
+        }
+    }
     let r = match path.as_str() {
         "transfers" => {
             let a = id(&value, "sender_account_id", false)?;
@@ -441,6 +456,57 @@ async fn execute<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook>(
         }
     };
     Ok(receipt(r))
+}
+
+// Validate used keys before account/reservation lookup so changing a valid
+// identifier to an absent one still produces the required payload conflict.
+async fn binding<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook>(
+    ledger: &Ledger<A, B, H>,
+    path: &str,
+    key: uuid::Uuid,
+    value: &Value,
+) -> Result<bool, Error> {
+    let kind = match path {
+        "transfers" => "transfer",
+        "market/offers" => "reserve",
+        "market/settlements" => "settlement",
+        _ => "release",
+    };
+    let account = match path {
+        "transfers" => Some(id(value, "sender_account_id", false)?),
+        "market/offers" | "market/cancellations" => Some(id(value, "seller_account_id", false)?),
+        _ => None,
+    };
+    let counterparty = match path {
+        "transfers" => Some(id(value, "recipient_account_id", false)?),
+        "market/settlements" => Some(id(value, "buyer_account_id", false)?),
+        _ => None,
+    };
+    if path == "transfers" && account == counterparty {
+        return Err(Refusal::SameAccount.into());
+    }
+    let quantity = if path == "market/cancellations" {
+        None
+    } else {
+        Some(amount(value, "amount")?)
+    };
+    let reference = if matches!(path, "market/settlements" | "market/cancellations") {
+        Some(id(value, "reservation_id", true)?)
+    } else {
+        None
+    };
+    let reason = if path == "market/offers" {
+        Some(format!("gold-price:{}", amount(value, "gold_price")?))
+    } else {
+        None
+    };
+    let same:Option<bool> = sqlx::query_scalar("SELECT kind=$2 AND ($3::uuid IS NULL OR account_id=$3) AND counterparty_id IS NOT DISTINCT FROM $4 AND ($5::bigint IS NULL OR amount=$5) AND reference_id IS NOT DISTINCT FROM $6 AND reason IS NOT DISTINCT FROM $7 FROM wallet_operations WHERE id=$1")
+        .bind(key).bind(kind).bind(account).bind(counterparty).bind(quantity).bind(reference).bind(reason).fetch_optional(&ledger.pool).await?;
+    match same {
+        Some(false) => Err(Refusal::IdempotencyConflict.into()),
+        Some(true) => Ok(true),
+        None => Ok(false),
+    }
 }
 
 /// Production adapters deny on missing or failed authoritative state. Grants are
