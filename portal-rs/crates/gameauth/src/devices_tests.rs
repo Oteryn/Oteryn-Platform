@@ -44,6 +44,7 @@ impl NativeAuthority for Authority {
         &'a self,
         db: &'a mut PgConnection,
         _: &'a Authorization,
+        _: Uuid,
         purpose: Purpose,
     ) -> NativeFuture<'a, NativeResult> {
         Box::pin(async move {
@@ -348,5 +349,414 @@ async fn database_owner_revocation_and_suspension()
         Err(Failure::Denied)
     );
     s.revoke(c.secret(), a.client_id).await.unwrap();
+    Ok(())
+}
+
+#[test]
+fn protocol_one_fixture_bytes_and_proofs() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../docs/contracts/fixtures/remembered-device-v1");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("manifest.json")).unwrap()).unwrap();
+    for entry in manifest["files"].as_array().unwrap() {
+        let bytes = std::fs::read(root.join(entry["file"].as_str().unwrap())).unwrap();
+        assert_eq!(bytes.len() as u64, entry["bytes"].as_u64().unwrap());
+        let digest: String = hash_bytes(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(digest, entry["sha256"].as_str().unwrap());
+    }
+    let client = Uuid::parse_str(manifest["client_id"].as_str().unwrap()).unwrap();
+    let bearer = manifest["synthetic_bearer"].as_str().unwrap();
+    for class in ["session", "remembered"] {
+        let bytes = std::fs::read(root.join(format!("{class}-enroll.json"))).unwrap();
+        let (remembered, key) = http::decode_enrollment(&bytes, false).unwrap();
+        assert_eq!(remembered, class == "remembered");
+        let key = key.unwrap();
+        assert!(key.verify(bearer, client, remembered).is_ok());
+        assert_eq!(
+            key.verify("wrong", client, remembered),
+            Err(Failure::Denied)
+        );
+        assert_eq!(
+            key.verify(bearer, Uuid::now_v7(), remembered),
+            Err(Failure::Denied)
+        );
+        assert_eq!(
+            key.verify(bearer, client, !remembered),
+            Err(Failure::Denied)
+        );
+    }
+}
+
+async fn native_setup()
+-> std::result::Result<Option<(Sessions, Uuid, Uuid, String)>, Box<dyn std::error::Error>> {
+    let Some((mut sessions, auth)) = setup().await? else {
+        return Ok(None);
+    };
+    let client = auth.client_id;
+    sqlx::query("UPDATE accounts SET email_verified_at=now() WHERE id=$1")
+        .bind(auth.account_id)
+        .execute(&sessions.pool)
+        .await?;
+    sqlx::query("INSERT INTO oauth_native_clients(client_id,enabled,first_party,public_client,native_ticket) VALUES($1,true,true,true,true)").bind(client).execute(&sessions.pool).await?;
+    let config = crate::oauth::Config {
+        enabled: true,
+        clients: vec![crate::oauth::Client {
+            client_id: client.to_string(),
+            redirect_uris: vec!["http://127.0.0.1:41000/callback".into()],
+        }],
+    };
+    let verifier = "v".repeat(43);
+    let request = crate::oauth::Authorization {
+        response_type: "code".into(),
+        client_id: client.to_string(),
+        redirect_uri: "http://127.0.0.1:41000/callback".into(),
+        scope: "game:ticket".into(),
+        state: "test-state-for-browser".into(),
+        code_challenge: URL_SAFE_NO_PAD.encode(hash(&verifier)),
+        code_challenge_method: "S256".into(),
+    };
+    let code = crate::oauth::authorize(&sessions.pool, &config, auth.account_id, &request).await?;
+    let tokens = crate::oauth::exchange(
+        &sessions.pool,
+        &config,
+        &crate::oauth::TokenRequest {
+            grant_type: "authorization_code".into(),
+            client_id: client.to_string(),
+            redirect_uri: request.redirect_uri,
+            code,
+            code_verifier: verifier,
+            ..Default::default()
+        },
+    )
+    .await?;
+    sessions.authority = Arc::new(PlatformAuthority {
+        oauth: config,
+        projection_authority: "test-source".into(),
+    });
+    Ok(Some((
+        sessions,
+        auth.account_id,
+        client,
+        tokens.access_token,
+    )))
+}
+
+fn signed_key(bearer: &str, client: Uuid, remembered: bool) -> DeviceKey {
+    use ed25519_dalek::{Signer, SigningKey};
+    let signing = SigningKey::from_bytes(&[7; 32]);
+    let public = signing.verifying_key().to_bytes();
+    let digest: String = hash(bearer).iter().map(|b| format!("{b:02x}")).collect();
+    let input = format!(
+        "{{\"access_token_sha256\":\"{digest}\",\"client_id\":\"{client}\",\"persistence\":\"{}\",\"public_key\":\"{}\",\"purpose\":\"oteryn-native-device-enroll-v1\"}}",
+        if remembered { "remembered" } else { "session" },
+        URL_SAFE_NO_PAD.encode(public)
+    );
+    DeviceKey {
+        public_key: public.to_vec(),
+        signature: signing.sign(input.as_bytes()).to_bytes().to_vec(),
+    }
+}
+
+#[tokio::test]
+async fn database_native_oauth_enrollment_and_existing_ticket_issuer()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some((s, account, client, bearer)) = native_setup().await? else {
+        return Ok(());
+    };
+    assert!(matches!(
+        s.enroll("invalid", true).await,
+        Err(Failure::Denied)
+    ));
+    let enrolled = s.enroll(&bearer, true).await.unwrap();
+    assert!(matches!(
+        s.enroll(&bearer, true).await,
+        Err(Failure::Denied)
+    ));
+    let result = s
+        .rotate(enrolled.secret(), client, Purpose::Ticket)
+        .await
+        .unwrap();
+    let ticket = result["ticket"].as_str().unwrap();
+    let row: (Uuid,Uuid,String,String) = sqlx::query_as("SELECT account_id,device_family_id,audience,native_generation FROM game_login_tickets WHERE ticket_hash=$1 AND used_at IS NULL AND expires_at>clock_timestamp()")
+        .bind(hash(ticket)).fetch_one(&s.pool).await?;
+    assert_eq!(row.0, account);
+    assert_eq!(row.1, enrolled.family_id);
+    assert_eq!(row.2, "oteryn-native-game-gateway");
+    assert_eq!(row.3, "2");
+    assert!(
+        crate::oauth::verify_access(
+            &s.pool,
+            &crate::oauth::Config {
+                enabled: true,
+                clients: vec![crate::oauth::Client {
+                    client_id: client.to_string(),
+                    redirect_uris: vec![]
+                }]
+            },
+            &bearer
+        )
+        .await
+        .is_ok()
+    );
+    assert_eq!(
+        s.rotate(enrolled.secret(), client, Purpose::Ticket).await,
+        Err(Failure::Denied)
+    );
+    assert_eq!(
+        s.rotate(
+            result["device_credential"].as_str().unwrap(),
+            client,
+            Purpose::Ticket
+        )
+        .await,
+        Err(Failure::Denied)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn database_native_session_class_proof_and_fixed_deadline()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some((s, _, client, bearer)) = native_setup().await? else {
+        return Ok(());
+    };
+    let wrong = signed_key("wrong", client, false);
+    assert!(matches!(
+        s.enroll_class(&bearer, false, Some(wrong)).await,
+        Err(Failure::Denied)
+    ));
+    let key = signed_key(&bearer, client, false);
+    let enrolled = s.enroll_class(&bearer, false, Some(key)).await.unwrap();
+    assert_eq!(enrolled.absolute_expires_at, enrolled.idle_expires_at);
+    let now = {
+        let mut db = s.pool.acquire().await?;
+        clock(&mut db).await.unwrap()
+    };
+    assert!((43195..=43200).contains(&(enrolled.absolute_expires_at - now)));
+    let row: (String,i64) = sqlx::query_as("SELECT persistence_class,octet_length(device_public_key)::bigint FROM device_sessions WHERE id=$1").bind(enrolled.family_id).fetch_one(&s.pool).await?;
+    assert_eq!(row, ("session".into(), 32));
+    let response = s
+        .rotate(enrolled.secret(), client, Purpose::Ticket)
+        .await
+        .unwrap();
+    assert_eq!(response["idle_expires_at"], enrolled.idle_expires_at);
+    assert!(matches!(
+        s.enroll(&bearer, true).await,
+        Err(Failure::Denied)
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn database_native_password_mfa_suspension_and_client_revocation()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    for change in [
+        "password",
+        "prefenced-password",
+        "mfa",
+        "mfa-key",
+        "suspension",
+        "client",
+        "generation",
+    ] {
+        let Some((s, account, client, bearer)) = native_setup().await? else {
+            return Ok(());
+        };
+        let enrolled = s.enroll(&bearer, true).await.unwrap();
+        match change {
+            "password" => {
+                sqlx::query("UPDATE accounts SET password_hash='changed-test-hash' WHERE id=$1")
+                    .bind(account)
+                    .execute(&s.pool)
+                    .await?;
+            }
+            "prefenced-password" => {
+                let mut tx = s.pool.begin().await?;
+                sqlx::query("UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1").bind(account).execute(&mut *tx).await?;
+                sqlx::query("UPDATE accounts SET password_hash='changed-test-hash' WHERE id=$1")
+                    .bind(account)
+                    .execute(&mut *tx)
+                    .await?;
+                let generation: i64 = sqlx::query_scalar(
+                    "SELECT native_security_generation FROM accounts WHERE id=$1",
+                )
+                .bind(account)
+                .fetch_one(&mut *tx)
+                .await?;
+                assert_eq!(generation, 3);
+                tx.commit().await?;
+            }
+            "mfa" => {
+                sqlx::query("UPDATE accounts SET login_mfa_required=true WHERE id=$1")
+                    .bind(account)
+                    .execute(&s.pool)
+                    .await?;
+            }
+            "mfa-key" => {
+                sqlx::query(
+                    "INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,$2,false)",
+                )
+                .bind(account)
+                .bind(vec![1u8; 32])
+                .execute(&s.pool)
+                .await?;
+                sqlx::query("UPDATE account_mfa_totp SET confirmed=true WHERE account_id=$1")
+                    .bind(account)
+                    .execute(&s.pool)
+                    .await?;
+            }
+            "suspension" => {
+                sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+                    .bind(account)
+                    .execute(&s.pool)
+                    .await?;
+            }
+            "generation" => {
+                sqlx::query(
+                    "UPDATE accounts SET game_auth_generation=game_auth_generation+1 WHERE id=$1",
+                )
+                .bind(account)
+                .execute(&s.pool)
+                .await?;
+            }
+            _ => {
+                sqlx::query(
+                    "UPDATE oauth_native_clients SET native_ticket=false WHERE client_id=$1",
+                )
+                .bind(client)
+                .execute(&s.pool)
+                .await?;
+            }
+        }
+        assert_eq!(
+            s.rotate(enrolled.secret(), client, Purpose::Ticket).await,
+            Err(Failure::Denied),
+            "{change}"
+        );
+        let revoked: Option<i64> =
+            sqlx::query_scalar("SELECT revoked_at FROM device_sessions WHERE id=$1")
+                .bind(enrolled.family_id)
+                .fetch_one(&s.pool)
+                .await?;
+        assert!(revoked.is_some(), "{change}");
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM game_login_tickets")
+            .fetch_one(&s.pool)
+            .await?;
+        assert_eq!(count, 0);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn database_native_character_projection_and_failure_rollback()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some((s, account, client, bearer)) = native_setup().await? else {
+        return Ok(());
+    };
+    let enrolled = s.enroll(&bearer, true).await.unwrap();
+    assert_eq!(
+        s.rotate(enrolled.secret(), client, Purpose::Characters)
+            .await,
+        Err(Failure::Unavailable)
+    );
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test-source',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1").execute(&s.pool).await?;
+    sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'test-source','1','1',0,$2)").bind(account).bind(vec![0u8;32]).execute(&s.pool).await?;
+    let character = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Player','AVAILABLE')").bind(account).bind(character).bind(Uuid::now_v7()).execute(&s.pool).await?;
+    let response = s
+        .rotate(enrolled.secret(), client, Purpose::Characters)
+        .await
+        .unwrap();
+    assert_eq!(
+        response["characters"][0]["character_id"],
+        character.to_string()
+    );
+    sqlx::query("UPDATE account_character_snapshots SET invalid=true WHERE account_id=$1")
+        .bind(account)
+        .execute(&s.pool)
+        .await?;
+    assert_eq!(
+        s.rotate(
+            response["device_credential"].as_str().unwrap(),
+            client,
+            Purpose::Characters
+        )
+        .await,
+        Err(Failure::Unavailable)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn database_native_normal_ticket_consumes_oauth_but_device_continues()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some((s, _, client, bearer)) = native_setup().await? else {
+        return Ok(());
+    };
+    let enrollment = s.enroll(&bearer, true).await.unwrap();
+    let authority = PlatformAuthority {
+        oauth: crate::oauth::Config {
+            enabled: true,
+            clients: vec![crate::oauth::Client {
+                client_id: client.to_string(),
+                redirect_uris: vec![],
+            }],
+        },
+        projection_authority: "test-source".into(),
+    };
+    let tickets = crate::tickets::Tickets::new(
+        s.pool.clone(),
+        crate::tickets::Settings {
+            enabled: true,
+            nonproduction: true,
+        },
+        Arc::new(authority),
+    );
+    let issued = tickets.issue(&bearer).await.unwrap();
+    let family: Uuid =
+        sqlx::query_scalar("SELECT device_family_id FROM game_login_tickets WHERE ticket_hash=$1")
+            .bind(hash(&issued.ticket))
+            .fetch_one(&s.pool)
+            .await?;
+    assert_eq!(family, enrollment.family_id);
+    assert!(matches!(
+        tickets.issue(&bearer).await,
+        Err(crate::tickets::Error::Unauthorized)
+    ));
+    let revoked: bool = sqlx::query_scalar("SELECT f.revoked_at IS NOT NULL FROM oauth_token_families f JOIN oauth_tokens t ON t.family_id=f.id WHERE t.access_hash=$1").bind(hash(&bearer)).fetch_one(&s.pool).await?;
+    assert!(revoked);
+    assert!(
+        s.rotate(enrollment.secret(), client, Purpose::Ticket)
+            .await
+            .is_ok()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn database_native_original_oauth_generations_are_required()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    for native in [false, true] {
+        let Some((s, account, _, bearer)) = native_setup().await? else {
+            return Ok(());
+        };
+        if native {
+            sqlx::query("UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1").bind(account).execute(&s.pool).await?;
+        } else {
+            sqlx::query(
+                "UPDATE accounts SET game_auth_generation=game_auth_generation+1 WHERE id=$1",
+            )
+            .bind(account)
+            .execute(&s.pool)
+            .await?;
+        }
+        assert!(matches!(
+            s.enroll(&bearer, true).await,
+            Err(Failure::Denied)
+        ));
+    }
     Ok(())
 }

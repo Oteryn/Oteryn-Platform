@@ -66,18 +66,23 @@ pub fn router<S: Clone + Send + Sync + 'static>(sessions: Sessions) -> Router<S>
         .with_state(sessions)
         .layer(axum::middleware::from_fn(no_cache))
 }
-/// Unwired T17 authority is intentionally unavailable, even if the flag is set.
+/// Native device routes remain unavailable unless explicitly enabled.
 pub fn routes<S: Clone + Send + Sync + 'static>(pool: PgPool) -> Router<S> {
     let settings = Settings {
-        enabled: std::env::var("GAME_AUTH_DEVICE_SESSIONS_ENABLED").as_deref() == Ok("true"),
+        enabled: std::env::var("OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED").as_deref() == Ok("true"),
         environment: std::env::var("APP_ENV").unwrap_or_default(),
         ..Settings::default()
     };
-    router(Sessions::new(
-        pool,
-        settings,
-        Arc::new(UnavailableAuthority),
-    ))
+    let authority: Arc<dyn NativeAuthority> = if settings.enabled {
+        Arc::new(PlatformAuthority {
+            oauth: crate::oauth::Config::from_env(),
+            projection_authority: std::env::var("OTERYN_NATIVE_DEVICE_PROJECTION_AUTHORITY")
+                .unwrap_or_default(),
+        })
+    } else {
+        Arc::new(UnavailableAuthority)
+    };
+    router(Sessions::new(pool, settings, authority))
 }
 async fn handle(State(sessions): State<Sessions>, request: Request) -> Response {
     match dispatch(sessions, request).await {
@@ -164,10 +169,14 @@ async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Va
             .filter(|s| valid_secret(s))
             .ok_or(Failure::Denied)?
     };
-    let client = decode(&body, enroll, parts.uri.query().is_some())?;
     if enroll {
-        return sessions.enroll(secret, true).await.map(|c| c.payload());
+        let (remembered, key) = decode_enrollment(&body, parts.uri.query().is_some())?;
+        return sessions
+            .enroll_class(secret, remembered, key)
+            .await
+            .map(|c| c.payload());
     }
+    let client = decode(&body, false, parts.uri.query().is_some())?;
     let client = client.ok_or(Failure::Invalid)?;
     if path == format!("{BASE}/revoke") {
         sessions.revoke(secret, client).await?;
@@ -219,6 +228,44 @@ async fn throttle(sessions: &Sessions, source: &str) -> Result<()> {
         Ok(())
     }
 }
+// The original two-member remembered request stays byte-compatible. The bound
+// extension has an exact four-member set and adds session-class enrollment.
+pub(super) fn decode_enrollment(body: &[u8], query: bool) -> Result<(bool, Option<DeviceKey>)> {
+    if decode(body, true, query).is_ok() {
+        return Ok((true, None));
+    }
+    if query {
+        return Err(Failure::Invalid);
+    }
+    let value = canonical::decode(body, 1024, 2).map_err(|_| Failure::Invalid)?;
+    let Value::Object(fields) = &value else {
+        return Err(Failure::Invalid);
+    };
+    if fields.len() != 4 || value.get("protocol_version") != Some(&Value::Unsigned(1)) {
+        return Err(Failure::Invalid);
+    }
+    let Some(Value::Bool(remembered)) = value.get("remember_device") else {
+        return Err(Failure::Invalid);
+    };
+    let decode_bytes = |name: &str, length: usize| -> Result<Vec<u8>> {
+        let Some(Value::String(raw)) = value.get(name) else {
+            return Err(Failure::Invalid);
+        };
+        let bytes = URL_SAFE_NO_PAD.decode(raw).map_err(|_| Failure::Invalid)?;
+        if bytes.len() != length || URL_SAFE_NO_PAD.encode(&bytes) != *raw {
+            return Err(Failure::Invalid);
+        }
+        Ok(bytes)
+    };
+    Ok((
+        *remembered,
+        Some(DeviceKey {
+            public_key: decode_bytes("device_public_key", 32)?,
+            signature: decode_bytes("enrollment_proof", 64)?,
+        }),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

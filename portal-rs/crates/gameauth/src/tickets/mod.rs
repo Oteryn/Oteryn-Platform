@@ -86,20 +86,11 @@ impl Tickets {
         }
         let mut tx = self.pool.begin().await.map_err(|_| Error::Unavailable)?;
         let principal = self.oauth.verify(&mut tx, bearer, true).await?;
-        validate(principal)?;
-        let mut secret = [0u8; 32];
-        getrandom::fill(&mut secret).map_err(|_| Error::Unavailable)?;
-        let ticket = URL_SAFE_NO_PAD.encode(secret);
-        sqlx::query("INSERT INTO game_login_tickets (ticket_hash, account_id, game_generation, native_generation, audience, expires_at) VALUES ($1,$2,$3,$4,'oteryn-native-game-gateway',clock_timestamp() + interval '60 seconds')")
-            .bind(&Sha256::digest(ticket.as_bytes())[..]).bind(principal.account_id)
-            .bind(principal.game_generation.to_string()).bind(principal.native_generation.to_string())
-            .execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+        let family: Option<Uuid> = sqlx::query_scalar("SELECT d.id FROM device_sessions d JOIN oauth_tokens t ON d.enrollment_token_id=t.id::text WHERE t.access_hash=$1 AND d.account_id=$2 AND d.game_generation::text=$3 AND d.native_generation::text=$4 AND d.revoked_at IS NULL AND d.absolute_expires_at>extract(epoch FROM clock_timestamp()) AND d.idle_expires_at>extract(epoch FROM clock_timestamp()) FOR SHARE OF d")
+            .bind(&Sha256::digest(bearer.as_bytes())[..]).bind(principal.account_id).bind(principal.game_generation.to_string()).bind(principal.native_generation.to_string()).fetch_optional(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+        let issued = issue_on_connection(&mut tx, principal, family).await?;
         tx.commit().await.map_err(|_| Error::Unavailable)?;
-        Ok(Issued {
-            protocol_version: 1,
-            ticket,
-            expires_in: 60,
-        })
+        Ok(issued)
     }
     pub async fn account(&self, bearer: &str) -> Result<Principal, Error> {
         if !self.available() {
@@ -152,4 +143,25 @@ impl std::fmt::Debug for Issued {
             .field("expires_in", &self.expires_in)
             .finish()
     }
+}
+
+/// Shared issuer for already locked native authority; all effects belong to the caller.
+pub(crate) async fn issue_on_connection(
+    db: &mut PgConnection,
+    principal: Principal,
+    family: Option<Uuid>,
+) -> Result<Issued, Error> {
+    validate(principal)?;
+    let mut secret = [0u8; 32];
+    getrandom::fill(&mut secret).map_err(|_| Error::Unavailable)?;
+    let ticket = URL_SAFE_NO_PAD.encode(secret);
+    sqlx::query("INSERT INTO game_login_tickets (ticket_hash, account_id, game_generation, native_generation, audience, expires_at, device_family_id) VALUES ($1,$2,$3,$4,'oteryn-native-game-gateway',clock_timestamp() + interval '60 seconds',$5)")
+        .bind(&Sha256::digest(ticket.as_bytes())[..]).bind(principal.account_id)
+        .bind(principal.game_generation.to_string()).bind(principal.native_generation.to_string()).bind(family)
+        .execute(db).await.map_err(|_| Error::Unavailable)?;
+    Ok(Issued {
+        protocol_version: 1,
+        ticket,
+        expires_in: 60,
+    })
 }
