@@ -29,7 +29,18 @@ async fn metadata(
         Ok(channel) => downloads.metadata(channel, &filename).await,
         Err(error) => Err(error),
     };
-    document(result)
+    document(
+        result,
+        if filename
+            .split('.')
+            .next()
+            .is_some_and(|v| v.parse::<u64>().is_ok())
+        {
+            IMMUTABLE
+        } else {
+            MUTABLE
+        },
+    )
 }
 
 async fn policy(State(downloads): State<Downloads>, Path(channel): Path<String>) -> Response {
@@ -37,7 +48,7 @@ async fn policy(State(downloads): State<Downloads>, Path(channel): Path<String>)
         Ok(channel) => downloads.policy(channel, None).await,
         Err(error) => Err(error),
     };
-    document(result)
+    document(result, MUTABLE)
 }
 
 async fn target(
@@ -48,15 +59,18 @@ async fn target(
         Ok(channel) => downloads.policy(channel, Some(&target)).await,
         Err(error) => Err(error),
     };
-    document(result)
+    document(result, IMMUTABLE)
 }
 
-fn document(result: Result<Vec<u8>, Error>) -> Response {
+const IMMUTABLE: &str = "public, max-age=31536000, immutable, no-transform";
+const MUTABLE: &str = "no-store, no-transform";
+
+fn document(result: Result<Vec<u8>, Error>, cache: &'static str) -> Response {
     match result {
         Ok(bytes) => (
             [
                 (header::CONTENT_TYPE, "application/json"),
-                (header::CACHE_CONTROL, "no-cache, no-transform"),
+                (header::CACHE_CONTROL, cache),
                 (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
             ],
             bytes,
@@ -70,6 +84,29 @@ fn document(result: Result<Vec<u8>, Error>) -> Response {
                 _ => StatusCode::SERVICE_UNAVAILABLE,
             };
             (status, [(header::CACHE_CONTROL, "no-store")]).into_response()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn errors_are_unavailable_or_refused_and_never_cached() {
+        for (error, status) in [
+            (Error::Disabled, StatusCode::NOT_FOUND),
+            (Error::NotFound, StatusCode::NOT_FOUND),
+            (Error::Invalid("channel"), StatusCode::BAD_REQUEST),
+            (Error::Verification, StatusCode::SERVICE_UNAVAILABLE),
+            (
+                Error::Storage(sqlx::Error::PoolClosed),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+        ] {
+            let response = document(Err(error), IMMUTABLE);
+            assert_eq!(response.status(), status);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         }
     }
 }
