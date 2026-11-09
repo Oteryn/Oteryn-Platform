@@ -159,7 +159,12 @@ rotation; no grace window, automatic predecessor retry or plaintext recovery exi
 Password change, verified email/security change, MFA confirmation/replacement/removal,
 account suspension and explicit owner revocation invalidate old families. PostgreSQL
 account/MFA hooks advance generations and durably revoke families in the same transaction.
-Routine TOTP step changes do not fence a family. Native sign-out/cancellation revokes the
+Routine TOTP step changes do not fence a family. The existing native-evidence retained
+witness continues to require explicit acknowledgement by its owning security writer:
+a generation advanced in PostgreSQL but not yet acknowledged by that witness makes
+evidence unavailable. These routes never auto-advance a retained witness or perform
+filesystem effects inside a device transaction. Writer/witness operational qualification
+remains an enablement gate. Native sign-out/cancellation revokes the
 family idempotently, including with its used predecessor; clear the local vault even if
 server revocation is unreachable. A normal browser logout is not silently redefined as
 native sign-out. Owner revocation is scoped to an authenticated active owner; a future

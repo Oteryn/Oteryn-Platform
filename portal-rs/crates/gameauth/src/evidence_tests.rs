@@ -246,13 +246,19 @@ async fn db_evidence_fresh_recovery_share_revision_and_persist_exact_bytes() -> 
     sqlx::query("UPDATE accounts SET status='suspended'")
         .execute(&db.pool)
         .await?;
-    let value = observe(
-        &db.pool,
-        &options,
-        &EvidenceRequest::decode(&account(FRESH_ACCOUNT))?,
-    )
-    .await;
+    let req = EvidenceRequest::decode(&account(FRESH_ACCOUNT))?;
+    // Device revocation advances the account generation on suspension. Retained
+    // evidence must refuse until the owning writer acknowledges that generation.
+    assert_eq!(
+        observe(&db.pool, &options, &req).await,
+        req.failure("unavailable")
+    );
+    let witness = Witness::lock(&directory.0, &req.state_namespace)?;
+    witness.advance(&req.state_namespace, 2)?;
+    drop(witness);
+    let value = observe(&db.pool, &options, &req).await;
     assert_eq!(value.get("allowed"), Some(&Value::Bool(false)));
+    assert_eq!(text(&value, "minimum_valid_generation")?, "2");
     assert_eq!(text(&value, "source_revision")?, "4");
     db.close().await
 }
