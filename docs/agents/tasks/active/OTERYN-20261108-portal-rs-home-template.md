@@ -52,11 +52,12 @@ The template background (owner art) is a static asset; every text sits at the te
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-08T00:40:00Z
+updated_at: 2026-11-09T18:46:28Z
 head: b4518fe3e709c12591cd99897ad3786a88ab351f
 branch: claude/portal-rs-ui-2-fantasy-shell
 pr: 1782
 status: validating
+terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
   - portal-rs/templates/pages/home.html
@@ -87,5 +88,9 @@ validation:
     evidence: ui 3 passed, web 24 passed (1 existing ignored)
 blockers:
   - none
-next_action: "CI on PR #1782; PC docker testenv deploy of the responsive home with live status, news and ranking"
+next_action: "Archive this predecessor task with verified PR #1782 closeout evidence; the new visual-polish work is tracked by Issue #1798."
 ```
+
+## Lifecycle reconciliation — 2026-11-09
+
+Live GitHub readback confirms PR #1782 was merged on 2026-11-08 at `0571e5b73b3b30690861b38ba7bf5b39b215117f`. The governing programme Issue #530 remains open. This packet now uses the existing `archive_pending` transition and no longer claims active implementation ownership. Final archival and source-branch disposition remain to be recorded; this change does not claim production deployment or requalify the historical head and test entries above. The follow-up visual polish has its own governing Issue #1798 and task packet.
