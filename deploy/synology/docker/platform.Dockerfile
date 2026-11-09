@@ -3,7 +3,7 @@ FROM composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c
 # The FPM variant of the same PHP 8.5.11 Alpine 3.24 release. It still ships the PHP CLI that runs
 # `php artisan serve` (the default command) and adds php-fpm for the optional mTLS FastCGI listener
 # behind the Synology internal-mtls terminator (README: Platform internal mTLS listener).
-FROM php:8.5-fpm-alpine@sha256:fa01fb1645cd0fc566a5f146b099adace33b906571f972f71f2182a7c12d1cd7
+FROM php:8.5-fpm-alpine@sha256:64535609509e0fd5c8529359e6b599a68ce42089defd565f7881efdae7687cea
 
 # curl/libcurl ship in the base image; upgrade them in place so a patched Alpine build clears
 # Trivy HIGH findings (CVE-2026-92392, fixed in 8.23.0-r0) before the base digest is bumped.
