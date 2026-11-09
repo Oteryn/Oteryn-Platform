@@ -1,0 +1,2453 @@
+{
+  "source": {
+    "filename": "Oteryn_ Fantasy MMORPG Portal(1).png",
+    "sha256": "08090697dd979efca7fa0afd2b4e97751af1b4723245a9aca904df7cd277725a",
+    "size": [
+      1672,
+      941
+    ],
+    "mode": "RGBA"
+  },
+  "coordinate_convention": "Half-open source [x0,y0,x1,y1]; page origin (0,0); CSS reference 1672x941",
+  "asset_url_base_suggestion": "/static/img/reference/",
+  "encoding": {
+    "format": "WEBP",
+    "lossless": true,
+    "exact": true,
+    "resampling": false
+  },
+  "encoder_versions": {
+    "pillow": "13.0.0",
+    "libwebp": "1.6.0"
+  },
+  "verification": {
+    "all_retained_pixels_identical_to_source": true,
+    "all_decoded_rgba_identical_to_expected_crop_or_removed_region": true,
+    "hidden_rgb_in_removed_regions": false
+  },
+  "nav_hit_boxes_xyxy": [
+    [
+      273,
+      77,
+      448,
+      121
+    ],
+    [
+      448,
+      77,
+      592,
+      121
+    ],
+    [
+      592,
+      77,
+      718,
+      121
+    ],
+    [
+      718,
+      77,
+      882,
+      121
+    ],
+    [
+      882,
+      77,
+      1017,
+      121
+    ],
+    [
+      1017,
+      77,
+      1123,
+      121
+    ],
+    [
+      1123,
+      77,
+      1293,
+      121
+    ],
+    [
+      1293,
+      77,
+      1398,
+      121
+    ]
+  ],
+  "nav_order": [
+    "home",
+    "news",
+    "download",
+    "register-or-account",
+    "ranking",
+    "wiki",
+    "community",
+    "shop"
+  ],
+  "footer_hit_boxes_xyxy": [
+    [
+      454,
+      860,
+      572,
+      904
+    ],
+    [
+      573,
+      860,
+      679,
+      904
+    ],
+    [
+      680,
+      860,
+      763,
+      904
+    ],
+    [
+      764,
+      860,
+      868,
+      904
+    ],
+    [
+      869,
+      860,
+      958,
+      904
+    ],
+    [
+      959,
+      860,
+      1032,
+      904
+    ],
+    [
+      1033,
+      860,
+      1143,
+      904
+    ],
+    [
+      1144,
+      860,
+      1220,
+      904
+    ]
+  ],
+  "logo_hit_boxes_xyxy": {
+    "header": [
+      694,
+      0,
+      981,
+      77
+    ],
+    "footer": [
+      196,
+      868,
+      356,
+      934
+    ]
+  },
+  "hero_cta_boxes_xyxy": {
+    "register": [
+      598,
+      275,
+      825,
+      330
+    ],
+    "download": [
+      834,
+      275,
+      1077,
+      330
+    ]
+  },
+  "dynamic_panel_boxes_xyxy": {
+    "status": [
+      1116,
+      133,
+      1387,
+      326
+    ],
+    "news": [
+      125,
+      458,
+      1007,
+      710
+    ],
+    "ranking": [
+      1016,
+      460,
+      1455,
+      701
+    ]
+  },
+  "feature_boxes_xyxy": [
+    [
+      126,
+      347,
+      418,
+      447
+    ],
+    [
+      427,
+      347,
+      698,
+      447
+    ],
+    [
+      708,
+      347,
+      977,
+      447
+    ],
+    [
+      986,
+      347,
+      1259,
+      447
+    ],
+    [
+      1268,
+      347,
+      1547,
+      447
+    ]
+  ],
+  "gallery_boxes_xyxy": [
+    [
+      156,
+      757,
+      431,
+      844
+    ],
+    [
+      444,
+      757,
+      703,
+      844
+    ],
+    [
+      716,
+      757,
+      975,
+      844
+    ],
+    [
+      988,
+      757,
+      1247,
+      844
+    ],
+    [
+      1261,
+      757,
+      1523,
+      844
+    ]
+  ],
+  "gallery_cta_box_xyxy": [
+    1319,
+    719,
+    1528,
+    751
+  ],
+  "responsive_notes": [
+    "At 1672px place crops at their recorded source coordinates and intrinsic dimensions; feature top overlaps hero by 3px.",
+    "Use individual feature/gallery/art crops below reference width; avoid scaling the entire page into unreadable text.",
+    "Static Polish raster wording needs matching accessible HTML labels; English and authenticated variants can use native text over the clean source frames/textures.",
+    "The source contains no disabled-navigation artwork; do not invent one. Preserve source pixels and express disabled state semantically.",
+    "Dynamic status/news/ranking must use actual application state and native text, never the reference sample values.",
+    "Neutral texture crops may repeat/stretch; these are original source pixels, not reconstructed backgrounds.",
+    "Do not repeat full-height side artwork vertically: it contains architectural/torch landmarks.",
+    "Static footer artwork retains source year 2025; use the separate footer logo/texture when rendering current native footer text."
+  ],
+  "assets": {
+    "top-scene": {
+      "file": "top-scene.webp",
+      "source_box_xyxy": [
+        0,
+        0,
+        1672,
+        75
+      ],
+      "size": [
+        1672,
+        75
+      ],
+      "kind": "exact-crop",
+      "note": "Top scenery, original logo and banner tops",
+      "bytes": 179372,
+      "sha256": "faad86e0dedf412557afdbcdc3b7f6c166643fb381ec306bdfefef452a25b37f",
+      "decoded_rgba_sha256": "715fd67c7d115b6d7e6ee58dcb9315ed866e8b0afdd9176b3221ee4eacfd62b5",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-band": {
+      "file": "nav-band.webp",
+      "source_box_xyxy": [
+        0,
+        75,
+        1672,
+        125
+      ],
+      "size": [
+        1672,
+        50
+      ],
+      "kind": "exact-crop",
+      "note": "Original eight Polish navigation labels and active Home artwork",
+      "bytes": 109412,
+      "sha256": "297f9b22d5bfc9f8440aaa5072a1dbf3d6413e4c5293042ba61958e0b7933139",
+      "decoded_rgba_sha256": "0c59ccd3d01c54c7af72d79eb0a23e5e606f4b81bbb7a1093a41b8b230177065",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-neutral": {
+      "file": "nav-neutral.webp",
+      "source_box_xyxy": [
+        1000,
+        84,
+        1034,
+        111
+      ],
+      "size": [
+        34,
+        27
+      ],
+      "kind": "exact-crop",
+      "note": "Clean navigation fill without text or icon",
+      "bytes": 756,
+      "sha256": "5aff8a1cd3fd234be0e47efcb536ead568072de65888b20c33565e6e7d36b0c3",
+      "decoded_rgba_sha256": "e0c404564a809d6b0e4595a818a75d010c569dd0dae680ae3eca4df3da612fc2",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-bottom-edge": {
+      "file": "nav-bottom-edge.webp",
+      "source_box_xyxy": [
+        900,
+        113,
+        1000,
+        121
+      ],
+      "size": [
+        100,
+        8
+      ],
+      "kind": "exact-crop",
+      "note": "Clean original bottom edge without labels or center ornament; responsive navigation strip",
+      "bytes": 1046,
+      "sha256": "19220aa99d2f08fbbb69777a1fd902295073fffeac17be24df9f625a0f43a001",
+      "decoded_rgba_sha256": "a9c9c527ca8072f01e1ed82043f5e7391982eadc3797b053f76b6f9e5437a771",
+      "decoded_rgba_matches_expected": true
+    },
+    "logo-top": {
+      "file": "logo-top.webp",
+      "source_box_xyxy": [
+        694,
+        0,
+        981,
+        77
+      ],
+      "size": [
+        287,
+        77
+      ],
+      "kind": "exact-crop",
+      "note": "Original logo with its natural scenery",
+      "bytes": 33464,
+      "sha256": "e215369aea417ea5b46ada63bf608c1868fb332dd7b207fdfe347d26681f665c",
+      "decoded_rgba_sha256": "e19d8f0ac3a47e35dbd04761234b12de5d1a01634834d372e48ec024d33e51f4",
+      "decoded_rgba_matches_expected": true
+    },
+    "hero-left": {
+      "file": "hero-left.webp",
+      "source_box_xyxy": [
+        0,
+        125,
+        598,
+        350
+      ],
+      "size": [
+        598,
+        225
+      ],
+      "kind": "exact-crop",
+      "note": "Left hero art and source background, full stage edge",
+      "bytes": 211514,
+      "sha256": "62301b7eaa5c719f890784ea804dd5d614d7c9ff5136eafe784a7377167d3bc5",
+      "decoded_rgba_sha256": "d6a10b88de653e9b59f62e5418476f68b9e8557ce86802bcc397365acfde5c26",
+      "decoded_rgba_matches_expected": true
+    },
+    "hero-title": {
+      "file": "hero-title.webp",
+      "source_box_xyxy": [
+        635,
+        137,
+        1048,
+        180
+      ],
+      "size": [
+        413,
+        43
+      ],
+      "kind": "exact-crop",
+      "note": "Original Polish hero title and underlying scenery",
+      "bytes": 27048,
+      "sha256": "6d84190e18c50ba7490de14ae7723faa4c1044c2ace4fc581f2ceed167668df1",
+      "decoded_rgba_sha256": "61aac193dedb02eb7b7f5b420d20b475702f2a3e16b823a0836990c2b19715d5",
+      "decoded_rgba_matches_expected": true
+    },
+    "hero-lead": {
+      "file": "hero-lead.webp",
+      "source_box_xyxy": [
+        645,
+        186,
+        1030,
+        259
+      ],
+      "size": [
+        385,
+        73
+      ],
+      "kind": "exact-crop",
+      "note": "Original Polish hero lead and underlying scenery",
+      "bytes": 44334,
+      "sha256": "5cbcc55bb289b8f757b0c767129621472f7999dfb9df67df74af15a886f19413",
+      "decoded_rgba_sha256": "631146361ca3710f5f6e2280010f60eb5b2d4b1018e0eb770acb1bd42d2d252f",
+      "decoded_rgba_matches_expected": true
+    },
+    "hero-texture": {
+      "file": "hero-texture.webp",
+      "source_box_xyxy": [
+        1055,
+        181,
+        1109,
+        250
+      ],
+      "size": [
+        54,
+        69
+      ],
+      "kind": "exact-crop",
+      "note": "Clean source forest/mountain patch beside the copy; no lettering",
+      "bytes": 6042,
+      "sha256": "e738ed8c6e0b0d54e341defd0bafc35367919e4956bdcff0a2d07d54e1d326c6",
+      "decoded_rgba_sha256": "24a9228259289c03225a7ed43e70681466e9a6aefacef3993639a69eaa85e91b",
+      "decoded_rgba_matches_expected": true
+    },
+    "hero-right": {
+      "file": "hero-right.webp",
+      "source_box_xyxy": [
+        1388,
+        125,
+        1672,
+        350
+      ],
+      "size": [
+        284,
+        225
+      ],
+      "kind": "exact-crop",
+      "note": "Monster, source scenery and right stage edge",
+      "bytes": 99040,
+      "sha256": "3b26f4a6c25590547eec7bf0526f05df414b0c848f1b75c15aebf6af2afeb9c9",
+      "decoded_rgba_sha256": "2897f411067b9653bf8d4e939eb72e0f964e1121501dfba835c9d18c6561e033",
+      "decoded_rgba_matches_expected": true
+    },
+    "button-register": {
+      "file": "button-register.webp",
+      "source_box_xyxy": [
+        598,
+        275,
+        825,
+        330
+      ],
+      "size": [
+        227,
+        55
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish red CTA, icon, lettering and glow",
+      "bytes": 18564,
+      "sha256": "200776b0c9233fc4b48dc3d633b250344eb038700eb7c68cc1c28bd6b415899b",
+      "decoded_rgba_sha256": "4657281236b683fdedbdb5160531fbf680c444dd152b8cf543a9531e9828c7e1",
+      "decoded_rgba_matches_expected": true
+    },
+    "button-download": {
+      "file": "button-download.webp",
+      "source_box_xyxy": [
+        834,
+        275,
+        1077,
+        330
+      ],
+      "size": [
+        243,
+        55
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish green CTA, icon, lettering and glow",
+      "bytes": 19340,
+      "sha256": "43bc62d1dc06e6698bb292a23bea568a22b1f907b355266345596071ed3e5498",
+      "decoded_rgba_sha256": "67cf1f7a7e7c96fd44a028cd617a6a7f6bc81b4cc8b4294a99c88de7fd28fc4d",
+      "decoded_rgba_matches_expected": true
+    },
+    "button-register-fill": {
+      "file": "button-register-fill.webp",
+      "source_box_xyxy": [
+        623,
+        291,
+        637,
+        313
+      ],
+      "size": [
+        14,
+        22
+      ],
+      "kind": "exact-crop",
+      "note": "Clean red button fill without lettering or icon",
+      "bytes": 332,
+      "sha256": "0ebe44ff38b978e8d1598a236dcc3a96299154b5da6e77e0a5d8b74b9baf2363",
+      "decoded_rgba_sha256": "ffea84582ba77f03d853c976073b03fa64e7f4e4924eb5cd28693936e88b4b6e",
+      "decoded_rgba_matches_expected": true
+    },
+    "button-download-fill": {
+      "file": "button-download-fill.webp",
+      "source_box_xyxy": [
+        1058,
+        290,
+        1064,
+        314
+      ],
+      "size": [
+        6,
+        24
+      ],
+      "kind": "exact-crop",
+      "note": "Clean green button fill without lettering or icon",
+      "bytes": 230,
+      "sha256": "6cec3a08a6760b3ff9fb3b06a5b44bb1ad2883a9f25a7f1dd939814c6799fecc",
+      "decoded_rgba_sha256": "6ed3842586a776081c4f60f60edd368d770876d746b6162f0afd8c26de2e4cb1",
+      "decoded_rgba_matches_expected": true
+    },
+    "status-texture": {
+      "file": "status-texture.webp",
+      "source_box_xyxy": [
+        1240,
+        204,
+        1255,
+        220
+      ],
+      "size": [
+        15,
+        16
+      ],
+      "kind": "exact-crop",
+      "note": "Clean source status texture; no reference values",
+      "bytes": 242,
+      "sha256": "15346019ec8862ae083fc5e7460c60cf6fe6991e6771b5a54b3a4c122faa4015",
+      "decoded_rgba_sha256": "004bdddad25214bdb7ad85d6a682cd139a4eeb16388794cd70d3e3d68c3d2af8",
+      "decoded_rgba_matches_expected": true
+    },
+    "status-heading": {
+      "file": "status-heading.webp",
+      "source_box_xyxy": [
+        1203,
+        143,
+        1368,
+        167
+      ],
+      "size": [
+        165,
+        24
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish status heading; green LED excluded",
+      "bytes": 6648,
+      "sha256": "a65789bd93ca27ea1103da7643619f9156fca6a37e739a55dbde6029c44eda61",
+      "decoded_rgba_sha256": "efaf4302eacc6f5bfa91a96224e56f9d137027b7014321463bbdad668d5118fa",
+      "decoded_rgba_matches_expected": true
+    },
+    "status-led": {
+      "file": "status-led.webp",
+      "source_box_xyxy": [
+        1176,
+        141,
+        1204,
+        168
+      ],
+      "size": [
+        28,
+        27
+      ],
+      "kind": "exact-crop",
+      "note": "Original status LED; use only when the actual state warrants the active indicator",
+      "bytes": 1332,
+      "sha256": "8e4d45c63cd710816fdc188a07ae1b0f904789058eb76a4d2ecb9ca897756d4f",
+      "decoded_rgba_sha256": "b93d10ff2ab19e719a9ab50205fc031bc032c6c3c43c84bb0c8df45912a17f66",
+      "decoded_rgba_matches_expected": true
+    },
+    "status-icon-online": {
+      "file": "status-icon-online.webp",
+      "source_box_xyxy": [
+        1140,
+        176,
+        1164,
+        198
+      ],
+      "size": [
+        24,
+        22
+      ],
+      "kind": "exact-crop",
+      "note": "Original online icon; no row label or value",
+      "bytes": 1162,
+      "sha256": "866fe077649692dcb06e49ebee1643321aca63ed96955380f515bf49cac0f712",
+      "decoded_rgba_sha256": "1bd827a333dfaef9af4c4f55cae21a17d0d274daecbfc61291b9a07b3627b363",
+      "decoded_rgba_matches_expected": true
+    },
+    "status-icon-server-save": {
+      "file": "status-icon-server-save.webp",
+      "source_box_xyxy": [
+        1140,
+        203,
+        1164,
+        225
+      ],
+      "size": [
+        24,
+        22
+      ],
+      "kind": "exact-crop",
+      "note": "Original coin/server-save icon; no row label or value",
+      "bytes": 1088,
+      "sha256": "2add68f2b27eebe6e4105f5d15d9e0c031b300a4e91e882f9f88c6a8128f73d4",
+      "decoded_rgba_sha256": "01f3e0c879bda169c95ac182e1dcd6f54f2ef2c1f16267cacc5f297679466c7c",
+      "decoded_rgba_matches_expected": true
+    },
+    "status-icon-exp": {
+      "file": "status-icon-exp.webp",
+      "source_box_xyxy": [
+        1140,
+        229,
+        1164,
+        251
+      ],
+      "size": [
+        24,
+        22
+      ],
+      "kind": "exact-crop",
+      "note": "Original experience icon; no row label or value",
+      "bytes": 1134,
+      "sha256": "064a65b846d525aaf504c828329ded2a2a93af2860c0e4c1dd08d2a52de348de",
+      "decoded_rgba_sha256": "18fdc07d2d5b2230c280c8409e9932932ca08ed0fa60b0109d2950a570d35fb6",
+      "decoded_rgba_matches_expected": true
+    },
+    "status-icon-loot": {
+      "file": "status-icon-loot.webp",
+      "source_box_xyxy": [
+        1140,
+        255,
+        1164,
+        277
+      ],
+      "size": [
+        24,
+        22
+      ],
+      "kind": "exact-crop",
+      "note": "Original chest/loot icon; no row label or value",
+      "bytes": 1200,
+      "sha256": "cd95ea2c27319145cafb4d9b03b26187ac36c5d3414040209ef1e02bc61b840a",
+      "decoded_rgba_sha256": "713307b07e7a9ce2f804434ca828064a884be3ace0c2b0ada09b207b18fe4f9a",
+      "decoded_rgba_matches_expected": true
+    },
+    "status-icon-pvp": {
+      "file": "status-icon-pvp.webp",
+      "source_box_xyxy": [
+        1140,
+        282,
+        1164,
+        304
+      ],
+      "size": [
+        24,
+        22
+      ],
+      "kind": "exact-crop",
+      "note": "Original swords icon; no row label or value",
+      "bytes": 1226,
+      "sha256": "98883c6ffd67499eedca02c5fce165c7b69b2617119fcdba7c1f60aaa703e4da",
+      "decoded_rgba_sha256": "7bd0c54f6769c3b7fd0ac3c4b128ea2d73f5c87f1ffcb3bb5818e59f1910f270",
+      "decoded_rgba_matches_expected": true
+    },
+    "ranking-texture": {
+      "file": "ranking-texture.webp",
+      "source_box_xyxy": [
+        1254,
+        528,
+        1354,
+        549
+      ],
+      "size": [
+        100,
+        21
+      ],
+      "kind": "exact-crop",
+      "note": "Clean source ranking texture; no reference values",
+      "bytes": 2192,
+      "sha256": "a8b63f7b03a7ed8141041e5ec93c25722e3c99494e97449b202d16b038956a69",
+      "decoded_rgba_sha256": "00e3e4805cb87ecd182032fae4f01daf24446aa776369709522c6e100c0968d8",
+      "decoded_rgba_matches_expected": true
+    },
+    "paper-texture": {
+      "file": "paper-texture.webp",
+      "source_box_xyxy": [
+        332,
+        473,
+        780,
+        495
+      ],
+      "size": [
+        448,
+        22
+      ],
+      "kind": "exact-crop",
+      "note": "Clean parchment between heading and all-news link",
+      "bytes": 10244,
+      "sha256": "66afedf92740edca8ab71eeadd91734efa4ef2788a13451f892773e68d4120c6",
+      "decoded_rgba_sha256": "a4f60d3db841d31fd5ce34fc256a5a09d46f23cedf0c4e36aea0d5457ea18b38",
+      "decoded_rgba_matches_expected": true
+    },
+    "news-heading": {
+      "file": "news-heading.webp",
+      "source_box_xyxy": [
+        158,
+        464,
+        330,
+        502
+      ],
+      "size": [
+        172,
+        38
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish news heading and icon",
+      "bytes": 10446,
+      "sha256": "18cf5720d58f05322f0d589e95ccd7853dd7b0cfe6173ad842b0a07f0eb29d13",
+      "decoded_rgba_sha256": "1f9bab1124d09ebcf315e2acdecf5e09225ef1a90bacb362e85dbf29a13926be",
+      "decoded_rgba_matches_expected": true
+    },
+    "news-badge-fill": {
+      "file": "news-badge-fill.webp",
+      "source_box_xyxy": [
+        168,
+        516,
+        173,
+        530
+      ],
+      "size": [
+        5,
+        14
+      ],
+      "kind": "exact-crop",
+      "note": "Clean red category-badge fill; no source lettering",
+      "bytes": 134,
+      "sha256": "92ee4dc433d5d8de96556c21fd1a20de767c55fde1e08b825201c94c1e81f6a2",
+      "decoded_rgba_sha256": "b9e0e52faae34b7c37ac8dd2a84a24ab0869fe6751d8b54b65d7205347bf4689",
+      "decoded_rgba_matches_expected": true
+    },
+    "calendar-icon": {
+      "file": "calendar-icon.webp",
+      "source_box_xyxy": [
+        176,
+        588,
+        190,
+        603
+      ],
+      "size": [
+        14,
+        15
+      ],
+      "kind": "exact-crop",
+      "note": "Original date calendar icon with natural parchment; no date value",
+      "bytes": 684,
+      "sha256": "d109f88fa04e2ce0a08d4f5d503539caf2a0683cc50763756fb75c8a7057d05f",
+      "decoded_rgba_sha256": "44c85ff40a2e433810aefb9035d6dee69ed7fb25b7d49d69046fa4e37eca83b6",
+      "decoded_rgba_matches_expected": true
+    },
+    "medal-1": {
+      "file": "medal-1.webp",
+      "source_box_xyxy": [
+        1050,
+        522,
+        1094,
+        552
+      ],
+      "size": [
+        44,
+        30
+      ],
+      "kind": "exact-crop",
+      "note": "Original first-place medal at intrinsic 44x30 size",
+      "bytes": 3088,
+      "sha256": "e5fc1337fe38d5186e6f3eac054f6529ffe8e7bce4393103f24ca69a4a9c130d",
+      "decoded_rgba_sha256": "982424288759913974269f6574ec062a4b1a827f282c09a4c49bae6951ae29e6",
+      "decoded_rgba_matches_expected": true
+    },
+    "medal-2": {
+      "file": "medal-2.webp",
+      "source_box_xyxy": [
+        1050,
+        553,
+        1094,
+        583
+      ],
+      "size": [
+        44,
+        30
+      ],
+      "kind": "exact-crop",
+      "note": "Original second-place medal at intrinsic 44x30 size",
+      "bytes": 2230,
+      "sha256": "a9656f151680de0ec1acd378b47c43b00317b7bed24bf6f44974e3ebde29f6e1",
+      "decoded_rgba_sha256": "e24d995f32f3a17318a042deee7aeae48ad273acc419a8d9676b74d38aed8805",
+      "decoded_rgba_matches_expected": true
+    },
+    "medal-3": {
+      "file": "medal-3.webp",
+      "source_box_xyxy": [
+        1050,
+        584,
+        1094,
+        614
+      ],
+      "size": [
+        44,
+        30
+      ],
+      "kind": "exact-crop",
+      "note": "Original third-place medal at intrinsic 44x30 size",
+      "bytes": 2810,
+      "sha256": "f4aab646e15ee65fa5b7c21e1984c7afd2e3cc6185d220dd5e36f818a14314fc",
+      "decoded_rgba_sha256": "f1ae5a37a4c00f8df2be59bb12b412ec20a0d5adc0eecc9830e7cc08f9623991",
+      "decoded_rgba_matches_expected": true
+    },
+    "avatar-1": {
+      "file": "avatar-1.webp",
+      "source_box_xyxy": [
+        1122,
+        522,
+        1150,
+        552
+      ],
+      "size": [
+        28,
+        30
+      ],
+      "kind": "exact-crop",
+      "note": "Original decorative avatar at intrinsic 28x30; no player name or level",
+      "bytes": 1762,
+      "sha256": "56aa5c2868abd83443a52f353aaf27508bcb7a6abffc86ea0218dd94e8f5be9b",
+      "decoded_rgba_sha256": "9da113e52182f11689d672f6fe63f85694239b2db8d962614f58708efe97a30c",
+      "decoded_rgba_matches_expected": true
+    },
+    "avatar-2": {
+      "file": "avatar-2.webp",
+      "source_box_xyxy": [
+        1122,
+        553,
+        1150,
+        583
+      ],
+      "size": [
+        28,
+        30
+      ],
+      "kind": "exact-crop",
+      "note": "Original decorative avatar at intrinsic 28x30; no player name or level",
+      "bytes": 1756,
+      "sha256": "661463dede9c0514b461960cf5dada71bce1dbb7af0c48b87b9c37b83c2899ef",
+      "decoded_rgba_sha256": "03c5e9866fe53dcfff8fd8c69259086a6f11283d890a6c8a9edf4695f570b8da",
+      "decoded_rgba_matches_expected": true
+    },
+    "avatar-3": {
+      "file": "avatar-3.webp",
+      "source_box_xyxy": [
+        1122,
+        584,
+        1150,
+        614
+      ],
+      "size": [
+        28,
+        30
+      ],
+      "kind": "exact-crop",
+      "note": "Original decorative avatar at intrinsic 28x30; no player name or level",
+      "bytes": 1674,
+      "sha256": "b273430f1791deb628b6595c0113fbf96013d9e4f03867cef266bd8cd39801ae",
+      "decoded_rgba_sha256": "18227479b9fa6a5961d39d76cb85b200fd9edd6a8de65abfdae8b8f4299d399f",
+      "decoded_rgba_matches_expected": true
+    },
+    "avatar-4": {
+      "file": "avatar-4.webp",
+      "source_box_xyxy": [
+        1122,
+        615,
+        1150,
+        645
+      ],
+      "size": [
+        28,
+        30
+      ],
+      "kind": "exact-crop",
+      "note": "Original decorative avatar at intrinsic 28x30; no player name or level",
+      "bytes": 1736,
+      "sha256": "7441612d71793906ef452982910e4b395cf291bc76712db70ca54b37fd03ce11",
+      "decoded_rgba_sha256": "a29f12433ce49e396c0fa50e20ee4867e0250787438247b0d3ebd58710c3e6bf",
+      "decoded_rgba_matches_expected": true
+    },
+    "avatar-5": {
+      "file": "avatar-5.webp",
+      "source_box_xyxy": [
+        1122,
+        647,
+        1150,
+        677
+      ],
+      "size": [
+        28,
+        30
+      ],
+      "kind": "exact-crop",
+      "note": "Original decorative avatar at intrinsic 28x30; no player name or level",
+      "bytes": 1744,
+      "sha256": "fd07ac11ba62a886354ffe77b2ff83716e1c2a68a27cbaf2ba42f6e94aef54d4",
+      "decoded_rgba_sha256": "fd393f880a854524d1d3caf3016e6f386b362f9827314b9864f514cb65365441",
+      "decoded_rgba_matches_expected": true
+    },
+    "ranking-heading": {
+      "file": "ranking-heading.webp",
+      "source_box_xyxy": [
+        1038,
+        466,
+        1260,
+        499
+      ],
+      "size": [
+        222,
+        33
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish ranking heading and icon",
+      "bytes": 11118,
+      "sha256": "cddcf8ceb83dbb54e106c1397b6c2345c13389719a97988528ae3a0b381d9fc7",
+      "decoded_rgba_sha256": "9f1e4a92190c1b133e99a0016fcb8ffae889752eef3a83229581c300651c2319",
+      "decoded_rgba_matches_expected": true
+    },
+    "gallery-band": {
+      "file": "gallery-band.webp",
+      "source_box_xyxy": [
+        0,
+        716,
+        1672,
+        860
+      ],
+      "size": [
+        1672,
+        144
+      ],
+      "kind": "exact-crop",
+      "note": "Original static gallery and full stage edges",
+      "bytes": 392676,
+      "sha256": "3884049482e5e38b9a67de3798a3443a6a7dd315a500155c545878d099a0f086",
+      "decoded_rgba_sha256": "7d2f61258c0c6cf2a72a94f1f7c7dc73ec0da32288e484373fa5101b93d99a85",
+      "decoded_rgba_matches_expected": true
+    },
+    "button-community": {
+      "file": "button-community.webp",
+      "source_box_xyxy": [
+        1319,
+        719,
+        1528,
+        751
+      ],
+      "size": [
+        209,
+        32
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish gallery CTA",
+      "bytes": 11222,
+      "sha256": "2f38b0bb060093ea377bf6b5d7c618b074b0d795bb4ea6fc5b78f99994c2b753",
+      "decoded_rgba_sha256": "5a74ee1f39b892c56455d03d53c6962f74c40721ed588d43a00288f94a7a163e",
+      "decoded_rgba_matches_expected": true
+    },
+    "footer-band": {
+      "file": "footer-band.webp",
+      "source_box_xyxy": [
+        0,
+        860,
+        1672,
+        941
+      ],
+      "size": [
+        1672,
+        81
+      ],
+      "kind": "exact-crop",
+      "note": "Original static footer; its source copyright year is 2025",
+      "bytes": 160910,
+      "sha256": "8fda4b672924b84368c94d177136e976469ffee68a34b0132007ab109f1eb8be",
+      "decoded_rgba_sha256": "650138c6d0c16a976d51c6feffed26e5e5f4e8db14a670f44fb62b9426a763f4",
+      "decoded_rgba_matches_expected": true
+    },
+    "footer-logo": {
+      "file": "footer-logo.webp",
+      "source_box_xyxy": [
+        196,
+        868,
+        356,
+        934
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "kind": "exact-crop",
+      "note": "Original footer logo at intrinsic 160x66 size",
+      "bytes": 15676,
+      "sha256": "9b106da77eefea8ce6f7de5c14507d52da660c11c83a63dde4169dc14e1ca0a3",
+      "decoded_rgba_sha256": "7a67cb860ede8d6b2bc06c038d68b7f5828df93cb628284d4ae168fe01def5a2",
+      "decoded_rgba_matches_expected": true
+    },
+    "footer-texture": {
+      "file": "footer-texture.webp",
+      "source_box_xyxy": [
+        390,
+        920,
+        1255,
+        940
+      ],
+      "size": [
+        865,
+        20
+      ],
+      "kind": "exact-crop",
+      "note": "Clean footer texture below text",
+      "bytes": 17094,
+      "sha256": "8b2f1ff5e09800f0e5a544a38b7ed1a9feab58adcb68f75cdc81e859e7144d9e",
+      "decoded_rgba_sha256": "0c2c3ce50a2619be4f55e16b0b77c6a9bc8e3e4c17e3cc2e63c4d5632f23c3d3",
+      "decoded_rgba_matches_expected": true
+    },
+    "feature-1": {
+      "file": "feature-1.webp",
+      "source_box_xyxy": [
+        126,
+        347,
+        418,
+        447
+      ],
+      "size": [
+        292,
+        100
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish feature card, with unchanged source copy",
+      "bytes": 40644,
+      "sha256": "6c5187ff8cbf3f205ccd20e2d55b0f5fb497768529b8d54c526b112eee88d715",
+      "decoded_rgba_sha256": "6f77b11bc7379ca7a20cb30210817977f413dc6c9cb817558fd46ad281ae13d1",
+      "decoded_rgba_matches_expected": true
+    },
+    "feature-2": {
+      "file": "feature-2.webp",
+      "source_box_xyxy": [
+        427,
+        347,
+        698,
+        447
+      ],
+      "size": [
+        271,
+        100
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish feature card, with unchanged source copy",
+      "bytes": 38068,
+      "sha256": "9661473cbb9c01841a9a5668199fba7654a05e500fbd1c91abe4ac76e8d386fb",
+      "decoded_rgba_sha256": "365635bba073af0b9a34b3faf4bfb7801b10a44d8746cc6c5de676c54194bc88",
+      "decoded_rgba_matches_expected": true
+    },
+    "feature-3": {
+      "file": "feature-3.webp",
+      "source_box_xyxy": [
+        708,
+        347,
+        977,
+        447
+      ],
+      "size": [
+        269,
+        100
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish feature card, with unchanged source copy",
+      "bytes": 36922,
+      "sha256": "1a24d3f9e011b1f793b2570f0471847333691f4bf7b438789aad24c7e14d2384",
+      "decoded_rgba_sha256": "68ac2fcc9a48fc0edfcbf3e968daa1bd8f25016976fbc27c5d67f840d9614021",
+      "decoded_rgba_matches_expected": true
+    },
+    "feature-4": {
+      "file": "feature-4.webp",
+      "source_box_xyxy": [
+        986,
+        347,
+        1259,
+        447
+      ],
+      "size": [
+        273,
+        100
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish feature card, with unchanged source copy",
+      "bytes": 36600,
+      "sha256": "bb55295a1db87f02c3e2d242b846d8efeea953dc13e2293946c15e152b0fb0fb",
+      "decoded_rgba_sha256": "0ce8aacb4d8976ef292660871645090439d24c6d28e563a186101f6b5380ed72",
+      "decoded_rgba_matches_expected": true
+    },
+    "feature-5": {
+      "file": "feature-5.webp",
+      "source_box_xyxy": [
+        1268,
+        347,
+        1547,
+        447
+      ],
+      "size": [
+        279,
+        100
+      ],
+      "kind": "exact-crop",
+      "note": "Original static Polish feature card, with unchanged source copy",
+      "bytes": 39506,
+      "sha256": "e8619aea7c295b4ad81642ac125e5e570bab7e72e8b0e760547571dbee769d3e",
+      "decoded_rgba_sha256": "0894e32f80dbc21dc47a231c84993c6a48a7ba9b0293055f0097e4d0fd4f193d",
+      "decoded_rgba_matches_expected": true
+    },
+    "gallery-1": {
+      "file": "gallery-1.webp",
+      "source_box_xyxy": [
+        156,
+        757,
+        431,
+        844
+      ],
+      "size": [
+        275,
+        87
+      ],
+      "kind": "exact-crop",
+      "note": "Original gallery illustration, border and intrinsic dimensions",
+      "bytes": 49770,
+      "sha256": "6625446db9abe6d32812def742800e799a14b0de833a636c9e26eef6a5f5bcb5",
+      "decoded_rgba_sha256": "2f34bca7688d0a762e017df4bd5c88ede2d710093fd8f0813d963c4a4529de89",
+      "decoded_rgba_matches_expected": true
+    },
+    "gallery-2": {
+      "file": "gallery-2.webp",
+      "source_box_xyxy": [
+        444,
+        757,
+        703,
+        844
+      ],
+      "size": [
+        259,
+        87
+      ],
+      "kind": "exact-crop",
+      "note": "Original gallery illustration, border and intrinsic dimensions",
+      "bytes": 43966,
+      "sha256": "02f64e189b1f63e47b2c933a8d50c719021220f7bc68dbb3a2c18436dd8d7b57",
+      "decoded_rgba_sha256": "29044058a8693daec2ca1f62392c81c689eb9549ab9d0b59953516e025e2ea32",
+      "decoded_rgba_matches_expected": true
+    },
+    "gallery-3": {
+      "file": "gallery-3.webp",
+      "source_box_xyxy": [
+        716,
+        757,
+        975,
+        844
+      ],
+      "size": [
+        259,
+        87
+      ],
+      "kind": "exact-crop",
+      "note": "Original gallery illustration, border and intrinsic dimensions",
+      "bytes": 43268,
+      "sha256": "db2275f559c75c13617c8f9835d8ffc7f99bbf0470d007f46caed7000baca217",
+      "decoded_rgba_sha256": "b990d171954839d503d191694101e6273474d9bc6e5abee2a13723de7c321b02",
+      "decoded_rgba_matches_expected": true
+    },
+    "gallery-4": {
+      "file": "gallery-4.webp",
+      "source_box_xyxy": [
+        988,
+        757,
+        1247,
+        844
+      ],
+      "size": [
+        259,
+        87
+      ],
+      "kind": "exact-crop",
+      "note": "Original gallery illustration, border and intrinsic dimensions",
+      "bytes": 47312,
+      "sha256": "b288e005411e83618514f200bb7fff37bd436ce9454bb1119c35fe4655aa7cb2",
+      "decoded_rgba_sha256": "880fab976eda1f455ca4622db5212ff31545e33e132d09d37a190a2a0eb5040e",
+      "decoded_rgba_matches_expected": true
+    },
+    "gallery-5": {
+      "file": "gallery-5.webp",
+      "source_box_xyxy": [
+        1261,
+        757,
+        1523,
+        844
+      ],
+      "size": [
+        262,
+        87
+      ],
+      "kind": "exact-crop",
+      "note": "Original gallery illustration, border and intrinsic dimensions",
+      "bytes": 40604,
+      "sha256": "e8fa84077e8b766669f9368ea73840ff82c100e19045ae5bed579bf9be828392",
+      "decoded_rgba_sha256": "3e9a3bfc7eaebc019f81ace1b33e2b9e1f30a7be09a0ad143dbd24d0515a9315",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-icon-home": {
+      "file": "nav-icon-home.webp",
+      "source_box_xyxy": [
+        298,
+        84,
+        324,
+        110
+      ],
+      "size": [
+        26,
+        26
+      ],
+      "kind": "exact-crop",
+      "note": "Original-size navigation icon and its natural background",
+      "bytes": 1364,
+      "sha256": "911ce340cf9206fb861b12cfbb11444496f9d7418babe7ba50f4f44496b43cc6",
+      "decoded_rgba_sha256": "0213928530f3eacb3616de2ca84e7aef70477e7682e44326995b62d35ea1f19c",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-icon-news": {
+      "file": "nav-icon-news.webp",
+      "source_box_xyxy": [
+        468,
+        84,
+        494,
+        110
+      ],
+      "size": [
+        26,
+        26
+      ],
+      "kind": "exact-crop",
+      "note": "Original-size navigation icon and its natural background",
+      "bytes": 1288,
+      "sha256": "7e69a2b75c5c84975a18c1c3e8eddad568c328dffb8416b5dfe32f8fe744686e",
+      "decoded_rgba_sha256": "c69cb62eba58c0f8b758b3e7358e41c7a53c2be186275754729570c553593452",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-icon-download": {
+      "file": "nav-icon-download.webp",
+      "source_box_xyxy": [
+        616,
+        84,
+        642,
+        110
+      ],
+      "size": [
+        26,
+        26
+      ],
+      "kind": "exact-crop",
+      "note": "Original-size navigation icon and its natural background",
+      "bytes": 1156,
+      "sha256": "b44fabce499ec06b53024f8ebf9439f3fdaf22802ccf3f2d9cbc7029c6d07258",
+      "decoded_rgba_sha256": "336e5a9c32693d93e339e5076b9bf1074fc234ba1623fdd5d7f09c942daed2f3",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-icon-register": {
+      "file": "nav-icon-register.webp",
+      "source_box_xyxy": [
+        738,
+        84,
+        768,
+        110
+      ],
+      "size": [
+        30,
+        26
+      ],
+      "kind": "exact-crop",
+      "note": "Original-size navigation icon and its natural background",
+      "bytes": 1474,
+      "sha256": "daf57f76a7e38eaf3780863692b17b9e174d6a81ac0c0e79ff30b5dc72405a8d",
+      "decoded_rgba_sha256": "da40aa3dafd9d452d024c5c81aafdd0d149295edd3f53ccf6b97d7b8688875af",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-icon-ranking": {
+      "file": "nav-icon-ranking.webp",
+      "source_box_xyxy": [
+        900,
+        84,
+        928,
+        110
+      ],
+      "size": [
+        28,
+        26
+      ],
+      "kind": "exact-crop",
+      "note": "Original-size navigation icon and its natural background",
+      "bytes": 1380,
+      "sha256": "ca9054333816f749681873bd93f7d0ed79a558b14a774c6e588cd230d4f673dc",
+      "decoded_rgba_sha256": "19fd431aa5f34d7222bd787e239a2aca3e20b4b26f4f8bddd944d978c39b13ad",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-icon-wiki": {
+      "file": "nav-icon-wiki.webp",
+      "source_box_xyxy": [
+        1038,
+        84,
+        1068,
+        110
+      ],
+      "size": [
+        30,
+        26
+      ],
+      "kind": "exact-crop",
+      "note": "Original-size navigation icon and its natural background",
+      "bytes": 1426,
+      "sha256": "d19b0a99f3dac721086a90a306ebe02d045e5cc2a9e96cd6df189e24d8348e35",
+      "decoded_rgba_sha256": "cf8e862b08a469d778b08558de7fa9b560ebfa4623041ff2f5425a56ed52ce79",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-icon-community": {
+      "file": "nav-icon-community.webp",
+      "source_box_xyxy": [
+        1146,
+        84,
+        1174,
+        110
+      ],
+      "size": [
+        28,
+        26
+      ],
+      "kind": "exact-crop",
+      "note": "Original-size navigation icon and its natural background",
+      "bytes": 1314,
+      "sha256": "bb9237330b3257593c4f865f3423513aeff4c383d0f3efc61e4451c7f47c5af1",
+      "decoded_rgba_sha256": "d4099e8aae7d8499399bb50fef6bec8b23ba30e3c2139331273811bbe3c788be",
+      "decoded_rgba_matches_expected": true
+    },
+    "nav-icon-shop": {
+      "file": "nav-icon-shop.webp",
+      "source_box_xyxy": [
+        1306,
+        84,
+        1336,
+        110
+      ],
+      "size": [
+        30,
+        26
+      ],
+      "kind": "exact-crop",
+      "note": "Original-size navigation icon and its natural background",
+      "bytes": 1304,
+      "sha256": "18bdc1813c2a79f299fcfda5b8a0a7b64e81a6e91315ec4317c8cbaf75746726",
+      "decoded_rgba_sha256": "54d1194c8bb34cb8e5efc1cc43c1bf3dc1887fa285d7a96f3e455e208d98aad5",
+      "decoded_rgba_matches_expected": true
+    },
+    "hero-status-surround": {
+      "file": "hero-status-surround.webp",
+      "source_box_xyxy": [
+        1116,
+        125,
+        1388,
+        350
+      ],
+      "size": [
+        272,
+        225
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Original scenery above/below status; no panel data",
+      "bytes": 11688,
+      "sha256": "f437ed836da4386f249233e0be28d684b784a6a353496eb921969e5437034af9",
+      "decoded_rgba_sha256": "b2e5fdac9a96fadbdfab16fca7b78bd137ca0eb925a60fb0d880a5ccc70b1977",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          1116,
+          133,
+          1387,
+          326
+        ]
+      ]
+    },
+    "hero-center-surround": {
+      "file": "hero-center-surround.webp",
+      "source_box_xyxy": [
+        598,
+        125,
+        1116,
+        350
+      ],
+      "size": [
+        518,
+        225
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Original scenery with title, lead and both buttons removed for native EN/auth variants",
+      "bytes": 58370,
+      "sha256": "0ab8ac6a81048423d6d38c159d30f06a1335fd1b50e44d3c71aa1f186065c240",
+      "decoded_rgba_sha256": "cdfa79cea6cc867f385cfce0dab114de4e5510735cbde848591b51a4bef2f3db",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          635,
+          137,
+          1048,
+          180
+        ],
+        [
+          645,
+          186,
+          1030,
+          259
+        ],
+        [
+          598,
+          275,
+          825,
+          330
+        ],
+        [
+          834,
+          275,
+          1077,
+          330
+        ]
+      ]
+    },
+    "features-surround": {
+      "file": "features-surround.webp",
+      "source_box_xyxy": [
+        0,
+        347,
+        1672,
+        458
+      ],
+      "size": [
+        1672,
+        111
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Full stage edge and gaps; overlay the five original feature cards",
+      "bytes": 64322,
+      "sha256": "d0ad082c76b001805bc98fbbe18c936f2e65b7ead89b981e2b61f1db0291de61",
+      "decoded_rgba_sha256": "02abdaf9bbb6e624bbf6e32321d6182112db7036aa853546892ed9fd37eb348c",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          126,
+          347,
+          418,
+          447
+        ],
+        [
+          427,
+          347,
+          698,
+          447
+        ],
+        [
+          708,
+          347,
+          977,
+          447
+        ],
+        [
+          986,
+          347,
+          1259,
+          447
+        ],
+        [
+          1268,
+          347,
+          1547,
+          447
+        ]
+      ]
+    },
+    "content-surround": {
+      "file": "content-surround.webp",
+      "source_box_xyxy": [
+        0,
+        458,
+        1672,
+        716
+      ],
+      "size": [
+        1672,
+        258
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Architecture, torches and hanging banner; news/ranking entirely removed",
+      "bytes": 148954,
+      "sha256": "81a838692d855cb57791cacbcffda874d7a72777f7bc4cbde0a193fec011df09",
+      "decoded_rgba_sha256": "a4f3bc3562c2d0ced607b687cfdb0fa4904fbe3e1ae13c98e73013e15d34e7ef",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          125,
+          458,
+          1007,
+          710
+        ],
+        [
+          1016,
+          460,
+          1455,
+          701
+        ]
+      ]
+    },
+    "news-picture-1-without-badge": {
+      "file": "news-picture-1-without-badge.webp",
+      "source_box_xyxy": [
+        164,
+        511,
+        428,
+        582
+      ],
+      "size": [
+        264,
+        71
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Original art; entire static category badge removed for a native category overlay",
+      "bytes": 33410,
+      "sha256": "d3b3aa39c9f90eeee14d6782c5c40de14868cf77ad72b60dd03cf9e22773d1cb",
+      "decoded_rgba_sha256": "1d025ade76472597670df9e9a872db8dc0c9882a9226694010f3da6826320502",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          164,
+          511,
+          253,
+          536
+        ]
+      ]
+    },
+    "news-picture-2-without-badge": {
+      "file": "news-picture-2-without-badge.webp",
+      "source_box_xyxy": [
+        445,
+        511,
+        707,
+        582
+      ],
+      "size": [
+        262,
+        71
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Original art; entire static category badge removed for a native category overlay",
+      "bytes": 30654,
+      "sha256": "d0ad08bca879e8b67a82421d5c26d57d781a645b68e31888379a0d8fc4d71479",
+      "decoded_rgba_sha256": "1e8ab36031a8d11c4481231501b38276519f3a9feb6b84272746da9a2a3d9753",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          445,
+          511,
+          536,
+          536
+        ]
+      ]
+    },
+    "news-picture-3-without-badge": {
+      "file": "news-picture-3-without-badge.webp",
+      "source_box_xyxy": [
+        722,
+        511,
+        981,
+        582
+      ],
+      "size": [
+        259,
+        71
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Original art; entire static category badge removed for a native category overlay",
+      "bytes": 26752,
+      "sha256": "bca44ab50f0225adb6a53859c817f31a2abee5d295b62b5a58c98ec3ebd1c957",
+      "decoded_rgba_sha256": "0636b96369453bbcde014c65e2a0ff75f1625b336e4641c97a8f6fee30817c2e",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          722,
+          511,
+          791,
+          536
+        ]
+      ]
+    },
+    "news-surface": {
+      "file": "news-surface.webp",
+      "source_box_xyxy": [
+        125,
+        458,
+        1007,
+        710
+      ],
+      "size": [
+        882,
+        252
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact parchment and panel frame; all cards, heading and all-news label removed for existing native elements",
+      "bytes": 84944,
+      "sha256": "a66ee1ab57827719554280f8f271040c03475d4648a21920b12f410c9d391163",
+      "decoded_rgba_sha256": "fa348feb5449c635dfcc9550b557263140aae75d34f3f79eada7868c90aff3ed",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          163,
+          510,
+          430,
+          694
+        ],
+        [
+          443,
+          510,
+          710,
+          694
+        ],
+        [
+          722,
+          510,
+          984,
+          694
+        ],
+        [
+          158,
+          464,
+          330,
+          502
+        ],
+        [
+          785,
+          469,
+          981,
+          496
+        ]
+      ]
+    },
+    "news-card-surface-1": {
+      "file": "news-card-surface-1.webp",
+      "source_box_xyxy": [
+        163,
+        510,
+        430,
+        694
+      ],
+      "size": [
+        267,
+        184
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact first card art/frame/parchment; category/date/title/excerpt/read-more removed; render only for an actual news entry",
+      "bytes": 43186,
+      "sha256": "7fbf9ec06f45f4c7d8a16ec1a82660d94a1385df3eee4a73da43bbc0956f4b40",
+      "decoded_rgba_sha256": "080d2fecb6aa55aacc1c910fa1f52bb2c163814a65a51259f903a9677c6b627a",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          164,
+          511,
+          253,
+          535
+        ],
+        [
+          192,
+          588,
+          262,
+          605
+        ],
+        [
+          174,
+          604,
+          423,
+          688
+        ]
+      ]
+    },
+    "news-card-surface-2": {
+      "file": "news-card-surface-2.webp",
+      "source_box_xyxy": [
+        443,
+        510,
+        710,
+        694
+      ],
+      "size": [
+        267,
+        184
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact second card art/frame/parchment; category/date/title/excerpt/read-more removed; render only for an actual news entry",
+      "bytes": 41460,
+      "sha256": "b72ba3acd3fcac7d2295f9ecc0671ea42c214a9831199b6000945be6b1a386e5",
+      "decoded_rgba_sha256": "7d9f3c4a4eb9aa3d126d5282c1f432510ca94eacd646365f76d247586ce697da",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          445,
+          511,
+          534,
+          535
+        ],
+        [
+          472,
+          588,
+          542,
+          605
+        ],
+        [
+          454,
+          604,
+          703,
+          688
+        ]
+      ]
+    },
+    "news-card-surface-3": {
+      "file": "news-card-surface-3.webp",
+      "source_box_xyxy": [
+        722,
+        510,
+        984,
+        694
+      ],
+      "size": [
+        262,
+        184
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact third card art/frame/parchment; category/date/title/excerpt/read-more removed; render only for an actual news entry",
+      "bytes": 37124,
+      "sha256": "8c139e41f7dd1d152cd88ff8ba6d2ecb86cdad7a0e109fd745aa07dfa4085106",
+      "decoded_rgba_sha256": "457abf605efde644284bf27619ce6cc194b32a8d8d829b240ce126c1f1438146",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          722,
+          511,
+          786,
+          535
+        ],
+        [
+          752,
+          588,
+          822,
+          605
+        ],
+        [
+          734,
+          604,
+          980,
+          688
+        ]
+      ]
+    },
+    "ranking-surface": {
+      "file": "ranking-surface.webp",
+      "source_box_xyxy": [
+        1016,
+        460,
+        1455,
+        701
+      ],
+      "size": [
+        439,
+        241
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact ranking frame/header texture; full tbody, heading, all-ranking link and column captions removed for native elements",
+      "bytes": 43188,
+      "sha256": "6a4d86e77c70bbfde91b34c9604915f31517fa4324f7df8787109c5bc1242abf",
+      "decoded_rgba_sha256": "84deba10dd5780cda7b1bb8ab0b7d3cf8fc397d8a940a821c875f6654837c43f",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          1042,
+          522,
+          1429,
+          678
+        ],
+        [
+          1038,
+          466,
+          1260,
+          499
+        ],
+        [
+          1337,
+          471,
+          1437,
+          498
+        ],
+        [
+          1065,
+          504,
+          1082,
+          521
+        ],
+        [
+          1118,
+          504,
+          1155,
+          521
+        ],
+        [
+          1357,
+          504,
+          1402,
+          521
+        ]
+      ]
+    },
+    "status-live-surface": {
+      "file": "status-live-surface.webp",
+      "source_box_xyxy": [
+        1116,
+        133,
+        1387,
+        326
+      ],
+      "size": [
+        271,
+        193
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact Polish status panel/static labels; LED and every sample value removed; use only when an actual status list exists, never as unavailable/English fallback",
+      "bytes": 57948,
+      "sha256": "3240c84255ae01b00bbbc00aa584c46a1365d07c775523155c603293d7742ada",
+      "decoded_rgba_sha256": "cde7784eb69b377010f526761d7b58b00a27e4fb61ca7a151a49cc536ce83e27",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          1176,
+          141,
+          1204,
+          168
+        ],
+        [
+          1332,
+          177,
+          1366,
+          199
+        ],
+        [
+          1254,
+          203,
+          1366,
+          226
+        ],
+        [
+          1331,
+          230,
+          1366,
+          253
+        ],
+        [
+          1331,
+          257,
+          1366,
+          280
+        ],
+        [
+          1297,
+          284,
+          1366,
+          307
+        ]
+      ]
+    },
+    "ranking-row-surface-1": {
+      "file": "ranking-row-surface-1.webp",
+      "source_box_xyxy": [
+        1042,
+        522,
+        1429,
+        553
+      ],
+      "size": [
+        387,
+        31
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact row texture/grid; sample name, level, avatar and rank/medal removed; render only for an actual native row",
+      "bytes": 8400,
+      "sha256": "a7a855ed7c4e042e8c80fb43511c5ca90d57a8f707d7c95c616fdc2fbce99feb",
+      "decoded_rgba_sha256": "8375e00a2042043d01f7972772b7e60b8f0628a442bd5a2a5a28da5529ff1335",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          1171,
+          529,
+          1229,
+          545
+        ],
+        [
+          1355,
+          525,
+          1405,
+          550
+        ],
+        [
+          1122,
+          522,
+          1150,
+          552
+        ],
+        [
+          1050,
+          522,
+          1094,
+          552
+        ]
+      ]
+    },
+    "ranking-row-surface-2": {
+      "file": "ranking-row-surface-2.webp",
+      "source_box_xyxy": [
+        1042,
+        553,
+        1429,
+        584
+      ],
+      "size": [
+        387,
+        31
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact row texture/grid; sample name, level, avatar and rank/medal removed; render only for an actual native row",
+      "bytes": 8820,
+      "sha256": "d2f60da36ba29e2a8957e5f5f9ca3c12f48cbffb24880ffdbd537efe4f2e95e0",
+      "decoded_rgba_sha256": "aa18383497ec3375c7bb407b62a8dfab6a66278c6f1151b8027396338f03c19b",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          1174,
+          560,
+          1227,
+          579
+        ],
+        [
+          1367,
+          560,
+          1397,
+          576
+        ],
+        [
+          1122,
+          553,
+          1150,
+          583
+        ],
+        [
+          1050,
+          553,
+          1094,
+          583
+        ]
+      ]
+    },
+    "ranking-row-surface-3": {
+      "file": "ranking-row-surface-3.webp",
+      "source_box_xyxy": [
+        1042,
+        584,
+        1429,
+        615
+      ],
+      "size": [
+        387,
+        31
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact row texture/grid; sample name, level, avatar and rank/medal removed; render only for an actual native row",
+      "bytes": 8558,
+      "sha256": "aaa0932e2e4bed0db7b21971dc0c3688e9aad7e1cc9eb76bbb11bd12f5fcd8d3",
+      "decoded_rgba_sha256": "344c856d89edb62417432c93e14355992c529ac2d2903b2d41a11855b8176f7d",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          1175,
+          591,
+          1236,
+          610
+        ],
+        [
+          1368,
+          591,
+          1397,
+          607
+        ],
+        [
+          1122,
+          584,
+          1150,
+          614
+        ],
+        [
+          1050,
+          584,
+          1094,
+          614
+        ]
+      ]
+    },
+    "ranking-row-surface-4": {
+      "file": "ranking-row-surface-4.webp",
+      "source_box_xyxy": [
+        1042,
+        615,
+        1429,
+        646
+      ],
+      "size": [
+        387,
+        31
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact row texture/grid; sample name, level, avatar and rank/medal removed; render only for an actual native row",
+      "bytes": 9618,
+      "sha256": "4a51b7c5f87697eb52e95907f584a75089da2bfefde9145301f74de04734a83f",
+      "decoded_rgba_sha256": "733b64c3bdfcd04bb171c6a3cc7389b7af084aaeec824e1aa978e9e153e3f0f3",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          1176,
+          622,
+          1231,
+          638
+        ],
+        [
+          1370,
+          623,
+          1399,
+          639
+        ],
+        [
+          1122,
+          615,
+          1150,
+          645
+        ],
+        [
+          1062,
+          618,
+          1086,
+          643
+        ]
+      ]
+    },
+    "ranking-row-surface-5": {
+      "file": "ranking-row-surface-5.webp",
+      "source_box_xyxy": [
+        1042,
+        646,
+        1429,
+        678
+      ],
+      "size": [
+        387,
+        32
+      ],
+      "kind": "crop-with-removed-regions",
+      "note": "Exact row texture/grid; sample name, level, avatar and rank/medal removed; render only for an actual native row",
+      "bytes": 9976,
+      "sha256": "c49f466c00e5d1453b50ed767343c4b36a8d278232fa863c546499bedb9144a3",
+      "decoded_rgba_sha256": "917d514da61d7f74ee24076387839d2c50fc9376864a5a48b8f77c2a4e654b55",
+      "decoded_rgba_matches_expected": true,
+      "removed_source_rectangles": [
+        [
+          1176,
+          654,
+          1236,
+          673
+        ],
+        [
+          1370,
+          654,
+          1399,
+          670
+        ],
+        [
+          1122,
+          647,
+          1150,
+          677
+        ],
+        [
+          1062,
+          649,
+          1086,
+          675
+        ]
+      ]
+    },
+    "nav-frame": {
+      "file": "nav-frame.webp",
+      "source_box_xyxy": [
+        242,
+        75,
+        1429,
+        121
+      ],
+      "size": [
+        1187,
+        46
+      ],
+      "kind": "source-border-only",
+      "note": "Only original perimeter pixels; interior is transparent zero RGBA; no dynamic values",
+      "bytes": 28364,
+      "sha256": "a46ada241ce7853bfa8ab01dd25929b2e2b31f71970323e2461f680686232fb6",
+      "decoded_rgba_sha256": "e821930ea5879b2e59cb9b14313ab3e624c2dfd65952150b6dc392ce2cf9b4c0",
+      "decoded_rgba_matches_expected": true,
+      "retained_edge_widths_trbl": [
+        8,
+        38,
+        8,
+        36
+      ],
+      "retained_corner_size": 0,
+      "border_image_slice_trbl": [
+        8,
+        38,
+        8,
+        36
+      ],
+      "border_image_width_px_trbl": [
+        8,
+        38,
+        8,
+        36
+      ],
+      "border_image_repeat": "stretch",
+      "border_image_fill": false
+    },
+    "status-frame": {
+      "file": "status-frame.webp",
+      "source_box_xyxy": [
+        1116,
+        133,
+        1387,
+        326
+      ],
+      "size": [
+        271,
+        193
+      ],
+      "kind": "source-border-only",
+      "note": "Only original perimeter pixels; interior is transparent zero RGBA; no dynamic values",
+      "bytes": 16194,
+      "sha256": "94e20e8753e3f018d792fc4c8de21d54d43d65658ea3e6a8dc435d6832d4927d",
+      "decoded_rgba_sha256": "2498c5af9ab870f9d7725bee657a597525933385af29ad689f311bf9cfe17660",
+      "decoded_rgba_matches_expected": true,
+      "retained_edge_widths_trbl": [
+        8,
+        14,
+        14,
+        14
+      ],
+      "retained_corner_size": 24,
+      "border_image_slice_trbl": [
+        24,
+        24,
+        24,
+        24
+      ],
+      "border_image_width_px_trbl": [
+        24,
+        24,
+        24,
+        24
+      ],
+      "border_image_repeat": "stretch",
+      "border_image_fill": false
+    },
+    "news-frame": {
+      "file": "news-frame.webp",
+      "source_box_xyxy": [
+        125,
+        458,
+        1007,
+        710
+      ],
+      "size": [
+        882,
+        252
+      ],
+      "kind": "source-border-only",
+      "note": "Only original perimeter pixels; interior is transparent zero RGBA; no dynamic values",
+      "bytes": 45320,
+      "sha256": "c7d9b13065b57c9010287f31f00c708e787f307f00cd17aafc4350a656174f80",
+      "decoded_rgba_sha256": "7c146e72656b3717a77ab04e1f8ba77592c303297767b137aaa8d1c376e2584c",
+      "decoded_rgba_matches_expected": true,
+      "retained_edge_widths_trbl": [
+        12,
+        18,
+        14,
+        18
+      ],
+      "retained_corner_size": 24,
+      "border_image_slice_trbl": [
+        24,
+        24,
+        24,
+        24
+      ],
+      "border_image_width_px_trbl": [
+        24,
+        24,
+        24,
+        24
+      ],
+      "border_image_repeat": "stretch",
+      "border_image_fill": false
+    },
+    "ranking-frame": {
+      "file": "ranking-frame.webp",
+      "source_box_xyxy": [
+        1016,
+        460,
+        1455,
+        701
+      ],
+      "size": [
+        439,
+        241
+      ],
+      "kind": "source-border-only",
+      "note": "Only original perimeter pixels; interior is transparent zero RGBA; no dynamic values",
+      "bytes": 21064,
+      "sha256": "5f0d8c0ab7f262bf45376064264a47acff4fa335dfd32d6b52b345eb3cba1bf4",
+      "decoded_rgba_sha256": "18fb9ea2098312bbcc79967ae4d15e6f021698c8581d68b354271666dbee6f57",
+      "decoded_rgba_matches_expected": true,
+      "retained_edge_widths_trbl": [
+        8,
+        12,
+        12,
+        12
+      ],
+      "retained_corner_size": 20,
+      "border_image_slice_trbl": [
+        20,
+        20,
+        20,
+        20
+      ],
+      "border_image_width_px_trbl": [
+        20,
+        20,
+        20,
+        20
+      ],
+      "border_image_repeat": "stretch",
+      "border_image_fill": false
+    },
+    "feature-frame": {
+      "file": "feature-frame.webp",
+      "source_box_xyxy": [
+        126,
+        347,
+        418,
+        447
+      ],
+      "size": [
+        292,
+        100
+      ],
+      "kind": "source-border-only",
+      "note": "Only original perimeter pixels; interior is transparent zero RGBA; no dynamic values",
+      "bytes": 10726,
+      "sha256": "365d51ef4b954f4606e28b8dd4a586ca18be023face01aea3f9d9c298e0a3e0c",
+      "decoded_rgba_sha256": "42cc742d7227a3d2c691db201c2a3f1305de760e776602297471167a400f31fa",
+      "decoded_rgba_matches_expected": true,
+      "retained_edge_widths_trbl": [
+        7,
+        12,
+        12,
+        12
+      ],
+      "retained_corner_size": 12,
+      "border_image_slice_trbl": [
+        12,
+        12,
+        12,
+        12
+      ],
+      "border_image_width_px_trbl": [
+        12,
+        12,
+        12,
+        12
+      ],
+      "border_image_repeat": "stretch",
+      "border_image_fill": false
+    },
+    "button-register-frame": {
+      "file": "button-register-frame.webp",
+      "source_box_xyxy": [
+        598,
+        275,
+        825,
+        330
+      ],
+      "size": [
+        227,
+        55
+      ],
+      "kind": "source-border-only",
+      "note": "Only original perimeter pixels; interior is transparent zero RGBA; no dynamic values",
+      "bytes": 9612,
+      "sha256": "2f8cf5267daf37ed5b8f9097f3bb4851364bb7510f46a2e909eaef425601a33a",
+      "decoded_rgba_sha256": "7c2175dd25756202bb3c45727467299cfa7f7386a0bf3a3cb3c9f6c336b7c85c",
+      "decoded_rgba_matches_expected": true,
+      "retained_edge_widths_trbl": [
+        10,
+        18,
+        12,
+        18
+      ],
+      "retained_corner_size": 18,
+      "border_image_slice_trbl": [
+        18,
+        18,
+        18,
+        18
+      ],
+      "border_image_width_px_trbl": [
+        18,
+        18,
+        18,
+        18
+      ],
+      "border_image_repeat": "stretch",
+      "border_image_fill": false
+    },
+    "button-download-frame": {
+      "file": "button-download-frame.webp",
+      "source_box_xyxy": [
+        834,
+        275,
+        1077,
+        330
+      ],
+      "size": [
+        243,
+        55
+      ],
+      "kind": "source-border-only",
+      "note": "Only original perimeter pixels; interior is transparent zero RGBA; no dynamic values",
+      "bytes": 9602,
+      "sha256": "4f51fe75455ccc1832a0942d3b4cc2c5bbd3d7ff41819b23075f31882b82b565",
+      "decoded_rgba_sha256": "43fde32e51be556c846749584c89ab371fa80bbb87609a2ddab684cd4d2b65de",
+      "decoded_rgba_matches_expected": true,
+      "retained_edge_widths_trbl": [
+        10,
+        18,
+        12,
+        18
+      ],
+      "retained_corner_size": 18,
+      "border_image_slice_trbl": [
+        18,
+        18,
+        18,
+        18
+      ],
+      "border_image_width_px_trbl": [
+        18,
+        18,
+        18,
+        18
+      ],
+      "border_image_repeat": "stretch",
+      "border_image_fill": false
+    },
+    "gallery-frame": {
+      "file": "gallery-frame.webp",
+      "source_box_xyxy": [
+        126,
+        716,
+        1547,
+        858
+      ],
+      "size": [
+        1421,
+        142
+      ],
+      "kind": "source-border-only",
+      "note": "Only original perimeter pixels; interior is transparent zero RGBA; no dynamic values",
+      "bytes": 28514,
+      "sha256": "8719395b686c62962a3ea48d07b0c5de300c7622cd94712591bbaf6975485b9d",
+      "decoded_rgba_sha256": "7397fec746b2ec3ded5af1aa9e02296eb09df058f1bad230a7b85cd85f84e80c",
+      "decoded_rgba_matches_expected": true,
+      "retained_edge_widths_trbl": [
+        3,
+        12,
+        10,
+        12
+      ],
+      "retained_corner_size": 20,
+      "border_image_slice_trbl": [
+        20,
+        20,
+        20,
+        20
+      ],
+      "border_image_width_px_trbl": [
+        20,
+        20,
+        20,
+        20
+      ],
+      "border_image_repeat": "stretch",
+      "border_image_fill": false
+    }
+  }
+}

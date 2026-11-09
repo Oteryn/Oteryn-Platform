@@ -257,6 +257,12 @@ impl Chrome {
     pub fn link(&self, section: &str) -> Option<&NavLink> {
         self.entries.iter().find(|link| link.section == section)
     }
+    /// Whether this navigation group has at least one mounted link.
+    pub fn has_group(&self, icon: &str) -> bool {
+        self.groups
+            .iter()
+            .any(|group| group.icon == icon && !group.links.is_empty())
+    }
     /// The first mounted link among comma-separated `sections`, in order.
     pub fn first_link(&self, sections: &str) -> Option<&NavLink> {
         sections.split(',').find_map(|section| self.link(section))
@@ -542,6 +548,82 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn sparse_registry_reports_each_missing_navigation_group() -> Result<(), askama::Error> {
+        for lang in ["pl", "en"] {
+            for (world_enabled, community_enabled) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
+                let mut registry = Registry {
+                    account: true,
+                    ..Registry::default()
+                };
+                registry.section(
+                    true,
+                    "account-overview",
+                    "shell-account",
+                    "/account",
+                    Group::Account,
+                    true,
+                );
+                registry.section(
+                    world_enabled,
+                    "wiki",
+                    "shell-wiki",
+                    "wiki",
+                    Group::World,
+                    true,
+                );
+                registry.section(
+                    community_enabled,
+                    "news",
+                    "shell-news",
+                    "news",
+                    Group::Community,
+                    true,
+                );
+                let chrome = registry.chrome(lang, &format!("/{lang}/"), Account::Anonymous);
+                assert!(!chrome.groups.is_empty());
+                let header = ShellHeader { chrome: &chrome }.render()?;
+                let footer = ShellFooter { chrome: &chrome }.render()?;
+                assert!(header.contains("href=\"/account\""));
+                for (html, marker, mounted, section) in [
+                    (&header, "hx-nav__menu--world", world_enabled, "wiki"),
+                    (
+                        &header,
+                        "hx-nav__menu--community",
+                        community_enabled,
+                        "news",
+                    ),
+                    (
+                        &footer,
+                        "hx-foot__item--community",
+                        community_enabled,
+                        "news",
+                    ),
+                ] {
+                    let menu = html
+                        .split_once(marker)
+                        .and_then(|(_, tail)| tail.split_once("</ul>"))
+                        .map(|(menu, _)| menu)
+                        .unwrap_or_default();
+                    assert!(!menu.is_empty(), "missing menu {marker}");
+                    assert_eq!(
+                        menu.contains("aria-disabled=\"true\""),
+                        !mounted,
+                        "{marker}"
+                    );
+                    if mounted {
+                        assert!(menu.contains(&format!("href=\"/{lang}/{section}\"")));
+                    } else {
+                        assert!(menu.contains(&chrome.text("stage-unavailable")), "{marker}");
+                        assert!(!menu.contains("href="), "{marker}");
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    #[test]
     fn home_shows_live_data_or_says_unavailable() -> Result<(), askama::Error> {
         let chrome = registry().chrome("pl", "/pl/", Account::Anonymous);
         let html = Home::new(&chrome, &HomeData::default()).render()?;
@@ -595,6 +677,30 @@ mod tests {
         let html = Home::new(&chrome, &empty).render()?;
         assert!(html.contains(&chrome.text("stage-news-empty")));
         assert!(html.contains(&chrome.text("stage-ranking-empty")));
+        Ok(())
+    }
+    #[test]
+    fn home_preserves_ranks_after_visibility_filtering() -> Result<(), askama::Error> {
+        let chrome = registry().chrome("pl", "/pl/", Account::Anonymous);
+        let data = HomeData {
+            ranking: Some(
+                ["2", "5"]
+                    .into_iter()
+                    .map(|rank| HomeRank {
+                        rank: rank.into(),
+                        name: format!("Visible player {rank}"),
+                        level: "100".into(),
+                        url: None,
+                    })
+                    .collect(),
+            ),
+            ..HomeData::default()
+        };
+        let html = Home::new(&chrome, &data).render()?;
+        assert!(html.contains("medal-2.webp\" alt=\"2\""));
+        assert!(html.contains("class=\"hx-ranking__pos\">5</td>"));
+        assert!(!html.contains("medal-1.webp"));
+        assert!(!html.contains("medal-5.webp"));
         Ok(())
     }
     #[test]

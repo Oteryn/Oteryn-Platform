@@ -1,31 +1,77 @@
 {% include "components/icons.html" %}
-<div class="hx">
+<div class="hx hx--reference" data-language="{{ chrome.lang }}" data-home-current="{{ chrome.home_current }}">
 <a class="op-skip" href="#main">{{ chrome.text("skip") }}</a>
 <header class="hx-head">
-<div class="hx-top">
-<img class="hx-top__banner hx-top__banner--l" src="/static/img/home/banner.webp" alt="" width="73" height="166">
-<a class="hx-logo" href="{{ chrome.home_url() }}"><span class="op-sr-only">Oteryn – {{ chrome.text("stage-tagline") }}</span></a>
-<div class="hx-account" role="group" aria-label="{{ chrome.text("shell-account") }}">
-<a class="hx-lang{% if chrome.lang == "pl" %} hx-lang--on{% endif %}" href="{% if chrome.lang == "pl" %}/pl/{% else %}{{ chrome.alternate_url }}{% endif %}" lang="pl" hreflang="pl">PL</a>
-<a class="hx-lang{% if chrome.lang == "en" %} hx-lang--on{% endif %}" href="{% if chrome.lang == "en" %}/en/{% else %}{{ chrome.alternate_url }}{% endif %}" lang="en" hreflang="en">EN</a>
-{% if chrome.signed_in() %}
-{% if chrome.account_mounted %}<a class="hx-account__link" href="/account">{{ chrome.text("stage-my-account") }}</a>{% endif %}
-{% if chrome.login_mounted %}<form action="/{{ chrome.lang }}/logout" method="post"><input type="hidden" name="_csrf" value="{{ chrome.csrf() }}"><button class="hx-account__cta" type="submit">{{ chrome.text("shell-logout") }}</button></form>{% endif %}
-{% else %}
-{% if chrome.login_mounted %}<a class="hx-account__link" href="/{{ chrome.lang }}/login">{{ chrome.text("stage-login") }}</a>{% endif %}
-{% if chrome.registration_mounted %}<a class="hx-account__cta" href="/{{ chrome.lang }}/register">{{ chrome.text("stage-register") }}</a>{% endif %}
-{% endif %}
-</div>
-<img class="hx-top__banner hx-top__banner--r" src="/static/img/home/banner.webp" alt="" width="73" height="166">
-</div>
-<nav class="hx-nav" aria-label="{{ chrome.text("navigation") }}">
-<ul class="hx-nav__list">
-<li class="hx-nav__item"><a class="hx-nav__link" href="{{ chrome.home_url() }}"{% if chrome.home_current %} aria-current="page"{% endif %}><img class="hx-nav__icon" src="/static/img/home/nav-home.webp" alt="" width="26" height="26"><span>{{ chrome.text("stage-nav-home") }}</span></a></li>
-{% for group in chrome.groups %}{% if let Some(top) = group.links.first() %}<li class="hx-nav__item hx-nav__item--menu{% if group.current() %} hx-nav__item--on{% endif %}">
-<details class="hx-nav__dropdown"><summary class="hx-nav__link"{% if group.current() %} aria-current="true"{% endif %}><img class="hx-nav__icon" src="/static/img/home/nav-{{ group.icon }}.webp" alt="" width="26" height="26"><span>{{ group.label }}</span><span class="hx-nav__caret" aria-hidden="true">▾</span></summary>
-<ul class="hx-nav__menu">
-{% for link in group.links %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endfor %}
-</ul></details></li>{% endif %}{% endfor %}
-</ul>
-</nav>
+  <div class="hx-top">
+    <img class="hx-top__scene" src="/static/img/reference/top-scene.webp" alt="" width="1672" height="75">
+    <a class="hx-logo" href="{{ chrome.home_url() }}"><span class="op-sr-only">Oteryn – {{ chrome.text("stage-tagline") }}</span></a>
+  </div>
+  <nav class="hx-nav" aria-label="{{ chrome.text("navigation") }}">
+    <img class="hx-nav__scene" src="/static/img/reference/nav-band.webp" alt="" width="1672" height="50">
+    <ul class="hx-nav__list">
+      <li class="hx-nav__item hx-nav__item--home" data-reference-slot="home">
+        <a class="hx-nav__link" href="{{ chrome.home_url() }}"{% if chrome.home_current %} aria-current="page"{% endif %}><span class="hx-nav__label{% if chrome.lang == "pl" %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{{ chrome.text("stage-nav-home") }}</span></a>
+      </li>
+      <li class="hx-nav__item hx-nav__item--news" data-reference-slot="news">
+        {% if let Some(link) = chrome.link("news") %}
+        <a class="hx-nav__link" href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}><span class="hx-nav__label{% if chrome.lang == "pl" %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{{ chrome.text("shell-news") }}</span></a>
+        {% else %}
+        <span class="hx-nav__link hx-nav__link--unavailable" role="link" aria-disabled="true" title="{{ chrome.text("stage-unavailable") }}"><span class="hx-nav__label{% if chrome.lang == "pl" %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{{ chrome.text("shell-news") }}</span></span>
+        {% endif %}
+      </li>
+      <li class="hx-nav__item hx-nav__item--download" data-reference-slot="download">
+        {% if let Some(link) = chrome.link("server") %}
+        <a class="hx-nav__link" href="{{ link.url }}#download"><span class="hx-nav__label{% if chrome.lang == "pl" %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{{ chrome.text("stage-nav-download") }}</span></a>
+        {% else %}
+        <span class="hx-nav__link hx-nav__link--unavailable" role="link" aria-disabled="true" title="{{ chrome.text("stage-unavailable") }}"><span class="hx-nav__label{% if chrome.lang == "pl" %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{{ chrome.text("stage-nav-download") }}</span></span>
+        {% endif %}
+      </li>
+      <li class="hx-nav__item hx-nav__item--menu hx-nav__item--account" data-reference-slot="account" data-signed-in="{{ chrome.signed_in() }}">
+        <details class="hx-nav__dropdown"><summary class="hx-nav__link"{% for group in chrome.groups %}{% if group.icon == "support" && group.current() %} aria-current="true"{% endif %}{% endfor %}><span class="hx-nav__label{% if chrome.lang == "pl" && !chrome.signed_in() %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{% if chrome.signed_in() %}{{ chrome.text("shell-account") }}{% else %}{{ chrome.text("stage-nav-register") }}{% endif %}</span></summary>
+          <ul class="hx-nav__menu hx-nav__menu--account">
+            {% if chrome.signed_in() %}
+            {% if chrome.account_mounted %}<li><a href="/account">{{ chrome.text("stage-my-account") }}</a></li>{% endif %}
+            {% if chrome.login_mounted %}<li><form action="/{{ chrome.lang }}/logout" method="post"><input type="hidden" name="_csrf" value="{{ chrome.csrf() }}"><button class="hx-nav__action" type="submit">{{ chrome.text("shell-logout") }}</button></form></li>{% endif %}
+            {% else %}
+            {% if chrome.registration_mounted %}<li><a href="/{{ chrome.lang }}/register">{{ chrome.text("stage-register") }}</a></li>{% endif %}
+            {% if chrome.login_mounted %}<li><a href="/{{ chrome.lang }}/login">{{ chrome.text("stage-login") }}</a></li>{% endif %}
+            {% endif %}
+            {% for group in chrome.groups %}{% if group.icon == "support" %}{% for link in group.links %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endfor %}{% endif %}{% endfor %}
+            <li class="hx-nav__languages"><span class="hx-nav__menu-label">{{ chrome.text("stage-language") }}</span><a href="{% if chrome.lang == "pl" %}{{ chrome.home_url() }}{% else %}{{ chrome.alternate_url }}{% endif %}" lang="pl" hreflang="pl"{% if chrome.lang == "pl" %} aria-current="true"{% endif %}>PL</a><a href="{% if chrome.lang == "en" %}{{ chrome.home_url() }}{% else %}{{ chrome.alternate_url }}{% endif %}" lang="en" hreflang="en"{% if chrome.lang == "en" %} aria-current="true"{% endif %}>EN</a></li>
+          </ul>
+        </details>
+      </li>
+      <li class="hx-nav__item hx-nav__item--ranking" data-reference-slot="ranking">
+        {% if let Some(link) = chrome.link("rankings") %}
+        <a class="hx-nav__link" href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}><span class="hx-nav__label{% if chrome.lang == "pl" %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{{ chrome.text("stage-nav-ranking") }}</span></a>
+        {% else %}
+        <span class="hx-nav__link hx-nav__link--unavailable" role="link" aria-disabled="true" title="{{ chrome.text("stage-unavailable") }}"><span class="hx-nav__label{% if chrome.lang == "pl" %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{{ chrome.text("stage-nav-ranking") }}</span></span>
+        {% endif %}
+      </li>
+      <li class="hx-nav__item hx-nav__item--menu hx-nav__item--wiki" data-reference-slot="wiki">
+        <details class="hx-nav__dropdown"><summary class="hx-nav__link"{% for group in chrome.groups %}{% if group.icon == "world" && group.current() %} aria-current="true"{% endif %}{% endfor %}><span class="hx-nav__label{% if chrome.lang == "pl" %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{{ chrome.text("shell-wiki") }}</span></summary>
+          <ul class="hx-nav__menu hx-nav__menu--world">
+            {% for group in chrome.groups %}{% if group.icon == "world" %}{% for link in group.links %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endfor %}{% endif %}{% endfor %}
+            {% if !chrome.has_group("world") %}<li><span class="hx-nav__unavailable" aria-disabled="true">{{ chrome.text("stage-unavailable") }}</span></li>{% endif %}
+          </ul>
+        </details>
+      </li>
+      <li class="hx-nav__item hx-nav__item--menu hx-nav__item--community" data-reference-slot="community">
+        <details class="hx-nav__dropdown"><summary class="hx-nav__link"{% for group in chrome.groups %}{% if group.icon == "community" && group.current() %} aria-current="true"{% endif %}{% endfor %}><span class="hx-nav__label{% if chrome.lang == "pl" %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{{ chrome.text("shell-community") }}</span></summary>
+          <ul class="hx-nav__menu hx-nav__menu--community">
+            {% for group in chrome.groups %}{% if group.icon == "community" %}{% for link in group.links %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endfor %}{% endif %}{% endfor %}
+            {% if !chrome.has_group("community") %}<li><span class="hx-nav__unavailable" aria-disabled="true">{{ chrome.text("stage-unavailable") }}</span></li>{% endif %}
+          </ul>
+        </details>
+      </li>
+      <li class="hx-nav__item hx-nav__item--menu hx-nav__item--shop" data-reference-slot="shop">
+        <details class="hx-nav__dropdown"><summary class="hx-nav__link"{% for group in chrome.groups %}{% if group.icon == "shop" && group.current() %} aria-current="true"{% endif %}{% endfor %}><span class="hx-nav__label{% if chrome.lang == "pl" %} hx-raster-label{% else %} hx-nav__label--dom{% endif %}">{{ chrome.text("shell-shop") }}</span></summary>
+          <ul class="hx-nav__menu hx-nav__menu--play">
+            {% if let Some(link) = chrome.link("shop") %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% else %}<li><span class="hx-nav__unavailable" aria-disabled="true">{{ chrome.text("shell-shop") }} — {{ chrome.text("stage-unavailable") }}</span></li>{% endif %}
+            {% for group in chrome.groups %}{% if group.icon == "shop" %}{% for link in group.links %}{% if link.section != "shop" %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}{% endfor %}{% endif %}{% endfor %}
+          </ul>
+        </details>
+      </li>
+    </ul>
+  </nav>
 </header>
