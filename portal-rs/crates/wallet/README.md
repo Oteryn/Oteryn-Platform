@@ -1,9 +1,9 @@
 # Wallet core
 
-`Ledger` is a Rust API with no HTTP or player/staff UI. Construct it with a pool,
+`Ledger` is a Rust API with no player/staff UI. Construct it with a pool,
 `WalletFlags` and explicit account-state, transfer-block and audit adapters.
-`WalletFlags::default()` disables every API, including reads. No application flag
-or role dispatch is wired by this task.
+`WalletFlags::default()` disables every API, including reads. The Game wire is
+mounted on the shared mTLS-protected router and defaults off independently.
 
 There are transferable and non-transferable coin classes; all values are `i64` in the smallest unit.
 Available and reserved balances are sums of immutable entry deltas, read under
@@ -78,3 +78,14 @@ activity cannot change a replay. UUID ordering is used only for compatibility wi
 the original pre-sequence schema in the existing additive-upgrade harness.
 History includes each class and direction-aware counterparty. Rollback disables
 flags and preserves financial history; do not discard coin classes or partial fills.
+
+`wire::configured_router` reads `PORTAL_COIN_TRANSFERS_ENABLED`,
+`PORTAL_COIN_MARKET_ENABLED` and `PORTAL_GAME_COINS_IDENTITIES`. Both flags default
+off. The identity value is a JSON object of exact certificate SANs to empty arrays;
+other configured internal identity maps and SANs participate in overlap detection.
+Production adapters read active, verified accounts and the existing D14 transfer
+block in the wallet transaction; lookup errors deny. Audited credits are not exposed
+on this consumer-only wire. See the accepted coin wire contract for bounds, error
+bodies and Game-side name resolution and gold ownership. Two additional PostgreSQL
+HTTP tests round-trip fixtures through real handlers; a transport test proves
+default-off and missing verified peer refusals without a database.

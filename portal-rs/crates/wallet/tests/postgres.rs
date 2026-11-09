@@ -820,3 +820,6 @@ async fn market_refusals_and_key_validation_are_atomic() {
     assert_eq!(ledger.balance(a).await.unwrap().reserved, 10);
     db.close().await;
 }
+
+#[path = "coin_http/mod.rs"]
+mod coin_http;

@@ -6,3 +6,4 @@ mod domain;
 mod ledger;
 pub use domain::*;
 pub use ledger::Ledger;
+pub mod wire;
