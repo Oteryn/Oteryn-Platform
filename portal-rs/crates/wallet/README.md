@@ -5,10 +5,12 @@
 `WalletFlags::default()` disables every API, including reads. No application flag
 or role dispatch is wired by this task.
 
-There is one transferable coin; all values are `i64` in the smallest unit.
+There are transferable and non-transferable coin classes; all values are `i64` in the smallest unit.
 Available and reserved balances are sums of immutable entry deltas, read under
-`SELECT ... FOR UPDATE` on the account row. Transferable equals available.
-Available, reserved and their total cannot be negative or exceed `i64::MAX`.
+`SELECT ... FOR UPDATE` on the account row. Available is the sum of spendable
+transferable and non-transferable coins. Only transferable coins can be reserved
+or transferred; store purchases spend non-transferable first.
+Each class, reserved and their total cannot be negative or exceed `i64::MAX`.
 Transfers create and lock both wallet rows in ascending UUID order before reading
 balances. Account UUIDs have no foreign key to the future identity schema.
 
@@ -21,8 +23,11 @@ replay reports a prior committed result even if a transfer block was added later
 
 `reserve` moves available coins to reserved and uses the operation ID as the
 reservation ID. `release` restores all reserved coins; `capture` consumes them in
-full. A reservation can be settled once, with exact operation replay allowed.
-Capture does not credit another account or implement Bazaar settlement fees.
+full. The legacy capture consumes the remaining reserve once, with exact operation replay allowed.
+`settle` atomically captures a partial amount and credits a buyer as transferable;
+concurrent fills and release serialize on account and reservation locks. It does
+not implement gold movement or Bazaar fees. `reserve_offer` binds gold price into
+idempotency without moving gold.
 All methods own their transaction; a future purchase/settlement integration that
 needs a shared transaction must add that composition explicitly before activation.
 
@@ -50,7 +55,7 @@ deletes and truncation of entries and financial operation records.
 
 PostgreSQL tests create isolated, randomly named schemas and apply all migrations.
 They read `PORTAL_TEST_DATABASE_URL`; if unset, each prints a skip notice and
-returns. With the URL set, eight tests exercise concurrency, idempotency, account
+returns. With the URL set, twelve tests exercise concurrency, idempotency, account
 and block denial, reservations, auditing, immutable history, bad input and overflow.
 Run `cargo test --locked -p oteryn-wallet -- --nocapture` to see skip notices.
 No browser testing applies because this task exposes only a Rust API.
@@ -63,3 +68,13 @@ intent and fixed checkout package before calling it. The intent UUIDv7 is the
 operation key, independent of outbox delivery ID. Existing APIs keep their kinds.
 Migration `20261107180001_wallet_topup` extends only the kind constraint; its
 inverse refuses while any immutable `top_up` operation exists.
+
+Coin-class migration preserves all existing entries as transferable. Non-transferable
+credits require `credit_non_transferable`, an explicit reward/staff kind, actor,
+reason and the transactional audit adapter. Top-ups remain transferable. Every
+mutation now returns a complete original receipt; `operation` reconstructs that
+receipt from immutable entries through the operation's entry sequence, so later
+activity cannot change a replay. UUID ordering is used only for compatibility with
+the original pre-sequence schema in the existing additive-upgrade harness.
+History includes each class and direction-aware counterparty. Rollback disables
+flags and preserves financial history; do not discard coin classes or partial fills.

@@ -258,6 +258,7 @@ async fn reservation_capture_release_and_replay() {
         Balance {
             available: 40,
             transferable: 40,
+            non_transferable: 0,
             reserved: 60
         }
     );
@@ -310,6 +311,7 @@ async fn reservation_capture_release_and_replay() {
         Balance {
             available: 40,
             transferable: 40,
+            non_transferable: 0,
             reserved: 0
         }
     );
@@ -602,5 +604,219 @@ async fn invalid_input_overflow_and_recipient_failure_roll_back() {
     refused(ledger.transfer(id(), a, b, 1).await, Refusal::Overflow);
     assert_eq!(ledger.balance(a).await.unwrap().available, 10);
     assert_eq!(ledger.balance(b).await.unwrap().available, i64::MAX);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn coin_classes_store_order_and_audited_grants() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let (a, b, actor) = (id(), id(), id());
+    let ledger = db.ledger(&[a, b]);
+    fund(&ledger, a, 40).await;
+    let grant = id();
+    let first = ledger
+        .credit_non_transferable(grant, a, 60, actor, "Reward", GrantKind::Reward)
+        .await
+        .unwrap();
+    assert_eq!(first.non_transferable_after, 60);
+    assert!(
+        ledger
+            .credit_non_transferable(grant, a, 60, actor, "Reward", GrantKind::Reward)
+            .await
+            .unwrap()
+            .replayed
+    );
+    refused(
+        ledger
+            .credit_non_transferable(grant, a, 61, actor, "Reward", GrantKind::Reward)
+            .await,
+        Refusal::IdempotencyConflict,
+    );
+    refused(
+        ledger.transfer(id(), a, b, 41).await,
+        Refusal::InsufficientFunds,
+    );
+    refused(
+        ledger.reserve_offer(id(), a, 41, 100).await,
+        Refusal::InsufficientFunds,
+    );
+    let store = db
+        .ledger(&[a, b])
+        .with_adjustment_kind(AdjustmentKind::StorePurchase);
+    let key = id();
+    let mut tx = db.pool.begin().await.unwrap();
+    store
+        .adjust_in(&mut tx, key, a, -70, a, &format!("store-purchase:{key}"))
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let after = ledger.balance(a).await.unwrap();
+    assert_eq!(
+        (after.available, after.transferable, after.non_transferable),
+        (30, 30, 0)
+    );
+    let history = ledger.history(a, HistoryPage::default()).await.unwrap();
+    assert_eq!(history.iter().filter(|e| e.operation_id == key).count(), 2);
+    assert_eq!(
+        ledger
+            .operation(grant)
+            .await
+            .unwrap()
+            .unwrap()
+            .non_transferable_after,
+        60
+    );
+    refused(
+        ledger
+            .credit_non_transferable(id(), a, 0, actor, "Bad", GrantKind::StaffGrant)
+            .await,
+        Refusal::InvalidAmount,
+    );
+    fund(&ledger, b, i64::MAX).await;
+    refused(
+        ledger
+            .credit_non_transferable(id(), b, 1, actor, "Overflow", GrantKind::StaffGrant)
+            .await,
+        Refusal::Overflow,
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn market_partial_fills_replays_release_and_exhaustion() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let (a, b, c) = (id(), id(), id());
+    let ledger = db.ledger(&[a, b, c]);
+    fund(&ledger, a, 100).await;
+    let offer = id();
+    ledger.reserve_offer(offer, a, 80, 100).await.unwrap();
+    refused(
+        ledger.reserve_offer(offer, a, 80, 101).await,
+        Refusal::IdempotencyConflict,
+    );
+    let trade = id();
+    let first = ledger.settle(trade, offer, b, 30).await.unwrap();
+    assert_eq!((first.transferable_after, first.reserved_after), (20, 50));
+    ledger.settle(id(), offer, c, 20).await.unwrap();
+    let replay = ledger.settle(trade, offer, b, 30).await.unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.reserved_after, 50);
+    refused(
+        ledger.settle(trade, offer, c, 30).await,
+        Refusal::IdempotencyConflict,
+    );
+    refused(
+        ledger.settle(trade, id(), b, 30).await,
+        Refusal::IdempotencyConflict,
+    );
+    let release = id();
+    let released = ledger.release(release, a, offer).await.unwrap();
+    assert_eq!(released.amount, 30);
+    assert_eq!(released.transferable_after, 50);
+    assert!(ledger.release(release, a, offer).await.unwrap().replayed);
+    refused(
+        ledger.settle(id(), offer, b, 1).await,
+        Refusal::InsufficientFunds,
+    );
+    let offer = id();
+    ledger.reserve_offer(offer, a, 50, 1).await.unwrap();
+    ledger.settle(id(), offer, b, 25).await.unwrap();
+    ledger.settle(id(), offer, b, 25).await.unwrap();
+    refused(
+        ledger.settle(id(), offer, b, 1).await,
+        Refusal::InsufficientFunds,
+    );
+    assert_eq!(ledger.balance(a).await.unwrap().reserved, 0);
+    assert_eq!(ledger.balance(b).await.unwrap().transferable, 80);
+    assert_eq!(ledger.balance(c).await.unwrap().transferable, 20);
+    assert_eq!(
+        ledger.history(b, HistoryPage::default()).await.unwrap()[0].counterparty_account_id,
+        Some(a)
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn concurrent_market_fills_never_over_capture() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let (a, b) = (id(), id());
+    let ledger = Arc::new(db.ledger(&[a, b]));
+    fund(&ledger, a, 100).await;
+    let offer = id();
+    ledger.reserve_offer(offer, a, 100, 1).await.unwrap();
+    let barrier = Arc::new(Barrier::new(12));
+    let mut tasks = Vec::new();
+    for _ in 0..12 {
+        let ledger = ledger.clone();
+        let barrier = barrier.clone();
+        tasks.push(tokio::spawn(async move {
+            barrier.wait().await;
+            ledger.settle(id(), offer, b, 10).await
+        }));
+    }
+    let mut successes = 0;
+    for task in tasks {
+        match task.await.unwrap() {
+            Ok(_) => successes += 1,
+            Err(Error::Refused(Refusal::InsufficientFunds)) => {}
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    assert_eq!(successes, 10);
+    assert_eq!(ledger.balance(a).await.unwrap().reserved, 0);
+    assert_eq!(ledger.balance(b).await.unwrap().transferable, 100);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn market_refusals_and_key_validation_are_atomic() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let (a, b) = (id(), id());
+    let ledger = db.ledger(&[a, b]);
+    fund(&ledger, a, 10).await;
+    refused(
+        ledger.reserve_offer(id(), a, 1, 0).await,
+        Refusal::InvalidAmount,
+    );
+    refused(
+        ledger.settle(id(), id(), b, 1).await,
+        Refusal::ReservationMissing,
+    );
+    let offer = id();
+    ledger.reserve_offer(offer, a, 10, 1).await.unwrap();
+    refused(ledger.settle(id(), offer, a, 1).await, Refusal::SameAccount);
+    refused(
+        ledger.settle(id(), offer, b, 0).await,
+        Refusal::InvalidAmount,
+    );
+    refused(
+        ledger.settle(id(), offer, b, 11).await,
+        Refusal::InsufficientFunds,
+    );
+    let blocked = Ledger::new(
+        db.pool.clone(),
+        WalletFlags { enabled: true },
+        Accounts(vec![a, b]),
+        Blocks {
+            blocked: Some(b),
+            unknown: false,
+        },
+        Audit(true),
+    );
+    let key = id();
+    refused(
+        blocked.settle(key, offer, b, 1).await,
+        Refusal::TransferBlocked,
+    );
+    assert!(ledger.operation(key).await.unwrap().is_none());
+    assert_eq!(ledger.balance(a).await.unwrap().reserved, 10);
     db.close().await;
 }
