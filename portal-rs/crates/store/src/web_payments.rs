@@ -29,8 +29,97 @@ struct PaymentTopUps {
     pool: PgPool,
     payments: Payments<TestProvider, Accounts>,
     packages: Vec<Package>,
+    signer: TestProvider,
 }
 impl TopUps for PaymentTopUps {
+    fn test_checkout(&self) -> bool {
+        true
+    }
+    fn checkout(
+        &self,
+        account: Uuid,
+        id: Uuid,
+        action: Option<String>,
+    ) -> oteryn_store::web::FutureResult<'_, Option<oteryn_store::web::Checkout>> {
+        Box::pin(async move {
+            let row = sqlx::query("SELECT package_key,coins,minor_units,currency FROM store_web_topups WHERE payment_intent_id=$1 AND account_id=$2")
+                .bind(id).bind(account).fetch_optional(&self.pool).await.map_err(|_| Error::Unavailable)?;
+            let Some(row) = row else {
+                return Ok(None);
+            };
+            let mut intent = self
+                .payments
+                .intent(id)
+                .await
+                .map_err(|_| Error::Unavailable)?;
+            if intent.account_id != account {
+                return Ok(None);
+            }
+            use oteryn_payments::{IntentState, PaymentEvent};
+            if let Some(action) = action {
+                let state = match action.as_str() {
+                    "pay" => IntentState::Succeeded,
+                    "reject" | "cancel" => IntentState::Failed,
+                    _ => return Err(Error::Invalid),
+                };
+                if matches!(intent.state, IntentState::Created | IntentState::Pending) {
+                    // Stable event IDs deduplicate identical decisions; the payment
+                    // row lock serializes competing terminal transitions.
+                    let event = PaymentEvent {
+                        event_id: format!(
+                            "checkout:{id}:{}",
+                            if state == IntentState::Succeeded {
+                                "paid"
+                            } else {
+                                "failed"
+                            }
+                        ),
+                        intent_id: id,
+                        provider_reference: intent.provider_reference.clone(),
+                        amount: intent.amount.clone(),
+                        state,
+                    };
+                    let body = serde_json::to_vec(&event).map_err(|_| Error::Unavailable)?;
+                    let signature = self.signer.sign(&body).map_err(|_| Error::Unavailable)?;
+                    let outcome = self.payments.webhook(&body, &signature).await;
+                    intent = self
+                        .payments
+                        .intent(id)
+                        .await
+                        .map_err(|_| Error::Unavailable)?;
+                    if outcome.is_err()
+                        && matches!(intent.state, IntentState::Created | IntentState::Pending)
+                    {
+                        return Err(Error::Unavailable);
+                    }
+                }
+            }
+            let credited = if intent.state == IntentState::Succeeded {
+                sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM wallet_operations WHERE id=$1 AND account_id=$2 AND kind='top_up')")
+                    .bind(id).bind(account).fetch_one(&self.pool).await.map_err(|_| Error::Unavailable)?
+            } else {
+                false
+            };
+            Ok(Some(oteryn_store::web::Checkout {
+                package: Package {
+                    key: row.try_get("package_key").map_err(|_| Error::Unavailable)?,
+                    coins: row.try_get("coins").map_err(|_| Error::Unavailable)?,
+                    minor_units: row.try_get("minor_units").map_err(|_| Error::Unavailable)?,
+                    currency: row.try_get("currency").map_err(|_| Error::Unavailable)?,
+                },
+                pending: matches!(intent.state, IntentState::Created | IntentState::Pending),
+                status: match intent.state {
+                    IntentState::Created | IntentState::Pending => "checkout-pending",
+                    IntentState::Succeeded if credited => "checkout-credited",
+                    IntentState::Succeeded => "checkout-succeeded",
+                    IntentState::Failed => "checkout-failed",
+                    IntentState::Refunded => "checkout-refunded",
+                }
+                .into(),
+            }))
+        })
+    }
+
     fn packages(&self) -> Vec<Package> {
         self.packages.clone()
     }
@@ -107,26 +196,25 @@ pub(super) fn router(pool: PgPool) -> axum::Router {
     // production, and no payment or wallet effect is inferred from a return URL.
     let testing = std::env::var("OTERYN_ENV").as_deref() == Ok("testing");
     let enabled = std::env::var("OTERYN_SHOP_TEST_PAYMENTS_ENABLED").as_deref() == Ok("true");
+    router_for(pool, testing, enabled)
+}
+fn router_for(pool: PgPool, testing: bool, enabled: bool) -> axum::Router {
     let topups = if testing && enabled {
         let packages = std::env::var("OTERYN_SHOP_TOP_UP_PACKAGES")
             .ok()
             .and_then(|raw| serde_json::from_str::<Vec<Package>>(&raw).ok());
         packages.filter(|p| valid_packages(p)).and_then(|packages| {
-            let mut key = [0; 32];
-            getrandom::fill(&mut key).ok()?;
-            let configured_key = std::env::var("OTERYN_SHOP_TEST_PAYMENT_KEY").ok();
-            let provider = TestProvider::new(
-                configured_key
-                    .as_ref()
-                    .map_or(key.as_slice(), |k| k.as_bytes()),
-            )
-            .ok()?;
+            let key = std::env::var("OTERYN_SHOP_TEST_PAYMENT_KEY").ok()?;
+            let provider = TestProvider::new(key.as_bytes()).ok()?;
             Some(Arc::new(PaymentTopUps {
+                signer: provider.clone(),
                 payments: Payments::new(
                     pool.clone(),
                     provider,
                     Accounts(pool.clone()),
-                    PaymentFlags { enabled: true },
+                    PaymentFlags {
+                        enabled: std::env::var("OTERYN_PAYMENTS_ENABLED").as_deref() == Ok("true"),
+                    },
                 ),
                 pool: pool.clone(),
                 packages,

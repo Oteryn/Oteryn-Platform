@@ -661,7 +661,7 @@ async fn postgres_browser_at_360px() -> TestResult {
 }
 
 #[tokio::test]
-async fn postgres_configured_identity_and_unknown_transfer_state_deny() -> TestResult {
+async fn postgres_configured_identity_d14_transfer_and_ownership_deny() -> TestResult {
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -735,6 +735,39 @@ async fn postgres_configured_identity_and_unknown_transfer_state_deny() -> TestR
             .await?
             .available,
         100
+    );
+    let recipient = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'recipient@example.invalid',now(),'unused-test-hash','active','en')").bind(recipient).execute(&db.pool).await?;
+    let backend = backend::configured(db.pool.clone(), None);
+    assert!(
+        backend
+            .transfer(account, Uuid::now_v7(), recipient, 20)
+            .await
+            .is_ok()
+    );
+    for blocked in [account, recipient] {
+        sqlx::query(
+            "UPDATE accounts SET email_change_blocked_until=now()+interval '72 hours' WHERE id=$1",
+        )
+        .bind(blocked)
+        .execute(&db.pool)
+        .await?;
+        assert_eq!(
+            backend
+                .transfer(account, Uuid::now_v7(), recipient, 1)
+                .await,
+            Err(Error::Denied)
+        );
+        sqlx::query("UPDATE accounts SET email_change_blocked_until='-infinity' WHERE id=$1")
+            .bind(blocked)
+            .execute(&db.pool)
+            .await?;
+    }
+    assert_eq!(
+        backend
+            .transfer(account, Uuid::now_v7(), recipient, 0)
+            .await,
+        Err(Error::Invalid)
     );
     // Another account cannot select this history through form/query parameters.
     let (other_cookie, _) = session(&db.pool, Uuid::now_v7()).await?;

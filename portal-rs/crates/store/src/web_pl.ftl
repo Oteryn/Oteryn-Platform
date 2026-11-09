@@ -26,3 +26,15 @@ conflict = Oferta się zmieniła lub klucz operacji został już użyty. Odświe
 limited = Zbyt wiele prób. Spróbuj ponownie później.
 pending = Płatność oczekuje. Coiny zostaną dodane dopiero po zweryfikowanym rozliczeniu. Identyfikator płatności:
 minor-units = najmniejsze jednostki waluty
+
+checkout = Bank testowy
+package = Pakiet
+test-banner = TRYB TESTOWY – żadne prawdziwe pieniądze nie są pobierane
+test-pay = Zapłać (test)
+test-reject = Odrzuć płatność
+test-cancel = Anuluj
+checkout-pending = Wybierz wynik płatności testowej.
+checkout-succeeded = Płatność przyjęta, środki zostaną zaksięgowane po przetworzeniu.
+checkout-failed = Płatność odrzucona lub anulowana. Nie przyznano coinów.
+checkout-refunded = Płatność zwrócona.
+checkout-credited = Płatność przyjęta, coiny zostały zaksięgowane.
