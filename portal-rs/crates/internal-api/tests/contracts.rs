@@ -395,3 +395,68 @@ fn outbound_canonical_encoder_enforces_contract() -> Result<(), Box<dyn Error>> 
     assert!(canonical::encode(&Value::Unsigned(u64::MAX)).is_err());
     Ok(())
 }
+
+#[test]
+fn coin_contract_vectors_have_stable_hashes_and_route_coverage() -> Result<(), Box<dyn Error>> {
+    let root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/contracts/fixtures/coin-wire-v1");
+    let all = fixtures::load(root)?;
+    let manifest = all
+        .iter()
+        .find(|f| f.path.ends_with("manifest.json"))
+        .ok_or("coin manifest")?;
+    let Value::Object(valid) = manifest.value.get("valid").ok_or("valid")? else {
+        return Err("valid object".into());
+    };
+    for (name, meta) in valid {
+        let fixture = all
+            .iter()
+            .find(|f| f.path.ends_with(name))
+            .ok_or("vector")?;
+        assert!(fixture.was_canonical, "{name}");
+        assert_eq!(
+            meta.get("canonical_bytes"),
+            Some(&Value::Unsigned(fixture.canonical.len() as u64))
+        );
+        assert_eq!(
+            meta.get("sha256"),
+            Some(&Value::String(format!(
+                "{:x}",
+                Sha256::digest(&fixture.canonical)
+            )))
+        );
+    }
+    let Value::Array(routes) = manifest.value.get("routes").ok_or("routes")? else {
+        return Err("routes array".into());
+    };
+    assert_eq!(routes.len(), 7);
+    for route in routes {
+        for key in ["request", "response"] {
+            let Some(Value::String(name)) = route.get(key) else {
+                return Err("route vector".into());
+            };
+            assert!(valid.iter().any(|(file, _)| file == name));
+        }
+    }
+    for code in [
+        "replay",
+        "insufficient_transferable",
+        "account_inactive",
+        "transfer_blocked",
+        "unknown_account",
+        "idempotency_conflict",
+        "invalid",
+        "unavailable",
+    ] {
+        let file = format!("{code}.json");
+        let fixture = all
+            .iter()
+            .find(|f| f.path.ends_with(&file))
+            .ok_or("result vector")?;
+        assert_eq!(
+            fixture.value.get("result"),
+            Some(&Value::String(code.into()))
+        );
+    }
+    Ok(())
+}
