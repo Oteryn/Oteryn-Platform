@@ -3312,6 +3312,7 @@ name = "oteryn-wallet"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "futures-util",
  "oteryn-db",
  "oteryn-internal-api",
  "sqlx",

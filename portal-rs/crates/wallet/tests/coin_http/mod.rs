@@ -441,6 +441,25 @@ async fn flags_transport_and_peer_provenance_fail_closed_without_database() {
         to_bytes(response.into_body(), 65536).await.unwrap(),
         fixture("invalid.json")
     );
+    // A peer cannot delay an off/unauthenticated refusal by withholding a body.
+    for (flags, expected) in [
+        (Flags::default(), StatusCode::SERVICE_UNAVAILABLE),
+        (enabled(), StatusCode::UNAUTHORIZED),
+    ] {
+        let request = Request::get(
+            "/internal/v1/coins/accounts/019a65f0-0000-7000-8000-000000000001/balance",
+        )
+        .body(Body::from_stream(futures_util::stream::pending::<
+            Result<axum::body::Bytes, std::io::Error>,
+        >()))
+        .unwrap();
+        let response =
+            tokio::time::timeout(Duration::from_secs(1), app(make(), flags).oneshot(request))
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(response.status(), expected);
+    }
     assert!(wire::identities(vec![]).is_err());
     assert!(
         wire::identities(vec![

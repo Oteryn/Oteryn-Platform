@@ -33,7 +33,7 @@ impl<A, B, H> Clone for HttpState<A, B, H> {
     }
 }
 #[derive(Clone)]
-struct InvalidGet(bool);
+struct GetBody(Arc<std::sync::Mutex<Option<Body>>>);
 
 pub fn router<A, B, H>(ledger: Ledger<A, B, H>, flags: Flags, identities: IdentityMap) -> Router
 where
@@ -89,9 +89,9 @@ where
 async fn adapt(mut req: Request, next: Next) -> Response {
     if req.method() == Method::GET {
         let (parts, body) = req.into_parts();
-        let valid = to_bytes(body, 1).await.is_ok_and(|b| b.is_empty());
         req = Request::from_parts(parts, Body::from("{}"));
-        req.extensions_mut().insert(InvalidGet(!valid));
+        req.extensions_mut()
+            .insert(GetBody(Arc::new(std::sync::Mutex::new(Some(body)))));
         req.headers_mut().insert(
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("application/json"),
@@ -247,7 +247,17 @@ async fn execute<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook>(
         .ok_or(Refusal::InvalidIdentifier)?
         .to_owned();
     if req.method() == Method::GET {
-        if req.extensions().get::<InvalidGet>().is_some_and(|v| v.0) {
+        // The shared guard has already checked flags and verified provenance.
+        // Never poll the original GET body on a disabled or unauthenticated route.
+        let original = req
+            .extensions()
+            .get::<GetBody>()
+            .ok_or(Refusal::InvalidIdentifier)?;
+        let body = {
+            let mut body = original.0.lock().map_err(|_| Refusal::InvalidIdentifier)?;
+            body.take().ok_or(Refusal::InvalidIdentifier)?
+        };
+        if !to_bytes(body, 1).await.is_ok_and(|bytes| bytes.is_empty()) {
             return Err(Refusal::InvalidIdentifier.into());
         }
         let parts: Vec<_> = path.split('/').collect();

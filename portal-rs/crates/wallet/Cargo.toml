@@ -28,3 +28,8 @@ path = "../internal-api"
 [dev-dependencies.tower]
 version = "0.5.3"
 features = ["util"]
+
+[dev-dependencies.futures-util]
+version = "0.3.32"
+default-features = false
+features = ["std"]
