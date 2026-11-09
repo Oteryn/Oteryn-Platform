@@ -4,7 +4,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use askama::Template;
 use axum::{
     Extension, Router,
-    extract::{Path, Query, Request, State},
+    extract::{Path, Query, RawQuery, Request, State},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -18,9 +18,9 @@ use uuid::Uuid;
 
 #[path = "web_backend.rs"]
 mod backend;
-pub use backend::{Access, Backend, Buy, Domain, TopUps};
+pub use backend::{Access, Backend, Buy, Domain, TopUps, configured as configured_backend};
 
-type FutureResult<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
+pub type FutureResult<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -135,7 +135,14 @@ pub fn router(
     }
     let mut sessions = SessionLayer::new(pool.clone());
     sessions.csrf.trusted_origins = origins;
-    Router::new()
+    let mut routes = Router::new();
+    if flags.top_ups && backend.test_checkout() {
+        routes = routes.route(
+            "/{lang}/shop/test-checkout/{intent}",
+            get(checkout_page).post(checkout_post),
+        );
+    }
+    routes
         .route("/{lang}/shop", get(offers).post(buy))
         .route("/{lang}/shop/coins", get(coins).post(top_up))
         .route("/{lang}/shop/history", get(history))
@@ -161,7 +168,10 @@ pub fn configured_router_with_topups(pool: PgPool, topups: Option<Arc<dyn TopUps
     let flags = Flags {
         shop: enabled("OTERYN_SHOP_ENABLED"),
         top_ups: topups.is_some() && enabled("OTERYN_SHOP_TOP_UPS_ENABLED"),
-        ..Flags::default()
+        purchases: false, // Authoritative character ownership is not available in the portal DB.
+        transfers: std::env::var("OTERYN_ENV").as_deref() == Ok("testing")
+            && enabled("OTERYN_SHOP_TEST_PAYMENTS_ENABLED")
+            && enabled("OTERYN_SHOP_TRANSFERS_ENABLED"),
     };
     let origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
         .ok()
@@ -286,7 +296,12 @@ struct PackageView {
 <main id="main" tabindex="-1" class="op-card op-stack"><h1>{{ title }}</h1>
 {% if !message.is_empty() %}<p class="op-alert" role="status">{{ message }}</p>{% endif %}
 {% if let Some(b) = balance %}<section class="op-panel"><dl><dt>{{ available }}</dt><dd>{{ b.available }}</dd><dt>{{ transferable }}</dt><dd>{{ b.transferable }}</dd><dt>{{ reserved }}</dt><dd>{{ b.reserved }}</dd></dl></section>{% endif %}
-{% if section == "shop" %}
+{% if section == "checkout" %}
+<p class="op-alert">{{ test_banner }}</p>
+{% if let Some(c) = checkout %}<dl><dt>{{ package_label }}</dt><dd>{{ c.package.key }}</dd><dt>{{ coins }}</dt><dd>{{ c.package.coins }}</dd><dt>{{ amount }} ({{ minor_units }})</dt><dd>{{ c.package.minor_units }} {{ c.package.currency }}</dd></dl>
+{% if enabled %}<form method="post" class="op-stack" action="/{{ lang }}/shop/test-checkout/{{ operation }}"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button" name="action" value="pay">{{ test_pay }}</button><button class="op-button" name="action" value="reject">{{ test_reject }}</button><button class="op-button" name="action" value="cancel">{{ test_cancel }}</button></form>{% endif %}{% endif %}
+<a href="/{{ lang }}/shop/coins">{{ coins }}</a>
+{% else if section == "shop" %}
 {% for offer in offers %}<article class="op-card op-stack"><h2>{{ offer.offer_key }}</h2><p>{{ price }}: {{ offer.unit_price }}</p>
 {% if enabled %}<form method="post" class="op-stack" action="/{{ lang }}/shop"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ offer.operation }}"><input type="hidden" name="revision" value="{{ revision }}"><input type="hidden" name="offer" value="{{ offer.offer_key }}"><input type="hidden" name="price" value="{{ offer.unit_price }}"><label class="op-field">{{ quantity }}<input class="op-input" type="number" name="quantity" min="1" max="{{ offer.max_quantity }}" value="1" required></label><label class="op-field">{{ character }}<input class="op-input" name="character" required maxlength="36"></label><label class="op-field">{{ world }}<input class="op-input" name="world" required maxlength="36"></label><p>{{ confirm }}</p><button class="op-button">{{ submit }}</button></form>{% else %}<p>{{ unavailable }}</p>{% endif %}</article>{% else %}<p>{{ empty }}</p>{% endfor %}
 {% else if section == "transfer" %}
@@ -302,6 +317,12 @@ struct PackageView {
     ext = "html"
 )]
 struct Page {
+    checkout: Option<Checkout>,
+    test_banner: String,
+    test_pay: String,
+    test_reject: String,
+    test_cancel: String,
+    package_label: String,
     lang: &'static str,
     title: String,
     shop: String,
@@ -342,6 +363,12 @@ struct Page {
 impl Page {
     fn new(l: Locale, section: &'static str) -> Self {
         Self {
+            checkout: None,
+            test_banner: l.text("test-banner"),
+            test_pay: l.text("test-pay"),
+            test_reject: l.text("test-reject"),
+            test_cancel: l.text("test-cancel"),
+            package_label: l.text("package"),
             lang: l.0,
             title: l.text(section),
             shop: l.text("shop"),
@@ -436,11 +463,27 @@ async fn coins(
     State(s): State<Shop>,
     Extension(session): Extension<BrowserSession>,
     Path(lang): Path<String>,
+    RawQuery(query): RawQuery,
 ) -> Response {
-    let (_, _, mut p) = match page(&s, &session, &lang, "coins").await {
+    let (account, locale, mut p) = match page(&s, &session, &lang, "coins").await {
         Ok(p) => p,
         Err(r) => return r,
     };
+    if s.backend.test_checkout() {
+        let status = match serde_urlencoded::from_str::<CheckoutStatus>(
+            query.as_deref().unwrap_or_default(),
+        ) {
+            Ok(status) => status,
+            Err(_) => return failure(locale, Error::Invalid),
+        };
+        if let Some(id) = status.checkout {
+            match s.backend.checkout(account, id, None).await {
+                Ok(Some(checkout)) => p.message = locale.text(&checkout.status),
+                Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+                Err(e) => return failure(locale, e),
+            }
+        }
+    }
     p.packages = s
         .backend
         .packages()
@@ -588,6 +631,9 @@ async fn top_up(
     }
     match s.backend.top_up(a, form.operation, form.package).await {
         Ok(id) => {
+            if s.backend.test_checkout() {
+                return Redirect::to(&format!("/{}/shop/test-checkout/{id}", l.0)).into_response();
+            }
             let mut p = Page::new(l, "coins");
             p.message = format!("{} {id}", l.text("pending"));
             oteryn_web::render(&p)
@@ -626,3 +672,8 @@ async fn buy(
 #[cfg(test)]
 #[path = "web_tests.rs"]
 mod tests;
+
+#[path = "web_checkout.rs"]
+mod checkout;
+pub use checkout::Checkout;
+use checkout::{CheckoutStatus, checkout_page, checkout_post};

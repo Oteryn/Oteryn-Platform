@@ -19,8 +19,9 @@ reads to `CatalogStore`, and purchases to T29 `Purchases` through `Buy`. The
 and world ownership; a character projection alone does not prove ownership.
 Wallet adapters must check both parties' restrictions and D14 cooldowns in the
 ledger transaction and persist purchase audit evidence. No permissive adapter is
-provided for deployment. The configured composition keeps purchase and transfer
-flags false until those authoritative adapters are supplied. Missing adapters
+provided for deployment. The configured composition keeps purchases disabled
+until authoritative ownership is supplied. Transfers use the identity adapter
+described below. Missing adapters
 never produce a success response.
 
 Payments already depends on store. To avoid a dependency cycle, the binary
@@ -55,3 +56,60 @@ print a skip notice. The optional ignored browser test also needs Chromium,
 eight authenticated Polish/English pages at 360 px, keyboard navigation, a real
 ledger transfer, a refusal, and WCAG 2.2 AA rules with axe. No SQL query macros
 were added, so no offline query metadata is needed.
+
+## Dummy bank checkout (SHOP-TEST)
+
+For a local testing environment, set these values in the process environment:
+
+```sh
+OTERYN_ENV=testing
+OTERYN_PAYMENTS_ENABLED=true
+OTERYN_WALLET_ENABLED=true
+OTERYN_SHOP_ENABLED=true
+OTERYN_SHOP_TOP_UPS_ENABLED=true
+OTERYN_SHOP_TEST_PAYMENTS_ENABLED=true
+# Supply OTERYN_SHOP_TEST_PAYMENT_KEY externally (at least 32 bytes).
+OTERYN_SHOP_TOP_UP_PACKAGES='[{"key":"coins-100","coins":100,"minor_units":250,"currency":"PLN"}]'
+OTERYN_SHOP_PURCHASES_ENABLED=false
+OTERYN_SHOP_TRANSFERS_ENABLED=true
+```
+
+Also configure `OTERYN_PUBLIC_ORIGIN` to the browser's exact origin. The signing
+key is required: there is no generated fallback. Start the existing worker with
+the same payment and wallet flags to deliver `wallet.top_up` jobs.
+
+Top-up creation redirects to `/{lang}/shop/test-checkout/{intent_id}`. The bank
+shows the stored package, integer minor units and an explicit test-mode banner.
+Pay sends a signed success event through `Payments::webhook`; reject and cancel
+send failure. Session authorization and CSRF apply to all browser mutations.
+Foreign intents return 404. Finished intents show their persisted status and
+never submit another event. Repeated decisions have stable event IDs; competing
+terminal transitions are serialized by the payment intent lock. A success message
+promises eventual credit, never immediate balance delivery. Receipts, invoice and the outbox use the normal payment path.
+The checkout route is absent outside the testing gate. Transfers also require
+that gate and `OTERYN_SHOP_TRANSFERS_ENABLED=true`; all defaults remain off.
+
+The configured transfer policy now reads both accounts' active/verified state
+and D14 `email_change_blocked_until` through identity's `trade_allowed` using the
+ledger transaction connection and shared identity locks. Unknown state denies.
+
+**Purchase activation remains blocked.** `OTERYN_SHOP_PURCHASES_ENABLED` is
+reserved and cannot activate purchases yet. The portal's `account_characters`,
+`account_character_snapshots` and `account_character_feed` tables are projections;
+there is no authoritative current character/world ownership table. Per SHOP-TEST,
+no ownership source is invented and no projection is treated as proof. The
+configured purchase adapter and its purchase audit integration must wait for
+that authoritative contract. Existing injected-domain purchase tests cover
+success, refusal and bad input, but do not qualify configured purchase activation.
+
+The ignored binary test `shop_web::tests::postgres_dummy_checkout_browser_360px`
+uses the real local provider, signed settlement, outbox worker and configured
+transfer policy. With the database URL and browser variables above set, run:
+
+```sh
+cargo test --locked -p oteryn-portal postgres_dummy_checkout_browser_360px -- --ignored --nocapture
+```
+
+It checks both checkout languages at 360 px with keyboard payment submission and
+axe WCAG 2.2 AA rules, then waits for worker credit and transfers coins. The buy
+step remains blocked by the ownership dependency described above.
