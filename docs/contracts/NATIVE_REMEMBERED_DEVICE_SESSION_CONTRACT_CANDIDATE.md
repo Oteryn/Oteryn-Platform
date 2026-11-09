@@ -1,3 +1,4 @@
+> Superseded for enrollment and rotation by [the accepted native device session contract](OTERYN_V2_NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT.md).
 # Native remembered-device session contract candidate
 
 Status: **CANDIDATE — DISABLED BY DEFAULT — NOT APPROVED FOR PRODUCTION**.

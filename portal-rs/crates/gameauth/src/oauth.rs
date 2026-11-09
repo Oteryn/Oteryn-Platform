@@ -140,9 +140,9 @@ fn verifier(s: &str) -> bool {
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(&b))
 }
-async fn stamp(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<Vec<u8>, Error> {
+async fn stamp(tx: &mut sqlx::PgConnection, account: Uuid) -> Result<Vec<u8>, Error> {
     let row = sqlx::query("SELECT password_hash, email, email_verified_at::text AS verified, login_mfa_required, status FROM accounts WHERE id=$1 FOR UPDATE")
-        .bind(account).fetch_optional(&mut **tx).await?.ok_or(Error::InvalidGrant)?;
+        .bind(account).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
     if row.get::<String, _>("status") != "active"
         || row.get::<Option<String>, _>("verified").is_none()
         || row.get::<bool, _>("login_mfa_required")
@@ -273,7 +273,13 @@ async fn exchange_code(
     .execute(&mut *tx)
     .await?;
     let family = Uuid::now_v7();
-    sqlx::query("INSERT INTO oauth_token_families(id,account_id,client_id,credential_hash) VALUES($1,$2,$3,$4)").bind(family).bind(account).bind(&input.client_id).bind(current).execute(&mut *tx).await?;
+    let (game_generation, native_generation): (i64, i64) = sqlx::query_as(
+        "SELECT game_auth_generation,native_security_generation FROM accounts WHERE id=$1",
+    )
+    .bind(account)
+    .fetch_one(&mut *tx)
+    .await?;
+    sqlx::query("INSERT INTO oauth_token_families(id,account_id,client_id,credential_hash,game_generation,native_generation) VALUES($1,$2,$3,$4,$5,$6)").bind(family).bind(account).bind(&input.client_id).bind(current).bind(game_generation).bind(native_generation).execute(&mut *tx).await?;
     let tokens = issue(&mut tx, family).await?;
     event(&mut tx, Some(account), "code_exchanged").await?;
     tx.commit().await?;
@@ -382,3 +388,66 @@ impl std::fmt::Display for Error {
     }
 }
 impl std::error::Error for Error {}
+
+/// Native enrollment uses the same opaque-token grammar, credential stamp and client
+/// allowlist as OAuth, while retaining all locks in its caller's transaction.
+pub(crate) async fn native_enrollment(
+    db: &mut sqlx::PgConnection,
+    config: &Config,
+    token: &str,
+) -> Result<crate::devices::Enrollment, Error> {
+    if !config.enabled || !opaque(token) {
+        return Err(Error::InvalidGrant);
+    }
+    let (account, client): (Uuid, String) = sqlx::query_as("SELECT f.account_id,f.client_id FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1")
+        .bind(hash(token)).fetch_optional(&mut *db).await?.ok_or(Error::InvalidGrant)?;
+    let current = stamp(db, account).await?;
+    let client_id = Uuid::parse_str(&client).map_err(|_| Error::InvalidClient)?;
+    crate::devices::native::lock_client(db, config, client_id)
+        .await
+        .map_err(|e| {
+            if e == crate::devices::Failure::Denied {
+                Error::InvalidClient
+            } else {
+                Error::Unavailable
+            }
+        })?;
+    let row = sqlx::query("SELECT t.id, t.access_hash, f.account_id, f.client_id, f.credential_hash, f.game_generation, f.native_generation FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND t.access_expires_at>clock_timestamp() AND t.used_at IS NULL AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL FOR UPDATE OF f,t")
+        .bind(hash(token)).fetch_optional(&mut *db).await?.ok_or(Error::InvalidGrant)?;
+    let client: String = row.try_get("client_id")?;
+    if row.try_get::<Uuid, _>("account_id")? != account
+        || client != client_id.to_string()
+        || !same(&hash(token), &row.try_get::<Vec<u8>, _>("access_hash")?)
+        || !config.client(&client)
+        || !same(&current, &row.try_get::<Vec<u8>, _>("credential_hash")?)
+    {
+        return Err(Error::InvalidGrant);
+    }
+    let client_id = Uuid::parse_str(&client).map_err(|_| Error::InvalidClient)?;
+    if client_id.to_string() != client {
+        return Err(Error::InvalidClient);
+    }
+    let (game_generation, native_generation): (i64, i64) = sqlx::query_as(
+        "SELECT game_auth_generation,native_security_generation FROM accounts WHERE id=$1",
+    )
+    .bind(account)
+    .fetch_one(db)
+    .await?;
+    if row.try_get::<Option<i64>, _>("game_generation")? != Some(game_generation)
+        || row.try_get::<Option<i64>, _>("native_generation")? != Some(native_generation)
+    {
+        return Err(Error::InvalidGrant);
+    }
+    Ok(crate::devices::Enrollment {
+        authorization: crate::devices::Authorization {
+            account_id: account,
+            client_id,
+            game_generation,
+            native_generation,
+        },
+        token_id: row.try_get::<Uuid, _>("id")?.to_string(),
+    })
+}
+pub(crate) fn native_client(config: &Config, client: Uuid) -> bool {
+    config.client(&client.to_string())
+}
