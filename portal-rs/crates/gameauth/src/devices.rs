@@ -46,6 +46,9 @@ pub enum Purpose {
 /// first-party public client, current account and generation checks. `verify` must
 /// recheck the same current client and both immutable original generations.
 pub trait NativeAuthority: Send + Sync {
+    fn deployment_ready(&self) -> Result<()> {
+        Ok(())
+    }
     fn enroll<'a>(
         &'a self,
         db: &'a mut PgConnection,
@@ -234,6 +237,7 @@ impl Sessions {
         key: Option<&DeviceKey>,
     ) -> Result<Credential> {
         self.settings.check()?;
+        self.authority.deployment_ready()?;
         if !consent && key.is_none() {
             return Err(Failure::Invalid);
         }
@@ -272,7 +276,16 @@ impl Sessions {
         sqlx::query("UPDATE device_sessions SET persistence_class=$2,device_public_key=$3,device_key_thumbprint=$4 WHERE id=$1")
             .bind(credential.family_id).bind(if consent { "remembered" } else { "session" })
             .bind(key.map(|k| k.public_key.clone())).bind(key.map(|k| URL_SAFE_NO_PAD.encode(hash_bytes(&k.public_key))))
-            .execute(&mut *tx).await.map_err(unavailable)?;
+            .execute(&mut *tx).await.map_err(|error| {
+                if error.as_database_error().is_some_and(|error| {
+                    error.code().as_deref() == Some("23505")
+                        && error.constraint() == Some("device_sessions_device_key_thumbprint_key")
+                }) {
+                    Failure::Denied
+                } else {
+                    unavailable(error)
+                }
+            })?;
         insert_credential(&mut tx, &credential, 0).await?;
         tx.commit().await.map_err(unavailable)?;
         Ok(credential)
@@ -311,6 +324,7 @@ impl Sessions {
         purpose: Option<Purpose>,
     ) -> Result<serde_json::Value> {
         self.settings.check()?;
+        self.authority.deployment_ready()?;
         if !valid_secret(presented) {
             return Err(Failure::Denied);
         }
@@ -442,6 +456,7 @@ impl Sessions {
     /// authentication checks. No HTTP owner-enumeration surface is added here.
     pub async fn revoke_for_owner(&self, owner: Uuid, family: Uuid) -> Result<()> {
         self.settings.check()?;
+        self.authority.deployment_ready()?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
         let status: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
