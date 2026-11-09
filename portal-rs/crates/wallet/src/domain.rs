@@ -13,6 +13,7 @@ pub enum AccountState {
     Active,
     Inactive,
     Unknown,
+    Unavailable,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferPermission {
@@ -49,27 +50,44 @@ pub trait AuditHook: Send + Sync {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Balance {
     pub available: i64,
-    /// Equal to available: there is only one transferable coin.
+    /// Spendable coins eligible for gifts and market reserves.
     pub transferable: i64,
+    pub non_transferable: i64,
     pub reserved: i64,
 }
 impl Balance {
     pub(crate) fn apply(self, available: i64, reserved: i64) -> Result<Self, Error> {
-        let available = self
-            .available
-            .checked_add(available)
+        self.apply_classes(available, reserved, 0)
+    }
+    pub(crate) fn apply_classes(
+        self,
+        transferable: i64,
+        reserved: i64,
+        non_transferable: i64,
+    ) -> Result<Self, Error> {
+        let transferable = self
+            .transferable
+            .checked_add(transferable)
+            .ok_or(Refusal::Overflow)?;
+        let non_transferable = self
+            .non_transferable
+            .checked_add(non_transferable)
             .ok_or(Refusal::Overflow)?;
         let reserved = self
             .reserved
             .checked_add(reserved)
             .ok_or(Refusal::Overflow)?;
-        if available < 0 || reserved < 0 {
+        if transferable < 0 || non_transferable < 0 || reserved < 0 {
             return Err(Refusal::InsufficientFunds.into());
         }
+        let available = transferable
+            .checked_add(non_transferable)
+            .ok_or(Refusal::Overflow)?;
         available.checked_add(reserved).ok_or(Refusal::Overflow)?;
         Ok(Self {
             available,
-            transferable: available,
+            transferable,
+            non_transferable,
             reserved,
         })
     }
@@ -86,6 +104,8 @@ pub enum Refusal {
     SameAccount,
     #[error("account state does not permit wallet access")]
     AccountDenied,
+    #[error("account does not exist")]
+    UnknownAccount,
     #[error("transfer is blocked")]
     TransferBlocked,
     #[error("transfer permission is unknown")]
@@ -115,10 +135,18 @@ pub enum Error {
     Storage(#[from] sqlx::Error),
 }
 /// Retain a UUIDv7 operation key for each intended mutation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Receipt {
     pub operation_id: Uuid,
     pub replayed: bool,
+    pub kind: String,
+    pub account_id: Uuid,
+    pub counterparty_account_id: Option<Uuid>,
+    pub amount: i64,
+    pub transferable_after: i64,
+    pub non_transferable_after: i64,
+    pub reserved_after: i64,
+    pub occurred_at: OffsetDateTime,
 }
 #[derive(Debug, Clone)]
 pub struct AdjustmentAudit {
@@ -132,6 +160,8 @@ pub struct AdjustmentAudit {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryEntry {
+    pub coin_class: String,
+    pub counterparty_account_id: Option<Uuid>,
     pub id: Uuid,
     pub operation_id: Uuid,
     pub kind: String,
@@ -222,4 +252,19 @@ pub struct NumericHistoryEntry {
     pub available_delta: i64,
     pub reserved_delta: i64,
     pub created_at: OffsetDateTime,
+}
+
+/// Audited source of a non-transferable credit.
+#[derive(Debug, Clone, Copy)]
+pub enum GrantKind {
+    Reward,
+    StaffGrant,
+}
+impl GrantKind {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Reward => "reward",
+            Self::StaffGrant => "staff_grant",
+        }
+    }
 }
