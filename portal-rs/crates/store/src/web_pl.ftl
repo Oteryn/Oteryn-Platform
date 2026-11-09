@@ -25,7 +25,6 @@ denied = Operacja jest niedozwolona lub saldo jest niewystarczające.
 conflict = Oferta się zmieniła lub klucz operacji został już użyty. Odśwież stronę przed kolejną próbą.
 limited = Zbyt wiele prób. Spróbuj ponownie później.
 pending = Płatność oczekuje. Coiny zostaną dodane dopiero po zweryfikowanym rozliczeniu. Identyfikator płatności:
-minor-units = najmniejsze jednostki waluty
 
 checkout = Bank testowy
 package = Pakiet
@@ -38,3 +37,16 @@ checkout-succeeded = Płatność przyjęta, środki zostaną zaksięgowane po pr
 checkout-failed = Płatność odrzucona lub anulowana. Nie przyznano coinów.
 checkout-refunded = Płatność zwrócona.
 checkout-credited = Płatność przyjęta, coiny zostały zaksięgowane.
+
+coins-label = Coiny
+payment-amount = Kwota
+own-transfer-label = Twój identyfikator do przelewów
+transfer-hint = Poproś odbiorcę o jego identyfikator do przelewów.
+top-up-hint = Zostaniesz przekierowany do płatności. Ponowne wysłanie tego formularza nie spowoduje podwójnej płatności.
+buy = Kup
+coin-count = { $count } { $count ->
+    [one] coin
+    [few] coiny
+   *[many] coinów
+    [other] coinów
+    }

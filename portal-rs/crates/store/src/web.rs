@@ -10,7 +10,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use fluent_bundle::{FluentBundle, FluentResource};
+use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
 use oteryn_web::session::{BrowserSession, SessionLayer};
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -208,6 +208,24 @@ impl Locale {
         }
     }
     fn text(self, key: &str) -> String {
+        self.text_args(key, None)
+    }
+    fn coin_count(self, count: i64) -> String {
+        let mut args = FluentArgs::new();
+        args.set("count", count);
+        self.text_args("coin-count", Some(&args))
+    }
+    fn currency(self, minor_units: i64, currency: &str) -> String {
+        let units = minor_units / 100;
+        let cents = minor_units.unsigned_abs() % 100;
+        if self.0 == "pl" {
+            let symbol = if currency == "PLN" { "zł" } else { currency };
+            format!("{units},{cents:02} {symbol}")
+        } else {
+            format!("{currency} {units}.{cents:02}")
+        }
+    }
+    fn text_args(self, key: &str, args: Option<&FluentArgs<'_>>) -> String {
         let source = if self.0 == "pl" {
             include_str!("web_pl.ftl")
         } else {
@@ -226,7 +244,7 @@ impl Locale {
         bundle
             .get_message(key)
             .and_then(|m| m.value())
-            .map(|p| bundle.format_pattern(p, None, &mut Vec::new()).into_owned())
+            .map(|p| bundle.format_pattern(p, args, &mut Vec::new()).into_owned())
             .unwrap_or_default()
     }
 }
@@ -280,9 +298,8 @@ struct OfferView {
 }
 struct PackageView {
     key: String,
-    coins: i64,
-    minor_units: i64,
-    currency: String,
+    heading: String,
+    price: String,
     operation: Uuid,
 }
 
@@ -298,16 +315,17 @@ struct PackageView {
 {% if let Some(b) = balance %}<section class="op-panel"><dl><dt>{{ available }}</dt><dd>{{ b.available }}</dd><dt>{{ transferable }}</dt><dd>{{ b.transferable }}</dd><dt>{{ reserved }}</dt><dd>{{ b.reserved }}</dd></dl></section>{% endif %}
 {% if section == "checkout" %}
 <p class="op-alert">{{ test_banner }}</p>
-{% if let Some(c) = checkout %}<dl><dt>{{ package_label }}</dt><dd>{{ c.package.key }}</dd><dt>{{ coins }}</dt><dd>{{ c.package.coins }}</dd><dt>{{ amount }} ({{ minor_units }})</dt><dd>{{ c.package.minor_units }} {{ c.package.currency }}</dd></dl>
+{% if let Some(c) = checkout %}<dl><dt>{{ package_label }}</dt><dd>{{ c.package.key }}</dd><dt>{{ coins_label }}</dt><dd>{{ c.package.coins }}</dd><dt>{{ payment_amount }}</dt><dd>{{ checkout_price }}</dd></dl>
 {% if enabled %}<form method="post" class="op-stack" action="/{{ lang }}/shop/test-checkout/{{ operation }}"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button" name="action" value="pay">{{ test_pay }}</button><button class="op-button" name="action" value="reject">{{ test_reject }}</button><button class="op-button" name="action" value="cancel">{{ test_cancel }}</button></form>{% endif %}{% endif %}
 <a href="/{{ lang }}/shop/coins">{{ coins }}</a>
 {% else if section == "shop" %}
 {% for offer in offers %}<article class="op-card op-stack"><h2>{{ offer.offer_key }}</h2><p>{{ price }}: {{ offer.unit_price }}</p>
 {% if enabled %}<form method="post" class="op-stack" action="/{{ lang }}/shop"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ offer.operation }}"><input type="hidden" name="revision" value="{{ revision }}"><input type="hidden" name="offer" value="{{ offer.offer_key }}"><input type="hidden" name="price" value="{{ offer.unit_price }}"><label class="op-field">{{ quantity }}<input class="op-input" type="number" name="quantity" min="1" max="{{ offer.max_quantity }}" value="1" required></label><label class="op-field">{{ character }}<input class="op-input" name="character" required maxlength="36"></label><label class="op-field">{{ world }}<input class="op-input" name="world" required maxlength="36"></label><p>{{ confirm }}</p><button class="op-button">{{ submit }}</button></form>{% else %}<p>{{ unavailable }}</p>{% endif %}</article>{% else %}<p>{{ empty }}</p>{% endfor %}
 {% else if section == "transfer" %}
-{% if enabled %}<form method="post" class="op-stack" action="/{{ lang }}/shop/transfer"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ operation }}"><label class="op-field">{{ recipient }}<input class="op-input" name="recipient" maxlength="36" required></label><label class="op-field">{{ amount }}<input class="op-input" name="amount" inputmode="numeric" pattern="[1-9][0-9]*" required></label><p>{{ confirm }}</p><button class="op-button">{{ submit }}</button></form>{% else %}<p>{{ unavailable }}</p>{% endif %}
+<label class="op-field">{{ own_transfer_label }}<input class="op-input" value="{{ own_transfer_id }}" readonly aria-describedby="transfer-id-hint"></label><p id="transfer-id-hint">{{ transfer_hint }}</p>
+{% if enabled %}<form method="post" class="op-stack" action="/{{ lang }}/shop/transfer"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ operation }}"><label class="op-field">{{ recipient }}<input class="op-input" name="recipient" minlength="36" maxlength="36" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" required></label><label class="op-field">{{ amount }}<input class="op-input" name="amount" inputmode="numeric" pattern="[1-9][0-9]*" required></label><p>{{ confirm }}</p><button class="op-button">{{ submit }}</button></form>{% else %}<p>{{ unavailable }}</p>{% endif %}
 {% else if section == "coins" %}
-{% if enabled %}{% for package in packages %}<form method="post" class="op-card op-stack" action="/{{ lang }}/shop/coins"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ package.operation }}"><input type="hidden" name="package" value="{{ package.key }}"><h2>{{ package.coins }} {{ available }}</h2><p>{{ package.minor_units }} {{ package.currency }} ({{ minor_units }})</p><p>{{ confirm }}</p><button class="op-button">{{ submit }}</button></form>{% else %}<p>{{ unavailable }}</p>{% endfor %}{% else %}<p>{{ unavailable }}</p>{% endif %}
+{% if enabled %}{% for package in packages %}<form method="post" class="op-card op-stack" action="/{{ lang }}/shop/coins"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ package.operation }}"><input type="hidden" name="package" value="{{ package.key }}"><h2>{{ package.heading }}</h2><p>{{ package.price }}</p><p>{{ top_up_hint }}</p><button class="op-button">{{ buy }}</button></form>{% else %}<p>{{ unavailable }}</p>{% endfor %}{% else %}<p>{{ unavailable }}</p>{% endif %}
 {% else if section == "history" %}
 {% for entry in entries %}<article class="op-card op-stack"><h2>{{ operation_label }}</h2><p>{{ entry.operation_id }}</p><p>{{ date }}: {{ entry.created_at }}</p><p>{{ delta }}: {{ entry.available_delta }} / {{ entry.reserved_delta }}</p></article>{% else %}<p>{{ empty }}</p>{% endfor %}
 {% if let Some(id) = before %}<a class="op-button" href="/{{ lang }}/shop/history?before={{ id }}">{{ next }}</a>{% endif %}
@@ -347,7 +365,14 @@ struct Page {
     delta: String,
     operation_label: String,
     confirm: String,
-    minor_units: String,
+    coins_label: String,
+    payment_amount: String,
+    checkout_price: String,
+    own_transfer_label: String,
+    own_transfer_id: String,
+    transfer_hint: String,
+    top_up_hint: String,
+    buy: String,
     message: String,
     section: &'static str,
     balance: Option<oteryn_wallet::Balance>,
@@ -393,7 +418,14 @@ impl Page {
             delta: l.text("delta"),
             operation_label: l.text("operation"),
             confirm: l.text("confirm"),
-            minor_units: l.text("minor-units"),
+            coins_label: l.text("coins-label"),
+            payment_amount: l.text("payment-amount"),
+            checkout_price: String::new(),
+            own_transfer_label: l.text("own-transfer-label"),
+            own_transfer_id: String::new(),
+            transfer_hint: l.text("transfer-hint"),
+            top_up_hint: l.text("top-up-hint"),
+            buy: l.text("buy"),
             message: String::new(),
             section,
             balance: None,
@@ -497,9 +529,8 @@ async fn coins(
         })
         .map(|p| PackageView {
             key: p.key,
-            coins: p.coins,
-            minor_units: p.minor_units,
-            currency: p.currency,
+            heading: locale.coin_count(p.coins),
+            price: locale.currency(p.minor_units, &p.currency),
             operation: Uuid::now_v7(),
         })
         .collect();
@@ -511,10 +542,11 @@ async fn transfer_page(
     Extension(session): Extension<BrowserSession>,
     Path(lang): Path<String>,
 ) -> Response {
-    let (_, _, mut p) = match page(&s, &session, &lang, "transfer").await {
+    let (account, _, mut p) = match page(&s, &session, &lang, "transfer").await {
         Ok(p) => p,
         Err(r) => return r,
     };
+    p.own_transfer_id = account.to_string();
     p.enabled = s.flags.transfers;
     oteryn_web::render(&p)
 }

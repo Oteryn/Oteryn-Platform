@@ -103,7 +103,7 @@ async fn postgres_payment_intent_replay_conflict_and_interrupted_claim() -> Test
         )?;
         assert!(html.contains("TEST MODE – no real money is charged"));
         assert!(html.contains("Pay (test)"));
-        assert!(html.contains("250 PLN"));
+        assert!(html.contains("PLN 2.50"));
         let foreign = app
             .clone()
             .oneshot(

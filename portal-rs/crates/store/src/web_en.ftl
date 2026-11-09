@@ -25,7 +25,6 @@ denied = This operation is not permitted or the balance is insufficient.
 conflict = The quote changed or the operation key was already used. Reload before trying again.
 limited = Too many attempts. Please try again later.
 pending = Payment pending. Coins are credited only after verified settlement. Payment reference:
-minor-units = minor currency units
 
 checkout = Test bank
 package = Package
@@ -38,3 +37,14 @@ checkout-succeeded = Payment accepted; funds will be credited after processing.
 checkout-failed = Payment rejected or cancelled. No coins were credited.
 checkout-refunded = Payment refunded.
 checkout-credited = Payment accepted; coins have been credited.
+
+coins-label = Coins
+payment-amount = Amount
+own-transfer-label = Your transfer ID
+transfer-hint = Ask the recipient to give you their transfer ID.
+top-up-hint = You will be redirected to payment. Resubmitting this form will not result in a duplicate payment.
+buy = Buy
+coin-count = { $count } { $count ->
+    [one] coin
+   *[other] coins
+    }

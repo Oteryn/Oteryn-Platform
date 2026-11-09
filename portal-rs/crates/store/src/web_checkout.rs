@@ -41,6 +41,7 @@ pub(super) async fn checkout_page(
         Ok(Some(c)) => {
             p.message = l.text(&c.status);
             p.enabled = c.pending;
+            p.checkout_price = l.currency(c.package.minor_units, &c.package.currency);
             p.checkout = Some(c);
             p.operation = intent;
             oteryn_web::render(&p)
