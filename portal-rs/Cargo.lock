@@ -3311,11 +3311,15 @@ dependencies = [
 name = "oteryn-wallet"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "futures-util",
  "oteryn-db",
+ "oteryn-internal-api",
  "sqlx",
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "tower",
  "uuid",
 ]
 
