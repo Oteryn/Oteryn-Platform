@@ -159,6 +159,8 @@ rotation; no grace window, automatic predecessor retry or plaintext recovery exi
 Password change, verified email/security change, MFA confirmation/replacement/removal,
 account suspension and explicit owner revocation invalidate old families. PostgreSQL
 account/MFA hooks advance generations and durably revoke families in the same transaction.
+A transaction stamp preserves an advance already made by an existing Identity writer,
+so its subsequent password/MFA cleanup does not add another automatic native fence.
 Routine TOTP step changes do not fence a family. The existing native-evidence retained
 witness continues to require explicit acknowledgement by its owning security writer:
 a generation advanced in PostgreSQL but not yet acknowledged by that witness makes

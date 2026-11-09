@@ -8,7 +8,9 @@ CREATE TABLE oauth_native_clients (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE accounts ADD COLUMN game_auth_generation bigint NOT NULL DEFAULT 1 CHECK (game_auth_generation > 0);
+ALTER TABLE accounts
+    ADD COLUMN game_auth_generation bigint NOT NULL DEFAULT 1 CHECK (game_auth_generation > 0),
+    ADD COLUMN native_security_fenced_transaction xid8;
 -- Existing grants without an original snapshot cannot enroll native devices.
 ALTER TABLE oauth_token_families
     ADD COLUMN game_generation bigint CHECK (game_generation > 0),
@@ -26,13 +28,23 @@ CREATE INDEX game_login_tickets_device_family ON game_login_tickets(device_famil
 -- restoration of status/password/MFA settings as well as their initial change.
 CREATE FUNCTION fence_native_device_credentials() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+    -- Existing identity writers can advance the native generation before changing
+    -- credentials in the same transaction. Preserve that one fence rather than
+    -- advancing it again during each password/MFA cleanup statement.
+    IF NEW.native_security_generation IS DISTINCT FROM OLD.native_security_generation THEN
+        NEW.native_security_fenced_transaction := pg_current_xact_id();
+    END IF;
     IF NEW.password_hash IS DISTINCT FROM OLD.password_hash
        OR NEW.email IS DISTINCT FROM OLD.email
        OR NEW.email_verified_at IS DISTINCT FROM OLD.email_verified_at
        OR NEW.status IS DISTINCT FROM OLD.status
        OR NEW.login_mfa_required IS DISTINCT FROM OLD.login_mfa_required THEN
         NEW.game_auth_generation := OLD.game_auth_generation + 1;
-        NEW.native_security_generation := OLD.native_security_generation + 1;
+        IF NEW.native_security_generation = OLD.native_security_generation
+           AND OLD.native_security_fenced_transaction IS DISTINCT FROM pg_current_xact_id() THEN
+            NEW.native_security_generation := OLD.native_security_generation + 1;
+        END IF;
+        NEW.native_security_fenced_transaction := pg_current_xact_id();
     END IF;
     RETURN NEW;
 END;
@@ -56,19 +68,19 @@ CREATE FUNCTION fence_native_device_mfa() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
         IF OLD.confirmed THEN
-            UPDATE accounts SET game_auth_generation=game_auth_generation+1,native_security_generation=native_security_generation+1 WHERE id=OLD.account_id;
+            UPDATE accounts SET game_auth_generation=game_auth_generation+1,native_security_generation=CASE WHEN native_security_fenced_transaction=pg_current_xact_id() THEN native_security_generation ELSE native_security_generation+1 END WHERE id=OLD.account_id;
         END IF;
         RETURN OLD;
     END IF;
     IF TG_OP = 'INSERT' THEN
         IF NEW.confirmed THEN
-            UPDATE accounts SET game_auth_generation=game_auth_generation+1,native_security_generation=native_security_generation+1 WHERE id=NEW.account_id;
+            UPDATE accounts SET game_auth_generation=game_auth_generation+1,native_security_generation=CASE WHEN native_security_fenced_transaction=pg_current_xact_id() THEN native_security_generation ELSE native_security_generation+1 END WHERE id=NEW.account_id;
         END IF;
         RETURN NEW;
     END IF;
     IF (OLD.confirmed OR NEW.confirmed) AND
        (NEW.secret IS DISTINCT FROM OLD.secret OR NEW.confirmed IS DISTINCT FROM OLD.confirmed OR NEW.generation IS DISTINCT FROM OLD.generation) THEN
-        UPDATE accounts SET game_auth_generation=game_auth_generation+1,native_security_generation=native_security_generation+1 WHERE id=NEW.account_id;
+        UPDATE accounts SET game_auth_generation=game_auth_generation+1,native_security_generation=CASE WHEN native_security_fenced_transaction=pg_current_xact_id() THEN native_security_generation ELSE native_security_generation+1 END WHERE id=NEW.account_id;
     END IF;
     RETURN NEW;
 END;

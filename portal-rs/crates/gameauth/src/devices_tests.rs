@@ -555,6 +555,7 @@ async fn database_native_password_mfa_suspension_and_client_revocation()
 -> std::result::Result<(), Box<dyn std::error::Error>> {
     for change in [
         "password",
+        "prefenced-password",
         "mfa",
         "mfa-key",
         "suspension",
@@ -571,6 +572,22 @@ async fn database_native_password_mfa_suspension_and_client_revocation()
                     .bind(account)
                     .execute(&s.pool)
                     .await?;
+            }
+            "prefenced-password" => {
+                let mut tx = s.pool.begin().await?;
+                sqlx::query("UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1").bind(account).execute(&mut *tx).await?;
+                sqlx::query("UPDATE accounts SET password_hash='changed-test-hash' WHERE id=$1")
+                    .bind(account)
+                    .execute(&mut *tx)
+                    .await?;
+                let generation: i64 = sqlx::query_scalar(
+                    "SELECT native_security_generation FROM accounts WHERE id=$1",
+                )
+                .bind(account)
+                .fetch_one(&mut *tx)
+                .await?;
+                assert_eq!(generation, 3);
+                tx.commit().await?;
             }
             "mfa" => {
                 sqlx::query("UPDATE accounts SET login_mfa_required=true WHERE id=$1")
