@@ -102,8 +102,8 @@ async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Va
         .get::<ConnectInfo<SocketAddr>>()
         .ok_or(Failure::Unavailable)?
         .0
-        .ip()
-        .to_string();
+        .ip();
+    let source = source_prefix(source);
     throttle(&sessions, &source).await?;
     let enroll = request.uri().path() == BASE;
     let path = request.uri().path().to_string();
@@ -219,7 +219,9 @@ fn decode(body: &[u8], enroll: bool, query: bool) -> Result<Option<Uuid>> {
         Ok(Some(id))
     }
 }
-async fn throttle(sessions: &Sessions, source: &str) -> Result<()> {
+pub(super) async fn throttle(sessions: &Sessions, source: &str) -> Result<()> {
+    sqlx::query("DELETE FROM device_session_source_limits WHERE source_hash IN (SELECT source_hash FROM device_session_source_limits WHERE window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1 LIMIT 128)")
+        .bind(60_i64).execute(&sessions.pool).await.map_err(unavailable)?;
     let attempts: i32 = sqlx::query_scalar("INSERT INTO device_session_source_limits(source_hash,window_start,attempts) VALUES($1,floor(extract(epoch FROM clock_timestamp()))::bigint,1) ON CONFLICT(source_hash) DO UPDATE SET window_start=CASE WHEN device_session_source_limits.window_start <= EXCLUDED.window_start-60 THEN EXCLUDED.window_start ELSE device_session_source_limits.window_start END, attempts=CASE WHEN device_session_source_limits.window_start <= EXCLUDED.window_start-60 THEN 1 ELSE least(device_session_source_limits.attempts+1,61) END RETURNING attempts")
         .bind(hash(source)).fetch_one(&sessions.pool).await.map_err(unavailable)?;
     if attempts > sessions.settings.requests_per_minute {
@@ -297,4 +299,29 @@ mod tests {
             Err(Failure::Invalid)
         );
     }
+}
+
+fn source_prefix(source: std::net::IpAddr) -> String {
+    match source {
+        std::net::IpAddr::V4(ip) => ip.to_string(),
+        std::net::IpAddr::V6(ip) => {
+            let prefix = u128::from(ip) & (u128::MAX << 64);
+            std::net::Ipv6Addr::from(prefix).to_string()
+        }
+    }
+}
+
+#[test]
+fn source_prefix_groups_ipv6_and_preserves_ipv4()
+-> std::result::Result<(), std::net::AddrParseError> {
+    assert_eq!(
+        source_prefix("2001:db8:1:2::1".parse()?),
+        source_prefix("2001:db8:1:2::ffff".parse()?)
+    );
+    assert_ne!(
+        source_prefix("2001:db8:1:2::1".parse()?),
+        source_prefix("2001:db8:1:3::1".parse()?)
+    );
+    assert_eq!(source_prefix("192.0.2.1".parse()?), "192.0.2.1");
+    Ok(())
 }

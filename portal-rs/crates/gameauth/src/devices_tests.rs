@@ -760,3 +760,98 @@ async fn database_native_original_oauth_generations_are_required()
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn database_client_configuration_and_shared_lock()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some((mut s, _, client, bearer)) = native_setup().await? else {
+        return Ok(());
+    };
+    let credential = s.enroll(&bearer, true).await.unwrap();
+    s.authority = Arc::new(PlatformAuthority {
+        oauth: crate::oauth::Config::default(),
+        projection_authority: String::new(),
+    });
+    assert_eq!(
+        s.rotate(credential.secret(), client, Purpose::Ticket).await,
+        Err(Failure::Unavailable)
+    );
+    let revoked: bool =
+        sqlx::query_scalar("SELECT revoked_at IS NOT NULL FROM device_sessions WHERE id=$1")
+            .bind(credential.family_id)
+            .fetch_one(&s.pool)
+            .await?;
+    assert!(!revoked);
+    let mut first = s.pool.begin().await?;
+    assert_eq!(
+        native::lock_client(&mut first, &crate::oauth::Config::default(), client).await,
+        Err(Failure::Unavailable)
+    );
+    let config = crate::oauth::Config {
+        enabled: true,
+        clients: vec![crate::oauth::Client {
+            client_id: client.to_string(),
+            redirect_uris: vec![],
+        }],
+    };
+    let mut ambiguous = config.clone();
+    ambiguous.clients.extend(config.clients.clone());
+    assert_eq!(
+        native::lock_client(&mut first, &ambiguous, client).await,
+        Err(Failure::Unavailable)
+    );
+    assert_eq!(
+        native::lock_client(&mut first, &config, Uuid::now_v7()).await,
+        Err(Failure::Denied)
+    );
+    native::lock_client(&mut first, &config, client)
+        .await
+        .unwrap();
+    let mut second = s.pool.begin().await?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        native::lock_client(&mut second, &config, client),
+    )
+    .await?
+    .unwrap();
+    Ok(())
+}
+
+#[tokio::test]
+async fn database_device_key_reuse_refuses_without_family()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some((s, account, client, bearer)) = native_setup().await? else {
+        return Ok(());
+    };
+    let key = signed_key(&bearer, client, false);
+    let thumbprint = URL_SAFE_NO_PAD.encode(hash_bytes(&key.public_key));
+    sqlx::query("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at,device_public_key,device_key_thumbprint) VALUES($1,$2,$3,$4,1,1,9999999999,9999999999,$5,$6)")
+        .bind(Uuid::now_v7()).bind(account).bind(client).bind(Uuid::now_v7().to_string()).bind(&key.public_key).bind(thumbprint).execute(&s.pool).await?;
+    assert!(matches!(
+        s.enroll_class(&bearer, false, Some(key)).await,
+        Err(Failure::Denied)
+    ));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM device_sessions")
+        .fetch_one(&s.pool)
+        .await?;
+    assert_eq!(count, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn database_source_limit_purges_stale_windows()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some((s, _)) = setup().await? else {
+        return Ok(());
+    };
+    sqlx::query("INSERT INTO device_session_source_limits(source_hash,window_start,attempts) VALUES($1,0,1)")
+        .bind(hash("expired-source")).execute(&s.pool).await?;
+    http::throttle(&s, "192.0.2.1").await.unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM device_session_source_limits WHERE window_start=0",
+    )
+    .fetch_one(&s.pool)
+    .await?;
+    assert_eq!(count, 0);
+    Ok(())
+}

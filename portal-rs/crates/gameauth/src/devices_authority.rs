@@ -7,15 +7,32 @@ pub struct PlatformAuthority {
     pub oauth: oauth::Config,
     pub projection_authority: String,
 }
+pub(crate) fn check_config(config: &oauth::Config) -> Result<()> {
+    if !config.enabled
+        || config.clients.iter().any(|entry| {
+            entry.client_id.is_empty()
+                || config
+                    .clients
+                    .iter()
+                    .filter(|other| other.client_id == entry.client_id)
+                    .count()
+                    != 1
+        })
+    {
+        return Err(Failure::Unavailable);
+    }
+    Ok(())
+}
 pub(crate) async fn lock_client(
     db: &mut PgConnection,
     config: &oauth::Config,
     client: Uuid,
 ) -> Result<()> {
+    check_config(config)?;
     if !oauth::native_client(config, client) {
         return Err(Failure::Denied);
     }
-    let allowed: Option<bool> = sqlx::query_scalar("SELECT enabled AND first_party AND public_client AND native_ticket FROM oauth_native_clients WHERE client_id=$1 FOR UPDATE")
+    let allowed: Option<bool> = sqlx::query_scalar("SELECT enabled AND first_party AND public_client AND native_ticket FROM oauth_native_clients WHERE client_id=$1 FOR SHARE")
         .bind(client).fetch_optional(db).await.map_err(unavailable)?;
     if allowed == Some(true) {
         Ok(())
@@ -24,6 +41,9 @@ pub(crate) async fn lock_client(
     }
 }
 impl NativeAuthority for PlatformAuthority {
+    fn deployment_ready(&self) -> Result<()> {
+        check_config(&self.oauth)
+    }
     fn enroll<'a>(
         &'a self,
         db: &'a mut PgConnection,
@@ -44,6 +64,7 @@ impl NativeAuthority for PlatformAuthority {
         auth: &'a Authorization,
     ) -> NativeFuture<'a, ()> {
         Box::pin(async move {
+            check_config(&self.oauth)?;
             let current: Option<(String,i64,i64,bool)> = sqlx::query_as("SELECT status,game_auth_generation,native_security_generation,email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR UPDATE")
                 .bind(auth.account_id).fetch_optional(&mut *db).await.map_err(unavailable)?;
             if !current.is_some_and(|(status, game, native, verified)| {

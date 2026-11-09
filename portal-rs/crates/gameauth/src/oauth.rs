@@ -396,7 +396,8 @@ pub(crate) async fn native_enrollment(
     config: &Config,
     token: &str,
 ) -> Result<crate::devices::Enrollment, Error> {
-    if !config.enabled || !opaque(token) {
+    crate::devices::native::check_config(config).map_err(|_| Error::Unavailable)?;
+    if !opaque(token) {
         return Err(Error::InvalidGrant);
     }
     let (account, client): (Uuid, String) = sqlx::query_as("SELECT f.account_id,f.client_id FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1")
