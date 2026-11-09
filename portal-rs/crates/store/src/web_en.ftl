@@ -26,3 +26,15 @@ conflict = The quote changed or the operation key was already used. Reload befor
 limited = Too many attempts. Please try again later.
 pending = Payment pending. Coins are credited only after verified settlement. Payment reference:
 minor-units = minor currency units
+
+checkout = Test bank
+package = Package
+test-banner = TEST MODE – no real money is charged
+test-pay = Pay (test)
+test-reject = Reject payment
+test-cancel = Cancel
+checkout-pending = Choose a test payment result.
+checkout-succeeded = Payment accepted; funds will be credited after processing.
+checkout-failed = Payment rejected or cancelled. No coins were credited.
+checkout-refunded = Payment refunded.
+checkout-credited = Payment accepted; coins have been credited.

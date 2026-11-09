@@ -20,6 +20,17 @@ pub trait Access: Send + Sync {
 /// The caller binds a package to server-side pricing and conversion policy. Creation
 /// must deduplicate the operation key and must never credit coins from a browser return.
 pub trait TopUps: Send + Sync {
+    fn test_checkout(&self) -> bool {
+        false
+    }
+    fn checkout(
+        &self,
+        _account: Uuid,
+        _intent: Uuid,
+        _action: Option<String>,
+    ) -> FutureResult<'_, Option<super::Checkout>> {
+        Box::pin(async { Err(Error::Unavailable) })
+    }
     fn packages(&self) -> Vec<Package>;
     fn create(&self, account: Uuid, operation: Uuid, package: String) -> FutureResult<'_, Uuid>;
 }
@@ -62,6 +73,17 @@ pub trait Backend: Send + Sync {
         amount: i64,
     ) -> FutureResult<'_, Uuid>;
     fn purchase(&self, account: Uuid, form: PurchaseForm) -> FutureResult<'_, ()>;
+    fn test_checkout(&self) -> bool {
+        false
+    }
+    fn checkout(
+        &self,
+        _account: Uuid,
+        _intent: Uuid,
+        _action: Option<String>,
+    ) -> FutureResult<'_, Option<super::Checkout>> {
+        Box::pin(async { Err(Error::Unavailable) })
+    }
     fn packages(&self) -> Vec<Package>;
     fn top_up(&self, account: Uuid, operation: Uuid, package: String) -> FutureResult<'_, Uuid>;
 }
@@ -158,6 +180,23 @@ where
             }
         })
     }
+    fn test_checkout(&self) -> bool {
+        self.top_ups.as_ref().is_some_and(|t| t.test_checkout())
+    }
+    fn checkout(
+        &self,
+        account: Uuid,
+        intent: Uuid,
+        action: Option<String>,
+    ) -> FutureResult<'_, Option<super::Checkout>> {
+        Box::pin(async move {
+            self.top_ups
+                .as_ref()
+                .ok_or(Error::Unavailable)?
+                .checkout(account, intent, action)
+                .await
+        })
+    }
     fn packages(&self) -> Vec<Package> {
         self.top_ups
             .as_ref()
@@ -174,18 +213,17 @@ where
     }
 }
 
-/// Until identity publishes a transactional cooldown reader, configured transfers
-/// remain denied. No absent security state is treated as permission.
+/// Current identity state and D14 restrictions are read under the ledger transaction.
 #[derive(Clone)]
 struct ReadAccounts(PgPool);
 impl AccountStateReader for ReadAccounts {
     async fn state(
         &self,
-        _: &mut sqlx::PgConnection,
+        conn: &mut sqlx::PgConnection,
         account: Uuid,
     ) -> oteryn_wallet::AccountState {
-        match active(&self.0, account).await {
-            Ok(true) => oteryn_wallet::AccountState::Active,
+        match sqlx::query_scalar::<_, bool>("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(conn).await {
+            Ok(Some(true)) => oteryn_wallet::AccountState::Active,
             _ => oteryn_wallet::AccountState::Unknown,
         }
     }
@@ -193,10 +231,14 @@ impl AccountStateReader for ReadAccounts {
 impl TransferBlockCheck for ReadAccounts {
     async fn permission(
         &self,
-        _: &mut sqlx::PgConnection,
-        _: Uuid,
+        conn: &mut sqlx::PgConnection,
+        account: Uuid,
     ) -> oteryn_wallet::TransferPermission {
-        oteryn_wallet::TransferPermission::Unknown
+        match oteryn_identity::email_change::trade_allowed(conn, account).await {
+            Ok(true) => oteryn_wallet::TransferPermission::Allowed,
+            Ok(false) => oteryn_wallet::TransferPermission::Blocked,
+            Err(_) => oteryn_wallet::TransferPermission::Unknown,
+        }
     }
 }
 impl AuditHook for ReadAccounts {
@@ -223,7 +265,7 @@ async fn active(pool: &PgPool, account: Uuid) -> Result<bool, Error> {
         .map(|a| a.is_some_and(|a| a.status == "active" && a.email_verified_at.is_some()))
         .map_err(|_| Error::Unavailable)
 }
-pub(super) fn configured(pool: PgPool, top_ups: Option<Arc<dyn TopUps>>) -> Arc<dyn Backend> {
+pub fn configured(pool: PgPool, top_ups: Option<Arc<dyn TopUps>>) -> Arc<dyn Backend> {
     let accounts = ReadAccounts(pool.clone());
     Arc::new(Domain {
         wallet: Ledger::new(
