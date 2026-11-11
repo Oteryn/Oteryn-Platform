@@ -1830,7 +1830,7 @@ async fn nwave_signup_and_email_lock_accounts_before_qualification() {
 }
 
 #[tokio::test]
-async fn nwave_signup_expanded_preparation_preserves_session_for_worker() {
+async fn nwave_signup_expanded_preparation_aborts_login_for_retry() {
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1844,13 +1844,24 @@ async fn nwave_signup_expanded_preparation_preserves_session_for_worker() {
         .execute(&mut *tx)
         .await
         .unwrap();
-    sqlx::query("UPDATE web_sessions SET account_id=$2 WHERE id_hash=$1")
+    let error = sqlx::query("UPDATE web_sessions SET account_id=$2 WHERE id_hash=$1")
         .bind(&hash)
         .bind(invitee)
         .execute(&mut *tx)
         .await
-        .unwrap();
-    tx.commit().await.unwrap();
+        .expect_err("login must abort when its prepared account set cannot expand");
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("40001")
+    );
+    tx.rollback().await.unwrap();
+    let account: Option<Uuid> =
+        sqlx::query_scalar("SELECT account_id FROM web_sessions WHERE id_hash=$1")
+            .bind(&hash)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(account, None);
     let evidence: String =
         sqlx::query_scalar("SELECT data->>'referral.code' FROM web_sessions WHERE id_hash=$1")
             .bind(&hash)
@@ -1858,13 +1869,14 @@ async fn nwave_signup_expanded_preparation_preserves_session_for_worker() {
             .await
             .unwrap();
     assert_eq!(evidence, code.to_string());
-    Worker {
-        campaign: db.campaign.clone(),
-        sender: None,
-    }
-    .process()
-    .await
-    .unwrap();
+    sqlx::query("UPDATE web_sessions SET account_id=$2 WHERE id_hash=$1")
+        .bind(&hash)
+        .bind(invitee)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.buy(invitee, 1).await;
+    assert_eq!(db.count("outfit").await, 1);
     let inviter: Uuid = sqlx::query_scalar(
         "SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=$1",
     )
@@ -2281,6 +2293,64 @@ async fn nwave_verification_contention_preserves_attribution_for_retry() {
     .execute(&db.pool)
     .await
     .unwrap();
+    db.buy(invitee, 1).await;
+    assert_eq!(db.count("starter").await, 1);
+    assert_eq!(db.count("outfit").await, 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_session_contention_aborts_login_before_first_purchase() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    let invitee = db.account().await;
+    let hash = attribution_session(&db, None, &code.to_string()).await;
+    let mut invitation = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(owner)
+        .execute(&mut *invitation)
+        .await
+        .unwrap();
+    let mut login = db.pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout='300ms'")
+        .execute(&mut *login)
+        .await
+        .unwrap();
+    let error = sqlx::query("UPDATE web_sessions SET account_id=$2 WHERE id_hash=$1")
+        .bind(&hash)
+        .bind(invitee)
+        .execute(&mut *login)
+        .await
+        .expect_err("contention must not commit login without attribution");
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("40001")
+    );
+    login.rollback().await.unwrap();
+    // The login released its invitee lock instead of waiting in reverse order.
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(invitee)
+        .execute(&mut *invitation)
+        .await
+        .unwrap();
+    invitation.commit().await.unwrap();
+    let session: (Option<Uuid>, Option<String>) = sqlx::query_as(
+        "SELECT account_id,data->>'referral.code' FROM web_sessions WHERE id_hash=$1",
+    )
+    .bind(&hash)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(session, (None, Some(code.to_string())));
+    sqlx::query("UPDATE web_sessions SET account_id=$2 WHERE id_hash=$1")
+        .bind(&hash)
+        .bind(invitee)
+        .execute(&db.pool)
+        .await
+        .unwrap();
     db.buy(invitee, 1).await;
     assert_eq!(db.count("starter").await, 1);
     assert_eq!(db.count("outfit").await, 1);

@@ -161,8 +161,13 @@ invitee before the older inviter. Shared preparation therefore uses NOWAIT for
 all account and existing authority rows when invoked by a trigger, translating
 contention to SQLSTATE 40001. It never waits in the inherited, potentially reversed
 order. Ordered callers prepare the complete set before updating the account.
-Session triggers may defer a preparation conflict or expanded set to the worker,
-preserving session evidence. Session attribution runs after the password-reset
+Session and verification triggers propagate preparation conflicts and expanded
+sets as SQLSTATE 40001. Failed login rolls back authenticated account assignment
+and preserves the original session attribution for a fresh transaction retry; it
+must never commit login without binding an eligible invitation. Worker
+reconciliation is only a fallback for legacy pending sessions, since a purchase
+before reconciliation makes a previously unbound account ineligible.
+Session attribution runs after the password-reset
 account-lock guard. Verification attribution runs before credential-change session
 revocation and must propagate 40001 (and deadlocks), rolling back the entire
 verification including token consumption and session deletion. Retry verification

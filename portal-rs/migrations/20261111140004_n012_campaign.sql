@@ -80,11 +80,11 @@ END $$;
 -- Preparation takes UPDATE locks up front, including existing authority rows.
 -- Callers create any missing authority rows they need before taking 5600.
 -- Rust retries stale discovery from a fresh transaction via oteryn_db::retry;
--- Session triggers may defer expanded preparation to worker reconciliation.
+-- Signup triggers propagate preparation conflicts; login/verification must retry.
 -- Row triggers inherit locks from their caller, possibly out of UUID order.
 -- They must NEVER wait for another account/authority row: NOWAIT preparation
 -- either obtains the complete set before 5600 or raises 40001 for a fresh retry.
--- Verification must propagate that error, rolling back session revocation too.
+-- Signup must propagate that error, rolling back login or session revocation too.
 CREATE FUNCTION referral_campaign_prepare(ids uuid[],exclusive_account uuid DEFAULT NULL) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE held uuid[]; account uuid;
 BEGIN
@@ -218,7 +218,7 @@ CREATE TRIGGER referral_activity_game AFTER INSERT OR UPDATE OF entered_at,left_
 -- session is already authenticated, verification performs the same binding.
 -- All eligibility checks match Campaign::accept/bind; no rewards for unverified
 -- accounts or retroactive attribution after a store order.
-CREATE FUNCTION referral_campaign_signup(a uuid,code text,defer_on_conflict boolean DEFAULT true) RETURNS boolean
+CREATE FUNCTION referral_campaign_signup(a uuid,code text) RETURNS boolean
 LANGUAGE plpgsql AS $$
 DECLARE owner uuid; invitation_time timestamptz; recipient text; token uuid; phase integer;
 BEGIN
@@ -252,14 +252,9 @@ BEGIN
             SELECT 1 FROM ancestors WHERE id=a)
             OR EXISTS(SELECT 1 FROM referral_invitations WHERE invitee_id=a) THEN RETURN false; END IF;
         IF phase=1 THEN
-            BEGIN
-                PERFORM referral_campaign_lock(ARRAY[a,owner]);
-            EXCEPTION WHEN serialization_failure THEN
-                -- Session writes retain their evidence, but verification revokes
-                -- sessions: it must roll back in full rather than lose the code.
-                IF defer_on_conflict THEN RETURN false; END IF;
-                RAISE;
-            END;
+            -- A verified login must bind or abort: deferring to the worker lets
+            -- a first purchase commit before attribution and makes it ineligible.
+            PERFORM referral_campaign_lock(ARRAY[a,owner]);
         END IF;
     END LOOP;
     INSERT INTO referral_campaign_invitations(inviter_id,invitee_id,kind) VALUES(owner,a,'new');
@@ -285,7 +280,7 @@ BEGIN
         UPDATE web_sessions SET data=data-'referral.code',updated_at=clock_timestamp()
             WHERE account_id=NEW.id AND data ? 'referral.code'
             AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()
-            AND referral_campaign_signup(NEW.id,data->>'referral.code',false);
+            AND referral_campaign_signup(NEW.id,data->>'referral.code');
     END IF;
     RETURN NEW;
 END $$;
