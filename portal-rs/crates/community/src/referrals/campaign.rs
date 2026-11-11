@@ -20,24 +20,24 @@ impl Policy for DatabasePolicy {
         other: Uuid,
         kind: Kind,
         stage: Stage,
-    ) -> bool {
+    ) -> Result<bool, sqlx::Error> {
         let active = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM accounts WHERE id=ANY($1) AND status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp()")
             .bind(if actor == other { vec![actor] } else { vec![actor, other] })
-            .fetch_one(&mut *conn).await;
-        if active.ok() != Some(if actor == other { 1 } else { 2 }) {
-            return false;
+            .fetch_one(&mut *conn).await?;
+        if active != if actor == other { 1 } else { 2 } {
+            return Ok(false);
         }
         if matches!(stage, Stage::Statistics) {
-            return true;
+            return Ok(true);
         }
         if actor == other {
-            return false;
+            return Ok(false);
         }
         if matches!(stage, Stage::Invite) && kind == Kind::Returning {
-            return sqlx::query_scalar("SELECT last_activity<=clock_timestamp()-interval '12 months' AND created_at<=clock_timestamp()-interval '12 months' FROM referral_activity WHERE account_id=$1 FOR UPDATE")
-                .bind(other).fetch_optional(&mut *conn).await.ok().flatten() == Some(true);
+            return Ok(sqlx::query_scalar("SELECT last_activity<=clock_timestamp()-interval '12 months' AND created_at<=clock_timestamp()-interval '12 months' FROM referral_activity WHERE account_id=$1 FOR UPDATE")
+                .bind(other).fetch_optional(&mut *conn).await? == Some(true));
         }
-        true
+        Ok(true)
     }
 }
 impl oteryn_store::premium::Accounts for DatabasePolicy {
@@ -106,12 +106,6 @@ impl<P: Policy> Campaign<P> {
         if !enabled {
             return Err(Error::Disabled.into());
         }
-        // Attribution and reward foreign keys must not acquire account locks
-        // after 5600: purchases hold accounts FOR UPDATE before qualification.
-        sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR KEY SHARE")
-            .bind(accounts)
-            .execute(&mut *tx)
-            .await?;
         sqlx::query("SELECT referral_campaign_lock($1)")
             .bind(accounts)
             .execute(&mut *tx)
@@ -127,7 +121,7 @@ impl<P: Policy> Campaign<P> {
         if self
             .policy
             .allowed(conn, actor, actor, Kind::New, Stage::Statistics)
-            .await
+            .await?
         {
             Ok(())
         } else {
@@ -303,7 +297,7 @@ impl<P: Policy> Campaign<P> {
             || !self
                 .policy
                 .allowed(conn, inviter, invitee, kind, Stage::Invite)
-                .await
+                .await?
         {
             return Err(Error::Denied.into());
         }

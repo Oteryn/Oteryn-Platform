@@ -46,7 +46,9 @@ POST to the same localized page using `application/x-www-form-urlencoded`:
 omits `granted` and means revoke. The account and actor come exclusively from the
 session. Unknown or duplicate fields and unsupported kinds/values are refused.
 The existing portal session middleware verifies the synchronizer CSRF token and
-origin checks before mutation. Success returns a 303 redirect to the page.
+origin checks before mutation. The public session layer trusts the exact serialized
+`OTERYN_PUBLIC_ORIGIN`; foreign and opaque origins remain forbidden, and missing
+configuration grants no trusted origin. Success returns a 303 redirect to the page.
 
 Refusals: 400/422 malformed input, 403 CSRF or inactive account, 409 outdated
 grant text, 404 disabled feature or unsupported locale, 503 storage unavailable.

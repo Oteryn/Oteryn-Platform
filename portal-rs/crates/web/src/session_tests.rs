@@ -482,3 +482,53 @@ async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
     assert_eq!(snapshot(db.pool.clone()).await?, before);
     db.close().await
 }
+
+#[tokio::test]
+async fn nwave_consent_forms_accept_public_origin_and_reject_forgery() -> TestResult {
+    let db = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+    let layer = crate::public_sessions(db.clone(), Some("https://portal.test".into()));
+    let session = BrowserSession::new(db, SessionConfig::default(), None, "consent regression");
+    let token = "a".repeat(64);
+    session.inner.lock().await.record = Some(Record {
+        id: "test-session".into(),
+        csrf: token.clone(),
+        account_id: Some(Uuid::now_v7()),
+    });
+    for (origin, csrf, granted, expected) in [
+        (
+            "https://portal.test",
+            token.as_str(),
+            "&granted=true",
+            Ok(()),
+        ),
+        ("https://portal.test", token.as_str(), "", Ok(())),
+        (
+            "https://foreign.test",
+            token.as_str(),
+            "",
+            Err(StatusCode::FORBIDDEN),
+        ),
+        ("null", token.as_str(), "", Err(StatusCode::FORBIDDEN)),
+        (
+            "https://portal.test",
+            "wrong",
+            "&granted=true",
+            Err(StatusCode::FORBIDDEN),
+        ),
+    ] {
+        let mut request = HttpRequest::post("/en/account/consents")
+            .header(header::ORIGIN, origin)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "_csrf={csrf}&kind=play_session&version=1{granted}"
+            )))?;
+        assert_eq!(
+            crate::csrf::verify(&layer.csrf, &session, &mut request).await,
+            expected,
+            "origin={origin}, granted={granted}"
+        );
+    }
+    let unconfigured = crate::public_sessions(session.pool.clone(), None);
+    assert!(unconfigured.csrf.trusted_origins.is_empty());
+    Ok(())
+}

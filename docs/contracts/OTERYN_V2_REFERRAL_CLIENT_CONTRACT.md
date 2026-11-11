@@ -36,7 +36,7 @@ Both verification/sign-in orders are supported. Verification captures attributio
 before credential-change triggers revoke browser sessions; session revocation remains
 in the same transaction. Session rotation preserves pending attribution. The worker reconciles legacy pending sessions and removes completed,
 permanently refused or malformed candidates; transient failures retain evidence
-for retry. Unverified accounts remain pending and do not consume the batch.
+for retry. Eligibility storage errors return unavailable, never permanent denial. Unverified accounts remain pending and do not consume the batch.
 A signed-in eligible new account can confirm directly. Returning accounts are already bound at invitation time; signing
 in and opening their link confirms the existing binding without a second grant.
 
@@ -46,7 +46,8 @@ address for an e-mail invitation. Unlimited links have no recipient cap.
 Self-referrals, cycles, reciprocal referrals, duplicate attribution to a different
 inviter, inactive/unverified accounts and current e-mail-change trade restrictions
 are refused. The existing referral Policy interface remains mandatory. Old
-referral participation also prevents duplicate campaign attribution.
+referral participation also prevents duplicate campaign attribution. Legacy invitations
+check the combined legacy/campaign ancestry and reject already-attributed invitees.
 
 ## Limits and activity
 
@@ -139,11 +140,14 @@ shared payment fingerprint refusal: deferred, no trusted fingerprint in PaymentE
 
 Every qualification path discovers its complete account set before locking:
 store purchases, loyalty snapshots/streams, campaign link/email/accept/signup,
-and worker attribution. Acquire account row locks (including inviter, invitee
+and worker attribution. Acquire account rows FOR UPDATE (including inviter, invitee
 and every subsequent account foreign-key target) in ascending account UUID order,
-then required premium_authority rows in ascending account UUID order, then
-qualification advisory lock 5600. Prepare stronger account locks before authority
-locks. No new account or premium_authority row/FK lock may be acquired after 5600.
+then existing premium_authority rows FOR UPDATE in ascending account UUID order, then
+qualification advisory lock 5600. Preparation takes the strongest account and
+existing authority locks up front,
+so later authentication, policy reads and FK checks cannot upgrade them. Missing
+authority rows needed for publication are inserted before 5600. No new account or
+premium_authority row/FK lock may be acquired after 5600.
 The shared database lock function rejects an expanded account set with SQLSTATE
 40001 so a stale discovery retries in a new transaction rather than reversing the
 order. Rust purchase, snapshot, stream and campaign operations (including worker

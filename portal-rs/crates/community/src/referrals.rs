@@ -37,6 +37,7 @@ pub enum Stage {
 /// returning status, disjoint identities, abuse restrictions and rate limits.
 /// Claim additionally requires authoritative qualifying activity after invitation.
 /// Read/lock state in this connection; missing or stale evidence returns false.
+/// Propagate storage errors so reconciliation retains evidence for retry.
 /// Invite runs after the caller has locked all account FK targets and 5600;
 /// policies must not acquire new/stronger account or premium_authority locks.
 /// Statistics checks only the authenticated account's access and account status.
@@ -48,7 +49,7 @@ pub trait Policy: Send + Sync {
         other: Uuid,
         kind: Kind,
         stage: Stage,
-    ) -> impl std::future::Future<Output = bool> + Send;
+    ) -> impl std::future::Future<Output = Result<bool, sqlx::Error>> + Send;
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -164,15 +165,25 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
         let identity: bool = sqlx::query_scalar("SELECT to_regclass('accounts') IS NOT NULL")
             .fetch_one(&mut *tx)
             .await?;
-        if identity {
+        let campaign: bool =
+            sqlx::query_scalar("SELECT to_regclass('referral_campaign_invitations') IS NOT NULL")
+                .fetch_one(&mut *tx)
+                .await?;
+        if identity && !campaign {
             sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR KEY SHARE")
                 .bind(vec![request.inviter, request.invitee, self.reward.actor])
                 .execute(&mut *tx)
                 .await?;
         }
-        // A single lock serializes graph changes, preventing concurrent cycles and
-        // reciprocal invitations. Rate limiting remains mandatory in the policy.
-        sqlx::query("SELECT pg_advisory_xact_lock(5600)")
+        // Share campaign preparation when installed; isolated legacy schemas retain
+        // their account-FK preparation above and the same graph serialization.
+        let lock = if campaign {
+            "SELECT referral_campaign_lock($1)"
+        } else {
+            "SELECT pg_advisory_xact_lock(5600) FROM (SELECT $1::uuid[]) ids"
+        };
+        sqlx::query(lock)
+            .bind(vec![request.inviter, request.invitee, self.reward.actor])
             .execute(&mut *tx)
             .await?;
         if !self
@@ -184,7 +195,7 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
                 request.kind,
                 Stage::Invite,
             )
-            .await
+            .await?
         {
             return Err(Error::Denied);
         }
@@ -215,8 +226,16 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
             return Err(Error::Invalid);
         }
         // Follow the inviter's ancestry: a candidate invitee must not be an ancestor.
-        let cycle: bool = sqlx::query_scalar("WITH RECURSIVE ancestors(id) AS (SELECT $1::uuid UNION SELECT r.inviter_id FROM referral_invitations r JOIN ancestors a ON r.invitee_id=a.id) SELECT EXISTS(SELECT 1 FROM ancestors WHERE id=$2)")
-            .bind(request.inviter).bind(request.invitee).fetch_one(&mut *tx).await?;
+        let graph = if campaign {
+            "WITH RECURSIVE edges AS (SELECT inviter_id,invitee_id FROM referral_invitations UNION SELECT inviter_id,invitee_id FROM referral_campaign_invitations), ancestors(id) AS (SELECT $1::uuid UNION SELECT r.inviter_id FROM edges r JOIN ancestors a ON r.invitee_id=a.id) SELECT EXISTS(SELECT 1 FROM ancestors WHERE id=$2) OR EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=$2)"
+        } else {
+            "WITH RECURSIVE ancestors(id) AS (SELECT $1::uuid UNION SELECT r.inviter_id FROM referral_invitations r JOIN ancestors a ON r.invitee_id=a.id) SELECT EXISTS(SELECT 1 FROM ancestors WHERE id=$2)"
+        };
+        let cycle: bool = sqlx::query_scalar(graph)
+            .bind(request.inviter)
+            .bind(request.invitee)
+            .fetch_one(&mut *tx)
+            .await?;
         let duplicate: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM referral_invitations WHERE invitee_id=$1)",
         )
@@ -257,7 +276,7 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
         if !self
             .policy
             .allowed(&mut tx, invitee, inviter, kind, Stage::Claim)
-            .await
+            .await?
         {
             return Err(Error::Denied);
         }
@@ -304,7 +323,7 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
         if !self
             .policy
             .allowed(&mut tx, actor, actor, Kind::New, Stage::Statistics)
-            .await
+            .await?
         {
             return Err(Error::Denied);
         }

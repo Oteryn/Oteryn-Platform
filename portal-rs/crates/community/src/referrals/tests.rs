@@ -17,11 +17,25 @@ impl AccountStateReader for Checks {
         if DatabasePolicy
             .allowed(conn, account, account, Kind::New, Stage::Statistics)
             .await
+            .unwrap_or(false)
         {
             oteryn_wallet::AccountState::Active
         } else {
             oteryn_wallet::AccountState::Unknown
         }
+    }
+}
+impl oteryn_notify::AccountState for Checks {
+    fn active_verified(
+        &self,
+        _: Uuid,
+    ) -> oteryn_notify::NotifyFuture<'_, Option<oteryn_notify::Account>> {
+        Box::pin(async {
+            Ok(Some(oteryn_notify::Account {
+                email: "player@example.test".into(),
+                locale: oteryn_notify::Locale::En,
+            }))
+        })
     }
 }
 impl TransferBlockCheck for Checks {
@@ -44,6 +58,7 @@ impl purchase::Accounts for Checks {
             if DatabasePolicy
                 .allowed(conn, account, account, Kind::New, Stage::Statistics)
                 .await
+                .map_err(|_| purchase::Error::Unavailable)?
             {
                 purchase::AccountState::Active
             } else {
@@ -2054,4 +2069,133 @@ async fn assert_retry_lock_restarted(db: &Database) {
         .execute(&db.pool)
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn nwave_policy_read_failure_preserves_worker_attribution() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    let invitee = db.account().await;
+    sqlx::query("UPDATE referral_campaign_settings SET enabled=false")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let hash = attribution_session(&db, Some(invitee), &code.to_string()).await;
+    sqlx::query("UPDATE referral_campaign_settings SET enabled=true")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    // Fail only the eligibility read, after discovery and worker candidate selection.
+    sqlx::raw_sql(
+        "ALTER TABLE accounts RENAME TO policy_accounts;
+        CREATE FUNCTION policy_read_fault() RETURNS boolean LANGUAGE plpgsql AS $$ BEGIN
+        IF current_query() LIKE 'SELECT count(*) FROM accounts%' THEN
+            RAISE EXCEPTION 'eligibility read temporarily unavailable' USING ERRCODE='57014';
+        END IF; RETURN true; END $$;
+        CREATE VIEW accounts AS SELECT * FROM policy_accounts WHERE policy_read_fault();",
+    )
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let worker = Worker {
+        campaign: db.campaign.clone(),
+        sender: None,
+    };
+    assert_eq!(worker.process().await, Err(Error::Unavailable));
+    let evidence: Option<String> =
+        sqlx::query_scalar("SELECT data->>'referral.code' FROM web_sessions WHERE id_hash=$1")
+            .bind(&hash)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(evidence, Some(code.to_string()));
+    sqlx::raw_sql("DROP VIEW accounts; ALTER TABLE policy_accounts RENAME TO accounts;")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    worker.process().await.unwrap();
+    db.buy(invitee, 1).await;
+    assert_eq!(db.count("outfit").await, 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_legacy_invite_checks_campaign_graph() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let invitee = db.recruit(owner).await;
+    let third = db.account().await;
+    let reward_actor = db.account().await;
+    let service = super::super::Referrals::new(
+        db.pool.clone(),
+        Flags { enabled: true },
+        DatabasePolicy,
+        db.wallet(),
+        oteryn_notify::Notifications {
+            pool: db.pool.clone(),
+            accounts: Arc::new(Checks),
+            unsubscribe: oteryn_notify::Unsubscribe::new(
+                vec![7; 32],
+                "https://portal.example.test/unsubscribe".into(),
+            )
+            .unwrap(),
+        },
+        super::super::Reward {
+            actor: reward_actor,
+            amount: 25,
+        },
+    );
+    for (inviter, target) in [(invitee, owner), (third, invitee)] {
+        let request = super::super::Invitation {
+            id: Uuid::now_v7(),
+            inviter,
+            invitee: target,
+            kind: Kind::New,
+            expires_at: time::OffsetDateTime::now_utc() + time::Duration::days(7),
+        };
+        assert_eq!(service.invite(&request).await, Err(Error::Denied));
+    }
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_preparation_prevents_account_and_authority_lock_upgrades_after_5600() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = db.account().await;
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1)")
+        .bind(account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut prepared = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT referral_campaign_lock(ARRAY[$1::uuid])")
+        .bind(account)
+        .execute(&mut *prepared)
+        .await
+        .unwrap();
+    for query in [
+        "SELECT id FROM accounts WHERE id=$1 FOR KEY SHARE NOWAIT",
+        "SELECT account_id FROM premium_authority WHERE account_id=$1 FOR KEY SHARE NOWAIT",
+    ] {
+        let mut contender = db.pool.begin().await.unwrap();
+        let error = sqlx::query(query)
+            .bind(account)
+            .execute(&mut *contender)
+            .await
+            .expect_err("preparation must take strongest row locks before 5600");
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some("55P03")
+        );
+        contender.rollback().await.unwrap();
+    }
+    prepared.rollback().await.unwrap();
+    db.close().await;
 }

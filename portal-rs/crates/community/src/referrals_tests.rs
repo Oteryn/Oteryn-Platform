@@ -22,8 +22,15 @@ impl Checks {
     }
 }
 impl Policy for Checks {
-    async fn allowed(&self, _: &mut PgConnection, _: Uuid, _: Uuid, _: Kind, _: Stage) -> bool {
-        self.allow.load(Ordering::SeqCst)
+    async fn allowed(
+        &self,
+        _: &mut PgConnection,
+        _: Uuid,
+        _: Uuid,
+        _: Kind,
+        _: Stage,
+    ) -> Result<bool, sqlx::Error> {
+        Ok(self.allow.load(Ordering::SeqCst))
     }
 }
 impl AccountStateReader for Checks {

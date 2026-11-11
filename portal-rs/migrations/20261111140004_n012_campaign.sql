@@ -77,7 +77,8 @@ END $$;
 -- Global order: discover the complete account set, lock accounts in UUID order
 -- (including all later FK targets), then premium_authority in UUID order, then
 -- 5600. Never expand either row-lock set after 5600; retry stale discovery.
--- Callers needing stronger account/authority locks prepare those before calling.
+-- Preparation takes UPDATE locks up front, including existing authority rows.
+-- Callers create any missing authority rows they need before taking 5600.
 -- Rust retries stale discovery from a fresh transaction via oteryn_db::retry;
 -- signup triggers instead defer expanded preparation to worker reconciliation.
 CREATE FUNCTION referral_campaign_prepare(ids uuid[],exclusive_account uuid DEFAULT NULL) RETURNS void LANGUAGE plpgsql AS $$
@@ -91,14 +92,12 @@ BEGIN
         RETURN;
     END IF;
     FOR account IN SELECT id FROM accounts WHERE id=ANY(ids) ORDER BY id LOOP
-        -- Purchases take their strongest buyer lock immediately, avoiding two
-        -- concurrent purchases upgrading compatible KEY SHARE locks together.
-        IF account=exclusive_account THEN
-            PERFORM id FROM accounts WHERE id=account FOR UPDATE;
-        ELSE
-            PERFORM id FROM accounts WHERE id=account FOR KEY SHARE;
-        END IF;
+        -- Authentication and account adapters may later need UPDATE/SHARE.
+        -- Take the strongest lock now, so no path upgrades after 5600.
+        PERFORM id FROM accounts WHERE id=account FOR UPDATE;
     END LOOP;
+    PERFORM account_id FROM premium_authority WHERE account_id=ANY(ids)
+        ORDER BY account_id FOR UPDATE;
     PERFORM set_config('oteryn.referral_prepared_accounts',ids::text,true);
 END $$;
 CREATE FUNCTION referral_campaign_lock(ids uuid[]) RETURNS void LANGUAGE plpgsql AS $$

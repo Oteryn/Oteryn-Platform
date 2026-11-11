@@ -89,14 +89,17 @@ fn security_headers(router: Router) -> Router {
     })
 }
 
+fn public_sessions(db: sqlx::PgPool, origin: Option<String>) -> session::SessionLayer {
+    let mut sessions = session::SessionLayer::new(db);
+    sessions.csrf.trusted_origins = origin.into_iter().collect();
+    sessions
+}
+
 /// Builds the public router. Module routers are merged here as their tasks land.
 pub fn router(state: AppState, static_dir: &str) -> Router {
-    let session_layer = session::SessionLayer::new(state.db.clone());
-    let mut oauth_sessions = session_layer.clone();
-    oauth_sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
-        .ok()
-        .into_iter()
-        .collect();
+    let session_layer =
+        public_sessions(state.db.clone(), std::env::var("OTERYN_PUBLIC_ORIGIN").ok());
+    let oauth_sessions = session_layer.clone();
     let oauth_routes = oteryn_gameauth::oauth::browser_routes(
         state.db.clone(),
         oteryn_gameauth::oauth::Config::from_env(),
