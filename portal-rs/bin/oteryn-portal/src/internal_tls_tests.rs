@@ -96,7 +96,9 @@ fn app() -> Result<Router, guard::ConfigError> {
         group: "test".into(),
     }])?);
     let guarded = guard::protect(
-        Router::new().route("/internal/v1/test", post(|| async { "accepted" })),
+        Router::new()
+            .route("/internal/v1/test", post(|| async { "accepted" }))
+            .route("/internal/v2/test", post(|| async { "accepted v2" })),
         identities,
         RoutePolicy {
             enabled: true,
@@ -116,7 +118,10 @@ fn app() -> Result<Router, guard::ConfigError> {
                 },
             ),
         )
-        .route("/pl/", get(|| async { "public" })))
+        .route("/pl/", get(|| async { "public" }))
+        .route("/internal/v3/test", post(|| async { "never" }))
+        .route("/internal/test", post(|| async { "never" }))
+        .route("/internalv2/test", post(|| async { "never" })))
 }
 
 struct Fixture {
@@ -276,5 +281,35 @@ async fn public_listener_never_verifies_a_client() -> TestResult {
         .body(axum::body::Body::from("{}"))?;
     let response = app()?.oneshot(request).await?;
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    Ok(())
+}
+
+#[tokio::test]
+async fn v2_prefix_is_served_and_other_prefixes_are_refused() -> TestResult {
+    let fixture = listener().await?;
+    let (cert, key) = fixture
+        .ca
+        .issue(&[PEER], ExtendedKeyUsagePurpose::ClientAuth)?;
+    let v2 = POST.replace("/internal/v1/test", "/internal/v2/test");
+    let response = call(&fixture, Some((&cert, &key)), &v2).await?;
+    assert_eq!(status(&response), Some("200"));
+    assert!(
+        response
+            .as_deref()
+            .is_some_and(|r| r.ends_with("accepted v2"))
+    );
+    // The v2 prefix keeps the identity rules: an unbound identity is refused.
+    let (other, other_key) = fixture.ca.issue(
+        &["other.oteryn.internal"],
+        ExtendedKeyUsagePurpose::ClientAuth,
+    )?;
+    let response = call(&fixture, Some((&other, &other_key)), &v2).await?;
+    assert_eq!(status(&response), Some("401"));
+    // Routes outside both prefixes exist on the router but stay 404 here.
+    for path in ["/internal/v3/test", "/internal/test", "/internalv2/test"] {
+        let request = POST.replace("/internal/v1/test", path);
+        let response = call(&fixture, Some((&cert, &key)), &request).await?;
+        assert_eq!(status(&response), Some("404"), "{path}");
+    }
     Ok(())
 }

@@ -419,6 +419,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 Some(lcfa) => app.merge(lcfa),
                 None => app,
             };
+            // Game-facing internal routes, each behind its own default-off flag
+            // and client identity; composition and variables in game_routes.rs.
+            let app = game_routes::mount(app, db.clone()).await;
             let _internal_listener = internal_tls::start(app.clone()).await?;
             let app = public_app;
             let _native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
@@ -447,6 +450,7 @@ mod tests {
 }
 
 mod game_login;
+mod game_routes;
 mod gateway;
 mod internal_tls;
 mod wallet_topup;

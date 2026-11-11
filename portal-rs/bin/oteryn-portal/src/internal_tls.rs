@@ -1,4 +1,5 @@
-//! Private mutual-TLS listener for `/internal/v1` on the `serve` role (plan §5.3).
+//! Private mutual-TLS listener for `/internal/v1` and `/internal/v2` on the
+//! `serve` role (plan §5.3).
 //!
 //! The route guards in `oteryn-internal-api` trust only a `VerifiedClient`
 //! extension. This listener is the one adapter that inserts it on the main
@@ -26,7 +27,8 @@ const KEYS: [&str; 4] = [
     "OTERYN_INTERNAL_TLS_KEY_FILE",
     "OTERYN_INTERNAL_TLS_CLIENT_CA_FILE",
 ];
-const PREFIX: &str = "/internal/v1/";
+/// Path prefixes served here; v2 carries the game-public and character-service routes.
+const PREFIXES: [&str; 2] = ["/internal/v1/", "/internal/v2/"];
 const MAX_CONNECTIONS: usize = 64;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
@@ -192,8 +194,9 @@ pub async fn serve(listener: tokio::net::TcpListener, tls: rustls::ServerConfig,
     }
 }
 
-/// Only `/internal/v1/` over HTTP/1.1; everything else is 404 on this port.
-fn scoped(app: Router, client: VerifiedClient, peer: SocketAddr) -> Router {
+/// Only `/internal/v1/` and `/internal/v2/` over HTTP/1.1; everything else is
+/// 404 on this port.
+pub(crate) fn scoped(app: Router, client: VerifiedClient, peer: SocketAddr) -> Router {
     app.layer(middleware::from_fn(
         move |mut request: Request, next: Next| {
             let client = client.clone();
@@ -201,7 +204,8 @@ fn scoped(app: Router, client: VerifiedClient, peer: SocketAddr) -> Router {
                 if request.version() != Version::HTTP_11 {
                     return StatusCode::BAD_REQUEST.into_response();
                 }
-                if !request.uri().path().starts_with(PREFIX) {
+                let path = request.uri().path();
+                if !PREFIXES.iter().any(|prefix| path.starts_with(prefix)) {
                     return StatusCode::NOT_FOUND.into_response();
                 }
                 request.extensions_mut().insert(client);

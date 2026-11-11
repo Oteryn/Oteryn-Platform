@@ -23,8 +23,9 @@ pub const GROUP: &str = "products-entitlements-loyalty-stream";
 
 /// Runtime identity authority; account existence is read and fenced in the same
 /// transaction as publication. No credentials or account details are exported.
+/// The composition root reuses it for the premium and loyalty snapshot reads.
 #[derive(Debug)]
-struct DatabaseAccounts;
+pub struct DatabaseAccounts;
 impl super::Accounts for DatabaseAccounts {
     fn state<'a>(
         &'a self,
