@@ -13,6 +13,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Failure {
     Denied,
+    Forbidden,
+    Conflict,
     Unavailable,
     Invalid,
     TooLarge,
@@ -68,7 +70,8 @@ pub trait NativeAuthority: Send + Sync {
         purpose: Purpose,
     ) -> NativeFuture<'a, NativeResult>;
 }
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Character {
     pub character_id: Uuid,
     pub world_id: Uuid,
@@ -141,13 +144,22 @@ pub struct Credential {
     pub family_id: Uuid,
     pub absolute_expires_at: i64,
     pub idle_expires_at: i64,
+    pub rotation_nonce: String,
 }
 impl Credential {
     pub fn secret(&self) -> &str {
         &self.secret
     }
-    fn payload(&self) -> serde_json::Value {
-        serde_json::json!({"protocol_version":1,"device_credential":self.secret,"family_id":self.family_id,"absolute_expires_at":self.absolute_expires_at,"idle_expires_at":self.idle_expires_at})
+    fn payload(&self) -> Result<serde_json::Value> {
+        serde_json::to_value(wire::CredentialResponse {
+            protocol_version: 1,
+            device_credential: self.secret.clone(),
+            family_id: self.family_id,
+            absolute_expires_at: self.absolute_expires_at,
+            idle_expires_at: self.idle_expires_at,
+            rotation_nonce: self.rotation_nonce.clone(),
+        })
+        .map_err(|_| Failure::Unavailable)
     }
 }
 fn secret() -> Result<String> {
@@ -238,7 +250,7 @@ impl Sessions {
     ) -> Result<Credential> {
         self.settings.check()?;
         self.authority.deployment_ready()?;
-        if !consent && key.is_none() {
+        if key.is_none() {
             return Err(Failure::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
@@ -249,7 +261,14 @@ impl Sessions {
             return Err(Failure::Denied);
         }
         if let Some(key) = key {
-            key.verify(bearer, auth.client_id, consent)?;
+            key.verify(bearer, auth.client_id, consent)
+                .map_err(|error| {
+                    if error == Failure::Denied {
+                        Failure::Forbidden
+                    } else {
+                        error
+                    }
+                })?;
         }
         let at = clock(&mut tx).await?;
         let absolute = at
@@ -260,6 +279,7 @@ impl Sessions {
             };
         let credential = Credential {
             secret: secret()?,
+            rotation_nonce: key::new_nonce()?,
             family_id: Uuid::now_v7(),
             absolute_expires_at: absolute,
             idle_expires_at: if consent {
@@ -271,17 +291,18 @@ impl Sessions {
         let inserted = sqlx::query("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(enrollment_token_id) DO NOTHING")
             .bind(credential.family_id).bind(auth.account_id).bind(auth.client_id).bind(enrollment.token_id).bind(auth.game_generation).bind(auth.native_generation).bind(absolute).bind(credential.idle_expires_at).execute(&mut *tx).await.map_err(unavailable)?;
         if inserted.rows_affected() != 1 {
-            return Err(Failure::Denied);
+            return Err(Failure::Conflict);
         }
-        sqlx::query("UPDATE device_sessions SET persistence_class=$2,device_public_key=$3,device_key_thumbprint=$4 WHERE id=$1")
+        sqlx::query("UPDATE device_sessions SET persistence_class=$2,device_public_key=$3,device_key_thumbprint=$4,rotation_nonce=$5 WHERE id=$1")
             .bind(credential.family_id).bind(if consent { "remembered" } else { "session" })
             .bind(key.map(|k| k.public_key.clone())).bind(key.map(|k| URL_SAFE_NO_PAD.encode(hash_bytes(&k.public_key))))
+            .bind(&credential.rotation_nonce)
             .execute(&mut *tx).await.map_err(|error| {
                 if error.as_database_error().is_some_and(|error| {
                     error.code().as_deref() == Some("23505")
                         && error.constraint() == Some("device_sessions_device_key_thumbprint_key")
                 }) {
-                    Failure::Denied
+                    Failure::Conflict
                 } else {
                     unavailable(error)
                 }
@@ -296,21 +317,32 @@ impl Sessions {
         client: Uuid,
         purpose: Purpose,
     ) -> Result<serde_json::Value> {
-        self.operate(secret, client, Some(purpose)).await
+        self.operate(secret, client, Some(purpose), None).await
+    }
+    pub async fn rotate_with_proof(
+        &self,
+        secret: &str,
+        client: Uuid,
+        purpose: Purpose,
+        proof: &RotationProof,
+    ) -> Result<serde_json::Value> {
+        self.operate(secret, client, Some(purpose), Some(proof))
+            .await
     }
     pub async fn revoke(&self, secret: &str, client: Uuid) -> Result<()> {
-        self.operate(secret, client, None).await.map(|_| ())
+        self.operate(secret, client, None, None).await.map(|_| ())
     }
     async fn operate(
         &self,
         presented: &str,
         client: Uuid,
         purpose: Option<Purpose>,
+        proof: Option<&RotationProof>,
     ) -> Result<serde_json::Value> {
         // Only server-confirmed transaction aborts are retried. An ambiguous
         // commit or network error never retries a potentially consumed secret.
         for _ in 0..3 {
-            match self.operate_once(presented, client, purpose).await {
+            match self.operate_once(presented, client, purpose, proof).await {
                 Err(Failure::Retryable) => continue,
                 result => return result,
             }
@@ -322,6 +354,7 @@ impl Sessions {
         presented: &str,
         client: Uuid,
         purpose: Option<Purpose>,
+        proof: Option<&RotationProof>,
     ) -> Result<serde_json::Value> {
         self.settings.check()?;
         self.authority.deployment_ready()?;
@@ -357,13 +390,31 @@ impl Sessions {
         if let Err(error @ (Failure::Unavailable | Failure::Retryable)) = authority_check {
             return Err(error);
         }
-        let row = sqlx::query("SELECT c.secret_hash,f.persistence_class,f.sequence,f.absolute_expires_at,f.idle_expires_at,f.revoked_at,c.consumed_at,c.sequence AS credential_sequence FROM device_sessions f JOIN device_session_credentials c ON c.family_id=f.id WHERE f.id=$1 AND c.secret_hash=$2 FOR UPDATE OF f,c")
+        let row = sqlx::query("SELECT f.device_public_key,f.rotation_nonce,c.secret_hash,f.persistence_class,f.sequence,f.absolute_expires_at,f.idle_expires_at,f.revoked_at,c.consumed_at,c.sequence AS credential_sequence FROM device_sessions f JOIN device_session_credentials c ON c.family_id=f.id WHERE f.id=$1 AND c.secret_hash=$2 FOR UPDATE OF f,c")
             .bind(family).bind(&digest).fetch_one(&mut *tx).await.map_err(unavailable)?;
         let stored: Vec<u8> = row.try_get("secret_hash").map_err(unavailable)?;
         if !bool::from(stored.ct_eq(&digest)) {
             return Err(Failure::Denied);
         }
         let at = clock(&mut tx).await?;
+        if purpose.is_some() {
+            let proof = proof.ok_or(Failure::Denied)?;
+            let public_key: Option<Vec<u8>> =
+                row.try_get("device_public_key").map_err(unavailable)?;
+            let nonce: Option<String> = row.try_get("rotation_nonce").map_err(unavailable)?;
+            let enrolled = public_key.ok_or(Failure::Denied)?;
+            // Freshness and nonce checks precede key comparison: old proofs cannot
+            // revoke a successor. The account/family locks serialize consumption.
+            proof.check_fresh(family, nonce.as_deref(), at)?;
+            let supplied = key::decode_bytes(&proof.device_public_key, 32)?;
+            if !bool::from(enrolled.ct_eq(&supplied)) {
+                sqlx::query("UPDATE device_sessions SET revoked_at=coalesce(revoked_at,$2),updated_at=now() WHERE id=$1")
+                    .bind(family).bind(at).execute(&mut *tx).await.map_err(unavailable)?;
+                tx.commit().await.map_err(unavailable)?;
+                return Err(Failure::Denied);
+            }
+            proof.verify(&enrolled)?;
+        }
         let sequence: i64 = row.try_get("sequence").map_err(unavailable)?;
         let absolute: i64 = row.try_get("absolute_expires_at").map_err(unavailable)?;
         let idle: i64 = row.try_get("idle_expires_at").map_err(unavailable)?;
@@ -382,7 +433,11 @@ impl Sessions {
             sqlx::query("UPDATE device_sessions SET revoked_at=coalesce(revoked_at,$2),updated_at=now() WHERE id=$1").bind(family).bind(at).execute(&mut *tx).await.map_err(unavailable)?;
             tx.commit().await.map_err(unavailable)?;
             return if purpose.is_none() {
-                Ok(serde_json::json!({"protocol_version":1,"revoked":true}))
+                serde_json::to_value(wire::RevokeResponse {
+                    protocol_version: 1,
+                    revoked: true,
+                })
+                .map_err(|_| Failure::Unavailable)
             } else {
                 Err(Failure::Denied)
             };
@@ -391,6 +446,7 @@ impl Sessions {
         let next_sequence = sequence.checked_add(1).ok_or(Failure::Unavailable)?;
         let credential = Credential {
             secret: secret()?,
+            rotation_nonce: key::new_nonce()?,
             family_id: family,
             absolute_expires_at: absolute,
             idle_expires_at: if row
@@ -405,12 +461,12 @@ impl Sessions {
         };
         sqlx::query("UPDATE device_session_credentials SET consumed_at=$2,updated_at=now() WHERE secret_hash=$1").bind(digest).bind(at).execute(&mut *tx).await.map_err(unavailable)?;
         insert_credential(&mut tx, &credential, next_sequence).await?;
-        sqlx::query("UPDATE device_sessions SET sequence=$2,idle_expires_at=$3,updated_at=now() WHERE id=$1").bind(family).bind(next_sequence).bind(credential.idle_expires_at).execute(&mut *tx).await.map_err(unavailable)?;
+        sqlx::query("UPDATE device_sessions SET sequence=$2,idle_expires_at=$3,rotation_nonce=$4,updated_at=now() WHERE id=$1").bind(family).bind(next_sequence).bind(credential.idle_expires_at).bind(&credential.rotation_nonce).execute(&mut *tx).await.map_err(unavailable)?;
         let native = self
             .authority
             .use_native(&mut tx, &auth, family, purpose)
             .await?;
-        let mut payload = credential.payload();
+        let mut payload = credential.payload()?;
         match (purpose, native) {
             (Purpose::Characters, NativeResult::Characters(characters))
                 if characters.len() <= 64
@@ -449,6 +505,7 @@ impl Sessions {
         {
             return Err(Failure::Unavailable);
         }
+        let payload = wire::operation_response(payload, purpose)?;
         tx.commit().await.map_err(unavailable)?;
         Ok(payload)
     }
@@ -506,7 +563,13 @@ async fn insert_credential(
 
 #[path = "devices_http.rs"]
 mod http;
-pub use http::{VerifiedHttps, router, routes};
+pub use http::{router, routes};
+#[path = "devices_tls.rs"]
+pub mod tls;
+pub use tls::VerifiedHttps;
+#[path = "devices_wire.rs"]
+pub mod wire;
+pub use key::RotationProof;
 #[cfg(test)]
 #[path = "devices_tests.rs"]
 mod tests;

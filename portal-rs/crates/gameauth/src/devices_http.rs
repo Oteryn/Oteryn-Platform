@@ -13,6 +13,8 @@ use std::net::SocketAddr;
 const BASE: &str = "/api/v1/game-auth/device-sessions";
 fn failure(error: Failure) -> Response {
     let (status, message) = match error {
+        Failure::Forbidden => (StatusCode::FORBIDDEN, "device_authorization_unavailable"),
+        Failure::Conflict => (StatusCode::CONFLICT, "device_authorization_unavailable"),
         Failure::Denied => (StatusCode::UNAUTHORIZED, "device_authorization_unavailable"),
         Failure::Unavailable | Failure::Retryable => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -22,7 +24,13 @@ fn failure(error: Failure) -> Response {
         Failure::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "invalid_request"),
         Failure::Throttled => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests"),
     };
-    let mut response = (status, axum::Json(serde_json::json!({"error":message}))).into_response();
+    let mut response = (
+        status,
+        axum::Json(wire::ErrorResponse {
+            error: message.into(),
+        }),
+    )
+        .into_response();
     if error == Failure::Throttled {
         response
             .headers_mut()
@@ -40,17 +48,6 @@ async fn no_cache(request: Request, next: axum::middleware::Next) -> Response {
         .headers_mut()
         .insert(header::PRAGMA, header::HeaderValue::from_static("no-cache"));
     response
-}
-/// Transport evidence supplied only by the trusted TLS listener or a separately
-/// qualified TLS termination adapter. Request targets and forwarding headers do
-/// not establish transport security.
-#[derive(Debug, Clone, Copy)]
-pub struct VerifiedHttps(());
-impl VerifiedHttps {
-    /// Call only after verifying the actual transport, never from request headers.
-    pub fn from_verified_tls() -> Self {
-        Self(())
-    }
 }
 /// No insecure-loopback exception is enabled by this adapter.
 pub fn router<S: Clone + Send + Sync + 'static>(sessions: Sessions) -> Router<S> {
@@ -174,50 +171,34 @@ async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Va
         return sessions
             .enroll_class(secret, remembered, key)
             .await
-            .map(|c| c.payload());
+            .and_then(|c| c.payload());
     }
-    let client = decode(&body, false, parts.uri.query().is_some())?;
-    let client = client.ok_or(Failure::Invalid)?;
+    let operation = wire::decode_operation(&body, parts.uri.query().is_some())?;
+    let client = operation.client_id;
     if path == format!("{BASE}/revoke") {
+        if operation.rotation_proof.is_some() {
+            return Err(Failure::Invalid);
+        }
         sessions.revoke(secret, client).await?;
-        return Ok(serde_json::json!({"protocol_version":1,"revoked":true}));
+        return serde_json::to_value(wire::RevokeResponse {
+            protocol_version: 1,
+            revoked: true,
+        })
+        .map_err(|_| Failure::Unavailable);
     }
     let purpose = if path == format!("{BASE}/tickets") {
         Purpose::Ticket
     } else {
         Purpose::Characters
     };
-    sessions.rotate(secret, client, purpose).await
-}
-fn decode(body: &[u8], enroll: bool, query: bool) -> Result<Option<Uuid>> {
-    if query {
-        return Err(Failure::Invalid);
-    }
-    let value = canonical::decode(body, 1024, 2).map_err(|_| Failure::Invalid)?;
-    let Value::Object(fields) = &value else {
-        return Err(Failure::Invalid);
-    };
-    if fields.len() != 2 || value.get("protocol_version") != Some(&Value::Unsigned(1)) {
-        return Err(Failure::Invalid);
-    }
-    if enroll {
-        if value.get("remember_device") != Some(&Value::Bool(true)) {
-            return Err(Failure::Invalid);
-        }
-        Ok(None)
-    } else {
-        let Some(Value::String(raw)) = value.get("client_id") else {
-            return Err(Failure::Invalid);
-        };
-        let id = Uuid::parse_str(raw).map_err(|_| Failure::Invalid)?;
-        if id.to_string() != *raw
-            || !(1..=8).contains(&id.get_version_num())
-            || id.get_variant() != uuid::Variant::RFC4122
-        {
-            return Err(Failure::Invalid);
-        }
-        Ok(Some(id))
-    }
+    sessions
+        .rotate_with_proof(
+            secret,
+            client,
+            purpose,
+            operation.rotation_proof.as_ref().ok_or(Failure::Denied)?,
+        )
+        .await
 }
 pub(super) async fn throttle(sessions: &Sessions, source: &str) -> Result<()> {
     sqlx::query("DELETE FROM device_session_source_limits WHERE source_hash IN (SELECT source_hash FROM device_session_source_limits WHERE window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1 LIMIT 128)")
@@ -230,16 +211,13 @@ pub(super) async fn throttle(sessions: &Sessions, source: &str) -> Result<()> {
         Ok(())
     }
 }
-// The original two-member remembered request stays byte-compatible. The bound
-// extension has an exact four-member set and adds session-class enrollment.
+// Both persistence classes require the exact four-member key enrollment.
 pub(super) fn decode_enrollment(body: &[u8], query: bool) -> Result<(bool, Option<DeviceKey>)> {
-    if decode(body, true, query).is_ok() {
-        return Ok((true, None));
-    }
     if query {
         return Err(Failure::Invalid);
     }
     let value = canonical::decode(body, 1024, 2).map_err(|_| Failure::Invalid)?;
+    let _: wire::EnrollmentRequest = serde_json::from_slice(body).map_err(|_| Failure::Invalid)?;
     let Value::Object(fields) = &value else {
         return Err(Failure::Invalid);
     };
@@ -273,31 +251,27 @@ mod tests {
     use super::*;
     #[test]
     fn exact_requests() {
-        assert!(
-            decode(
-                br#"{"protocol_version":1,"remember_device":true}"#,
-                true,
-                false
-            )
-            .is_ok()
+        let valid = include_bytes!(
+            "../../../../docs/contracts/fixtures/remembered-device-v1/remembered-enroll.json"
         );
+        assert!(decode_enrollment(valid, false).is_ok());
+        assert!(matches!(
+            decode_enrollment(valid, true),
+            Err(Failure::Invalid)
+        ));
         for body in [
+            r#"{"protocol_version":1,"remember_device":true}"#,
             r#"{"protocol_version":1,"remember_device":false}"#,
             r#"{"protocol_version":"1","remember_device":true}"#,
             r#"{"protocol_version":1,"remember_device":true,"account_id":"x"}"#,
             r#"{"protocol_version":1,"protocol_vers\u0069on":1}"#,
             r#"[]"#,
         ] {
-            assert_eq!(decode(body.as_bytes(), true, false), Err(Failure::Invalid));
+            assert!(matches!(
+                decode_enrollment(body.as_bytes(), false),
+                Err(Failure::Invalid)
+            ));
         }
-        assert_eq!(
-            decode(
-                br#"{"protocol_version":1,"remember_device":true}"#,
-                true,
-                true
-            ),
-            Err(Failure::Invalid)
-        );
     }
 }
 
