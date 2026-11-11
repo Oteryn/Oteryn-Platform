@@ -1,8 +1,8 @@
 //! Targeted account invitations and atomic, once-only referral rewards.
 //!
-//! No HTTP or game evidence adapter is registered: no authoritative referral
-//! wire or eligibility thresholds exist yet. Trusted callers must authenticate
+//! The original coin-claim service below requires trusted callers to authenticate
 //! the actor, enforce CSRF for browsers, and supply a transaction-aware policy.
+//! The default-off campaign module adds browser invitations and store rewards.
 //! Reward configuration is server-owned; the wallet audit adapter must authorize
 //! its actor. Unknown account, return history, qualification or abuse state denies.
 use oteryn_wallet::{AccountStateReader, AuditHook, TransferBlockCheck};
@@ -368,3 +368,7 @@ fn valid(id: Uuid) -> Result<(), Error> {
 #[cfg(test)]
 #[path = "referrals_tests.rs"]
 mod tests;
+
+/// Tell-a-friend campaign, browser surface and authoritative store integration.
+#[path = "referrals/campaign.rs"]
+pub mod campaign;

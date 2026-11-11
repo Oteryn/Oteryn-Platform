@@ -1,0 +1,926 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+use super::*;
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+    routing::get,
+};
+use oteryn_store::{catalog, purchase};
+use oteryn_wallet::{AccountStateReader, AdjustmentAudit, AuditHook, TransferBlockCheck};
+use tower::ServiceExt;
+
+#[derive(Debug, Clone, Copy)]
+struct Checks;
+impl AccountStateReader for Checks {
+    async fn state(&self, conn: &mut PgConnection, account: Uuid) -> oteryn_wallet::AccountState {
+        if DatabasePolicy
+            .allowed(conn, account, account, Kind::New, Stage::Statistics)
+            .await
+        {
+            oteryn_wallet::AccountState::Active
+        } else {
+            oteryn_wallet::AccountState::Unknown
+        }
+    }
+}
+impl TransferBlockCheck for Checks {
+    async fn permission(&self, _: &mut PgConnection, _: Uuid) -> oteryn_wallet::TransferPermission {
+        oteryn_wallet::TransferPermission::Allowed
+    }
+}
+impl AuditHook for Checks {
+    async fn adjustment(&self, _: &mut PgConnection, _: &AdjustmentAudit) -> bool {
+        true
+    }
+}
+impl purchase::Accounts for Checks {
+    async fn state(
+        &self,
+        conn: &mut PgConnection,
+        account: Uuid,
+    ) -> Result<purchase::AccountState, purchase::Error> {
+        Ok(
+            if DatabasePolicy
+                .allowed(conn, account, account, Kind::New, Stage::Statistics)
+                .await
+            {
+                purchase::AccountState::Active
+            } else {
+                purchase::AccountState::Restricted
+            },
+        )
+    }
+}
+impl catalog::CatalogAccess for Checks {
+    async fn account_state(
+        &self,
+        _: Uuid,
+        _: &mut PgConnection,
+    ) -> Result<catalog::AccountState, catalog::Error> {
+        Ok(catalog::AccountState::Active)
+    }
+    async fn permitted(
+        &self,
+        _: Uuid,
+        _: catalog::Action,
+        _: &mut PgConnection,
+    ) -> Result<bool, catalog::Error> {
+        Ok(true)
+    }
+}
+const CATALOG: &str = r#"{"contract_version":1,"offers":[{"offer_key":"premium-30d","currency":"COINS","unit_price":"250","max_quantity":10,"purchasable":true,"units":[{"product_id":"oteryn.premium_time","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"premium_time","grant_revision":"1","quantity":30}]}]}"#;
+type Purchases = purchase::Purchases<Checks, Checks, Checks, Checks>;
+struct Database {
+    pool: PgPool,
+    root: PgPool,
+    schema: String,
+    campaign: Campaign,
+    revision: String,
+}
+impl Database {
+    async fn open() -> Option<Self> {
+        let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+            eprintln!("SKIPPED N012 PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
+            return None;
+        };
+        let root = PgPool::connect(&url).await.unwrap();
+        let schema = format!("referrals_campaign_{}", Uuid::now_v7().simple());
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&root)
+            .await
+            .unwrap();
+        let path = schema.clone();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(12)
+            .after_connect(move |conn, _| {
+                let path = path.clone();
+                Box::pin(async move {
+                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                        .bind(path)
+                        .execute(conn)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&url)
+            .await
+            .unwrap();
+        oteryn_db::migrate(&pool).await.unwrap();
+        sqlx::query("UPDATE referral_campaign_settings SET enabled=true")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let store =
+            catalog::CatalogStore::new(pool.clone(), catalog::CatalogFlags { enabled: true });
+        let actor = Uuid::now_v7();
+        let revision = store
+            .import(CATALOG.as_bytes(), actor, &Checks)
+            .await
+            .unwrap();
+        store.activate(&revision, actor, &Checks).await.unwrap();
+        let campaign = Campaign::new(
+            pool.clone(),
+            Flags { enabled: true },
+            DatabasePolicy,
+            "https://portal.example.test".into(),
+        )
+        .unwrap();
+        Some(Self {
+            pool,
+            root,
+            schema,
+            campaign,
+            revision,
+        })
+    }
+    async fn account(&self) -> Uuid {
+        sqlx::query_scalar("INSERT INTO accounts(email,password_hash,locale,status,email_verified_at) VALUES($1,'test-only','en','active',clock_timestamp()) RETURNING id")
+            .bind(format!("{}@example.test",Uuid::now_v7())).fetch_one(&self.pool).await.unwrap()
+    }
+    async fn email(&self, account: Uuid) -> String {
+        sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1")
+            .bind(account)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap()
+    }
+    async fn inactive(&self, account: Uuid, months: i32) {
+        sqlx::query("UPDATE accounts SET created_at=clock_timestamp()-make_interval(months=>$2+1) WHERE id=$1").bind(account).bind(months).execute(&self.pool).await.unwrap();
+        sqlx::query("UPDATE referral_activity SET last_activity=clock_timestamp()-make_interval(months=>$2)-interval '1 minute',created_at=clock_timestamp()-make_interval(months=>$2)-interval '1 minute' WHERE account_id=$1").bind(account).bind(months).execute(&self.pool).await.unwrap();
+    }
+    async fn recruit(&self, inviter: Uuid) -> Uuid {
+        let code = self.campaign.link(inviter).await.unwrap();
+        let invitee = self.account().await;
+        self.campaign.accept(invitee, code).await.unwrap();
+        invitee
+    }
+    fn wallet(&self) -> oteryn_wallet::Ledger<Checks, Checks, Checks> {
+        oteryn_wallet::Ledger::new(
+            self.pool.clone(),
+            oteryn_wallet::WalletFlags { enabled: true },
+            Checks,
+            Checks,
+            Checks,
+        )
+    }
+    fn purchases(&self) -> Purchases {
+        purchase::Purchases::new(
+            self.pool.clone(),
+            purchase::Settings {
+                purchase_enabled: true,
+                delivery_enabled: true,
+                environment: "testing".into(),
+                source_authority: "referral-tests".into(),
+                peer_identity: "referral.test".into(),
+                enabled_unit_kinds: vec!["PREMIUM_TIME".into()],
+                purchases_per_account_per_minute: 60,
+                ..purchase::Settings::default()
+            },
+            self.wallet(),
+            Checks,
+        )
+    }
+    fn request(&self, account: Uuid, quantity: u8, key: Uuid) -> Vec<u8> {
+        serde_json::to_vec(&purchase::PurchaseRequest {
+            contract_version: 1,
+            operation: "PurchaseStoreOfferV1".into(),
+            source_authority: "referral-tests".into(),
+            purchase_request_id: key.to_string(),
+            account_id: account.to_string(),
+            character_id: Uuid::now_v7().to_string(),
+            world_id: Uuid::now_v7().to_string(),
+            catalog_revision: self.revision.clone(),
+            offer_key: "premium-30d".into(),
+            currency: "COINS".into(),
+            unit_price: "250".into(),
+            quantity,
+        })
+        .unwrap()
+    }
+    async fn fund(&self, account: Uuid) {
+        self.wallet()
+            .adjust(
+                Uuid::now_v7(),
+                account,
+                10000,
+                account,
+                "Referral test funding",
+            )
+            .await
+            .unwrap();
+    }
+    async fn buy(&self, account: Uuid, quantity: u8) {
+        self.fund(account).await;
+        let raw = self.request(account, quantity, Uuid::now_v7());
+        let answer = self.purchases().purchase(&raw).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&answer).unwrap()["result"],
+            "ACCEPTED"
+        );
+        assert_eq!(self.purchases().purchase(&raw).await.unwrap(), answer);
+    }
+    async fn count(&self, kind: &str) -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM referral_campaign_rewards WHERE kind=$1")
+            .bind(kind)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap()
+    }
+    async fn close(self) {
+        self.pool.close().await;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.root)
+        .await
+        .unwrap();
+        self.root.close().await;
+    }
+}
+#[tokio::test]
+async fn referrals_email_rate_limit_25_per_day() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    for n in 0..25 {
+        db.campaign
+            .email(owner, &format!("friend{n}@example.test"), Kind::New)
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        db.campaign
+            .email(owner, "last@example.test", Kind::New)
+            .await,
+        Err(Error::Denied)
+    );
+    assert_eq!(
+        db.campaign.email(owner, "bad input", Kind::New).await,
+        Err(Error::Invalid)
+    );
+    sqlx::query("UPDATE referral_email_attempts SET created_at=clock_timestamp()-interval '24 hours 1 second'").execute(&db.pool).await.unwrap();
+    db.campaign
+        .email(owner, "last@example.test", Kind::New)
+        .await
+        .unwrap();
+    let sender = Arc::new(oteryn_notify::CaptureSender::default());
+    Worker {
+        campaign: db.campaign.clone(),
+        sender: Some(sender.clone()),
+    }
+    .process()
+    .await
+    .unwrap();
+    assert_eq!(sender.emails.lock().unwrap().len(), 25);
+    db.close().await;
+}
+#[tokio::test]
+async fn referrals_resend_after_14_days() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    db.campaign
+        .email(owner, "friend@example.test", Kind::New)
+        .await
+        .unwrap();
+    assert_eq!(
+        db.campaign
+            .email(owner, " FRIEND@example.test ", Kind::New)
+            .await,
+        Err(Error::Denied)
+    );
+    sqlx::query("UPDATE referral_email_invitations SET created_at=clock_timestamp()-interval '14 days 1 second'").execute(&db.pool).await.unwrap();
+    db.campaign
+        .email(owner, "friend@example.test", Kind::New)
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM referral_email_attempts")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+    db.close().await;
+}
+#[tokio::test]
+async fn referrals_outfit_on_first_paid_purchase() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let invitee = db.recruit(owner).await;
+    assert_eq!(db.count("outfit").await, 0);
+    let refusal = db
+        .purchases()
+        .purchase(&db.request(invitee, 1, Uuid::now_v7()))
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&refusal).unwrap()["result"],
+        "INSUFFICIENT_BALANCE"
+    );
+    assert!(db.purchases().purchase(b"{}").await.is_err());
+    assert_eq!(db.count("outfit").await, 0);
+    db.buy(invitee, 1).await;
+    db.buy(invitee, 1).await;
+    assert_eq!(db.count("outfit").await, 1);
+    db.close().await;
+}
+#[tokio::test]
+async fn referrals_addons_at_3_and_10() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    for n in 1..=10 {
+        let invitee = db.recruit(owner).await;
+        db.buy(invitee, 1).await;
+        assert_eq!(db.count("addon1").await, i64::from(n >= 3));
+        assert_eq!(db.count("addon2").await, i64::from(n >= 10));
+    }
+    assert_eq!(db.count("outfit").await, 1);
+    db.close().await;
+}
+#[tokio::test]
+async fn referrals_loyalty_1_per_6() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let grandparent = db.account().await;
+    let owner = db.recruit(grandparent).await;
+    let invitee = db.recruit(owner).await;
+    for points in [5, 6, 6] {
+        sqlx::query("SELECT referral_campaign_loyalty($1,$2)")
+            .bind(invitee)
+            .bind(points)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let points: i64 =
+        sqlx::query_scalar("SELECT sum(points)::bigint FROM referral_loyalty_credits")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(points, 1);
+    // A controlled historical premium interval lets the real snapshot consume 13 days.
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1)")
+        .bind(invitee)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO premium_ledger(request_id,account_id,actor_id,event_type,duration_days,reason_sha256,entitlement_id,lifecycle_revision,delta_seconds,effective_from,effective_until) VALUES($1,$2,$2,'GRANT',30,$3,$4,1,2592000,date_trunc('second',now())-interval '13 days 1 minute',date_trunc('second',now())+interval '17 days'-interval '1 minute')")
+        .bind(Uuid::now_v7()).bind(invitee).bind(vec![0_u8;32]).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    let ledger =
+        oteryn_store::loyalty::Ledger::new(db.pool.clone(), Arc::new(DatabasePolicy), true);
+    for _ in 0..2 {
+        let bytes = ledger
+            .snapshot(invitee, &"a".repeat(32), &"b".repeat(40))
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["loyalty_points"],
+            13
+        );
+    }
+    for _ in 0..2 {
+        let bytes = ledger
+            .snapshot(owner, &"a".repeat(32), &"b".repeat(40))
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["loyalty_points"],
+            2
+        );
+    }
+    let points: i64 =
+        sqlx::query_scalar("SELECT sum(points)::bigint FROM referral_loyalty_credits")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(points, 2);
+    sqlx::query("INSERT INTO referral_loyalty_credits(operation_key,account_id,points) VALUES('historical-referral-credit',$1,12)").bind(owner).execute(&db.pool).await.unwrap();
+    for _ in 0..2 {
+        let bytes = ledger
+            .snapshot(owner, &"a".repeat(32), &"b".repeat(40))
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["loyalty_points"],
+            14
+        );
+    }
+    let upstream: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(points),0)::bigint FROM referral_loyalty_credits WHERE account_id=$1",
+    )
+    .bind(grandparent)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(upstream, 0);
+    db.close().await;
+}
+#[tokio::test]
+async fn referrals_buddy_requires_12_months_inactive() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let buddy = db.account().await;
+    let email = db.email(buddy).await;
+    // Old retained activity alone does not prove twelve months of coverage.
+    sqlx::query("UPDATE referral_activity SET last_activity=clock_timestamp()-interval '13 months' WHERE account_id=$1").bind(buddy).execute(&db.pool).await.unwrap();
+    assert_eq!(
+        db.campaign.email(owner, &email, Kind::Returning).await,
+        Err(Error::Denied)
+    );
+    db.inactive(buddy, 11).await;
+    assert_eq!(
+        db.campaign.email(owner, &email, Kind::Returning).await,
+        Err(Error::Denied)
+    );
+    db.inactive(buddy, 12).await;
+    db.campaign
+        .email(owner, &email, Kind::Returning)
+        .await
+        .unwrap();
+    db.close().await;
+}
+#[tokio::test]
+async fn referrals_buddy_limit_20_per_30_days() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    for _ in 0..20 {
+        let buddy = db.account().await;
+        db.inactive(buddy, 13).await;
+        db.campaign
+            .email(owner, &db.email(buddy).await, Kind::Returning)
+            .await
+            .unwrap();
+    }
+    let buddy = db.account().await;
+    db.inactive(buddy, 13).await;
+    assert_eq!(
+        db.campaign
+            .email(owner, &db.email(buddy).await, Kind::Returning)
+            .await,
+        Err(Error::Denied)
+    );
+    sqlx::query("UPDATE referral_email_attempts SET created_at=clock_timestamp()-interval '30 days 1 second'").execute(&db.pool).await.unwrap();
+    db.campaign
+        .email(owner, &db.email(buddy).await, Kind::Returning)
+        .await
+        .unwrap();
+    db.close().await;
+}
+#[tokio::test]
+async fn referrals_buddy_premium_5_and_10_days_within_90() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    for (quantity, expected, expired) in [(1, 5, false), (3, 10, false), (3, 0, true)] {
+        let owner = db.account().await;
+        let buddy = db.account().await;
+        db.inactive(buddy, 13).await;
+        db.campaign
+            .email(owner, &db.email(buddy).await, Kind::Returning)
+            .await
+            .unwrap();
+        if expired {
+            sqlx::query("UPDATE referral_campaign_invitations SET created_at=clock_timestamp()-interval '90 days 1 second' WHERE invitee_id=$1").bind(buddy).execute(&db.pool).await.unwrap();
+        }
+        db.buy(buddy, quantity).await;
+        let worker = Worker {
+            campaign: db.campaign.clone(),
+            sender: None,
+        };
+        worker.process().await.unwrap();
+        worker.process().await.unwrap();
+        let days: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(sum(duration_days),0)::bigint FROM premium_ledger WHERE account_id=$1",
+        )
+        .bind(owner)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(days, expected);
+        // Further purchases neither extend the deadline nor change an awarded tier.
+        db.buy(buddy, 3).await;
+        worker.process().await.unwrap();
+        let rows: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM premium_ledger WHERE account_id=$1")
+                .bind(owner)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(rows, i64::from(!expired));
+    }
+    db.close().await;
+}
+#[tokio::test]
+async fn referrals_rewards_once_only_under_concurrency() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let invitee = db.recruit(owner).await;
+    db.fund(invitee).await;
+    let raw = db.request(invitee, 1, Uuid::now_v7());
+    let service = Arc::new(db.purchases());
+    let mut jobs = Vec::new();
+    for _ in 0..12 {
+        let service = service.clone();
+        let raw = raw.clone();
+        jobs.push(tokio::spawn(async move {
+            service.purchase(&raw).await.unwrap()
+        }));
+    }
+    let mut results = Vec::new();
+    for job in jobs {
+        results.push(job.await.unwrap());
+    }
+    assert!(results.iter().all(|r| r == &results[0]));
+    assert_eq!(db.count("outfit").await, 1);
+    let mut competing = Vec::new();
+    for _ in 0..6 {
+        let service = service.clone();
+        let raw = db.request(invitee, 1, Uuid::now_v7());
+        competing.push(tokio::spawn(async move {
+            service.purchase(&raw).await.unwrap()
+        }));
+    }
+    for task in competing {
+        task.await.unwrap();
+    }
+    assert_eq!(db.count("outfit").await, 1);
+    for _ in 0..12 {
+        sqlx::query("SELECT referral_campaign_loyalty($1,12)")
+            .bind(invitee)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let credits: i64 =
+        sqlx::query_scalar("SELECT sum(points)::bigint FROM referral_loyalty_credits")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(credits, 2);
+    drop(service);
+    db.close().await;
+}
+#[tokio::test]
+async fn referrals_self_referral_denied() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    assert_eq!(db.campaign.accept(owner, code).await, Err(Error::Denied));
+    assert_eq!(
+        db.campaign
+            .email(owner, &db.email(owner).await, Kind::New)
+            .await,
+        Err(Error::Denied)
+    );
+    assert_eq!(
+        db.campaign.accept(owner, Uuid::nil()).await,
+        Err(Error::Invalid)
+    );
+    let other = db.account().await;
+    let mut tx = db.campaign.begin().await.unwrap();
+    db.campaign
+        .bind(&mut tx, owner, other, Kind::Returning)
+        .await
+        .unwrap_err();
+    tx.rollback().await.unwrap();
+    let mut off = db.campaign.clone();
+    off.flags.enabled = false;
+    assert_eq!(off.link(owner).await, Err(Error::Disabled));
+    db.close().await;
+}
+#[tokio::test]
+async fn referrals_starter_and_first_returning_character_pending_entitlements() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let invitee = db.recruit(owner).await;
+    let (amount,seconds):(i32,i64)=sqlx::query_as("SELECT r.amount,extract(epoch FROM r.expires_at-a.created_at)::bigint FROM referral_campaign_rewards r JOIN accounts a ON a.id=r.account_id WHERE r.kind='starter' AND r.account_id=$1").bind(invitee).fetch_one(&db.pool).await.unwrap();
+    assert_eq!((amount, seconds), (3, 604800));
+    let code = db.campaign.link(owner).await.unwrap();
+    db.campaign.accept(invitee, code).await.unwrap();
+    assert_eq!(db.count("starter").await, 1);
+    let buddy = db.account().await;
+    db.inactive(buddy, 13).await;
+    db.campaign
+        .email(owner, &db.email(buddy).await, Kind::Returning)
+        .await
+        .unwrap();
+    let first = Uuid::now_v7();
+    let login = Uuid::now_v7();
+    sqlx::query("INSERT INTO pd_game_logins(account_id,login_event_id,projection_epoch,recovery_generation,source_revision,entered_at) VALUES($1,$2,1,1,1,(extract(epoch FROM clock_timestamp())*1000)::bigint)")
+        .bind(buddy).bind(login).execute(&db.pool).await.unwrap();
+    assert_eq!(db.count("welcome").await, 0);
+    sqlx::query("UPDATE pd_game_logins SET character_id=$3,world_id=$4,projection_revision=1,character_revision=1,source_revision=2 WHERE account_id=$1 AND login_event_id=$2")
+        .bind(buddy).bind(login).bind(first).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    {
+        let character = Uuid::now_v7();
+        sqlx::query("INSERT INTO pd_game_logins(account_id,login_event_id,character_id,world_id,projection_epoch,recovery_generation,projection_revision,character_revision,source_revision,entered_at) VALUES($1,$2,$3,$4,1,1,1,1,1,(extract(epoch FROM clock_timestamp())*1000)::bigint)").bind(buddy).bind(Uuid::now_v7()).bind(character).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    }
+    let character: Uuid = sqlx::query_scalar(
+        "SELECT character_id FROM referral_campaign_rewards WHERE kind='welcome'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(character, first);
+    assert_eq!(db.count("welcome").await, 1);
+    let held:i64=sqlx::query_scalar("SELECT count(*) FROM outbox WHERE kind='referral.entitlement' AND state='pending' AND run_after='infinity'").fetch_one(&db.pool).await.unwrap();
+    assert_eq!(held, 2);
+    db.close().await;
+}
+async fn test_login(
+    Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    Path(account): Path<Uuid>,
+) -> String {
+    oteryn_web::session::rotate(
+        &session,
+        oteryn_web::session::PrivilegeChange::Login(account),
+    )
+    .await
+    .unwrap();
+    session.csrf_token().await.unwrap()
+}
+use axum::extract::{Extension, Path};
+#[tokio::test]
+async fn referrals_http_real_router_session_csrf_locales_and_bad_input() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let mut layer = oteryn_web::session::SessionLayer::new(db.pool.clone());
+    layer.csrf.trusted_origins = vec![db.campaign.origin.clone()];
+    let app = web::routes(db.campaign.clone())
+        .merge(Router::new().route("/test-login/{account}", get(test_login)))
+        .layer(axum::middleware::from_fn_with_state(
+            layer,
+            oteryn_web::session::middleware,
+        ));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/test-login/{owner}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let csrf =
+        String::from_utf8(to_bytes(response.into_body(), 4096).await.unwrap().to_vec()).unwrap();
+    for lang in ["pl", "en"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/{lang}/account/referrals"))
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let body = String::from_utf8(
+            to_bytes(response.into_body(), 32768)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(body.contains("width=device-width"));
+        assert!(body.contains("for=\"new-email\""));
+        assert!(body.contains("for=\"buddy-email\""));
+        assert!(body.contains(&format!("lang=\"{lang}\"")));
+        if let Ok(directory) = std::env::var("PORTAL_REFERRALS_RENDER_DIR") {
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                std::path::Path::new(&directory).join(format!("{lang}.html")),
+                &body,
+            )
+            .unwrap();
+        }
+    }
+    let send = |body: String| {
+        Request::post("/en/account/referrals")
+            .header("cookie", &cookie)
+            .header("origin", "https://portal.example.test")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap()
+    };
+    assert_eq!(
+        app.clone()
+            .oneshot(send("email=a%40example.test&kind=new&_csrf=bad".into()))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        app.clone()
+            .oneshot(send(format!("email=bad&kind=new&_csrf={csrf}")))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        app.clone()
+            .oneshot(send(format!(
+                "email=friend%40example.test&kind=new&_csrf={csrf}"
+            )))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let sent: i64 = sqlx::query_scalar("SELECT count(*) FROM referral_email_attempts")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(sent, 1);
+    assert_eq!(
+        app.clone()
+            .oneshot(
+                Request::get("/en/account/referrals")
+                    .body(Body::empty())
+                    .unwrap()
+            )
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        web::router(
+            Campaign::new(
+                db.pool.clone(),
+                Flags::default(),
+                DatabasePolicy,
+                db.campaign.origin.clone()
+            )
+            .unwrap()
+        )
+        .oneshot(
+            Request::get("/en/account/referrals")
+                .body(Body::empty())
+                .unwrap()
+        )
+        .await
+        .unwrap()
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    drop(app);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn referrals_atomic_rollback_and_disabled_hooks() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let invitee = db.recruit(owner).await;
+    db.fund(invitee).await;
+    sqlx::raw_sql("CREATE FUNCTION reject_referral_reward() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'reward test failure'; END $$; CREATE TRIGGER reject_reward BEFORE INSERT ON referral_campaign_rewards FOR EACH ROW EXECUTE FUNCTION reject_referral_reward();").execute(&db.pool).await.unwrap();
+    assert!(
+        db.purchases()
+            .purchase(&db.request(invitee, 1, Uuid::now_v7()))
+            .await
+            .is_err()
+    );
+    assert_eq!(db.wallet().balance(invitee).await.unwrap().available, 10000);
+    let orders: i64 = sqlx::query_scalar("SELECT count(*) FROM store_orders")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(orders, 0);
+    sqlx::query("UPDATE referral_campaign_settings SET enabled=false")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let response = db
+        .purchases()
+        .purchase(&db.request(invitee, 1, Uuid::now_v7()))
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&response).unwrap()["result"],
+        "ACCEPTED"
+    );
+    assert_eq!(db.count("outfit").await, 0);
+    assert_eq!(db.campaign.link(owner).await, Err(Error::Disabled));
+    db.close().await;
+}
+
+#[tokio::test]
+async fn referrals_link_survives_real_session_rotation_and_reconciles_signup() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    let mut layer = oteryn_web::session::SessionLayer::new(db.pool.clone());
+    layer.csrf.trusted_origins = vec![db.campaign.origin.clone()];
+    let app = web::routes(db.campaign.clone())
+        .merge(Router::new().route("/test-login/{account}", get(test_login)))
+        .layer(axum::middleware::from_fn_with_state(
+            layer,
+            oteryn_web::session::middleware,
+        ));
+    let path = format!("/en/referrals/{code}");
+    let response = app
+        .clone()
+        .oneshot(Request::get(&path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 32768)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post(&path)
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("origin", "https://portal.example.test")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.headers()["location"], "/en/register");
+    let invitee = db.account().await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/test-login/{invitee}"))
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    Worker {
+        campaign: db.campaign.clone(),
+        sender: None,
+    }
+    .process()
+    .await
+    .unwrap();
+    let binding: Uuid = sqlx::query_scalar(
+        "SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=$1",
+    )
+    .bind(invitee)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(binding, owner);
+    assert_eq!(db.count("starter").await, 1);
+    drop(app);
+    db.close().await;
+}

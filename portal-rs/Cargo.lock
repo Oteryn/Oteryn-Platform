@@ -2813,6 +2813,7 @@ dependencies = [
  "oteryn-db",
  "oteryn-internal-api",
  "oteryn-notify",
+ "oteryn-store",
  "oteryn-ui",
  "oteryn-wallet",
  "oteryn-web",
