@@ -405,7 +405,12 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             ));
             // Same router behind verified mTLS; the only adapter that admits /internal/v1 peers.
             let app = app.merge(oteryn_wallet::wire::configured_router(db.clone()));
+            let public_app = app.clone();
+            let app = app.merge(oteryn_store::loyalty::stream::http::configured_router(
+                db.clone(),
+            ));
             let _internal_listener = internal_tls::start(app.clone()).await?;
+            let app = public_app;
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             axum::serve(listener, app)
                 .with_graceful_shutdown(async {
