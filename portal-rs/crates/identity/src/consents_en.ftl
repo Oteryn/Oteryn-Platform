@@ -1,0 +1,12 @@
+title = Account consents
+play_session = Play Session Agreement
+personalised_ads = Personalised Ads on External Platforms
+play_session-purpose = I consent to saving my play sessions for the sole purpose of improving the gaming experience or enforcing the Rules.
+personalised_ads-purpose = I consent to using my data to show me personalised ads on various external platforms. There are no ads in the game.
+granted = Permission granted
+refused = Permission not granted
+no-decision = No decision recorded. Permission is not granted.
+decided = Current decision (UTC):
+save = Save decision
+hint = You can grant or revoke each permission independently at any time. Clear a checkbox and save to revoke permission.
+outdated = The consent text has changed. Reload this page and review the current text before granting permission.
