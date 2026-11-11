@@ -125,6 +125,13 @@ impl Stream {
             position: 0,
             through: 0,
         });
+        oteryn_db::retry::transaction(|| self.read_attempt(cursor, limit)).await
+    }
+    async fn read_attempt(
+        &self,
+        cursor: Cursor,
+        limit: u16,
+    ) -> Result<Page, oteryn_db::retry::TransactionError<Error>> {
         let mut tx = self.pool.begin().await?;
         let mut head: i64 = sqlx::query_scalar(
             "SELECT position FROM loyalty_stream_head WHERE singleton FOR UPDATE",
@@ -132,7 +139,7 @@ impl Stream {
         .fetch_one(&mut *tx)
         .await?;
         if cursor.position > head || cursor.through > head {
-            return Err(Error::Invalid);
+            return Err(Error::Invalid.into());
         }
         // A continuation reads only its immutable window, without recomputation.
         // A tail poll recomputes even when no Premium mutation has occurred: time
@@ -155,14 +162,14 @@ impl Stream {
             for account in candidates {
                 if account.get_version_num() != 7 || account.get_variant() != uuid::Variant::RFC4122
                 {
-                    return Err(Error::Unavailable);
+                    return Err(Error::Unavailable.into());
                 }
                 match self.accounts.state(account, &mut tx).await? {
                     AccountState::Known => {
                         known.insert(account);
                     }
                     AccountState::Unknown => (),
-                    AccountState::Ambiguous => return Err(Error::Unavailable),
+                    AccountState::Ambiguous => return Err(Error::Unavailable.into()),
                 }
                 sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR KEY SHARE")
                     .bind(account)

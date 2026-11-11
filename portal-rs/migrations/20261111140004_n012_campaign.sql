@@ -78,6 +78,8 @@ END $$;
 -- (including all later FK targets), then premium_authority in UUID order, then
 -- 5600. Never expand either row-lock set after 5600; retry stale discovery.
 -- Callers needing stronger account/authority locks prepare those before calling.
+-- Rust retries stale discovery from a fresh transaction via oteryn_db::retry;
+-- signup triggers instead defer expanded preparation to worker reconciliation.
 CREATE FUNCTION referral_campaign_prepare(ids uuid[],exclusive_account uuid DEFAULT NULL) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE held uuid[]; account uuid;
 BEGIN
@@ -138,7 +140,7 @@ RETURNS void LANGUAGE plpgsql AS $$
 DECLARE invitation referral_campaign_invitations; delta integer;
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM referral_campaign_settings WHERE enabled) THEN RETURN; END IF;
-    PERFORM referral_campaign_lock(ARRAY[a] || ARRAY(SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=a));
+    PERFORM referral_campaign_lock(ARRAY[a] || ARRAY(SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=a AND kind='new'));
     SELECT i.* INTO invitation FROM referral_campaign_invitations i
       JOIN accounts buyer ON buyer.id=i.invitee_id AND buyer.status='active' AND buyer.email_verified_at IS NOT NULL AND buyer.email_change_blocked_until<=clock_timestamp()
       JOIN accounts owner ON owner.id=i.inviter_id AND owner.status='active' AND owner.email_verified_at IS NOT NULL AND owner.email_change_blocked_until<=clock_timestamp()
@@ -235,7 +237,15 @@ BEGIN
             ancestors(id) AS (SELECT owner UNION SELECT e.inviter_id FROM edges e JOIN ancestors p ON e.invitee_id=p.id)
             SELECT 1 FROM ancestors WHERE id=a)
             OR EXISTS(SELECT 1 FROM referral_invitations WHERE invitee_id=a) THEN RETURN false; END IF;
-        IF phase=1 THEN PERFORM referral_campaign_lock(ARRAY[a,owner]); END IF;
+        IF phase=1 THEN
+            BEGIN
+                PERFORM referral_campaign_lock(ARRAY[a,owner]);
+            EXCEPTION WHEN serialization_failure OR deadlock_detected THEN
+                -- Triggers cannot restart their caller's transaction. Keep the
+                -- session evidence intact for reconciliation in a fresh one.
+                RETURN false;
+            END;
+        END IF;
     END LOOP;
     INSERT INTO referral_campaign_invitations(inviter_id,invitee_id,kind) VALUES(owner,a,'new');
     PERFORM referral_campaign_reward('starter:'||i.id,a,'starter',3,NULL,b.created_at+interval '7 days')

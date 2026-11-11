@@ -1,5 +1,6 @@
 //! Default-off tell-a-friend campaigns. Store callbacks own paid evidence.
 use super::{Error, Flags, Kind, Policy, Stage, valid};
+use oteryn_db::retry::TransactionError;
 use sqlx::{PgConnection, PgPool, Row};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -93,9 +94,9 @@ impl<P: Policy> Campaign<P> {
     async fn begin(
         &self,
         accounts: &[Uuid],
-    ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, Error> {
+    ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, TransactionError<Error>> {
         if !self.flags.enabled {
-            return Err(Error::Disabled);
+            return Err(Error::Disabled.into());
         }
         let mut tx = self.pool.begin().await?;
         let enabled: bool =
@@ -103,7 +104,7 @@ impl<P: Policy> Campaign<P> {
                 .fetch_one(&mut *tx)
                 .await?;
         if !enabled {
-            return Err(Error::Disabled);
+            return Err(Error::Disabled.into());
         }
         // Attribution and reward foreign keys must not acquire account locks
         // after 5600: purchases hold accounts FOR UPDATE before qualification.
@@ -117,7 +118,11 @@ impl<P: Policy> Campaign<P> {
             .await?;
         Ok(tx)
     }
-    async fn actor(&self, conn: &mut PgConnection, actor: Uuid) -> Result<(), Error> {
+    async fn actor(
+        &self,
+        conn: &mut PgConnection,
+        actor: Uuid,
+    ) -> Result<(), TransactionError<Error>> {
         valid(actor)?;
         if self
             .policy
@@ -126,10 +131,13 @@ impl<P: Policy> Campaign<P> {
         {
             Ok(())
         } else {
-            Err(Error::Denied)
+            Err(Error::Denied.into())
         }
     }
     pub async fn link(&self, actor: Uuid) -> Result<Uuid, Error> {
+        oteryn_db::retry::transaction(|| self.link_attempt(actor)).await
+    }
+    async fn link_attempt(&self, actor: Uuid) -> Result<Uuid, TransactionError<Error>> {
         let mut tx = self.begin(&[actor]).await?;
         self.actor(&mut tx, actor).await?;
         let code=sqlx::query_scalar("INSERT INTO referral_links(account_id) VALUES($1) ON CONFLICT(account_id) DO UPDATE SET account_id=EXCLUDED.account_id RETURNING code").bind(actor).fetch_one(&mut *tx).await?;
@@ -138,6 +146,14 @@ impl<P: Policy> Campaign<P> {
     }
     /// Each actual send consumes a rolling budget, including permitted resends.
     pub async fn email(&self, actor: Uuid, recipient: &str, kind: Kind) -> Result<(), Error> {
+        oteryn_db::retry::transaction(|| self.email_attempt(actor, recipient, kind)).await
+    }
+    async fn email_attempt(
+        &self,
+        actor: Uuid,
+        recipient: &str,
+        kind: Kind,
+    ) -> Result<(), TransactionError<Error>> {
         let recipient = recipient.trim().to_ascii_lowercase();
         let email = regex::Regex::new(
             r"^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63}$",
@@ -149,7 +165,7 @@ impl<P: Policy> Campaign<P> {
             || recipient.contains(".@")
             || !email.is_match(&recipient)
         {
-            return Err(Error::Invalid);
+            return Err(Error::Invalid.into());
         }
         // Resolve returning recipients before the global qualification lock.
         let target: Option<Uuid> =
@@ -167,21 +183,21 @@ impl<P: Policy> Campaign<P> {
         .fetch_one(&mut *tx)
         .await?;
         if own {
-            return Err(Error::Denied);
+            return Err(Error::Denied.into());
         }
         let old: Option<(Uuid,bool)>=sqlx::query_as("SELECT id,created_at<=clock_timestamp()-interval '14 days' FROM referral_email_invitations WHERE inviter_id=$1 AND recipient=$2 AND kind=$3")
             .bind(actor).bind(&recipient).bind(kind.name()).fetch_optional(&mut *tx).await?;
         if old.is_some_and(|(_, allowed)| !allowed) {
-            return Err(Error::Denied);
+            return Err(Error::Denied.into());
         }
         let used: i64=sqlx::query_scalar("SELECT count(*) FROM referral_email_attempts WHERE inviter_id=$1 AND created_at>clock_timestamp()-interval '24 hours'").bind(actor).fetch_one(&mut *tx).await?;
         if used >= 25 {
-            return Err(Error::Denied);
+            return Err(Error::Denied.into());
         }
         if kind == Kind::Returning {
             let used: i64=sqlx::query_scalar("SELECT count(*) FROM referral_email_attempts a JOIN referral_email_invitations i ON i.id=a.invitation_id WHERE a.inviter_id=$1 AND i.kind='returning' AND a.created_at>clock_timestamp()-interval '30 days'").bind(actor).fetch_one(&mut *tx).await?;
             if used >= 20 {
-                return Err(Error::Denied);
+                return Err(Error::Denied.into());
             }
             let target = target.ok_or(Error::Denied)?;
             let matches: bool = sqlx::query_scalar(
@@ -192,7 +208,7 @@ impl<P: Policy> Campaign<P> {
             .fetch_one(&mut *tx)
             .await?;
             if !matches {
-                return Err(Error::Denied);
+                return Err(Error::Denied.into());
             }
             // Replays keep the original eligibility snapshot and reward deadline.
             if old.is_none() {
@@ -205,7 +221,7 @@ impl<P: Policy> Campaign<P> {
                     .fetch_one(&mut *tx)
                     .await?;
             if registered {
-                return Err(Error::Denied);
+                return Err(Error::Denied.into());
             }
         }
         let id = if let Some((id, _)) = old {
@@ -223,6 +239,9 @@ impl<P: Policy> Campaign<P> {
         Ok(())
     }
     async fn invitation_kind(&self, code: Uuid) -> Result<Kind, Error> {
+        oteryn_db::retry::transaction(|| self.invitation_kind_attempt(code)).await
+    }
+    async fn invitation_kind_attempt(&self, code: Uuid) -> Result<Kind, TransactionError<Error>> {
         valid(code)?;
         let mut tx = self.begin(&[]).await?;
         let name: Option<String>=sqlx::query_scalar("SELECT 'new' FROM referral_links WHERE code=$1 UNION ALL SELECT kind FROM referral_email_invitations WHERE id=$1")
@@ -230,13 +249,16 @@ impl<P: Policy> Campaign<P> {
         match name.as_deref() {
             Some("new") => Ok(Kind::New),
             Some("returning") => Ok(Kind::Returning),
-            _ => Err(Error::Denied),
+            _ => Err(Error::Denied.into()),
         }
     }
     pub async fn accept(&self, actor: Uuid, code: Uuid) -> Result<(), Error> {
+        oteryn_db::retry::transaction(|| self.accept_attempt(actor, code)).await
+    }
+    async fn accept_attempt(&self, actor: Uuid, code: Uuid) -> Result<(), TransactionError<Error>> {
         valid(code)?;
         if !self.flags.enabled {
-            return Err(Error::Disabled);
+            return Err(Error::Disabled.into());
         }
         // Discover immutable invitation ownership before taking 5600; reread
         // the invitation and all eligibility evidence inside the transaction.
@@ -248,17 +270,21 @@ impl<P: Policy> Campaign<P> {
             .bind(code).fetch_optional(&mut *tx).await?;
         let (owner, created, recipient, kind) = owner.ok_or(Error::Denied)?;
         if Some(owner) != inviter {
-            return Err(Error::Denied);
+            return Err(Error::Denied.into());
         }
         if kind == "returning" {
             let bound: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM referral_campaign_invitations i JOIN accounts a ON a.id=i.invitee_id WHERE i.inviter_id=$1 AND i.invitee_id=$2 AND i.kind='returning' AND lower(a.email)=$3)")
                 .bind(owner).bind(actor).bind(recipient).fetch_one(&mut *tx).await?;
-            return if bound { Ok(()) } else { Err(Error::Denied) };
+            return if bound {
+                Ok(())
+            } else {
+                Err(Error::Denied.into())
+            };
         }
         let eligible: bool=sqlx::query_scalar("SELECT created_at>=$2 AND created_at>clock_timestamp()-interval '7 days' AND ($3::text IS NULL OR lower(email)=$3) AND NOT EXISTS(SELECT 1 FROM store_orders WHERE account_id=$1) FROM accounts WHERE id=$1")
             .bind(actor).bind(created).bind(recipient).fetch_one(&mut *tx).await?;
         if !eligible {
-            return Err(Error::Denied);
+            return Err(Error::Denied.into());
         }
         self.bind(&mut tx, owner, actor, Kind::New).await?;
         sqlx::query("SELECT referral_campaign_reward('starter:'||i.id,invitee_id,'starter',3,NULL,a.created_at+interval '7 days') FROM referral_campaign_invitations i JOIN accounts a ON a.id=i.invitee_id WHERE i.invitee_id=$1")
@@ -272,14 +298,14 @@ impl<P: Policy> Campaign<P> {
         inviter: Uuid,
         invitee: Uuid,
         kind: Kind,
-    ) -> Result<(), Error> {
+    ) -> Result<(), TransactionError<Error>> {
         if inviter == invitee
             || !self
                 .policy
                 .allowed(conn, inviter, invitee, kind, Stage::Invite)
                 .await
         {
-            return Err(Error::Denied);
+            return Err(Error::Denied.into());
         }
         let existing: Option<(Uuid, String)> = sqlx::query_as(
             "SELECT inviter_id,kind FROM referral_campaign_invitations WHERE invitee_id=$1",
@@ -291,13 +317,13 @@ impl<P: Policy> Campaign<P> {
             return if owner == inviter && name == kind.name() {
                 Ok(())
             } else {
-                Err(Error::Denied)
+                Err(Error::Denied.into())
             };
         }
         let cycle: bool=sqlx::query_scalar("WITH RECURSIVE edges AS (SELECT inviter_id,invitee_id FROM referral_invitations UNION SELECT inviter_id,invitee_id FROM referral_campaign_invitations), ancestors(id) AS (SELECT $1::uuid UNION SELECT e.inviter_id FROM edges e JOIN ancestors a ON e.invitee_id=a.id) SELECT EXISTS(SELECT 1 FROM ancestors WHERE id=$2) OR EXISTS(SELECT 1 FROM referral_invitations WHERE invitee_id=$2)")
             .bind(inviter).bind(invitee).fetch_one(&mut *conn).await?;
         if cycle {
-            return Err(Error::Denied);
+            return Err(Error::Denied.into());
         }
         sqlx::query("INSERT INTO referral_campaign_invitations(inviter_id,invitee_id,kind) VALUES($1,$2,$3)").bind(inviter).bind(invitee).bind(kind.name()).execute(conn).await?;
         Ok(())

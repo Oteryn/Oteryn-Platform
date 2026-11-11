@@ -58,6 +58,16 @@ pub enum Error {
     Conflict,
     Unavailable,
 }
+impl From<Error> for oteryn_db::retry::TransactionError<Error> {
+    fn from(error: Error) -> Self {
+        Self::Application(error)
+    }
+}
+impl From<oteryn_db::retry::TransactionError<Error>> for Error {
+    fn from(error: oteryn_db::retry::TransactionError<Error>) -> Self {
+        error.into_inner()
+    }
+}
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "referral operation refused: {self:?}")

@@ -1795,3 +1795,263 @@ async fn nwave_signup_and_email_lock_accounts_before_qualification() {
     }
     db.close().await;
 }
+
+#[tokio::test]
+async fn nwave_signup_expanded_preparation_preserves_session_for_worker() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    let invitee = db.account().await;
+    let hash = attribution_session(&db, None, &code.to_string()).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT referral_campaign_lock(ARRAY[$1::uuid])")
+        .bind(invitee)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE web_sessions SET account_id=$2 WHERE id_hash=$1")
+        .bind(&hash)
+        .bind(invitee)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let evidence: String =
+        sqlx::query_scalar("SELECT data->>'referral.code' FROM web_sessions WHERE id_hash=$1")
+            .bind(&hash)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(evidence, code.to_string());
+    Worker {
+        campaign: db.campaign.clone(),
+        sender: None,
+    }
+    .process()
+    .await
+    .unwrap();
+    let inviter: Uuid = sqlx::query_scalar(
+        "SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=$1",
+    )
+    .bind(invitee)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(inviter, owner);
+    assert_eq!(db.count("starter").await, 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_purchase_retries_entire_transaction_and_replays_original_answer() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let invitee = db.recruit(owner).await;
+    db.fund(invitee).await;
+    // A nontransactional sequence makes only the first qualification fail,
+    // after debit and order creation, just like stale inviter discovery.
+    sqlx::raw_sql("CREATE SEQUENCE retry_qualification; ALTER FUNCTION referral_campaign_purchase(uuid,integer,timestamptz) RENAME TO original_campaign_purchase;
+        CREATE FUNCTION referral_campaign_purchase(a uuid,days integer,paid_at timestamptz) RETURNS void LANGUAGE plpgsql AS $$
+        BEGIN
+            IF nextval('retry_qualification')=1 THEN
+                RAISE EXCEPTION 'simulated expanded inviter set' USING ERRCODE='40001';
+            END IF;
+            PERFORM original_campaign_purchase(a,days,paid_at);
+        END $$;").execute(&db.pool).await.unwrap();
+    let raw = db.request(invitee, 1, Uuid::now_v7());
+    let purchases = db.purchases();
+    let answer = purchases.purchase(&raw).await.unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&answer).unwrap()["result"],
+        "ACCEPTED"
+    );
+    assert_eq!(purchases.purchase(&raw).await.unwrap(), answer);
+    let orders: i64 = sqlx::query_scalar("SELECT count(*) FROM store_orders WHERE account_id=$1")
+        .bind(invitee)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(orders, 1);
+    assert_eq!(
+        db.wallet().balance(invitee).await.unwrap().transferable,
+        9750
+    );
+    assert_eq!(db.count("outfit").await, 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_transaction_retry_is_bounded_and_only_for_retryable_sqlstates() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    sqlx::raw_sql("CREATE SEQUENCE retry_attempts; CREATE TABLE retry_effects(id integer)")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    for (state, attempts) in [("40001", 3_i64), ("40P01", 3), ("23505", 1), ("55P03", 1)] {
+        sqlx::query("ALTER SEQUENCE retry_attempts RESTART")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        let result: Result<(), Error> = oteryn_db::retry::transaction(|| async {
+            let mut tx = db.pool.begin().await?;
+            sqlx::query("SELECT nextval('retry_attempts')")
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("INSERT INTO retry_effects VALUES(1)")
+                .execute(&mut *tx)
+                .await?;
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                "DO $$ BEGIN RAISE EXCEPTION 'test retry' USING ERRCODE='{state}'; END $$"
+            )))
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok(())
+        })
+        .await;
+        assert_eq!(result, Err(Error::Unavailable));
+        let actual: i64 = sqlx::query_scalar("SELECT last_value FROM retry_attempts")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(actual, attempts, "SQLSTATE {state}");
+        let effects: i64 = sqlx::query_scalar("SELECT count(*) FROM retry_effects")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(effects, 0, "failed transactions must roll back");
+    }
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_returning_snapshot_and_stream_prepare_all_fk_targets() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let buddy = db.account().await;
+    db.inactive(buddy, 13).await;
+    db.campaign
+        .email(owner, &db.email(buddy).await, Kind::Returning)
+        .await
+        .unwrap();
+    let snapshot =
+        oteryn_store::loyalty::Ledger::new(db.pool.clone(), Arc::new(DatabasePolicy), true);
+    snapshot
+        .snapshot(buddy, &"a".repeat(32), &"b".repeat(40))
+        .await
+        .unwrap();
+    let stream =
+        oteryn_store::loyalty::stream::Stream::new(db.pool.clone(), Arc::new(DatabasePolicy), true);
+    let page = stream.read(None, 500).await.unwrap();
+    assert!(page.items.iter().any(|item| item.account_id == buddy));
+    assert_eq!(page.items.len(), 1);
+    let owner_authority: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM premium_authority WHERE account_id=$1)")
+            .bind(owner)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert!(!owner_authority);
+    assert_eq!(db.count("outfit").await, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_snapshot_stream_campaign_and_worker_retry_fresh_transactions() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    let invitee = db.account().await;
+    let pending = db.account().await;
+    // Leave evidence for the worker rather than synchronously binding it.
+    sqlx::query("UPDATE referral_campaign_settings SET enabled=false")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    attribution_session(&db, Some(pending), &code.to_string()).await;
+    sqlx::query("UPDATE referral_campaign_settings SET enabled=true")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE SEQUENCE retry_lock; ALTER FUNCTION referral_campaign_lock(uuid[]) RENAME TO original_campaign_lock;
+        CREATE FUNCTION referral_campaign_lock(ids uuid[]) RETURNS void LANGUAGE plpgsql AS $$
+        BEGIN
+            IF nextval('retry_lock')=1 THEN
+                RAISE EXCEPTION 'test lock discovery failure' USING ERRCODE='40P01';
+            END IF;
+            PERFORM original_campaign_lock(ids);
+        END $$;").execute(&db.pool).await.unwrap();
+    let snapshot =
+        oteryn_store::loyalty::Ledger::new(db.pool.clone(), Arc::new(DatabasePolicy), true);
+    let bytes = snapshot
+        .snapshot(invitee, &"a".repeat(32), &"b".repeat(40))
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["loyalty_revision"],
+        1
+    );
+    assert_retry_lock_restarted(&db).await;
+    let stream =
+        oteryn_store::loyalty::stream::Stream::new(db.pool.clone(), Arc::new(DatabasePolicy), true);
+    let page = stream.read(None, 500).await.unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].platform_revision, 1);
+    assert_retry_lock_restarted(&db).await;
+    assert_eq!(db.campaign.link(owner).await.unwrap(), code);
+    assert_retry_lock_restarted(&db).await;
+    db.campaign
+        .email(owner, "retry@example.test", Kind::New)
+        .await
+        .unwrap();
+    assert_retry_lock_restarted(&db).await;
+    let attempts: i64 = sqlx::query_scalar("SELECT count(*) FROM referral_email_attempts")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(attempts, 1);
+    db.campaign.accept(invitee, code).await.unwrap();
+    assert_retry_lock_restarted(&db).await;
+    assert_eq!(db.campaign.invitation_kind(code).await.unwrap(), Kind::New);
+    assert_retry_lock_restarted(&db).await;
+    Worker {
+        campaign: db.campaign.clone(),
+        sender: None,
+    }
+    .process()
+    .await
+    .unwrap();
+    assert_retry_lock_restarted(&db).await;
+    let bound: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=$1)",
+    )
+    .bind(pending)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(bound);
+    assert_eq!(db.count("starter").await, 2);
+    db.close().await;
+}
+
+async fn assert_retry_lock_restarted(db: &Database) {
+    let attempts: i64 = sqlx::query_scalar("SELECT last_value FROM retry_lock")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert!(attempts >= 2, "operation did not retry its transaction");
+    sqlx::query("ALTER SEQUENCE retry_lock RESTART")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+}

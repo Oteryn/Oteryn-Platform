@@ -118,7 +118,9 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
         }
         Ok(())
     }
-    async fn begin(&self) -> Result<Transaction<'_, Postgres>, Error> {
+    async fn begin(
+        &self,
+    ) -> Result<Transaction<'_, Postgres>, oteryn_db::retry::TransactionError<Error>> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SET LOCAL lock_timeout='3s'")
             .execute(&mut *tx)
@@ -140,6 +142,15 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             self.settings.purchases_per_account_per_minute,
         )
         .await?;
+        oteryn_db::retry::transaction(|| self.purchase_attempt(raw, &request, account, key)).await
+    }
+    async fn purchase_attempt(
+        &self,
+        raw: &[u8],
+        request: &PurchaseRequest,
+        account: Uuid,
+        key: Uuid,
+    ) -> Result<Vec<u8>, oteryn_db::retry::TransactionError<Error>> {
         let mut tx = self.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,29))")
             .bind(format!("store-purchase:{key}"))
@@ -148,7 +159,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
         if let Some(row)=sqlx::query("SELECT request_bytes,answer_bytes FROM store_purchase_requests WHERE purchase_request_id=$1").bind(key).fetch_optional(&mut *tx).await? {
             if row.try_get::<Vec<u8>,_>("request_bytes")? != raw {
                 tracing::warn!("products_entitlements.store_purchase_request_conflict");
-                return Err(Error::Conflict);
+                return Err(Error::Conflict.into());
             }
             let answer=row.try_get("answer_bytes")?;
             tx.commit().await?;
@@ -165,7 +176,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
         let restricted = self.accounts.state(&mut tx, account).await? != AccountState::Active;
         let review: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM store_fulfilment_units WHERE account_id=$1 AND state IN ('MANUAL_REVIEW','REVERSAL_PARTIAL'))").bind(account).fetch_one(&mut *tx).await?;
         if restricted || review {
-            return finish(tx, &request, raw, "ACCOUNT_RESTRICTED", vec![]).await;
+            return finish(tx, request, raw, "ACCOUNT_RESTRICTED", vec![]).await;
         }
         // Lock the same singleton as activation, for the complete purchase decision.
         let active: Option<String> = sqlx::query_scalar(
@@ -175,7 +186,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
         .await?;
         let active = active.ok_or(Error::Unavailable)?;
         if request.catalog_revision != active {
-            return finish(tx, &request, raw, "STALE_QUOTE", vec![]).await;
+            return finish(tx, request, raw, "STALE_QUOTE", vec![]).await;
         }
         let bytes: Option<Vec<u8>> = sqlx::query_scalar(
             "SELECT canonical_bytes FROM store_offers WHERE catalog_revision=$1 AND offer_key=$2",
@@ -185,11 +196,11 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
         .fetch_optional(&mut *tx)
         .await?;
         let Some(bytes) = bytes else {
-            return finish(tx, &request, raw, "OFFER_UNAVAILABLE", vec![]).await;
+            return finish(tx, request, raw, "OFFER_UNAVAILABLE", vec![]).await;
         };
         let offer: Offer = serde_json::from_slice(&bytes).map_err(|_| Error::Unavailable)?;
         if !offer.purchasable || offer.units.is_empty() {
-            return finish(tx, &request, raw, "OFFER_UNAVAILABLE", vec![]).await;
+            return finish(tx, request, raw, "OFFER_UNAVAILABLE", vec![]).await;
         }
         // Only explicit unit-kind flags authorize a purchase; an import alone does not.
         if offer
@@ -197,10 +208,10 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             .iter()
             .any(|u| !self.settings.enabled_unit_kinds.contains(&u.unit_kind))
         {
-            return finish(tx, &request, raw, "PURCHASE_DISABLED", vec![]).await;
+            return finish(tx, request, raw, "PURCHASE_DISABLED", vec![]).await;
         }
         if offer.currency != request.currency || offer.unit_price != request.unit_price {
-            return finish(tx, &request, raw, "STALE_QUOTE", vec![]).await;
+            return finish(tx, request, raw, "STALE_QUOTE", vec![]).await;
         }
         let price = offer
             .unit_price
@@ -212,7 +223,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             || total.is_none_or(|v| v <= 0)
             || offer.units.len() > 8
         {
-            return finish(tx, &request, raw, "OFFER_UNAVAILABLE", vec![]).await;
+            return finish(tx, request, raw, "OFFER_UNAVAILABLE", vec![]).await;
         }
         let total = total.ok_or(Error::Unavailable)?;
         let mut units = offer.units;
@@ -225,7 +236,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
         for unit in &mut units {
             let quantity = u32::from(unit.quantity) * u32::from(request.quantity);
             if quantity > 65535 {
-                return finish(tx, &request, raw, "OFFER_UNAVAILABLE", vec![]).await;
+                return finish(tx, request, raw, "OFFER_UNAVAILABLE", vec![]).await;
             }
             unit.quantity = quantity as u16;
         }
@@ -235,7 +246,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             .await?;
         let pending: i64=sqlx::query_scalar("SELECT COUNT(*) FROM store_operations WHERE operation_kind='DELIVER' AND state IN ('PENDING','REOPENED')").fetch_one(&mut *tx).await?;
         if pending + units.len() as i64 > i64::from(self.settings.max_pending_operations) {
-            return Err(Error::Unavailable);
+            return Err(Error::Unavailable.into());
         }
         // A savepoint removes a first wallet row and idempotency claim on refusal.
         sqlx::query("SAVEPOINT purchase_debit")
@@ -250,14 +261,15 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             Ok(receipt) if !receipt.replayed => (),
             Ok(_) => {
                 tracing::warn!("products_entitlements.store_wallet_idempotency_conflict");
-                return Err(Error::Unavailable);
+                return Err(Error::Unavailable.into());
             }
             Err(oteryn_wallet::Error::Refused(Refusal::InsufficientFunds)) => {
                 sqlx::query("ROLLBACK TO SAVEPOINT purchase_debit")
                     .execute(&mut *tx)
                     .await?;
-                return finish(tx, &request, raw, "INSUFFICIENT_BALANCE", vec![]).await;
+                return finish(tx, request, raw, "INSUFFICIENT_BALANCE", vec![]).await;
             }
+            Err(oteryn_wallet::Error::Storage(error)) => return Err(error.into()),
             Err(error) => {
                 if matches!(
                     error,
@@ -265,10 +277,19 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
                 ) {
                     tracing::warn!("products_entitlements.store_wallet_idempotency_conflict");
                 }
-                return Err(Error::Unavailable);
+                return Err(Error::Unavailable.into());
             }
         }
-        let after = self.wallet.read_balance_in(&mut tx, account).await?;
+        let after = self
+            .wallet
+            .read_balance_in(&mut tx, account)
+            .await
+            .map_err(|error| match error {
+                oteryn_wallet::Error::Storage(error) => {
+                    oteryn_db::retry::TransactionError::Database(error)
+                }
+                error => Error::from(error).into(),
+            })?;
         let order = Uuid::now_v7();
         let line = Uuid::now_v7();
         let answer_units: Vec<_> = units
@@ -296,8 +317,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
                 ),
             ),
         ];
-        let answer = answer(&request, raw, "ACCEPTED", extra)?;
-        save_answer(&mut tx, &request, raw, "ACCEPTED", &answer).await?;
+        let answer = answer(request, raw, "ACCEPTED", extra)?;
+        save_answer(&mut tx, request, raw, "ACCEPTED", &answer).await?;
         sqlx::query("INSERT INTO store_orders(order_id,purchase_request_id,account_id,character_id,world_id,wallet_operation_id,wallet_idempotency_key,currency,total_price) VALUES($1,$2,$3,$4,$5,$2,$6,'COINS',$7)")
             .bind(order).bind(key).bind(account).bind(uuid(&request.character_id)?).bind(uuid(&request.world_id)?).bind(reason).bind(total).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO store_order_lines(line_id,order_id,catalog_revision,offer_key,quantity,unit_price) VALUES($1,$2,$3,$4,$5,$6)")
@@ -481,7 +502,7 @@ async fn save_answer(
     raw: &[u8],
     result: &str,
     bytes: &[u8],
-) -> Result<(), Error> {
+) -> Result<(), oteryn_db::retry::TransactionError<Error>> {
     sqlx::query("INSERT INTO store_purchase_requests(purchase_request_id,account_id,request_bytes,request_digest,result,answer_bytes) VALUES($1,$2,$3,$4,$5,$6)")
         .bind(uuid(&request.purchase_request_id)?).bind(uuid(&request.account_id)?).bind(raw).bind(format!("{:x}",Sha256::digest(raw))).bind(result).bind(bytes).execute(&mut **tx).await?;
     Ok(())
@@ -492,7 +513,7 @@ async fn finish(
     raw: &[u8],
     result: &str,
     extra: Vec<(&'static str, Value)>,
-) -> Result<Vec<u8>, Error> {
+) -> Result<Vec<u8>, oteryn_db::retry::TransactionError<Error>> {
     let bytes = answer(request, raw, result, extra)?;
     save_answer(&mut tx, request, raw, result, &bytes).await?;
     tx.commit().await?;

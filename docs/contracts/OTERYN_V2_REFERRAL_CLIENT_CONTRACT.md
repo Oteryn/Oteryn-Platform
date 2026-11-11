@@ -99,7 +99,8 @@ purchase fixes its tier; later purchases do not add another award or extend the
 90-day deadline. Separate purchases are not accumulated toward a tier.
 
 Both snapshot reads and stream tail polls supply premium-only consumption points before
-adding referral credits. Credits therefore never recursively generate credits.
+adding referral credits. Only new-account invitations earn loyalty credits; their
+lock discovery matches that eligibility rule. Credits never recursively generate credits.
 `referral_loyalty_credits` is keyed by operation and survives subsequent snapshot
 recomputation. Snapshot shape, byte encoding and revision behavior are unchanged.
 The premium ledger applies buddy rewards using the durable reward UUID as its
@@ -145,7 +146,16 @@ qualification advisory lock 5600. Prepare stronger account locks before authorit
 locks. No new account or premium_authority row/FK lock may be acquired after 5600.
 The shared database lock function rejects an expanded account set with SQLSTATE
 40001 so a stale discovery retries in a new transaction rather than reversing the
-order. Session attribution runs after the password-reset account-lock guard.
+order. Rust purchase, snapshot, stream and campaign operations (including worker
+attribution) retry the entire transaction, from discovery through commit, at most
+three times, only for 40001 (serialization failure) or 40P01 (deadlock). Attempts
+use a short jittered backoff; exhaustion returns the existing unavailable response.
+Purchase retries reuse the operation key, and committed replays return the original
+answer without another debit, order or reward. Other failures are not retried.
+Signup triggers cannot restart the outer transaction: if preparation would expand
+an already prepared set, binding returns false and preserves session evidence for
+the worker rather than aborting the session write. Session attribution runs after
+the password-reset account-lock guard.
 Verification attribution runs before credential-change session revocation.
 Worker mail delivery holds only the separate delivery lock 5601 across SMTP;
 5600 is never held across network I/O. Referral-premium reconciliation uses the
