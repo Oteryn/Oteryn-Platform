@@ -235,28 +235,28 @@ stage-btn-register = Załóż konto
 stage-btn-download = Pobierz klienta
 stage-status-title = Status serwera
 stage-features = Cechy serwera
-stage-news-all = Wszystkie aktualności
+stage-news-all = Zobacz wszystkie aktualności
 stage-read-more = Czytaj więcej
 stage-ranking-title = Ranking graczy
 stage-ranking-all = Pełny ranking
 stage-ranking-player = Gracz
 stage-ranking-level = Poziom
 stage-gallery-title = Galeria i społeczność
-stage-gallery-lead = Zrzuty z gry, wydarzenia społeczności i Discord – bądź na bieżąco!
+stage-gallery-lead = Zobacz świat Oteryn, dołącz do społeczności i bądź na bieżąco!
 stage-gallery-join = Dołącz do społeczności
 stage-other-language = English
-stage-copyright = © 2026 Oteryn. Wszelkie prawa zastrzeżone. Oteryn to niezależny, prywatny serwer MMORPG, nienależący do żadnej oficjalnej marki.
-stage-feat-atlas = Atlas świata i domy
-stage-feat-atlas-text = Interaktywna mapa, miejsca, dostawy i wolne domy na każdym świecie.
-stage-feat-wiki = Wiki i kalkulatory
-stage-feat-wiki-text = Potwory, przedmioty, zaklęcia i questy, wyszukiwarka oraz kalkulatory dla każdej profesji.
-stage-feat-bestiary = Bestiariusz i zgony
-stage-feat-bestiary-text = Śledź swoje polowania, raporty z dziennika i ostatnie zgony na serwerze.
-stage-feat-events = Wydarzenia i liga
-stage-feat-events-text = Kalendarz wydarzeń, sezonowy karnet, liga i codzienne łamigłówki z nagrodami.
-stage-feat-bazaar = Bazar i gildie
-stage-feat-bazaar-text = Bezpieczny handel postaciami i przedmiotami, gildie, drużyny LFG i porównania postaci.
-stage-hero-lead = Jedno konto do gry, sklepu, bazaru i społeczności. Sprawdzaj rankingi, przeglądaj atlas i wiki, śledź wydarzenia, handluj postaciami i dbaj o bezpieczeństwo konta – passkeys, MFA i klucz odzyskiwania w panelu.
+stage-copyright = © 2025 Oteryn. Wszelkie prawa zastrzeżone. Oteryn to niezależny, prywatny serwer MMORPG, nie należący do żadnej oficjalnej marki.
+stage-feat-atlas = Rozbudowany custom content
+stage-feat-atlas-text = Autorskie lokacje, potwory, przedmioty i mechaniki, dostępne tylko na Oteryn!
+stage-feat-wiki = Unikalne zadania
+stage-feat-wiki-text = Dziesiątki oryginalnych questów z wciągającą fabułą, nagrodami i wyzwaniami dla każdego poziomu.
+stage-feat-bestiary = Potężni bossowie
+stage-feat-bestiary-text = Staw czoła potężnym bossom, zdobywaj rzadkie łupy i zapisz się w historii serwera!
+stage-feat-events = Cykliczne eventy
+stage-feat-events-text = Regularne wydarzenia, specjalne aktywności i turnieje z unikalnymi nagrodami.
+stage-feat-bazaar = Zbalansowane profesje
+stage-feat-bazaar-text = Wybierz swoją profesję, rozwijaj ją w zbalansowany sposób i graj tak, jak lubisz – solo lub w drużynie!
+stage-hero-lead = Oteryn to prywatny serwer MMORPG inspirowany klasycznymi grami fantasy. Odkrywaj nieznane krainy, wykonuj unikalne zadania, pokonuj potężne bestie, rozwijaj swoją postać i dołącz do aktywnej społeczności!
 stage-status-online = Gracze online
 stage-status-worlds = Światy online
 stage-status-pvp = Typ PvP
@@ -271,3 +271,21 @@ stage-news-unavailable = Aktualności są chwilowo niedostępne.
 stage-ranking-empty = Ranking nie ma jeszcze publicznych wpisów.
 stage-ranking-unavailable = Ranking jest chwilowo niedostępny.
 stage-ranking-as-of = Stan na (UTC):
+
+stage-nav-download = Pobierz
+
+stage-nav-register = Rejestracja
+
+stage-nav-ranking = Ranking
+
+stage-unavailable = Niedostępne
+
+stage-footer-navigation = Nawigacja w stopce
+
+stage-language = Język
+
+stage-status-save = Server save
+
+stage-status-exp = Exp rate
+
+stage-status-loot = Loot rate

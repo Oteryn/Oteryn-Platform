@@ -235,28 +235,28 @@ stage-btn-register = Create account
 stage-btn-download = Get the client
 stage-status-title = Server status
 stage-features = Server features
-stage-news-all = All news
+stage-news-all = View all news
 stage-read-more = Read more
 stage-ranking-title = Player ranking
 stage-ranking-all = Full ranking
 stage-ranking-player = Player
 stage-ranking-level = Level
 stage-gallery-title = Gallery and community
-stage-gallery-lead = Screenshots, community events and Discord – stay up to date!
+stage-gallery-lead = See the world of Oteryn, join the community and stay up to date!
 stage-gallery-join = Join the community
 stage-other-language = Polski
-stage-copyright = © 2026 Oteryn. All rights reserved. Oteryn is an independent private MMORPG server, not affiliated with any official brand.
-stage-feat-atlas = World atlas and houses
-stage-feat-atlas-text = Interactive map, places, deliveries and free houses on every world.
-stage-feat-wiki = Wiki and calculators
-stage-feat-wiki-text = Monsters, items, spells and quests, search and calculators for every vocation.
-stage-feat-bestiary = Bestiary and deaths
-stage-feat-bestiary-text = Track your hunts, journal reports and the latest deaths on the server.
-stage-feat-events = Events and league
-stage-feat-events-text = Event calendar, season pass, league and daily puzzles with rewards.
-stage-feat-bazaar = Bazaar and guilds
-stage-feat-bazaar-text = Safe trading of characters and items, guilds, LFG parties and character comparisons.
-stage-hero-lead = One account for the game, shop, bazaar and community. Check rankings, browse the atlas and wiki, follow events, trade characters and keep your account safe with passkeys, MFA and a recovery key in the panel.
+stage-copyright = © 2025 Oteryn. All rights reserved. Oteryn is an independent private MMORPG server, not affiliated with any official brand.
+stage-feat-atlas = Extensive custom content
+stage-feat-atlas-text = Original locations, monsters, items and mechanics, available only in Oteryn!
+stage-feat-wiki = Unique quests
+stage-feat-wiki-text = Dozens of original quests with engaging stories, rewards and challenges for every level.
+stage-feat-bestiary = Powerful bosses
+stage-feat-bestiary-text = Face powerful bosses, earn rare loot and write your name in the server’s history!
+stage-feat-events = Recurring events
+stage-feat-events-text = Regular events, special activities and tournaments with unique rewards.
+stage-feat-bazaar = Balanced vocations
+stage-feat-bazaar-text = Choose your vocation, develop it in a balanced way and play as you like – solo or with a team!
+stage-hero-lead = Oteryn is a private MMORPG server inspired by classic fantasy games. Explore unknown lands, complete unique quests, defeat mighty beasts, develop your character and join an active community!
 stage-status-online = Players online
 stage-status-worlds = Worlds online
 stage-status-pvp = PvP type
@@ -271,3 +271,21 @@ stage-news-unavailable = News is temporarily unavailable.
 stage-ranking-empty = The ranking has no public entries yet.
 stage-ranking-unavailable = The ranking is temporarily unavailable.
 stage-ranking-as-of = As of (UTC):
+
+stage-nav-download = Download
+
+stage-nav-register = Registration
+
+stage-nav-ranking = Ranking
+
+stage-unavailable = Unavailable
+
+stage-footer-navigation = Footer navigation
+
+stage-language = Language
+
+stage-status-save = Server save
+
+stage-status-exp = Exp rate
+
+stage-status-loot = Loot rate
