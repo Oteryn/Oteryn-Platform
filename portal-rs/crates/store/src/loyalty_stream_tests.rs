@@ -356,6 +356,21 @@ fn loyalty_stream_fixtures_match() {
         }],
         next: Cursor::parse("v1:2:0").unwrap(),
     };
+    let referral = Page {
+        items: vec![Item {
+            account_id: Uuid::parse_str(ACCOUNT).unwrap(),
+            spent_premium_days: 0,
+            loyalty_points: 1,
+            platform_revision: 1,
+        }],
+        next: Cursor::parse("v1:1:0").unwrap(),
+    };
+    assert_eq!(
+        referral.encode().unwrap(),
+        include_bytes!(
+            "../../../../docs/contracts/fixtures/loyalty-stream-v1/referral-response.json"
+        )
+    );
     assert_eq!(
         credited.encode().unwrap(),
         include_bytes!(

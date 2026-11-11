@@ -1162,3 +1162,137 @@ async fn nwave_loyalty_stream_tracks_credit_only_changes() {
     );
     db.close().await;
 }
+
+#[tokio::test]
+async fn nwave_stream_alone_awards_referral_consumption_credits() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let invitee = db.recruit(owner).await;
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1)")
+        .bind(invitee)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO premium_ledger(request_id,account_id,actor_id,event_type,duration_days,reason_sha256,entitlement_id,lifecycle_revision,delta_seconds,effective_from,effective_until) VALUES($1,$2,$2,'GRANT',6,$3,$4,1,518400,date_trunc('second',now())-interval '7 days',date_trunc('second',now())-interval '1 day')")
+        .bind(Uuid::now_v7()).bind(invitee).bind(vec![0_u8;32]).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    let stream =
+        oteryn_store::loyalty::stream::Stream::new(db.pool.clone(), Arc::new(DatabasePolicy), true);
+    // No snapshot endpoint or campaign worker is called.
+    let page = stream.read(None, 500).await.unwrap();
+    let item = page
+        .items
+        .iter()
+        .find(|i| i.account_id == owner)
+        .expect("inviter credit in the same poll");
+    assert_eq!(
+        (
+            item.spent_premium_days,
+            item.loyalty_points,
+            item.platform_revision
+        ),
+        (0, 1, 1)
+    );
+    assert_eq!(
+        page.items
+            .iter()
+            .find(|i| i.account_id == invitee)
+            .unwrap()
+            .loyalty_points,
+        6
+    );
+    assert!(
+        stream
+            .read(Some(page.next), 500)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    let credits: i64 = sqlx::query_scalar(
+        "SELECT sum(points)::bigint FROM referral_loyalty_credits WHERE account_id=$1",
+    )
+    .bind(owner)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(credits, 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_mail_backlog_respects_delivery_budget_across_workers() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    for day in 0..2 {
+        for n in 0..25 {
+            db.campaign
+                .email(owner, &format!("backlog{day}-{n}@example.test"), Kind::New)
+                .await
+                .unwrap();
+        }
+        sqlx::query("UPDATE referral_email_attempts SET created_at=clock_timestamp()-interval '2 days' WHERE delivered_at IS NULL").execute(&db.pool).await.unwrap();
+    }
+    let sender = Arc::new(oteryn_notify::CaptureSender::default());
+    let first = Worker {
+        campaign: db.campaign.clone(),
+        sender: Some(sender.clone()),
+    };
+    let second = Worker {
+        campaign: db.campaign.clone(),
+        sender: Some(sender.clone()),
+    };
+    let (a, b) = tokio::join!(first.process(), second.process());
+    a.unwrap();
+    b.unwrap();
+    assert_eq!(sender.emails.lock().unwrap().len(), 25);
+    first.process().await.unwrap();
+    assert_eq!(sender.emails.lock().unwrap().len(), 25);
+    let other = db.account().await;
+    db.campaign
+        .email(other, "other@example.test", Kind::New)
+        .await
+        .unwrap();
+    first.process().await.unwrap();
+    assert_eq!(sender.emails.lock().unwrap().len(), 26);
+    sqlx::query("UPDATE referral_email_attempts SET delivered_at=clock_timestamp()-interval '24 hours 1 second' WHERE inviter_id=$1 AND delivered_at IS NOT NULL").bind(owner).execute(&db.pool).await.unwrap();
+    first.process().await.unwrap();
+    assert_eq!(sender.emails.lock().unwrap().len(), 51);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_returning_mail_backlog_respects_monthly_delivery_budget() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    for batch in 0..2 {
+        for _ in 0..20 {
+            let buddy = db.account().await;
+            db.inactive(buddy, 13).await;
+            db.campaign
+                .email(owner, &db.email(buddy).await, Kind::Returning)
+                .await
+                .unwrap();
+        }
+        if batch == 0 {
+            sqlx::query("UPDATE referral_email_attempts SET created_at=clock_timestamp()-interval '31 days'").execute(&db.pool).await.unwrap();
+        }
+    }
+    let sender = Arc::new(oteryn_notify::CaptureSender::default());
+    let worker = Worker {
+        campaign: db.campaign.clone(),
+        sender: Some(sender.clone()),
+    };
+    worker.process().await.unwrap();
+    worker.process().await.unwrap();
+    assert_eq!(sender.emails.lock().unwrap().len(), 20);
+    sqlx::query("UPDATE referral_email_attempts SET delivered_at=clock_timestamp()-interval '31 days' WHERE delivered_at IS NOT NULL").execute(&db.pool).await.unwrap();
+    worker.process().await.unwrap();
+    assert_eq!(sender.emails.lock().unwrap().len(), 40);
+    db.close().await;
+}

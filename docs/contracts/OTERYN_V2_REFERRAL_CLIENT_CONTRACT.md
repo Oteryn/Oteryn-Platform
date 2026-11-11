@@ -53,9 +53,14 @@ E-mail invitations permit at most 25 sends per inviter in a rolling 24-hour
 window, including resends. Addresses are trimmed and normalized to lowercase.
 Resends are permitted at least 14 days after the first attempt for that inviter,
 recipient and invitation kind. Each actual send creates a durable attempt.
-A shared transaction lock serializes checks and budget consumption across nodes.
+Enqueue checks use attempt creation times. Delivery independently rechecks the
+rolling budget using successful delivery times, under a shared transaction lock
+held through send and commit across nodes. Queued attempts remain pending when
+the delivery budget is exhausted, so an SMTP backlog cannot bypass the limit.
+Other inviters remain eligible for delivery.
 
-Bring-back invitations additionally permit 20 sends in a rolling 30-day window.
+Bring-back invitations additionally permit 20 sends in a rolling 30-day window,
+checked both at enqueue and delivery.
 The recipient must have no website or game activity in the preceding 12 calendar
 months. Durable activity high-water marks are initialized from accounts, website
 sessions, login history and the latest of game-session entry/end times, then
@@ -88,7 +93,7 @@ nothing. Distinct paying invitees are counted once. A buddy's first qualifying
 purchase fixes its tier; later purchases do not add another award or extend the
 90-day deadline. Separate purchases are not accumulated toward a tier.
 
-The existing loyalty service supplies premium-only consumption points before
+Both snapshot reads and stream tail polls supply premium-only consumption points before
 adding referral credits. Credits therefore never recursively generate credits.
 `referral_loyalty_credits` is keyed by operation and survives subsequent snapshot
 recomputation. Snapshot shape, byte encoding and revision behavior are unchanged.

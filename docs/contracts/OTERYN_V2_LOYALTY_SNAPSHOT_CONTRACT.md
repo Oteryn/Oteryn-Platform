@@ -159,8 +159,13 @@ That Game function is a consumer-side operation; Platform never connects to it.
 
 ### Durable pagination and polling
 
-Tail polls recompute totals from one PostgreSQL statement snapshot, using the
-current database time. This also detects whole-day growth without a Premium
+Tail polls compute Premium consumption from one PostgreSQL statement snapshot, using the
+current database time. Before publication, each known account's Premium-only
+consumption is passed to referral qualification; durable credits are then read
+in the same transaction, including newly credited inviters without Premium
+history. This works with the snapshot endpoint disabled. Referral credits never
+qualify for further referral credits. Continuation pages replay their immutable
+window without qualification. This also detects whole-day growth without a Premium
 mutation or a prior snapshot read. The stream exports observed changes when
 polled, rather than every intermediate value between polls. State, new events
 and the global head commit atomically. A locked transactional head serializes
