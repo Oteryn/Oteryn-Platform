@@ -593,7 +593,7 @@ async fn referrals_self_referral_denied() {
         Err(Error::Invalid)
     );
     let other = db.account().await;
-    let mut tx = db.campaign.begin().await.unwrap();
+    let mut tx = db.campaign.begin(None).await.unwrap();
     db.campaign
         .bind(&mut tx, owner, other, Kind::Returning)
         .await
@@ -1488,5 +1488,137 @@ async fn nwave_stream_releases_qualification_lock_before_next_account() {
     assert_eq!(page.items.len(), 2);
     assert!(accounts.checked.load(std::sync::atomic::Ordering::SeqCst));
     single_pool.close().await;
+    db.close().await;
+}
+
+// Wait for the competing transaction to reach a real PostgreSQL lock wait.
+async fn wait_for_blocker(pool: &PgPool, blocker: i32) -> i32 {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let waiting: Option<i32> = sqlx::query_scalar(
+                "SELECT pid FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) LIMIT 1",
+            )
+            .bind(blocker)
+            .fetch_optional(pool)
+            .await
+            .unwrap();
+            if let Some(pid) = waiting {
+                break pid;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("competing transaction did not reach its lock wait")
+}
+
+#[tokio::test]
+async fn nwave_first_link_locks_account_before_qualification() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = db.account().await;
+    let mut purchase = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *purchase)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(account)
+        .execute(&mut *purchase)
+        .await
+        .unwrap();
+    let campaign = db.campaign.clone();
+    let link = tokio::spawn(async move { campaign.link(account).await });
+    let waiting = wait_for_blocker(&db.pool, pid).await;
+    let available: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND classid=0 AND objid=5600 AND objsubid=1 AND granted)")
+        .bind(waiting).fetch_one(&mut *purchase)
+        .await
+        .unwrap();
+    purchase.commit().await.unwrap();
+    link.await.unwrap().unwrap();
+    assert!(
+        available,
+        "first link held 5600 while waiting for the purchase account lock"
+    );
+    db.close().await;
+}
+
+#[derive(Debug)]
+struct PausedStreamAccount {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+impl oteryn_store::premium::Accounts for PausedStreamAccount {
+    fn state<'a>(
+        &'a self,
+        account: Uuid,
+        conn: &'a mut PgConnection,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        oteryn_store::premium::AccountState,
+                        oteryn_store::premium::Error,
+                    >,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let state =
+                oteryn_store::premium::Accounts::state(&DatabasePolicy, account, conn).await?;
+            self.entered.notify_one();
+            self.release.notified().await;
+            Ok(state)
+        })
+    }
+}
+
+#[tokio::test]
+async fn nwave_stream_creates_authority_before_qualification() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = db.account().await;
+    sqlx::query("INSERT INTO referral_loyalty_credits(operation_key,account_id,points) VALUES('concurrent-credit',$1,1)")
+        .bind(account).execute(&db.pool).await.unwrap();
+    let accounts = Arc::new(PausedStreamAccount {
+        entered: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let stream =
+        oteryn_store::loyalty::stream::Stream::new(db.pool.clone(), accounts.clone(), true);
+    let reading = tokio::spawn(async move { stream.read(None, 500).await });
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        accounts.entered.notified(),
+    )
+    .await
+    .unwrap();
+    // A snapshot creates its authority before calling referral_campaign_loyalty.
+    let mut snapshot = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *snapshot)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1)")
+        .bind(account)
+        .execute(&mut *snapshot)
+        .await
+        .unwrap();
+    accounts.release.notify_one();
+    let waiting = wait_for_blocker(&db.pool, pid).await;
+    let available: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND classid=0 AND objid=5600 AND objsubid=1 AND granted)")
+        .bind(waiting).fetch_one(&mut *snapshot)
+        .await
+        .unwrap();
+    snapshot.commit().await.unwrap();
+    let page = reading.await.unwrap().unwrap();
+    assert_eq!(page.items[0].loyalty_points, 1);
+    assert!(
+        available,
+        "stream held 5600 while awaiting a snapshot authority insertion"
+    );
     db.close().await;
 }

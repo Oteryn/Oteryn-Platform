@@ -158,6 +158,10 @@ impl Stream {
                 }
                 match self.accounts.state(account, &mut tx).await? {
                     AccountState::Known => {
+                        // Snapshots insert/lock authority before taking 5600.
+                        // Prepare even credit-only accounts in that same order.
+                        sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1) ON CONFLICT DO NOTHING")
+                            .bind(account).execute(&mut *tx).await?;
                         known.insert(account);
                     }
                     AccountState::Unknown => continue,
@@ -202,12 +206,6 @@ impl Stream {
                     .map_or(Some(1), |(_, _, revision)| revision.checked_add(1))
                     .ok_or(Error::Unavailable)?;
                 head = head.checked_add(1).ok_or(Error::Unavailable)?;
-                sqlx::query(
-                    "INSERT INTO premium_authority(account_id) VALUES($1) ON CONFLICT DO NOTHING",
-                )
-                .bind(account)
-                .execute(&mut *tx)
-                .await?;
                 sqlx::query("INSERT INTO loyalty_stream_state(account_id,spent_premium_days,loyalty_points,platform_revision) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id) DO UPDATE SET spent_premium_days=$2,loyalty_points=$3,platform_revision=$4,updated_at=clock_timestamp()")
                     .bind(account).bind(days).bind(points).bind(revision).execute(&mut *tx).await?;
                 sqlx::query("INSERT INTO loyalty_stream_events(position,account_id,spent_premium_days,loyalty_points,platform_revision) VALUES ($1,$2,$3,$4,$5)")
