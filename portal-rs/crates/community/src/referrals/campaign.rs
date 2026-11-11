@@ -92,7 +92,7 @@ impl<P: Policy> Campaign<P> {
     }
     async fn begin(
         &self,
-        link_account: Option<Uuid>,
+        accounts: &[Uuid],
     ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, Error> {
         if !self.flags.enabled {
             return Err(Error::Disabled);
@@ -105,14 +105,12 @@ impl<P: Policy> Campaign<P> {
         if !enabled {
             return Err(Error::Disabled);
         }
-        // The first link's foreign key must not acquire an account lock after
-        // 5600: purchases hold that account FOR UPDATE before qualification.
-        if let Some(account) = link_account {
-            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR KEY SHARE")
-                .bind(account)
-                .execute(&mut *tx)
-                .await?;
-        }
+        // Attribution and reward foreign keys must not acquire account locks
+        // after 5600: purchases hold accounts FOR UPDATE before qualification.
+        sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR KEY SHARE")
+            .bind(accounts)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("SELECT pg_advisory_xact_lock(5600)")
             .execute(&mut *tx)
             .await?;
@@ -131,7 +129,7 @@ impl<P: Policy> Campaign<P> {
         }
     }
     pub async fn link(&self, actor: Uuid) -> Result<Uuid, Error> {
-        let mut tx = self.begin(Some(actor)).await?;
+        let mut tx = self.begin(&[actor]).await?;
         self.actor(&mut tx, actor).await?;
         let code=sqlx::query_scalar("INSERT INTO referral_links(account_id) VALUES($1) ON CONFLICT(account_id) DO UPDATE SET account_id=EXCLUDED.account_id RETURNING code").bind(actor).fetch_one(&mut *tx).await?;
         tx.commit().await?;
@@ -152,7 +150,7 @@ impl<P: Policy> Campaign<P> {
         {
             return Err(Error::Invalid);
         }
-        let mut tx = self.begin(None).await?;
+        let mut tx = self.begin(&[]).await?;
         self.actor(&mut tx, actor).await?;
         let own: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND lower(email)=$2)",
@@ -214,7 +212,7 @@ impl<P: Policy> Campaign<P> {
     }
     async fn invitation_kind(&self, code: Uuid) -> Result<Kind, Error> {
         valid(code)?;
-        let mut tx = self.begin(None).await?;
+        let mut tx = self.begin(&[]).await?;
         let name: Option<String>=sqlx::query_scalar("SELECT 'new' FROM referral_links WHERE code=$1 UNION ALL SELECT kind FROM referral_email_invitations WHERE id=$1")
             .bind(code).fetch_optional(&mut *tx).await?;
         match name.as_deref() {
@@ -225,7 +223,14 @@ impl<P: Policy> Campaign<P> {
     }
     pub async fn accept(&self, actor: Uuid, code: Uuid) -> Result<(), Error> {
         valid(code)?;
-        let mut tx = self.begin(None).await?;
+        if !self.flags.enabled {
+            return Err(Error::Disabled);
+        }
+        // Discover immutable invitation ownership before taking 5600; reread
+        // the invitation and all eligibility evidence inside the transaction.
+        let inviter: Option<Uuid> = sqlx::query_scalar("SELECT account_id FROM referral_links WHERE code=$1 UNION ALL SELECT inviter_id FROM referral_email_invitations WHERE id=$1")
+            .bind(code).fetch_optional(&self.pool).await?;
+        let mut tx = self.begin(&[actor, inviter.unwrap_or(actor)]).await?;
         self.actor(&mut tx, actor).await?;
         let owner: Option<(Uuid,time::OffsetDateTime,Option<String>,String)>=sqlx::query_as("SELECT account_id,created_at,NULL::text,'new' FROM referral_links WHERE code=$1 UNION ALL SELECT inviter_id,created_at,recipient,kind FROM referral_email_invitations WHERE id=$1")
             .bind(code).fetch_optional(&mut *tx).await?;

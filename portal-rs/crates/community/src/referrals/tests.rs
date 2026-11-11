@@ -593,7 +593,7 @@ async fn referrals_self_referral_denied() {
         Err(Error::Invalid)
     );
     let other = db.account().await;
-    let mut tx = db.campaign.begin(None).await.unwrap();
+    let mut tx = db.campaign.begin(&[]).await.unwrap();
     db.campaign
         .bind(&mut tx, owner, other, Kind::Returning)
         .await
@@ -1620,5 +1620,124 @@ async fn nwave_stream_creates_authority_before_qualification() {
         available,
         "stream held 5600 while awaiting a snapshot authority insertion"
     );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_stream_locks_existing_authority_before_qualification() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = db.account().await;
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1)")
+        .bind(account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut snapshot = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *snapshot)
+        .await
+        .unwrap();
+    sqlx::query("SELECT account_id FROM premium_authority WHERE account_id=$1 FOR UPDATE")
+        .bind(account)
+        .execute(&mut *snapshot)
+        .await
+        .unwrap();
+    let stream =
+        oteryn_store::loyalty::stream::Stream::new(db.pool.clone(), Arc::new(DatabasePolicy), true);
+    let reading = tokio::spawn(async move { stream.read(None, 500).await });
+    let waiting = wait_for_blocker(&db.pool, pid).await;
+    let available: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND classid=0 AND objid=5600 AND objsubid=1 AND granted)").bind(waiting).fetch_one(&mut *snapshot).await.unwrap();
+    snapshot.commit().await.unwrap();
+    reading.await.unwrap().unwrap();
+    assert!(
+        available,
+        "stream held 5600 while awaiting an existing authority row"
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_accept_locks_inviter_before_qualification() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    let invitee = db.account().await;
+    let mut purchase = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *purchase)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(owner)
+        .execute(&mut *purchase)
+        .await
+        .unwrap();
+    let campaign = db.campaign.clone();
+    let accepting = tokio::spawn(async move { campaign.accept(invitee, code).await });
+    let waiting = wait_for_blocker(&db.pool, pid).await;
+    let available: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND classid=0 AND objid=5600 AND objsubid=1 AND granted)").bind(waiting).fetch_one(&mut *purchase).await.unwrap();
+    purchase.commit().await.unwrap();
+    accepting.await.unwrap().unwrap();
+    assert!(
+        available,
+        "accept held 5600 while awaiting the inviter account"
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_snapshot_locks_inviter_before_qualification() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let invitee = db.recruit(owner).await;
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1)")
+        .bind(invitee)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO premium_ledger(request_id,account_id,actor_id,event_type,duration_days,reason_sha256,entitlement_id,lifecycle_revision,delta_seconds,effective_from,effective_until) VALUES($1,$2,$2,'GRANT',6,$3,$4,1,518400,date_trunc('second',now())-interval '7 days',date_trunc('second',now())-interval '1 day')").bind(Uuid::now_v7()).bind(invitee).bind(vec![0u8;32]).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    let mut purchase = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *purchase)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(owner)
+        .execute(&mut *purchase)
+        .await
+        .unwrap();
+    let ledger =
+        oteryn_store::loyalty::Ledger::new(db.pool.clone(), Arc::new(DatabasePolicy), true);
+    let reading = tokio::spawn(async move {
+        ledger
+            .snapshot(
+                invitee,
+                "4f1c2a9be07d4c3a8b6e5d4c3b2a1908",
+                "0123456789abcdef0123456789abcdef01234567",
+            )
+            .await
+    });
+    let waiting = wait_for_blocker(&db.pool, pid).await;
+    let available: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND classid=0 AND objid=5600 AND objsubid=1 AND granted)").bind(waiting).fetch_one(&mut *purchase).await.unwrap();
+    purchase.commit().await.unwrap();
+    reading.await.unwrap().unwrap();
+    assert!(
+        available,
+        "snapshot held 5600 while awaiting the inviter account"
+    );
+    let points: i64 = sqlx::query_scalar(
+        "SELECT sum(points)::bigint FROM referral_loyalty_credits WHERE account_id=$1",
+    )
+    .bind(owner)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(points, 1);
     db.close().await;
 }

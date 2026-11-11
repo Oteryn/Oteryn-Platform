@@ -162,6 +162,10 @@ impl Stream {
                         // Prepare even credit-only accounts in that same order.
                         sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1) ON CONFLICT DO NOTHING")
                             .bind(account).execute(&mut *tx).await?;
+                        // ON CONFLICT does not lock an existing authority row.
+                        // Publication's foreign keys need this lock before 5600.
+                        sqlx::query("SELECT account_id FROM premium_authority WHERE account_id=$1 FOR KEY SHARE")
+                            .bind(account).execute(&mut *tx).await?;
                         known.insert(account);
                     }
                     AccountState::Unknown => continue,
