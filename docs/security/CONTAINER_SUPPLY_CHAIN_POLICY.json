@@ -1,25 +1,6 @@
 {
   "schema_version": 1,
-  "dockerfiles": [
-    {
-      "component": "platform",
-      "path": "legacy/deploy/synology/docker/platform.Dockerfile",
-      "dockerignore": "legacy/deploy/synology/docker/platform.Dockerfile.dockerignore",
-      "expected_user": "www-data"
-    },
-    {
-      "component": "game-gateway",
-      "path": "legacy/deploy/synology/docker/gateway.Dockerfile",
-      "dockerignore": "legacy/deploy/synology/docker/gateway.Dockerfile.dockerignore",
-      "expected_user": "oteryn"
-    },
-    {
-      "component": "deploy-runner",
-      "path": "legacy/deploy/synology/runner/Dockerfile",
-      "dockerignore": "legacy/deploy/synology/runner/Dockerfile.dockerignore",
-      "expected_user": "runner"
-    }
-  ],
+  "dockerfiles": [],
   "vulnerability_policy": {
     "severities": [
       "HIGH",

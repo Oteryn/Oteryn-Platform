@@ -1,6 +1,6 @@
 ---
 name: oteryn-platform-dev
-description: Router for landing a change in Oteryn-Platform, whose product is the Rust portal in portal-rs/ - the path from governing Issue and task to merge, the rules that hold at every step, the cross-repository contract with Oteryn-Game (game auth tickets and login, catalog and world data, store and premium delivery), portal-rs migrations, local checks, CI lanes, the Merge Queue and which other oteryn-platform skill to load. Load first for any change to this repository, including a red Portal RS CI or platform-gate, a composer audit failure or a conflicted PR.
+description: Router for landing a change in Oteryn-Platform, whose product is the Rust portal in portal-rs/ - the path from governing Issue and task to merge, the rules that hold at every step, the cross-repository contract with Oteryn-Game (game auth tickets and login, catalog and world data, store and premium delivery), portal-rs migrations, local checks, CI lanes, the Merge Queue and which other oteryn-platform skill to load. Load first for any change to this repository, including a red Portal RS CI or platform-gate or a conflicted PR.
 ---
 
 # Landing work in Oteryn-Platform
@@ -17,14 +17,12 @@ over the commands here; if they disagree, fix this skill in the same change.
 The new Platform is `portal-rs/`: one Rust binary (`oteryn-portal`, roles
 `serve`, `worker`, `migrate`, `gateway`; the plan adds `admin-cli`) over its own
 PostgreSQL 18.6, built task by task from the plan (owner decision D22,
-2026-11-05; task table in §10). The Laravel tree (`legacy/app/`,
-`legacy/routes/`, `legacy/database/`, `legacy/tests/`, `legacy/composer.*`)
-and the Go gateway (`legacy/services/game-gateway/`) are legacy, moved to
-`legacy/` with their CI retired on owner decision 2026-11-11: the plan uses
-them only as a source of needs and contracts, nothing is ported from them,
-and they are removed by a separate PR at cutover (plan §1, §9). Do not extend
-them; touch them only for a task that names them (security fix, dependency
-advisory, contract evidence).
+2026-11-05; task table in §10). It is the only platform. The earlier Laravel
+app, the Go gateway and the legacy import tool (T38-T38e) were removed on
+owner decision 2026-11-11: there is no cutover and no data migration, and the
+portal starts with an empty database (plan §1, §9). The last commit with that
+tree is `2d45732c` (`legacy/`); read it there only to learn a need or a
+contract, never to port it.
 
 ## The skills and when to load them
 
@@ -102,10 +100,10 @@ contract's state on the Game side is plan §6; check it before a task.
 
 | surface | contract (`docs/contracts/`) | portal-rs | proof |
 |---|---|---|---|
-| login, game tickets, admission grants | `OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`, `GAME_GATEWAY_IDENTITY_CONTRACT.md`, `OTERYN_V2_PRE_ADMISSION_HANDOFF_CONTRACT.md` | `crates/gameauth`, `crates/gateway` (replaces `legacy/services/game-gateway` byte for byte, T52) | `crates/gateway/tests/` (Go vectors in `fixtures/go_vectors.jsonl`, `game_client_native_login_fixtures.rs`), `crates/gameauth/src/evidence_tests.rs` on `fixtures/oteryn-native-v1/` |
+| login, game tickets, admission grants | `OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`, `GAME_GATEWAY_IDENTITY_CONTRACT.md`, `OTERYN_V2_PRE_ADMISSION_HANDOFF_CONTRACT.md` | `crates/gameauth`, `crates/gateway` (replaced the removed Go gateway byte for byte, T52) | `crates/gateway/tests/` (Go vectors in `fixtures/go_vectors.jsonl`, `game_client_native_login_fixtures.rs`), `crates/gameauth/src/evidence_tests.rs` on `fixtures/oteryn-native-v1/` |
 | internal routes and guards | the contract of each route (plan §5.3.1) | `crates/internal-api` | `crates/internal-api/tests/contracts.rs` reads `docs/contracts/fixtures/` |
 | game catalog, world data | `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md`, `docs/contracts/game-catalog/` | `crates/world`, `crates/wiki`, `crates/atlas` | crate tests; the Game pin is a deliberate change |
-| store and premium delivery | `OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md`, `OTERYN_V2_STORE_PURCHASE_DELIVERY_CONTRACT.md`, `OTERYN_V2_STORE_WIRE_CONTRACT.md`, `OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md`, `OTERYN_V2_LOYALTY_SNAPSHOT_CONTRACT.md` | `crates/store`, `crates/wallet` | `crates/store/src/premium_tests.rs` on `fixtures/premium-snapshot-v1/`; the legacy Laravel lane `premium-physical-e2e` (`phase7-production-like-validation.yml`) is a retired stub since 2026-11-11 |
+| store and premium delivery | `OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md`, `OTERYN_V2_STORE_PURCHASE_DELIVERY_CONTRACT.md`, `OTERYN_V2_STORE_WIRE_CONTRACT.md`, `OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md`, `OTERYN_V2_LOYALTY_SNAPSHOT_CONTRACT.md` | `crates/store`, `crates/wallet` | `crates/store/src/premium_tests.rs` on `fixtures/premium-snapshot-v1/`; the former Laravel lane `premium-physical-e2e` (`phase7-production-like-validation.yml`) is a retired stub since 2026-11-11 |
 
 - Routes Game already implements keep their contract byte for byte:
   members, types, result codes, digests, idempotency keys, size limits,

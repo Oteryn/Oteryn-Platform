@@ -4,7 +4,7 @@ This document records the legal boundary for material referenced, installed, gen
 
 ## Dependency software
 
-PHP and Composer dependencies, including Laravel and other packages declared through `legacy/composer.json` and `legacy/composer.lock`, remain governed by their upstream licenses and notices. Dependency manifests and lock files identify technical versions; they are not replacement license texts and do not transfer third-party rights to Oteryn Platform.
+Rust crates declared through `portal-rs/Cargo.toml` and `portal-rs/Cargo.lock`, and the npm packages of the end-to-end harness, remain governed by their upstream licenses and notices. Dependency manifests and lock files identify technical versions; they are not replacement license texts and do not transfer third-party rights to Oteryn Platform.
 
 Development tools, operating-system packages, database engines, browsers, GitHub Actions and external services are likewise governed by their respective terms.
 

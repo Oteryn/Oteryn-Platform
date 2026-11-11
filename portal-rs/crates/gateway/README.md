@@ -1,7 +1,8 @@
 # Native login gateway
 
-T52 implements the protocol 2 gateway from
-`legacy/services/game-gateway/internal/{nativelogin,httpapi,platform}`. Run the same portal
+T52 implements the protocol 2 gateway from the Go gateway's
+`internal/{nativelogin,httpapi,platform}` (removed on owner decision 2026-11-11;
+last present at commit `2d45732c`, path `legacy/services/game-gateway`). Run the same portal
 binary with `oteryn-portal gateway`. This dispatch happens before portal
 configuration is loaded: no database URL, pool, migrations or signing keys are used.
 
@@ -37,10 +38,13 @@ Platform `d140863b`, without modifying reference files. It contains 185 wire/err
 vectors, 94 limiter operations and 46 handler responses. Rust replays all of them,
 checking response bytes including newlines, status, retry headers and call counts.
 The HTTP integration tests also send all 43 captured issuer responses through the
-real Rust upstream client. To regenerate the reference corpus with Go on PATH:
+real Rust upstream client. The Go source is no longer in the tree; the vectors
+stay the reference. To regenerate them with Go on PATH, extract the source from
+its last commit:
 
 ```sh
-python3 portal-rs/crates/gateway/tests/capture_go_vectors.py
+git archive 2d45732c legacy/services/game-gateway | tar -x -C "$dir"
+python3 portal-rs/crates/gateway/tests/capture_go_vectors.py "$dir/legacy/services/game-gateway"
 ```
 
 The Go E2E journey is retained in `tests/go_e2e`, with only the gateway startup

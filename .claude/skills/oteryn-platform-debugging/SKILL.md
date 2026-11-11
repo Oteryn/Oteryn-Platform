@@ -1,6 +1,6 @@
 ---
 name: oteryn-platform-debugging
-description: Root-causing a failure in Oteryn-Platform before any fix - a failing or flaky portal-rs test, a red Portal RS CI or platform-gate leaf job, a PostgreSQL test that only fails on a real database, a fixture byte mismatch against a Game contract, a red push run on main, or a composer audit advisory. Load when something fails or misbehaves, before writing the fix.
+description: Root-causing a failure in Oteryn-Platform before any fix - a failing or flaky portal-rs test, a red Portal RS CI or platform-gate leaf job, a PostgreSQL test that only fails on a real database, a fixture byte mismatch against a Game contract, or a red push run on main. Load when something fails or misbehaves, before writing the fix.
 ---
 
 # Debugging in Oteryn-Platform
@@ -97,7 +97,6 @@ minutes, not CI cycles.
 | contract test byte mismatch | key order, number or whitespace drift in the canonical encoder, or a fixture edited by hand |
 | `--locked` fails: lock file needs to be updated | `Cargo.lock` not regenerated after a merge or a new dependency (`ci-merge.md`, *Merge conflicts*) |
 | clippy red in CI only | local run without `--all-targets` or on one crate only |
-| every PR red at `runtime-tests` / *Audit Composer dependencies* | a new advisory in the legacy Laravel lock; one lock bump PR on `main` |
 | `platform-gate` red | open the leaf job; the gate only aggregates |
 | linker `Bus error` or `No space left on device` | disk full: free the target dir and rebuild; not a code failure |
 

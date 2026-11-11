@@ -26,7 +26,6 @@ while IFS= read -r path; do
         docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md | \
         docs/architecture/PUBLIC_EDGE_ARCHITECTURE.md | \
         docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md | \
-        legacy/deploy/synology/PUBLIC_ENDPOINTS.md | \
         docs/operations/CLOUDFLARE_EDGE_AUDIT.md | \
         docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md | \
         docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md | \

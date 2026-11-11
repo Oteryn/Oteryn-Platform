@@ -9,7 +9,6 @@ on:
       - scripts/operations/cloudflare-zone-edge-audit.sh
       - tests/operations/cloudflare-zone-edge-audit/**
       - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
-      - legacy/deploy/synology/PUBLIC_ENDPOINTS.md
       - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
       - docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md
   push:
@@ -20,7 +19,6 @@ on:
       - scripts/operations/cloudflare-zone-edge-audit.sh
       - tests/operations/cloudflare-zone-edge-audit/**
       - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
-      - legacy/deploy/synology/PUBLIC_ENDPOINTS.md
       - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
       - docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md
   workflow_dispatch:

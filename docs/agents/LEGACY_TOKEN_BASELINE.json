@@ -6,8 +6,7 @@
   "notes": [
     "Later packets must use token-free names for task files, branch-visible text and docs they add; any rise in an enforced group fails CI (decision D607).",
     "The history group is report-only: historical records are preserved and excluded from the zero gate.",
-    "Q-H: historical-record prefixes listed under exclusions are preserved unchanged (contents and path names); their contents count in the report-only history group and their path names in the report-only history_paths group; the paths group counts live tracked paths only.",
-    "legacy/ holds the frozen Laravel app and Go gateway (owner decision 2026-11-11); it is excluded like the other historical records."
+    "Q-H: historical-record prefixes listed under exclusions are preserved unchanged (contents and path names); their contents count in the report-only history group and their path names in the report-only history_paths group; the paths group counts live tracked paths only."
   ],
   "rules": [
     [
@@ -72,10 +71,6 @@
     ],
     [
       "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md",
-      "history"
-    ],
-    [
-      "legacy/",
       "history"
     ],
     [
@@ -175,8 +170,7 @@
     "docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md",
     "docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md",
     "docs/agents/prompts/OTS_PLATFORM_GATEWAY_NATIVE_PROTOCOL_IMPLEMENTATION.md",
-    "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md",
-    "legacy/"
+    "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md"
   ],
   "groups": {
     "ci_deploy": {
@@ -200,13 +194,13 @@
       "enforce": true
     },
     "history": {
-      "count": 2051,
-      "files": 327,
+      "count": 1492,
+      "files": 235,
       "enforce": false
     },
     "history_paths": {
-      "count": 24,
-      "files": 24,
+      "count": 11,
+      "files": 11,
       "enforce": false
     },
     "other": {

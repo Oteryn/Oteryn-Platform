@@ -8,11 +8,6 @@
 /.phpunit.cache
 /.vscode
 /auth.json
-/legacy/auth.json
-/legacy/database/*.sqlite
-/legacy/public/storage
-/legacy/storage/*.key
-/legacy/vendor
 /vendor
 Thumbs.db
 __pycache__/

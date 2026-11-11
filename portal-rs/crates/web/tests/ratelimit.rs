@@ -490,31 +490,59 @@ async fn multiple_keys_charge_independently_and_refusal_is_retained() -> TestRes
     db.close().await
 }
 
+/// Budgets of the earlier portal's named limiters: `(name, limit, window seconds)`,
+/// extracted from the `RateLimiter::for(...)` definitions in
+/// `legacy/app/Providers/AppServiceProvider.php` at commit 2d45732c (the last
+/// commit containing it; the legacy tree was removed on owner decision
+/// 2026-11-11). Each entry is the first `Limit::perMinute` / `Limit::perHour`
+/// of its limiter, as the earlier parser of that file read it.
+const LEGACY_PORTAL_LIMITS: &[(&str, i64, i64)] = &[
+    ("public-game-data", 120, 60),
+    ("identity-registration", 5, 60),
+    ("identity-login", 5, 60),
+    ("identity-login-source", 20, 60),
+    ("identity-password-recovery", 3, 60),
+    ("identity-password-recovery-source", 10, 60),
+    ("identity-password-reset", 5, 60),
+    ("identity-password-change", 5, 60),
+    ("identity-email-change", 3, 3600),
+    ("identity-email-token", 10, 60),
+    ("identity-session-revoke", 10, 60),
+    ("identity-security-mutation", 10, 60),
+    ("identity-recovery-key-manage", 5, 3600),
+    ("identity-recovery-key-use", 5, 3600),
+    ("identity-termination", 3, 3600),
+    ("identity-mfa-challenge", 5, 60),
+    ("identity-mfa-challenge-identity", 10, 60),
+    ("identity-mfa-challenge-source", 20, 60),
+    ("identity-mfa-enrollment", 5, 60),
+    ("identity-mfa-disable", 5, 60),
+    ("character-create", 5, 60),
+    ("character-create-status", 60, 60),
+    ("marketplace-listing", 3, 60),
+    ("marketplace-bid", 20, 60),
+    ("marketplace-watch", 30, 60),
+    ("support-ticket-create", 6, 60),
+    ("support-ticket-reply", 12, 60),
+    ("support-ticket-status", 12, 60),
+    ("support-report-submit", 3, 60),
+    ("support-enforcement-acknowledge", 12, 60),
+    ("support-enforcement-appeal", 3, 60),
+    ("game-auth-ticket-issue", 5, 60),
+    ("game-auth-native-characters", 10, 60),
+    ("wiki-search", 30, 60),
+];
+
 #[test]
 fn named_policies_match_the_existing_portal_limits() -> TestResult {
-    let source = include_str!("../../../../legacy/app/Providers/AppServiceProvider.php");
     let mut found = 0;
-    for block in source.split("RateLimiter::for('").skip(1) {
-        let (name, rest) = block.split_once('\'').ok_or("missing limiter name")?;
+    for (name, limit, period) in LEGACY_PORTAL_LIMITS {
         let policy = NamedPolicy::ALL
             .iter()
-            .find(|p| p.name() == name)
+            .find(|p| p.name() == *name)
             .ok_or("missing policy")?;
-        let minute = rest.find("Limit::perMinute(");
-        let hour = rest.find("Limit::perHour(");
-        let (offset, period, prefix) = match (minute, hour) {
-            (Some(a), Some(b)) if a < b => (a, 60, "Limit::perMinute("),
-            (Some(a), None) => (a, 60, "Limit::perMinute("),
-            (_, Some(b)) => (b, 3600, "Limit::perHour("),
-            _ => return Err("missing limit".into()),
-        };
-        let limit = rest[offset + prefix.len()..]
-            .split(')')
-            .next()
-            .ok_or("missing budget")?
-            .parse::<i64>()?;
-        assert_eq!(policy.limit(), limit, "{name}");
-        assert_eq!(policy.window_seconds(), period, "{name}");
+        assert_eq!(policy.limit(), *limit, "{name}");
+        assert_eq!(policy.window_seconds(), *period, "{name}");
         found += 1;
     }
     assert_eq!(found, NamedPolicy::ALL.len());

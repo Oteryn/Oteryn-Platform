@@ -79,11 +79,6 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-          # legacy/ is the frozen Laravel app and Go gateway (owner decision
-          # 2026-11-11); it is not built or deployed from this repository.
-          config: |
-            paths-ignore:
-              - legacy/**
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1

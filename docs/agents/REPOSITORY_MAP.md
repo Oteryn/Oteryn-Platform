@@ -2,6 +2,8 @@
 
 Navigation map for autonomous agents. This is not an exhaustive inventory. Confirm current paths before editing.
 
+The product is the Rust portal in `portal-rs/` (`portal-rs/README.md`). The `legacy/` paths below (Laravel app, Go gateway, Synology staging package) were removed on owner decision 2026-11-11 and are readable only at commit `2d45732c`.
+
 ## Product/application paths
 
 | Area | Typical paths | Responsibility / cautions |
@@ -39,7 +41,7 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 | Roadmap | `docs/architecture/ROADMAP.md` | Phased delivery order and exit gates; roadmap intent is not implementation proof. |
 | ADRs | `docs/architecture/adr/**` | Durable decisions and supersession history. Use the directory inventory, not numeric assumptions. |
 | Integration contracts | `docs/contracts/**` | legacy engine/login-server/shared schema/auth compatibility. |
-| Public endpoint roles | `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`, `legacy/deploy/synology/PUBLIC_ENDPOINTS.md` | Canonical mapping of `oteryn.molehill.cloud` to Platform WWW and `gateway.molehill.cloud` to Game Gateway/login; ADR 0020 records the hostname decision. |
+| Public endpoint roles | `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md` | Canonical mapping of `oteryn.molehill.cloud` to Platform WWW and `gateway.molehill.cloud` to Game Gateway/login; ADR 0020 records the hostname decision. |
 | Agent governance | `AGENTS.md`, `docs/agents/CONTEXT_*` | Coordination, routing and handoff rules. |
 
 ## Mandatory discovery for shared data/auth
@@ -62,7 +64,6 @@ Before implementing portal-completeness or player-tools work, also read:
 For public-domain, Cloudflare Tunnel, website-origin or Game Gateway hostname work, also read:
 
 - `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`;
-- `legacy/deploy/synology/PUBLIC_ENDPOINTS.md`;
 - `docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md`.
 
 Then verify the actual external repository/schema evidence. Documentation placeholders do not prove compatibility.

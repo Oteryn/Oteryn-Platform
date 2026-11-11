@@ -77,8 +77,8 @@ jobs:
           --summary "$GITHUB_STEP_SUMMARY"
 
   validate:
-    # This lane ran the Laravel application, which moved to legacy/ (owner decision
-    # 2026-11-11) and is no longer built or tested. The job keeps its check name.
+    # This lane ran the Laravel application, which was removed from the repository
+    # (owner decision 2026-11-11). The job keeps its check name.
     needs: classify_changes
     if: ${{ always() && (needs.classify_changes.result != 'success' || (needs.classify_changes.outputs.edge == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true')) }}
     runs-on: ubuntu-24.04
@@ -93,6 +93,6 @@ jobs:
 
       - name: Record retired Laravel validation
         run: |
-          summary="validate: Laravel validation retired; Laravel moved to legacy/ (owner decision 2026-11-11)."
+          summary="validate: Laravel validation retired; the Laravel app was removed (owner decision 2026-11-11)."
           echo "$summary"
           echo "### $summary" >> "$GITHUB_STEP_SUMMARY"

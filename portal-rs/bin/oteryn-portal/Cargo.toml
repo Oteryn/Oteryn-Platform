@@ -33,7 +33,6 @@ oteryn-admin = { path = "../../crates/admin" }
 oteryn-payments = { path = "../../crates/payments" }
 oteryn-wallet.workspace = true
 oteryn-store = { path = "../../crates/store" }
-getrandom = "0.4.3"
 serde_urlencoded = "0.7"
 oteryn-hirelings.workspace = true
 oteryn-minigames.workspace = true
@@ -76,19 +75,6 @@ tempfile = "3"
 version = "5.7"
 
 
-[dependencies.sqlx-mysql]
-version = "0.9.0"
-default-features = false
-features = ["offline"]
-[dependencies.aes-gcm]
-version = "0.10"
-[dependencies.aes]
-version = "0.8"
-[dependencies.cbc]
-version = "0.1"
-features = ["alloc"]
-[dependencies.hmac]
-version = "0.12"
 [dependencies.base64]
 version = "0.22"
 [dependencies.time]

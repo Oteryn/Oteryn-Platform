@@ -34,12 +34,7 @@
         "issues": [
           489
         ],
-        "local_paths": [
-          "legacy/database/migrations/2026_07_28_110000_create_game_catalog_tables.php",
-          "legacy/app/GameCatalog/Application/Activation/CatalogActivationService.php",
-          "legacy/app/GameCatalog/Application/PublicRead/PublicCatalogContextResolver.php",
-          "legacy/app/GameCatalog/Application/Import/Native/NativeCatalogEnvelopeValidator.php"
-        ]
+        "local_paths": []
       },
       "evidence": {
         "CONFLICT": [],
@@ -50,7 +45,8 @@
           "Current game_catalog_snapshots requires legacy engine commit, protocol profile, runtime/content release foreign keys and appearances digest on the lifecycle row.",
           "Current profile activation and public context resolution require Legacy engine release-boundary joins.",
           "PR 1229 integrated native envelope validation without native persistence or activation.",
-          "The native contract requires content authority, authority epoch, source revision, ruleset/profile identity, capability/completeness semantics, tombstones and payload digest."
+          "The native contract requires content authority, authority epoch, source revision, ruleset/profile identity, capability/completeness semantics, tombstones and payload digest.",
+          "The Laravel sources this record cited (legacy/database/migrations/2026_07_28_110000_create_game_catalog_tables.php, legacy/app/GameCatalog/Application/Activation/CatalogActivationService.php, legacy/app/GameCatalog/Application/PublicRead/PublicCatalogContextResolver.php, legacy/app/GameCatalog/Application/Import/Native/NativeCatalogEnvelopeValidator.php) were removed with the legacy/ tree on owner decision 2026-11-11; they remain readable at commit 2d45732c."
         ],
         "UNKNOWN": [
           "Repository owner selection among the three durable persistence composition options."

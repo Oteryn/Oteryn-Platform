@@ -150,7 +150,7 @@ class RequiredTestWorkflowContractTest(unittest.TestCase):
             "if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true' }}",
             self.workflow,
         )
-        # The Laravel suite moved to legacy/ (owner decision 2026-11-11); the job keeps its
+        # The Laravel suite was removed (owner decision 2026-11-11); the job keeps its
         # required name and only records that the validation is retired.
         runtime = self.workflow.split("\n  runtime_tests:\n", 1)[1].split("\n  platform_postgres:\n", 1)[0]
         self.assertIn("Laravel validation retired", runtime)

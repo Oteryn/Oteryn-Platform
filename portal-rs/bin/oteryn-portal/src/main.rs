@@ -35,9 +35,6 @@ async fn main() -> ExitCode {
     if arg.as_deref() == Some("downloads-publish") {
         return oteryn_downloads::command::run().await;
     }
-    if arg.as_deref() == Some("import") {
-        return import::run().await;
-    }
     if arg.as_deref() == Some("gateway") {
         return match gateway::run().await {
             Ok(()) => ExitCode::SUCCESS,
@@ -471,8 +468,6 @@ mod shop_web;
 mod mfa_http;
 
 mod registration_delivery;
-
-mod import;
 
 #[path = "../../../crates/identity/src/account_lifecycle_http.rs"]
 mod account_lifecycle_http;
