@@ -120,7 +120,7 @@ pub fn router(ledger: Ledger, settings: Settings, identities: Arc<IdentityMap>) 
     )
     .layer(middleware::from_fn(contract_response))
 }
-async fn contract_response(mut request: Request, next: Next) -> Response {
+pub(super) async fn contract_response(mut request: Request, next: Next) -> Response {
     // Laravel accepts media-type parameters and case-insensitive identity encoding.
     // Keep duplicate headers intact so the shared guard rejects ambiguity.
     for name in [header::CONTENT_TYPE, header::CONTENT_ENCODING] {
@@ -203,4 +203,24 @@ async fn read(State(state): State<Arc<StateData>>, request: Request) -> Response
 /// Request helper for callers that have raw bytes rather than the guard extension.
 pub fn decode_bytes(bytes: &[u8]) -> Result<(Uuid, String), Error> {
     decode(&canonical::decode(bytes, 256, 4).map_err(|_| Error::Invalid)?)
+}
+
+/// Mount both exports on the verified internal listener. Each route keeps its own
+/// flag, dedicated peer binding and rate budget. Snapshot wire behavior is unchanged.
+pub fn router_with_stream(
+    ledger: Ledger,
+    settings: Settings,
+    stream_settings: super::stream::http::Settings,
+    identities: Arc<IdentityMap>,
+) -> Router {
+    let stream = super::stream::Stream::new(
+        ledger.pool.clone(),
+        ledger.accounts.clone(),
+        stream_settings.enabled,
+    );
+    router(ledger, settings, identities.clone()).merge(super::stream::http::router(
+        stream,
+        stream_settings,
+        identities,
+    ))
 }

@@ -8,6 +8,9 @@ use uuid::Uuid;
 #[path = "loyalty_http.rs"]
 pub mod http;
 
+#[path = "loyalty_stream.rs"]
+pub mod stream;
+
 #[derive(Debug, Clone)]
 pub struct Ledger {
     pool: PgPool,
