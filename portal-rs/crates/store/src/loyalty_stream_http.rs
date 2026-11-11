@@ -66,7 +66,7 @@ pub(super) fn configured_with_values(
     router(stream, settings, Arc::new(bindings))
 }
 
-fn identity_map(
+pub(super) fn identity_map(
     values: &std::collections::BTreeMap<String, String>,
 ) -> Result<IdentityMap, guard::ConfigError> {
     let mut bindings = Vec::new();
@@ -91,7 +91,7 @@ fn identity_map(
                     group: key.clone(),
                 });
             }
-        } else if key.ends_with("_MTLS_CLIENT_IDENTITY") || key.ends_with("_SAN") {
+        } else if key.ends_with("_IDENTITY") || key.ends_with("_SAN") {
             bindings.push(guard::Binding {
                 identity: guard::Identity::san(raw)?,
                 group: if key == "PRODUCTS_ENTITLEMENTS_LOYALTY_STREAM_MTLS_CLIENT_IDENTITY" {

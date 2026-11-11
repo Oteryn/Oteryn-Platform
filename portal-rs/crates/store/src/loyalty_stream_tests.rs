@@ -867,6 +867,7 @@ async fn loyalty_stream_all_identity_reuse_503() {
             r#"{"loyalty-stream.test":["world-a"]}"#,
         ),
         ("OTHER_INTERNAL_SAN", "loyalty-stream.test"),
+        ("PORTAL_SANCTION_EXPORT_IDENTITY", "loyalty-stream.test"),
         (
             "PORTAL_GAME_COINS_IDENTITIES",
             r#"{"coins.test":["invalid"]}"#,
@@ -892,4 +893,19 @@ async fn loyalty_stream_all_identity_reuse_503() {
         )
         .await;
     }
+}
+
+#[test]
+fn loyalty_stream_identity_shared_with_sanction_export_is_refused() {
+    let values = std::collections::BTreeMap::from([
+        (
+            "PRODUCTS_ENTITLEMENTS_LOYALTY_STREAM_MTLS_CLIENT_IDENTITY".to_string(),
+            "shared.test".to_string(),
+        ),
+        (
+            "PORTAL_SANCTION_EXPORT_IDENTITY".to_string(),
+            "shared.test".to_string(),
+        ),
+    ]);
+    assert!(http::identity_map(&values).is_err());
 }
