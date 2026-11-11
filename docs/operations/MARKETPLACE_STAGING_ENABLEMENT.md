@@ -7,7 +7,7 @@ Character Bazaar application behavior was delivered by PR #270. This runbook cov
 The package is fail-closed:
 
 - normal local, staging and production runtimes require explicit `MARKETPLACE_ENABLED=true`;
-- `deploy/synology/compose.marketplace.yml` layers the public origin and the Marketplace switch onto the always-on private scheduler defined in `compose.yml` (no published port);
+- `legacy/deploy/synology/compose.marketplace.yml` layers the public origin and the Marketplace switch onto the always-on private scheduler defined in `compose.yml` (no published port);
 - staging mutations run only through `.github/workflows/character-bazaar-staging-control.yml`;
 - production is excluded.
 
@@ -97,7 +97,7 @@ Historical and no longer available: the retired `enable` path performed this ord
 6. prove the escrow identity is unbound from Platform Identity records;
 7. run bounded reconciliation;
 8. recreate Platform with Marketplace enabled;
-9. start one `php artisan schedule:work --no-interaction` scheduler using the exact Platform image;
+9. start one `php legacy/artisan schedule:work --no-interaction` scheduler using the exact Platform image;
 10. refresh the private internal proxy after Platform recreation;
 11. verify scheduler state, grants, escrow configuration and `/en/bazaar`.
 

@@ -122,7 +122,7 @@ is disabled, so operators handle each alarm until a consumer that settles value 
 
 ## Configuration
 
-`config/character-authority.php` section `restore`:
+`legacy/config/character-authority.php` section `restore`:
 
 | Key | Env | Default |
 | --- | --- | --- |

@@ -71,7 +71,7 @@ The core `CI` workflow runs on portal-rs PRs too. Its `runtime-tests` job
 runs `composer audit`: a newly published advisory turns every PR red,
 whatever it changes. That is a `main` failure, fixed once by a Composer
 lock bump PR (`ci-merge.md`, *Reading a red check*), not in your PR. A
-PHPStan finding at `app/Console/Commands/InstallWikiLaunchContent.php:49`
+PHPStan finding at `legacy/app/Console/Commands/InstallWikiLaunchContent.php:49`
 is known and pre-existing; report it as such.
 
 ## Agent governance

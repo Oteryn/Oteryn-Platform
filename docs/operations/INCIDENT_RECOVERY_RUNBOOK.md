@@ -49,7 +49,7 @@ Immediate actions:
 2. Run:
 
 ```text
-php artisan production:verify-configuration
+php legacy/artisan production:verify-configuration
 ```
 
 3. Correct effective environment configuration through the actual deployment/secret-management mechanism. Do not commit production secrets.
@@ -94,7 +94,7 @@ Cloudflare Access may be an additional containment layer only if deployment evid
 Run:
 
 ```text
-php artisan canary:verify-db-privileges
+php legacy/artisan canary:verify-db-privileges
 ```
 
 Expected behavior: fail closed if the effective generic legacy engine credential exceeds the approved read-only boundary.
@@ -194,7 +194,7 @@ Restore order:
 3. **Reconcile.** Run `game-auth:native-evidence:reconcile` where the native evidence contract allows it, then `game-auth:native-admission:self-check` when native admission is on.
 4. **Verify and record.** Run the checks in step 6 above, then the health check. Take a fresh base backup and record the measured RTO and data loss.
 
-Backup of the witness directory and of the external `oteryn-native-admission-keys` volume is not automated yet. Copying admission keys changes their custody (`deploy/synology/scripts/generate-native-admission-key.sh`). Owner decision (2026-10-12): a follow-up adds a separate root-only job that writes an encrypted copy of both, outside the PostgreSQL backup spool and outside the `postgres-backup` sidecar. Until that job exists, losing `platform_storage` or the key volume is recovered by fix-forward under an owner decision, not from a backup.
+Backup of the witness directory and of the external `oteryn-native-admission-keys` volume is not automated yet. Copying admission keys changes their custody (`legacy/deploy/synology/scripts/generate-native-admission-key.sh`). Owner decision (2026-10-12): a follow-up adds a separate root-only job that writes an encrypted copy of both, outside the PostgreSQL backup spool and outside the `postgres-backup` sidecar. Until that job exists, losing `platform_storage` or the key volume is recovered by fix-forward under an owner decision, not from a backup.
 
 **Cross-system restore (F-04).** This is the Platform side only. When the Game node is deployed, a restore of either side follows the joint Platform and Game procedure, which Game owns on its side. Until then no Game state depends on a Platform restore point.
 

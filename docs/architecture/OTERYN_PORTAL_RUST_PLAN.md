@@ -224,11 +224,11 @@ Wszystkie trasy poza `native-admissions` (token usługi gatewaya): TLS 1.3, HTTP
 
 **5.3.2 Trasy, które portal woła w grze:** dziś żadnej. Każdy przepływ z grą to pull albo push inicjowany przez grę, a portal tylko serwuje.
 
-**Kierunek `native-admissions`** (potwierdzony przez grę, Game main @6a81df27). Trasę serwuje portal, a woła ją tylko gateway logowania (dziś `services/game-gateway` w Go, `issuerPath`; docelowo rola `gateway`, T52) tokenem usługi, nie mTLS, przez loopback lub upstream; trasa nie jest publiczna. Serwer gry jej nie serwuje i nie woła. Lock gry (wpis N4P) jeszcze jej nie wymienia; dopisze ją G-1.
+**Kierunek `native-admissions`** (potwierdzony przez grę, Game main @6a81df27). Trasę serwuje portal, a woła ją tylko gateway logowania (dziś `legacy/services/game-gateway` w Go, `issuerPath`; docelowo rola `gateway`, T52) tokenem usługi, nie mTLS, przez loopback lub upstream; trasa nie jest publiczna. Serwer gry jej nie serwuje i nie woła. Lock gry (wpis N4P) jeszcze jej nie wymienia; dopisze ją G-1.
 
 ### 5.4 Panel zespołu
 
-Panel działa na osobnym hoście, z obowiązkowym MFA. Uprawnienia odpowiadają obecnym (30 kluczy w 7 grupach, `app/Admin/AdminPermission.php`). Każde uprawnienie należy do co najmniej jednej wbudowanej roli, co sprawdza test; w obecnym portalu 6 uprawnień nie ma żadnej roli. Role i ich uprawnienia edytuje się w panelu.
+Panel działa na osobnym hoście, z obowiązkowym MFA. Uprawnienia odpowiadają obecnym (30 kluczy w 7 grupach, `legacy/app/Admin/AdminPermission.php`). Każde uprawnienie należy do co najmniej jednej wbudowanej roli, co sprawdza test; w obecnym portalu 6 uprawnień nie ma żadnej roli. Role i ich uprawnienia edytuje się w panelu.
 
 | Sekcja | Zakres | Zadanie |
 | --- | --- | --- |
@@ -604,7 +604,7 @@ Zasady:
 - Funkcja bez danych z gry pokazuje „niedostępne” z czasem ostatniej aktualizacji, nigdy zmyślonych wartości.
 - Ustawienia profilu (ukrycie, postać główna, komentarz, przełączniki) należą do portalu, bo to portal renderuje profile z projekcji. Gra nie musi nic zmieniać.
 - Każda mutacja przez granicę gry jest idempotentna, ma klucz operacji, outbox i rekoncyliację. Timeout nie oznacza sukcesu ani porażki.
-- Gateway logowania przechodzi z Go do Rusta (rola `gateway`, T52) z tym samym kontraktem bajt w bajt, więc klient gry nic nie zmienia. Obecny gateway w Go (`services/game-gateway`, ok. 900 linii, bezstanowy) działa do przełączenia. Portal serwuje `native-admissions` bajt w bajt obu wersjom.
+- Gateway logowania przechodzi z Go do Rusta (rola `gateway`, T52) z tym samym kontraktem bajt w bajt, więc klient gry nic nie zmienia. Obecny gateway w Go (`legacy/services/game-gateway`, ok. 900 linii, bezstanowy) działa do przełączenia. Portal serwuje `native-admissions` bajt w bajt obu wersjom.
 - Wymagania klienta wobec gatewaya (koordynator, Game main @7cdd69a7). Klient dekoduje odpowiedź ściśle: odrzuca nieznane i zduplikowane pola. Wymaga:
   - zgodności trójki status HTTP + kod + `public_class` z tabelą błędów;
   - `Content-Type: application/json`;
@@ -663,7 +663,7 @@ Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie cz�
   - e-mail o logowaniu z nowego urządzenia.
 - Zmiana e-maila (D14): bez klucza odzyskiwania zmiana po 7 dniach z anulowaniem ze starego adresu; po zmianie 72 h blokady transferu coinów, bazaru i kolejnej zmiany e-maila.
 - Rejestracja: rate limit i proof-of-work bez zewnętrznych usług.
-- Rate limity: zestaw z obecnego portalu (`app/Providers/AppServiceProvider.php`) jako punkt wyjścia.
+- Rate limity: zestaw z obecnego portalu (`legacy/app/Providers/AppServiceProvider.php`) jako punkt wyjścia.
 - CSRF: token synchronizowany dla każdej mutacji w web.
 - Tokeny API: nieprzezroczyste, przechowywane jako SHA-256, z zakresami. Refresh rotowany; ponowne użycie unieważnia całą rodzinę.
 - Waluta: transakcja z `SELECT ... FOR UPDATE` na koncie portfela, brak ujemnych sald, klucz idempotencji dla każdej operacji.
@@ -708,7 +708,7 @@ These are non-binding design notes for later implementation tasks, not evidence 
 3. Weryfikacja importu: liczby i sumy kontrolne, logowanie próbnych kont, zgodność sald.
 4. Bazar Laravela jest wyłączony poza środowiskiem testowym, więc w produkcji nie ma otwartych aukcji ani zablokowanych coinów. Import to sprawdza i przerywa się, jeśli jakieś znajdzie. Nowy bazar startuje pusty.
 5. Przekierowania 301 ze starych adresów (T43): `/highscores` → `/rankings/level`, `/servers` → `/worlds`, `/getting-started` → `/start`, `/wiki/{slug}` → `/wiki/articles/{slug}`, `/wiki/items/*` i `/wiki/creatures/*` → strony encji.
-6. Przełączenie domeny i gatewaya na nowy portal (rola `gateway` zamiast `services/game-gateway`). Laravel i gateway w Go zostają wyłączone, a ich kod i workflowy CI są usuwane z repozytorium osobnym PR-em.
+6. Przełączenie domeny i gatewaya na nowy portal (rola `gateway` zamiast `legacy/services/game-gateway`). Laravel i gateway w Go zostają wyłączone, a ich kod i workflowy CI są usuwane z repozytorium osobnym PR-em.
 
 Stan 2026-11-11 (decyzja właściciela): `portal-rs/` jest główną platformą na `main`; kod Laravela i gateway w Go przeniesiono do `legacy/` (gateway: `legacy/services/game-gateway/`), ich workflowy CI wyłączono, a sam katalog `legacy/` jest usuwany przy przełączeniu w kroku 6.
 
@@ -948,7 +948,7 @@ Pozostałe zadania nie czekają na te odpowiedzi.
 
 ## 13. Źródła
 
-- Obecny portal: trasy `routes/internal.php`, `routes/api.php`, `routes/modules/*`; moduły `app/*`.
+- Obecny portal: trasy `legacy/routes/internal.php`, `legacy/routes/api.php`, `legacy/routes/modules/*`; moduły `legacy/app/*`.
 - Kontrakty: `docs/contracts/`, w tym wire sklepu i decyzje z 2026-11-05.
 - Gra (main @60de8634): `docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json`, `crates/platform-client` (`lib.rs`, `native_login.rs`, `native_login/owner_characters.rs`), `crates/gameplay/native-admission-source` (`account_characters.rs`, `character_commands.rs`, `store.rs`, `restore_notice.rs`, `public_projections.rs`), `PROD-ENTITLEMENTS-01_GAME_CONSUMER_ENFORCEMENT_CONTRACT_CANDIDATE.md`.
 - Przegląd od strony gry: koordynator, 2026-11-05; stan panelu gracza po stronie gry: Game main @00c01066.

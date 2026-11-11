@@ -188,7 +188,7 @@ POST /internal/v1/game-auth/tickets/redeem
 
 ### Goal
 
-Create separately deployable `services/game-gateway` runtime.
+Create separately deployable `legacy/services/game-gateway` runtime.
 
 ### Planned MVP
 
@@ -218,7 +218,7 @@ POST /v1/login
 - horizontal process design;
 - structured bounded logs;
 - health/readiness separated;
-- configuration from environment/secret manager, safe `.env.example` placeholders only where repository conventions allow.
+- configuration from environment/secret manager, safe `legacy/.env.example` placeholders only where repository conventions allow.
 
 ### Exit gate
 

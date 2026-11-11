@@ -22,7 +22,7 @@ This readiness check validates configuration shape only. It does **not** send a 
 Run on the environment actually being prepared:
 
 ```bash
-php artisan mail:verify-delivery-readiness
+php legacy/artisan mail:verify-delivery-readiness
 ```
 
 The command always validates the application's configured `APP_ENV`; it has no environment override. This prevents a staging or production check from being accidentally downgraded to the inert local/testing policy.

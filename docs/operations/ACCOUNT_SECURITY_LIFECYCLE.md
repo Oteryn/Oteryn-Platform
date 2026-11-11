@@ -21,7 +21,7 @@ Legacy engine remains the semantic owner of its account and character data. Fina
 
 ## Configuration
 
-The implementation reads bounded values from `config/identity_security.php`:
+The implementation reads bounded values from `legacy/config/identity_security.php`:
 
 - email verification lifetime;
 - old-address recovery window;
@@ -39,7 +39,7 @@ Invalid or out-of-range security configuration fails closed. Production values m
 Apply the Platform-owned migration before enabling the new routes:
 
 ```bash
-php artisan migrate --force
+php legacy/artisan migrate --force
 ```
 
 The migration is additive for Platform-owned Identity state. It does not migrate legacy engine or login-server tables.
@@ -51,7 +51,7 @@ Rollback must be evaluated against live lifecycle records. Do not remove the new
 Due termination requests are finalized through:
 
 ```bash
-php artisan identity:finalize-terminations --limit=100
+php legacy/artisan identity:finalize-terminations --limit=100
 ```
 
 Operational requirements:
@@ -141,9 +141,9 @@ composer validate --strict
 composer audit
 vendor/bin/pint --test
 vendor/bin/phpstan analyse --no-progress
-php artisan test
-npm --prefix scripts/acceptance run test:coverage-contract:strict
-npm --prefix scripts/acceptance run test:account-lifecycle
+php legacy/artisan test
+npm --prefix legacy/scripts/acceptance run test:coverage-contract:strict
+npm --prefix legacy/scripts/acceptance run test:account-lifecycle
 ```
 
 The focused account-security acceptance must also pass with zero retries and cover:

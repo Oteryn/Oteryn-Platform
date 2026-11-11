@@ -285,7 +285,7 @@ The separately owner-authorized [Platform #1416](https://github.com/Oteryn/Otery
 First explicitly provision a disposable World through the existing `game-auth:world:ensure` owner with login disabled. Then invoke:
 
 ```text
-php artisan game-auth:native-topology:issue --world-row-id=<local-row> --channel-key=<authored-key>
+php legacy/artisan game-auth:native-topology:issue --world-row-id=<local-row> --channel-key=<authored-key>
 ```
 
 Neither the command nor its service accepts caller WorldId/ChannelId, routes, requested readiness or current writer claims. It does not change World status, login eligibility, protocol candidates, integer Gateway payloads or current `channel_id = 1` compatibility state.

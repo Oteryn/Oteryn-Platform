@@ -28,7 +28,7 @@ No evidence state promotes itself automatically to a stronger state.
 
 - Oteryn Platform is one Laravel modular-monolith deployable.
 - `SYSTEM_ARCHITECTURE.md` defines a logical target shape with edge/origin/reverse-proxy and Laravel application boundaries; this is architecture intent, not deployed topology proof.
-- `bootstrap/app.php` configures Laravel's framework health route at `/health`.
+- `legacy/bootstrap/app.php` configures Laravel's framework health route at `/health`.
 - `/health` is treated as application liveness, not evidence that all external dependencies are ready.
 - No separate general dependency-aware readiness endpoint is repository-proven by the current architecture/source review.
 
@@ -88,7 +88,7 @@ Controlled Phase 7 Production Readiness evidence records an exact production-lik
 `REPOSITORY_PROVEN`
 
 - Application configuration supports Platform-owned SQLite and MySQL connections.
-- `.env.example` uses SQLite as a local-safe default and does not claim production engine choice.
+- `legacy/.env.example` uses SQLite as a local-safe default and does not claim production engine choice.
 - Platform migrations and repository-level persistence tests exist.
 
 `STAGING_PROVEN`
@@ -177,7 +177,7 @@ Controlled production-like validation has exercised the scoped Redis ACL/depende
 `REPOSITORY_PROVEN`
 
 - Mail configuration supports non-production and SMTP-style delivery surfaces.
-- `.env.example` intentionally avoids production credentials.
+- `legacy/.env.example` intentionally avoids production credentials.
 - production configuration verification rejects invalid/non-delivery production mail defaults where the current verifier requires a real transport.
 
 `STAGING_PROVEN`

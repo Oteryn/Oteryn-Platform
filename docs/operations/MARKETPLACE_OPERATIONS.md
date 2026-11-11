@@ -17,9 +17,9 @@ Activation is unavailable while the transfer contract is retired; the list below
 5. provision `oteryn_character_transfer` with the reviewed column-level grants (the repository template was removed with the retired transfer path) using secret management;
 6. set `MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID` to the escrow account ID;
 7. set the `CANARY_CHARACTER_TRANSFER_DB_*` secrets;
-8. run `php artisan canary:verify-character-transfer-db-privileges`;
-9. run `php artisan production:verify-configuration` in production configuration;
-10. run `php artisan marketplace:reconcile --limit=1000` before enabling traffic;
+8. run `php legacy/artisan canary:verify-character-transfer-db-privileges`;
+9. run `php legacy/artisan production:verify-configuration` in production configuration;
+10. run `php legacy/artisan marketplace:reconcile --limit=1000` before enabling traffic;
 11. confirm the scheduler invokes `marketplace:reconcile` every minute and prevents overlap.
 
 A missing escrow account, invalid escrow ID, excessive database grant or unavailable transfer dependency is a release blocker. Do not reuse the legacy engine game-process, read-only, provisioning or character-create database credential.
@@ -58,13 +58,13 @@ Any state that cannot be classified safely becomes:
 The scheduler runs:
 
 ```text
-php artisan marketplace:reconcile --limit=100
+php legacy/artisan marketplace:reconcile --limit=100
 ```
 
 A manual bounded run is safe:
 
 ```text
-php artisan marketplace:reconcile --limit=1000
+php legacy/artisan marketplace:reconcile --limit=1000
 ```
 
 The command is idempotent. It reads actual legacy engine ownership and Platform wallet ledger idempotency keys before continuing. Repeated execution must not duplicate reservations, proceeds or ownership transfers.

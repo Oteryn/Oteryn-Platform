@@ -6,7 +6,7 @@ This contract applies to Synology **staging** deployment and recovery. It is not
 
 ## Migration compatibility policy
 
-Synology staging uses `expand-contract`. A release declares a schema compatibility identity and the schema identities its application can safely run against in `deploy/synology/release-contract.env`.
+Synology staging uses `expand-contract`. A release declares a schema compatibility identity and the schema identities its application can safely run against in `legacy/deploy/synology/release-contract.env`.
 
 The deployment does **not** trust the workflow checkout as the source of that contract. Before a migration-bearing deployment it reads `/var/www/html/deploy/synology/release-contract.env` from the exact selected Platform image with networking disabled and a read-only container filesystem, and separately proves that the Platform and Gateway OCI `org.opencontainers.image.revision` labels identify the same exact 40-character application commit. This keeps compatibility metadata bound to the immutable application artifact even when a workflow checks out a different repository revision or deploys a historical release.
 
@@ -54,7 +54,7 @@ The schema state is deliberately independent from application state. A failed mi
 
 ## Normal compatible image rollback
 
-Run `deploy/synology/scripts/rollback.sh`. It validates the actual schema identity against the last-good application's accepted schema identities before old images are started. After pulling the immutable images it also re-inspects Platform/Gateway OCI revision labels and rejects any mismatch with the persisted last-good release SHA. Optional Marketplace state is reconciled for **both** Platform and scheduler to the selected last-good image before health checks and release-state promotion. On success it updates application release state only.
+Run `legacy/deploy/synology/scripts/rollback.sh`. It validates the actual schema identity against the last-good application's accepted schema identities before old images are started. After pulling the immutable images it also re-inspects Platform/Gateway OCI revision labels and rejects any mismatch with the persisted last-good release SHA. Optional Marketplace state is reconciled for **both** Platform and scheduler to the selected last-good image before health checks and release-state promotion. On success it updates application release state only.
 
 **Image rollback does not reverse, restore or otherwise change database schema.**
 
@@ -89,7 +89,7 @@ Before merging changes to this contract:
 
 - run `python3 tests/ci/test_synology_rollback_contract.py`;
 - run `python3 tests/ci/test_synology_rollback_recovery_contract.py`;
-- run `python3 deploy/synology/tests/test_fresh_baseline_contract.py`;
+- run `python3 legacy/deploy/synology/tests/test_fresh_baseline_contract.py`;
 - run shell syntax validation for all modified/new Synology scripts;
 - run the dedicated `Synology Rollback Contract` workflow on the exact head;
 - build the Platform/Gateway/deploy-runner images and validate the Platform image contains the release contract;

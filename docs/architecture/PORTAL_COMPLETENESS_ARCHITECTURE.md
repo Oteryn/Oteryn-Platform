@@ -415,8 +415,8 @@ app/<Module>/Domain
 app/<Module>/Application
 app/<Module>/Infrastructure
 app/<Module>/Http
-routes/modules/<module>.php
-resources/views/<module>
+legacy/routes/modules/<module>.php
+legacy/resources/views/<module>
 tests/<appropriate layer>/<Module>
 ```
 
@@ -434,7 +434,7 @@ The architecture subject may be considered closed for a named release scope only
 
 1. the release has an explicit public, account, admin, player-tools and non-UI capability inventory;
 2. every benchmark capability is `IMPLEMENT`, `DEFER` or `REJECT`, with an owner and rationale;
-3. `MODULE_CATALOG.md` and actual routes/modules agree;
+3. `MODULE_CATALOG.md` and actual legacy/routes/modules agree;
 4. Wiki and Game Catalog expected-content inventories pass;
 5. no critical/high/material-medium portal audit finding remains open for the release scope;
 6. each implemented user-facing capability has backend, frontend, real integration, states, localization, accessibility/responsive evidence and real E2E;

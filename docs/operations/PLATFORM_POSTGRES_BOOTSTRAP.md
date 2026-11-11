@@ -2,7 +2,7 @@
 
 Status: P3 runbook for [ADR 0046](../architecture/adr/0046-platform-persistence-moves-to-postgresql.md) and [the migration plan](PLATFORM_POSTGRES_MIGRATION_PLAN.md) (packet P3). The cutover itself (P6) calls this procedure; do not run it against the live Synology stack before P4 and P6 are merged and the P6 preconditions hold.
 
-`deploy/synology/scripts/bootstrap-postgres.sh` takes an empty PostgreSQL database and an empty native evidence witness directory to a working Platform in one scripted procedure. No data is carried over from MariaDB (owner answer Q1). The script never drops, empties or deletes a database or a witness directory and never edits the MariaDB-era witness: it only moves that directory aside, unedited, to a dated name.
+`legacy/deploy/synology/scripts/bootstrap-postgres.sh` takes an empty PostgreSQL database and an empty native evidence witness directory to a working Platform in one scripted procedure. No data is carried over from MariaDB (owner answer Q1). The script never drops, empties or deletes a database or a witness directory and never edits the MariaDB-era witness: it only moves that directory aside, unedited, to a dated name.
 
 ## The one rule
 
@@ -38,7 +38,7 @@ The script enforces this:
 1. **Freeze** (P6 step 1). Stop `platform` and `marketplace-scheduler` (the witness writers), and the ingress: `internal-proxy`, `gateway` and `internal-mtls`. `record-witness` checks the writers; `run` checks all five and starts only `platform`, so ingress returns only with the deploy that follows, behind its trust gate. Then record the MariaDB-era witness:
 
    ```bash
-   deploy/synology/scripts/bootstrap-postgres.sh record-witness
+   legacy/deploy/synology/scripts/bootstrap-postgres.sh record-witness
    ```
 
    It writes `witness-freeze.env` (directory, state, store id and a SHA-256 manifest of every file) to the bootstrap state directory, `${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}/postgres-bootstrap` unless `OTERYN_PG_BOOTSTRAP_STATE_DIR` is set. It writes nothing in the witness directory. A second call with the same directory is a no-op; a call that sees a different directory is refused. A non-empty directory without `witness-store.id` cannot be recorded.
@@ -46,7 +46,7 @@ The script enforces this:
 2. **Bootstrap** (P6 step 3 with native admission off):
 
    ```bash
-   deploy/synology/scripts/bootstrap-postgres.sh run
+   legacy/deploy/synology/scripts/bootstrap-postgres.sh run
    ```
 
    All refusal checks run first. Then the plan steps:
@@ -54,7 +54,7 @@ The script enforces this:
    | Step | Action |
    |---|---|
    | 1 | Move the MariaDB-era witness directory aside to `<dir>.mariadb-era-<UTC time>` (or prepare the empty directory when the freeze recorded none), create the new `0700` directory and verify it is empty. |
-   | 2 | `php artisan migrate --database=pgsql_migrations` in a one-off container with the owner credentials. This seeds the built-in admin roles and permissions. |
+   | 2 | `php legacy/artisan migrate --database=pgsql_migrations` in a one-off container with the owner credentials. This seeds the built-in admin roles and permissions. |
    | 3 | Start `platform` alone (ingress stays stopped), keep existing Passport keys or run `passport:keys`. |
    | 4 | No trust publication, no witnessed write (native admission is off; the script refuses otherwise). Only `--local` (tests) can publish trust here, then runs the signing self-check. |
    | 5 | `game-auth:oauth-client:ensure` and `--rust`. |
@@ -82,14 +82,14 @@ witness_moved_aside_to=<path or none>
 
 - **OAuth client ids.** The ids are new. Update `OTERYN_OAUTH_CLIENT_ID` (and the Rust client's consumers) as in [NATIVE_LOGIN_OWNER_STEPS.md](NATIVE_LOGIN_OWNER_STEPS.md).
 - **WorldId.** A new native topology gets a new WorldId. Set the repository variable `OTERYN_STAGING_NATIVE_WORLD_ID` (D171 fallback) to `native_world_id`, then deploy; the deploy publishes the route and runs `health-check.sh` with the full stack.
-- **First administrator.** Register an identity, confirm MFA, then run `php artisan admin:bootstrap <email>` in the platform container. It needs an existing MFA-confirmed identity, so it cannot run on an empty database.
-- **Wiki launch content (optional).** `php artisan wiki:launch-content:install <publisher>` after the same MFA confirmation.
+- **First administrator.** Register an identity, confirm MFA, then run `php legacy/artisan admin:bootstrap <email>` in the platform container. It needs an existing MFA-confirmed identity, so it cannot run on an empty database.
+- **Wiki launch content (optional).** `php legacy/artisan wiki:launch-content:install <publisher>` after the same MFA confirmation.
 - **MariaDB-era witness.** Keep `<dir>.mariadb-era-*` untouched. The P6 rollback (only before the first witnessed write) removes the still-empty PostgreSQL directory and moves this one back; after a successful cutover P6 deletes it together with the MariaDB volume. It is never edited or reused by PostgreSQL.
 - **After a P6 rollback.** The bootstrap state directory still records the move and the completed run, so `record-witness` and `run` refuse. Rename that state directory (keep it as cutover evidence) before the next freeze, which then starts a new record.
 
 ## Local and CI runs
 
-`--local` runs `php artisan` in a Platform checkout (`OTERYN_PG_BOOTSTRAP_PLATFORM_ROOT`, default this repository, PHP from `OTERYN_PG_BOOTSTRAP_PHP`) with the caller's environment, and requires `OTERYN_PG_BOOTSTRAP_STATE_DIR`. The witness directory comes from `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`.
+`--local` runs `php legacy/artisan` in a Platform checkout (`OTERYN_PG_BOOTSTRAP_PLATFORM_ROOT`, default this repository, PHP from `OTERYN_PG_BOOTSTRAP_PHP`) with the caller's environment, and requires `OTERYN_PG_BOOTSTRAP_STATE_DIR`. The witness directory comes from `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`.
 
 `tests/ci/test_synology_postgres_bootstrap.py` covers the bootstrap from an empty database and an empty directory, with native admission off (APP_ENV production, `production:verify-configuration` passes) and on (APP_ENV preproduction, MariaDB-era directory moved aside), the refused re-runs, and each refusal: witness binding row, trust row, foreign store id, missing-profile directory, recorded directory advanced or removed after the freeze, and a new directory that is not empty after the move. Its live cases use a scratch database per case through `PGSQL_INTEGRATION_HOST`, `_PORT`, `_USER` and `_PASSWORD` and skip without them unless `OTERYN_PG_BOOTSTRAP_REQUIRE_LIVE=1`:
 

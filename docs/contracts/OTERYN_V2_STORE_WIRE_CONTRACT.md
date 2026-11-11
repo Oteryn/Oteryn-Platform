@@ -6,7 +6,7 @@
 
 - Task: **STORE-WIRE-1**. Governing issue: #1658.
 - Wire of `docs/contracts/OTERYN_V2_STORE_PURCHASE_DELIVERY_CONTRACT.md` (the *semantic contract*, STORE-DELIVERY-CONTRACT-1, PR #1625). This document fixes routes, members, types, bounds, result codes, encoding, digests, idempotency keys, paging and limits. It changes no rule of the semantic contract and decides nothing the owner has not decided (S-1..S-9, semantic contract §12).
-- Pattern: the Character Authority command exchange (`docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md`, `app/CharacterAuthority/CharacterCommandWire.php`) and the premium snapshot peer guard (`app/ProductsEntitlements/Http/GuardPremiumSnapshotPeer.php`). The restore notice is the existing `oteryn-v2-game-restore-reconciliation-v1` (`docs/contracts/OTERYN_V2_GAME_RESTORE_RECONCILIATION_CONTRACT.md`).
+- Pattern: the Character Authority command exchange (`docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md`, `legacy/app/CharacterAuthority/CharacterCommandWire.php`) and the premium snapshot peer guard (`legacy/app/ProductsEntitlements/Http/GuardPremiumSnapshotPeer.php`). The restore notice is the existing `oteryn-v2-game-restore-reconciliation-v1` (`docs/contracts/OTERYN_V2_GAME_RESTORE_RECONCILIATION_CONTRACT.md`).
 - Fixtures: `docs/contracts/fixtures/store-wire-v1/` (§13).
 - This contract stays Proposed until the semantic contract is accepted and an exact-head independent review accepts this document. Acceptance belongs to the owner and the reviewer, never to the author.
 
@@ -511,7 +511,7 @@ Semantics, spend order and Wallet storage for transferable coins are open questi
 
 ## 11. Configuration and rollout flags
 
-Proposed `config/products-entitlements.php` section `store`. Every flag defaults to off or empty:
+Proposed `legacy/config/products-entitlements.php` section `store`. Every flag defaults to off or empty:
 
 | Key | Env | Default | Effect |
 |---|---|---|---|
@@ -610,4 +610,4 @@ The following are genuinely new. None is decided here, and each blocks only what
 - `docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md`
 - `docs/contracts/OTERYN_V2_GAME_RESTORE_RECONCILIATION_CONTRACT.md`
 - `docs/contracts/OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md`
-- `app/CharacterAuthority/CharacterCommandWire.php`, `app/ProductsEntitlements/Http/GuardPremiumSnapshotPeer.php`, `app/Wallet/WalletMutator.php` (patterns, read only)
+- `legacy/app/CharacterAuthority/CharacterCommandWire.php`, `legacy/app/ProductsEntitlements/Http/GuardPremiumSnapshotPeer.php`, `legacy/app/Wallet/WalletMutator.php` (patterns, read only)

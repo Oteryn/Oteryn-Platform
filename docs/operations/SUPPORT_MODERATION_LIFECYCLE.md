@@ -10,7 +10,7 @@ Oteryn Platform owns every support table and migration. Browser public IDs are r
 
 ## Configuration
 
-`config/support.php` defines positive bounded values for ticket subject/body/open limits, report target/evidence/pending limits, enforcement reason/appeal lengths and retention periods. Invalid non-positive integer values fall back to conservative repository defaults. Production values must follow the approved deployment configuration path.
+`legacy/config/support.php` defines positive bounded values for ticket subject/body/open limits, report target/evidence/pending limits, enforcement reason/appeal lengths and retention periods. Invalid non-positive integer values fall back to conservative repository defaults. Production values must follow the approved deployment configuration path.
 
 Attachments are explicitly disabled until a separate reviewed upload model covers MIME/content/size/private storage/malware/privacy requirements.
 
@@ -19,7 +19,7 @@ Attachments are explicitly disabled until a separate reviewed upload model cover
 Apply the additive Platform migration before enabling routes:
 
 ```bash
-php artisan migrate --force
+php legacy/artisan migrate --force
 ```
 
 The migration creates only Platform support tables and permissions. It does not migrate legacy engine or login-server schema.
@@ -39,13 +39,13 @@ Do not grant wildcard authority or substitute MFA for authorization.
 Preview configured retention without mutation:
 
 ```bash
-php artisan support:prune-retention --dry-run
+php legacy/artisan support:prune-retention --dry-run
 ```
 
 Apply retention:
 
 ```bash
-php artisan support:prune-retention
+php legacy/artisan support:prune-retention
 ```
 
 The command deletes eligible old closed tickets/reports and anonymizes eligible expired enforcement content. Never replace it with direct SQL. Review configuration, backup posture and current lifecycle records before scheduling it in production.
@@ -78,9 +78,9 @@ composer validate --strict
 composer audit
 vendor/bin/pint --test
 vendor/bin/phpstan analyse --no-progress
-php artisan test
-npm --prefix scripts/acceptance run test:coverage-contract:strict
-npx playwright test --config=scripts/acceptance/playwright.support-moderation.config.mjs
+php legacy/artisan test
+npm --prefix legacy/scripts/acceptance run test:coverage-contract:strict
+npx playwright test --config=legacy/scripts/acceptance/playwright.support-moderation.config.mjs
 ```
 
 The focused browser matrix must pass with retries set to zero across desktop, tablet and mobile, both supported locales, user and moderator flows, IDOR denial, MFA/RBAC denial, notification state and responsive overflow checks.

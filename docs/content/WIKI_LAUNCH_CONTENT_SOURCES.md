@@ -4,7 +4,7 @@
 
 This record maps Wiki launch-content version `2026-07-26.1` to accepted repository evidence. It is a review aid, not a second runtime content source.
 
-The canonical package is `app/Wiki/Content/WikiLaunchContentCatalog.php`. Installation policy is ADR 0015.
+The canonical package is `legacy/app/Wiki/Content/WikiLaunchContentCatalog.php`. Installation policy is ADR 0015.
 
 ## Evidence classification
 
@@ -29,7 +29,7 @@ These unknowns remain explicit in the public copy. The catalog points readers to
 
 | Launch topic | English / Polish slug | Primary repository evidence | Explicit exclusions |
 |---|---|---|---|
-| Download and Installation | `download-and-installation` / `pobieranie-i-instalacja` | `app/Downloads/PublicDownloadCenterQuery.php`, `app/Downloads/Actions/PublishClientRelease.php`, `resources/views/downloads/index.blade.php` | No invented OS-specific install sequence; no unapproved mirror |
+| Download and Installation | `download-and-installation` / `pobieranie-i-instalacja` | `legacy/app/Downloads/PublicDownloadCenterQuery.php`, `legacy/app/Downloads/Actions/PublishClientRelease.php`, `legacy/resources/views/downloads/index.blade.php` | No invented OS-specific install sequence; no unapproved mirror |
 | Creating an Account | `creating-an-account` / `tworzenie-konta` | registration controller, account-overview read model, ADR 0004 | No existing-account claim/import |
 | Creating a Character | `creating-a-character` / `tworzenie-postaci` | ADR 0005, create-character action and form | No unapproved vocation or starter/gameplay claims |
 | First Login | `first-login` / `pierwsze-logowanie` | game-login contracts and `PROJECT_STATE.md` | No claim that Platform web credentials work in every client |

@@ -46,8 +46,8 @@ An earlier successful controlled run #5 on SHA `b6dcd6ed95c55f400206864ffd6ff799
 |---|---|---|
 | Exact staging validation SHA | `STAGING_PROVEN` | Workflow run 9 validated final PR #63 head `7842f78ec4ac2d07d3800ffe8bde9809b055822d`. |
 | Clean deployment | `STAGING_PROVEN` | Clean release directory was built from the exact validation SHA and activated through the controlled release pointer. |
-| Migrations | `STAGING_PROVEN` | `php artisan migrate --force --no-interaction` passed against the production-like Platform MariaDB database. |
-| Configuration guardrails | `STAGING_PROVEN` | `php artisan production:verify-configuration` passed; a deliberate `APP_DEBUG=true` mutation failed closed. |
+| Migrations | `STAGING_PROVEN` | `php legacy/artisan migrate --force --no-interaction` passed against the production-like Platform MariaDB database. |
+| Configuration guardrails | `STAGING_PROVEN` | `php legacy/artisan production:verify-configuration` passed; a deliberate `APP_DEBUG=true` mutation failed closed. |
 | Health/readiness | `STAGING_PROVEN` | The deployed release booted and `/health` returned successfully. |
 | Rollback | `STAGING_PROVEN` | Release pointer switched to `b6878c4775eda542738c78ea99fd5d2e19d2b35f`; configuration and migration-state smoke passed. |
 | Interrupted deployment isolation | `STAGING_PROVEN` | An incomplete release directory was created without changing the active release pointer. |

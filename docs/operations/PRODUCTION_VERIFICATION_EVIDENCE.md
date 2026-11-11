@@ -71,7 +71,7 @@ If any mandatory precondition is `UNKNOWN`, mutation smoke is blocked.
 Run in the effective production runtime without printing environment values or secrets:
 
 ```text
-php artisan production:verify-configuration
+php legacy/artisan production:verify-configuration
 ```
 
 | Gate item | State | Evidence |
@@ -118,7 +118,7 @@ A staging restore duration is never production RTO/RPO evidence.
 Run only with the effective production credential classes already provisioned outside Git:
 
 ```text
-php artisan canary:verify-db-privileges
+php legacy/artisan canary:verify-db-privileges
 ```
 
 | Gate item | State | Evidence |

@@ -246,7 +246,7 @@ Never record:
 ## Secrets
 
 - `.env` is never committed.
-- `.env.example` contains placeholders only.
+- `legacy/.env.example` contains placeholders only.
 - production secrets are injected by deployment/secret-management tooling.
 - credentials should be rotated when exposure is suspected.
 - different components should use different least-privilege database/service credentials where practical.

@@ -4,7 +4,7 @@
 
 Minimal durable design-system contract for the future production frontend.
 
-The current `public/css/app.css` is a technical MVP and is not the design system described here. Implementation may evolve exact values through visual acceptance, but token names, semantic roles and component responsibilities should remain stable unless a later architecture decision supersedes them.
+The current `legacy/public/css/app.css` is a technical MVP and is not the design system described here. Implementation may evolve exact values through visual acceptance, but token names, semantic roles and component responsibilities should remain stable unless a later architecture decision supersedes them.
 
 ## Principles
 

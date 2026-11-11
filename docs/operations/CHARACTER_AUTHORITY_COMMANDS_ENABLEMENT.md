@@ -51,10 +51,10 @@ defaults to off. The owner flips them on one stack at a time: first `testing` wi
    intents or the restore notice. Platform refuses an identity list that shares a subject
    (`CharacterCommandSettings`). Game refuses the evidence, runtime-status and projection files
    (`node/config.rs`).
-2. **nginx.** In `deploy/synology/nginx/internal-mtls.conf`, the internal mTLS listener's location regex
+2. **nginx.** In `legacy/deploy/synology/nginx/internal-mtls.conf`, the internal mTLS listener's location regex
    exposes only the existing routes. Add `character-commands/pending|character-commands/read|character-commands/receipt`.
    Add `game-restore/notice` when the restore flags are set.
-3. **Compose.** `deploy/synology/compose.yml` passes an explicit environment list to the `platform` service. Add
+3. **Compose.** `legacy/deploy/synology/compose.yml` passes an explicit environment list to the `platform` service. Add
    the Platform variables below to that list; a variable set only in `.env` does not reach the container.
 4. **Smoke.** After deploy, the Game consumer's first pending-list exchange must answer `200`
    `{"contract_version":1,"pending":[]}`. A `503` means disabled or misconfigured; a `401` means the identity or

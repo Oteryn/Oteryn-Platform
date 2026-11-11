@@ -49,7 +49,7 @@ Full evidence result:
 
 The Account Overview acceptance matrix directly exercised desktop `1440x1000` and mobile `390x844` states for `ready`, `pending`, `recoverable`, `conflict` and `missing`, plus a successful recoverable retry. It verified that synthetic legacy engine account IDs and provisioning names are not present in rendered page text.
 
-The 71-screen exploratory collector also covered desktop/mobile and materially distinct tablet surfaces at `768x1024`. Browser authentication used loopback HTTP with `SESSION_SECURE_COOKIE=false` only because `php artisan serve` does not terminate TLS; secure-cookie production behavior remains covered by the independent Phase 7 staging evidence.
+The 71-screen exploratory collector also covered desktop/mobile and materially distinct tablet surfaces at `768x1024`. Browser authentication used loopback HTTP with `SESSION_SECURE_COOKIE=false` only because `php legacy/artisan serve` does not terminate TLS; secure-cookie production behavior remains covered by the independent Phase 7 staging evidence.
 
 ## Delivered surface inventory
 

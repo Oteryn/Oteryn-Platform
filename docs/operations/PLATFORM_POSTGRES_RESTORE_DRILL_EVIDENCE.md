@@ -42,7 +42,7 @@ Limits: the drill ran against an idle database with no Platform schema, so it pr
 Environment:
 
 - Docker Engine 29.8.2 and Compose 5.6.0, Compose project `oteryn-p5test`.
-- Services `tls-init`, `postgres` and `postgres-backup` from `deploy/synology/compose.yml` at the P5 branch head, pinned image `postgres:17.11@sha256:2d2b8998…df9e3`.
+- Services `tls-init`, `postgres` and `postgres-backup` from `legacy/deploy/synology/compose.yml` at the P5 branch head, pinned image `postgres:17.11@sha256:2d2b8998…df9e3`.
 - The P4 role reconcile, then `backup-postgres.sh reconcile`.
 - An `oteryn_platform` schema of four tables, including the wallet tables and a `migrations` table.
 - The sandbox disk was small, so the harness lowered the space floors: `OTERYN_BACKUP_MIN_FREE_MB=64`, `OTERYN_BACKUP_WAL_RESERVE_MB=16`, `OTERYN_ARCHIVE_MIN_FREE_MB=32`, `OTERYN_DRILL_WAL_MARGIN_MB=64`.

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "mode": "enforce",
-  "scope": "app/**",
+  "scope": "legacy/app/**",
   "minimum_statement_percent": 82.0,
   "execution": "relevant_merge_queue_candidates_and_main_pushes",
   "instrumentation": "PCOV",

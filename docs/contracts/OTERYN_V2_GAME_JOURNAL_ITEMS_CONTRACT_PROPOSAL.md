@@ -70,7 +70,7 @@ Read together with these Platform contracts:
   accepted operation identity, ownership revalidation, terminal versus ambiguous
   results and reconciliation. Its architecture does not select cryptography.
   The concrete existing pull wire is also visible in
-  `app/CharacterAuthority/CharacterCommandWire.php`.
+  `legacy/app/CharacterAuthority/CharacterCommandWire.php`.
 - [Entitlement delivery](OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md): accepted
   separation of commercial truth from game effects, at-least-once delivery and
   no inferred success from timeout. It deliberately defers exact transport.

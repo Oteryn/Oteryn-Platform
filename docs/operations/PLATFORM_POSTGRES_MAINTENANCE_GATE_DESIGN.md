@@ -168,7 +168,7 @@ Implemented only after this note is accepted, in one packet, on the paths the pl
 - `tests/operations/cloudflare-oteryn-endpoints/mock_cloudflare.py`: a real `version` that increments on every `PUT`, controllable external edits between reads, injectable failures (transport, read-back, interleaved write), `service` classes for the origin-route cases.
 - `tests/operations/cloudflare-oteryn-endpoints/run.sh`, `check-marker-workflow.py`, `check-main-operation-workflow.py`, and new `check-gate-workflow.py`: workflow-shape assertions (inputs, confirmation phrases, the shared write group on exactly the PUT jobs, the `guard` job before every `apply`, `audit` group not shared, gate modes absent from marker and comment jobs, `actions: read` only on the manage and `guard` jobs, no secret in logs or artifacts).
 - `docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md`: the two modes, the evidence artifacts, the break-glass note.
-- Outside that packet and owned by P6: `deploy/synology/scripts/cutover-postgres.sh` and `.github/workflows/deploy-synology-staging.yml` produce and consume the `platform-cutover-gate-evidence` artifact and the `audit` precondition; the plan's *Gate state machine (P6b)* bullet is replaced by a link to this note.
+- Outside that packet and owned by P6: `legacy/deploy/synology/scripts/cutover-postgres.sh` and `.github/workflows/deploy-synology-staging.yml` produce and consume the `platform-cutover-gate-evidence` artifact and the `audit` precondition; the plan's *Gate state machine (P6b)* bullet is replaced by a link to this note.
 
 Test cases (script tests against the mock, workflow-shape tests in Python):
 

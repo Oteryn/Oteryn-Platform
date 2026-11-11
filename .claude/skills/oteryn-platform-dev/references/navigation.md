@@ -35,7 +35,7 @@ the contracts are long: read the section you need, never the whole file.
 | web router, sessions, CSRF, rate limits | `crates/web/src/` (`lib.rs`, `surface.rs`, `session.rs`, `csrf.rs`, `ratelimit.rs`) |
 | migrations and the migrator | `portal-rs/migrations/*.sql`; `MIGRATOR` in `crates/db/src/lib.rs`; outbox in `crates/db/src/outbox.rs` |
 | game-facing `/internal/v1` | `crates/internal-api` (guards, canonical JSON, fixtures loader); contract tests in `crates/internal-api/tests/contracts.rs` |
-| login gateway (role `gateway`) | `crates/gateway` and its `README.md`; legacy Go source it ports: `services/game-gateway/internal/` |
+| login gateway (role `gateway`) | `crates/gateway` and its `README.md`; legacy Go source it ports: `legacy/services/game-gateway/internal/` |
 | PostgreSQL tests | `rg -l PORTAL_TEST_DATABASE_URL portal-rs` (e.g. `crates/bazaar/tests/postgres.rs`, `crates/wallet/tests/postgres.rs`, harness in `crates/bazaar/tests/support/mod.rs`) |
 | templates and static files | `portal-rs/templates/` (askama), `portal-rs/static/` |
 | a contract and its fixtures | `docs/contracts/*.md`, `docs/contracts/fixtures/<name>/` |

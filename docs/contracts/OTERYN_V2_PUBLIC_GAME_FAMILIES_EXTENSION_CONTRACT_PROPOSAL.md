@@ -55,7 +55,7 @@ Pinned Game reference: [Oteryn/Oteryn-Game at 857f15f376907c592bb28d854fccff18a1
 | `crates/gameplay/domain/src/domain/appearance.rs`, `apps/game-server/migrations/0093_character_appearance.sql` | `AppearanceSelection`, `DisplayedLook`, `outfit_key`, four `colours`, `addons`, optional `mount_key`; selected and displayed appearance differ |
 | `docs/architecture/OTERYN_ACHIEVEMENT_OWNER_CONTRACT_V1.md`, `OTERYN_ACHIEVEMENT_DISPLAY_CONTRACT_V1.md`, `crates/gameplay/durability/src/durability/account_achievement.rs` | Account-scoped earned facts, stable achievement keys, secret-unearned suppression; website export is not already authorized |
 
-Existing Platform `app/GameProjections/{PublicProjectionFamily,PublicProjectionWire,PublicProjectionSnapshot,PublicProjectionWatermark,PublicProjectionIngestion}.php` corroborate the ingest boundary. Game and Platform both accept canonical decimal-string Unix times; Platform's `NativeAccountCharactersWire::unixTime` validates that string before converting to an internal integer. This proposal keeps that wire encoding and requires shared byte fixtures, without permissive coercion.
+Existing Platform `legacy/app/GameProjections/{PublicProjectionFamily,PublicProjectionWire,PublicProjectionSnapshot,PublicProjectionWatermark,PublicProjectionIngestion}.php` corroborate the ingest boundary. Game and Platform both accept canonical decimal-string Unix times; Platform's `NativeAccountCharactersWire::unixTime` validates that string before converting to an internal integer. This proposal keeps that wire encoding and requires shared byte fixtures, without permissive coercion.
 
 ## Flow direction and transport
 

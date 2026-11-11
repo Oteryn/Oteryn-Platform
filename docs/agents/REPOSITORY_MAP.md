@@ -6,16 +6,16 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 
 | Area | Typical paths | Responsibility / cautions |
 |---|---|---|
-| Application core | `app/**` | Laravel application logic. Keep domain/module responsibilities explicit and avoid unrelated refactors. |
-| HTTP / API | `routes/**`, `app/Http/**` | Public routes, middleware, controllers, request validation and API boundaries. Treat auth-sensitive endpoints as security-critical. |
-| Authentication / identity | planned module paths under `app/**` plus auth configuration | Passwords, sessions, MFA, verification, recovery. Read security + game-login contract before implementation. |
-| Database | `database/migrations/**`, `database/seeders/**`, `database/factories/**` | Platform schema/data changes. Shared legacy engine schema is contract-controlled. |
-| Legacy engine integration | planned integration adapters, `config/**`, `docs/contracts/**` | Never assume generic TFS/MyAAC schema. Verify Oteryn legacy engine evidence. |
-| Public web / CMS | `resources/views/**`, `resources/js/**`, `resources/css/**` | Blade/frontend/CMS. Escape untrusted output and preserve CSRF protections. |
-| Player Companion | future module paths under `app/PlayerCompanion/**`, module routes/views/tests | Versioned calculators, planning, hunt guidance, private session analysis and recommendations. Read ADR 0025 and the focused architecture before implementation. |
+| Application core | `legacy/app/**` | Laravel application logic. Keep domain/module responsibilities explicit and avoid unrelated refactors. |
+| HTTP / API | `legacy/routes/**`, `legacy/app/Http/**` | Public routes, middleware, controllers, request validation and API boundaries. Treat auth-sensitive endpoints as security-critical. |
+| Authentication / identity | planned module paths under `legacy/app/**` plus auth configuration | Passwords, sessions, MFA, verification, recovery. Read security + game-login contract before implementation. |
+| Database | `legacy/database/migrations/**`, `legacy/database/seeders/**`, `legacy/database/factories/**` | Platform schema/data changes. Shared legacy engine schema is contract-controlled. |
+| Legacy engine integration | planned integration adapters, `legacy/config/**`, `docs/contracts/**` | Never assume generic TFS/MyAAC schema. Verify Oteryn legacy engine evidence. |
+| Public web / CMS | `legacy/resources/views/**`, `legacy/resources/js/**`, `legacy/resources/css/**` | Blade/frontend/CMS. Escape untrusted output and preserve CSRF protections. |
+| Player Companion | future module paths under `legacy/app/PlayerCompanion/**`, module routes/views/tests | Versioned calculators, planning, hunt guidance, private session analysis and recommendations. Read ADR 0025 and the focused architecture before implementation. |
 | Admin | planned admin controllers/routes/policies/views | Privileged operations. Explicit policies, MFA target and auditability required. |
 | Tests | `tests/**` | Unit, feature, integration, contract and security regression tests. |
-| Configuration | `config/**`, `.env.example` | Commit examples only. Never commit real credentials, tokens or production secrets. |
+| Configuration | `legacy/config/**`, `legacy/.env.example` | Commit examples only. Never commit real credentials, tokens or production secrets. |
 | CI | `.github/workflows/**` | Required checks and deployment validation. Do not weaken checks to obtain green CI. |
 
 ## Architecture and durable project memory
@@ -39,7 +39,7 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 | Roadmap | `docs/architecture/ROADMAP.md` | Phased delivery order and exit gates; roadmap intent is not implementation proof. |
 | ADRs | `docs/architecture/adr/**` | Durable decisions and supersession history. Use the directory inventory, not numeric assumptions. |
 | Integration contracts | `docs/contracts/**` | legacy engine/login-server/shared schema/auth compatibility. |
-| Public endpoint roles | `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`, `deploy/synology/PUBLIC_ENDPOINTS.md` | Canonical mapping of `oteryn.molehill.cloud` to Platform WWW and `gateway.molehill.cloud` to Game Gateway/login; ADR 0020 records the hostname decision. |
+| Public endpoint roles | `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`, `legacy/deploy/synology/PUBLIC_ENDPOINTS.md` | Canonical mapping of `oteryn.molehill.cloud` to Platform WWW and `gateway.molehill.cloud` to Game Gateway/login; ADR 0020 records the hostname decision. |
 | Agent governance | `AGENTS.md`, `docs/agents/CONTEXT_*` | Coordination, routing and handoff rules. |
 
 ## Mandatory discovery for shared data/auth
@@ -62,7 +62,7 @@ Before implementing portal-completeness or player-tools work, also read:
 For public-domain, Cloudflare Tunnel, website-origin or Game Gateway hostname work, also read:
 
 - `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`;
-- `deploy/synology/PUBLIC_ENDPOINTS.md`;
+- `legacy/deploy/synology/PUBLIC_ENDPOINTS.md`;
 - `docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md`.
 
 Then verify the actual external repository/schema evidence. Documentation placeholders do not prove compatibility.
