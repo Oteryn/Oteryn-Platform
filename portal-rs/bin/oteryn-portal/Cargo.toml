@@ -83,7 +83,7 @@ features = ["offline"]
 [dependencies.aes-gcm]
 version = "0.10"
 [dependencies.aes]
-version = "0.8"
+version = "0.9"
 [dependencies.cbc]
 version = "0.1"
 features = ["alloc"]
