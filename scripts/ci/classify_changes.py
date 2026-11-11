@@ -78,13 +78,6 @@ def classify_path(raw_path: str) -> PathClassification:
     if _matches(path, ("scripts/ci/**", "tests/ci/**")):
         return PathClassification("workflow", ALL_GATES)
 
-    # legacy/ holds the frozen Laravel app and Go gateway (owner decision
-    # 2026-11-11). Nothing builds or tests it, so it routes to no heavy lane.
-    # It is matched before the auth/payment tokens below so a legacy path such
-    # as legacy/app/Http/Middleware/Authenticate.php cannot fan out.
-    if _matches(path, ("legacy/**",)):
-        return PathClassification("legacy", NO_GATES)
-
     if _matches(
         path,
         (

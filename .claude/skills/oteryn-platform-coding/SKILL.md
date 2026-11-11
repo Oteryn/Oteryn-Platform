@@ -7,8 +7,8 @@ description: Writing Rust, SQL and test code in Oteryn-Platform's portal-rs - sc
 
 Task layout and allowed paths are in `oteryn-platform-dev` and plan §10
 (`docs/architecture/OTERYN_PORTAL_RUST_PLAN.md`); this skill is how to write
-the code itself. The legacy Laravel app is not extended (`oteryn-platform-dev`,
-*What the product is*).
+the code itself. The Laravel app was removed; nothing is ported from it
+(`oteryn-platform-dev`, *What the product is*).
 
 ## Scope: surgical and minimal
 

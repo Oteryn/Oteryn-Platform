@@ -11,7 +11,7 @@ python3 scripts/ci/classify_changes.py --base origin/main --head HEAD --json
 ```
 
 Any `portal-rs/**` path is class `shared`: besides `Portal RS CI` it starts
-the core `CI` workflow and every heavy legacy lane (`phase7`, `edge`,
+the core `CI` workflow and every retired heavy lane stub (`phase7`, `edge`,
 `db_outage`, `game_auth_concurrency`). `docs/contracts/**` does the same.
 `docs/**` and `docs/agents/**` start none.
 
@@ -64,15 +64,6 @@ never cite it as the CI result.
   the PostgreSQL tests as not run, with the reason; never as passed.
 - Harnesses create their own schema per test
   (`crates/bazaar/tests/support/mod.rs`); a new PostgreSQL test does the same.
-
-## Legacy lanes that still gate a PR
-
-The core `CI` workflow runs on portal-rs PRs too. Its `runtime-tests` job
-runs `composer audit`: a newly published advisory turns every PR red,
-whatever it changes. That is a `main` failure, fixed once by a Composer
-lock bump PR (`ci-merge.md`, *Reading a red check*), not in your PR. A
-PHPStan finding at `legacy/app/Console/Commands/InstallWikiLaunchContent.php:49`
-is known and pre-existing; report it as such.
 
 ## Agent governance
 

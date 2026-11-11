@@ -21,7 +21,7 @@ Both DNS records must be proxied `CNAME` records targeting:
 
 `login.oteryn.molehill.cloud` is the retired legacy Gateway hostname. ADR 0020 records the owner-approved move to the single-level hostname so existing Universal `*.molehill.cloud` certificate coverage can apply without Advanced Certificate Manager.
 
-The durable service-role contract remains `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md` and `legacy/deploy/synology/PUBLIC_ENDPOINTS.md`.
+The durable service-role contract remains `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`.
 
 ## GitHub environment
 

@@ -6,7 +6,7 @@ Oteryn Platform is the first-party web/application platform for the Oteryn Open 
 
 The platform is the Rust portal in `portal-rs/`: one binary (`oteryn-portal`, roles `serve`, `worker`, `migrate`, `gateway`) over its own PostgreSQL 18.6, built task by task from `docs/architecture/OTERYN_PORTAL_RUST_PLAN.md`. Its commands and rules are in `portal-rs/README.md`.
 
-`legacy/` holds the earlier Laravel 13 application and the Go game gateway (`legacy/services/game-gateway/`), moved there on owner decision 2026-11-11. That tree is frozen: no workflow builds or tests it, it is not extended, and it stays only as a reference and as the source of the one-time legacy data export until cutover (plan §9). See `legacy/README.md`.
+The earlier Laravel 13 application, the Go game gateway and the legacy import tool were removed on owner decision 2026-11-11. There is no cutover and no data migration: the portal starts with an empty database. The last commit containing that tree is `2d45732c` (`legacy/`).
 
 `AVAILABLE` means at least one validated repository capability exists; it does not imply complete product scope, production proof or activation authority. Read `docs/architecture/MODULE_CATALOG.md` and exact task/PR evidence before making a completeness claim.
 

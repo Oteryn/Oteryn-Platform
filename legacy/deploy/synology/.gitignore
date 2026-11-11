@@ -1,7 +1,0 @@
-.env
-rollback.env
-state/
-evidence/
-*.pem
-*.key
-*.crt

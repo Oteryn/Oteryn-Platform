@@ -2,7 +2,7 @@
 
 The Oteryn portal in Rust. The design and the task list are in `docs/architecture/OTERYN_PORTAL_RUST_PLAN.md`.
 
-This is the main platform on `main`. The earlier Laravel app and Go gateway are frozen in `../legacy/` (owner decision 2026-11-11): nothing here builds or extends them, and the legacy import reads a data export, not that source tree. Two reference checks read files there: `crates/web/tests/ratelimit.rs` (rate limits in `legacy/app/Providers/AppServiceProvider.php`) and `crates/gateway/tests/capture_go_vectors.py` (Go vectors from `legacy/services/game-gateway/`).
+This is the only platform. The earlier Laravel app, the Go gateway and the legacy import tool were removed on owner decision 2026-11-11: there is no cutover and no data migration, and the portal starts with an empty database. The last commit containing that tree is `2d45732c` (`legacy/`). Two reference checks keep what they needed from it: `crates/web/tests/ratelimit.rs` inlines the earlier portal's rate limits, and `crates/gateway/tests/fixtures/go_vectors.jsonl` keeps the captured Go vectors (`crates/gateway/tests/capture_go_vectors.py` regenerates them from that commit).
 
 ## Commands
 

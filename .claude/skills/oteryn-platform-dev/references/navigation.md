@@ -2,8 +2,8 @@
 
 `portal-rs/` is a Cargo workspace: `bin/oteryn-portal` plus `crates/*`
 (package names `oteryn-<crate>`, e.g. `oteryn-db`, `oteryn-gameauth`,
-`oteryn-internal-api`). The rest of the tree is the legacy Laravel app, the
-Go gateway, deploy tooling and docs. The plan
+`oteryn-internal-api`). The rest of the tree is deploy tooling, CI and docs;
+the Laravel app and Go gateway were removed on 2026-11-11 (last at `2d45732c`). The plan
 (`docs/architecture/OTERYN_PORTAL_RUST_PLAN.md`, about 900 lines, Polish) and
 the contracts are long: read the section you need, never the whole file.
 
@@ -35,11 +35,11 @@ the contracts are long: read the section you need, never the whole file.
 | web router, sessions, CSRF, rate limits | `crates/web/src/` (`lib.rs`, `surface.rs`, `session.rs`, `csrf.rs`, `ratelimit.rs`) |
 | migrations and the migrator | `portal-rs/migrations/*.sql`; `MIGRATOR` in `crates/db/src/lib.rs`; outbox in `crates/db/src/outbox.rs` |
 | game-facing `/internal/v1` | `crates/internal-api` (guards, canonical JSON, fixtures loader); contract tests in `crates/internal-api/tests/contracts.rs` |
-| login gateway (role `gateway`) | `crates/gateway` and its `README.md`; legacy Go source it ports: `legacy/services/game-gateway/internal/` |
+| login gateway (role `gateway`) | `crates/gateway` and its `README.md`; the Go source it replaced is at commit `2d45732c`, `legacy/services/game-gateway/internal/` |
 | PostgreSQL tests | `rg -l PORTAL_TEST_DATABASE_URL portal-rs` (e.g. `crates/bazaar/tests/postgres.rs`, `crates/wallet/tests/postgres.rs`, harness in `crates/bazaar/tests/support/mod.rs`) |
 | templates and static files | `portal-rs/templates/` (askama), `portal-rs/static/` |
 | a contract and its fixtures | `docs/contracts/*.md`, `docs/contracts/fixtures/<name>/` |
 | which CI lanes a path starts | `python3 scripts/ci/classify_changes.py --paths <path...> --json` |
 | rules for a directory | `portal-rs/README.md`, a crate's `README.md` (e.g. `crates/gateway`, `crates/bazaar`), the nearest `AGENTS.md` |
 | active work and owners | live Issues and PRs first; then `docs/agents/tasks/active/` |
-| what Laravel did (needs only) | plan §5.5 table *Laravel dziś*; read legacy code only to learn a need or a contract, never to port it |
+| what Laravel did (needs only) | plan §5.5 table *Laravel dziś*; the removed code is at commit `2d45732c` (`legacy/`), read only to learn a need or a contract, never to port it |

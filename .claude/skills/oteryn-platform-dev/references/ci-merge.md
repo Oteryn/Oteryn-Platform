@@ -9,12 +9,14 @@ authorised; this file only says how the flow behaves.
 |---|---|---|
 | `portal-rs-ci.yml` (`Portal RS CI`) | `check`: `cargo fmt --all --check`, `cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked` | PR and push to `main` touching `portal-rs/**` or the workflow; **not** in the Merge Queue; no database |
 | `ci.yml` (`CI`) | `classify-changes`, `runtime-tests`, `platform-postgres (17)`, `platform-postgres (16)`, `test`, aggregator `platform-gate`; `php-coverage-report` on push and queue only | PR, Merge Queue (`merge_group`), push to `main` |
-| heavy legacy lanes | `phase7-production-like-validation.yml` (incl. `premium-physical-e2e`), `edge-security-emulation.yml`, `platform-db-outage-validation.yml`, `game-auth-ticket-concurrency.yml` | PR only, when `classify-changes` selects them |
+| retired heavy lanes (stubs) | `phase7-production-like-validation.yml` (incl. `premium-physical-e2e`), `edge-security-emulation.yml`, `platform-db-outage-validation.yml`, `game-auth-ticket-concurrency.yml` | PR only, when `classify-changes` selects them |
 | `agent-governance.yml` | `checkpoint-validation` | PR and push touching `AGENTS.md`, `docs/agents/**`, `tools/agents/**` |
 
-`runtime-tests`, `platform-postgres` and the heavy lanes test the legacy
-Laravel app; a portal-rs PR starts them because the classifier treats
-`portal-rs/**` as `shared`. They still have to pass. The required-check set
+`runtime-tests`, `platform-postgres`, `php-coverage-report` and the heavy
+lanes are stubs since the Laravel app was removed (2026-11-11): they keep
+their check names and only print that the validation is retired. A portal-rs
+PR starts them because the classifier treats `portal-rs/**` as `shared`.
+They still have to pass. The required-check set
 lives in the branch ruleset; read it before deciding a check does not
 matter, and do not treat an unrequired portal-rs check as optional.
 
@@ -69,10 +71,6 @@ closeout in the template: archive the task record, release ownership.
    not this PR's. Land one main fix first, then merge `origin/main` into the
    waiting PRs; say so once on each PR. Before writing a main fix, search
    open PRs for one that already exists.
-   - `runtime-tests` red at *Audit Composer dependencies* is a new advisory:
-     a main failure. The fix is one PR bumping the affected package in
-     `legacy/composer.lock` (`composer update <vendor/package> --with-dependencies`,
-     then `composer audit --locked`); never an ignore entry.
 4. Otherwise it is this PR's failure. Common causes:
    - `main` moved under the PR: merge `origin/main`, rebuild, reproduce.
    - Clippy on code that passed locally: you ran it per crate without

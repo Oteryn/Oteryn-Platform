@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
-  "mode": "enforce",
+  "mode": "retired",
+  "retired": "owner decision 2026-11-11: the Laravel app in scope was removed (last at commit 2d45732c); the Rust portal has no PHP coverage to measure",
   "scope": "legacy/app/**",
   "minimum_statement_percent": 82.0,
   "execution": "relevant_merge_queue_candidates_and_main_pushes",

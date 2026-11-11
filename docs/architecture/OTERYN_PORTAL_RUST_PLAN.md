@@ -23,7 +23,7 @@ Zasady projektu:
 - **Gra jest osobna.** Brak wspólnej bazy z grą. Dane na żywo idą tylko przez kontrakty HTTP z mTLS, a kontrakty, które gra już implementuje, zostają bajt w bajt (sekcje 5 i 6). Dane świata portal czyta tylko do odczytu z przypiętego wydania gry (§6.1).
 - **Mało JS.** SSR w askama i htmx. Bez SPA, bez npm, bez bundlera.
 - **Domyślnie wyłączone.** Każda funkcja dotykająca gry lub pieniędzy ma flagę.
-- **Uruchomienie jednorazowe.** Gdy nowy portal jest gotowy, importujemy konta (hashe argon2id działają bez resetu haseł) i przełączamy domenę. Bez okresu współistnienia.
+- **Start od zera.** Decyzja właściciela 2026-11-11: bez przełączenia i bez migracji danych. Nowy portal startuje z pustą bazą; stary portal (Laravel) i gateway w Go usunięto z repozytorium. Bez okresu współistnienia.
 
 ## 2. Potrzeby → funkcje
 
@@ -224,11 +224,11 @@ Wszystkie trasy poza `native-admissions` (token usługi gatewaya): TLS 1.3, HTTP
 
 **5.3.2 Trasy, które portal woła w grze:** dziś żadnej. Każdy przepływ z grą to pull albo push inicjowany przez grę, a portal tylko serwuje.
 
-**Kierunek `native-admissions`** (potwierdzony przez grę, Game main @6a81df27). Trasę serwuje portal, a woła ją tylko gateway logowania (dziś `legacy/services/game-gateway` w Go, `issuerPath`; docelowo rola `gateway`, T52) tokenem usługi, nie mTLS, przez loopback lub upstream; trasa nie jest publiczna. Serwer gry jej nie serwuje i nie woła. Lock gry (wpis N4P) jeszcze jej nie wymienia; dopisze ją G-1.
+**Kierunek `native-admissions`** (potwierdzony przez grę, Game main @6a81df27). Trasę serwuje portal, a woła ją tylko gateway logowania (dawniej gateway w Go, `issuerPath`, usunięty 2026-11-11, ostatnio w commicie `2d45732c` pod `legacy/services/game-gateway`; teraz rola `gateway`, T52) tokenem usługi, nie mTLS, przez loopback lub upstream; trasa nie jest publiczna. Serwer gry jej nie serwuje i nie woła. Lock gry (wpis N4P) jeszcze jej nie wymienia; dopisze ją G-1.
 
 ### 5.4 Panel zespołu
 
-Panel działa na osobnym hoście, z obowiązkowym MFA. Uprawnienia odpowiadają obecnym (30 kluczy w 7 grupach, `legacy/app/Admin/AdminPermission.php`). Każde uprawnienie należy do co najmniej jednej wbudowanej roli, co sprawdza test; w obecnym portalu 6 uprawnień nie ma żadnej roli. Role i ich uprawnienia edytuje się w panelu.
+Panel działa na osobnym hoście, z obowiązkowym MFA. Uprawnienia odpowiadają obecnym (30 kluczy w 7 grupach, `legacy/app/Admin/AdminPermission.php` w commicie `2d45732c`). Każde uprawnienie należy do co najmniej jednej wbudowanej roli, co sprawdza test; w obecnym portalu 6 uprawnień nie ma żadnej roli. Role i ich uprawnienia edytuje się w panelu.
 
 | Sekcja | Zakres | Zadanie |
 | --- | --- | --- |
@@ -604,7 +604,7 @@ Zasady:
 - Funkcja bez danych z gry pokazuje „niedostępne” z czasem ostatniej aktualizacji, nigdy zmyślonych wartości.
 - Ustawienia profilu (ukrycie, postać główna, komentarz, przełączniki) należą do portalu, bo to portal renderuje profile z projekcji. Gra nie musi nic zmieniać.
 - Każda mutacja przez granicę gry jest idempotentna, ma klucz operacji, outbox i rekoncyliację. Timeout nie oznacza sukcesu ani porażki.
-- Gateway logowania przechodzi z Go do Rusta (rola `gateway`, T52) z tym samym kontraktem bajt w bajt, więc klient gry nic nie zmienia. Obecny gateway w Go (`legacy/services/game-gateway`, ok. 900 linii, bezstanowy) działa do przełączenia. Portal serwuje `native-admissions` bajt w bajt obu wersjom.
+- Gateway logowania przechodzi z Go do Rusta (rola `gateway`, T52) z tym samym kontraktem bajt w bajt, więc klient gry nic nie zmienia. Gateway w Go (`legacy/services/game-gateway`, ok. 900 linii, bezstanowy) usunięto 2026-11-11 (ostatnio w commicie `2d45732c`); jego wektory zostają w `crates/gateway/tests/fixtures/go_vectors.jsonl`. Portal serwuje `native-admissions` bajt w bajt obu wersjom.
 - Wymagania klienta wobec gatewaya (koordynator, Game main @7cdd69a7). Klient dekoduje odpowiedź ściśle: odrzuca nieznane i zduplikowane pola. Wymaga:
   - zgodności trójki status HTTP + kod + `public_class` z tabelą błędów;
   - `Content-Type: application/json`;
@@ -663,7 +663,7 @@ Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie cz�
   - e-mail o logowaniu z nowego urządzenia.
 - Zmiana e-maila (D14): bez klucza odzyskiwania zmiana po 7 dniach z anulowaniem ze starego adresu; po zmianie 72 h blokady transferu coinów, bazaru i kolejnej zmiany e-maila.
 - Rejestracja: rate limit i proof-of-work bez zewnętrznych usług.
-- Rate limity: zestaw z obecnego portalu (`legacy/app/Providers/AppServiceProvider.php`) jako punkt wyjścia.
+- Rate limity: zestaw z poprzedniego portalu (`legacy/app/Providers/AppServiceProvider.php` w commicie `2d45732c`) jako punkt wyjścia; wartości są wpisane w `crates/web/tests/ratelimit.rs`.
 - CSRF: token synchronizowany dla każdej mutacji w web.
 - Tokeny API: nieprzezroczyste, przechowywane jako SHA-256, z zakresami. Refresh rotowany; ponowne użycie unieważnia całą rodzinę.
 - Waluta: transakcja z `SELECT ... FOR UPDATE` na koncie portfela, brak ujemnych sald, klucz idempotencji dla każdej operacji.
@@ -696,27 +696,19 @@ These are non-binding design notes for later implementation tasks, not evidence 
 ## 9. Uruchomienie
 
 1. Preprod na `oteryn-vps-2`: PostgreSQL, portal, mTLS z gatewayem i węzłem testowym.
-2. Narzędzie `admin-cli import-legacy` (T38–T38e) jednorazowo czyta eksport z obecnej bazy. Kopiuje:
-   - konta z AccountId, hashami haseł, sekretami TOTP (ponownie zaszyfrowanymi), kodami i kluczami odzyskiwania, flagami prywatności i zaplanowanymi usunięciami;
-   - role;
-   - treści, wiki i media;
-   - postacie z projekcji i ustawienia ich profili;
-   - portfel, premium i płatności;
-   - zgłoszenia, zgłoszenia graczy, kary i odwołania, więc aktywne zawieszenia działają od pierwszej minuty.
-
-   Nie kopiuje sesji ani tokenów w locie (reset hasła, zmiana e-maila). Gracz loguje się ponownie i w razie potrzeby powtarza prośbę.
-3. Weryfikacja importu: liczby i sumy kontrolne, logowanie próbnych kont, zgodność sald.
-4. Bazar Laravela jest wyłączony poza środowiskiem testowym, więc w produkcji nie ma otwartych aukcji ani zablokowanych coinów. Import to sprawdza i przerywa się, jeśli jakieś znajdzie. Nowy bazar startuje pusty.
+2. ~~Narzędzie `admin-cli import-legacy` (T38–T38e) jednorazowo czyta eksport z obecnej bazy.~~ **Porzucone decyzją właściciela 2026-11-11:** nie ma przełączenia ani migracji danych. Nowy portal startuje z pustą bazą; gracze zakładają konta od nowa. Narzędzie importu (`bin/oteryn-portal/src/import/`) usunięto. Migracja `20261106010002_t38_import_map.sql` zostaje jako historia (scalonych migracji się nie zmienia); tabela `legacy_import_map` jest nieużywana.
+3. ~~Weryfikacja importu.~~ Porzucone razem z krokiem 2.
+4. Nowy bazar startuje pusty.
 5. Przekierowania 301 ze starych adresów (T43): `/highscores` → `/rankings/level`, `/servers` → `/worlds`, `/getting-started` → `/start`, `/wiki/{slug}` → `/wiki/articles/{slug}`, `/wiki/items/*` i `/wiki/creatures/*` → strony encji.
-6. Przełączenie domeny i gatewaya na nowy portal (rola `gateway` zamiast `legacy/services/game-gateway`). Laravel i gateway w Go zostają wyłączone, a ich kod i workflowy CI są usuwane z repozytorium osobnym PR-em.
+6. Uruchomienie domeny i gatewaya na nowym portalu (rola `gateway`).
 
-Stan 2026-11-11 (decyzja właściciela): `portal-rs/` jest główną platformą na `main`; kod Laravela i gateway w Go przeniesiono do `legacy/` (gateway: `legacy/services/game-gateway/`), ich workflowy CI wyłączono, a sam katalog `legacy/` jest usuwany przy przełączeniu w kroku 6.
+Stan 2026-11-11 (decyzja właściciela): `portal-rs/` jest jedyną platformą. Kod Laravela, gateway w Go (`legacy/services/game-gateway/`) i narzędzie importu usunięto z repozytorium (ostatni commit z katalogiem `legacy/`: `2d45732c`); ich workflowy CI wyłączono wcześniej (PR #1801), a zadania wymagane jako status checks zostają jako zaślepki.
 
 Każdy krok wymaga zgody właściciela („deploy”).
 
 ### 9.1 Rollback and cutover gate
 
-Non-binding rehearsal and gate proposals, to be qualified in the deployment task. Every deployment still requires the owner's authorization above. Apply them only to the accepted first-release scope; node management and GM observe remain deferred (D1).
+Owner decision 2026-11-11: there is no cutover and no data migration, so the import, reverse-import and legacy-ledger items below no longer apply; the remaining gates apply to the first launch. Non-binding rehearsal and gate proposals, to be qualified in the deployment task. Every deployment still requires the owner's authorization above. Apply them only to the accepted first-release scope; node management and GM observe remain deferred (D1).
 
 - **Rollback triggers:** successful logins below 95% for 15 minutes; admission or evidence errors above the measured baseline; any monotonic-counter regression; or failed import verification. Source: #1643 draft:1002-1013 @ 1c9c638f.
 - **Rollback boundary:** before the new portal accepts writes, restore the previous routing and processes. After writes begin, use a rehearsed reverse import before returning to Laravel and the Go gateway. Preserve identities, password hashes, generations, floors, witnesses, intents and acknowledgements, epochs and ledgers; reconcile accepted payments into the legacy ledger. A route-only rollback would regress Game floors/revisions and is unsafe. Retain new-portal-only data for a later attempt. Source: #1643 draft:1002-1013 @ 1c9c638f.
@@ -797,11 +789,11 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T36 | Powiadomienia: e-mail przez outbox (szablony pl/en), w kliencie, preferencje per kategoria, wypisanie | T02, T37 | `crates/notify` |
 | T36b | Player API: `GET /api/v1/account/summary`, `GET /api/v1/feed`, `GET /v1/client/directory` (po G-1) | T11, T26, T36 | `crates/player-api` |
 | T37 | Worker: outbox, ponowienia, sprzątanie (sesje, tokeny, retencja supportu) | T00 | `bin/oteryn-portal/src/worker*`, `crates/db/src/outbox*` |
-| T38 | Import: konta i bezpieczeństwo (hashe, TOTP, kody i klucze odzyskiwania, prywatność, zaplanowane usunięcia), role | T03–T10 | `bin/oteryn-portal/src/import/identity*` |
-| T38b | Import: treści, wiki, media | T11–T13 | `bin/oteryn-portal/src/import/content*` |
-| T38c | Import: portfel, premium, płatności; kontrola braku otwartych aukcji | T26–T31 | `bin/oteryn-portal/src/import/commerce*` |
-| T38d | Import: zgłoszenia, zgłoszenia graczy, kary, odwołania | T33–T34b | `bin/oteryn-portal/src/import/support*` |
-| T38e | Import: ustawienia profili postaci | T45 | `bin/oteryn-portal/src/import/characters*` |
+| T38 | ~~Import: konta i bezpieczeństwo (hashe, TOTP, kody i klucze odzyskiwania, prywatność, zaplanowane usunięcia), role~~ **Porzucone** (decyzja właściciela 2026-11-11: bez przełączenia i importu; kod usunięty) | T03–T10 | `bin/oteryn-portal/src/import/identity*` |
+| T38b | ~~Import: treści, wiki, media~~ **Porzucone** (decyzja właściciela 2026-11-11: bez przełączenia i importu; kod usunięty) | T11–T13 | `bin/oteryn-portal/src/import/content*` |
+| T38c | ~~Import: portfel, premium, płatności; kontrola braku otwartych aukcji~~ **Porzucone** (decyzja właściciela 2026-11-11: bez przełączenia i importu; kod usunięty) | T26–T31 | `bin/oteryn-portal/src/import/commerce*` |
+| T38d | ~~Import: zgłoszenia, zgłoszenia graczy, kary, odwołania~~ **Porzucone** (decyzja właściciela 2026-11-11: bez przełączenia i importu; kod usunięty) | T33–T34b | `bin/oteryn-portal/src/import/support*` |
+| T38e | ~~Import: ustawienia profili postaci~~ **Porzucone** (decyzja właściciela 2026-11-11: bez przełączenia i importu; kod usunięty) | T45 | `bin/oteryn-portal/src/import/characters*` |
 | T39 | Projekt graficzny od nowa: tokeny CSS, typografia, ikony, komponenty i galeria komponentów | T01 | `static/`, `templates/components/` |
 | T39b | Makiety kluczowych ekranów na tokenach T39 do akceptacji właściciela (§8) | T39 | `docs/design/`, `templates/mockups/` |
 | T39b | Strona główna i „Jak zacząć” | T39, T11 | `templates/pages/` |
@@ -916,7 +908,7 @@ Pozostałe warunki:
 | D3 | Dostawca płatności | **Zgoda** (2026-11-05): dostawca testowy do czasu wyboru (np. Stripe); prawdziwy wybrany przed pierwszymi wpłatami |
 | D4 | Wygląd | **Od nowa** (2026-11-05): obecny portal jest tylko przykładem; system projektowy (T39) i makiety do akceptacji właściciela (T39b), §8 |
 | D5 | Gateway logowania | **Zgoda** (2026-11-05): przepisany do Rusta jako rola `gateway` w tej samej binarce, osobny proces bez dostępu do bazy, kontrakt `POST /v1/login` bez zmian. Koordynator potwierdził przepisanie 1:1; kolejka i kod przerwy technicznej dopiero później, jako zmiana kontraktu (§6) |
-| D6 | Import danych | Konta z bezpieczeństwem, role, treści, wiki, portfel, premium, support i kary, ustawienia profili (§9); sesje i tokeny w locie nie |
+| D6 | Import danych | **Brak importu** (2026-11-11): bez przełączenia i migracji danych, nowy portal startuje z pustą bazą (§9). Wcześniej: konta z bezpieczeństwem, role, treści, wiki, portfel, premium, support i kary, ustawienia profili |
 | D7 | Publikacja sprite'ów i mapy gry na stronie (licencja `LICENSE-ASSETS.md`) | **Wolno** (2026-11-05): wiki z grafikami, Atlas włączony |
 | D8 | Klasyfikacje questów publikowane w wiki | **Wszystkie** (2026-11-05); wiki pokazuje klasyfikację przy queście |
 | D9 | Autorytet kar | **Zgoda** (2026-11-05): Platform; zawieszenie konta przez odmowę logowania do gry; kary w grze po G-5 |
@@ -934,7 +926,7 @@ Pozostałe warunki:
 | D21 | Rodzaj COSMETIC w sklepie (wyglądy, ramki, tytuły) | **Zgoda** (2026-11-05) na włączenie, wcześniej wyłączony; zmiana kontraktu wire sklepu z grą przed T89 |
 | D22 | Akceptacja projektu (było Q5) | **Akceptuję** (2026-11-05); start od T00 (PR #1685), potem kolejność z §10 |
 | D23 | Konsultacja prawna (bazar, sklep i coiny, regulamin i RODO, §5.10) | **Nie blokuje prac** (2026-11-05); właściciel zrobi ją później |
-| D24 | Wersja PostgreSQL | **18.6** (2026-11-05), jak w grze i w środowisku Codexa. Stara baza Laravela zostaje na 17.11 do wyłączenia, bez aktualizacji; dane przenosi import (T38) |
+| D24 | Wersja PostgreSQL | **18.6** (2026-11-05), jak w grze i w środowisku Codexa. Stara baza Laravela zostaje na 17.11 do wyłączenia, bez aktualizacji; importu nie ma (2026-11-11) |
 
 ## 12. Otwarte pytania
 
@@ -948,7 +940,7 @@ Pozostałe zadania nie czekają na te odpowiedzi.
 
 ## 13. Źródła
 
-- Obecny portal: trasy `legacy/routes/internal.php`, `legacy/routes/api.php`, `legacy/routes/modules/*`; moduły `legacy/app/*`.
+- Poprzedni portal (usunięty 2026-11-11, commit `2d45732c`): trasy `legacy/routes/internal.php`, `legacy/routes/api.php`, `legacy/routes/modules/*`; moduły `legacy/app/*`.
 - Kontrakty: `docs/contracts/`, w tym wire sklepu i decyzje z 2026-11-05.
 - Gra (main @60de8634): `docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json`, `crates/platform-client` (`lib.rs`, `native_login.rs`, `native_login/owner_characters.rs`), `crates/gameplay/native-admission-source` (`account_characters.rs`, `character_commands.rs`, `store.rs`, `restore_notice.rs`, `public_projections.rs`), `PROD-ENTITLEMENTS-01_GAME_CONSUMER_ENFORCEMENT_CONTRACT_CANDIDATE.md`.
 - Przegląd od strony gry: koordynator, 2026-11-05; stan panelu gracza po stronie gry: Game main @00c01066.

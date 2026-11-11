@@ -43,7 +43,6 @@ class ChangeRoutingTest(unittest.TestCase):
                 "database",
                 "auth_security",
                 "payment",
-                "legacy",
                 "deployment",
                 "edge",
                 "shared",

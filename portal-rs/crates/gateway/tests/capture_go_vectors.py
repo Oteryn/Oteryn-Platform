@@ -1,4 +1,12 @@
-"""Capture reference outputs without modifying legacy/services/game-gateway.
+"""Capture reference outputs without modifying the Go game gateway source.
+
+The Go gateway was removed from this repository on owner decision 2026-11-11;
+the last commit containing it is 2d45732c, path legacy/services/game-gateway.
+The checked-in tests/fixtures/go_vectors.jsonl stays the reference. To
+regenerate it, extract that tree and pass its directory as the only argument:
+
+    git archive 2d45732c legacy/services/game-gateway | tar -x -C <dir>
+    python3 capture_go_vectors.py <dir>/legacy/services/game-gateway
 
 Run from this directory with a Go compiler on PATH. The generated vectors include
 all calls made by the reference wire, error, issuer, limiter and handler tests.
@@ -8,10 +16,13 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
-SOURCE = HERE.parents[3] / "legacy/services/game-gateway"
+if len(sys.argv) != 2 or not (Path(sys.argv[1]) / "internal/nativelogin").is_dir():
+    sys.exit("usage: capture_go_vectors.py <game-gateway source dir from commit 2d45732c>")
+SOURCE = Path(sys.argv[1]).resolve()
 
 with tempfile.TemporaryDirectory(prefix="gateway-reference-") as directory:
     root = Path(directory)

@@ -63,7 +63,7 @@ Never commit or reproduce `.env` contents, tokens, passwords, private keys, prod
 
 ## Laravel and repository implementation
 
-- The platform is the Rust portal in `portal-rs/`; its commands and rules are in `portal-rs/README.md`. The Laravel app and the Go gateway live in `legacy/` (owner decision 2026-11-11) and are frozen: not built, tested or extended. The Laravel bullets below apply only to a task that explicitly names legacy code.
+- The platform is the Rust portal in `portal-rs/`; its commands and rules are in `portal-rs/README.md`. The Laravel app, the Go gateway and the legacy import tool were removed on owner decision 2026-11-11 (last present at commit `2d45732c`, under `legacy/`); there is no cutover and no data migration. The Laravel bullets below have no code left to apply to.
 - Follow the Laravel/PHP versions and commands present in this repository.
 - Prefer framework validation, middleware, policies, the service container, queues/events and database transactions over ad hoc equivalents.
 - Keep controllers thin and durable business rules in the existing owning service/domain boundary.

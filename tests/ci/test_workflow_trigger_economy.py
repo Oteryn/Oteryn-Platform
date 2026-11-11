@@ -32,8 +32,8 @@ RETIRED_WORKFLOWS = (
     "portal-exhaustive-acceptance.yml",
     "portal-exhaustive-audit.yml",
     "portal-exhaustive-trigger-coupling.yml",
-    # Laravel and Go gateway lanes retired when both moved to legacy/
-    # (owner decision 2026-11-11).
+    # Laravel and Go gateway lanes retired when both moved to legacy/ and
+    # were then removed (owner decision 2026-11-11).
     "acceptance-soak.yml",
     "acceptance-stability.yml",
     "acceptance-validation.yml",
@@ -64,7 +64,8 @@ RETIRED_WORKFLOWS = (
     "wiki-reconciliation-acceptance.yml",
 )
 
-# legacy/ is frozen: no workflow may set up PHP or Go or install Composer packages.
+# The Laravel app and Go gateway were removed: no workflow may set up PHP or Go or
+# install Composer packages.
 LEGACY_TOOLCHAIN_MARKERS = (
     "shivammathur/setup-php",
     "actions/setup-go",
