@@ -89,14 +89,17 @@ fn security_headers(router: Router) -> Router {
     })
 }
 
+fn public_sessions(db: sqlx::PgPool, origin: Option<String>) -> session::SessionLayer {
+    let mut sessions = session::SessionLayer::new(db);
+    sessions.csrf.trusted_origins = origin.into_iter().collect();
+    sessions
+}
+
 /// Builds the public router. Module routers are merged here as their tasks land.
 pub fn router(state: AppState, static_dir: &str) -> Router {
-    let session_layer = session::SessionLayer::new(state.db.clone());
-    let mut oauth_sessions = session_layer.clone();
-    oauth_sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
-        .ok()
-        .into_iter()
-        .collect();
+    let session_layer =
+        public_sessions(state.db.clone(), std::env::var("OTERYN_PUBLIC_ORIGIN").ok());
+    let oauth_sessions = session_layer.clone();
     let oauth_routes = oteryn_gameauth::oauth::browser_routes(
         state.db.clone(),
         oteryn_gameauth::oauth::Config::from_env(),
@@ -252,6 +255,22 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(surface::module_router())
         .merge(surface::module_routes())
         .merge(oteryn_identity::abuse::http::routes(state.db.clone()))
+        .route("/{lang}/account/consents", get(|State(state): State<AppState>, axum::extract::Path(lang): axum::extract::Path<String>, axum::Extension(session): axum::Extension<session::BrowserSession>, config: Option<axum::Extension<oteryn_identity::consents::OptionalConfig>>, flags: Option<axum::Extension<oteryn_identity::consents::FeatureFlags>>| async move {
+            let mut config = config.map(|c| c.0).unwrap_or_else(oteryn_identity::consents::OptionalConfig::configured);
+            config.enabled |= flags.is_some_and(|flags| flags.contains(oteryn_identity::consents::FEATURE));
+            let account = session.account_id().await;
+            if account.is_none() || !config.enabled {
+                return oteryn_identity::consents::http::show(&state.db, &config, account, &lang, "").await;
+            }
+            match session.csrf_token().await {
+                Ok(csrf) => oteryn_identity::consents::http::show(&state.db, &config, session.account_id().await, &lang, &csrf).await,
+                Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            }
+        }).post(|State(state): State<AppState>, axum::extract::Path(lang): axum::extract::Path<String>, axum::Extension(session): axum::Extension<session::BrowserSession>, config: Option<axum::Extension<oteryn_identity::consents::OptionalConfig>>, flags: Option<axum::Extension<oteryn_identity::consents::FeatureFlags>>, axum::Form(input): axum::Form<oteryn_identity::consents::http::Input>| async move {
+            let mut config = config.map(|c| c.0).unwrap_or_else(oteryn_identity::consents::OptionalConfig::configured);
+            config.enabled |= flags.is_some_and(|flags| flags.contains(oteryn_identity::consents::FEATURE));
+            oteryn_identity::consents::http::submit(&state.db, &config, session.account_id().await, &lang, input).await
+        }))
         .merge(register::routes())
         .merge(verify::routes())
         .merge(

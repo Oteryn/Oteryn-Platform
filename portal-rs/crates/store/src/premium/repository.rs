@@ -144,11 +144,48 @@ impl Ledger {
         if !operator.confirmed_mfa || operator.permission != "products.premium.manage" {
             return Err(Error::Denied);
         }
+        self.authorized_in(tx, operator.actor, mutation).await
+    }
+    /// A durable campaign award is the authority for this server-side grant.
+    /// No browser or staff privilege can supply an arbitrary duration here.
+    pub async fn grant_referral_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        request: Uuid,
+    ) -> Result<Entitlement, Error> {
+        if !self.enabled {
+            return Err(Error::Disabled);
+        }
+        let row = sqlx::query("SELECT account_id,amount FROM referral_campaign_rewards WHERE id=$1 AND kind='premium' AND EXISTS(SELECT 1 FROM referral_campaign_settings WHERE enabled) FOR UPDATE")
+            .bind(request).fetch_optional(&mut **tx).await?.ok_or(Error::Denied)?;
+        let account: Uuid = row.try_get("account_id")?;
+        let days: i32 = row.try_get("amount")?;
+        if !matches!(days, 5 | 10) {
+            return Err(Error::Denied);
+        }
+        self.authorized_in(
+            tx,
+            account,
+            &Mutation {
+                account,
+                request,
+                change: Change::Grant(days as u16),
+                reason: "Returning friend premium reward".into(),
+            },
+        )
+        .await
+    }
+    async fn authorized_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        actor: Uuid,
+        mutation: &Mutation,
+    ) -> Result<Entitlement, Error> {
         let reason = mutation.reason.trim();
         if !(10..=500).contains(&reason.chars().count())
             || mutation.request.is_nil()
-            || operator.actor.get_version_num() != 7
-            || operator.actor.get_variant() != uuid::Variant::RFC4122
+            || actor.get_version_num() != 7
+            || actor.get_variant() != uuid::Variant::RFC4122
             || matches!(mutation.change, Change::Grant(days) if !(1..=366).contains(&days))
         {
             return Err(Error::Invalid);
@@ -171,7 +208,7 @@ impl Ledger {
             .await?
         {
             if row.try_get::<Uuid, _>("account_id")? != mutation.account
-                || row.try_get::<Uuid, _>("actor_id")? != operator.actor
+                || row.try_get::<Uuid, _>("actor_id")? != actor
                 || row.try_get::<String, _>("event_type")? != kind
                 || row.try_get::<Option<i32>, _>("duration_days")? != days
                 || row.try_get::<Vec<u8>, _>("reason_sha256")? != hash
@@ -205,11 +242,11 @@ impl Ledger {
         let previous_duration = existing.as_ref().map_or(0, |e| e.until - e.from);
         let delta = next.until - next.from - previous_duration;
         sqlx::query("INSERT INTO premium_ledger(request_id, account_id, actor_id, event_type, duration_days, reason_sha256, entitlement_id, lifecycle_revision, delta_seconds, effective_from, effective_until) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
-            .bind(mutation.request).bind(mutation.account).bind(operator.actor).bind(kind).bind(days).bind(hash)
+            .bind(mutation.request).bind(mutation.account).bind(actor).bind(kind).bind(days).bind(hash)
             .bind(next.id).bind(next.revision).bind(delta).bind(timestamp(next.from)?).bind(timestamp(next.until)?)
             .execute(&mut **tx).await?;
         sqlx::query("INSERT INTO premium_audit(request_id,actor_id,account_id,event_name) VALUES ($1,$2,$3,$4)")
-            .bind(mutation.request).bind(operator.actor).bind(mutation.account)
+            .bind(mutation.request).bind(actor).bind(mutation.account)
             .bind(if kind == "GRANT" { "products.premium_granted" } else { "products.premium_revoked" })
             .execute(&mut **tx).await?;
         Ok(next)

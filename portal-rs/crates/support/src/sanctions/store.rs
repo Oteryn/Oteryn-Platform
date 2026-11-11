@@ -372,6 +372,16 @@ impl Service {
                 .bind(intent.sanction_id).bind(intent.account).bind(kind).bind(intent.character)
                 .execute(&mut **tx).await?;
         }
+        // Game latches revocation per stream identity. A lifted ban or namelock
+        // must be issued as a new sanction, even before public metadata exists.
+        // Expired namelocks also latch revocation when the export is polled.
+        if active && matches!(kind, "ban" | "namelock") {
+            let lifted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM support_sanction_revisions WHERE sanction_id=$1 AND NOT active) OR ($2 AND COALESCE((SELECT expires_at<=$3 FROM support_sanction_revisions WHERE sanction_id=$1 ORDER BY revision DESC LIMIT 1),false))")
+                .bind(intent.sanction_id).bind(kind == "namelock").bind(decision_at).fetch_one(&mut **tx).await?;
+            if lifted {
+                return Err(Error::Conflict);
+            }
+        }
         sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
             .bind(intent.account).bind(revision).bind(intent.sanction_id).bind(encoded).bind(active).bind(decision_at).bind(expires_at)
             .execute(&mut **tx).await?;

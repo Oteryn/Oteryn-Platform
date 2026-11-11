@@ -1,0 +1,12 @@
+title = Zgody konta
+play_session = Zgoda na zapisywanie sesji gry
+personalised_ads = Spersonalizowane reklamy na platformach zewnętrznych
+play_session-purpose = Wyrażam zgodę na zapisywanie moich sesji gry wyłącznie w celu poprawy wrażeń z gry lub egzekwowania Zasad.
+personalised_ads-purpose = Wyrażam zgodę na wykorzystywanie moich danych do wyświetlania mi spersonalizowanych reklam na różnych platformach zewnętrznych. W grze nie ma reklam.
+granted = Zgoda udzielona
+refused = Zgoda nieudzielona
+no-decision = Nie zapisano decyzji. Zgoda nie jest udzielona.
+decided = Bieżąca decyzja (UTC):
+save = Zapisz decyzję
+hint = Każdą zgodę możesz niezależnie udzielić lub cofnąć w dowolnym momencie. Aby cofnąć zgodę, odznacz pole i zapisz decyzję.
+outdated = Treść zgody uległa zmianie. Odśwież stronę i przeczytaj aktualną treść przed udzieleniem zgody.

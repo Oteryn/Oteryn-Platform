@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+oteryn-internal-api.workspace = true
 oteryn-ui.workspace = true
 oteryn-core.workspace = true
 oteryn-db.workspace = true

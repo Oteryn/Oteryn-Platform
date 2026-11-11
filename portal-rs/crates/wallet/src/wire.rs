@@ -583,7 +583,7 @@ pub fn identities(vars: Vec<(String, String)>) -> Result<IdentityMap, guard::Con
                     group: if own { GROUP.into() } else { key.clone() },
                 });
             }
-        } else if key.ends_with("_MTLS_CLIENT_IDENTITY") || key.ends_with("_SAN") {
+        } else if key.ends_with("_IDENTITY") || key.ends_with("_SAN") {
             bindings.push(Binding {
                 identity: Identity::san(&raw)?,
                 group: key,
@@ -594,4 +594,30 @@ pub fn identities(vars: Vec<(String, String)>) -> Result<IdentityMap, guard::Con
         return Err(guard::ConfigError);
     }
     IdentityMap::new(bindings)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn nwave_coins_refuse_sanction_identity_overlap() {
+        for key in [
+            "PORTAL_SANCTION_EXPORT_IDENTITY",
+            "PORTAL_LOYALTY_STREAM_IDENTITY",
+        ] {
+            let config = |san: &str| {
+                vec![
+                    (
+                        "PORTAL_GAME_COINS_IDENTITIES".into(),
+                        r#"{"coins.example.invalid":[]}"#.into(),
+                    ),
+                    (key.into(), san.into()),
+                ]
+            };
+            assert!(
+                super::identities(config("coins.example.invalid")).is_err(),
+                "{key}"
+            );
+            assert!(super::identities(config("reader.example.invalid")).is_ok());
+        }
+    }
 }

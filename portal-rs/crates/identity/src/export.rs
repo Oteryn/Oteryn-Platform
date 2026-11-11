@@ -56,7 +56,7 @@ pub async fn download(
     for (key, query) in [
         (
             "consents",
-            "SELECT COALESCE(jsonb_agg(jsonb_build_object('document_kind',document_kind,'document_version',document_version,'accepted_at',accepted_at,'ip',host(ip)) ORDER BY document_kind,document_version),'[]'::jsonb) FROM account_consents WHERE account_id=$1",
+            "SELECT COALESCE(jsonb_agg(jsonb_build_object('document_kind',document_kind,'document_version',document_version,'granted',granted,'accepted_at',accepted_at,'actor',actor,'source',source,'ip',host(ip)) ORDER BY document_kind,document_version,accepted_at,id),'[]'::jsonb) FROM account_consents WHERE account_id=$1",
         ),
         (
             "sessions",

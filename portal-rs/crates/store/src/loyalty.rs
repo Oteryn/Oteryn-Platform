@@ -8,6 +8,9 @@ use uuid::Uuid;
 #[path = "loyalty_http.rs"]
 pub mod http;
 
+#[path = "loyalty_stream.rs"]
+pub mod stream;
+
 #[derive(Debug, Clone)]
 pub struct Ledger {
     pool: PgPool,
@@ -34,11 +37,21 @@ impl Ledger {
         if account.get_version_num() != 7 || account.get_variant() != uuid::Variant::RFC4122 {
             return Err(Error::Invalid);
         }
+        oteryn_db::retry::transaction(|| self.snapshot_attempt(account, nonce, revision)).await
+    }
+    async fn snapshot_attempt(
+        &self,
+        account: Uuid,
+        nonce: &str,
+        revision: &str,
+    ) -> Result<Vec<u8>, oteryn_db::retry::TransactionError<Error>> {
         let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT referral_campaign_prepare(ARRAY[$1::uuid] || ARRAY(SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=$1 AND kind='new'))")
+            .bind(account).execute(&mut *tx).await?;
         match self.accounts.state(account, &mut tx).await? {
             AccountState::Known => (),
-            AccountState::Unknown => return Err(Error::UnknownAccount),
-            AccountState::Ambiguous => return Err(Error::Unavailable),
+            AccountState::Unknown => return Err(Error::UnknownAccount.into()),
+            AccountState::Ambiguous => return Err(Error::Unavailable.into()),
         }
         sqlx::query("INSERT INTO premium_authority(account_id) VALUES ($1) ON CONFLICT DO NOTHING")
             .bind(account)
@@ -47,19 +60,27 @@ impl Ledger {
         let (authority, last): (i64, Option<OffsetDateTime>) = sqlx::query_as("SELECT authority_revision,last_issued_at FROM premium_authority WHERE account_id=$1 FOR UPDATE")
             .bind(account).fetch_one(&mut *tx).await?;
         if !(0..MAX_REVISION).contains(&authority) {
-            return Err(Error::Unavailable);
+            return Err(Error::Unavailable.into());
         }
         let now: OffsetDateTime =
             sqlx::query_scalar("SELECT date_trunc('second', clock_timestamp())")
                 .fetch_one(&mut *tx)
                 .await?;
         if last.is_some_and(|last| last > now) {
-            return Err(Error::Unavailable);
+            return Err(Error::Unavailable.into());
         }
         // DISTINCT ON selects the final lifecycle event of each interval, including
         // revoked and restarted intervals. Sum seconds before flooring whole days.
         let points: i32 = sqlx::query_scalar("SELECT LEAST(2147483647, FLOOR(COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM LEAST(effective_until,$2)-effective_from))),0)/86400))::integer FROM (SELECT DISTINCT ON (entitlement_id,effective_from) effective_from,effective_until FROM premium_ledger WHERE account_id=$1 AND effective_from < $2 ORDER BY entitlement_id,effective_from,lifecycle_revision DESC) intervals")
             .bind(account).bind(now).fetch_one(&mut *tx).await?;
+        sqlx::query("SELECT referral_campaign_loyalty($1,$2)")
+            .bind(account)
+            .bind(points)
+            .execute(&mut *tx)
+            .await?;
+        let credits: i64 = sqlx::query_scalar("SELECT LEAST(2147483647,COALESCE(sum(points),0))::bigint FROM referral_loyalty_credits WHERE account_id=$1")
+            .bind(account).fetch_one(&mut *tx).await?;
+        let points = (i64::from(points) + credits).min(i64::from(i32::MAX)) as i32;
         let bytes = snapshot(
             points,
             authority + 1,

@@ -182,6 +182,13 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     )?;
     crate::reset_delivery::register(&mut registry, pool.clone())?;
     crate::registration_delivery::register(&mut registry, pool.clone())?;
+    registry.cleanup(
+        "referrals.process",
+        60,
+        Arc::new(oteryn_community::referrals::campaign::Worker::configured(
+            pool.clone(),
+        )?),
+    )?;
     let closure = crate::account_closure::configured(pool.clone())?;
     if closure.game_enabled() {
         registry.cleanup(
