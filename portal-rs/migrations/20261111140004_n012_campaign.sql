@@ -226,5 +226,8 @@ BEGIN
     END IF;
     RETURN NEW;
 END $$;
-CREATE TRIGGER referral_campaign_signup_verified AFTER UPDATE OF status,email_verified_at ON accounts
+-- PostgreSQL runs same-event AFTER triggers by name. Bind from the updated
+-- account before account_mfa_credential_change deletes its browser sessions.
+-- The security trigger still revokes every session in the same transaction.
+CREATE TRIGGER account_0_referral_campaign_signup_verified AFTER UPDATE OF status,email_verified_at ON accounts
     FOR EACH ROW EXECUTE FUNCTION referral_campaign_signup_verified();

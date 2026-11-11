@@ -123,6 +123,16 @@ BEGIN
 END $$;
 CREATE FUNCTION support_sanction_export_typed() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+    IF NEW.active AND EXISTS (SELECT 1 FROM support_sanction_identities
+        WHERE sanction_id=NEW.sanction_id AND kind='namelock') THEN
+        -- An in-flight extension may have passed its application-level check
+        -- before an expiry poll committed. Fence revival at publication too.
+        PERFORM 1 FROM support_sanction_export_counter WHERE singleton FOR UPDATE;
+        IF EXISTS (SELECT 1 FROM support_sanction_export_revisions
+            WHERE sanction_stream_id=NEW.sanction_id AND revoked) THEN
+            RAISE EXCEPTION 'revoked namelock requires a new sanction identity' USING ERRCODE = '23514';
+        END IF;
+    END IF;
     PERFORM support_sanction_export_typed_record(NEW);
     RETURN NEW;
 END $$;
@@ -184,6 +194,37 @@ BEGIN
             CASE WHEN item.category='suspension' THEN floor(extract(epoch FROM item.expires_at)*1000)::bigint END,
             item.status='revoked' OR EXISTS (SELECT 1 FROM support_appeal_workflows
                 WHERE sanction_id=item.id AND owner_id=item.account_id AND status='accepted'));
+    END LOOP;
+END $$;
+
+-- Kind 5 has no wire end time. Reconcile elapsed authoritative deadlines before
+-- each poll so consumers receive a durable, sticky revocation instead. Only the
+-- latest typed decision can expire; an extension made before expiry wins.
+CREATE FUNCTION support_sanction_export_expire_namelocks() RETURNS void LANGUAGE plpgsql AS $$
+DECLARE previous support_sanction_export_revisions%ROWTYPE;
+BEGIN
+    -- A reader must still see committed history while a publisher is pending.
+    -- Defer expiry to the next poll if publication is busy; never lock accounts
+    -- here, because decision writers take account then counter.
+    PERFORM 1 FROM support_sanction_export_counter WHERE singleton FOR UPDATE SKIP LOCKED;
+    IF NOT FOUND THEN RETURN; END IF;
+    FOR previous IN
+        SELECT exported.* FROM (
+            SELECT DISTINCT ON (sanction_stream_id) *
+            FROM support_sanction_export_revisions WHERE kind=5
+            ORDER BY sanction_stream_id,decision_revision DESC
+        ) exported
+        JOIN LATERAL (
+            SELECT active,expires_at FROM support_sanction_revisions
+            WHERE sanction_id=exported.sanction_stream_id ORDER BY revision DESC LIMIT 1
+        ) authoritative ON true
+        WHERE NOT exported.revoked AND authoritative.active
+            AND authoritative.expires_at<=clock_timestamp()
+        ORDER BY exported.position LIMIT 500
+    LOOP
+        PERFORM support_sanction_export_append(previous.sanction_stream_id,previous.account_id,
+            previous.character_id,previous.kind,previous.reason_code,previous.reason_text,
+            previous.starts_at_ms,NULL,true);
     END LOOP;
 END $$;
 

@@ -1296,3 +1296,197 @@ async fn nwave_returning_mail_backlog_respects_monthly_delivery_budget() {
     assert_eq!(sender.emails.lock().unwrap().len(), 40);
     db.close().await;
 }
+
+#[tokio::test]
+async fn nwave_verification_binds_before_revoking_browser_sessions() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    let invitee = db.account().await;
+    sqlx::query(
+        "UPDATE accounts SET status='pending_verification',email_verified_at=NULL WHERE id=$1",
+    )
+    .bind(invitee)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    attribution_session(&db, Some(invitee), &code.to_string()).await;
+    sqlx::query(
+        "UPDATE accounts SET status='active',email_verified_at=clock_timestamp() WHERE id=$1",
+    )
+    .bind(invitee)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id=$1")
+        .bind(invitee)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        sessions, 0,
+        "verification must still invalidate browser proofs"
+    );
+    let binding: Option<Uuid> = sqlx::query_scalar(
+        "SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=$1",
+    )
+    .bind(invitee)
+    .fetch_optional(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(binding, Some(owner));
+    assert_eq!(db.count("starter").await, 1);
+    db.buy(invitee, 1).await;
+    assert_eq!(db.count("outfit").await, 1);
+    db.close().await;
+}
+
+#[derive(Debug, Default)]
+struct PausedMail {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+impl oteryn_notify::EmailSender for PausedMail {
+    fn send<'a>(&'a self, _: &'a oteryn_notify::Email) -> oteryn_notify::NotifyFuture<'a, ()> {
+        Box::pin(async move {
+            self.entered.notify_one();
+            self.release.notified().await;
+            Ok(())
+        })
+    }
+}
+#[tokio::test]
+async fn nwave_smtp_does_not_block_purchase_qualification() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let invitee = db.recruit(owner).await;
+    db.fund(invitee).await;
+    db.campaign
+        .email(owner, "mail-delay@example.test", Kind::New)
+        .await
+        .unwrap();
+    let sender = Arc::new(PausedMail::default());
+    let worker = Worker {
+        campaign: db.campaign.clone(),
+        sender: Some(sender.clone()),
+    };
+    let sending = tokio::spawn(async move { worker.process().await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), sender.entered.notified())
+        .await
+        .unwrap();
+    let purchases = db.purchases();
+    let raw = db.request(invitee, 1, Uuid::now_v7());
+    let purchase =
+        tokio::time::timeout(std::time::Duration::from_secs(1), purchases.purchase(&raw)).await;
+    sender.release.notify_one();
+    sending.await.unwrap().unwrap();
+    assert!(
+        purchase.is_ok(),
+        "SMTP held the referral qualification lock"
+    );
+    assert!(purchase.unwrap().is_ok());
+    assert_eq!(db.count("outfit").await, 1);
+    db.close().await;
+}
+
+#[derive(Debug)]
+struct ConcurrentPurchaseLock {
+    pool: PgPool,
+    later: Uuid,
+    checked: std::sync::atomic::AtomicBool,
+}
+impl oteryn_store::premium::Accounts for ConcurrentPurchaseLock {
+    fn state<'a>(
+        &'a self,
+        account: Uuid,
+        conn: &'a mut PgConnection,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        oteryn_store::premium::AccountState,
+                        oteryn_store::premium::Error,
+                    >,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            if account == self.later
+                && !self.checked.swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                // Model a purchase that already owns the later account row and
+                // now needs qualification, before the stream locks that row.
+                let mut purchase = self.pool.begin().await.unwrap();
+                sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+                    .bind(account)
+                    .execute(&mut *purchase)
+                    .await
+                    .unwrap();
+                let available: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(5600)")
+                    .fetch_one(&mut *purchase)
+                    .await
+                    .unwrap();
+                purchase.rollback().await.unwrap();
+                assert!(
+                    available,
+                    "stream retained 5600 while locking the next account"
+                );
+            }
+            oteryn_store::premium::Accounts::state(&DatabasePolicy, account, conn).await
+        })
+    }
+}
+#[tokio::test]
+async fn nwave_stream_releases_qualification_lock_before_next_account() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let first = db.recruit(owner).await;
+    let later = db.recruit(owner).await;
+    for account in [first, later] {
+        sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1)")
+            .bind(account)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let accounts = Arc::new(ConcurrentPurchaseLock {
+        pool: db.pool.clone(),
+        later,
+        checked: std::sync::atomic::AtomicBool::new(false),
+    });
+    // Streaming must work with one pool connection; qualification must not
+    // request a second connection while retaining the publication transaction.
+    let schema = db.schema.clone();
+    let single_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(move |conn, _| {
+            let schema = schema.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(schema)
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&std::env::var("PORTAL_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let stream =
+        oteryn_store::loyalty::stream::Stream::new(single_pool.clone(), accounts.clone(), true);
+    let page = tokio::time::timeout(std::time::Duration::from_secs(2), stream.read(None, 500))
+        .await
+        .expect("stream must not require a second pool connection")
+        .unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert!(accounts.checked.load(std::sync::atomic::Ordering::SeqCst));
+    single_pool.close().await;
+    db.close().await;
+}

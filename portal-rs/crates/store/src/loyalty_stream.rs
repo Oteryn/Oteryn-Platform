@@ -141,17 +141,33 @@ impl Stream {
             let totals: Vec<(Uuid, i32)> = sqlx::query_as(
                 "WITH instant AS MATERIALIZED (SELECT date_trunc('second', clock_timestamp()) AS now), intervals AS (SELECT DISTINCT ON (account_id,entitlement_id,effective_from) account_id,effective_from,effective_until FROM premium_ledger ORDER BY account_id,entitlement_id,effective_from,lifecycle_revision DESC) SELECT days.account_id,days.spent FROM (SELECT a.account_id, LEAST(2147483647, FLOOR(COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM LEAST(i.effective_until,t.now)-i.effective_from))),0)/86400))::integer AS spent FROM (SELECT account_id FROM premium_authority UNION SELECT account_id FROM referral_loyalty_credits) a CROSS JOIN instant t LEFT JOIN intervals i ON i.account_id=a.account_id AND i.effective_from<t.now GROUP BY a.account_id) days ORDER BY days.account_id"
             ).fetch_all(&mut *tx).await?;
-            // Award from Premium consumption only, before reading credit totals.
-            // This also discovers inviters without any Premium history in this poll.
-            for &(account, days) in &totals {
+            // Capture and lock the full authority set before qualification takes
+            // advisory lock 5600. Purchases lock account rows before that lock.
+            // Include potential credit-only inviters so publication never needs
+            // to acquire a new account lock while holding 5600.
+            let candidates: Vec<Uuid> = totals.iter().map(|(account, _)| *account).collect();
+            let inviters: Vec<Uuid> = sqlx::query_scalar("SELECT DISTINCT inviter_id FROM referral_campaign_invitations WHERE kind='new' AND invitee_id=ANY($1)")
+                .bind(&candidates).fetch_all(&mut *tx).await?;
+            let candidates: std::collections::BTreeSet<_> =
+                candidates.into_iter().chain(inviters).collect();
+            let mut known = std::collections::BTreeSet::new();
+            for account in candidates {
                 if account.get_version_num() != 7 || account.get_variant() != uuid::Variant::RFC4122
                 {
                     return Err(Error::Unavailable);
                 }
                 match self.accounts.state(account, &mut tx).await? {
-                    AccountState::Known => (),
+                    AccountState::Known => {
+                        known.insert(account);
+                    }
                     AccountState::Unknown => continue,
                     AccountState::Ambiguous => return Err(Error::Unavailable),
+                }
+            }
+            // Award from Premium consumption only, before reading credit totals.
+            for &(account, days) in &totals {
+                if !known.contains(&account) {
+                    continue;
                 }
                 sqlx::query("SELECT referral_campaign_loyalty($1,$2)")
                     .bind(account)
@@ -159,8 +175,10 @@ impl Stream {
                     .execute(&mut *tx)
                     .await?;
             }
-            let credits: Vec<(Uuid, i32)> = sqlx::query_as("SELECT account_id,LEAST(2147483647,sum(points))::integer FROM referral_loyalty_credits GROUP BY account_id")
-                .fetch_all(&mut *tx).await?;
+            // Concurrently appearing accounts are observed on the next tail
+            // poll; do not expand the authority set after taking 5600.
+            let credits: Vec<(Uuid, i32)> = sqlx::query_as("SELECT account_id,LEAST(2147483647,sum(points))::integer FROM referral_loyalty_credits WHERE account_id=ANY($1) GROUP BY account_id")
+                .bind(known.iter().copied().collect::<Vec<_>>()).fetch_all(&mut *tx).await?;
             let mut totals: std::collections::BTreeMap<_, _> = totals
                 .into_iter()
                 .map(|(account, days)| (account, (days, days)))
@@ -170,14 +188,8 @@ impl Stream {
                 *points = days.saturating_add(credits);
             }
             for (account, (days, points)) in totals {
-                if account.get_version_num() != 7 || account.get_variant() != uuid::Variant::RFC4122
-                {
-                    return Err(Error::Unavailable);
-                }
-                match self.accounts.state(account, &mut tx).await? {
-                    AccountState::Known => (),
-                    AccountState::Unknown => continue,
-                    AccountState::Ambiguous => return Err(Error::Unavailable),
+                if !known.contains(&account) {
+                    continue;
                 }
                 let old: Option<(i32, i32, i64)> = sqlx::query_as("SELECT spent_premium_days,loyalty_points,platform_revision FROM loyalty_stream_state WHERE account_id=$1")
                     .bind(account).fetch_optional(&mut *tx).await?;

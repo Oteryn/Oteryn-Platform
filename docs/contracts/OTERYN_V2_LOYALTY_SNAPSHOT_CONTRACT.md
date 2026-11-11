@@ -161,9 +161,14 @@ That Game function is a consumer-side operation; Platform never connects to it.
 
 Tail polls compute Premium consumption from one PostgreSQL statement snapshot, using the
 current database time. Before publication, each known account's Premium-only
-consumption is passed to referral qualification; durable credits are then read
-in the same transaction, including newly credited inviters without Premium
-history. This works with the snapshot endpoint disabled. Referral credits never
+consumption is passed to referral qualification. Before taking the referral
+advisory lock, the stream locks all candidate accounts and their currently linked
+inviters in UUID order. Publication reuses that authority set without locking
+additional accounts, preventing a cycle with concurrent purchases and requiring
+only one pool connection. Durable credits are then read in the same transaction,
+including newly credited inviters without Premium history. Accounts appearing
+after the authority set is captured are observed on the next tail poll. This works
+with the snapshot endpoint disabled. Referral credits never
 qualify for further referral credits. Continuation pages replay their immutable
 window without qualification. This also detects whole-day growth without a Premium
 mutation or a prior snapshot read. The stream exports observed changes when

@@ -18,7 +18,9 @@ keeps it off. `PORTAL_SANCTION_EXPORT_IDENTITY` is the exact lowercase DNS SAN o
 its dedicated client certificate. It must differ from every other internal
 identity. The production factory includes all environment variables ending in
 `_IDENTITY`, `_IDENTITIES` (JSON object keys), or `_SAN` in overlap detection;
-explicit composition must supply the complete shared `IdentityMap`.
+explicit composition must supply the complete shared `IdentityMap`. The coins
+factory also checks all `_IDENTITY` settings, so sharing the sanction-reader SAN
+with a coins SAN disables both routes.
 
 Disabled, missing, malformed or overlapping identity configuration returns empty
 503 before reading the body. Missing or wrong verified identity returns empty
@@ -122,6 +124,18 @@ must create a new UUIDv7 sanction ID (and public reason); its export starts at
 decision revision 1 with `revoked=false`. The lifted stream remains revoked.
 Idempotent replay of the current lift remains valid.
 
+Temporary typed namelocks retain `ends_at_ms=null` for consumer compatibility.
+Before each page read, Platform reconciles up to 500 expired latest typed namelock
+decisions under the journal publication lock and appends `revoked=true` once per
+stream. If a writer holds that lock, the read returns committed history and defers
+expiry reconciliation to a later poll. Consumers learn expiry on polling, including
+when no other sanction changes.
+An extension committed before the latest deadline is respected; once a namelock
+has expired, renewal requires a new sanction ID even before metadata is registered.
+Subsequent polls retain the revocation without appending duplicates. The publication
+trigger also refuses a delayed writer attempting to revive an already-revoked
+namelock after waiting for the counter lock.
+
 Triggers write the immutable journal in the transaction of every mapped T34
 mutation, typed decision revision, and appeal review/outcome change. Accepted
 appeals publish revoked=true; rejected/reviewing appeals publish a higher revision
@@ -136,13 +150,15 @@ publish a larger position before a smaller position commits or rolls back.
 A bare database sequence would not provide this guarantee. Rollbacks undo both
 counter and journal writes. Revisions are allocated per stream under this same
 lock, independently of account-level revisions and sanction lock versions.
-Confirmed stream identity changes are refused. Reads use one ordered statement
-and never mutate source decisions or contact Game. Journal capture continues
+Confirmed stream identity changes are refused. Reads reconcile expired namelocks
+and select the ordered page in one transaction, without mutating source decisions
+or contacting Game. Journal capture continues
 while HTTP export is disabled, so reenabling does not lose changes.
 
 ## Fixtures and qualification
 
-`fixtures/sanction-export-v1/request.json`, `page.json` and `empty.json` are
+`fixtures/sanction-export-v1/request.json`, `page.json`, `empty.json` and
+`expired-namelock.json` (the automatic kind-5 revocation page) are
 synthetic byte-for-byte golden vectors, without a terminal newline. Tests cover
 HTTP success, disabled and misconfigured routes, wrong identity/header spoofing,
 bad bodies, identity overlap, 429, UTF-8 boundaries, transactional revocation and

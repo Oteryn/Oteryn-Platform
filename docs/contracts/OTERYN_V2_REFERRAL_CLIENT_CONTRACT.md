@@ -32,8 +32,9 @@ A reusable link or e-mail link opens `/{lang}/referrals/{code}`. Its confirmatio
 POST stores attribution in the existing browser session and opens registration.
 Verification and authenticated session assignment synchronously bind the eligible
 new account in the same database transaction, before its first store purchase.
-Both verification/sign-in orders are supported. Session rotation preserves pending
-attribution. The worker reconciles legacy pending sessions and removes completed,
+Both verification/sign-in orders are supported. Verification captures attribution
+before credential-change triggers revoke browser sessions; session revocation remains
+in the same transaction. Session rotation preserves pending attribution. The worker reconciles legacy pending sessions and removes completed,
 permanently refused or malformed candidates; transient failures retain evidence
 for retry. Unverified accounts remain pending and do not consume the batch.
 A signed-in eligible new account can confirm directly. Returning accounts are already bound at invitation time; signing
@@ -55,8 +56,9 @@ Resends are permitted at least 14 days after the first attempt for that inviter,
 recipient and invitation kind. Each actual send creates a durable attempt.
 Enqueue checks use attempt creation times. Delivery independently rechecks the
 rolling budget using successful delivery times, under a shared transaction lock
-held through send and commit across nodes. Queued attempts remain pending when
-the delivery budget is exhausted, so an SMTP backlog cannot bypass the limit.
+held through send and commit across nodes. This delivery lock (5601) is separate
+from referral qualification (5600), so SMTP latency does not block purchases.
+Queued attempts remain pending when the delivery budget is exhausted, so an SMTP backlog cannot bypass the limit.
 Other inviters remain eligible for delivery.
 
 Bring-back invitations additionally permit 20 sends in a rolling 30-day window,

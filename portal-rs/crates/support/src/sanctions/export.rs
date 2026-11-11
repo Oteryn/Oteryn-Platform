@@ -199,8 +199,12 @@ pub async fn read_page(pool: &PgPool, page: Page) -> Result<Vec<u8>, Error> {
     if !(1..=500).contains(&page.limit) || page.after.is_some_and(|n| n <= 0) {
         return Err(Error::Invalid);
     }
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT support_sanction_export_expire_namelocks()")
+        .execute(&mut *tx)
+        .await?;
     let rows = sqlx::query("SELECT position,sanction_stream_id,decision_revision,account_id,character_id,kind,reason_code,reason_text,starts_at_ms,ends_at_ms,revoked FROM support_sanction_export_revisions WHERE position>$1 ORDER BY position LIMIT $2")
-        .bind(page.after.unwrap_or(0)).bind(page.limit).fetch_all(pool).await?;
+        .bind(page.after.unwrap_or(0)).bind(page.limit).fetch_all(&mut *tx).await?;
     let mut items = Vec::with_capacity(rows.len());
     for row in rows {
         let position = row.try_get("position")?;
@@ -244,7 +248,9 @@ pub async fn read_page(pool: &PgPool, page: Page) -> Result<Vec<u8>, Error> {
             ]),
         ));
     }
-    encode_page(items)
+    let encoded = encode_page(items)?;
+    tx.commit().await?;
+    Ok(encoded)
 }
 
 #[derive(Debug)]

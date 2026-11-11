@@ -669,3 +669,109 @@ async fn nwave_lifted_sanction_requires_new_identity() -> TestResult {
     }
     db.cleanup().await
 }
+
+#[tokio::test]
+async fn sanction_export_temporary_namelock_revokes_on_expiry() -> TestResult {
+    use super::super::{Features, SanctionAction, SanctionIntent, Service};
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let service = Service::new(
+        db.pool.clone(),
+        Features {
+            sanctions: true,
+            game_access: false,
+        },
+    );
+    let mut tx = db.pool.begin().await?;
+    let ends: i64 = sqlx::query_scalar(
+        "SELECT floor(extract(epoch FROM clock_timestamp()+interval '1 hour')*1000)::bigint",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    let intent = SanctionIntent {
+        account: db.owner,
+        sanction_id: Uuid::parse_str("019a0000-0000-7000-8000-000000000003")?,
+        character: Some(Uuid::parse_str("019a0000-0000-7000-8000-000000000004")?),
+        action: SanctionAction::Namelock {
+            expires_at_ms: Some(ends),
+        },
+    };
+    service.allocate_and_record(&mut tx, &intent).await?;
+    sqlx::query("UPDATE support_sanction_revisions SET decision_at=to_timestamp(1700000000) WHERE sanction_id=$1")
+        .bind(intent.sanction_id).execute(&mut *tx).await?;
+    set_public_reason(&mut tx, intent.sanction_id, 42, "Temporary name rule").await?;
+    tx.commit().await?;
+    let initial = page(&db, None, 500).await?;
+    assert_eq!(initial["items"][0]["revoked"], false);
+    assert_eq!(initial["items"][0]["ends_at_ms"], serde_json::Value::Null);
+    // Move the stored deadline into the past without sleeping. The normal
+    // decision writer rejects already-expired input; this models elapsed time.
+    sqlx::query("UPDATE support_sanction_revisions SET expires_at=to_timestamp(1700000060) WHERE sanction_id=$1")
+        .bind(intent.sanction_id).execute(&db.pool).await?;
+    let after: i64 = initial["next_cursor"]
+        .as_str()
+        .ok_or("cursor required")?
+        .strip_prefix("v1:")
+        .ok_or("cursor version")?
+        .parse()?;
+    let mut publisher = db.pool.begin().await?;
+    sqlx::query("SELECT position FROM support_sanction_export_counter WHERE singleton FOR UPDATE")
+        .execute(&mut *publisher)
+        .await?;
+    let while_publishing =
+        tokio::time::timeout(Duration::from_secs(1), page(&db, Some(after), 500)).await??;
+    assert!(
+        while_publishing["items"]
+            .as_array()
+            .ok_or("items")?
+            .is_empty()
+    );
+    publisher.rollback().await?;
+    let expired = page(&db, Some(after), 500).await?;
+    assert_eq!(expired["items"].as_array().ok_or("items")?.len(), 1);
+    assert_eq!(expired["items"][0]["revoked"], true);
+    assert_eq!(expired["items"][0]["decision_revision"], 2);
+    assert_eq!(expired["items"][0]["ends_at_ms"], serde_json::Value::Null);
+    assert_eq!(
+        read_page(
+            &db.pool,
+            Page {
+                after: Some(after),
+                limit: 500
+            }
+        )
+        .await?,
+        include_bytes!(
+            "../../../../../docs/contracts/fixtures/sanction-export-v1/expired-namelock.json"
+        )
+    );
+    let mut tx = db.pool.begin().await?;
+    assert!(
+        matches!(
+            service.allocate_and_record(&mut tx, &intent).await,
+            Err(super::super::Error::Conflict)
+        ),
+        "an expired namelock needs a new stream identity"
+    );
+    tx.rollback().await?;
+    // A publisher that started before expiry can have waited behind the poll's
+    // counter lock. The publication trigger must reject revival after revocation
+    // even if that writer's earlier application-level eligibility check passed.
+    let mut delayed = db.pool.begin().await?;
+    let revival = sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) SELECT account_id,revision+1,sanction_id,intent,true,clock_timestamp(),clock_timestamp()+interval '1 hour' FROM support_sanction_revisions WHERE sanction_id=$1 ORDER BY revision DESC LIMIT 1")
+        .bind(intent.sanction_id).execute(&mut *delayed).await;
+    assert!(
+        revival.is_err(),
+        "a delayed writer revived an automatically revoked stream"
+    );
+    delayed.rollback().await?;
+    assert_eq!(
+        page(&db, None, 500).await?["items"]
+            .as_array()
+            .ok_or("items")?
+            .len(),
+        2
+    );
+    db.cleanup().await
+}

@@ -356,8 +356,9 @@ impl Worker {
         if let Some(sender) = &self.sender {
             for _ in 0..25 {
                 let mut tx = self.campaign.pool.begin().await?;
-                // Serialize the delivery budget through send and commit across workers.
-                sqlx::query("SELECT pg_advisory_xact_lock(5600)")
+                // Serialize delivery budgets across workers without holding the
+                // referral qualification lock (5600) during SMTP I/O.
+                sqlx::query("SELECT pg_advisory_xact_lock(5601)")
                     .execute(&mut *tx)
                     .await?;
                 let row=sqlx::query("SELECT a.id,i.id AS code,i.recipient,owner.locale FROM referral_email_attempts a JOIN referral_email_invitations i ON i.id=a.invitation_id JOIN accounts owner ON owner.id=i.inviter_id WHERE a.delivered_at IS NULL AND owner.status='active' AND owner.email_verified_at IS NOT NULL AND (SELECT count(*) FROM referral_email_attempts sent WHERE sent.inviter_id=a.inviter_id AND sent.delivered_at>clock_timestamp()-interval '24 hours')<25 AND (i.kind<>'returning' OR (SELECT count(*) FROM referral_email_attempts sent JOIN referral_email_invitations invitation ON invitation.id=sent.invitation_id WHERE sent.inviter_id=a.inviter_id AND invitation.kind='returning' AND sent.delivered_at>clock_timestamp()-interval '30 days')<20) ORDER BY a.created_at FOR UPDATE OF a SKIP LOCKED LIMIT 1")
