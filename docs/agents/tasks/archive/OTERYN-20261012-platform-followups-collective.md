@@ -113,8 +113,8 @@ terminal_pr_policy: archive_pending
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR
-source_branch_evidence: pending
+source_branch_reason: same-repository PR #1556 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1556 merged as 61c8a49e and live branch lookup on 2026-11-11 confirms refs/heads/claude/platform-followups-collective-20261012 is absent
 ```
 
 ## Notes

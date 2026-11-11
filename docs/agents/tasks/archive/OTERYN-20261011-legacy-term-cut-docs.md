@@ -96,8 +96,8 @@ terminal_pr_policy: archive_pending
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: PR #1528 is terminal once merged and the same-repository branch has no durable purpose.
-source_branch_evidence: pending merge of PR #1528.
+source_branch_reason: same-repository PR #1528 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1528 merged as 8173134b and live branch lookup on 2026-11-11 confirms refs/heads/claude/decanary-cut-docs-20261011 is absent
 ```
 
 ## Notes

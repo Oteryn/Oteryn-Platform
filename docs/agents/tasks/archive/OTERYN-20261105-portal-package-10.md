@@ -102,8 +102,8 @@ next_action: owner reviews the published integration branch; no PR requested
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: owner requested a pushed integration branch without a PR; retain for owner review
-source_branch_evidence: normal push succeeded; remote head verified at 1a709742f94be433ba8ef662b2761aa695b603b4 before this documentation-only closeout
+source_branch_reason: Codex lane integration branch published without a PR under the owner's instructions; its work reached main through later portal-rs PRs and the branch belongs to the Codex lane, so this session does not delete it
+source_branch_evidence: live branch lookup on 2026-11-11 shows refs/heads/codex/portal-rs-pkg10 present; archived 2026-11-11 after the owner made portal-rs the main platform
 ```
 
 Product runtime E2E: NOT_APPLICABLE to this assembly task; existing module tests provide behavior verification. No product redesign or deployment is authorized.

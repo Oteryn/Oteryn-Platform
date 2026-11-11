@@ -85,6 +85,6 @@ next_action: archive this record when the owner has accepted the P6a and P6b not
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: PR #1567 merged as 8aee2a0e7c76d3c2dc07d6a5306c36ed01927443 from claude/pg-p6-design-notes-20261012; git ls-remote --heads origin claude/pg-p6-design-notes-20261012 returns nothing (verified)
+source_branch_reason: same-repository PR #1567 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1567 merged as 8aee2a0e and live branch lookup on 2026-11-11 confirms refs/heads/claude/pg-p6-design-notes-20261012 is absent
 ```

@@ -99,8 +99,8 @@ PostgreSQL exposed a semantic shared-schema conflict: T30 attempted to create an
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: Owner requests the package branch for subsequent integration without a PR.
-source_branch_evidence: Explicit owner instruction in this integration task.
+source_branch_reason: Codex lane integration branch published without a PR under the owner's instructions; its work reached main through later portal-rs PRs and the branch belongs to the Codex lane, so this session does not delete it
+source_branch_evidence: live branch lookup on 2026-11-11 shows refs/heads/codex/portal-rs-pkg9 present; archived 2026-11-11 after the owner made portal-rs the main platform
 ```
 
 ## Notes

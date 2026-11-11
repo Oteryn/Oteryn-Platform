@@ -215,8 +215,8 @@ terminal_pr_policy: archive_pending
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR
-source_branch_evidence: pending
+source_branch_reason: same-repository PR #1645 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1645 merged as bd0f3d91 and live branch lookup on 2026-11-11 confirms refs/heads/fix/public-gamedata-native is absent
 ```
 
 Round 3: `character_profile` carries a required boolean `guild_visible` (ingest rejects a profile without it); the profile page shows the guild row only when it is true. The Oracle SOURCE/image pin cannot name its own head, so it is bumped to the merge commit in the CP slot commit after merge.

@@ -95,8 +95,8 @@ next_action: Owner reviews the retained codex/portal-rs-adm-p2b-int branch; no P
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: task requester owns retention for ADM-P2B-INT review; reconsider retention when the owner reviews or integrates the branch
-source_branch_evidence: owner explicitly requested the dedicated branch be pushed without a PR; final response records the published SHA
+source_branch_reason: Codex lane integration branch published without a PR under the owner's instructions; its work reached main through later portal-rs PRs and the branch belongs to the Codex lane, so this session does not delete it
+source_branch_evidence: live branch lookup on 2026-11-11 shows refs/heads/codex/portal-rs-adm-p2b-int present; archived 2026-11-11 after the owner made portal-rs the main platform
 ```
 
 ## Implementation

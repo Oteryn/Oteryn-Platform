@@ -81,7 +81,7 @@ next_action: Archive this record once the PR is closed.
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: Baseline awaits exact-head checks and review.
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: same-repository PR #1475 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1475 merged as 20532d54 and live branch lookup on 2026-11-11 confirms refs/heads/docs/1474-native-only-migration-baseline is absent
 ```

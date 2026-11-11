@@ -81,8 +81,8 @@ terminal_pr_policy: archive_pending
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR
-source_branch_evidence: pending
+source_branch_reason: same-repository PR #1516 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1516 merged as 837bd472 and live branch lookup on 2026-11-11 confirms refs/heads/claude/ci-speed-p1-20261011 is absent
 ```
 
 ## Notes
