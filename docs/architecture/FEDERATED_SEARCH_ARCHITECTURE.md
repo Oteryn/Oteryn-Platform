@@ -84,10 +84,10 @@ The arrows express the **target federated-search application-query dependencies*
 
 Current repository code contains a pre-existing reverse dependency that must be accounted for before federated-search provider onboarding:
 
-- `app/Announcements/Queries/AnnouncementTickerProvider.php` imports `App\PublicPortal\PublicContentState`;
-- `app/Announcements/ViewModels/AnnouncementTicker.php` imports `App\PublicPortal\PublicContentState`;
-- `app/Events/Queries/UpcomingEventProvider.php` imports `App\PublicPortal\PublicContentState`;
-- `app/Events/ViewModels/UpcomingEventSummary.php` imports `App\PublicPortal\PublicContentState`.
+- `legacy/app/Announcements/Queries/AnnouncementTickerProvider.php` imports `App\PublicPortal\PublicContentState`;
+- `legacy/app/Announcements/ViewModels/AnnouncementTicker.php` imports `App\PublicPortal\PublicContentState`;
+- `legacy/app/Events/Queries/UpcomingEventProvider.php` imports `App\PublicPortal\PublicContentState`;
+- `legacy/app/Events/ViewModels/UpcomingEventSummary.php` imports `App\PublicPortal\PublicContentState`.
 
 This coupling supports existing homepage composition and predates ADR 0033. It is compatibility debt, not the accepted federated-search dependency direction.
 
@@ -468,7 +468,7 @@ If a future non-portal product requires materially different search semantics, t
 A future bounded slice should prefer a structure similar to:
 
 ```text
-app/PublicPortal/Application/Search/
+legacy/app/PublicPortal/Application/Search/
   FederatedSearchQuery.php
   FederatedSearchService.php
   SearchHit.php

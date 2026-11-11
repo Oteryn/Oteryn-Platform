@@ -57,21 +57,21 @@ The release tarball path is deliberate: the runtime contract is checked at build
 
 ## Repository bootstrap contract
 
-`deploy/synology/runner/entrypoint.sh` supports both:
+`legacy/deploy/synology/runner/entrypoint.sh` supports both:
 
 - legacy/current repository scope with exact owner/repository URL and no runner group;
 - organization scope with exact organization URL plus mandatory group, runner name and strict custom label list.
 
 Both modes use `--no-default-labels`. Organization mode also uses `--runnergroup`. The entrypoint rejects attempts to recreate GitHub default labels (`self-hosted`, OS labels and architecture labels) and reuses persistent `.runner` state without requiring registration input on ordinary restart.
 
-`deploy/synology/runner/test-entrypoint.sh` deterministically exercises the positive organization path, legacy repository compatibility, token-file input, malformed identity/routing failures, default-label rejection and restart-safe existing registration.
+`legacy/deploy/synology/runner/test-entrypoint.sh` deterministically exercises the positive organization path, legacy repository compatibility, token-file input, malformed identity/routing failures, default-label rejection and restart-safe existing registration.
 
 ## Prepared Compose target
 
 Use:
 
-- `deploy/synology/runner/organization.env.example` as the no-secret environment template containing only token **file paths**;
-- `deploy/synology/runner/compose.organization.example.yml` as the three-runner reference definition.
+- `legacy/deploy/synology/runner/organization.env.example` as the no-secret environment template containing only token **file paths**;
+- `legacy/deploy/synology/runner/compose.organization.example.yml` as the three-runner reference definition.
 
 Each runner has a distinct persistent config volume and work volume. Never reuse one runner's registration volume for another product.
 

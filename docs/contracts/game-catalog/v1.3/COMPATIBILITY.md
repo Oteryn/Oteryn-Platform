@@ -14,7 +14,7 @@ Programme: `GAME-CATALOG-PRODUCTION-COMPLETION`
 | proposed legacy engine `1.3.0` | future Platform `1.3.0` inactive consumer | accepted only after exact schema/hash, semantic validation and typed transactional import |
 | future producer version | Platform without that version | rejected fail closed |
 
-This architecture PR does not change the current matrix. It does not add `1.3.0` to `config/game-catalog.php`.
+This architecture PR does not change the current matrix. It does not add `1.3.0` to `legacy/config/game-catalog.php`.
 
 ## Immutable retained versions
 

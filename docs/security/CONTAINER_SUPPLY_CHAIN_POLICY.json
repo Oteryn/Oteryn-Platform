@@ -3,20 +3,20 @@
   "dockerfiles": [
     {
       "component": "platform",
-      "path": "deploy/synology/docker/platform.Dockerfile",
-      "dockerignore": "deploy/synology/docker/platform.Dockerfile.dockerignore",
+      "path": "legacy/deploy/synology/docker/platform.Dockerfile",
+      "dockerignore": "legacy/deploy/synology/docker/platform.Dockerfile.dockerignore",
       "expected_user": "www-data"
     },
     {
       "component": "game-gateway",
-      "path": "deploy/synology/docker/gateway.Dockerfile",
-      "dockerignore": "deploy/synology/docker/gateway.Dockerfile.dockerignore",
+      "path": "legacy/deploy/synology/docker/gateway.Dockerfile",
+      "dockerignore": "legacy/deploy/synology/docker/gateway.Dockerfile.dockerignore",
       "expected_user": "oteryn"
     },
     {
       "component": "deploy-runner",
-      "path": "deploy/synology/runner/Dockerfile",
-      "dockerignore": "deploy/synology/runner/Dockerfile.dockerignore",
+      "path": "legacy/deploy/synology/runner/Dockerfile",
+      "dockerignore": "legacy/deploy/synology/runner/Dockerfile.dockerignore",
       "expected_user": "runner"
     }
   ],

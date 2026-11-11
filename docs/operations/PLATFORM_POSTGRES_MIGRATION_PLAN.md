@@ -18,7 +18,7 @@ These rules hold in every packet:
 - The repository holds no secret, certificate, private key, password, dump or backup. Packets commit templates with placeholders only. Section 5 lists what the owner or operator supplies.
 - Packets run in the order P1 to P7. P1 stage A can run alongside P2. Every other packet starts only after its predecessors have merged.
 - From P1 stage B until P7, code and migrations must pass on both engines.
-- The two legacy-engine `mysql` connections in `config/database.php` are out of scope. They retire under #1474. `pdo_mysql` stays in the images until then.
+- The two legacy-engine `mysql` connections in `legacy/config/database.php` are out of scope. They retire under #1474. `pdo_mysql` stays in the images until then.
 - No data is carried over. The Game node is not deployed anywhere and all staging data is test data, so PostgreSQL starts from a clean slate and the native-evidence witness directory is reset together with the database (P3).
 - MariaDB stays deployed and authoritative until the P6 cutover. Rollback, and a clean-slate re-run of P3, are possible only before the first witnessed write on PostgreSQL. That write comes at the start of P6 step 4. First the P6a provenance-only init creates the witness-store id, without advancing any floor. Then the first `game-auth:native-admission:publish-trust` attempt runs, and trust publication advances the retained trust-state witness before it writes to the database. From that init on, the PostgreSQL witness is kept and state is only reconciled forward. The MariaDB volume is deleted right after a successful cutover smoke test, with no retention window and no final dump.
 - Staging backups stay on the NAS, with provisional RPO 24 hours and RTO 4 hours. An encrypted off-NAS copy is required before any production or real-player use (ADR 0046 §7).
@@ -28,15 +28,15 @@ These rules hold in every packet:
 
 | Area | What depends on MariaDB today | Evidence |
 |---|---|---|
-| Schema | 68 migrations creating 104 tables, including 289 unsigned, `foreignId` or `increments` columns, 97 unique indexes, 27 `json` columns, 4 `enum` columns, 10 `->change()` and 22 `->after()` | `database/migrations/` |
-| Driver-gated code | `innodb_lock_wait_timeout` session handling; `getDriverName() === 'mysql'` branches; the ADR 0044 store identity (`ALLOWED_HOSTS = ['mariadb']`, driver `mysql`); `LOCK TABLES` in one migration; an InnoDB snapshot-isolation assumption | `app/GameAuth/NativeLogin/NativeAdmissionAttempts.php:125-141`, `app/GameAuth/Worlds/DisposableNativeStore.php`, `app/GameAuth/Worlds/PreproductionNativeRouteStore.php:26,86`, `database/migrations/2026_10_08_090000_add_native_ids_to_character_bazaar_and_profile_preferences.php:42-53`, `app/GameAuth/NativeAccountCharacters/NativeAccountCharactersReadModel.php:56-58` |
+| Schema | 68 migrations creating 104 tables, including 289 unsigned, `foreignId` or `increments` columns, 97 unique indexes, 27 `json` columns, 4 `enum` columns, 10 `->change()` and 22 `->after()` | `legacy/database/migrations/` |
+| Driver-gated code | `innodb_lock_wait_timeout` session handling; `getDriverName() === 'mysql'` branches; the ADR 0044 store identity (`ALLOWED_HOSTS = ['mariadb']`, driver `mysql`); `LOCK TABLES` in one migration; an InnoDB snapshot-isolation assumption | `legacy/app/GameAuth/NativeLogin/NativeAdmissionAttempts.php:125-141`, `legacy/app/GameAuth/Worlds/DisposableNativeStore.php`, `legacy/app/GameAuth/Worlds/PreproductionNativeRouteStore.php:26,86`, `legacy/database/migrations/2026_10_08_090000_add_native_ids_to_character_bazaar_and_profile_preferences.php:42-53`, `legacy/app/GameAuth/NativeAccountCharacters/NativeAccountCharactersReadModel.php:56-58` |
 | Error handling | About 20 files catch `QueryException` or vendor error codes | `rg -l "QueryException\|1062\|1205\|1213\|40001" app` |
 | Raw SQL and text matching | 18 files with raw SQL; about 45 `LIKE`/`LOWER(` sites that rely on `utf8mb4_unicode_ci`, which is case- and accent-insensitive | `rg -l "DB::raw\|whereRaw\|selectRaw\|orderByRaw" app database`; `rg -n "LOWER\(\| like " app` |
 | `insertOrIgnore` | 5 app call sites and 10 migration call sites | `rg -n insertOrIgnore app database` |
-| Config | `mysql` connection, default `sqlite` when `DB_CONNECTION` is unset | `config/database.php` |
-| Image | `docker-php-ext-install ... pdo_mysql` with no `pdo_pgsql` | `deploy/synology/docker/platform.Dockerfile:24` |
-| Deploy | `mariadb` service, `mariadb_data` volume and an init script that grants `ALL PRIVILEGES` to the runtime user; readiness, dump, restore, preflight and health logic call `mariadb`/`mariadb-dump` as `root`; migrations run inside the runtime container | `deploy/synology/compose.yml`, `deploy/synology/mariadb/init/10-platform-database.sh:27`, `deploy/synology/scripts/{deploy,lib,health-check,deploy-impact,recover-schema,prepare-fresh-schema-baseline,production-target-preflight,marketplace-staging,rollback}.sh`, `deploy.sh:765` |
-| Tests | Default suite on in-memory SQLite (`phpunit.xml:26`). Real-MariaDB suites cover payments, game tickets, topology and legacy transfer. There are no wallet or bid concurrency tests on a real database (F-05). | `tests/Feature/**/*MariaDbTest.php`, `.github/workflows/game-auth-ticket-concurrency.yml` |
+| Config | `mysql` connection, default `sqlite` when `DB_CONNECTION` is unset | `legacy/config/database.php` |
+| Image | `docker-php-ext-install ... pdo_mysql` with no `pdo_pgsql` | `legacy/deploy/synology/docker/platform.Dockerfile:24` |
+| Deploy | `mariadb` service, `mariadb_data` volume and an init script that grants `ALL PRIVILEGES` to the runtime user; readiness, dump, restore, preflight and health logic call `mariadb`/`mariadb-dump` as `root`; migrations run inside the runtime container | `legacy/deploy/synology/compose.yml`, `deploy/synology/mariadb/init/10-platform-database.sh:27`, `legacy/deploy/synology/scripts/{deploy,lib,health-check,deploy-impact,recover-schema,prepare-fresh-schema-baseline,production-target-preflight,marketplace-staging,rollback}.sh`, `deploy.sh:765` |
+| Tests | Default suite on in-memory SQLite (`legacy/phpunit.xml:26`). Real-MariaDB suites cover payments, game tickets, topology and legacy transfer. There are no wallet or bid concurrency tests on a real database (F-05). | `legacy/tests/Feature/**/*MariaDbTest.php`, `.github/workflows/game-auth-ticket-concurrency.yml` |
 | CI | 22 workflows reference `mariadb` (service containers, Synology operations) | `rg -l mariadb .github/workflows` |
 | Docs | 48 non-archived Markdown files under `docs/` mention MariaDB | `rg -il mariadb docs` (excluding `tasks/archive` and `evidence/`) |
 
@@ -61,11 +61,11 @@ These rules hold in every packet:
 **Owned paths.**
 
 - `.github/workflows/ci.yml`: a new `platform-postgres` job, extending the existing workflow because the workflow budget is full
-- `phpunit.pgsql.xml` (new; the same suites as `phpunit.xml` with `DB_CONNECTION=pgsql`)
-- `config/database.php`, adding a `pgsql` connection only: host, port, database, username and password from the environment, `sslmode`, `sslrootcert`, `search_path=public`, timezone UTC
-- `tests/Feature/Wallet/Concurrency/**` (new)
-- `tests/Feature/Marketplace/Concurrency/**` (new files only)
-- `tests/Support/Concurrency/**` (new multi-process harness, only if no reusable one exists)
+- `legacy/phpunit.pgsql.xml` (new; the same suites as `legacy/phpunit.xml` with `DB_CONNECTION=pgsql`)
+- `legacy/config/database.php`, adding a `pgsql` connection only: host, port, database, username and password from the environment, `sslmode`, `sslrootcert`, `search_path=public`, timezone UTC
+- `legacy/tests/Feature/Wallet/Concurrency/**` (new)
+- `legacy/tests/Feature/Marketplace/Concurrency/**` (new files only)
+- `legacy/tests/Support/Concurrency/**` (new multi-process harness, only if no reusable one exists)
 - `docs/agents/BUILD_TEST_MATRIX.md`, `docs/architecture/TEST_STRATEGY.md`: the PostgreSQL row
 
 **Work.**
@@ -93,16 +93,16 @@ These rules hold in every packet:
 
 **Owned paths.** These are the exact files from the P1 stage A failure list and the inventory in §2, within:
 
-- `app/**`
-- `database/migrations/**`
-- `config/database.php`
-- `deploy/synology/docker/platform.Dockerfile`
-- `scripts/acceptance/docker/**`
-- `.env.example`
+- `legacy/app/**`
+- `legacy/database/migrations/**`
+- `legacy/config/database.php`
+- `legacy/deploy/synology/docker/platform.Dockerfile`
+- `legacy/scripts/acceptance/docker/**`
+- `legacy/.env.example`
 - the `tests/**` files that fail
-- `phpstan.neon.dist` only if it is affected
+- `legacy/phpstan.neon.dist` only if it is affected
 
-A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synology/scripts/**` is out of scope; that work belongs to P4.
+A PR in this packet that touches `legacy/deploy/synology/compose.yml` or `legacy/deploy/synology/scripts/**` is out of scope; that work belongs to P4.
 
 **Rules for migrations.** All 68 migrations are already applied on staging MariaDB. A change to an existing migration must leave the MariaDB result identical, either through a driver branch or by being a no-op on MariaDB. Corrections that only add something, such as a `CHECK` constraint or an expression index, go into new forward migrations that run on both engines. Migrations are not squashed or rebaselined. PostgreSQL replays the same 68 migrations from an empty database (P3).
 
@@ -113,7 +113,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 3. **Error codes.** Map MySQL `1062`, `1205`, `1213` and `1020` to SQLSTATE `23505`, `55P03`, `40P01` and `40001`. Prefer Laravel's `UniqueConstraintViolationException` and its concurrency-error detection over raw vendor codes.
 4. **No `UNSIGNED`.** PostgreSQL has no unsigned types. For every value column whose non-negativity is an invariant (balances, amounts, counters, revisions, `chance_numerator`/`chance_denominator`), add `CHECK (col >= 0)` in a forward migration. MariaDB 11.8 enforces `CHECK` too. Plain foreign keys need nothing. Laravel's `unsignedInteger` becomes `integer` on PostgreSQL, whose maximum is 2^31-1; confirm that no column's documented range exceeds it.
 5. **Case and accent rules.** `utf8mb4_unicode_ci` makes `=`, `LIKE` and unique indexes case-insensitive and largely accent-insensitive.
-   - `identities.email` is canonicalized by `app/Identity/Support/CanonicalEmail.php`. Prove that every write path goes through it, and add a unique index on `lower(email)` as a safety net.
+   - `identities.email` is canonicalized by `legacy/app/Identity/Support/CanonicalEmail.php`. Prove that every write path goes through it, and add a unique index on `lower(email)` as a safety net.
    - For the other unique `slug`/`key`/`code` columns, decide case rules per column.
    - Search `LIKE` sites become `ILIKE` or `LOWER(col) LIKE LOWER(?)`.
    - Search becomes accent-sensitive on PostgreSQL, which matters for Polish content. The owner accepted this and no `unaccent` extension is added (owner answer Q6). Record it in `FEDERATED_SEARCH_ARCHITECTURE.md`.
@@ -128,7 +128,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 14. **Configuration.**
     - Add a `pgsql_migrations` connection for the migration owner role (P4 supplies the credentials).
     - Make `production:verify-configuration` accept `pgsql`; it keeps refusing `sqlite` (F-13).
-    - `.env.example` gets placeholders only.
+    - `legacy/.env.example` gets placeholders only.
     - Session, cache and queue stay on `file`/`sync`; no database driver is added.
 15. **Images.** Add `libpq` and `pdo_pgsql` to `platform.Dockerfile` and the acceptance image, and `pdo_pgsql` to the `setup-php` extension lists. Keep `pdo_mysql`.
 16. **Test names.** Tests named `*MariaDbTest` become engine-parameterized where they test Platform behaviour. Tests of the legacy-engine connection stay MariaDB-only until #1474 retires them.
@@ -153,10 +153,10 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 - All staging data is test data. Testers register again.
 - The native evidence witness (`OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md`) fails closed when a database binding exists and its directory is empty, or when relational history is below the retained floor. A fresh database together with an empty directory is the supported bootstrap case, at revision 1. The directory and the database are therefore reset together, never one without the other.
 
-**Bootstrap sequence.** Most steps already run in every staging deploy (`deploy/synology/scripts/deploy.sh:765-775`, `lib.sh`) and are idempotent. On an empty database they create the state from scratch:
+**Bootstrap sequence.** Most steps already run in every staging deploy (`legacy/deploy/synology/scripts/deploy.sh:765-775`, `lib.sh`) and are idempotent. On an empty database they create the state from scratch:
 
 1. **Witness reset.** With the `platform` service stopped, move the directory named by `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY` (on the `platform_storage` volume) aside to a dated name. It is never edited, and P6 deletes it together with the MariaDB volume. The script records the MariaDB-era `witness-store.id` at the freeze and moves aside only a directory that is empty or carries that id. It refuses when the directory holds anything a PostgreSQL witness wrote, including a store id alone from the P6a provenance-only init (which runs only in P6 step 4, after the last rollback point), or when the target database has any `native_game_evidence_witness_stores`, `native_game_signing_trust_*` or native evidence row. A trust publication attempt can advance the witness even when its database transaction then rolls back. That leaves the missing-profile state: a trust-state floor of 1 with no profile row and no database trace. So the directory check matters as much as the database check. This plan has no automated repair for that state (P6 step 4), and it is never handled by a re-run. Together they make a re-run impossible after the first witnessed write. The script also refuses when the new directory is not empty after the move.
-2. **Schema.** `php artisan migrate --force` on the empty database, as the owner role on the `pgsql_migrations` connection (P4). Migrations also seed the built-in roles and permissions; there is no separate seeder.
+2. **Schema.** `php legacy/artisan migrate --force` on the empty database, as the owner role on the `pgsql_migrations` connection (P4). Migrations also seed the built-in roles and permissions; there is no separate seeder.
 3. **Passport keys.** `passport:keys` runs only when `storage/oauth-*.key` are missing. Existing keys on `platform_storage` are kept.
 4. **Native admission trust.** `game-auth:native-admission:publish-trust` publishes the existing key from the `oteryn-native-admission-keys` volume into the new database, followed by `game-auth:native-admission:self-check`. The key volume is kept. This is the first witnessed write. It runs only when native admission is on, so in P6 it is deferred to P6 step 4, after the last rollback point.
 5. **OAuth clients.** `game-auth:oauth-client:ensure` and `game-auth:oauth-client:ensure --rust` register new clients. The new client ids are not secrets. The operator updates every consumer that pins the old ids (`docs/operations/NATIVE_LOGIN_OWNER_STEPS.md`).
@@ -166,11 +166,11 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 
 **Owned paths.**
 
-- `deploy/synology/scripts/bootstrap-postgres.sh` (new). It runs steps 1 to 8 in order against the PostgreSQL engine, refuses on a non-empty target database, and prints the new non-secret ids (OAuth clients, WorldId) for the operator.
-- `deploy/synology/tests/**`, `tests/ci/test_synology_*.py`: tests for the refusal paths (non-empty database, witness binding present, non-empty directory after the move)
+- `legacy/deploy/synology/scripts/bootstrap-postgres.sh` (new). It runs steps 1 to 8 in order against the PostgreSQL engine, refuses on a non-empty target database, and prints the new non-secret ids (OAuth clients, WorldId) for the operator.
+- `legacy/deploy/synology/tests/**`, `tests/ci/test_synology_*.py`: tests for the refusal paths (non-empty database, witness binding present, non-empty directory after the move)
 - `docs/operations/PLATFORM_POSTGRES_BOOTSTRAP.md` (new runbook: the sequence above, the operator variable updates and the expected outputs)
 
-**Optional fallback, not a required step.** If the owner later needs to keep staging data, a table-copy tool can be added as a separate packet: an artisan command that copies MariaDB tables to PostgreSQL in primary-key order with foreign keys enforced, refuses unclassified tables, and verifies row counts, per-table SHA-256 over canonical rows, wallet ledger sums and the evidence `source_revision` maxima. Because Game is not deployed and the data is test data, this plan does not build it. Its design notes stay in this paragraph only.
+**Optional fallback, not a required step.** If the owner later needs to keep staging data, a table-copy tool can be added as a separate packet: an legacy/artisan command that copies MariaDB tables to PostgreSQL in primary-key order with foreign keys enforced, refuses unclassified tables, and verifies row counts, per-table SHA-256 over canonical rows, wallet ledger sums and the evidence `source_revision` maxima. Because Game is not deployed and the data is test data, this plan does not build it. Its design notes stay in this paragraph only.
 
 **Validation.**
 
@@ -186,14 +186,14 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 
 **Owned paths.**
 
-- `deploy/synology/compose.yml`, `deploy/synology/compose.marketplace.yml`
-- `deploy/synology/postgres/**` (new: `init/` role and database bootstrap, `postgresql.conf`, `pg_hba.conf`)
-- `deploy/synology/tls/**`: a PostgreSQL server certificate issued in `tls-init` by a dedicated PostgreSQL CA whose key only `tls-init` mounts (not the stack CA)
-- `deploy/synology/scripts/{deploy,lib,health-check,deploy-impact,recover-schema,prepare-fresh-schema-baseline,production-target-preflight,marketplace-staging,rollback}.sh`
-- `deploy/synology/release-contract.env`
-- `deploy/synology/README.md`, `deploy/synology/tests/**`, `tests/ci/test_synology_*.py`
+- `legacy/deploy/synology/compose.yml`, `legacy/deploy/synology/compose.marketplace.yml`
+- `legacy/deploy/synology/postgres/**` (new: `init/` role and database bootstrap, `postgresql.conf`, `pg_hba.conf`)
+- `legacy/deploy/synology/tls/**`: a PostgreSQL server certificate issued in `tls-init` by a dedicated PostgreSQL CA whose key only `tls-init` mounts (not the stack CA)
+- `legacy/deploy/synology/scripts/{deploy,lib,health-check,deploy-impact,recover-schema,prepare-fresh-schema-baseline,production-target-preflight,marketplace-staging,rollback}.sh`
+- `legacy/deploy/synology/release-contract.env`
+- `legacy/deploy/synology/README.md`, `legacy/deploy/synology/tests/**`, `tests/ci/test_synology_*.py`
 - DB-service references only, in `.github/workflows/{deploy-synology-staging,recover-synology-staging-schema,synology-production-target-preflight,synology-diagnostics,synology-container-hygiene,repair-synology-autostart,repair-synology-compose-orphans}.yml`
-- `app/GameAuth/Worlds/PreproductionNativeRouteStore.php` and its tests
+- `legacy/app/GameAuth/Worlds/PreproductionNativeRouteStore.php` and its tests
 - an amendment to `docs/architecture/adr/0044-preproduction-store-native-route-publication.md` (owner acceptance required)
 
 **Work.**
@@ -214,7 +214,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
    - `oteryn_platform_dump`: `LOGIN`, read-only, used for the deploy's pre-migration logical dump. It gets `CONNECT` on `oteryn_platform` only, `USAGE` on schema `public`, `SELECT` on all current tables and sequences, and `SELECT` on future ones through `ALTER DEFAULT PRIVILEGES FOR ROLE oteryn_platform_owner`. It gets no DML, no `CREATE`, no `pg_read_all_data` and no access to other databases.
    - `REVOKE ALL ON DATABASE oteryn_platform FROM PUBLIC`, and `REVOKE CREATE ON SCHEMA public FROM PUBLIC`.
    - The superuser password is used only by the init step and never reaches the `platform` service.
-4. **Migration step.** Replace `compose exec -T platform php artisan migrate` (`deploy.sh:765`, `marketplace-staging.sh:196`) with a one-off `compose run --rm` container on the `pgsql_migrations` connection that receives the owner credentials and runs with `OTERYN_PLATFORM_FASTCGI_ENABLED=false` (as PID 1 the image entrypoint would otherwise start PHP-FPM beside the command and map its exit to status 9). The runtime `platform` container gets only the app role.
+4. **Migration step.** Replace `compose exec -T platform php legacy/artisan migrate` (`deploy.sh:765`, `marketplace-staging.sh:196`) with a one-off `compose run --rm` container on the `pgsql_migrations` connection that receives the owner credentials and runs with `OTERYN_PLATFORM_FASTCGI_ENABLED=false` (as PID 1 the image entrypoint would otherwise start PHP-FPM beside the command and map its exit to status 9). The runtime `platform` container gets only the app role.
 5. **Engine switch.**
    - `PLATFORM_DB_ENGINE=mariadb|postgres` in the release contract, default `mariadb`. Deploy scripts branch on it for readiness, pre-migration dump (`pg_dump -Fc` as `oteryn_platform_dump`, then validated with `pg_restore --list` and, in the P4 validation, a full restore into a scratch database), restore, preflight and health.
    - With `mariadb`, PostgreSQL runs idle and empty except for roles. Only P6 flips the switch.
@@ -224,7 +224,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 **Validation.**
 
 - `docker compose config` renders for both engine values.
-- The deploy contract tests in `deploy/synology/tests` and `tests/ci` pass.
+- The deploy contract tests in `legacy/deploy/synology/tests` and `tests/ci` pass.
 - Staging deploy with `mariadb` is unchanged and the PostgreSQL service is healthy.
 - A non-TLS connection is refused; `verify-full` succeeds.
 - The runtime role gets `permission denied` for `CREATE TABLE`, `ALTER TABLE` and `DROP TABLE`, and owns no relation.
@@ -242,9 +242,9 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 
 **Owned paths.**
 
-- `deploy/synology/postgres/backup/**` (new: the `archive_command` wrapper, the base backup job, the retention job)
-- `deploy/synology/compose.yml`: a `postgres-backup` sidecar service
-- `deploy/synology/scripts/{backup-postgres,restore-postgres-pitr}.sh` (new)
+- `legacy/deploy/synology/postgres/backup/**` (new: the `archive_command` wrapper, the base backup job, the retention job)
+- `legacy/deploy/synology/compose.yml`: a `postgres-backup` sidecar service
+- `legacy/deploy/synology/scripts/{backup-postgres,restore-postgres-pitr}.sh` (new)
 - `.github/workflows/recover-synology-staging-schema.yml`: extended with a `pitr-drill` mode, because the workflow budget is full
 - `docs/operations/INCIDENT_RECOVERY_RUNBOOK.md` (Platform PostgreSQL section)
 - `docs/operations/PRODUCTION_READINESS_CHECKLIST.md` (backup rows, including the off-NAS requirement)
@@ -277,12 +277,12 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 
 **Owned paths.**
 
-- `deploy/synology/scripts/cutover-postgres.sh` (new; orchestrates the steps below and refuses when preconditions fail)
+- `legacy/deploy/synology/scripts/cutover-postgres.sh` (new; orchestrates the steps below and refuses when preconditions fail)
 - `.github/workflows/deploy-synology-staging.yml`: a cutover input
 - P6b, the maintenance-gate design note: `docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md` (new). It is a separate sub-deliverable, reviewed and accepted before P6 starts, and is its only owned path until then.
 - `.github/workflows/cloudflare-oteryn-endpoints.yml`, `scripts/operations/cloudflare-oteryn-endpoints.sh`, `tests/operations/cloudflare-oteryn-endpoints/**`: implemented only after P6b is accepted, as the `maintenance-close` and `maintenance-open` modes and their tests, extending the existing workflow because the workflow budget is full
 - `docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md`: the two modes
-- P6a, the pre-step-4 trust safeguards: a separate sub-deliverable. Its design note is reviewed and accepted on its own before any implementation, and P6a is then merged and deployed before step 4 (a precondition below). P6a covers the provenance-only init and the attempt evidence in *Trust safeguards (P6a)* below. The design note fixes the mechanism, the exact paths and the tests. P6a is expected to touch the native evidence witness under `app/GameAuth/NativeEvidence/`, the native admission console commands and their tests under `tests/Feature/GameAuth/`. It includes no missing-profile repair.
+- P6a, the pre-step-4 trust safeguards: a separate sub-deliverable. Its design note is reviewed and accepted on its own before any implementation, and P6a is then merged and deployed before step 4 (a precondition below). P6a covers the provenance-only init and the attempt evidence in *Trust safeguards (P6a)* below. The design note fixes the mechanism, the exact paths and the tests. P6a is expected to touch the native evidence witness under `legacy/app/GameAuth/NativeEvidence/`, the native admission console commands and their tests under `legacy/tests/Feature/GameAuth/`. It includes no missing-profile repair.
 - `docs/operations/PLATFORM_POSTGRES_CUTOVER_EVIDENCE.md` (new, dated)
 - the packet's task record
 
@@ -311,13 +311,13 @@ The engine switch value is a repository variable that the operator sets.
 
   Nothing in P6 depends on a repair. A repair mechanism is a topic for the P6a design note. It must prove that it tells a failed publication apart from a restore, and it needs its own review and the producer contract owner's review before it is built.
 - **A restore never synthesizes a profile.** P6a carries one negative test for this.
-- **A successor key is new.** Any later successor profile uses a newly generated key. `deploy/synology/scripts/generate-native-admission-key.sh` appends every generated key id to `used.kids`. The successor id must appear there exactly once, as its own generation record, and must not appear in database history (`historicalKeyIdExists()`).
+- **A successor key is new.** Any later successor profile uses a newly generated key. `legacy/deploy/synology/scripts/generate-native-admission-key.sh` appends every generated key id to `used.kids`. The successor id must appear there exactly once, as its own generation record, and must not appear in database history (`historicalKeyIdExists()`).
 - **Forward-only.** P6a never lowers, moves, edits or replaces the PostgreSQL witness, and nothing in it reopens a rollback or a P3 re-run.
 
-**Edge gate instead of maintenance mode.** The smoke tests must reach a running application: `health-check.sh` and the Gateway's calls to the Platform issuer would only get maintenance responses under `php artisan down`. The host bindings cannot serve as the gate either: `deploy.sh` and `deploy-impact.sh` require `PLATFORM_BIND_ADDRESS` and `GATEWAY_BIND_ADDRESS` to stay loopback-only, and the Cloudflare Tunnel reaches the public hostnames through exactly those loopback origins (`docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md`, fixed endpoint contract). So the bindings stay loopback, the application stays up, and the cutover closes the public edge instead:
+**Edge gate instead of maintenance mode.** The smoke tests must reach a running application: `health-check.sh` and the Gateway's calls to the Platform issuer would only get maintenance responses under `php legacy/artisan down`. The host bindings cannot serve as the gate either: `deploy.sh` and `deploy-impact.sh` require `PLATFORM_BIND_ADDRESS` and `GATEWAY_BIND_ADDRESS` to stay loopback-only, and the Cloudflare Tunnel reaches the public hostnames through exactly those loopback origins (`docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md`, fixed endpoint contract). So the bindings stay loopback, the application stays up, and the cutover closes the public edge instead:
 
 - **Close.** A new bounded mode of the existing `Cloudflare Oteryn Endpoints` workflow, `maintenance-close`, changes only the two canonical ingress rules (`oteryn.molehill.cloud` and `gateway.molehill.cloud`) from their fixed loopback origins to the Cloudflare `http_status:503` service. It uses the same safeguards as `apply`: a confirmation phrase, a fresh read, rejection of locally managed tunnels and ambiguous rules, preservation of every unrelated ingress rule and the final catch-all, and a re-read and hash check immediately before `PUT`. DNS records are not touched. The tunnel connector keeps running, because the tunnel may carry unrelated routes.
-- **No other route to the origins (P6 precondition).** The script preserves unrelated ingress rules (`cloudflare-oteryn-endpoints.sh:176-184`), and the Platform has no trusted-host allowlist in `bootstrap/app.php`. So any other rule that targets the loopback origins would keep the application public while the canonical rules return 503. This includes a wildcard hostname, the legacy Gateway hostname and the final catch-all. `maintenance-close` therefore fails closed: it refuses, and changes nothing, when any ingress rule other than the two canonical ones has a service on port 8000 or 8080 of the connector host (`127.0.0.1`, `localhost`, `[::1]` or `0.0.0.0`). The cutover script runs the same check as a precondition before the freeze, and the operator removes or repoints any such rule through the normal reviewed path first. The tunnel is shared with unrelated services (owner decision, task `OTERYN-20261013-pg-cutover`): their rules on other origins and ports never block the close, are preserved verbatim and in order, and are proved unchanged across the cutover by a hash; the exact check is in `PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md`, *Bypass precondition and preserved rules*.
+- **No other route to the origins (P6 precondition).** The script preserves unrelated ingress rules (`cloudflare-oteryn-endpoints.sh:176-184`), and the Platform has no trusted-host allowlist in `legacy/bootstrap/app.php`. So any other rule that targets the loopback origins would keep the application public while the canonical rules return 503. This includes a wildcard hostname, the legacy Gateway hostname and the final catch-all. `maintenance-close` therefore fails closed: it refuses, and changes nothing, when any ingress rule other than the two canonical ones has a service on port 8000 or 8080 of the connector host (`127.0.0.1`, `localhost`, `[::1]` or `0.0.0.0`). The cutover script runs the same check as a precondition before the freeze, and the operator removes or repoints any such rule through the normal reviewed path first. The tunnel is shared with unrelated services (owner decision, task `OTERYN-20261013-pg-cutover`): their rules on other origins and ports never block the close, are preserved verbatim and in order, and are proved unchanged across the cutover by a hash; the exact check is in `PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md`, *Bypass precondition and preserved rules*.
 - **Gate state machine (P6b).** The maintenance-gate state machine is owned by a separate design note, P6b, which is accepted before P6 starts. P6 cannot start without it. That covers the marker, the lock, ordering relative to the ingress write, crash recovery and tests per transition. Until then the plan makes no claim about gate semantics beyond two: the gate fails closed, and no mutating entry point may reopen the origins except `maintenance-open`.
 - **External check.** Before any smoke test, the cutover script requires two proofs: a fresh API read shows both canonical rules on `http_status:503`, and HTTPS requests from the GitHub runner, outside the NAS, to both public hostnames get the edge's 503. The same read shows that no other rule targets the origins. A request to a random, unused subdomain that reaches the catch-all, and to every other hostname the tunnel serves, gets no application response. The script refuses to continue otherwise, and records both proofs in the evidence.
 - **Smoke on loopback.** All smoke tests run on the NAS against the loopback origins `127.0.0.1:8000` and `127.0.0.1:8080`, and inside the Compose network. No public request reaches the application.
@@ -364,18 +364,18 @@ The engine switch value is a repository variable that the operator sets.
 
 **Owned paths.**
 
-- `deploy/synology/compose.yml` and `compose.marketplace.yml`: remove `mariadb`, `mariadb_data` and the engine switch
+- `legacy/deploy/synology/compose.yml` and `compose.marketplace.yml`: remove `mariadb`, `mariadb_data` and the engine switch
 - `deploy/synology/mariadb/**` (delete)
-- `deploy/synology/scripts/**` and `deploy/synology/release-contract.env`: remove the MariaDB branches
-- `deploy/synology/tests/**`, `tests/ci/**`
+- `legacy/deploy/synology/scripts/**` and `legacy/deploy/synology/release-contract.env`: remove the MariaDB branches
+- `legacy/deploy/synology/tests/**`, `tests/ci/**`
 - `.github/workflows/**`: Platform-DB `mariadb` service containers become `postgres`; legacy-engine test services stay until #1474
-- `phpunit.xml`, `phpunit.pgsql.xml`: decide the default real-database suite
-- `config/database.php`: remove the `mysql` Platform connection; the legacy-engine connections stay until #1474
+- `legacy/phpunit.xml`, `legacy/phpunit.pgsql.xml`: decide the default real-database suite
+- `legacy/config/database.php`: remove the `mysql` Platform connection; the legacy-engine connections stay until #1474
 - `docs/architecture/DATA_OWNERSHIP.md`: "Database credentials" records the delivered owner, runtime, physical backup and logical dump split and the engine
 - `docs/architecture/SYSTEM_ARCHITECTURE.md`
 - `docs/architecture/adr/README.md`: status notes
 - `docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json`: database-engine and backup records (review D-7)
-- `deploy/synology/README.md`
+- `legacy/deploy/synology/README.md`
 - `docs/operations/{INCIDENT_RECOVERY_RUNBOOK,PRODUCTION_READINESS_CHECKLIST,PRODUCTION_TOPOLOGY_EVIDENCE,SYNOLOGY_ROLLBACK_SCHEMA_SAFETY,NATIVE_LOGIN_OWNER_STEPS}.md`
 - `docs/agents/{BUILD_TEST_MATRIX,PROJECT_STATE,REPOSITORY_MAP}.md`
 - the remaining live documents found by `rg -il mariadb docs`

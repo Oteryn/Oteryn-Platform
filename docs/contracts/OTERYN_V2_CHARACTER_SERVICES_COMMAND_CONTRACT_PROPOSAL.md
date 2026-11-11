@@ -24,7 +24,7 @@ Platform references read for this proposal:
 - [Entitlement game delivery contract](OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md): single-use service reservation before mutation and consumption after completion.
 - [Public game data projection contract](OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md): independent public projection and privacy fences.
 - [Store wire contract](OTERYN_V2_STORE_WIRE_CONTRACT.md): canonical byte encoding, decimal strings, mTLS peer guard and outbox conventions. This document is itself PROPOSED; it is precedent, not acceptance authority. Store purchase's debit-before-delivery is not substituted for this service's reserve-before-command saga.
-- `app/CharacterAuthority/CharacterCommandWire.php`: existing route names, issuer/audience, bounds and receipt shapes.
+- `legacy/app/CharacterAuthority/CharacterCommandWire.php`: existing route names, issuer/audience, bounds and receipt shapes.
 - [Game restore reconciliation contract](OTERYN_V2_GAME_RESTORE_RECONCILIATION_CONTRACT.md): recovery-generation selection and reopening.
 
 Read-only Game evidence is pinned to **Oteryn/Oteryn-Game@857f15f376907c592bb28d854fccff18a15cdf87**, retrieved outside the Platform checkout. Paths below refer to that commit, not moving main:

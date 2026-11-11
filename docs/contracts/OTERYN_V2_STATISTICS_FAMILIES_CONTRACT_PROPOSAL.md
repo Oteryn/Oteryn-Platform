@@ -25,7 +25,7 @@ Platform references read for this proposal:
 - [Public projection architecture](OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md): Game facts versus Platform read models, independent privacy floors, rebuilds, and unavailable versus empty.
 - [Character commands](OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md): operation identity, ambiguous outcomes and reconciliation; it defers exact cryptography/transport.
 - [Entitlement delivery](OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md): fail-closed authority, independent truth domains and finite authority intervals; it also defers cryptographic primitives. No entitlement is involved here.
-- Existing `app/GameProjections/{PublicProjectionFamily,PublicProjectionWire,PublicProjectionSnapshot,PublicProjectionWatermark,PublicProjectionSettings,PublicProjectionIngestion}.php` and `app/GameProjections/Http/GuardPublicProjectionPeer.php`: actual consumer vocabulary and validation. The PHP consumer is evidence, not a requirement that the Rust portal use PHP.
+- Existing `legacy/app/GameProjections/{PublicProjectionFamily,PublicProjectionWire,PublicProjectionSnapshot,PublicProjectionWatermark,PublicProjectionSettings,PublicProjectionIngestion}.php` and `legacy/app/GameProjections/Http/GuardPublicProjectionPeer.php`: actual consumer vocabulary and validation. The PHP consumer is evidence, not a requirement that the Rust portal use PHP.
 
 Game evidence is read-only, pinned throughout to **857f15f376907c592bb28d854fccff18a15cdf87**, inspected outside the Platform checkout. Paths below refer to [that Game tree](https://github.com/Oteryn/Oteryn-Game/tree/857f15f376907c592bb28d854fccff18a15cdf87):
 

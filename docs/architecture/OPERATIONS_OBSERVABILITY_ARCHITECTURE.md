@@ -117,7 +117,7 @@ Screenshots or provider exports may supplement evidence, but raw credentials, co
 
 ## Liveness versus readiness
 
-The current repository configures Laravel's framework health route at `/health` in `bootstrap/app.php`. That is `REPOSITORY_PROVEN` application liveness capability.
+The current repository configures Laravel's framework health route at `/health` in `legacy/bootstrap/app.php`. That is `REPOSITORY_PROVEN` application liveness capability.
 
 A successful `/health` response **does not** prove that Platform SQL, legacy engine SQL, runtime Redis, mail, queue workers, external game services or PublicEdge are ready. The current repository does not prove a separate dependency-aware readiness endpoint as a general production contract.
 
@@ -223,7 +223,7 @@ The operational layer follows fail-closed evidence semantics:
 | Boundary | Current evidence state | Evidence / limitation |
 |---|---|---|
 | Logical Platform topology | `REPOSITORY_PROVEN` architecture intent | `SYSTEM_ARCHITECTURE.md`; not deployed topology proof |
-| Laravel `/health` route | `REPOSITORY_PROVEN` | `bootstrap/app.php`; liveness only |
+| Laravel `/health` route | `REPOSITORY_PROVEN` | `legacy/bootstrap/app.php`; liveness only |
 | General dependency-aware readiness endpoint | `UNKNOWN` / not repository-proven | no accepted current general readiness contract was found |
 | Server-generated request correlation | `REPOSITORY_PROVEN` | `RequestCorrelation` middleware |
 | Bounded request completion log shape | `REPOSITORY_PROVEN` | `http.request.completed` event fields in middleware |

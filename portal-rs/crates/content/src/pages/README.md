@@ -26,10 +26,10 @@ therefore denies access until authoritative authentication is integrated.
 Tests inject an explicit staff adapter; no request field can grant staff access.
 Writes and their before/after audit records commit in one transaction.
 
-Behavior references: `app/Cms/PublicPageQuery.php`,
-`app/Cms/Editorial/EditorialPageQuery.php`,
-`app/Http/Controllers/Cms/PublicPageController.php`,
-`app/Support/PublicEditorialPage.php`, and `app/Cms/Actions/SaveManagedPage.php`.
+Behavior references: `legacy/app/Cms/PublicPageQuery.php`,
+`legacy/app/Cms/Editorial/EditorialPageQuery.php`,
+`legacy/app/Http/Controllers/Cms/PublicPageController.php`,
+`legacy/app/Support/PublicEditorialPage.php`, and `legacy/app/Cms/Actions/SaveManagedPage.php`.
 The contracts directory has no dedicated page HTTP contract; this mechanic has
 no game producer or consumer and uses no game fixtures.
 

@@ -37,7 +37,7 @@ They print a skip notice if it is absent. No compile-time SQL query macros or
 new offline query metadata are required.
 # Player reads (T36b)
 
-These routes are new (§5.2 of the Rust plan). Neither `routes/api.php` nor
+These routes are new (§5.2 of the Rust plan). Neither `legacy/routes/api.php` nor
 `docs/contracts` defines an existing summary/feed response. These shapes are
 Platform-local and are not a new Game wire contract. Directory is excluded
 until G-1.

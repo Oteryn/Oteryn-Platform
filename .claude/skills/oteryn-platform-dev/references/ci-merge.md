@@ -71,7 +71,7 @@ closeout in the template: archive the task record, release ownership.
    open PRs for one that already exists.
    - `runtime-tests` red at *Audit Composer dependencies* is a new advisory:
      a main failure. The fix is one PR bumping the affected package in
-     `composer.lock` (`composer update <vendor/package> --with-dependencies`,
+     `legacy/composer.lock` (`composer update <vendor/package> --with-dependencies`,
      then `composer audit --locked`); never an ignore entry.
 4. Otherwise it is this PR's failure. Common causes:
    - `main` moved under the PR: merge `origin/main`, rebuild, reproduce.

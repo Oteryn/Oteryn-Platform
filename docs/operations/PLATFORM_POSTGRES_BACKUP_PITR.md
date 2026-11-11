@@ -8,12 +8,12 @@ This runbook covers the PostgreSQL Platform database only. It holds no secret, p
 
 | Part | Where | What it does |
 | --- | --- | --- |
-| `archive_command` | `deploy/synology/postgres/backup/archive-wal.sh`, run by `postgres` | Writes each completed WAL segment to the spool as `wal/<segment>.gz` with a `.sha256` file. It refuses a bad name, a missing spool, conflicting content for an existing name, and a new file on a spool below 256 MiB free (`OTERYN_ARCHIVE_MIN_FREE_MB`). A retry of a segment already archived with identical content succeeds whatever the free space, because it writes nothing. On refusal PostgreSQL keeps the segment in `pg_wal` and retries. |
-| `restore_command` | `deploy/synology/postgres/backup/restore-wal.sh` | Restores a segment for recovery. An absent file exits 1, the normal end of the archive. A missing archive directory, a missing checksum, a checksum mismatch or a decompression failure exits 199, which aborts recovery, so a damaged archive never ends recovery early and silently. |
+| `archive_command` | `legacy/deploy/synology/postgres/backup/archive-wal.sh`, run by `postgres` | Writes each completed WAL segment to the spool as `wal/<segment>.gz` with a `.sha256` file. It refuses a bad name, a missing spool, conflicting content for an existing name, and a new file on a spool below 256 MiB free (`OTERYN_ARCHIVE_MIN_FREE_MB`). A retry of a segment already archived with identical content succeeds whatever the free space, because it writes nothing. On refusal PostgreSQL keeps the segment in `pg_wal` and retries. |
+| `restore_command` | `legacy/deploy/synology/postgres/backup/restore-wal.sh` | Restores a segment for recovery. An absent file exits 1, the normal end of the archive. A missing archive directory, a missing checksum, a checksum mismatch or a decompression failure exits 199, which aborts recovery, so a damaged archive never ends recovery early and silently. |
 | `postgres-backup` sidecar | `compose.yml`, profile `postgres`, same pinned image as `postgres`, private network only, no port | Runs `backup-job.sh service`: a daily base backup and logical dump at `OTERYN_BACKUP_HOUR_UTC` (default 02:00 UTC), retention after each success, and a heartbeat every 60 seconds for its healthcheck. A failed job is retried after one hour at the earliest. |
-| `backup-postgres.sh` | `deploy/synology/scripts/` | `reconcile` (every deploy), `check` (every health check), `run <job>` (operator). |
-| `restore-postgres-pitr.sh` | `deploy/synology/scripts/` | The restore drill into a scratch instance. With `--offline` it restores without the live server (see *Offline drill*), and with `--offline --spool-volume` from a spool restored off the NAS. |
-| `offsite-postgres-backup.sh` | `deploy/synology/scripts/`, config `offsite-backup.env.example` | The encrypted off-NAS copy of the spool, its retention, check and restore drill (see *Off-NAS copy*). |
+| `backup-postgres.sh` | `legacy/deploy/synology/scripts/` | `reconcile` (every deploy), `check` (every health check), `run <job>` (operator). |
+| `restore-postgres-pitr.sh` | `legacy/deploy/synology/scripts/` | The restore drill into a scratch instance. With `--offline` it restores without the live server (see *Offline drill*), and with `--offline --spool-volume` from a spool restored off the NAS. |
+| `offsite-postgres-backup.sh` | `legacy/deploy/synology/scripts/`, config `offsite-backup.env.example` | The encrypted off-NAS copy of the spool, its retention, check and restore drill (see *Off-NAS copy*). |
 
 Roles (plan P4):
 
@@ -82,9 +82,9 @@ Without the PostgreSQL secrets (before P4 is configured) every mode is a no-op.
 Operator commands, run on the NAS from the deploy directory with the deploy `.env`:
 
 ```bash
-OTERYN_ENV_FILE=/path/to/.env bash deploy/synology/scripts/backup-postgres.sh check
-OTERYN_ENV_FILE=/path/to/.env bash deploy/synology/scripts/backup-postgres.sh run status
-OTERYN_ENV_FILE=/path/to/.env bash deploy/synology/scripts/backup-postgres.sh run base   # or dump, prune, preflight
+OTERYN_ENV_FILE=/path/to/.env bash legacy/deploy/synology/scripts/backup-postgres.sh check
+OTERYN_ENV_FILE=/path/to/.env bash legacy/deploy/synology/scripts/backup-postgres.sh run status
+OTERYN_ENV_FILE=/path/to/.env bash legacy/deploy/synology/scripts/backup-postgres.sh run base   # or dump, prune, preflight
 ```
 
 After a manual sidecar recreate (`docker compose up --force-recreate postgres-backup`) the password file is gone. Jobs then record `credentials_missing` until the next deploy reconcile, or until the operator re-runs reconcile.
@@ -93,10 +93,10 @@ After a manual sidecar recreate (`docker compose up --force-recreate postgres-ba
 
 ```bash
 COMPOSE_PROJECT_NAME=oteryn-staging OTERYN_STATE_DIR=<runner state dir> \
-  bash deploy/synology/scripts/restore-postgres-pitr.sh                        # probe drill (default)
-bash deploy/synology/scripts/restore-postgres-pitr.sh --target-time '2026-10-12 08:00:00'   # UTC
-bash deploy/synology/scripts/restore-postgres-pitr.sh --target immediate --backup 20261005T020000Z
-bash deploy/synology/scripts/restore-postgres-pitr.sh --offline --target latest              # live server lost
+  bash legacy/deploy/synology/scripts/restore-postgres-pitr.sh                        # probe drill (default)
+bash legacy/deploy/synology/scripts/restore-postgres-pitr.sh --target-time '2026-10-12 08:00:00'   # UTC
+bash legacy/deploy/synology/scripts/restore-postgres-pitr.sh --target immediate --backup 20261005T020000Z
+bash legacy/deploy/synology/scripts/restore-postgres-pitr.sh --offline --target latest              # live server lost
 ```
 
 The probe drill does the following:
@@ -175,11 +175,11 @@ Then re-run the deploy. Delete a retired directory only on an owner decision, on
 
 ## Off-NAS copy
 
-`deploy/synology/scripts/offsite-postgres-backup.sh` copies the whole spool (`base/`, `wal/`, `dump/`) to a configured restic repository with [restic](https://restic.net) 0.18.0, pinned by digest. restic encrypts and authenticates every object on the NAS before it leaves (AES-256 + Poly1305), so the destination stores ciphertext only. The destination is configuration: before production it is a NAS-local repository (*Owner decisions*, D-3), and the same script copies off the NAS once an off-NAS target is set. This follows the Game database approach (Game ADR 0004, operability review 2026-10-06: RPO 5 min, RTO 4 h). Neither the provider nor any secret is in the repository: the destination is a restic repository URL in an owner-held configuration file.
+`legacy/deploy/synology/scripts/offsite-postgres-backup.sh` copies the whole spool (`base/`, `wal/`, `dump/`) to a configured restic repository with [restic](https://restic.net) 0.18.0, pinned by digest. restic encrypts and authenticates every object on the NAS before it leaves (AES-256 + Poly1305), so the destination stores ciphertext only. The destination is configuration: before production it is a NAS-local repository (*Owner decisions*, D-3), and the same script copies off the NAS once an off-NAS target is set. This follows the Game database approach (Game ADR 0004, operability review 2026-10-06: RPO 5 min, RTO 4 h). Neither the provider nor any secret is in the repository: the destination is a restic repository URL in an owner-held configuration file.
 
 ### Configuration and secret custody
 
-Copy `deploy/synology/offsite-backup.env.example` to a root-only file outside the checkout and outside the spool, for example `/volume1/docker/oteryn-offsite/offsite.env`, and name it with `OTERYN_OFFSITE_CONFIG`. It holds no secret. It names:
+Copy `legacy/deploy/synology/offsite-backup.env.example` to a root-only file outside the checkout and outside the spool, for example `/volume1/docker/oteryn-offsite/offsite.env`, and name it with `OTERYN_OFFSITE_CONFIG`. It holds no secret. It names:
 
 | Key | Meaning |
 | --- | --- |
@@ -204,12 +204,12 @@ The script refuses (exit 2) a placeholder or malformed value, a configuration fi
 Run as root on the NAS (DSM **Control Panel → Task Scheduler → User-defined script**, user `root`) from the deploy directory, with `COMPOSE_PROJECT_NAME` set when the project is not `oteryn-staging`:
 
 ```bash
-OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh init     # once
-OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh push     # every minute
-OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh forget   # daily
-OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh check    # weekly
-OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh drill    # monthly
-OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh status   # any time, no network
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash legacy/deploy/synology/scripts/offsite-postgres-backup.sh init     # once
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash legacy/deploy/synology/scripts/offsite-postgres-backup.sh push     # every minute
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash legacy/deploy/synology/scripts/offsite-postgres-backup.sh forget   # daily
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash legacy/deploy/synology/scripts/offsite-postgres-backup.sh check    # weekly
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash legacy/deploy/synology/scripts/offsite-postgres-backup.sh drill    # monthly
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash legacy/deploy/synology/scripts/offsite-postgres-backup.sh status   # any time, no network
 ```
 
 Exit status: 0 ok, 1 failure, 2 usage or configuration, 3 degraded (the newest copy is older than the target RPO).
@@ -255,7 +255,7 @@ When the spool or the whole NAS is lost, on the replacement host:
 
 ## Rollback of this mechanism
 
-Set `archive_mode = off` in `deploy/synology/postgres/postgresql.conf` (this needs a `postgres` restart) and stop the `postgres-backup` sidecar. Backups are additive: live data is unaffected and the spool stays.
+Set `archive_mode = off` in `legacy/deploy/synology/postgres/postgresql.conf` (this needs a `postgres` restart) and stop the `postgres-backup` sidecar. Backups are additive: live data is unaffected and the spool stays.
 
 ## Before production
 

@@ -55,7 +55,7 @@ Before any production-ready or go-live `PASS` claim:
 Run against the effective production configuration without printing secrets:
 
 ```text
-php artisan production:verify-configuration
+php legacy/artisan production:verify-configuration
 ```
 
 Required result: exit code `0`.
@@ -116,7 +116,7 @@ Go-live `PASS` is blocked until the applicable production restore evidence exist
 The repository provides these verifiers:
 
 ```text
-php artisan canary:verify-db-privileges
+php legacy/artisan canary:verify-db-privileges
 ```
 
 - [ ] Run the generic legacy engine read-only verifier against the effective production credential. `ENV-EVIDENCE-REQUIRED`

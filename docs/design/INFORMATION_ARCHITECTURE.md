@@ -16,12 +16,12 @@ Visual / UX Acceptance is not reclassified by this document. The currently deliv
 
 The IA is derived from:
 
-- `routes/web.php`;
+- `legacy/routes/web.php`;
 - `docs/testing/FUNCTIONAL_ACCEPTANCE_MATRIX.md`;
 - `docs/acceptance/VISUAL_UX_ACCEPTANCE_MATRIX.md`;
 - `docs/architecture/SYSTEM_ARCHITECTURE.md`;
 - `docs/architecture/MODULE_CATALOG.md`;
-- current public/Admin Blade shells and `public/css/app.css`.
+- current public/Admin Blade shells and `legacy/public/css/app.css`.
 
 No navigation item in this document proves that a route exists. `CURRENT` is the only delivered-status label.
 

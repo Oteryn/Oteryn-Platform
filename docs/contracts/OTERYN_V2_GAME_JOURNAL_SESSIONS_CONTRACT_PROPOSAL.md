@@ -58,7 +58,7 @@ Platform references read for this proposal:
 - `docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md`: accepted consumer architecture; game facts vs disposable projections, independent privacy ordering, gaps and rebuilds. It defers producer transport and does not authorize private journal data in public projections.
 - `docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md`: authoritative ownership, stable operations, pending/ambiguous results and reconciliation. Its semantic contract defers cryptographic transport selection.
 - `docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md`: durable idempotency and failure/authority separation; entitlement status never substitutes for game facts or ownership.
-- `app/CharacterAuthority/CharacterCommandWire.php`: existing Platform pull/read/receipt wire and `TransferCharacterOwnership` spelling.
+- `legacy/app/CharacterAuthority/CharacterCommandWire.php`: existing Platform pull/read/receipt wire and `TransferCharacterOwnership` spelling.
 
 Game references are pinned to Oteryn-Game main [2253b997](https://github.com/Oteryn/Oteryn-Game/tree/2253b997):
 

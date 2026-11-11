@@ -58,7 +58,7 @@ Use isolated test databases for:
 
 Never point automated tests at production data.
 
-Platform also runs the full suite against PostgreSQL 17 through `phpunit.pgsql.xml` and the non-blocking `platform-postgres` job in `.github/workflows/ci.yml`. The job is a report: it uploads the failing-test list and is not a required check. Wallet and Bazaar-bid concurrency tests (`tests/Feature/Wallet/Concurrency/**`, `tests/Feature/Marketplace/Concurrency/**`) fork eight real PHP processes against a throwaway PostgreSQL database and skip unless `PGSQL_INTEGRATION_HOST` is set. SQLite does not prove row locking, so these tests are the real-database proof for those races.
+Platform also runs the full suite against PostgreSQL 17 through `legacy/phpunit.pgsql.xml` and the non-blocking `platform-postgres` job in `.github/workflows/ci.yml`. The job is a report: it uploads the failing-test list and is not a required check. Wallet and Bazaar-bid concurrency tests (`legacy/tests/Feature/Wallet/Concurrency/**`, `legacy/tests/Feature/Marketplace/Concurrency/**`) fork eight real PHP processes against a throwaway PostgreSQL database and skip unless `PGSQL_INTEGRATION_HOST` is set. SQLite does not prove row locking, so these tests are the real-database proof for those races.
 
 Browser E2E must not replace real-database integration as the primary proof for locking, transaction races, uniqueness or persisted integrity. Browser scenarios may assert the user-visible outcome of a conflict only when that adds unique composed evidence.
 
@@ -76,7 +76,7 @@ Contract tests verify only evidence-backed schemas/interfaces and fail visibly w
 
 ### End-to-end and production-like browser tests
 
-The exact-SHA Playwright harness under `scripts/acceptance/**` and `.github/workflows/acceptance-validation.yml` runs against:
+The exact-SHA Playwright harness under `legacy/scripts/acceptance/**` and `.github/workflows/acceptance-validation.yml` runs against:
 
 - the exact tested application SHA;
 - a real Laravel HTTP runtime;
@@ -95,7 +95,7 @@ Passing controlled browser/system evidence may support `STAGING_PROVEN`. It does
 
 ## Machine-enforced delivered-surface acceptance contract
 
-`scripts/acceptance/coverage/portal-coverage-manifest.json` is the canonical inventory of delivered portal surfaces.
+`legacy/scripts/acceptance/coverage/portal-coverage-manifest.json` is the canonical inventory of delivered portal surfaces.
 
 Each surface declares:
 
@@ -109,7 +109,7 @@ Each surface declares:
 - evidence file paths and stable markers;
 - exact remaining gaps.
 
-`npm --prefix scripts/acceptance run test:coverage-contract` validates manifest integrity and the exact runtime route table. It fails for:
+`npm --prefix legacy/scripts/acceptance run test:coverage-contract` validates manifest integrity and the exact runtime route table. It fails for:
 
 - an unclassified named route;
 - a stale/nonexistent manifest route;
@@ -119,7 +119,7 @@ Each surface declares:
 - a `covered` record with unresolved gaps;
 - a `partial` or `planned` record without an exact gap.
 
-`npm --prefix scripts/acceptance run test:coverage-contract:strict` additionally fails while any delivered required surface remains `partial` or `planned`. Strict mode becomes a release gate only after all truthful gaps are closed.
+`npm --prefix legacy/scripts/acceptance run test:coverage-contract:strict` additionally fails while any delivered required surface remains `partial` or `planned`. Strict mode becomes a release gate only after all truthful gaps are closed.
 
 “Exhaustive” means complete against this versioned delivered-surface contract at the correct proof layers. It is not a guarantee that unknown defects cannot exist.
 
@@ -128,7 +128,7 @@ Each surface declares:
 `.github/workflows/portal-acceptance-contract.yml` runs a dedicated zero-retry Chromium profile through:
 
 ```text
-npm --prefix scripts/acceptance run test:account-lifecycle
+npm --prefix legacy/scripts/acceptance run test:account-lifecycle
 ```
 
 The profile composes the complete currently delivered account journey:

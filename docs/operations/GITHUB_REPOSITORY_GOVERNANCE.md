@@ -17,7 +17,7 @@ Baseline: `main@968c8adc912beef0119da21a345b0afadc45a494` on 2026-08-05.
 - `production` had no protection rules or branch restriction.
 - `production-cloudflare` and `synology-staging` had branch policies but no required reviewer.
 - no CODEOWNERS, `SECURITY.md`, `CONTRIBUTING.md`, GitHub-detected license file or code of conduct existed.
-- `composer.json` already declared the project package `proprietary`.
+- `legacy/composer.json` already declared the project package `proprietary`.
 
 ## Required repository settings
 
@@ -104,7 +104,7 @@ Do not combine that work with this non-overlapping governance package.
 
 ## License status
 
-`composer.json` declares the package `proprietary`; this task preserves that status and does not introduce an open-source license. The repository still has no GitHub-detected `LICENSE` file. Public visibility does not grant permission to use, modify, redistribute or sublicense the code.
+`legacy/composer.json` declares the package `proprietary`; this task preserves that status and does not introduce an open-source license. The repository still has no GitHub-detected `LICENSE` file. Public visibility does not grant permission to use, modify, redistribute or sublicense the code.
 
 The owner may later add an explicit proprietary `LICENSE` or `NOTICE` file, or deliberately replace the proprietary declaration with a reviewed open-source license after checking upstream and dependency obligations. That is a separate legal/product decision.
 

@@ -12,7 +12,7 @@ No page in this lifecycle writes to legacy engine.
 
 ## Required legacy engine grants
 
-Render and execute `database/provisioning/canary-readonly.sql.template` only through a reviewed deployment procedure. The resulting principal must have direct `SELECT` on exactly:
+Render and execute `legacy/database/provisioning/canary-readonly.sql.template` only through a reviewed deployment procedure. The resulting principal must have direct `SELECT` on exactly:
 
 - `players`;
 - `guilds`;
@@ -26,7 +26,7 @@ Render and execute `database/provisioning/canary-readonly.sql.template` only thr
 After configuration, run:
 
 ```bash
-php artisan canary:verify-db-privileges
+php legacy/artisan canary:verify-db-privileges
 ```
 
 Do not copy raw `SHOW GRANTS` output into tickets or logs because some database variants include authentication metadata.

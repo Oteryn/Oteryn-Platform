@@ -370,9 +370,9 @@ Schema v1 defaults to complete-only public content and no implicit backports.
 Canonical schema path in Platform:
 
 ```text
-resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json
-resources/schemas/game-catalog/v1.1/game-catalog-snapshot.schema.json
-resources/schemas/game-catalog/v1.2/game-catalog-snapshot.schema.json
+legacy/resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json
+legacy/resources/schemas/game-catalog/v1.1/game-catalog-snapshot.schema.json
+legacy/resources/schemas/game-catalog/v1.2/game-catalog-snapshot.schema.json
 ```
 
 Matching legacy engine path:

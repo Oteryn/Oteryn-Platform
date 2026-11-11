@@ -633,7 +633,7 @@ Privileged browser routes require `auth`, `mfa.confirmed` and the exact permissi
 ## 18. Proposed Platform file structure
 
 ```text
-app/GameCatalog/
+legacy/app/GameCatalog/
   GameCatalogServiceProvider.php
   Domain/
     CatalogEntityType.php
@@ -664,19 +664,19 @@ app/GameCatalog/
     Public/
     Admin/
   Console/
-config/game-catalog.php
-database/migrations/*game_catalog*.php
-resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json
-resources/navigation/public/game-catalog.php
+legacy/config/game-catalog.php
+legacy/database/migrations/*game_catalog*.php
+legacy/resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json
+legacy/resources/navigation/public/game-catalog.php
 resources/navigation/admin/game-catalog.php
-resources/views/game-catalog/**
-routes/modules/game-catalog.php
-lang/en/game_catalog.php
-lang/pl/game_catalog.php
-public/css/game-catalog.css
-tests/Unit/GameCatalog/**
-tests/Feature/GameCatalog/**
-scripts/acceptance/tests/*game-catalog*.spec.mjs
+legacy/resources/views/game-catalog/**
+legacy/routes/modules/game-catalog.php
+legacy/lang/en/game_catalog.php
+legacy/lang/pl/game_catalog.php
+legacy/public/css/game-catalog.css
+legacy/tests/Unit/GameCatalog/**
+legacy/tests/Feature/GameCatalog/**
+legacy/scripts/acceptance/tests/*game-catalog*.spec.mjs
 ```
 
 ## 19. Commands
@@ -684,11 +684,11 @@ scripts/acceptance/tests/*game-catalog*.spec.mjs
 Proposed operator commands:
 
 ```text
-php artisan game-catalog:validate <path>
-php artisan game-catalog:import <path>
-php artisan game-catalog:activate <snapshot-id> --profile=<profile-key>
-php artisan game-catalog:diff <snapshot-a> <snapshot-b>
-php artisan game-catalog:verify --profile=<profile-key>
+php legacy/artisan game-catalog:validate <path>
+php legacy/artisan game-catalog:import <path>
+php legacy/artisan game-catalog:activate <snapshot-id> --profile=<profile-key>
+php legacy/artisan game-catalog:diff <snapshot-a> <snapshot-b>
+php legacy/artisan game-catalog:verify --profile=<profile-key>
 ```
 
 Import does not activate by default.

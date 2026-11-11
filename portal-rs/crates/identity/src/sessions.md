@@ -18,8 +18,8 @@ An unavailable or foreign target uses the same generic flash message and redirec
 Malformed UUIDs return 400; unauthenticated page access redirects to login.
 
 The source of the owner-scoping, redirect and preserve-current behavior is
-`app/Http/Controllers/Identity/AccountWebSessionController.php` and
-`app/Identity/Sessions/IdentityWebSessionRegistry.php`. T08 uses the plan's new
+`legacy/app/Http/Controllers/Identity/AccountWebSessionController.php` and
+`legacy/app/Identity/Sessions/IdentityWebSessionRegistry.php`. T08 uses the plan's new
 session page URL. No game protocol or remembered client device contract changes.
 
 The binary composition middleware observes T04's successful login response before

@@ -6,22 +6,22 @@ This contract keeps future public website slices parallelizable. Feature agents 
 
 ## Route registration
 
-`routes/web.php` loads every PHP file under `routes/modules/*.php` in deterministic filename order.
+`legacy/routes/web.php` loads every PHP file under `legacy/routes/modules/*.php` in deterministic filename order.
 
 Rules:
 
-- each feature owns one module-local file, for example `routes/modules/downloads.php`;
+- each feature owns one module-local file, for example `legacy/routes/modules/downloads.php`;
 - route names must be globally unique and module-prefixed where practical;
 - a module route file may register only routes implemented by that module;
 - do not add placeholder routes or links;
-- do not edit `routes/web.php` for a normal module addition;
+- do not edit `legacy/routes/web.php` for a normal module addition;
 - privileged routes still require `auth`, `mfa.confirmed` and one exact `admin.permission:<key>` middleware.
 
-The PublicPortal foundation owns `routes/modules/public-portal.php` and the production `/` route.
+The PublicPortal foundation owns `legacy/routes/modules/public-portal.php` and the production `/` route.
 
 ## Public navigation registration
 
-`App\PublicPortal\Navigation\PublicNavigationRegistry` loads repository-controlled definitions from `resources/navigation/public/*.php` in deterministic filename order.
+`App\PublicPortal\Navigation\PublicNavigationRegistry` loads repository-controlled definitions from `legacy/resources/navigation/public/*.php` in deterministic filename order.
 
 A contribution may contain `header` items and/or `footer` groups. Items use:
 
@@ -42,7 +42,7 @@ Safety behavior:
 - definitions contain route names, never arbitrary URLs or HTML;
 - navigation labels are escaped by Blade;
 - external links require a separate trusted-configuration and validation decision;
-- feature agents add a module-owned file such as `resources/navigation/public/downloads.php` rather than editing the shared header, footer or `core.php`.
+- feature agents add a module-owned file such as `legacy/resources/navigation/public/downloads.php` rather than editing the shared header, footer or `core.php`.
 
 ## Reserved exact permissions
 
@@ -70,24 +70,24 @@ Wildcard permissions and implicit future authority remain prohibited.
 
 The PublicPortal foundation owns:
 
-- `routes/web.php` module loader;
-- `routes/modules/public-portal.php`;
-- `app/PublicPortal/**` shared homepage and navigation composition;
-- `app/Http/Controllers/PublicPortal/PublicHomeController.php`;
-- `resources/views/game/layout.blade.php` and `resources/views/game/partials/public-*.blade.php`;
-- `resources/navigation/public/core.php`;
-- `resources/views/home.blade.php`;
-- `public/css/public-shell.css` and `public/css/home-production.css`;
+- `legacy/routes/web.php` module loader;
+- `legacy/routes/modules/public-portal.php`;
+- `legacy/app/PublicPortal/**` shared homepage and navigation composition;
+- `legacy/app/Http/Controllers/PublicPortal/PublicHomeController.php`;
+- `legacy/resources/views/game/layout.blade.php` and `resources/views/game/partials/public-*.blade.php`;
+- `legacy/resources/navigation/public/core.php`;
+- `legacy/resources/views/home.blade.php`;
+- `legacy/public/css/public-shell.css` and `legacy/public/css/home-production.css`;
 - the reserved permission constants and reservation migration.
 
 Future feature ownership:
 
 | Feature | Module-local route | Navigation contribution | Implementation namespace |
 |---|---|---|---|
-| Downloads | `routes/modules/downloads.php` | `resources/navigation/public/downloads.php` | `app/Downloads/**` |
-| Events | `routes/modules/events.php` | `resources/navigation/public/events.php` | `app/Events/**` |
-| Support | `routes/modules/support.php` | `resources/navigation/public/support.php` | `app/Support/**` |
-| Wiki | `routes/modules/wiki.php` | `resources/navigation/public/wiki.php` | `app/Wiki/**` |
-| Additional public game data | `routes/modules/public-game-data-<feature>.php` | `resources/navigation/public/public-game-data-<feature>.php` | approved `app/PublicGameData/**` feature paths |
+| Downloads | `legacy/routes/modules/downloads.php` | `legacy/resources/navigation/public/downloads.php` | `legacy/app/Downloads/**` |
+| Events | `legacy/routes/modules/events.php` | `legacy/resources/navigation/public/events.php` | `legacy/app/Events/**` |
+| Support | `legacy/routes/modules/support.php` | `legacy/resources/navigation/public/support.php` | `legacy/app/Support/**` |
+| Wiki | `legacy/routes/modules/wiki.php` | `legacy/resources/navigation/public/wiki.php` | `legacy/app/Wiki/**` |
+| Additional public game data | `routes/modules/public-game-data-<feature>.php` | `resources/navigation/public/public-game-data-<feature>.php` | approved `legacy/app/PublicGameData/**` feature paths |
 
 Those agents must not modify the foundation-owned shared files unless a separately coordinated contract change is required.

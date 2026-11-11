@@ -62,7 +62,7 @@ No Discord, Twitch, OBS or client UI is included.
 
 ## Focused verification
 
-The eight `tests/Feature/Casts` PostgreSQL cases execute individually against a
+The eight `legacy/tests/Feature/Casts` PostgreSQL cases execute individually against a
 dedicated local database. They cover optional/wrong password, account-only/global
 limits, fifty viewers, single-use/node binding/kick, expiry, two real concurrent
 cross-cast contenders, private starts and authenticated HTTP ticket redemption.

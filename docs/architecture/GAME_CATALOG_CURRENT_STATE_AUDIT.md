@@ -141,7 +141,7 @@ The schema-next producer must collect these final objects. It must not parse sel
 
 ### Supported schemas
 
-`config/game-catalog.php` registers exact paths and hashes for `1.0.0`, `1.1.0` and `1.2.0`. An unsupported version has no schema contract and fails closed.
+`legacy/config/game-catalog.php` registers exact paths and hashes for `1.0.0`, `1.1.0` and `1.2.0`. An unsupported version has no schema contract and fails closed.
 
 ### Validation and import
 

@@ -128,7 +128,7 @@ The wallet is not a payment system. Provider-neutral payment truth is delivered 
 
 ## Delivered-surface acceptance contract
 
-The route/state ledger is `scripts/acceptance/coverage/portal-coverage-manifest.json` plus sorted fragments under `scripts/acceptance/coverage/surfaces/`.
+The route/state ledger is `legacy/scripts/acceptance/coverage/portal-coverage-manifest.json` plus sorted fragments under `legacy/scripts/acceptance/coverage/surfaces/`.
 
 The strict contract proves:
 
@@ -159,10 +159,10 @@ The completed Issue #268 audit and merged PR #315 reconciliation are tracked by:
 - `docs/testing/PRODUCT_COMPLETENESS_AUDIT_2026-07-29.md`;
 - `docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md`;
 - `docs/testing/PRODUCT_COMPLETENESS_AUDIT_2026-07-29_VALIDATION.md`;
-- `scripts/acceptance/coverage/validate-product-completeness.mjs`;
-- `scripts/acceptance/coverage/validate-backend-frontend-completeness.mjs`;
-- `scripts/acceptance/coverage/portal-evidence-dimensions.json`;
-- `scripts/acceptance/coverage/validate-dimension-evidence.mjs`.
+- `legacy/scripts/acceptance/coverage/validate-product-completeness.mjs`;
+- `legacy/scripts/acceptance/coverage/validate-backend-frontend-completeness.mjs`;
+- `legacy/scripts/acceptance/coverage/portal-evidence-dimensions.json`;
+- `legacy/scripts/acceptance/coverage/validate-dimension-evidence.mjs`.
 
 The current canonical ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 
