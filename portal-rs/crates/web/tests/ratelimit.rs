@@ -492,7 +492,7 @@ async fn multiple_keys_charge_independently_and_refusal_is_retained() -> TestRes
 
 #[test]
 fn named_policies_match_the_existing_portal_limits() -> TestResult {
-    let source = include_str!("../../../../app/Providers/AppServiceProvider.php");
+    let source = include_str!("../../../../legacy/app/Providers/AppServiceProvider.php");
     let mut found = 0;
     for block in source.split("RateLimiter::for('").skip(1) {
         let (name, rest) = block.split_once('\'').ok_or("missing limiter name")?;

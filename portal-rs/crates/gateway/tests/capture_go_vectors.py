@@ -1,4 +1,4 @@
-"""Capture reference outputs without modifying services/game-gateway.
+"""Capture reference outputs without modifying legacy/services/game-gateway.
 
 Run from this directory with a Go compiler on PATH. The generated vectors include
 all calls made by the reference wire, error, issuer, limiter and handler tests.
@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 HERE = Path(__file__).resolve().parent
-SOURCE = HERE.parents[3] / "services/game-gateway"
+SOURCE = HERE.parents[3] / "legacy/services/game-gateway"
 
 with tempfile.TemporaryDirectory(prefix="gateway-reference-") as directory:
     root = Path(directory)

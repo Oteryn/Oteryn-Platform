@@ -6,7 +6,8 @@
   "notes": [
     "Later packets must use token-free names for task files, branch-visible text and docs they add; any rise in an enforced group fails CI (decision D607).",
     "The history group is report-only: historical records are preserved and excluded from the zero gate.",
-    "Q-H: historical-record prefixes listed under exclusions are preserved unchanged (contents and path names); their contents count in the report-only history group and their path names in the report-only history_paths group; the paths group counts live tracked paths only."
+    "Q-H: historical-record prefixes listed under exclusions are preserved unchanged (contents and path names); their contents count in the report-only history group and their path names in the report-only history_paths group; the paths group counts live tracked paths only.",
+    "legacy/ holds the frozen Laravel app and Go gateway (owner decision 2026-11-11); it is excluded like the other historical records."
   ],
   "rules": [
     [
@@ -71,6 +72,10 @@
     ],
     [
       "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+      "history"
+    ],
+    [
+      "legacy/",
       "history"
     ],
     [
@@ -170,57 +175,58 @@
     "docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md",
     "docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md",
     "docs/agents/prompts/OTS_PLATFORM_GATEWAY_NATIVE_PROTOCOL_IMPLEMENTATION.md",
-    "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md"
+    "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+    "legacy/"
   ],
   "groups": {
     "ci_deploy": {
-      "count": 84,
-      "files": 21,
+      "count": 4,
+      "files": 2,
       "enforce": true
     },
     "config": {
-      "count": 35,
-      "files": 3,
+      "count": 0,
+      "files": 0,
       "enforce": true
     },
     "database": {
-      "count": 50,
-      "files": 8,
+      "count": 0,
+      "files": 0,
       "enforce": true
     },
     "docs": {
-      "count": 243,
-      "files": 65,
+      "count": 241,
+      "files": 64,
       "enforce": true
     },
     "history": {
-      "count": 1441,
-      "files": 229,
+      "count": 2051,
+      "files": 327,
       "enforce": false
     },
     "history_paths": {
-      "count": 7,
-      "files": 7,
+      "count": 24,
+      "files": 24,
       "enforce": false
     },
     "other": {
-      "count": 1,
-      "files": 1,
+      "count": 0,
+      "files": 0,
       "enforce": true
     },
     "paths": {
-      "count": 17,
-      "files": 17,
+      "count": 4,
+      "files": 4,
       "enforce": true
     },
     "runtime": {
-      "count": 139,
-      "files": 31,
+      "count": 0,
+      "files": 0,
       "enforce": true
     },
     "tests": {
-      "count": 261,
-      "files": 32,
+      "count": 0,
+      "files": 0,
       "enforce": true
     }
   }

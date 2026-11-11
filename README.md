@@ -4,68 +4,39 @@ Oteryn Platform is the first-party web/application platform for the Oteryn Open 
 
 ## Current implementation
 
-The repository contains a Laravel 13 modular monolith on PHP 8.5 with a server-rendered Blade UI and explicit module/data boundaries.
+The platform is the Rust portal in `portal-rs/`: one binary (`oteryn-portal`, roles `serve`, `worker`, `migrate`, `gateway`) over its own PostgreSQL 18.6, built task by task from `docs/architecture/OTERYN_PORTAL_RUST_PLAN.md`. Its commands and rules are in `portal-rs/README.md`.
 
-Evidence-backed capabilities on `main` include bounded slices of:
-
-- public portal shell, homepage, news, announcements, events, SEO, downloads and legal/informational content;
-- public characters, guilds, highscores, online/status, servers and deaths through least-privilege read boundaries;
-- Platform Identity, login/logout, registered sessions, recovery, security lifecycle and MFA;
-- greenfield account provisioning/binding and character creation through operation-specific contracts and least-privilege adapters;
-- CMS, Wiki, EditorialMedia, Support/Moderation, Admin/RBAC and Audit;
-- versioned Game Catalog foundations;
-- Oteryn Coins Wallet and Character Bazaar foundations;
-- operational, public-edge and exact-head E2E/quality controls;
-- baseline local/test configuration, lockfile-backed Composer installs and GitHub Actions CI.
+`legacy/` holds the earlier Laravel 13 application and the Go game gateway (`legacy/services/game-gateway/`), moved there on owner decision 2026-11-11. That tree is frozen: no workflow builds or tests it, it is not extended, and it stays only as a reference and as the source of the one-time legacy data export until cutover (plan §9). See `legacy/README.md`.
 
 `AVAILABLE` means at least one validated repository capability exists; it does not imply complete product scope, production proof or activation authority. Read `docs/architecture/MODULE_CATALOG.md` and exact task/PR evidence before making a completeness claim.
 
-Current planned boundaries include:
-
-- `PlayerCompanion` for versioned calculators, build planning, hunt guidance, private session analysis, progression tracking and recommendations;
-- `LiveOps` for authoritative time-sensitive world/service status and schedules;
-- a concrete-consumer-driven `PlatformAPI`;
-- Products/Entitlements, LegalCommerce and later provider Payments under separate gates.
-
 ## Local setup
 
-Requirements: PHP 8.5 with Laravel's required extensions, Composer 2, and PDO SQLite for the default local database.
+Requirements: the Rust toolchain pinned in `portal-rs/rust-toolchain.toml` and, for the database-backed roles and tests, PostgreSQL 18.6.
 
 ```sh
-cp .env.example .env
-composer install
-php artisan key:generate
-php -r "file_exists('database/database.sqlite') || touch('database/database.sqlite');"
-php artisan serve
+cd portal-rs
+cargo build
+OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- migrate
+OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- serve
 ```
-
-The application is then available at `http://localhost:8000`.
-
-The health endpoint is available at `GET /health`. It reports only application availability and does not expose environment variables, configuration, version details or secrets.
 
 ## Game server and integration boundaries
 
-Game-server behavior is an external contract documented in the Oteryn-Game docs. The remaining generic `canary` database connection is read-only and being retired and must use an externally provisioned least-privilege principal.
+Game-server behavior is an external contract documented in the Oteryn-Game docs. The portal shares no database with the game server: Game reaches the portal only through `/internal/v1` (mTLS), the login gateway role calls the native-admission route with a service token, and world data is read from a pinned Game release. The contracts and their shared fixtures are in `docs/contracts/`; every mutation across the boundary is idempotent and keyed by an operation id.
 
-Shared writes are allowed only through separately documented operation-specific contracts and adapters. Current bounded examples include greenfield account provisioning, character creation and Character Bazaar ownership transfer. No module may infer generic TFS/MyAAC schema or silently broaden those privileges.
-
-Configure applicable `CANARY_DB_*` and runtime values in local environment files. Do not reuse game-server credentials or database root/admin accounts.
+Configuration comes from `OTERYN_*` / `PORTAL_*` environment variables. Do not reuse game-server credentials or database root/admin accounts.
 
 ## Validation
 
 ```sh
-composer validate --strict
-composer format:check
-composer test
+cd portal-rs
+cargo fmt --all --check
+cargo clippy --locked --all-targets -- -D warnings
+PORTAL_TEST_DATABASE_URL=postgres://... cargo test --locked
 ```
 
-To apply formatting:
-
-```sh
-composer format
-```
-
-GitHub Actions installs dependencies from `composer.lock`, validates Composer metadata and lock consistency, checks formatting and runs the applicable Laravel/PHPUnit and repository validation suites. Required evidence remains tied to the exact tested head.
+PostgreSQL-backed tests skip without `PORTAL_TEST_DATABASE_URL`; a skipped test is not evidence. GitHub Actions runs these checks in Portal RS CI, plus the repository governance validators in CI. Required evidence remains tied to the exact tested head.
 
 ## Licensing and contributions
 

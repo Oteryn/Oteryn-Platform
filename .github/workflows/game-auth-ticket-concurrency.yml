@@ -60,7 +60,7 @@ jobs:
 
       - name: Resolve reusable prior heavy evidence
         id: reuse
-        if: ${{ github.event_name == 'pull_request' && (steps.classify.outputs.game_auth_concurrency == 'true' || contains(steps.classify.outputs.paths_json, 'app/CharacterProfiles/') || contains(steps.classify.outputs.paths_json, 'tests/Feature/CharacterProfiles/Concurrency/')) }}
+        if: ${{ github.event_name == 'pull_request' && steps.classify.outputs.game_auth_concurrency == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -77,38 +77,13 @@ jobs:
           --summary "$GITHUB_STEP_SUMMARY"
 
   concurrency-proof:
+    # This lane ran the Laravel application, which moved to legacy/ (owner decision
+    # 2026-11-11) and is no longer built or tested. The job keeps its check name.
     needs: classify_changes
-    if: ${{ always() && (needs.classify_changes.result != 'success' || ((needs.classify_changes.outputs.game_auth_concurrency == 'true' || contains(needs.classify_changes.outputs.paths_json, 'app/CharacterProfiles/') || contains(needs.classify_changes.outputs.paths_json, 'tests/Feature/CharacterProfiles/Concurrency/')) && needs.classify_changes.outputs.reuse_heavy != 'true')) }}
-    runs-on: ubuntu-latest
-    services:
-      mariadb:
-        image: mariadb:11.8
-        env:
-          MARIADB_ROOT_PASSWORD: oteryn-concurrency-root
-          MARIADB_DATABASE: oteryn_concurrency
-          MARIADB_ROOT_HOST: "%"
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    env:
-      APP_ENV: testing
-      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
-      DB_CONNECTION: mysql
-      DB_HOST: 127.0.0.1
-      DB_PORT: 3306
-      DB_DATABASE: oteryn_concurrency
-      DB_USERNAME: root
-      DB_PASSWORD: oteryn-concurrency-root
-      CACHE_STORE: array
-      SESSION_DRIVER: array
-      QUEUE_CONNECTION: sync
-      MAIL_MAILER: array
-      GAME_AUTH_CONCURRENCY_TEST: 1
-      CHARACTER_PROFILE_CONCURRENCY_TEST: 1
+    if: ${{ always() && (needs.classify_changes.result != 'success' || (needs.classify_changes.outputs.game_auth_concurrency == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Require successful change classification
         if: ${{ needs.classify_changes.result != 'success' }}
@@ -116,25 +91,8 @@ jobs:
           echo "Change classification failed; this required gate is failing closed."
           exit 1
 
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
-        with:
-          php-version: '8.5'
-          coverage: none
-          extensions: pdo_mysql, pdo_sqlite, pcntl
-          tools: composer:v2
-
-      - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
-
-      - name: Run independent-process MariaDB game auth concurrency proof
-        run: php artisan test --filter=GameTicketConcurrencyTest
-
-      - name: Run independent-process MariaDB character profile concurrency proof
-        run: php artisan test tests/Feature/CharacterProfiles/Concurrency/CharacterProfilePreferenceConcurrencyTest.php
-
-      - name: Run independent-process MariaDB native topology concurrency proof
-        run: php artisan test tests/Feature/GameAuth/NativeTopology/NativeTopologyConcurrencyTest.php --display-warnings
+      - name: Record retired Laravel validation
+        run: |
+          summary="concurrency-proof: Laravel validation retired; Laravel moved to legacy/ (owner decision 2026-11-11)."
+          echo "$summary"
+          echo "### $summary" >> "$GITHUB_STEP_SUMMARY"

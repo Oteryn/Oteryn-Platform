@@ -89,3 +89,11 @@ blockers:
   - none
 next_action: "CI on PR #1782; PC docker testenv deploy of the responsive home with live status, news and ranking"
 ```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: same-repository PR #1782 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1782 merged as 0571e5b7 on 2026-11-08 and live branch lookup confirms refs/heads/claude/portal-rs-ui-2-fantasy-shell is absent
+```

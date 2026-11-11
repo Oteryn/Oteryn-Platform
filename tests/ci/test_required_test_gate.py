@@ -150,8 +150,12 @@ class RequiredTestWorkflowContractTest(unittest.TestCase):
             "if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true' }}",
             self.workflow,
         )
-        self.assertIn("image: mariadb:11.8", self.workflow)
-        self.assertIn("php artisan test --log-junit=artifacts/ci/phpunit-junit.xml", self.workflow)
+        # The Laravel suite moved to legacy/ (owner decision 2026-11-11); the job keeps its
+        # required name and only records that the validation is retired.
+        runtime = self.workflow.split("\n  runtime_tests:\n", 1)[1].split("\n  platform_postgres:\n", 1)[0]
+        self.assertIn("Laravel validation retired", runtime)
+        for forbidden in ("services:", "uses:", "artisan", "composer"):
+            self.assertNotIn(forbidden, runtime)
 
     def test_protected_test_context_is_always_emitted_as_aggregate_gate(self) -> None:
         self.assertIn(
