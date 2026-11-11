@@ -74,13 +74,45 @@ BEGIN
         VALUES('referral.entitlement',k,jsonb_build_object('entitlement_id',reward,'account_id',a,'kind',t,'quantity',n,'character_scope',CASE WHEN t='starter' THEN 'FIRST_THREE_CREATED' WHEN t='welcome' THEN 'EXACT_CHARACTER' ELSE 'ACCOUNT' END,'character_id',c,'expires_at',e),'infinity');
     END IF;
 END $$;
+-- Global order: discover the complete account set, lock accounts in UUID order
+-- (including all later FK targets), then premium_authority in UUID order, then
+-- 5600. Never expand either row-lock set after 5600; retry stale discovery.
+-- Callers needing stronger account/authority locks prepare those before calling.
+CREATE FUNCTION referral_campaign_prepare(ids uuid[],exclusive_account uuid DEFAULT NULL) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE held uuid[]; account uuid;
+BEGIN
+    held := NULLIF(current_setting('oteryn.referral_prepared_accounts',true),'')::uuid[];
+    IF held IS NOT NULL THEN
+        IF NOT ids <@ held OR exclusive_account IS NOT NULL THEN
+            RAISE EXCEPTION 'referral account set changed; retry transaction' USING ERRCODE='40001';
+        END IF;
+        RETURN;
+    END IF;
+    FOR account IN SELECT id FROM accounts WHERE id=ANY(ids) ORDER BY id LOOP
+        -- Purchases take their strongest buyer lock immediately, avoiding two
+        -- concurrent purchases upgrading compatible KEY SHARE locks together.
+        IF account=exclusive_account THEN
+            PERFORM id FROM accounts WHERE id=account FOR UPDATE;
+        ELSE
+            PERFORM id FROM accounts WHERE id=account FOR KEY SHARE;
+        END IF;
+    END LOOP;
+    PERFORM set_config('oteryn.referral_prepared_accounts',ids::text,true);
+END $$;
+CREATE FUNCTION referral_campaign_lock(ids uuid[]) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+    -- Preparation is idempotent and refuses expansion, including discovery that
+    -- changed while a caller acquired its premium_authority rows.
+    PERFORM referral_campaign_prepare(ids);
+    PERFORM pg_advisory_xact_lock(5600);
+END $$;
 -- Called only by the committed store purchase path, in its transaction.
 CREATE FUNCTION referral_campaign_purchase(a uuid,days integer,paid_at timestamptz)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE invitation referral_campaign_invitations; paying bigint; threshold integer;
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM referral_campaign_settings WHERE enabled) THEN RETURN; END IF;
-    PERFORM pg_advisory_xact_lock(5600);
+    PERFORM referral_campaign_lock(ARRAY[a] || ARRAY(SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=a));
     SELECT i.* INTO invitation FROM referral_campaign_invitations i
       JOIN accounts buyer ON buyer.id=i.invitee_id AND buyer.status='active' AND buyer.email_verified_at IS NOT NULL AND buyer.email_change_blocked_until<=clock_timestamp()
       JOIN accounts owner ON owner.id=i.inviter_id AND owner.status='active' AND owner.email_verified_at IS NOT NULL AND owner.email_change_blocked_until<=clock_timestamp()
@@ -106,7 +138,7 @@ RETURNS void LANGUAGE plpgsql AS $$
 DECLARE invitation referral_campaign_invitations; delta integer;
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM referral_campaign_settings WHERE enabled) THEN RETURN; END IF;
-    PERFORM pg_advisory_xact_lock(5600);
+    PERFORM referral_campaign_lock(ARRAY[a] || ARRAY(SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=a));
     SELECT i.* INTO invitation FROM referral_campaign_invitations i
       JOIN accounts buyer ON buyer.id=i.invitee_id AND buyer.status='active' AND buyer.email_verified_at IS NOT NULL AND buyer.email_change_blocked_until<=clock_timestamp()
       JOIN accounts owner ON owner.id=i.inviter_id AND owner.status='active' AND owner.email_verified_at IS NOT NULL AND owner.email_change_blocked_until<=clock_timestamp()
@@ -172,13 +204,12 @@ CREATE TRIGGER referral_activity_game AFTER INSERT OR UPDATE OF entered_at,left_
 -- accounts or retroactive attribution after a store order.
 CREATE FUNCTION referral_campaign_signup(a uuid,code text) RETURNS boolean
 LANGUAGE plpgsql AS $$
-DECLARE owner uuid; invitation_time timestamptz; recipient text; token uuid;
+DECLARE owner uuid; invitation_time timestamptz; recipient text; token uuid; phase integer;
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM referral_campaign_settings WHERE enabled) THEN RETURN false; END IF;
     BEGIN token := code::uuid;
     EXCEPTION WHEN invalid_text_representation THEN RETURN false; END;
     IF uuid_extract_version(token) IS DISTINCT FROM 7 OR uuid_extract_version(a) IS DISTINCT FROM 7 THEN RETURN false; END IF;
-    PERFORM pg_advisory_xact_lock(5600);
     SELECT account_id,created_at,NULL::text INTO owner,invitation_time,recipient
         FROM referral_links WHERE referral_links.code=token;
     IF NOT FOUND THEN
@@ -186,21 +217,26 @@ BEGIN
             FROM referral_email_invitations WHERE id=token AND kind='new';
     END IF;
     IF owner IS NULL OR owner=a THEN RETURN false; END IF;
-    IF (SELECT count(*) FROM accounts WHERE id IN (a,owner) AND status='active'
-        AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp())<>2 THEN RETURN false; END IF;
-    IF EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=a) THEN
-        RETURN EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=a AND inviter_id=owner AND kind='new');
-    END IF;
-    IF NOT EXISTS(SELECT 1 FROM accounts WHERE id=a AND created_at>=invitation_time
-        AND created_at>clock_timestamp()-interval '7 days'
-        AND (recipient IS NULL OR lower(email)=recipient))
-        OR EXISTS(SELECT 1 FROM store_orders WHERE account_id=a) THEN RETURN false; END IF;
-    IF EXISTS(WITH RECURSIVE edges AS (
-        SELECT inviter_id,invitee_id FROM referral_invitations UNION
-        SELECT inviter_id,invitee_id FROM referral_campaign_invitations),
-        ancestors(id) AS (SELECT owner UNION SELECT e.inviter_id FROM edges e JOIN ancestors p ON e.invitee_id=p.id)
-        SELECT 1 FROM ancestors WHERE id=a)
-        OR EXISTS(SELECT 1 FROM referral_invitations WHERE invitee_id=a) THEN RETURN false; END IF;
+    -- Validate before preparing locks, then revalidate under 5600. Invalid or
+    -- already-bound session codes must not expand a transaction's account set.
+    FOR phase IN 1..2 LOOP
+        IF (SELECT count(*) FROM accounts WHERE id IN (a,owner) AND status='active'
+            AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp())<>2 THEN RETURN false; END IF;
+        IF EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=a) THEN
+            RETURN EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=a AND inviter_id=owner AND kind='new');
+        END IF;
+        IF NOT EXISTS(SELECT 1 FROM accounts WHERE id=a AND created_at>=invitation_time
+            AND created_at>clock_timestamp()-interval '7 days'
+            AND (recipient IS NULL OR lower(email)=recipient))
+            OR EXISTS(SELECT 1 FROM store_orders WHERE account_id=a) THEN RETURN false; END IF;
+        IF EXISTS(WITH RECURSIVE edges AS (
+            SELECT inviter_id,invitee_id FROM referral_invitations UNION
+            SELECT inviter_id,invitee_id FROM referral_campaign_invitations),
+            ancestors(id) AS (SELECT owner UNION SELECT e.inviter_id FROM edges e JOIN ancestors p ON e.invitee_id=p.id)
+            SELECT 1 FROM ancestors WHERE id=a)
+            OR EXISTS(SELECT 1 FROM referral_invitations WHERE invitee_id=a) THEN RETURN false; END IF;
+        IF phase=1 THEN PERFORM referral_campaign_lock(ARRAY[a,owner]); END IF;
+    END LOOP;
     INSERT INTO referral_campaign_invitations(inviter_id,invitee_id,kind) VALUES(owner,a,'new');
     PERFORM referral_campaign_reward('starter:'||i.id,a,'starter',3,NULL,b.created_at+interval '7 days')
         FROM referral_campaign_invitations i JOIN accounts b ON b.id=i.invitee_id WHERE i.invitee_id=a;
@@ -214,7 +250,9 @@ BEGIN
     END IF;
     RETURN NEW;
 END $$;
-CREATE TRIGGER referral_campaign_signup_session BEFORE INSERT OR UPDATE OF account_id,data ON web_sessions
+-- The reset_session_authentication_guard must acquire its account FOR UPDATE
+-- before signup takes 5600; PostgreSQL orders same-event triggers by name.
+CREATE TRIGGER zz_referral_campaign_signup_session BEFORE INSERT OR UPDATE OF account_id,data ON web_sessions
     FOR EACH ROW EXECUTE FUNCTION referral_campaign_signup_session();
 CREATE FUNCTION referral_campaign_signup_verified() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

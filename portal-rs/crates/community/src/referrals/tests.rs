@@ -1741,3 +1741,57 @@ async fn nwave_snapshot_locks_inviter_before_qualification() {
     assert_eq!(points, 1);
     db.close().await;
 }
+
+#[tokio::test]
+async fn nwave_signup_and_email_lock_accounts_before_qualification() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    let invitee = db.account().await;
+    sqlx::query(
+        "UPDATE accounts SET status='pending_verification',email_verified_at=NULL WHERE id=$1",
+    )
+    .bind(invitee)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    attribution_session(&db, Some(invitee), &code.to_string()).await;
+    for signup in [true, false] {
+        let mut purchase = db.pool.begin().await.unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *purchase)
+            .await
+            .unwrap();
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(owner)
+            .execute(&mut *purchase)
+            .await
+            .unwrap();
+        let campaign = db.campaign.clone();
+        let operation = tokio::spawn(async move {
+            if signup {
+                sqlx::query("UPDATE accounts SET status='active',email_verified_at=clock_timestamp() WHERE id=$1")
+                    .bind(invitee).execute(&campaign.pool).await.unwrap();
+                let bound: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=$1)")
+                    .bind(invitee).fetch_one(&campaign.pool).await.unwrap();
+                assert!(bound);
+            } else {
+                campaign
+                    .email(owner, "new@example.invalid", Kind::New)
+                    .await
+                    .unwrap();
+            }
+        });
+        let waiting = wait_for_blocker(&db.pool, pid).await;
+        let available: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND classid=0 AND objid=5600 AND objsubid=1 AND granted)").bind(waiting).fetch_one(&mut *purchase).await.unwrap();
+        purchase.commit().await.unwrap();
+        operation.await.unwrap();
+        assert!(
+            available,
+            "signup/email held 5600 while awaiting an account"
+        );
+    }
+    db.close().await;
+}

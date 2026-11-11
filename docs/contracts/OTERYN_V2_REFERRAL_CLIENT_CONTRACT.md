@@ -67,7 +67,10 @@ The recipient must have no website or game activity in the preceding 12 calendar
 months. Durable activity high-water marks are initialized from accounts, website
 sessions, login history and the latest of game-session entry/end times, then
 maintained by triggers on session inserts and end-time updates so ordinary history
-retention cannot make an active account appear inactive.
+retention cannot make an active account appear inactive. Authenticated game-login
+promotion also advances this mark before discarding an expired presentation
+payload: a session that began over twelve months ago but ended recently remains
+recent activity without restoring the expired history row.
 A missing activity row or less than 12 months of recorded coverage denies
 eligibility. The activity row's creation time is the start of that coverage;
 retained game-login history alone (30 days) never proves twelve-month inactivity.
@@ -130,3 +133,20 @@ Premium awards and account attribution are reconciled independently of SMTP.
 ## Open item
 
 shared payment fingerprint refusal: deferred, no trusted fingerprint in PaymentEvent
+
+## Transaction lock order
+
+Every qualification path discovers its complete account set before locking:
+store purchases, loyalty snapshots/streams, campaign link/email/accept/signup,
+and worker attribution. Acquire account row locks (including inviter, invitee
+and every subsequent account foreign-key target) in ascending account UUID order,
+then required premium_authority rows in ascending account UUID order, then
+qualification advisory lock 5600. Prepare stronger account locks before authority
+locks. No new account or premium_authority row/FK lock may be acquired after 5600.
+The shared database lock function rejects an expanded account set with SQLSTATE
+40001 so a stale discovery retries in a new transaction rather than reversing the
+order. Session attribution runs after the password-reset account-lock guard.
+Verification attribution runs before credential-change session revocation.
+Worker mail delivery holds only the separate delivery lock 5601 across SMTP;
+5600 is never held across network I/O. Referral-premium reconciliation uses the
+ordinary premium ledger and does not acquire 5600.

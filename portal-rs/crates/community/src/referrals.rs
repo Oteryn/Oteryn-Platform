@@ -37,6 +37,8 @@ pub enum Stage {
 /// returning status, disjoint identities, abuse restrictions and rate limits.
 /// Claim additionally requires authoritative qualifying activity after invitation.
 /// Read/lock state in this connection; missing or stale evidence returns false.
+/// Invite runs after the caller has locked all account FK targets and 5600;
+/// policies must not acquire new/stronger account or premium_authority locks.
 /// Statistics checks only the authenticated account's access and account status.
 pub trait Policy: Send + Sync {
     fn allowed(
@@ -148,6 +150,16 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
             return Err(Error::Denied);
         }
         let mut tx = self.pool.begin().await?;
+        // Legacy isolated adapters may not have the identity schema/FKs.
+        let identity: bool = sqlx::query_scalar("SELECT to_regclass('accounts') IS NOT NULL")
+            .fetch_one(&mut *tx)
+            .await?;
+        if identity {
+            sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR KEY SHARE")
+                .bind(vec![request.inviter, request.invitee, self.reward.actor])
+                .execute(&mut *tx)
+                .await?;
+        }
         // A single lock serializes graph changes, preventing concurrent cycles and
         // reciprocal invitations. Rate limiting remains mandatory in the policy.
         sqlx::query("SELECT pg_advisory_xact_lock(5600)")

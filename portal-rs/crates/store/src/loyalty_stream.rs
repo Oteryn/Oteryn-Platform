@@ -150,6 +150,7 @@ impl Stream {
                 .bind(&candidates).fetch_all(&mut *tx).await?;
             let candidates: std::collections::BTreeSet<_> =
                 candidates.into_iter().chain(inviters).collect();
+            let locked_accounts: Vec<_> = candidates.iter().copied().collect();
             let mut known = std::collections::BTreeSet::new();
             for account in candidates {
                 if account.get_version_num() != 7 || account.get_variant() != uuid::Variant::RFC4122
@@ -158,20 +159,42 @@ impl Stream {
                 }
                 match self.accounts.state(account, &mut tx).await? {
                     AccountState::Known => {
-                        // Snapshots insert/lock authority before taking 5600.
-                        // Prepare even credit-only accounts in that same order.
-                        sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1) ON CONFLICT DO NOTHING")
-                            .bind(account).execute(&mut *tx).await?;
-                        // ON CONFLICT does not lock an existing authority row.
-                        // Publication's foreign keys need this lock before 5600.
-                        sqlx::query("SELECT account_id FROM premium_authority WHERE account_id=$1 FOR KEY SHARE")
-                            .bind(account).execute(&mut *tx).await?;
                         known.insert(account);
                     }
-                    AccountState::Unknown => continue,
+                    AccountState::Unknown => (),
                     AccountState::Ambiguous => return Err(Error::Unavailable),
                 }
+                sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR KEY SHARE")
+                    .bind(account)
+                    .execute(&mut *tx)
+                    .await?;
             }
+            sqlx::query("SELECT referral_campaign_prepare($1)")
+                .bind(&locked_accounts)
+                .execute(&mut *tx)
+                .await?;
+            for &account in &known {
+                // Snapshots insert/lock authority before taking 5600.
+                // Prepare even credit-only accounts in that same order.
+                sqlx::query(
+                    "INSERT INTO premium_authority(account_id) VALUES($1) ON CONFLICT DO NOTHING",
+                )
+                .bind(account)
+                .execute(&mut *tx)
+                .await?;
+                // ON CONFLICT does not lock an existing authority row.
+                // Publication's foreign keys need this lock before 5600.
+                sqlx::query(
+                    "SELECT account_id FROM premium_authority WHERE account_id=$1 FOR KEY SHARE",
+                )
+                .bind(account)
+                .execute(&mut *tx)
+                .await?;
+            }
+            sqlx::query("SELECT referral_campaign_lock($1)")
+                .bind(&locked_accounts)
+                .execute(&mut *tx)
+                .await?;
             // Award from Premium consumption only, before reading credit totals.
             for &(account, days) in &totals {
                 if !known.contains(&account) {

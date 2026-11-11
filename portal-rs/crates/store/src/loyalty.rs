@@ -38,15 +38,13 @@ impl Ledger {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT referral_campaign_prepare(ARRAY[$1::uuid] || ARRAY(SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=$1 AND kind='new'))")
+            .bind(account).execute(&mut *tx).await?;
         match self.accounts.state(account, &mut tx).await? {
             AccountState::Known => (),
             AccountState::Unknown => return Err(Error::UnknownAccount),
             AccountState::Ambiguous => return Err(Error::Unavailable),
         }
-        // Qualification can insert a credit referencing the inviter account.
-        // Purchases lock that account before taking qualification lock 5600.
-        sqlx::query("SELECT a.id FROM accounts a JOIN referral_campaign_invitations i ON i.inviter_id=a.id WHERE i.invitee_id=$1 AND i.kind='new' FOR KEY SHARE OF a")
-            .bind(account).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO premium_authority(account_id) VALUES ($1) ON CONFLICT DO NOTHING")
             .bind(account)
             .execute(&mut *tx)

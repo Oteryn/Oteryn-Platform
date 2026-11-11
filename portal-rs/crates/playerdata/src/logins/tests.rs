@@ -504,3 +504,26 @@ async fn postgres_character_ownership_cut_denies_transferred_history() {
     assert!(matches!(service.history(buyer).await, Err(Error::Denied)));
     db.close().await;
 }
+
+#[tokio::test]
+async fn nwave_expired_session_payload_preserves_recent_logout_activity() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let (service, mut record) = fixture(&db.pool).await;
+    let now = record.cut.observed_at_ms;
+    record.login.entered_at = (now - 400 * 86_400_000).to_string();
+    record.login.left_at = Some((now - 86_400_000).to_string());
+    record.login.end_reason = Some(EndReason::Logout);
+    sqlx::query("UPDATE referral_activity SET last_activity=clock_timestamp()-interval '13 months' WHERE account_id=$1").bind(record.account).execute(&db.pool).await.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    service.apply(&mut tx, &record).await.unwrap();
+    tx.commit().await.unwrap();
+    let recent: bool = sqlx::query_scalar("SELECT last_activity>clock_timestamp()-interval '2 days' FROM referral_activity WHERE account_id=$1").bind(record.account).fetch_one(&db.pool).await.unwrap();
+    assert!(
+        recent,
+        "discarded presentation payload lost recent game activity"
+    );
+    assert!(service.history(record.account).await.unwrap().is_empty());
+    db.close().await;
+}

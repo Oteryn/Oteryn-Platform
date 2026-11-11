@@ -111,7 +111,8 @@ impl<P: Policy> Campaign<P> {
             .bind(accounts)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(5600)")
+        sqlx::query("SELECT referral_campaign_lock($1)")
+            .bind(accounts)
             .execute(&mut *tx)
             .await?;
         Ok(tx)
@@ -150,7 +151,13 @@ impl<P: Policy> Campaign<P> {
         {
             return Err(Error::Invalid);
         }
-        let mut tx = self.begin(&[]).await?;
+        // Resolve returning recipients before the global qualification lock.
+        let target: Option<Uuid> =
+            sqlx::query_scalar("SELECT id FROM accounts WHERE lower(email)=$1")
+                .bind(&recipient)
+                .fetch_optional(&self.pool)
+                .await?;
+        let mut tx = self.begin(&[actor, target.unwrap_or(actor)]).await?;
         self.actor(&mut tx, actor).await?;
         let own: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND lower(email)=$2)",
@@ -176,12 +183,17 @@ impl<P: Policy> Campaign<P> {
             if used >= 20 {
                 return Err(Error::Denied);
             }
-            let target: Option<Uuid> =
-                sqlx::query_scalar("SELECT id FROM accounts WHERE lower(email)=$1")
-                    .bind(&recipient)
-                    .fetch_optional(&mut *tx)
-                    .await?;
             let target = target.ok_or(Error::Denied)?;
+            let matches: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND lower(email)=$2)",
+            )
+            .bind(target)
+            .bind(&recipient)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !matches {
+                return Err(Error::Denied);
+            }
             // Replays keep the original eligibility snapshot and reward deadline.
             if old.is_none() {
                 self.bind(&mut tx, actor, target, kind).await?;
@@ -235,6 +247,9 @@ impl<P: Policy> Campaign<P> {
         let owner: Option<(Uuid,time::OffsetDateTime,Option<String>,String)>=sqlx::query_as("SELECT account_id,created_at,NULL::text,'new' FROM referral_links WHERE code=$1 UNION ALL SELECT inviter_id,created_at,recipient,kind FROM referral_email_invitations WHERE id=$1")
             .bind(code).fetch_optional(&mut *tx).await?;
         let (owner, created, recipient, kind) = owner.ok_or(Error::Denied)?;
+        if Some(owner) != inviter {
+            return Err(Error::Denied);
+        }
         if kind == "returning" {
             let bound: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM referral_campaign_invitations i JOIN accounts a ON a.id=i.invitee_id WHERE i.inviter_id=$1 AND i.invitee_id=$2 AND i.kind='returning' AND lower(a.email)=$3)")
                 .bind(owner).bind(actor).bind(recipient).fetch_one(&mut *tx).await?;

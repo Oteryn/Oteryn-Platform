@@ -244,6 +244,10 @@ impl Logins {
         if left.is_some_and(|t| t > now) {
             return Err(Error::Invalid);
         }
+        // Referral inactivity outlives the presentation payload. T72 has already
+        // authenticated this cut, including a recent end of a very old session.
+        sqlx::query("INSERT INTO referral_activity(account_id,last_activity) VALUES($1,to_timestamp($2::double precision/1000.0)) ON CONFLICT(account_id) DO UPDATE SET last_activity=GREATEST(referral_activity.last_activity,EXCLUDED.last_activity),updated_at=clock_timestamp()")
+            .bind(record.account).bind(left.unwrap_or(entered)).execute(&mut **tx).await?;
         // Expired payloads are never resurrected. T72 retains the minimal replay
         // acknowledgement and sequence even when no presentation row is inserted.
         if entered < now - 30 * 86_400_000 {

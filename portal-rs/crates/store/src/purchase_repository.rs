@@ -154,6 +154,14 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             tx.commit().await?;
             return Ok(answer);
         }
+        let referrals: bool =
+            sqlx::query_scalar("SELECT to_regclass('referral_campaign_settings') IS NOT NULL")
+                .fetch_one(&mut *tx)
+                .await?;
+        if referrals {
+            sqlx::query("SELECT referral_campaign_prepare(ARRAY[$1::uuid] || ARRAY(SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=$1),$1)")
+                .bind(account).execute(&mut *tx).await?;
+        }
         let restricted = self.accounts.state(&mut tx, account).await? != AccountState::Active;
         let review: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM store_fulfilment_units WHERE account_id=$1 AND state IN ('MANUAL_REVIEW','REVERSAL_PARTIAL'))").bind(account).fetch_one(&mut *tx).await?;
         if restricted || review {
@@ -329,12 +337,6 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             sqlx::query("INSERT INTO store_operations(source_revision,operation_id,issuer_authority,operation_kind,entitlement_id,intent_bytes,binding_digest) VALUES($1,$2,'OTERYN_PLATFORM_STORE_AUTHORITY','DELIVER',$3,$4,$5)")
                 .bind(sequence).bind(operation).bind(entitlement).bind(&intent).bind(format!("{:x}",Sha256::digest(&intent))).execute(&mut *tx).await?;
         }
-        // Older isolated service harnesses have no campaign schema. Activation
-        // remains an explicit database switch, defaulting off in the migration.
-        let referrals: bool =
-            sqlx::query_scalar("SELECT to_regclass('referral_campaign_settings') IS NOT NULL")
-                .fetch_one(&mut *tx)
-                .await?;
         if referrals {
             let days: i32 = units
                 .iter()
