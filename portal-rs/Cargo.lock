@@ -3282,6 +3282,7 @@ dependencies = [
  "oteryn-db",
  "oteryn-gameauth",
  "oteryn-identity",
+ "oteryn-internal-api",
  "oteryn-notify",
  "oteryn-ui",
  "oteryn-web",

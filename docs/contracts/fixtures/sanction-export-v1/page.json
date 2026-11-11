@@ -1,0 +1,1 @@
+{"schema":"oteryn.sanction_stream_page.v1","items":[{"sanction_stream_id":"019a0000-0000-7000-8000-000000000001","decision_revision":1,"account_id":"019a0000-0000-7000-8000-000000000002","character_id":null,"kind":4,"reason_code":3,"reason_text":"Public rules violation","starts_at_ms":1700000000000,"ends_at_ms":1700000060000,"revoked":false}],"next_cursor":"v1:1"}
