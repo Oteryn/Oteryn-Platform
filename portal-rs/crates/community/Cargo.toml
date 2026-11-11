@@ -62,3 +62,6 @@ path = "../content"
 workspace = true
 [dev-dependencies.oteryn-core]
 workspace = true
+
+[dependencies.oteryn-store]
+workspace = true

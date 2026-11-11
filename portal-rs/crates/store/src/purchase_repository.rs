@@ -329,6 +329,24 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             sqlx::query("INSERT INTO store_operations(source_revision,operation_id,issuer_authority,operation_kind,entitlement_id,intent_bytes,binding_digest) VALUES($1,$2,'OTERYN_PLATFORM_STORE_AUTHORITY','DELIVER',$3,$4,$5)")
                 .bind(sequence).bind(operation).bind(entitlement).bind(&intent).bind(format!("{:x}",Sha256::digest(&intent))).execute(&mut *tx).await?;
         }
+        // Older isolated service harnesses have no campaign schema. Activation
+        // remains an explicit database switch, defaulting off in the migration.
+        let referrals: bool =
+            sqlx::query_scalar("SELECT to_regclass('referral_campaign_settings') IS NOT NULL")
+                .fetch_one(&mut *tx)
+                .await?;
+        if referrals {
+            let days: i32 = units
+                .iter()
+                .filter(|unit| unit.unit_kind == "PREMIUM_TIME")
+                .map(|unit| i32::from(unit.quantity))
+                .sum();
+            sqlx::query("SELECT referral_campaign_purchase($1,$2,clock_timestamp())")
+                .bind(account)
+                .bind(days)
+                .execute(&mut *tx)
+                .await?;
+        }
         tx.commit().await?;
         Ok(answer)
     }

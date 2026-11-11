@@ -63,6 +63,22 @@ impl Ledger {
         // revoked and restarted intervals. Sum seconds before flooring whole days.
         let points: i32 = sqlx::query_scalar("SELECT LEAST(2147483647, FLOOR(COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM LEAST(effective_until,$2)-effective_from))),0)/86400))::integer FROM (SELECT DISTINCT ON (entitlement_id,effective_from) effective_from,effective_until FROM premium_ledger WHERE account_id=$1 AND effective_from < $2 ORDER BY entitlement_id,effective_from,lifecycle_revision DESC) intervals")
             .bind(account).bind(now).fetch_one(&mut *tx).await?;
+        let referrals: bool =
+            sqlx::query_scalar("SELECT to_regclass('referral_loyalty_credits') IS NOT NULL")
+                .fetch_one(&mut *tx)
+                .await?;
+        let points = if referrals {
+            sqlx::query("SELECT referral_campaign_loyalty($1,$2)")
+                .bind(account)
+                .bind(points)
+                .execute(&mut *tx)
+                .await?;
+            let credits: i64 = sqlx::query_scalar("SELECT LEAST(2147483647,COALESCE(sum(points),0))::bigint FROM referral_loyalty_credits WHERE account_id=$1")
+                .bind(account).fetch_one(&mut *tx).await?;
+            (i64::from(points) + credits).min(i64::from(i32::MAX)) as i32
+        } else {
+            points
+        };
         let bytes = snapshot(
             points,
             authority + 1,
