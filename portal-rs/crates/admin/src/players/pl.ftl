@@ -7,6 +7,7 @@ notes = Notatki wewnętrzne
 unavailable = Te informacje są obecnie niedostępne.
 add-note = Dodaj notatkę
 logout = Wyloguj wszędzie
+kick = Zakończ sesje gry (wyrzuć)
 reason = Powód (bez danych logowania i zbędnych danych osobowych)
 reset = Zleć reset MFA po weryfikacji przez support
 approve = Zatwierdź reset MFA jako druga osoba z zespołu

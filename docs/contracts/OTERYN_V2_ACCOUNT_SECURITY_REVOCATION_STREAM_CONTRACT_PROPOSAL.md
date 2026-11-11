@@ -1,7 +1,8 @@
 # Account security revocation stream V1 (proposal)
 
-- Status: **PROPOSED**, with owner decisions 1 and 2 accepted (2026-11-11, relayed by the programme coordinator; see *Owner decisions*). It authorizes no implementation, migration, route or flag yet.
-- `IMPLEMENTATION_AUTHORITY: NONE`; `PRODUCTION_AUTHORITY: NONE`.
+- Status: **PROPOSED**, with owner decisions 1 and 2 accepted (2026-11-11, relayed by the programme coordinator; see *Owner decisions*). Platform implementation authority for the producer and the staff kick was granted by the owner on 2026-11-11; the route stays behind a default-off flag. It authorizes no Game implementation and no production use.
+- `IMPLEMENTATION_AUTHORITY: Platform producer and staff kick (owner, 2026-11-11); Game consumer NONE`
+- `PRODUCTION_AUTHORITY: NONE`
 - Owner: Platform (producer) with the Game session owner (consumer).
 - Origin: FND-04B-AMEND-1 owner decision 5 (2026-11-11), relayed by the programme coordinator. A Platform ban, kick or password change must make the Game session terminal, so the Game fast-reconnect proof (`oteryn-game-reconnect-v1`) dies with it. This must be shown by an end-to-end test.
 
@@ -103,4 +104,13 @@ Additional cases:
 2. **Accepted (owner, 2026-11-11).** The staff kick action exists, gated by a dedicated moderator/admin RBAC permission. Every use writes an audit row recording actor, target, time and reason, in the same transaction as the generation advance. The reason stays in the Platform audit and never appears on the stream.
 3. **Game decision (2026-11-11): fail closed.** If Game cannot prove that it has read this stream within its freshness bound, it refuses fast reconnect, and the player re-authenticates through Platform. Game registers the numeric bound with its implementation.
 
-Still open before implementation: Platform implementation authority for the producer and the kick action, and Game implementation authority for the consumer.
+Still open: Game implementation authority for the consumer. Platform implementation authority for the producer and the kick action was granted by the owner on 2026-11-11.
+
+## Platform implementation notes (2026-11-11)
+
+- Producer: `portal-rs/crates/identity/src/security_revocations.rs`, migration `portal-rs/migrations/20261111231501_security_revocations.sql`, mounted on the internal mTLS listener next to N009. Fixtures: `fixtures/security-revocation-v1/request.json`, `page.json`, `empty.json` (byte-exact, no terminal newline).
+- Cause mapping for an `accounts` update that advances `native_security_generation` (first match wins): status changed → 2; password hash, email, email verification or MFA requirement changed → 1; generation-only advance by the staff kick → 4; generation-only advance from a nested trigger (confirmed TOTP replace/remove fence) → 1; any other generation-only advance (recovery-key use, termination request) → 2. A login-time password rehash changes the hash and therefore publishes cause 1.
+- Cause 3 carries the account's current generation without advancing it. A T34 `suspension` publishes once per sanction when it is active, effective and unexpired; a future-dated suspension is published by the read-time reconciler (under the publication lock, before the page is selected) once its start has passed. A typed `ban` revision publishes when it moves the ban from none, inactive or expired to effective; extensions do not. Suspensions already effective when the migration ran are not replayed.
+- `effective_at_ms` is the database clock when the record is appended under the publication lock inside the committing transaction; the exact commit instant is not observable from a trigger.
+- Accounts whose id is not UUIDv7 cannot hold a native Game admission; their changes commit and publish nothing.
+- Staff kick: `POST /admin/players/{id}` with `action=kick` and a reason, permission `account.security.kick` (built-in `moderator` and `platform_admin`), staff session, CSRF and confirmed staff MFA (the players page itself is also gated by `support.tickets.manage`). The audit action is `players.kick` with the reason and the new generation.

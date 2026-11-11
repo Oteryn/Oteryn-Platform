@@ -296,6 +296,40 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         tx.commit().await?;
         Ok(())
     }
+    /// Staff kick. Only the native security generation advances (published with
+    /// cause 4 on the security revocation stream; device sessions are revoked by
+    /// the existing trigger). No status, sanction or credential changes. The
+    /// audit row (actor, target, time, reason) commits in the same transaction.
+    pub async fn kick(&self, context: CheckContext, id: Uuid, reason: &str) -> Result<i64, Error> {
+        self.check(context, Permission::KickAccountSessions).await?;
+        valid_text(reason, 500)?;
+        self.target(id).await?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+            .execute(&mut *tx)
+            .await?;
+        self.check(context, Permission::KickAccountSessions).await?;
+        let generation = oteryn_identity::security_revocations::staff_kick(&mut tx, id)
+            .await
+            .map_err(|error| match error {
+                oteryn_identity::security_revocations::Error::Storage(error) => {
+                    Error::Storage(error)
+                }
+                oteryn_identity::security_revocations::Error::Invalid => Error::BadInput,
+                oteryn_identity::security_revocations::Error::Encoding => Error::Unavailable,
+            })?
+            .ok_or(Error::NotFound)?;
+        append(
+            &mut tx,
+            context,
+            "players.kick",
+            id,
+            json!({"reason":reason.trim(),"native_security_generation":generation}),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(generation)
+    }
     pub async fn request_reset(
         &self,
         context: CheckContext,

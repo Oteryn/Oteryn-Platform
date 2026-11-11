@@ -4,6 +4,9 @@ Routes: `GET /admin/players?q=...`, `GET /admin/players/{id}` and
 `POST /admin/players/{id}`. Search accepts an exact account UUID or email and
 never returns the email, credentials, network addresses or session tokens.
 Forms support `note`, `logout`, `request-reset` and `approve-reset` actions.
+The `kick` action needs the dedicated `account.security.kick` permission and
+staff MFA; it only advances the native security generation (security revocation
+stream cause 4) and audits actor, target, time and reason in one transaction.
 
 `OTERYN_ADMIN_PLAYERS=true` enables account features; the default is off.
 `OTERYN_ADMIN_PLAYER_CHARACTERS=true` separately enables character reads.

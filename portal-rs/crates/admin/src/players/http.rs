@@ -113,6 +113,7 @@ struct Page {
     csrf: String,
     add_note: String,
     logout: String,
+    kick: String,
     reason: String,
     reset: String,
     approve: String,
@@ -180,6 +181,7 @@ impl Page {
             csrf: String::new(),
             add_note: text(lang, "add-note"),
             logout: text(lang, "logout"),
+            kick: text(lang, "kick"),
             reason: text(lang, "reason"),
             reset: text(lang, "reset"),
             approve: text(lang, "approve"),
@@ -251,6 +253,9 @@ async fn change<A: AccountStateReader, I: Accounts>(
     match form.action.as_str() {
         "note" => s.note(context, id, &form.body).await?,
         "logout" => s.logout_all(context, id, &form.reason).await?,
+        "kick" => {
+            s.kick(context, id, &form.reason).await?;
+        }
         "request-reset" => {
             let request = s
                 .request_reset(
