@@ -10,6 +10,7 @@ pub use browser::{show, submit};
 use oteryn_wallet::{AccountStateReader, AuditHook, Ledger, TransferBlockCheck, WalletFlags};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
+pub use transport::PROJECTION_GROUP;
 pub use transport::router;
 use uuid::Uuid;
 
