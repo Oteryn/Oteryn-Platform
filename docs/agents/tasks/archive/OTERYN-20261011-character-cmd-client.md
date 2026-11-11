@@ -117,7 +117,7 @@ terminal_pr_policy: archive_pending
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: same-repository PR #1532 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1532 merged as a2358c31 and live branch lookup on 2026-11-11 confirms refs/heads/claude/decanary-cmd-client-1-20261011 is absent
 ```

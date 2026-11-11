@@ -79,8 +79,8 @@ next_action: implement the remaining configured security adapters and browser li
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: user requests pushed branch for review without a pull request
-source_branch_evidence: current task instruction
+source_branch_reason: Codex lane integration branch published without a PR under the owner's instructions; its work reached main through later portal-rs PRs and the branch belongs to the Codex lane, so this session does not delete it
+source_branch_evidence: live branch lookup on 2026-11-11 shows refs/heads/codex/portal-rs-e2e-night present; archived 2026-11-11 after the owner made portal-rs the main platform
 ```
 
 ## Qualification record

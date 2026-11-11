@@ -145,8 +145,8 @@ next_action: archive this record when the P6 drill and cutover packet records th
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: PR #1583 merged as ba971b872ba243454b3a045d0b8ccb86bc8e68c7 from claude/platform-pg-p5-20261012; git ls-remote --heads origin claude/platform-pg-p5-20261012 returns nothing (verified)
+source_branch_reason: same-repository PR #1583 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1583 merged as ba971b87 and live branch lookup on 2026-11-11 confirms refs/heads/claude/platform-pg-p5-20261012 is absent
 ```
 
 ## Notes

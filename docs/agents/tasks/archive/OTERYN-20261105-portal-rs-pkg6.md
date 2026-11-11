@@ -82,8 +82,8 @@ next_action: Publish normally and retain the package branch for downstream integ
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: Owner requested package branch publication without a PR; retained for subsequent integration.
-source_branch_evidence: Owner instruction in integration task.
+source_branch_reason: Codex lane integration branch published without a PR under the owner's instructions; its work reached main through later portal-rs PRs and the branch belongs to the Codex lane, so this session does not delete it
+source_branch_evidence: live branch lookup on 2026-11-11 shows refs/heads/codex/portal-rs-pkg6 present; archived 2026-11-11 after the owner made portal-rs the main platform
 ```
 
 ## Notes

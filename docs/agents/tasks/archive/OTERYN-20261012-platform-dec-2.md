@@ -102,8 +102,8 @@ terminal_pr_policy: archive_pending
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR
-source_branch_evidence: pending
+source_branch_reason: same-repository PR #1557 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1557 merged as b2e86fae and live branch lookup on 2026-11-11 confirms refs/heads/claude/platform-decanary-2-20261012 is absent
 ```
 
 ## Notes

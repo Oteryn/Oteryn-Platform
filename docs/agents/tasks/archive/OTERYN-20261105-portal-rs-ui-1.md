@@ -79,9 +79,9 @@ next_action: archive this record; PR #1747 is integrated on main
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: task requester owns review and integration; retain this branch for UI-1 review before module migration follow-ups
-source_branch_evidence: owner UI-1 instruction
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: same-repository PR #1747 used repository automatic source-branch deletion after squash merge
+source_branch_evidence: PR #1747 merged as bd9898c4 and live branch lookup on 2026-11-11 confirms refs/heads/claude/portal-rs-ui-1 is absent
 ```
 
 ## Validation report
