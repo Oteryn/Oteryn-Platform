@@ -1434,14 +1434,22 @@ impl oteryn_store::premium::Accounts for ConcurrentPurchaseLock {
             if account == self.later
                 && !self.checked.swap(true, std::sync::atomic::Ordering::SeqCst)
             {
-                // Model a purchase that already owns the later account row and
-                // now needs qualification, before the stream locks that row.
+                // A competing purchase must see the stream's strongest account
+                // lock already held, while qualification remains available.
                 let mut purchase = self.pool.begin().await.unwrap();
-                sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+                let error = sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR KEY SHARE NOWAIT")
                     .bind(account)
                     .execute(&mut *purchase)
                     .await
-                    .unwrap();
+                    .expect_err(
+                        "stream must prepare UPDATE locks before invoking account adapters",
+                    );
+                assert_eq!(
+                    error.as_database_error().unwrap().code().as_deref(),
+                    Some("55P03")
+                );
+                purchase.rollback().await.unwrap();
+                let mut purchase = self.pool.begin().await.unwrap();
                 let available: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(5600)")
                     .fetch_one(&mut *purchase)
                     .await
@@ -1787,8 +1795,18 @@ async fn nwave_signup_and_email_lock_accounts_before_qualification() {
         let campaign = db.campaign.clone();
         let operation = tokio::spawn(async move {
             if signup {
+                // An ordered verification caller prepares before taking the
+                // invitee lock. The unprepared conflict case is tested below.
+                let mut tx = campaign.pool.begin().await.unwrap();
+                sqlx::query("SELECT referral_campaign_prepare(ARRAY[$1::uuid,$2::uuid])")
+                    .bind(owner)
+                    .bind(invitee)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
                 sqlx::query("UPDATE accounts SET status='active',email_verified_at=clock_timestamp() WHERE id=$1")
-                    .bind(invitee).execute(&campaign.pool).await.unwrap();
+                    .bind(invitee).execute(&mut *tx).await.unwrap();
+                tx.commit().await.unwrap();
                 let bound: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=$1)")
                     .bind(invitee).fetch_one(&campaign.pool).await.unwrap();
                 assert!(bound);
@@ -2197,5 +2215,74 @@ async fn nwave_preparation_prevents_account_and_authority_lock_upgrades_after_56
         contender.rollback().await.unwrap();
     }
     prepared.rollback().await.unwrap();
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_verification_contention_preserves_attribution_for_retry() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    let invitee = db.account().await;
+    assert!(owner < invitee);
+    sqlx::query(
+        "UPDATE accounts SET status='pending_verification',email_verified_at=NULL WHERE id=$1",
+    )
+    .bind(invitee)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let hash = attribution_session(&db, Some(invitee), &code.to_string()).await;
+    // Invitation submission has locked the older inviter and next needs the invitee.
+    let mut invitation = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(owner)
+        .execute(&mut *invitation)
+        .await
+        .unwrap();
+    let mut verification = db.pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout='300ms'")
+        .execute(&mut *verification)
+        .await
+        .unwrap();
+    let error = sqlx::query(
+        "UPDATE accounts SET status='active',email_verified_at=clock_timestamp() WHERE id=$1",
+    )
+    .bind(invitee)
+    .execute(&mut *verification)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("40001"),
+        "verification must abort for a fresh ordered retry without waiting on the inviter"
+    );
+    verification.rollback().await.unwrap();
+    // The failed verification released the invitee rather than completing a cycle.
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(invitee)
+        .execute(&mut *invitation)
+        .await
+        .unwrap();
+    invitation.commit().await.unwrap();
+    let evidence: Option<String> =
+        sqlx::query_scalar("SELECT data->>'referral.code' FROM web_sessions WHERE id_hash=$1")
+            .bind(hash)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(evidence, Some(code.to_string()));
+    sqlx::query(
+        "UPDATE accounts SET status='active',email_verified_at=clock_timestamp() WHERE id=$1",
+    )
+    .bind(invitee)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    db.buy(invitee, 1).await;
+    assert_eq!(db.count("starter").await, 1);
+    assert_eq!(db.count("outfit").await, 1);
     db.close().await;
 }

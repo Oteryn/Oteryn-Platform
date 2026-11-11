@@ -156,11 +156,19 @@ three times, only for 40001 (serialization failure) or 40P01 (deadlock). Attempt
 use a short jittered backoff; exhaustion returns the existing unavailable response.
 Purchase retries reuse the operation key, and committed replays return the original
 answer without another debit, order or reward. Other failures are not retried.
-Signup triggers cannot restart the outer transaction: if preparation would expand
-an already prepared set, binding returns false and preserves session evidence for
-the worker rather than aborting the session write. Session attribution runs after
-the password-reset account-lock guard.
-Verification attribution runs before credential-change session revocation.
+Row triggers inherit account locks from their caller, which may already hold the
+invitee before the older inviter. Shared preparation therefore uses NOWAIT for
+all account and existing authority rows when invoked by a trigger, translating
+contention to SQLSTATE 40001. It never waits in the inherited, potentially reversed
+order. Ordered callers prepare the complete set before updating the account.
+Session triggers may defer a preparation conflict or expanded set to the worker,
+preserving session evidence. Session attribution runs after the password-reset
+account-lock guard. Verification attribution runs before credential-change session
+revocation and must propagate 40001 (and deadlocks), rolling back the entire
+verification including token consumption and session deletion. Retry verification
+in a fresh transaction; a conflict must never commit verification without attribution.
+Stream preparation also precedes account adapter reads so their SHARE/UPDATE locks
+cannot introduce an upgrade cycle.
 Worker mail delivery holds only the separate delivery lock 5601 across SMTP;
 5600 is never held across network I/O. Referral-premium reconciliation uses the
 ordinary premium ledger and does not acquire 5600.

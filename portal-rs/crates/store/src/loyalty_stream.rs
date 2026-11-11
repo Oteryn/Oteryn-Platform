@@ -158,6 +158,12 @@ impl Stream {
             let candidates: std::collections::BTreeSet<_> =
                 candidates.into_iter().chain(inviters).collect();
             let locked_accounts: Vec<_> = candidates.iter().copied().collect();
+            // Account adapters may take SHARE/UPDATE locks: prepare the full
+            // ordered set first, so their reads never require lock upgrades.
+            sqlx::query("SELECT referral_campaign_prepare($1)")
+                .bind(&locked_accounts)
+                .execute(&mut *tx)
+                .await?;
             let mut known = std::collections::BTreeSet::new();
             for account in candidates {
                 if account.get_version_num() != 7 || account.get_variant() != uuid::Variant::RFC4122
@@ -176,10 +182,6 @@ impl Stream {
                     .execute(&mut *tx)
                     .await?;
             }
-            sqlx::query("SELECT referral_campaign_prepare($1)")
-                .bind(&locked_accounts)
-                .execute(&mut *tx)
-                .await?;
             for &account in &known {
                 // Snapshots insert/lock authority before taking 5600.
                 // Prepare even credit-only accounts in that same order.

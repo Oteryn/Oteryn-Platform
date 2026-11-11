@@ -80,7 +80,11 @@ END $$;
 -- Preparation takes UPDATE locks up front, including existing authority rows.
 -- Callers create any missing authority rows they need before taking 5600.
 -- Rust retries stale discovery from a fresh transaction via oteryn_db::retry;
--- signup triggers instead defer expanded preparation to worker reconciliation.
+-- Session triggers may defer expanded preparation to worker reconciliation.
+-- Row triggers inherit locks from their caller, possibly out of UUID order.
+-- They must NEVER wait for another account/authority row: NOWAIT preparation
+-- either obtains the complete set before 5600 or raises 40001 for a fresh retry.
+-- Verification must propagate that error, rolling back session revocation too.
 CREATE FUNCTION referral_campaign_prepare(ids uuid[],exclusive_account uuid DEFAULT NULL) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE held uuid[]; account uuid;
 BEGIN
@@ -94,11 +98,22 @@ BEGIN
     FOR account IN SELECT id FROM accounts WHERE id=ANY(ids) ORDER BY id LOOP
         -- Authentication and account adapters may later need UPDATE/SHARE.
         -- Take the strongest lock now, so no path upgrades after 5600.
-        PERFORM id FROM accounts WHERE id=account FOR UPDATE;
+        IF pg_trigger_depth()>0 THEN
+            PERFORM id FROM accounts WHERE id=account FOR UPDATE NOWAIT;
+        ELSE
+            PERFORM id FROM accounts WHERE id=account FOR UPDATE;
+        END IF;
     END LOOP;
-    PERFORM account_id FROM premium_authority WHERE account_id=ANY(ids)
-        ORDER BY account_id FOR UPDATE;
+    IF pg_trigger_depth()>0 THEN
+        PERFORM account_id FROM premium_authority WHERE account_id=ANY(ids)
+            ORDER BY account_id FOR UPDATE NOWAIT;
+    ELSE
+        PERFORM account_id FROM premium_authority WHERE account_id=ANY(ids)
+            ORDER BY account_id FOR UPDATE;
+    END IF;
     PERFORM set_config('oteryn.referral_prepared_accounts',ids::text,true);
+EXCEPTION WHEN lock_not_available THEN
+    RAISE EXCEPTION 'referral preparation conflicts with caller locks; retry transaction' USING ERRCODE='40001';
 END $$;
 CREATE FUNCTION referral_campaign_lock(ids uuid[]) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
@@ -203,7 +218,7 @@ CREATE TRIGGER referral_activity_game AFTER INSERT OR UPDATE OF entered_at,left_
 -- session is already authenticated, verification performs the same binding.
 -- All eligibility checks match Campaign::accept/bind; no rewards for unverified
 -- accounts or retroactive attribution after a store order.
-CREATE FUNCTION referral_campaign_signup(a uuid,code text) RETURNS boolean
+CREATE FUNCTION referral_campaign_signup(a uuid,code text,defer_on_conflict boolean DEFAULT true) RETURNS boolean
 LANGUAGE plpgsql AS $$
 DECLARE owner uuid; invitation_time timestamptz; recipient text; token uuid; phase integer;
 BEGIN
@@ -239,10 +254,11 @@ BEGIN
         IF phase=1 THEN
             BEGIN
                 PERFORM referral_campaign_lock(ARRAY[a,owner]);
-            EXCEPTION WHEN serialization_failure OR deadlock_detected THEN
-                -- Triggers cannot restart their caller's transaction. Keep the
-                -- session evidence intact for reconciliation in a fresh one.
-                RETURN false;
+            EXCEPTION WHEN serialization_failure THEN
+                -- Session writes retain their evidence, but verification revokes
+                -- sessions: it must roll back in full rather than lose the code.
+                IF defer_on_conflict THEN RETURN false; END IF;
+                RAISE;
             END;
         END IF;
     END LOOP;
@@ -269,7 +285,7 @@ BEGIN
         UPDATE web_sessions SET data=data-'referral.code',updated_at=clock_timestamp()
             WHERE account_id=NEW.id AND data ? 'referral.code'
             AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()
-            AND referral_campaign_signup(NEW.id,data->>'referral.code');
+            AND referral_campaign_signup(NEW.id,data->>'referral.code',false);
     END IF;
     RETURN NEW;
 END $$;
