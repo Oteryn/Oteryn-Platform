@@ -138,10 +138,10 @@ impl Stream {
         // A tail poll recomputes even when no Premium mutation has occurred: time
         // alone can advance a consumed-day total. One SQL snapshot covers all totals.
         if cursor.through == 0 {
-            let totals: Vec<(Uuid, i32)> = sqlx::query_as(
-                "WITH instant AS MATERIALIZED (SELECT date_trunc('second', clock_timestamp()) AS now), intervals AS (SELECT DISTINCT ON (account_id,entitlement_id,effective_from) account_id,effective_from,effective_until FROM premium_ledger ORDER BY account_id,entitlement_id,effective_from,lifecycle_revision DESC) SELECT a.account_id, LEAST(2147483647, FLOOR(COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM LEAST(i.effective_until,t.now)-i.effective_from))),0)/86400))::integer FROM premium_authority a CROSS JOIN instant t LEFT JOIN intervals i ON i.account_id=a.account_id AND i.effective_from<t.now GROUP BY a.account_id ORDER BY a.account_id"
+            let totals: Vec<(Uuid, i32, i32)> = sqlx::query_as(
+                "WITH instant AS MATERIALIZED (SELECT date_trunc('second', clock_timestamp()) AS now), intervals AS (SELECT DISTINCT ON (account_id,entitlement_id,effective_from) account_id,effective_from,effective_until FROM premium_ledger ORDER BY account_id,entitlement_id,effective_from,lifecycle_revision DESC) SELECT days.account_id,days.spent,LEAST(2147483647,days.spent+COALESCE((SELECT sum(c.points) FROM referral_loyalty_credits c WHERE c.account_id=days.account_id),0))::integer FROM (SELECT a.account_id, LEAST(2147483647, FLOOR(COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM LEAST(i.effective_until,t.now)-i.effective_from))),0)/86400))::integer AS spent FROM (SELECT account_id FROM premium_authority UNION SELECT account_id FROM referral_loyalty_credits) a CROSS JOIN instant t LEFT JOIN intervals i ON i.account_id=a.account_id AND i.effective_from<t.now GROUP BY a.account_id) days ORDER BY days.account_id"
             ).fetch_all(&mut *tx).await?;
-            for (account, days) in totals {
+            for (account, days, points) in totals {
                 if account.get_version_num() != 7 || account.get_variant() != uuid::Variant::RFC4122
                 {
                     return Err(Error::Unavailable);
@@ -151,19 +151,27 @@ impl Stream {
                     AccountState::Unknown => continue,
                     AccountState::Ambiguous => return Err(Error::Unavailable),
                 }
-                let old: Option<(i32, i64)> = sqlx::query_as("SELECT spent_premium_days,platform_revision FROM loyalty_stream_state WHERE account_id=$1")
+                let old: Option<(i32, i32, i64)> = sqlx::query_as("SELECT spent_premium_days,loyalty_points,platform_revision FROM loyalty_stream_state WHERE account_id=$1")
                     .bind(account).fetch_optional(&mut *tx).await?;
-                if old.is_some_and(|(previous, _)| previous == days) {
+                if old.is_some_and(|(previous_days, previous_points, _)| {
+                    previous_days == days && previous_points == points
+                }) {
                     continue;
                 }
                 let revision = old
-                    .map_or(Some(1), |(_, revision)| revision.checked_add(1))
+                    .map_or(Some(1), |(_, _, revision)| revision.checked_add(1))
                     .ok_or(Error::Unavailable)?;
                 head = head.checked_add(1).ok_or(Error::Unavailable)?;
-                sqlx::query("INSERT INTO loyalty_stream_state(account_id,spent_premium_days,platform_revision) VALUES ($1,$2,$3) ON CONFLICT (account_id) DO UPDATE SET spent_premium_days=$2,platform_revision=$3,updated_at=clock_timestamp()")
-                    .bind(account).bind(days).bind(revision).execute(&mut *tx).await?;
-                sqlx::query("INSERT INTO loyalty_stream_events(position,account_id,spent_premium_days,platform_revision) VALUES ($1,$2,$3,$4)")
-                    .bind(head).bind(account).bind(days).bind(revision).execute(&mut *tx).await?;
+                sqlx::query(
+                    "INSERT INTO premium_authority(account_id) VALUES($1) ON CONFLICT DO NOTHING",
+                )
+                .bind(account)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query("INSERT INTO loyalty_stream_state(account_id,spent_premium_days,loyalty_points,platform_revision) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id) DO UPDATE SET spent_premium_days=$2,loyalty_points=$3,platform_revision=$4,updated_at=clock_timestamp()")
+                    .bind(account).bind(days).bind(points).bind(revision).execute(&mut *tx).await?;
+                sqlx::query("INSERT INTO loyalty_stream_events(position,account_id,spent_premium_days,loyalty_points,platform_revision) VALUES ($1,$2,$3,$4,$5)")
+                    .bind(head).bind(account).bind(days).bind(points).bind(revision).execute(&mut *tx).await?;
             }
             sqlx::query("UPDATE loyalty_stream_head SET position=$1 WHERE singleton")
                 .bind(head)
@@ -175,7 +183,7 @@ impl Stream {
         } else {
             cursor.through
         };
-        let rows: Vec<(i64, Uuid, i32, i64)> = sqlx::query_as("SELECT position,account_id,spent_premium_days,platform_revision FROM loyalty_stream_events WHERE position>$1 AND position<=$2 ORDER BY position LIMIT $3")
+        let rows: Vec<(i64, Uuid, i32, i32, i64)> = sqlx::query_as("SELECT position,account_id,spent_premium_days,loyalty_points,platform_revision FROM loyalty_stream_events WHERE position>$1 AND position<=$2 ORDER BY position LIMIT $3")
             .bind(cursor.position).bind(through).bind(i64::from(limit)).fetch_all(&mut *tx).await?;
         let position = rows.last().map_or(cursor.position, |row| row.0);
         let next = if position == through {
@@ -188,12 +196,14 @@ impl Stream {
         };
         let items = rows
             .into_iter()
-            .map(|(_, account_id, days, platform_revision)| Item {
-                account_id,
-                spent_premium_days: days,
-                loyalty_points: days,
-                platform_revision,
-            })
+            .map(
+                |(_, account_id, days, loyalty_points, platform_revision)| Item {
+                    account_id,
+                    spent_premium_days: days,
+                    loyalty_points,
+                    platform_revision,
+                },
+            )
             .collect();
         tx.commit().await?;
         Ok(Page { items, next })

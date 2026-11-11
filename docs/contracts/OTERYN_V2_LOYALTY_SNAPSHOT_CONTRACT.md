@@ -138,15 +138,19 @@ Each item contains, in order:
 - `spent_premium_days`: an integer from 0 through 2147483647, the absolute consumed
   Premium-day total using the existing loyalty computation above (including its
   saturation, lifecycle grouping and flooring after summing fractional days);
-- `loyalty_points`: the same integer, at one point per consumed Premium day;
+- `loyalty_points`: consumed Premium-day points plus durable referral loyalty
+  credits, saturated at 2147483647, matching the snapshot computation;
 - `platform_revision`: an integer from 1 through 9223372036854775807, strictly
   increasing per account when a different total is published.
 
-The stream discovers accounts through Platform's Premium authority, including
-accounts with zero consumption. Accounts with no Premium authority/history have
-nothing exported. Unknown accounts are omitted; ambiguous account authority
-fails the publication with 503. An initial export has revision 1. Polling an
-unchanged total does not allocate another revision. Snapshot reads still advance
+The stream discovers accounts through Platform's Premium authority and referral
+loyalty credits, including accounts with zero consumption. A credited account
+without Premium history exports zero days and its credit total. Accounts with
+neither Premium authority/history nor referral credits have nothing exported.
+Unknown accounts are omitted; ambiguous account authority fails the publication
+with 503. An initial export has revision 1. Polling unchanged day and point totals
+does not allocate another revision. A credit-only change allocates a new stream
+revision even when days are unchanged. Snapshot reads still advance
 their existing shared Premium authority revision and do not advance the stream
 revision. A higher stream revision can carry a lower corrected total. Game applies
 higher revisions, accepts identical replays and refuses conflicting equal revisions,
@@ -188,3 +192,7 @@ strings as opaque.
 Golden byte fixtures and malformed request cases are under
 `docs/contracts/fixtures/loyalty-stream-v1/`. The earlier snapshot tests remain
 unchanged and are required alongside the stream tests.
+
+The additive golden fixture `loyalty-stream-v1/credit-response.json` demonstrates
+2 consumed Premium days plus 1 referral credit at stream revision 2. The four
+item members and their order remain unchanged.

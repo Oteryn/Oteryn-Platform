@@ -905,6 +905,16 @@ async fn referrals_link_survives_real_session_rotation_and_reconciles_signup() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    // The first purchase must qualify immediately after the real session rotation.
+    db.buy(invitee, 1).await;
+    let paid: bool = sqlx::query_scalar(
+        "SELECT first_paid_at IS NOT NULL FROM referral_campaign_invitations WHERE invitee_id=$1",
+    )
+    .bind(invitee)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(paid);
     Worker {
         campaign: db.campaign.clone(),
         sender: None,
@@ -922,5 +932,233 @@ async fn referrals_link_survives_real_session_rotation_and_reconciles_signup() {
     assert_eq!(binding, owner);
     assert_eq!(db.count("starter").await, 1);
     drop(app);
+    db.close().await;
+}
+
+async fn attribution_session(db: &Database, account: Option<Uuid>, code: &str) -> Vec<u8> {
+    let hash = Uuid::now_v7().as_bytes().repeat(2);
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 day','regression',$3,jsonb_build_object('referral.code',$4::text))")
+        .bind(&hash).bind(account).bind("a".repeat(64)).bind(code).execute(&db.pool).await.unwrap();
+    hash
+}
+
+#[tokio::test]
+async fn nwave_completed_attribution_does_not_starve_later_batches() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    let first = db.account().await;
+    db.campaign.accept(first, code).await.unwrap();
+    // Seed a backlog while synchronous binding is off, as on the prior version.
+    sqlx::query("UPDATE referral_campaign_settings SET enabled=false")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    for _ in 0..100 {
+        attribution_session(&db, Some(first), &code.to_string()).await;
+    }
+    sqlx::query("UPDATE referral_campaign_settings SET enabled=true")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    for n in 0..101 {
+        let account = db.account().await;
+        let code = if n == 0 {
+            Uuid::nil().to_string()
+        } else {
+            format!("invalid-{n}")
+        };
+        attribution_session(&db, Some(account), &code).await;
+    }
+    let worker = Worker {
+        campaign: db.campaign.clone(),
+        sender: None,
+    };
+    for _ in 0..4 {
+        worker.process().await.unwrap();
+    }
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE data ? 'referral.code'")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_signup_attribution_precedes_first_purchase() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    // Exercise both orders: verification before login, and login before verification.
+    for verify_first in [true, false] {
+        let hash = attribution_session(&db, None, &code.to_string()).await;
+        let invitee = db.account().await;
+        sqlx::query(
+            "UPDATE accounts SET status='pending_verification',email_verified_at=NULL WHERE id=$1",
+        )
+        .bind(invitee)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        if verify_first {
+            sqlx::query("UPDATE accounts SET status='active',email_verified_at=clock_timestamp() WHERE id=$1").bind(invitee).execute(&db.pool).await.unwrap();
+        }
+        sqlx::query("UPDATE web_sessions SET account_id=$2 WHERE id_hash=$1")
+            .bind(hash)
+            .bind(invitee)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        if !verify_first {
+            let bound: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=$1)",
+            )
+            .bind(invitee)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            assert!(!bound);
+            sqlx::query("UPDATE accounts SET status='active',email_verified_at=clock_timestamp() WHERE id=$1").bind(invitee).execute(&db.pool).await.unwrap();
+        }
+        // No reconciliation worker runs before the real store purchase.
+        db.buy(invitee, 1).await;
+        let paid: Option<bool> = sqlx::query_scalar("SELECT first_paid_at IS NOT NULL FROM referral_campaign_invitations WHERE invitee_id=$1").bind(invitee).fetch_optional(&db.pool).await.unwrap();
+        assert_eq!(paid, Some(true));
+    }
+    assert_eq!(db.count("outfit").await, 1);
+    assert_eq!(db.count("starter").await, 2);
+    let late = db.account().await;
+    db.buy(late, 1).await;
+    attribution_session(&db, Some(late), &code.to_string()).await;
+    let bound: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=$1)",
+    )
+    .bind(late)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(!bound);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_session_end_is_retained_activity_and_backfilled() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let buddy = db.account().await;
+    db.inactive(buddy, 13).await;
+    let event = Uuid::now_v7();
+    sqlx::query("INSERT INTO pd_game_logins(account_id,login_event_id,projection_epoch,recovery_generation,source_revision,entered_at) VALUES($1,$2,1,1,1,(extract(epoch FROM clock_timestamp()-interval '13 months')*1000)::bigint)").bind(buddy).bind(event).execute(&db.pool).await.unwrap();
+    sqlx::query("UPDATE pd_game_logins SET left_at=(extract(epoch FROM clock_timestamp()-interval '1 day')*1000)::bigint,end_reason='LOGOUT' WHERE account_id=$1 AND login_event_id=$2").bind(buddy).bind(event).execute(&db.pool).await.unwrap();
+    let recent: bool = sqlx::query_scalar("SELECT last_activity>clock_timestamp()-interval '2 days' FROM referral_activity WHERE account_id=$1").bind(buddy).fetch_one(&db.pool).await.unwrap();
+    assert!(recent);
+    // Re-run the migration's real backfill against the same ended session.
+    // The migration backfill starts with an empty activity table.
+    sqlx::query("DELETE FROM referral_activity")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let migration = include_str!("../../../../migrations/20261111140004_n012_campaign.sql");
+    let backfill = migration
+        .split("INSERT INTO referral_activity(account_id,last_activity)")
+        .nth(1)
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO referral_activity(account_id,last_activity){backfill};"
+    )))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let recent: bool = sqlx::query_scalar("SELECT last_activity>clock_timestamp()-interval '2 days' FROM referral_activity WHERE account_id=$1").bind(buddy).fetch_one(&db.pool).await.unwrap();
+    assert!(recent);
+    sqlx::query("DELETE FROM pd_game_logins WHERE account_id=$1")
+        .bind(buddy)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        db.campaign
+            .email(owner, &db.email(buddy).await, Kind::Returning)
+            .await,
+        Err(Error::Denied)
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn nwave_loyalty_stream_tracks_credit_only_changes() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = db.account().await;
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1)")
+        .bind(account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO premium_ledger(request_id,account_id,actor_id,event_type,duration_days,reason_sha256,entitlement_id,lifecycle_revision,delta_seconds,effective_from,effective_until) VALUES($1,$2,$2,'GRANT',2,$3,$4,1,172800,date_trunc('second',now())-interval '3 days',date_trunc('second',now())-interval '1 day')").bind(Uuid::now_v7()).bind(account).bind(vec![0_u8;32]).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    let stream =
+        oteryn_store::loyalty::stream::Stream::new(db.pool.clone(), Arc::new(DatabasePolicy), true);
+    let first = stream.read(None, 500).await.unwrap();
+    for (key, points, expected, revision) in
+        [("credit-1", 1, 3, 2), ("credit-2", i32::MAX, i32::MAX, 3)]
+    {
+        sqlx::query("INSERT INTO referral_loyalty_credits(operation_key,account_id,points) VALUES($1,$2,$3)").bind(key).bind(account).bind(points).execute(&db.pool).await.unwrap();
+        let page = stream.read(Some(first.next), 500).await.unwrap();
+        let item = page.items.last().unwrap();
+        assert_eq!(
+            (
+                item.spent_premium_days,
+                item.loyalty_points,
+                item.platform_revision
+            ),
+            (2, expected, revision)
+        );
+        let snapshot =
+            oteryn_store::loyalty::Ledger::new(db.pool.clone(), Arc::new(DatabasePolicy), true)
+                .snapshot(account, &"a".repeat(32), &"b".repeat(40))
+                .await
+                .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&snapshot).unwrap()["loyalty_points"],
+            item.loyalty_points
+        );
+        assert!(
+            stream
+                .read(Some(page.next), 500)
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
+    }
+    let credited_only = db.account().await;
+    sqlx::query("INSERT INTO referral_loyalty_credits(operation_key,account_id,points) VALUES('credit-only',$1,1)")
+        .bind(credited_only).execute(&db.pool).await.unwrap();
+    let page = stream.read(None, 500).await.unwrap();
+    let item = page
+        .items
+        .iter()
+        .find(|i| i.account_id == credited_only)
+        .unwrap();
+    assert_eq!(
+        (
+            item.spent_premium_days,
+            item.loyalty_points,
+            item.platform_revision
+        ),
+        (0, 1, 1)
+    );
     db.close().await;
 }

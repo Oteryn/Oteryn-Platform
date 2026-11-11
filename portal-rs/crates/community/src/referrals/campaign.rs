@@ -319,14 +319,18 @@ impl Worker {
         if !enabled {
             return Ok(());
         }
-        let candidates: Vec<(Uuid,String)>=sqlx::query_as("SELECT DISTINCT account_id,data->>'referral.code' FROM web_sessions WHERE account_id IS NOT NULL AND data ? 'referral.code' LIMIT 100").fetch_all(&self.campaign.pool).await?;
+        let candidates: Vec<(Uuid,String)>=sqlx::query_as("SELECT DISTINCT s.account_id,s.data->>'referral.code' FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.data ? 'referral.code' AND a.status='active' AND a.email_verified_at IS NOT NULL AND a.email_change_blocked_until<=clock_timestamp() ORDER BY s.account_id,s.data->>'referral.code' LIMIT 100").fetch_all(&self.campaign.pool).await?;
         for (account, code) in candidates {
             if let Ok(code) = Uuid::parse_str(&code) {
                 match self.campaign.accept(account, code).await {
-                    Ok(()) | Err(Error::Denied) => {}
+                    Ok(()) | Err(Error::Denied | Error::Invalid) => {}
                     Err(error) => return Err(error),
                 }
             }
+            // Success, permanent refusal and malformed evidence are terminal.
+            // A transient failure above leaves the evidence available for retry.
+            sqlx::query("UPDATE web_sessions SET data=data-'referral.code',updated_at=clock_timestamp() WHERE account_id=$1 AND data->>'referral.code'=$2")
+                .bind(account).bind(&code).execute(&self.campaign.pool).await?;
         }
         let ledger = oteryn_store::premium::repository::Ledger::new(
             self.campaign.pool.clone(),

@@ -114,6 +114,14 @@ transaction as the decision and audit. It accepts only an explicit valid reason
 code and 1..120-byte control-free text. Until this metadata is supplied, typed
 records remain private. Metadata corrections emit a new current-state revision.
 
+Revocation is sticky for each `sanction_stream_id`. The typed sanction service
+refuses Ban after Unban, or Namelock after LiftNamelock, under the same sanction
+ID with `Conflict`, before allocating a decision revision. This applies even
+before public reason metadata is registered. To impose a sanction again, callers
+must create a new UUIDv7 sanction ID (and public reason); its export starts at
+decision revision 1 with `revoked=false`. The lifted stream remains revoked.
+Idempotent replay of the current lift remains valid.
+
 Triggers write the immutable journal in the transaction of every mapped T34
 mutation, typed decision revision, and appeal review/outcome change. Accepted
 appeals publish revoked=true; rejected/reviewing appeals publish a higher revision

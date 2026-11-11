@@ -590,3 +590,82 @@ async fn sanction_export_reused_internal_identities_503() -> TestResult {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn nwave_lifted_sanction_requires_new_identity() -> TestResult {
+    use super::super::{Features, SanctionAction, SanctionIntent, Service};
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let service = Service::new(
+        db.pool.clone(),
+        Features {
+            sanctions: true,
+            game_access: false,
+        },
+    );
+    for (active, lifted, character) in [
+        (
+            SanctionAction::Ban {
+                expires_at_ms: None,
+            },
+            SanctionAction::Unban,
+            None,
+        ),
+        (
+            SanctionAction::Namelock {
+                expires_at_ms: None,
+            },
+            SanctionAction::LiftNamelock,
+            Some(Uuid::now_v7()),
+        ),
+    ] {
+        let mut intent = SanctionIntent {
+            account: db.owner,
+            sanction_id: Uuid::now_v7(),
+            character,
+            action: active.clone(),
+        };
+        let mut tx = db.pool.begin().await?;
+        service.allocate_and_record(&mut tx, &intent).await?;
+        set_public_reason(&mut tx, intent.sanction_id, 42, "Public rule").await?;
+        intent.action = lifted;
+        let lift = service.allocate_and_record(&mut tx, &intent).await?;
+        assert_eq!(
+            service
+                .record_at_revision(&mut tx, &intent, lift.revision)
+                .await?,
+            lift
+        );
+        tx.commit().await?;
+        intent.action = active;
+        let mut tx = db.pool.begin().await?;
+        assert!(matches!(
+            service.allocate_and_record(&mut tx, &intent).await,
+            Err(super::super::Error::Conflict)
+        ));
+        tx.rollback().await?;
+        intent.sanction_id = Uuid::now_v7();
+        let mut tx = db.pool.begin().await?;
+        service.allocate_and_record(&mut tx, &intent).await?;
+        set_public_reason(&mut tx, intent.sanction_id, 42, "New public rule").await?;
+        tx.commit().await?;
+    }
+    let result = page(&db, None, 500).await?;
+    let items = result["items"].as_array().ok_or("items required")?;
+    assert_eq!(items.len(), 6);
+    for group in items.chunks(3) {
+        assert_eq!(
+            group[0]["sanction_stream_id"],
+            group[1]["sanction_stream_id"]
+        );
+        assert_eq!(group[1]["revoked"], true);
+        assert_ne!(
+            group[1]["sanction_stream_id"],
+            group[2]["sanction_stream_id"]
+        );
+        assert_eq!(group[2]["revoked"], false);
+        assert_eq!(group[2]["decision_revision"], 1);
+    }
+    db.cleanup().await
+}

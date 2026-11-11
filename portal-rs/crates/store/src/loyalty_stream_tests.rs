@@ -61,24 +61,7 @@ impl Database {
             .connect(&url)
             .await
             .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../../migrations/20261105160000_t27_premium_ledger.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../../migrations/20261105180127_t27b_loyalty_state.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../../migrations/20261111140005_n014_loyalty_stream.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
+        oteryn_db::migrate(&pool).await.unwrap();
         Some(Self {
             pool,
             admin,
@@ -363,6 +346,21 @@ fn loyalty_stream_fixtures_match() {
     assert_eq!(
         page.encode().unwrap(),
         include_bytes!("../../../../docs/contracts/fixtures/loyalty-stream-v1/response.json")
+    );
+    let credited = Page {
+        items: vec![Item {
+            account_id: Uuid::parse_str(ACCOUNT).unwrap(),
+            spent_premium_days: 2,
+            loyalty_points: 3,
+            platform_revision: 2,
+        }],
+        next: Cursor::parse("v1:2:0").unwrap(),
+    };
+    assert_eq!(
+        credited.encode().unwrap(),
+        include_bytes!(
+            "../../../../docs/contracts/fixtures/loyalty-stream-v1/credit-response.json"
+        )
     );
     assert_eq!(
         Page {
@@ -725,10 +723,6 @@ async fn loyalty_stream_configured_route_uses_account_authority() {
     };
     let account = Uuid::parse_str(ACCOUNT).unwrap();
     db.days(account, 1, 2).await;
-    sqlx::raw_sql("CREATE TABLE accounts(id uuid PRIMARY KEY)")
-        .execute(&db.pool)
-        .await
-        .unwrap();
     let mut values = std::collections::BTreeMap::from([
         (
             "PRODUCTS_ENTITLEMENTS_LOYALTY_STREAM_ENABLED".into(),
@@ -757,7 +751,7 @@ async fn loyalty_stream_configured_route_uses_account_authority() {
         include_bytes!("../../../../docs/contracts/fixtures/loyalty-stream-v1/empty-response.json")
             .as_slice()
     );
-    sqlx::query("INSERT INTO accounts(id) VALUES ($1)")
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES ($1,'loyalty@example.test','test-only','active','en')")
         .bind(account)
         .execute(&db.pool)
         .await

@@ -30,9 +30,13 @@ The page uses Polish/English Fluent messages and responsive accessible component
 
 A reusable link or e-mail link opens `/{lang}/referrals/{code}`. Its confirmation
 POST stores attribution in the existing browser session and opens registration.
-After verification/sign-in, the worker binds the active new account. Session
-rotation preserves the attribution field. A signed-in eligible new account can
-confirm directly. Returning accounts are already bound at invitation time; signing
+Verification and authenticated session assignment synchronously bind the eligible
+new account in the same database transaction, before its first store purchase.
+Both verification/sign-in orders are supported. Session rotation preserves pending
+attribution. The worker reconciles legacy pending sessions and removes completed,
+permanently refused or malformed candidates; transient failures retain evidence
+for retry. Unverified accounts remain pending and do not consume the batch.
+A signed-in eligible new account can confirm directly. Returning accounts are already bound at invitation time; signing
 in and opening their link confirms the existing binding without a second grant.
 
 A new account must have been created after the link/invitation and within seven
@@ -54,8 +58,9 @@ A shared transaction lock serializes checks and budget consumption across nodes.
 Bring-back invitations additionally permit 20 sends in a rolling 30-day window.
 The recipient must have no website or game activity in the preceding 12 calendar
 months. Durable activity high-water marks are initialized from accounts, website
-sessions, login history and game-login projections, then maintained by triggers
-so ordinary history retention cannot make an active account appear inactive.
+sessions, login history and the latest of game-session entry/end times, then
+maintained by triggers on session inserts and end-time updates so ordinary history
+retention cannot make an active account appear inactive.
 A missing activity row or less than 12 months of recorded coverage denies
 eligibility. The activity row's creation time is the start of that coverage;
 retained game-login history alone (30 days) never proves twelve-month inactivity.

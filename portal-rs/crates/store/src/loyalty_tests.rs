@@ -59,18 +59,7 @@ impl Database {
             .connect(&url)
             .await
             .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../../migrations/20261105160000_t27_premium_ledger.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../../migrations/20261105180127_t27b_loyalty_state.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
+        oteryn_db::migrate(&pool).await.unwrap();
         Some(Self {
             pool,
             admin,

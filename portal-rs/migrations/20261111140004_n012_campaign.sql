@@ -144,12 +144,12 @@ INSERT INTO referral_activity(account_id,last_activity)
 SELECT a.id,GREATEST(a.created_at,
     COALESCE((SELECT max(created_at) FROM security_events WHERE account_id=a.id AND kind='login_succeeded'),a.created_at),
     COALESCE((SELECT max(last_seen_at) FROM web_sessions WHERE account_id=a.id),a.created_at),
-    COALESCE((SELECT to_timestamp(max(entered_at)/1000.0) FROM pd_game_logins WHERE account_id=a.id),a.created_at)) FROM accounts a;
+    COALESCE((SELECT to_timestamp(max(GREATEST(entered_at,left_at))/1000.0) FROM pd_game_logins WHERE account_id=a.id),a.created_at)) FROM accounts a;
 CREATE FUNCTION referral_activity_capture() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE a uuid; stamp timestamptz;
 BEGIN
     IF TG_TABLE_NAME='accounts' THEN a:=NEW.id; stamp:=NEW.created_at;
-    ELSIF TG_TABLE_NAME='pd_game_logins' THEN a:=NEW.account_id; stamp:=to_timestamp(NEW.entered_at/1000.0);
+    ELSIF TG_TABLE_NAME='pd_game_logins' THEN a:=NEW.account_id; stamp:=to_timestamp(GREATEST(NEW.entered_at,NEW.left_at)/1000.0);
     ELSIF TG_TABLE_NAME='security_events' THEN
         IF NEW.kind<>'login_succeeded' THEN RETURN NEW; END IF;
         a:=NEW.account_id; stamp:=NEW.created_at;
@@ -164,4 +164,67 @@ END $$;
 CREATE TRIGGER referral_activity_account AFTER INSERT ON accounts FOR EACH ROW EXECUTE FUNCTION referral_activity_capture();
 CREATE TRIGGER referral_activity_web AFTER INSERT OR UPDATE ON web_sessions FOR EACH ROW EXECUTE FUNCTION referral_activity_capture();
 CREATE TRIGGER referral_activity_security AFTER INSERT ON security_events FOR EACH ROW EXECUTE FUNCTION referral_activity_capture();
-CREATE TRIGGER referral_activity_game AFTER INSERT ON pd_game_logins FOR EACH ROW EXECUTE FUNCTION referral_activity_capture();
+CREATE TRIGGER referral_activity_game AFTER INSERT OR UPDATE OF entered_at,left_at ON pd_game_logins FOR EACH ROW EXECUTE FUNCTION referral_activity_capture();
+
+-- Session rotation binds a confirmed signup before its first purchase. If a
+-- session is already authenticated, verification performs the same binding.
+-- All eligibility checks match Campaign::accept/bind; no rewards for unverified
+-- accounts or retroactive attribution after a store order.
+CREATE FUNCTION referral_campaign_signup(a uuid,code text) RETURNS boolean
+LANGUAGE plpgsql AS $$
+DECLARE owner uuid; invitation_time timestamptz; recipient text; token uuid;
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM referral_campaign_settings WHERE enabled) THEN RETURN false; END IF;
+    BEGIN token := code::uuid;
+    EXCEPTION WHEN invalid_text_representation THEN RETURN false; END;
+    IF uuid_extract_version(token) IS DISTINCT FROM 7 OR uuid_extract_version(a) IS DISTINCT FROM 7 THEN RETURN false; END IF;
+    PERFORM pg_advisory_xact_lock(5600);
+    SELECT account_id,created_at,NULL::text INTO owner,invitation_time,recipient
+        FROM referral_links WHERE referral_links.code=token;
+    IF NOT FOUND THEN
+        SELECT inviter_id,created_at,referral_email_invitations.recipient INTO owner,invitation_time,recipient
+            FROM referral_email_invitations WHERE id=token AND kind='new';
+    END IF;
+    IF owner IS NULL OR owner=a THEN RETURN false; END IF;
+    IF (SELECT count(*) FROM accounts WHERE id IN (a,owner) AND status='active'
+        AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp())<>2 THEN RETURN false; END IF;
+    IF EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=a) THEN
+        RETURN EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=a AND inviter_id=owner AND kind='new');
+    END IF;
+    IF NOT EXISTS(SELECT 1 FROM accounts WHERE id=a AND created_at>=invitation_time
+        AND created_at>clock_timestamp()-interval '7 days'
+        AND (recipient IS NULL OR lower(email)=recipient))
+        OR EXISTS(SELECT 1 FROM store_orders WHERE account_id=a) THEN RETURN false; END IF;
+    IF EXISTS(WITH RECURSIVE edges AS (
+        SELECT inviter_id,invitee_id FROM referral_invitations UNION
+        SELECT inviter_id,invitee_id FROM referral_campaign_invitations),
+        ancestors(id) AS (SELECT owner UNION SELECT e.inviter_id FROM edges e JOIN ancestors p ON e.invitee_id=p.id)
+        SELECT 1 FROM ancestors WHERE id=a)
+        OR EXISTS(SELECT 1 FROM referral_invitations WHERE invitee_id=a) THEN RETURN false; END IF;
+    INSERT INTO referral_campaign_invitations(inviter_id,invitee_id,kind) VALUES(owner,a,'new');
+    PERFORM referral_campaign_reward('starter:'||i.id,a,'starter',3,NULL,b.created_at+interval '7 days')
+        FROM referral_campaign_invitations i JOIN accounts b ON b.id=i.invitee_id WHERE i.invitee_id=a;
+    RETURN true;
+END $$;
+CREATE FUNCTION referral_campaign_signup_session() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.account_id IS NOT NULL AND NEW.data ? 'referral.code'
+        AND referral_campaign_signup(NEW.account_id,NEW.data->>'referral.code') THEN
+        NEW.data := NEW.data-'referral.code';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER referral_campaign_signup_session BEFORE INSERT OR UPDATE OF account_id,data ON web_sessions
+    FOR EACH ROW EXECUTE FUNCTION referral_campaign_signup_session();
+CREATE FUNCTION referral_campaign_signup_verified() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.status='active' AND NEW.email_verified_at IS NOT NULL THEN
+        UPDATE web_sessions SET data=data-'referral.code',updated_at=clock_timestamp()
+            WHERE account_id=NEW.id AND data ? 'referral.code'
+            AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()
+            AND referral_campaign_signup(NEW.id,data->>'referral.code');
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER referral_campaign_signup_verified AFTER UPDATE OF status,email_verified_at ON accounts
+    FOR EACH ROW EXECUTE FUNCTION referral_campaign_signup_verified();
