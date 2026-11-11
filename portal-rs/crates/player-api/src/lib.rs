@@ -7,8 +7,8 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use oteryn_characters::lcfa::{AccountId, Availability, Projection, ReadState};
-use oteryn_gameauth::tickets::{DenyOAuth, Error, Settings, Tickets};
+use oteryn_characters::lcfa::{AccountId, AccountStateLookup, Availability, Projection, ReadState};
+use oteryn_gameauth::tickets::{Error, OAuthAuthority, Settings, Tickets};
 use serde::{Deserialize, Serialize};
 use std::{
     sync::Arc,
@@ -20,12 +20,29 @@ pub struct Api {
     pub tickets: Tickets,
     pub projection: Option<Projection>,
 }
-/// Until an OAuth authority is supplied, every authenticated operation denies.
-pub fn configured_router(pool: sqlx::PgPool) -> Router {
+/// Production composition. `PORTAL_GAME_TICKETS_ENABLED=true` with `OTERYN_ENV`
+/// `testing` or `preprod` enables both routes (contract §17); otherwise they
+/// deny. The caller supplies the OAuth authority (suspension-guarded in the
+/// binary) and the LCFA account lookup; the projection keeps its own flags.
+pub fn configured_router(
+    pool: sqlx::PgPool,
+    oauth: Arc<dyn OAuthAuthority>,
+    accounts: Arc<dyn AccountStateLookup>,
+) -> Router {
     router(Api {
-        tickets: Tickets::new(pool, Settings::default(), Arc::new(DenyOAuth)),
-        projection: None,
+        tickets: Tickets::new(pool.clone(), settings(|key| std::env::var(key).ok()), oauth),
+        projection: Some(Projection::new(
+            pool,
+            oteryn_characters::overview::configured_projection(),
+            accounts,
+        )),
     })
+}
+fn settings(lookup: impl Fn(&str) -> Option<String>) -> Settings {
+    Settings {
+        enabled: lookup("PORTAL_GAME_TICKETS_ENABLED").as_deref() == Some("true"),
+        nonproduction: matches!(lookup("OTERYN_ENV").as_deref(), Some("testing" | "preprod")),
+    }
 }
 pub fn router(api: Api) -> Router {
     Router::new()

@@ -3,6 +3,7 @@ use oteryn_gameauth::admission::{
     self, AccountState, AccountStateLookup, AdmissionAuthority, AdmissionRequest,
     AuthorizedAccount, Future, Material,
 };
+use oteryn_gameauth::tickets;
 use sqlx::{PgConnection, PgPool};
 use std::{future::Future as StdFuture, pin::Pin};
 use uuid::Uuid;
@@ -147,6 +148,40 @@ impl<A: AdmissionAuthority> AdmissionAuthority for GuardedAdmission<A> {
                 .await
                 .map_err(admission_error)?;
             self.authority.issue(connection, request, account).await
+        })
+    }
+}
+
+/// Ticket issuance and native-character reads (T17): decorate the OAuth authority
+/// so a suspended, closed or unknown account is refused on the same transaction
+/// connection the ticket is written on. Mount it wherever `Tickets` is composed.
+#[derive(Debug)]
+pub struct GuardedTickets<A> {
+    authority: A,
+    features: Features,
+}
+impl<A> GuardedTickets<A> {
+    pub fn new(authority: A, features: Features) -> Self {
+        Self {
+            authority,
+            features,
+        }
+    }
+}
+impl<A: tickets::OAuthAuthority> tickets::OAuthAuthority for GuardedTickets<A> {
+    fn verify<'a>(
+        &'a self,
+        connection: &'a mut PgConnection,
+        bearer: &'a str,
+        consume: bool,
+    ) -> tickets::ResultFuture<'a, tickets::Principal> {
+        Box::pin(async move {
+            let principal = self.authority.verify(connection, bearer, consume).await?;
+            match require_game_access(connection, principal.account_id, self.features).await {
+                Ok(()) => Ok(principal),
+                Err(Error::Denied | Error::InvalidInput) => Err(tickets::Error::Unauthorized),
+                Err(_) => Err(tickets::Error::Unavailable),
+            }
         })
     }
 }

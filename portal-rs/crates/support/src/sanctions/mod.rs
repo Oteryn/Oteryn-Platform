@@ -6,7 +6,9 @@
 mod access;
 mod store;
 
-pub use access::{AdmissionAccounts, GuardedAdmission, require_game_access, ticket_transaction};
+pub use access::{
+    AdmissionAccounts, GuardedAdmission, GuardedTickets, require_game_access, ticket_transaction,
+};
 pub use store::Service;
 use uuid::Uuid;
 

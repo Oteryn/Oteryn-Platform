@@ -54,7 +54,7 @@ pub trait AdmissionAuthority: Send + Sync + std::fmt::Debug {
         account: AuthorizedAccount,
     ) -> Future<'a, Material>;
 }
-/// Production placeholder until identity, tickets, scope and signing are wired.
+/// Fail-closed authority and lookup for compositions without a configured issuer.
 #[derive(Debug)]
 pub struct Unavailable;
 impl AccountStateLookup for Unavailable {
