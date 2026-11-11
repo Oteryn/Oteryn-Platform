@@ -16,12 +16,11 @@
 /docs/operations/ @blakinio
 
 # Security-sensitive runtime and delivery surfaces.
-/app/ @blakinio
-/routes/ @blakinio
-/config/ @blakinio
-/database/migrations/ @blakinio
+/portal-rs/ @blakinio
 /deploy/ @blakinio
-/services/ @blakinio
+
+# Frozen Laravel app and Go gateway (owner decision 2026-11-11).
+/legacy/ @blakinio
 
 # Repository automation and validation tooling.
 /scripts/ @blakinio

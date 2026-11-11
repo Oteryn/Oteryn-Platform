@@ -35,10 +35,10 @@
           489
         ],
         "local_paths": [
-          "database/migrations/2026_07_28_110000_create_game_catalog_tables.php",
-          "app/GameCatalog/Application/Activation/CatalogActivationService.php",
-          "app/GameCatalog/Application/PublicRead/PublicCatalogContextResolver.php",
-          "app/GameCatalog/Application/Import/Native/NativeCatalogEnvelopeValidator.php"
+          "legacy/database/migrations/2026_07_28_110000_create_game_catalog_tables.php",
+          "legacy/app/GameCatalog/Application/Activation/CatalogActivationService.php",
+          "legacy/app/GameCatalog/Application/PublicRead/PublicCatalogContextResolver.php",
+          "legacy/app/GameCatalog/Application/Import/Native/NativeCatalogEnvelopeValidator.php"
         ]
       },
       "evidence": {

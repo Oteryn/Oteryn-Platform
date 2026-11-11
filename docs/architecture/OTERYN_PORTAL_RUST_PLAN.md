@@ -710,6 +710,8 @@ These are non-binding design notes for later implementation tasks, not evidence 
 5. Przekierowania 301 ze starych adresów (T43): `/highscores` → `/rankings/level`, `/servers` → `/worlds`, `/getting-started` → `/start`, `/wiki/{slug}` → `/wiki/articles/{slug}`, `/wiki/items/*` i `/wiki/creatures/*` → strony encji.
 6. Przełączenie domeny i gatewaya na nowy portal (rola `gateway` zamiast `services/game-gateway`). Laravel i gateway w Go zostają wyłączone, a ich kod i workflowy CI są usuwane z repozytorium osobnym PR-em.
 
+Stan 2026-11-11 (decyzja właściciela): `portal-rs/` jest główną platformą na `main`; kod Laravela i gateway w Go przeniesiono do `legacy/` (gateway: `legacy/services/game-gateway/`), ich workflowy CI wyłączono, a sam katalog `legacy/` jest usuwany przy przełączeniu w kroku 6.
+
 Każdy krok wymaga zgody właściciela („deploy”).
 
 ### 9.1 Rollback and cutover gate

@@ -42,6 +42,7 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md", "history"),
     ("docs/agents/prompts/OTS_PLATFORM_GATEWAY_NATIVE_PROTOCOL_IMPLEMENTATION.md", "history"),
     ("docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md", "history"),
+    ("legacy/", "history"),
     ("config/", "config"),
     (".env.example", "config"),
     ("deploy/synology/.env.example", "config"),
@@ -87,6 +88,8 @@ DEFAULT_EXCLUSIONS: list[str] = [
     "docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md",
     "docs/agents/prompts/OTS_PLATFORM_GATEWAY_NATIVE_PROTOCOL_IMPLEMENTATION.md",
     "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+    # The frozen Laravel app and Go gateway, kept for reference until cutover.
+    "legacy/",
 ]
 
 # Task records must name their real head branch (checked against the pull

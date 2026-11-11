@@ -110,12 +110,33 @@
       ]
     },
     {
-      "name": "go_gateway",
+      "name": "legacy_go_gateway",
       "paths": [
-        "services/game-gateway/main.go"
+        "legacy/services/game-gateway/main.go"
       ],
       "classes": [
-        "go_gateway"
+        "legacy"
+      ],
+      "gates": []
+    },
+    {
+      "name": "legacy_auth_path_routes_to_no_lane",
+      "paths": [
+        "legacy/app/Http/Middleware/Authenticate.php"
+      ],
+      "classes": [
+        "legacy"
+      ],
+      "gates": []
+    },
+    {
+      "name": "legacy_dependency_routes_to_no_lane",
+      "paths": [
+        "legacy/composer.lock",
+        "legacy/database/migrations/2026_08_02_000000_example.php"
+      ],
+      "classes": [
+        "legacy"
       ],
       "gates": []
     },
@@ -184,7 +205,7 @@
     {
       "name": "ordinary_workflow_change",
       "paths": [
-        ".github/workflows/downloads-acceptance.yml"
+        ".github/workflows/portal-rs-ci.yml"
       ],
       "classes": [
         "workflow"
@@ -388,6 +409,22 @@
         "agent_governance"
       ],
       "gates": []
+    },
+    {
+      "name": "portal_rs_change_keeps_its_lanes",
+      "paths": [
+        "portal-rs/crates/world/src/lib.rs"
+      ],
+      "classes": [
+        "shared"
+      ],
+      "gates": [
+        "ci",
+        "phase7",
+        "edge",
+        "db_outage",
+        "game_auth_concurrency"
+      ]
     }
   ]
 }

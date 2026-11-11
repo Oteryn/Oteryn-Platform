@@ -11,7 +11,7 @@ on:
       - scripts/operations/cloudflare-token-capability-audit.py
       - tests/operations/cloudflare-oteryn-edge-audit/**
       - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
-      - deploy/synology/PUBLIC_ENDPOINTS.md
+      - legacy/deploy/synology/PUBLIC_ENDPOINTS.md
       - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
       - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
   pull_request_target:

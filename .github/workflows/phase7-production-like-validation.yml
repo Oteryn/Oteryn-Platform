@@ -74,51 +74,13 @@ jobs:
           --summary "$GITHUB_STEP_SUMMARY"
 
   validate:
+    # This lane ran the Laravel application, which moved to legacy/ (owner decision
+    # 2026-11-11) and is no longer built or tested. The job keeps its check name.
     needs: classify_changes
     if: ${{ always() && (needs.classify_changes.result != 'success' || (needs.classify_changes.outputs.phase7 == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true')) }}
-    runs-on: ubuntu-latest
-    services:
-      mariadb:
-        image: mariadb:11.8
-        env:
-          MARIADB_ROOT_PASSWORD: phase7-ci-root-not-a-secret
-          MARIADB_ROOT_HOST: "%"
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-      mailhog:
-        image: mailhog/mailhog:v1.0.1
-        ports:
-          - 1025:1025
-          - 8025:8025
-    env:
-      VALIDATION_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
-      APP_ENV: production
-      APP_DEBUG: "false"
-      APP_URL: https://staging.oteryn.internal
-      LOG_CHANNEL: stderr_json
-      LOG_LEVEL: info
-      SESSION_SECURE_COOKIE: "true"
-      SESSION_HTTP_ONLY: "true"
-      MAIL_MAILER: smtp
-      MAIL_HOST: 127.0.0.1
-      MAIL_PORT: 1025
-      MAIL_ENCRYPTION: ""
-      MAIL_FROM_ADDRESS: phase7@staging.oteryn
-      MAIL_FROM_NAME: Oteryn Phase 7
-      DB_CONNECTION: mysql
-      DB_HOST: 127.0.0.1
-      DB_PORT: 3306
-      DB_DATABASE: oteryn_platform
-      DB_USERNAME: root
-      DB_PASSWORD: phase7-ci-root-not-a-secret
-      MARIADB_ROOT_PASSWORD: phase7-ci-root-not-a-secret
-
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Require successful change classification
         if: ${{ needs.classify_changes.result != 'success' }}
@@ -126,333 +88,30 @@ jobs:
           echo "Change classification failed; this required gate is failing closed."
           exit 1
 
-      - name: Checkout exact validation SHA
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
-        with:
-          php-version: '8.5'
-          coverage: none
-          extensions: pdo_mysql, pcntl, redis
-          tools: composer:v2
-
-      - name: Install validation clients
+      - name: Record retired Laravel validation
         run: |
-          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec sh -c 'grep -q "dl.google.com/linux/chrome" "$1" && rm -f "$1" || true' _ {} \;
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mariadb-client
-
-      - name: Install development dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
-
-      - name: Generate ephemeral application key
-        run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
-
-      - name: Resolve previous known-good SHA
-        run: |
-          if [ -z "$BASE_SHA" ]; then
-            BASE_SHA="$(git rev-parse "${VALIDATION_SHA}^")"
-            echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
-          fi
-          git cat-file -e "${VALIDATION_SHA}^{commit}"
-          git cat-file -e "${BASE_SHA}^{commit}"
-          echo "Validation SHA: ${VALIDATION_SHA}"
-          echo "Previous known-good SHA: ${BASE_SHA}"
-
-      - name: Provision production-like MariaDB schema
-        run: |
-          mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS oteryn_platform CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-
-      - name: Validate clean current-SHA deployment and migrations
-        run: |
-          mkdir -p "/tmp/phase7-releases/${VALIDATION_SHA}"
-          git archive "$VALIDATION_SHA" | tar -x -C "/tmp/phase7-releases/${VALIDATION_SHA}"
-          (
-            cd "/tmp/phase7-releases/${VALIDATION_SHA}"
-            composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-progress
-            php artisan production:verify-configuration
-            php artisan migrate --force --no-interaction
-          )
-          ln -sfn "/tmp/phase7-releases/${VALIDATION_SHA}" /tmp/phase7-current
-          test "$(readlink -f /tmp/phase7-current)" = "/tmp/phase7-releases/${VALIDATION_SHA}"
-
-      - name: Validate production configuration guardrails
-        run: |
-          php artisan production:verify-configuration
-
-      - name: Validate SMTP delivery and mail failure behavior
-        run: |
-          for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8025/api/v2/messages >/dev/null; then
-              break
-            fi
-            sleep 1
-          done
-
-          php -r '
-          require "vendor/autoload.php";
-          $app = require "bootstrap/app.php";
-          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-          Illuminate\Support\Facades\Mail::raw("Phase 7 production-like delivery probe", function ($message): void {
-              $message->to("phase7-probe@staging.oteryn")->subject("Oteryn Phase 7 delivery probe");
-          });
-          '
-          curl -fsS http://127.0.0.1:8025/api/v2/messages | grep -q 'Oteryn Phase 7 delivery probe'
-
-          if MAIL_PORT=1026 php -r '
-          require "vendor/autoload.php";
-          $app = require "bootstrap/app.php";
-          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-          try {
-              Illuminate\Support\Facades\Mail::raw("failure probe", function ($message): void {
-                  $message->to("phase7-probe@staging.oteryn")->subject("failure probe");
-              });
-              exit(0);
-          } catch (Throwable) {
-              exit(1);
-          }
-          '; then
-            echo "Mail send unexpectedly succeeded against unavailable SMTP endpoint."
-            exit 1
-          fi
-
-      - name: Validate production configuration fail-closed behavior
-        run: |
-          php artisan production:verify-configuration
-          if APP_DEBUG=true php artisan production:verify-configuration; then
-            echo "Production configuration verifier unexpectedly accepted APP_DEBUG=true."
-            exit 1
-          fi
-
-      - name: Run exact-SHA critical regression suite
-        env:
-          APP_ENV: testing
-          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
-          CACHE_STORE: array
-          DB_CONNECTION: sqlite
-          DB_DATABASE: ':memory:'
-          MAIL_MAILER: array
-          QUEUE_CONNECTION: sync
-          SESSION_DRIVER: array
-        run: composer test
-
-      - name: Validate running health, headers, cookies, correlation and error behavior
-        run: |
-          (
-            cd /tmp/phase7-current
-            php artisan serve --host=127.0.0.1 --port=8080 > /tmp/phase7-server.log 2>&1 &
-            echo $! > /tmp/phase7-server.pid
-          )
-          trap 'kill "$(cat /tmp/phase7-server.pid)" 2>/dev/null || true' EXIT
-
-          for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
-              break
-            fi
-            sleep 1
-          done
-
-          curl -fsS http://127.0.0.1:8080/health >/tmp/health.body
-          curl -sS -D /tmp/home.headers -o /tmp/home.body http://127.0.0.1:8080/
-          curl -sS -D /tmp/login.headers -o /tmp/login.body http://127.0.0.1:8080/login
-          curl -sS -D /tmp/notfound.headers -o /tmp/notfound.body http://127.0.0.1:8080/definitely-not-a-route
-
-          grep -qi '^Content-Security-Policy:' /tmp/home.headers
-          grep -qi '^X-Content-Type-Options: nosniff' /tmp/home.headers
-          grep -qi '^X-Frame-Options: DENY' /tmp/home.headers
-          grep -qi '^Referrer-Policy: strict-origin-when-cross-origin' /tmp/home.headers
-          grep -qi '^Permissions-Policy:' /tmp/home.headers
-          grep -qi '^X-Request-ID:' /tmp/home.headers
-          grep -qi '^Set-Cookie:.*Secure' /tmp/login.headers
-          grep -qi '^Set-Cookie:.*HttpOnly' /tmp/login.headers
-          ! grep -qi 'stack trace' /tmp/notfound.body
-          ! grep -Fq "$APP_KEY" /tmp/notfound.body
-
-          HOME_REQUEST_ID="$(awk 'BEGIN { IGNORECASE=1 } /^X-Request-ID:/ { gsub("\r", "", $2); print $2 }' /tmp/home.headers)"
-          test -n "$HOME_REQUEST_ID"
-
-          sleep 1
-          grep -q 'http.request.completed' /tmp/phase7-server.log
-          php scripts/phase7/assert-request-log-correlation.php /tmp/phase7-server.log "$HOME_REQUEST_ID" GET 200
-          ! grep -Fq "$APP_KEY" /tmp/phase7-server.log
-
-          {
-            echo "### Phase 7 request/log correlation evidence"
-            echo "- response_request_id_to_structured_log: PASS"
-            echo "- correlated_method_status: GET/200"
-            echo "- classification: STAGING_PROVEN"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Validate backup, clean restore, integrity and restored smoke
-        run: |
-          mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" oteryn_platform <<SQL
-          CREATE TABLE IF NOT EXISTS phase7_restore_probe (
-              id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-              validation_sha CHAR(40) NOT NULL
-          );
-          DELETE FROM phase7_restore_probe;
-          INSERT INTO phase7_restore_probe (validation_sha) VALUES ('${VALIDATION_SHA}');
-          SQL
-
-          SOURCE_TABLES="$(mariadb --protocol=tcp -N -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='oteryn_platform';")"
-          SOURCE_MIGRATIONS="$(mariadb --protocol=tcp -N -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM oteryn_platform.migrations;")"
-
-          mariadb-dump --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" --single-transaction --skip-comments oteryn_platform > /tmp/phase7-platform.sql
-          mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS oteryn_restore; CREATE DATABASE oteryn_restore CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-
-          RESTORE_START="$(date +%s%3N)"
-          mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" oteryn_restore < /tmp/phase7-platform.sql
-          RESTORE_END="$(date +%s%3N)"
-          RESTORE_MS="$((RESTORE_END - RESTORE_START))"
-
-          RESTORE_TABLES="$(mariadb --protocol=tcp -N -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='oteryn_restore';")"
-          RESTORE_MIGRATIONS="$(mariadb --protocol=tcp -N -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM oteryn_restore.migrations;")"
-          RESTORE_SHA="$(mariadb --protocol=tcp -N -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" -e "SELECT validation_sha FROM oteryn_restore.phase7_restore_probe LIMIT 1;")"
-
-          test "$SOURCE_TABLES" = "$RESTORE_TABLES"
-          test "$SOURCE_MIGRATIONS" = "$RESTORE_MIGRATIONS"
-          test "$RESTORE_SHA" = "$VALIDATION_SHA"
-
-          DB_DATABASE=oteryn_restore php artisan migrate:status --no-interaction >/tmp/restore-migrate-status.txt
-          DB_DATABASE=oteryn_restore php artisan production:verify-configuration
-
-          rm -f /tmp/phase7-platform.sql
-          echo "RESTORE_MS=$RESTORE_MS" >> "$GITHUB_ENV"
-          echo "SOURCE_TABLES=$SOURCE_TABLES" >> "$GITHUB_ENV"
-          echo "RESTORE_TABLES=$RESTORE_TABLES" >> "$GITHUB_ENV"
-          echo "SOURCE_MIGRATIONS=$SOURCE_MIGRATIONS" >> "$GITHUB_ENV"
-          echo "RESTORE_MIGRATIONS=$RESTORE_MIGRATIONS" >> "$GITHUB_ENV"
-          {
-            echo "### Phase 7 production-like restore evidence"
-            echo "- validation_sha: \`$VALIDATION_SHA\`"
-            echo "- source_table_count: $SOURCE_TABLES"
-            echo "- restored_table_count: $RESTORE_TABLES"
-            echo "- source_migration_count: $SOURCE_MIGRATIONS"
-            echo "- restored_migration_count: $RESTORE_MIGRATIONS"
-            echo "- measured_restore_ms: $RESTORE_MS"
-            echo "- classification: STAGING_PROVEN"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Validate existing-data upgrade, rollback, interrupted release isolation and redeploy
-        run: |
-          mkdir -p "/tmp/phase7-releases/${BASE_SHA}"
-          git archive "$BASE_SHA" | tar -x -C "/tmp/phase7-releases/${BASE_SHA}"
-          (
-            cd "/tmp/phase7-releases/${BASE_SHA}"
-            composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-progress
-          )
-
-          bash scripts/phase7/validate-existing-data-upgrade.sh
-
-          ln -sfn "/tmp/phase7-releases/${BASE_SHA}" /tmp/phase7-current
-          test "$(readlink -f /tmp/phase7-current)" = "/tmp/phase7-releases/${BASE_SHA}"
-          (
-            cd /tmp/phase7-current
-            php artisan production:verify-configuration
-            php artisan migrate:status --no-interaction >/dev/null
-          )
-
-          CURRENT_BEFORE_INTERRUPTION="$(readlink -f /tmp/phase7-current)"
-          mkdir -p "/tmp/phase7-releases/interrupted-${VALIDATION_SHA}"
-          touch "/tmp/phase7-releases/interrupted-${VALIDATION_SHA}/INCOMPLETE"
-          test "$(readlink -f /tmp/phase7-current)" = "$CURRENT_BEFORE_INTERRUPTION"
-
-          ln -sfn "/tmp/phase7-releases/${VALIDATION_SHA}" /tmp/phase7-current
-          test "$(readlink -f /tmp/phase7-current)" = "/tmp/phase7-releases/${VALIDATION_SHA}"
-          (
-            cd /tmp/phase7-current
-            php artisan migrate --force --no-interaction
-            php artisan production:verify-configuration
-          )
-
-          {
-            echo "### Phase 7 production-like deployment evidence"
-            echo "- validation_sha: \`$VALIDATION_SHA\`"
-            echo "- rollback_sha: \`$BASE_SHA\`"
-            echo "- clean_deploy: PASS"
-            echo "- rollback_switch: PASS"
-            echo "- interrupted_release_not_activated: PASS"
-            echo "- redeploy_current_sha: PASS"
-            echo "- classification: STAGING_PROVEN"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Write non-secret staging evidence artifact
-        run: |
-          VALIDATED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          cat > /tmp/phase7-production-like-evidence.json <<JSON
-          {
-            "classification": "STAGING_PROVEN",
-            "validated_at_utc": "${VALIDATED_AT_UTC}",
-            "validation_sha": "${VALIDATION_SHA}",
-            "rollback_sha": "${BASE_SHA}",
-            "clean_deploy": "PASS",
-            "migrations": "PASS",
-            "configuration_guardrails": "PASS",
-            "smtp_delivery_and_failure_semantics": "PASS",
-            "critical_regression_suite": "PASS",
-            "live_security_headers_cookies_correlation": "PASS",
-            "request_id_log_correlation": "PASS",
-            "backup_restore_integrity": "PASS",
-            "restore_ms": ${RESTORE_MS},
-            "source_table_count": ${SOURCE_TABLES},
-            "restored_table_count": ${RESTORE_TABLES},
-            "source_migration_count": ${SOURCE_MIGRATIONS},
-            "restored_migration_count": ${RESTORE_MIGRATIONS},
-            "rollback_switch": "PASS",
-            "interrupted_release_not_activated": "PASS",
-            "redeploy_current_sha": "PASS"
-          }
-          JSON
-
-      - name: Upload non-secret staging evidence artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: phase7-production-like-evidence-${{ github.run_id }}
-          path: |
-            /tmp/phase7-production-like-evidence.json
-            /tmp/phase7-existing-data-upgrade-evidence.json
-          retention-days: 7
-          if-no-files-found: error
+          summary="validate: Laravel validation retired; Laravel moved to legacy/ (owner decision 2026-11-11)."
+          echo "$summary"
+          echo "### $summary" >> "$GITHUB_STEP_SUMMARY"
 
   premium-physical-e2e:
     name: premium-physical-e2e
+    # This lane ran the Laravel application, which moved to legacy/ (owner decision
+    # 2026-11-11) and is no longer built or tested. The job keeps its check name.
     needs: classify_changes
     if: ${{ always() && needs.classify_changes.result == 'success' && contains(needs.classify_changes.outputs.classes, 'payment') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      PLATFORM_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      OTERYN_GAME_SHA: 0fceef1f2cc311ed21eda96d168e1f8b2b298f83
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
     steps:
-      - name: Checkout exact Platform candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
-
-      - name: Checkout pinned Game consumer read-only
-        shell: bash
+      - name: Require successful change classification
+        if: ${{ needs.classify_changes.result != 'success' }}
         run: |
-          set -euo pipefail
-          GAME_ROOT="${RUNNER_TEMP}/oteryn-game"
-          rm -rf "$GAME_ROOT"
-          git init "$GAME_ROOT"
-          git -C "$GAME_ROOT" remote add origin https://github.com/Oteryn/Oteryn-Game.git
-          git -C "$GAME_ROOT" -c protocol.version=2 fetch --no-tags --depth=1 origin "$OTERYN_GAME_SHA"
-          git -C "$GAME_ROOT" checkout --detach FETCH_HEAD
-          test "$(git -C "$GAME_ROOT" rev-parse HEAD)" = "$OTERYN_GAME_SHA"
+          echo "Change classification failed; this required gate is failing closed."
+          exit 1
 
-      - name: Install pinned Game Rust toolchain
-        shell: bash
-        run: rustup toolchain install 1.94.0 --profile minimal
-
-      - name: Execute real Platform producer to real Game consumer E2E
-        shell: bash
-        env:
-          GAME_ROOT: ${{ runner.temp }}/oteryn-game
-        run: bash tests/e2e/premium_physical_e2e/run.sh
-
+      - name: Record retired Laravel validation
+        run: |
+          summary="premium-physical-e2e: Laravel validation retired; Laravel moved to legacy/ (owner decision 2026-11-11)."
+          echo "$summary"
+          echo "### $summary" >> "$GITHUB_STEP_SUMMARY"

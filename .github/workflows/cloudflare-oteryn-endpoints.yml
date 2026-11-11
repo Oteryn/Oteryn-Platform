@@ -10,7 +10,7 @@ on:
       - scripts/operations/cloudflare-oteryn-endpoints.sh
       - tests/operations/cloudflare-oteryn-endpoints/**
       - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
-      - deploy/synology/PUBLIC_ENDPOINTS.md
+      - legacy/deploy/synology/PUBLIC_ENDPOINTS.md
       - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
       - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
   pull_request_target:

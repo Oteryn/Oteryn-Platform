@@ -43,7 +43,7 @@ class ChangeRoutingTest(unittest.TestCase):
                 "database",
                 "auth_security",
                 "payment",
-                "go_gateway",
+                "legacy",
                 "deployment",
                 "edge",
                 "shared",

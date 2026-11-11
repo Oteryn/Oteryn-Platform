@@ -1,7 +1,7 @@
 # Native login gateway
 
 T52 implements the protocol 2 gateway from
-`services/game-gateway/internal/{nativelogin,httpapi,platform}`. Run the same portal
+`legacy/services/game-gateway/internal/{nativelogin,httpapi,platform}`. Run the same portal
 binary with `oteryn-portal gateway`. This dispatch happens before portal
 configuration is loaded: no database URL, pool, migrations or signing keys are used.
 

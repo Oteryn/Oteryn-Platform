@@ -1,33 +1,5 @@
 version: 2
 updates:
-  - package-ecosystem: composer
-    directory: "/"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Europe/Warsaw
-    open-pull-requests-limit: 5
-    groups:
-      composer-minor-patch:
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: npm
-    directory: "/scripts/acceptance"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:10"
-      timezone: Europe/Warsaw
-    open-pull-requests-limit: 5
-    groups:
-      npm-minor-patch:
-        update-types:
-          - minor
-          - patch
-
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
@@ -41,39 +13,6 @@ updates:
         patterns:
           - "github/codeql-action/*"
       github-actions-minor-patch:
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: docker
-    directory: "/deploy/synology/docker"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:20"
-      timezone: Europe/Warsaw
-    open-pull-requests-limit: 5
-    groups:
-      docker-synology-minor-patch:
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: docker
-    directory: "/deploy/synology/runner"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:25"
-      timezone: Europe/Warsaw
-    open-pull-requests-limit: 5
-    ignore:
-      # The NAS kernel is 4.4; Ubuntu 25.10+ userland extracts with openat2(2), which it lacks (see the Dockerfile).
-      - dependency-name: ubuntu
-        versions:
-          - ">= 25"
-    groups:
-      docker-runner-minor-patch:
         update-types:
           - minor
           - patch

@@ -23,40 +23,6 @@ REQUIRED_IGNORES = (
     "'.github/PULL_REQUEST_TEMPLATE.md'",
 )
 
-ACCEPTANCE_PRODUCT_PATHS = (
-    "'app/**'",
-    "'bootstrap/**'",
-    "'config/**'",
-    "'database/**'",
-    "'public/**'",
-    "'resources/views/**'",
-    "'routes/**'",
-    "'scripts/acceptance/**'",
-    "'.github/workflows/acceptance-validation.yml'",
-    "'composer.json'",
-    "'composer.lock'",
-)
-
-PORTAL_ACCEPTANCE_PATHS = (
-    "'app/**'",
-    "'bootstrap/**'",
-    "'config/**'",
-    "'database/**'",
-    "'public/css/**'",
-    "'public/js/**'",
-    "'resources/views/**'",
-    "'routes/**'",
-    "'scripts/acceptance/**'",
-    "'docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json'",
-    "'docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json'",
-    "'docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md'",
-    "'docs/testing/product-completeness-benchmark.json'",
-    "'docs/testing/product-backend-frontend-completeness.json'",
-    "'.github/workflows/portal-acceptance-contract.yml'",
-    "'composer.json'",
-    "'composer.lock'",
-)
-
 RETIRED_WORKFLOWS = (
     "account-security-format-diagnostics.yml",
     "account-security-static-diagnostics.yml",
@@ -66,6 +32,43 @@ RETIRED_WORKFLOWS = (
     "portal-exhaustive-acceptance.yml",
     "portal-exhaustive-audit.yml",
     "portal-exhaustive-trigger-coupling.yml",
+    # Laravel and Go gateway lanes retired when both moved to legacy/
+    # (owner decision 2026-11-11).
+    "acceptance-soak.yml",
+    "acceptance-stability.yml",
+    "acceptance-validation.yml",
+    "announcements-acceptance.yml",
+    "build-synology-staging-images.yml",
+    "character-bazaar-staging-control.yml",
+    "character-bazaar-staging-validation.yml",
+    "community-data-acceptance.yml",
+    "content-scale-acceptance.yml",
+    "deploy-synology-staging.yml",
+    "downloads-acceptance.yml",
+    "editorial-media-acceptance.yml",
+    "error-state-acceptance.yml",
+    "events-acceptance.yml",
+    "game-catalog-contract.yml",
+    "game-gateway-ci.yml",
+    "playwright-runtime-validation.yml",
+    "portal-acceptance-contract.yml",
+    "portal-e2e-audit.yml",
+    "recover-synology-staging-schema.yml",
+    "repair-synology-autostart.yml",
+    "repair-synology-compose-orphans.yml",
+    "support-legal-acceptance.yml",
+    "support-moderation-acceptance.yml",
+    "synology-container-hygiene.yml",
+    "synology-production-target-preflight.yml",
+    "synology-rollback-contract.yml",
+    "wiki-reconciliation-acceptance.yml",
+)
+
+# legacy/ is frozen: no workflow may set up PHP or Go or install Composer packages.
+LEGACY_TOOLCHAIN_MARKERS = (
+    "shivammathur/setup-php",
+    "actions/setup-go",
+    "composer install",
 )
 
 GLOBAL_PULL_REQUEST_WORKFLOWS = {
@@ -195,6 +198,12 @@ for path in sorted([*WORKFLOW_ROOT.glob("*.yml"), *WORKFLOW_ROOT.glob("*.yaml")]
     pull_request = event_block(trigger, "pull_request")
     push = event_block(trigger, "push")
 
+    for marker in LEGACY_TOOLCHAIN_MARKERS:
+        if marker in text:
+            inventory_findings.append(
+                f"{path.name}: builds the frozen legacy/ tree ({marker})"
+            )
+
     for active_task_ref in sorted(set(ACTIVE_TASK_TRIGGER.findall(trigger))):
         if not (ROOT / active_task_ref).is_file():
             inventory_findings.append(
@@ -306,9 +315,10 @@ assert "(github.event_name == 'push' || github.event_name == 'merge_group')" in 
 assert "github.event_name == 'pull_request'" not in coverage_job, (
     "ci.yml: expensive PHP coverage must not run on ordinary pull requests"
 )
-assert (
-    "ref: ${{ github.event.merge_group.head_sha || github.sha }}" in coverage_job
-), "ci.yml: PHP coverage must checkout the exact Merge Queue candidate"
+for forbidden in ("services:", "uses:", "phpunit", "composer"):
+    assert forbidden not in coverage_job, (
+        f"ci.yml: retired PHP coverage job must stay a report-only stub ({forbidden})"
+    )
 postgres_job = ci.split("\n  platform_postgres:\n", 1)[1].split("\n  platform_postgres_not_required:\n", 1)[0]
 postgres_stub = ci.split("\n  platform_postgres_not_required:\n", 1)[1].split("\n  php_coverage:\n", 1)[0]
 POSTGRES_NAME = "    name: platform-postgres (${{ matrix.postgres }})\n"
@@ -324,6 +334,10 @@ assert (
     in postgres_job
 ), "ci.yml: PostgreSQL suite must run for every CI-relevant change, without reuse"
 assert "reuse_heavy" not in postgres_job, "ci.yml: PostgreSQL suite must not honour runtime-tests reuse"
+for forbidden in ("services:", "uses:", "phpunit", "composer"):
+    assert forbidden not in postgres_job, (
+        f"ci.yml: retired Laravel PostgreSQL job must stay a report-only stub ({forbidden})"
+    )
 assert (
     "    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'false' }}\n"
     in postgres_stub
@@ -341,44 +355,6 @@ assert "      - php_coverage\n" in platform_gate, (
 )
 assert "PHP_COVERAGE_RESULT: ${{ needs.php_coverage.result }}" in platform_gate
 assert 'test "$PHP_COVERAGE_RESULT" = success -o "$PHP_COVERAGE_RESULT" = skipped' in platform_gate
-
-acceptance = (WORKFLOW_ROOT / "acceptance-validation.yml").read_text(encoding="utf-8")
-acceptance_trigger = trigger_prefix(acceptance)
-assert event_block(acceptance_trigger, "pull_request") is not None
-assert event_block(acceptance_trigger, "push") is not None
-assert event_block(acceptance_trigger, "workflow_dispatch") is not None
-assert event_block(acceptance_trigger, "workflow_call") is not None
-assert has_path_filter(event_block(acceptance_trigger, "pull_request"))
-assert has_path_filter(event_block(acceptance_trigger, "push"))
-for product_path in ACCEPTANCE_PRODUCT_PATHS:
-    assert product_path in event_block(acceptance_trigger, "pull_request"), (
-        f"acceptance-validation.yml: pull_request missing product path {product_path}"
-    )
-    assert product_path in event_block(acceptance_trigger, "push"), (
-        f"acceptance-validation.yml: push main missing product path {product_path}"
-    )
-assert (
-    "group: acceptance-e2e-${{ github.workflow }}-${{ github.ref }}-${{ inputs.run_suffix || 'direct' }}"
-    in acceptance
-)
-assert has_superseded_run_cancellation(acceptance)
-assert has_stable_pr_concurrency_identity(acceptance)
-
-portal_acceptance = (
-    WORKFLOW_ROOT / "portal-acceptance-contract.yml"
-).read_text(encoding="utf-8")
-portal_trigger = trigger_prefix(portal_acceptance)
-portal_pr = event_block(portal_trigger, "pull_request")
-portal_push = event_block(portal_trigger, "push")
-assert has_path_filter(portal_pr), "Portal Acceptance PR trigger must be path-scoped"
-assert has_path_filter(portal_push), "Portal Acceptance main push must be path-scoped"
-for product_path in PORTAL_ACCEPTANCE_PATHS:
-    assert product_path in portal_pr, (
-        f"portal-acceptance-contract.yml: pull_request missing product path {product_path}"
-    )
-    assert product_path in portal_push, (
-        f"portal-acceptance-contract.yml: push main missing product path {product_path}"
-    )
 
 storage = (
     WORKFLOW_ROOT / "github-actions-storage-hygiene.yml"
