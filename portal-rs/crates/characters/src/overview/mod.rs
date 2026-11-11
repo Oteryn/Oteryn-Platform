@@ -16,8 +16,10 @@ use std::{
 };
 use uuid::Uuid;
 
+/// Identity account state for LCFA reads: only `active` reads. Callers that
+/// also need sanctions apply them before and after the read (player API).
 #[derive(Debug, Clone)]
-struct Accounts(PgPool);
+pub struct Accounts(pub PgPool);
 impl AccountStateLookup for Accounts {
     fn state(&self, account: AccountId) -> Pin<Box<dyn Future<Output = AccountState> + Send + '_>> {
         Box::pin(async move {

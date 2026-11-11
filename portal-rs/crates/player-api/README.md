@@ -6,17 +6,33 @@ T17 owns `POST /api/v1/game-auth/tickets` and
 and design section 5.2. Golden shapes are checked against the Game client at
 `857f15f376907c592bb28d854fccff18a15cdf87`.
 
-The base already includes T18. No T16 branch existed at task admission.
-`configured_router` therefore mounts disabled routes with `DenyOAuth` and no
-projection. It cannot grant access through configuration alone. The coordinator
-must supply the T16 adapter through `Api` and `Tickets::new`, plus the T18
-`Projection`, when composing enabled routes. A T16 branch appeared during final
-verification at `901074f627bbac39d98b704d79d02e8bbe190b90`; its public
-`verify_access` owns a separate pool transaction and does not expose atomic
-access/refresh consumption or native security generations. Calling it here would
-not satisfy the transaction contract. The explicit authority seam remains denied
-until those facts can be verified on the caller's connection. Both settings are off by default;
-bootstrap remains restricted to testing or preproduction.
+`configured_router(pool, oauth, accounts)` takes the OAuth authority and the
+account-state lookup from the caller. The binary (`bin/oteryn-portal/src/game_login.rs`)
+passes the T16 `PlatformAuthority` (native client allowlist, generations and
+atomic access-token consumption on the caller's connection) wrapped in the
+sanctions `GuardedTickets`, so a suspended, closed or unknown account gets 401
+and its token is not consumed. The character list reads the T18 projection
+with `oteryn_characters::overview::configured_projection()`.
+
+Flags, all off by default:
+
+- `PORTAL_GAME_TICKETS_ENABLED=true` mounts both routes enabled. Ticket
+  issuance is still refused unless `OTERYN_ENV` is `testing` or `preprod`
+  (N4P-3); production issuance needs an owner decision.
+- `OTERYN_LCFA_ENABLED` and `OTERYN_LCFA_SOURCE_AUTHORITY` configure the
+  character projection. Without them the character list answers unavailable.
+- `PORTAL_LCFA_INTERNAL_IDENTITY` is the DNS SAN of the Game LCFA producer
+  certificate. When set, LCFA snapshot and watermark ingestion is also served on
+  the internal mTLS listener. The closure listener keeps its own ingestion; its
+  `PORTAL_ACCOUNT_CLOSURE_SOURCE_AUTHORITY` must equal
+  `OTERYN_LCFA_SOURCE_AUTHORITY`.
+
+The gateway's `native-admissions` listener (`PORTAL_NATIVE_ADMISSIONS_ENABLED`)
+uses `oteryn_gameauth::admission::NativeTickets` behind the sanctions
+`GuardedAdmission`: it redeems tickets and checks the selected character
+against the live projection. Grant signing (contract sections 7.3, 8 and 9) is
+not implemented, so a request that passes every check gets
+`NATIVE_LOGIN_UNAVAILABLE` and the ticket stays unused.
 
 `OAuthAuthority::verify` runs on the caller's transaction connection. It must
 lock and verify the token, first-party client and authoritative account, check

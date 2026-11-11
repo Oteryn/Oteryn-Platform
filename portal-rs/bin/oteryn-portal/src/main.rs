@@ -98,8 +98,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             };
             let closure = account_closure::configured(db.clone())?;
             let _closure_listener = account_closure::start_listener(db.clone(), &closure).await?;
-            let _admission_listener =
-                oteryn_gameauth::admission::start_private_listener(db.clone()).await?;
+            let _admission_listener = game_login::start_admission_listener(db.clone()).await?;
             let static_dir =
                 std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
             let app = oteryn_web::router(AppState { db: db.clone() }, &static_dir);
@@ -160,7 +159,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_stats::world::http::configured_router(db.clone()));
             let app = app.merge(oteryn_stats::guilds::http::configured_router(db.clone()));
             let app = app.merge(oteryn_content::media::configured_router(db.clone())?);
-            let app = app.merge(oteryn_player_api::configured_router(db.clone()));
+            let app = app.merge(game_login::player_router(db.clone()));
             let app = app.merge(oteryn_support::reports::configured_router(db.clone()));
             let app = app.merge(oteryn_admin::players::http::configured_router(db.clone())?);
             let wizard_pool = db.clone();
@@ -412,6 +411,14 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_store::loyalty::stream::http::configured_router(
                 db.clone(),
             ));
+            let app = match game_login::lcfa_router(
+                db.clone(),
+                std::env::var(game_login::LCFA_IDENTITY).ok(),
+                oteryn_characters::overview::configured_projection(),
+            )? {
+                Some(lcfa) => app.merge(lcfa),
+                None => app,
+            };
             let _internal_listener = internal_tls::start(app.clone()).await?;
             let app = public_app;
             let _native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
@@ -439,6 +446,7 @@ mod tests {
     }
 }
 
+mod game_login;
 mod gateway;
 mod internal_tls;
 mod wallet_topup;

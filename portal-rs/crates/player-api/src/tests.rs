@@ -267,7 +267,11 @@ async fn postgres_suspended_account_and_failed_insert_roll_back_consumption() ->
 #[tokio::test]
 async fn bad_input_authentication_and_default_flag() -> TestResult {
     let pool = PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
-    let app = configured_router(pool);
+    let app = configured_router(
+        pool,
+        Arc::new(oteryn_gameauth::tickets::DenyOAuth),
+        Arc::new(ActiveAccounts),
+    );
     for body in [
         r#"{"protocol_version":2}"#,
         r#"{"protocol_version":1,"account_id":"x"}"#,
@@ -415,4 +419,51 @@ async fn postgres_character_golden_owner_only_and_stale_refusal() -> TestResult 
         StatusCode::UNAUTHORIZED
     );
     db.close().await
+}
+#[test]
+fn ticket_flag_is_off_by_default_and_refuses_production() {
+    let lookup = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| {
+            pairs
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| (*value).to_owned())
+        }
+    };
+    let off = settings(lookup(&[]));
+    assert!(!off.enabled && !off.nonproduction);
+    for (pairs, available) in [
+        (
+            &[
+                ("PORTAL_GAME_TICKETS_ENABLED", "true"),
+                ("OTERYN_ENV", "testing"),
+            ][..],
+            true,
+        ),
+        (
+            &[
+                ("PORTAL_GAME_TICKETS_ENABLED", "true"),
+                ("OTERYN_ENV", "preprod"),
+            ][..],
+            true,
+        ),
+        (
+            &[
+                ("PORTAL_GAME_TICKETS_ENABLED", "true"),
+                ("OTERYN_ENV", "production"),
+            ][..],
+            false,
+        ),
+        (
+            &[
+                ("PORTAL_GAME_TICKETS_ENABLED", "TRUE"),
+                ("OTERYN_ENV", "testing"),
+            ][..],
+            false,
+        ),
+        (&[("OTERYN_ENV", "testing")][..], false),
+    ] {
+        let settings = settings(lookup(pairs));
+        assert_eq!(settings.enabled && settings.nonproduction, available);
+    }
 }

@@ -1,6 +1,4 @@
-use super::{
-    AccountStateLookup, AdmissionAuthority, AdmissionRequest, Error, Unavailable, store, wire,
-};
+use super::{AccountStateLookup, AdmissionAuthority, AdmissionRequest, Error, store, wire};
 use axum::{
     Router,
     body::to_bytes,
@@ -168,10 +166,13 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
     }
 }
 /// Separate loopback listener; never merges service-only routes into the public
-/// web router. Identity/ticket/scope/signing adapters must replace Unavailable
-/// before activation. The feature defaults off even when hashes are configured.
+/// web router. The caller supplies the account-state lookup and the admission
+/// authority (the binary composes the suspension-aware ones). The feature
+/// defaults off even when hashes are configured.
 pub async fn start_private_listener(
     db: PgPool,
+    accounts: Arc<dyn AccountStateLookup>,
+    authority: Arc<dyn AdmissionAuthority>,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let enabled = std::env::var("PORTAL_NATIVE_ADMISSIONS_ENABLED").is_ok_and(|v| v == "true");
     let current = std::env::var_os("PORTAL_GATEWAY_TOKEN_SHA256_FILE");
@@ -187,8 +188,8 @@ pub async fn start_private_listener(
             requests_per_minute: std::env::var("PORTAL_NATIVE_ADMISSION_REQUESTS_PER_MINUTE")
                 .map_or(120, |v| v.parse().unwrap_or(0)),
         },
-        Arc::new(Unavailable),
-        Arc::new(Unavailable),
+        accounts,
+        authority,
     )
     .route("/health", get(|| async { "ok" }));
     let address =
