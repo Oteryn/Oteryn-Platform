@@ -1,6 +1,6 @@
 # Account security revocation stream V1 (proposal)
 
-- Status: **PROPOSED**. This is not accepted, and it authorizes no implementation, migration, route or flag.
+- Status: **PROPOSED**, with owner decisions 1 and 2 accepted (2026-11-11, relayed by the programme coordinator; see *Owner decisions*). It authorizes no implementation, migration, route or flag yet.
 - `IMPLEMENTATION_AUTHORITY: NONE`; `PRODUCTION_AUTHORITY: NONE`.
 - Owner: Platform (producer) with the Game session owner (consumer).
 - Origin: FND-04B-AMEND-1 owner decision 5 (2026-11-11), relayed by the programme coordinator. A Platform ban, kick or password change must make the Game session terminal, so the Game fast-reconnect proof (`oteryn-game-reconnect-v1`) dies with it. This must be shown by an end-to-end test.
@@ -66,9 +66,9 @@ The stream carries no reason text, staff identity, IP, device or credential data
 
 This is a new admin action, `kick`. Its only effect is to advance `native_security_generation` with cause 4. It requires:
 
-- an exact RBAC permission;
+- a dedicated moderator/admin RBAC permission;
 - confirmed MFA;
-- an audit record in the same transaction.
+- an audit row (actor, target, time, reason) in the same transaction.
 
 It changes no account status, sanction or credential. It also revokes device sessions through the existing trigger.
 
@@ -79,7 +79,7 @@ It changes no account status, sanction or credential. It also revokes device ses
 - On a record for account A with generation G, make terminal every Game session of A whose admission carried a native security generation lower than G. Then refuse its current and candidate `oteryn-game-reconnect-v1` proofs (FND-04B-AMEND-1, refusal `RECONNECT_PROOF_INVALID` / `RECONNECT_NOT_ELIGIBLE`).
 - Cause 3 also applies when the generation did not change. In that case, all sessions of A become terminal.
 - An empty page means the consumer is caught up. It does not prove that nothing was revoked.
-- If the stream is unavailable, Game keeps its current state and retries. It must not treat unavailability as an allow for a reconnect that requires freshness. The freshness bound for that check is a Game decision to be registered before implementation.
+- If the stream is unavailable, Game keeps current play and retries. It fails closed for fast reconnect: without proof of a read within its registered freshness bound, the reconnect is refused and the player re-authenticates through Platform (decision 3).
 
 ## Required end-to-end test (acceptance gate)
 
@@ -97,8 +97,10 @@ Additional cases:
 - a rolled-back Platform transaction publishes nothing;
 - a stream outage blocks no current play and revives no session.
 
-## Open owner decisions
+## Owner decisions
 
-1. Accept this stream as the decision-5 delivery path, or route bans through `OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md` instead.
-2. Whether the staff kick action exists, and which permission gates it.
-3. Game's freshness bound for reconnect while the stream is unreadable.
+1. **Accepted (owner, 2026-11-11).** This stream is the decision-5 delivery path for every session-ending cause, bans included. In-game penalties that do not end the session (for example mute or jail) may still use `OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md`.
+2. **Accepted (owner, 2026-11-11).** The staff kick action exists, gated by a dedicated moderator/admin RBAC permission. Every use writes an audit row recording actor, target, time and reason, in the same transaction as the generation advance. The reason stays in the Platform audit and never appears on the stream.
+3. **Game decision (2026-11-11): fail closed.** If Game cannot prove that it has read this stream within its freshness bound, it refuses fast reconnect, and the player re-authenticates through Platform. Game registers the numeric bound with its implementation.
+
+Still open before implementation: Platform implementation authority for the producer and the kick action, and Game implementation authority for the consumer.
