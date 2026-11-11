@@ -26,3 +26,6 @@ pub mod navigation;
 
 pub mod recovery_key;
 pub mod recovery_key_http;
+
+/// Account security revocation stream (internal mTLS) and the staff kick seam.
+pub mod security_revocations;

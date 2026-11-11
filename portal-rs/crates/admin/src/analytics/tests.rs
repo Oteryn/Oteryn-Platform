@@ -837,6 +837,12 @@ async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
     };
+    // The historical down migration predates later permissions; remove their
+    // grants first so the head schema returns to the analytics-era catalog.
+    sqlx::query("DELETE FROM role_permissions WHERE permission='account.security.kick'")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261107140001_admin_analytics.down.sql"
     ))

@@ -7,6 +7,7 @@ notes = Internal notes
 unavailable = This information is currently unavailable.
 add-note = Add note
 logout = Log out everywhere
+kick = End game sessions (kick)
 reason = Reason (do not include credentials or unnecessary personal data)
 reset = Request MFA reset after support verification
 approve = Approve MFA reset as a second staff member

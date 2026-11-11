@@ -28,7 +28,7 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 64);
+    assert_eq!(Permission::ALL.len(), 65);
     for role in BuiltInRole::ALL {
         for permission in [
             Permission::AdminAnalyticsView,

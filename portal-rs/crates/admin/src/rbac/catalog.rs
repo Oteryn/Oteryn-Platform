@@ -69,6 +69,8 @@ pub enum Permission {
     GameAnalyticsRelink,
     GameAnalyticsExport,
     GameAuditRead,
+    /// Staff kick: advance the account's native security generation only.
+    KickAccountSessions,
 }
 
 impl Permission {
@@ -148,6 +150,7 @@ impl Permission {
         Self::GameAnalyticsRelink,
         Self::GameAnalyticsExport,
         Self::GameAuditRead,
+        Self::KickAccountSessions,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -216,6 +219,7 @@ impl Permission {
             Self::GameAnalyticsRelink => "game.analytics.relink",
             Self::GameAnalyticsExport => "game.analytics.export",
             Self::GameAuditRead => "game.audit.read",
+            Self::KickAccountSessions => "account.security.kick",
         }
     }
 }
@@ -326,6 +330,7 @@ impl BuiltInRole {
                 Permission::ManageWikiArticles,
                 Permission::ManageWikiCategories,
                 Permission::PublishWiki,
+                Permission::KickAccountSessions,
             ],
             Self::SecurityAdmin => &[
                 Permission::Access,
@@ -356,6 +361,7 @@ impl BuiltInRole {
                 Permission::Access,
                 Permission::ManageSupportEnforcement,
                 Permission::ManageMarketplace,
+                Permission::KickAccountSessions,
             ],
             Self::Operations => &[
                 Permission::Access,

@@ -579,3 +579,283 @@ async fn postgres_real_identity_lookup_safe_projection_and_missing_character_wat
     assert!(adapter.characters(db.target).await.is_err());
     db.close().await;
 }
+async fn kick_fixture(db: &Db) -> Uuid {
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'kick-target@example.invalid','synthetic-hash','active','en',now())").bind(db.target).execute(&db.pool).await.unwrap();
+    let kicker = Uuid::now_v7();
+    for role in ["support", "moderator"] {
+        sqlx::query(
+            "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2",
+        )
+        .bind(kicker)
+        .bind(role)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    }
+    kicker
+}
+async fn kick_state(db: &Db) -> (i64, String, String, i64) {
+    let (generation, status, hash): (i64, String, String) = sqlx::query_as(
+        "SELECT native_security_generation,status,password_hash FROM accounts WHERE id=$1",
+    )
+    .bind(db.target)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    let records: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM identity_security_revocations WHERE cause=4")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    (generation, status, hash, records)
+}
+#[tokio::test]
+async fn postgres_kick_permission_mfa_bad_input_audit_and_stream() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let kicker = kick_fixture(&db).await;
+    let s = db.service();
+    // Support staff lack the dedicated permission.
+    assert!(matches!(
+        s.kick(context(db.support), db.target, "Reason").await,
+        Err(Error::Authorization(crate::rbac::Error::Denied))
+    ));
+    // Confirmed staff MFA is mandatory even outside HTTP.
+    for unverified in [
+        CheckContext::new(kicker),
+        CheckContext {
+            account: kicker,
+            require_staff_mfa: true,
+            mfa_verified: false,
+        },
+    ] {
+        assert!(matches!(
+            s.kick(unverified, db.target, "Reason").await,
+            Err(Error::Denied)
+        ));
+    }
+    for (target, reason) in [
+        (db.target, " "),
+        (db.target, "bad\0reason"),
+        (Uuid::nil(), "Reason"),
+    ] {
+        assert!(matches!(
+            s.kick(context(kicker), target, reason).await,
+            Err(Error::BadInput)
+        ));
+    }
+    assert!(matches!(
+        s.kick(context(kicker), Uuid::now_v7(), "Reason").await,
+        Err(Error::NotFound)
+    ));
+    assert_eq!(
+        kick_state(&db).await,
+        (1, "active".into(), "synthetic-hash".into(), 0)
+    );
+    assert_eq!(
+        s.kick(context(kicker), db.target, " Abusive session ")
+            .await
+            .unwrap(),
+        2
+    );
+    // Only the generation advanced; one cause-4 record carries the new value.
+    assert_eq!(
+        kick_state(&db).await,
+        (2, "active".into(), "synthetic-hash".into(), 1)
+    );
+    let record: (Uuid, i64, i16) = sqlx::query_as(
+        "SELECT account_id,native_security_generation,cause FROM identity_security_revocations",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(record, (db.target, 2, 4));
+    let audit: (Option<Uuid>, String, serde_json::Value, bool) = sqlx::query_as(
+        "SELECT actor,target,after,created_at<=now() FROM audit_log WHERE action='players.kick'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        audit,
+        (
+            Some(kicker),
+            db.target.to_string(),
+            json!({"reason":"Abusive session","native_security_generation":2}),
+            true
+        )
+    );
+    let sanctions: i64 = sqlx::query_scalar("SELECT count(*) FROM sanctions")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(sanctions, 0);
+    db.close().await;
+}
+#[tokio::test]
+async fn postgres_kick_audit_failure_rolls_back_generation_and_stream() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let kicker = kick_fixture(&db).await;
+    sqlx::query("CREATE FUNCTION reject_test_audit() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''test audit unavailable''; END'").execute(&db.pool).await.unwrap();
+    sqlx::query("CREATE TRIGGER reject_test_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_test_audit()").execute(&db.pool).await.unwrap();
+    assert!(
+        db.service()
+            .kick(context(kicker), db.target, "Reason")
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        kick_state(&db).await,
+        (1, "active".into(), "synthetic-hash".into(), 0)
+    );
+    db.close().await;
+}
+#[derive(Clone)]
+struct KickBrowser {
+    account: Uuid,
+    mfa: bool,
+}
+impl StaffSession for KickBrowser {
+    async fn resolve(&self, _: &BrowserSession) -> Option<StaffIdentity> {
+        Some(StaffIdentity {
+            account: self.account,
+            mfa_satisfied: self.mfa,
+        })
+    }
+}
+async fn kick_session(app: axum::Router, path: &str) -> (String, String) {
+    let response = app
+        .oneshot(
+            Request::get(path)
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let body = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(body.contains("value=\"kick\""));
+    assert!(body.contains("for=\"kick-reason\""));
+    let csrf = body
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .to_owned();
+    (cookie, csrf)
+}
+async fn kick_post(app: axum::Router, path: &str, cookie: &str, body: String) -> StatusCode {
+    app.oneshot(
+        Request::post(path)
+            .header("host", "staff.test")
+            .header("origin", "https://staff.test")
+            .header("cookie", cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+    .status()
+}
+#[tokio::test]
+async fn postgres_http_kick_csrf_permission_and_mfa() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let kicker = kick_fixture(&db).await;
+    let path = format!("/admin/players/{}", db.target);
+    let app = |account: Uuid, mfa: bool| {
+        http::router(
+            db.pool.clone(),
+            Flags {
+                players: true,
+                characters: false,
+            },
+            PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            KickBrowser { account, mfa },
+            Staff,
+            Backend { id: db.target },
+        )
+    };
+    // Support staff reach the page but lack the kick permission.
+    let (cookie, csrf) = kick_session(app(db.support, true), &path).await;
+    assert_eq!(
+        kick_post(
+            app(db.support, true),
+            &path,
+            &cookie,
+            format!("_csrf={csrf}&action=kick&reason=Reason")
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    let (cookie, csrf) = kick_session(app(kicker, true), &path).await;
+    for (body, status) in [
+        (
+            "_csrf=wrong&action=kick&reason=Reason".to_owned(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            format!("_csrf={csrf}&action=kick&reason="),
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        assert_eq!(
+            kick_post(app(kicker, true), &path, &cookie, body).await,
+            status
+        );
+    }
+    // Without confirmed staff MFA the guard refuses before the handler.
+    assert_eq!(
+        kick_post(
+            app(kicker, false),
+            &path,
+            &cookie,
+            format!("_csrf={csrf}&action=kick&reason=Reason")
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        kick_state(&db).await,
+        (1, "active".into(), "synthetic-hash".into(), 0)
+    );
+    assert_eq!(
+        kick_post(
+            app(kicker, true),
+            &path,
+            &cookie,
+            format!("_csrf={csrf}&action=kick&reason=Abusive+session")
+        )
+        .await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        kick_state(&db).await,
+        (2, "active".into(), "synthetic-hash".into(), 1)
+    );
+    db.close().await;
+}
