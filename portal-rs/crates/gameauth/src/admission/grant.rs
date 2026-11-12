@@ -311,6 +311,12 @@ pub fn route_revision(
     Ok(format!("rt.{version}.{}", &digest[..32]))
 }
 
+/// The host and TLS server name a route record must carry to route anywhere
+/// (§7.3): host is an IP literal or DNS name, server name a non-numeric DNS name.
+pub fn route_names_valid(host: &str, tls_server_name: &str) -> bool {
+    (host.parse::<std::net::IpAddr>().is_ok() || dns_name(host)) && server_name(tls_server_name)
+}
+
 fn dns_name(s: &str) -> bool {
     (1..=253).contains(&s.len())
         && s.split('.').all(|label| {
@@ -357,8 +363,7 @@ fn record(world: Uuid, row: &sqlx::postgres::PgRow) -> Result<Option<Route>, Err
     };
     if port == 0
         || version == 0
-        || !(host.parse::<std::net::IpAddr>().is_ok() || dns_name(&host))
-        || !server_name(&tls)
+        || !route_names_valid(&host, &tls)
         || super::wire::uuid(&channel.to_string()).is_err()
         || route_revision(version, world, channel, &host, port, &tls)? != stored
     {
