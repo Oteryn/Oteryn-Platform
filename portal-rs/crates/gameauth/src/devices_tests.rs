@@ -1003,6 +1003,42 @@ fn devices_rotation_bad_input_refused() {
 }
 
 #[test]
+fn devices_bodies_with_escapes_refused() {
+    // Each body carries one JSON escape; no valid device body has any.
+    let bs = '\\';
+    let client = "018f1234-1234-7123-8123-123456789abc";
+    let escaped_value = client.replacen('0', &format!("{bs}u0030"), 1);
+    for body in [
+        format!(r#"{{"protocol_version":1,"{bs}u0063lient_id":"{client}"}}"#),
+        format!(r#"{{"protocol_version":1,"client_id":"{escaped_value}"}}"#),
+        format!(r#"{{"protocol_version":1,"client_id":"{client}","x{bs}{bs}":1}}"#),
+    ] {
+        assert!(
+            matches!(
+                wire::decode_operation(body.as_bytes(), false),
+                Err(Failure::Invalid)
+            ),
+            "{body}"
+        );
+    }
+    for body in [
+        format!(r#"{{"protocol_version":1,"{bs}u0072emember_device":true}}"#),
+        format!(r#"{{"protocol_version":1,"remember_devic{bs}u0065":true}}"#),
+    ] {
+        assert!(
+            matches!(
+                http::decode_enrollment(body.as_bytes(), false),
+                Err(Failure::Invalid)
+            ),
+            "{body}"
+        );
+    }
+    assert!(
+        http::decode_enrollment(br#"{"protocol_version":1,"remember_device":true}"#, false).is_ok()
+    );
+}
+
+#[test]
 fn devices_accepted_contract_fixtures_match_wire_types() {
     fn same_bytes<T: serde::Serialize + serde::de::DeserializeOwned>(name: &str) {
         let bytes = fixture(name);

@@ -56,10 +56,20 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+/// No valid device body contains a JSON escape: the Game client sends only
+/// normalized members and values, so any backslash is refused before parsing.
+pub(super) fn reject_escapes(body: &[u8]) -> Result<()> {
+    if body.contains(&b'\\') {
+        return Err(Failure::Invalid);
+    }
+    Ok(())
+}
+
 pub(super) fn decode_operation(body: &[u8], query: bool) -> Result<OperationRequest> {
     if query {
         return Err(Failure::Invalid);
     }
+    reject_escapes(body)?;
     oteryn_internal_api::canonical::decode(body, 1024, 2).map_err(|_| Failure::Invalid)?;
     let request: OperationRequest = serde_json::from_slice(body).map_err(|_| Failure::Invalid)?;
     let raw: serde_json::Value = serde_json::from_slice(body).map_err(|_| Failure::Invalid)?;

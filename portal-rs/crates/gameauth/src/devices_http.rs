@@ -207,6 +207,7 @@ pub(super) fn decode_enrollment(body: &[u8], query: bool) -> Result<(bool, Optio
     if query {
         return Err(Failure::Invalid);
     }
+    wire::reject_escapes(body)?;
     let value = canonical::decode(body, 1024, 2).map_err(|_| Failure::Invalid)?;
     let _: wire::EnrollmentRequest = serde_json::from_slice(body).map_err(|_| Failure::Invalid)?;
     let Value::Object(fields) = &value else {
