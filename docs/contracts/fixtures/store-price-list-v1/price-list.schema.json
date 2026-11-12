@@ -29,12 +29,11 @@
         "properties": {
           "offer_key": {
             "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+            "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$"
           },
           "currency": {
             "enum": [
-              "COINS",
-              "TRANSFERABLE_COINS"
+              "COINS"
             ]
           },
           "unit_price": {

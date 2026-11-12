@@ -23,7 +23,7 @@ fn every_fixture_and_laravel_revision() {
             count += 1;
         }
     }
-    assert_eq!(count, 6);
+    assert_eq!(count, 8);
     let catalog = Catalog::parse(VALID).unwrap();
     assert_eq!(
         catalog.revision(),
@@ -46,18 +46,42 @@ fn canonical_and_domain_boundaries() {
             "\"contract_version\":1",
             "\"contract_version\":1,\"contract_version\":1",
         ),
+        // Owner D1: `COINS` only, and the Game offer_key pattern.
+        text.replace("COINS", "TRANSFERABLE_COINS"),
+        text.replace("COINS", "GOLD"),
+        text.replace("\"offer_key\":\"test-supply\"", "\"offer_key\":\":store\""),
+        text.replace("\"offer_key\":\"test-supply\"", "\"offer_key\":\"_store\""),
+        text.replace(
+            "\"offer_key\":\"test-supply\"",
+            "\"offer_key\":\"store/sword\"",
+        ),
+        text.replace("\"offer_key\":\"test-supply\"", "\"offer_key\":\"\""),
+        text.replace(
+            "\"offer_key\":\"test-supply\"",
+            &format!("\"offer_key\":\"a{}\"", "b".repeat(128)),
+        ),
     ] {
         assert!(Catalog::parse(bad.as_bytes()).is_err(), "{bad}");
+    }
+    for key in [
+        "store:exercise-sword".to_owned(),
+        "0.a_b:c-d".to_owned(),
+        format!("a{}", "b".repeat(127)),
+    ] {
+        let good = text.replace(
+            "\"offer_key\":\"test-supply\"",
+            &format!("\"offer_key\":\"{key}\""),
+        );
+        assert_eq!(
+            Catalog::parse(good.as_bytes()).unwrap().offers()[0].offer_key,
+            key
+        );
     }
     assert!(Catalog::parse(&[]).is_err());
     assert!(Catalog::parse(&vec![b' '; MAX_BYTES + 1]).is_err());
     let premium = text.replace("ITEM", "PREMIUM_TIME");
     assert!(Catalog::parse(premium.as_bytes()).unwrap().offers()[0].available());
-    for (from, to) in [
-        ("ITEM", "COSMETIC"),
-        ("COINS", "TRANSFERABLE_COINS"),
-        ("true", "false"),
-    ] {
+    for (from, to) in [("ITEM", "COSMETIC"), ("true", "false")] {
         assert!(
             !Catalog::parse(text.replace(from, to).as_bytes())
                 .unwrap()
@@ -75,6 +99,52 @@ fn canonical_and_domain_boundaries() {
             "\"unit_price\":\"9223372036854775807\"",
         );
     assert!(Catalog::parse(max.as_bytes()).is_ok());
+}
+
+/// Regression (owner D1): a Game offer key keeps `:`; the import used to refuse it,
+/// so a purchase quoting it could only answer `OFFER_UNAVAILABLE`.
+fn game_key_premium() -> String {
+    std::str::from_utf8(VALID)
+        .unwrap()
+        .replace(
+            "\"offer_key\":\"test-supply\"",
+            "\"offer_key\":\"store:exercise-sword\"",
+        )
+        .replace("ITEM", "PREMIUM_TIME")
+}
+#[test]
+fn game_colon_offer_key_is_available() {
+    let catalog = Catalog::parse(game_key_premium().as_bytes()).unwrap();
+    let offer = &catalog.offers()[0];
+    assert_eq!(offer.offer_key, "store:exercise-sword");
+    assert!(offer.available());
+}
+#[test]
+fn price_list_schema_matches_store_wire_d1() {
+    let schema = |set: &str, name: &str| -> serde_json::Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../docs/contracts/fixtures")
+            .join(set)
+            .join(name);
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    };
+    let price_list = schema("store-price-list-v1", "price-list.schema.json");
+    let wire = schema("store-wire-v1", "purchase-request.schema.json");
+    for (offer, request, expected) in [
+        (
+            "/properties/offers/items/properties/offer_key/pattern",
+            "/properties/offer_key/pattern",
+            serde_json::json!("^[a-z0-9][a-z0-9_.:-]{0,127}$"),
+        ),
+        (
+            "/properties/offers/items/properties/currency/enum",
+            "/properties/currency/enum",
+            serde_json::json!(["COINS"]),
+        ),
+    ] {
+        assert_eq!(price_list.pointer(offer), Some(&expected), "{offer}");
+        assert_eq!(wire.pointer(request), Some(&expected), "{request}");
+    }
 }
 
 struct Access {
@@ -142,6 +212,12 @@ impl Database {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../migrations/20261112100004_store_offers_coins_only.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
         Some(Self {
             admin,
             pool,
@@ -199,6 +275,42 @@ async fn db_import_is_idempotent_and_immutable() {
             .await
             .is_err()
     );
+    db.finish().await;
+}
+#[tokio::test]
+async fn db_import_keeps_game_colon_offer_key_available() {
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    let store = db.store();
+    let actor = actor();
+    let document = game_key_premium();
+    let revision = store
+        .import(document.as_bytes(), actor, &access())
+        .await
+        .unwrap();
+    store.activate(&revision, actor, &access()).await.unwrap();
+    let key: String = sqlx::query_scalar("SELECT offer_key FROM store_offers")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(key, "store:exercise-sword");
+    let active = store.active().await.unwrap().unwrap();
+    assert_eq!(active.offers()[0].offer_key, "store:exercise-sword");
+    assert!(active.offers()[0].available());
+    // A file quoted in another currency is refused before anything is written.
+    let transferable = document.replace("COINS", "TRANSFERABLE_COINS");
+    assert!(matches!(
+        store
+            .import(transferable.as_bytes(), actor, &access())
+            .await,
+        Err(Error::InvalidDocument)
+    ));
+    let imports: i64 = sqlx::query_scalar("SELECT count(*) FROM store_price_list_imports")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(imports, 1);
     db.finish().await;
 }
 #[tokio::test]

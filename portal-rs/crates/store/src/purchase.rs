@@ -166,7 +166,8 @@ fn hex64(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 /// `^[a-z0-9][a-z0-9_.:-]{0,127}$`: Game offer keys keep `:` (owner D1).
-fn offer_key(value: &str) -> bool {
+/// The price-list import (S-5) checks the same pattern.
+pub(crate) fn offer_key(value: &str) -> bool {
     (1..=128).contains(&value.len())
         && value.as_bytes()[0].is_ascii_alphanumeric()
         && value
