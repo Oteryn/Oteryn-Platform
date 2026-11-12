@@ -53,6 +53,10 @@ type Result<T> = std::result::Result<T, Error>;
 pub type LeaseFuture<'a> = Pin<Box<dyn Future<Output = Result<Box<dyn Lease>>> + Send + 'a>>;
 /// Implementations must hold a fence shared with the authoritative cutoff writer.
 /// A browser or an internal request must never construct an implementation.
+/// It must not refuse a lease only because the record's character scope is
+/// deleted: the store checks tombstones after the lease and answers the G-11
+/// terminal refusal (revision 4, G-11 §8.2), and an exact replay of a record
+/// accepted before the deletion keeps its stored `accepted` answer.
 pub trait Authority: Debug + Send + Sync {
     fn acquire<'a>(&'a self, scope: &'a Scope) -> LeaseFuture<'a>;
 }
@@ -226,8 +230,7 @@ enum Deleted {
 /// of a character whose scope is deleted (character deletion, opt-out or
 /// transfer cut, G-11 §8.2).
 const CHARACTER_SCOPE_DELETED: &str = "CHARACTER_SCOPE_DELETED";
-/// Terminal, deterministic refusals tied to subject state (G-11 §8.2, coordinator
-/// amendment of 2026-11-12). Only these consume their revision on the
+/// Terminal, deterministic refusals tied to subject state (G-11 §8.2, revision 4). Only these consume their revision on the
 /// account-wide G-11 stream; every other refusal fails closed without advance.
 const TERMINAL_REFUSALS: [&str; 1] = [CHARACTER_SCOPE_DELETED];
 /// A record inside a deleted scope is refused, an exact replay included.
@@ -354,10 +357,8 @@ impl Store {
             if let Some(reason) = TERMINAL_REFUSALS.iter().find(|reason| **reason == kind) {
                 return Ok(refusal(&r, reason));
             };
-            // A record accepted before its scope was deleted stays refused (§8.2).
-            if terminal.is_some() {
-                return Err(Error::Conflict);
-            };
+            // A record accepted before its scope was deleted keeps its stored
+            // `accepted` answer (revision 4).
             return acknowledgement(&r);
         }
         // Strict contiguous delivery is permitted by G-11 and required by G-10. This

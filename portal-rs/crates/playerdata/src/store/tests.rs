@@ -801,9 +801,10 @@ async fn postgres_transfer_writer_serializes_without_lock_inversion()
     Ok(())
 }
 
-/// Revision 3 (G-10 retention, G-11 §8.2): a deleted scope refuses an exact
-/// replay and a first delivery even while the authority adapter still allows
-/// it, and keeps only a content-free digest that expires after 120 days.
+/// Revision 3 and 4 (G-10 retention, G-11 §8.2): a deleted scope refuses a
+/// first delivery even while the authority adapter still allows it, answers an
+/// exact replay with its stored answer, and keeps only a content-free digest
+/// that expires after 120 days.
 #[tokio::test]
 async fn postgres_deleted_scope_refuses_replay_and_first_delivery()
 -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -821,10 +822,15 @@ async fn postgres_deleted_scope_refuses_replay_and_first_delivery()
     store.ingest(bank_first.clone(), clock()).await?;
 
     store.erase_character(ACCOUNT, CHARACTER, clock()).await?;
-    assert_eq!(store.ingest(first, clock()).await, Err(Error::Conflict));
+    // Revision 4: an exact replay of a record accepted before the deletion
+    // returns its stored `accepted` answer, nothing more.
+    assert_eq!(
+        store.ingest(first.clone(), clock()).await?,
+        acknowledgement(&first)?
+    );
     // A first delivery of the deleted character on the account-wide G-11 stream
-    // is refused terminally and consumes its revision (G-11 §8.2 terminal
-    // refusals, coordinator amendment 2026-11-12); it is still never inserted.
+    // reaches the tombstone check, is refused terminally and consumes its
+    // revision (G-11 §8.2 terminal refusals, revision 4); it is never inserted.
     let second = playerdata::progress(&progress(2))?;
     assert_eq!(
         store.ingest(second.clone(), clock()).await?,
@@ -1331,6 +1337,34 @@ async fn postgres_deleted_account_closes_the_stream_without_advance()
     }
     assert_eq!(store.ingest(refused, clock()).await, Err(Error::Conflict));
     assert_eq!(state(&db).await?, before);
+    db.close().await?;
+    Ok(())
+}
+
+/// Revision 4, lost response: accept, lose the answer, delete the character,
+/// resend the same bytes. A conforming adapter still grants the lease for the
+/// deleted character (the tombstone is the store's check), and the replay is
+/// answered from the stored record before the tombstone check, so it stays
+/// `accepted`; it writes nothing and advances nothing.
+#[tokio::test]
+async fn postgres_lost_response_replay_after_deletion_stays_accepted()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let first = playerdata::progress(&progress(1))?;
+    let scope = first.scope.clone();
+    a.allow(scope.clone()).await;
+    let store = db.store(&a);
+    let answer = store.ingest(first.clone(), clock()).await?;
+    store.erase_character(ACCOUNT, CHARACTER, clock()).await?;
+    assert_eq!(store.ingest(first.clone(), clock()).await?, answer);
+    assert_eq!(answer, acknowledgement(&first)?);
+    assert_eq!(store.cursor(&scope).await?.0.stored, 1);
+    // Different bytes under the same record are still not a replay.
+    let other = playerdata::progress(&progress(1))?;
+    assert_eq!(store.ingest(other, clock()).await, Err(Error::Conflict));
     db.close().await?;
     Ok(())
 }

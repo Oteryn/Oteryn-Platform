@@ -1,4 +1,4 @@
-Status: ACCEPTED revision 3 by the game owner (coordinator), 2026-11-07. Revision 3 proposed by Platform; the game owner accepted it through the coordinator with the clarifications in the acceptance record (revision 3), which this text applies. Acceptance covers the wire and semantics only; open questions stay open for the Game producer lanes, and producer delivery, consumer qualification and production activation remain separate gates.
+Status: ACCEPTED revision 4 by the game owner (coordinator), 2026-11-12; revision 3 accepted 2026-11-07. Revision 3 proposed by Platform; the game owner accepted it through the coordinator with the clarifications in the acceptance record (revision 3), which this text applies. Acceptance covers the wire and semantics only; open questions stay open for the Game producer lanes, and producer delivery, consumer qualification and production activation remain separate gates.
 
 # G-11 private game journal: progress and events
 
@@ -12,11 +12,13 @@ Coordinator verdict on 2026-11-07: **ACCEPT**, with three clarifications:
 
 Open questions are resolved in the Game producer lanes and do not block this acceptance. Acceptance does not start Game producers.
 
-## Amendment: terminal subject refusals (coordinator decision, 2026-11-12)
+## Revision 4: terminal subject refusals (coordinator decision, 2026-11-12)
 
-The coordinator decided this for the account-wide contiguous G-11 stream after the T72 ingest (Oteryn/Oteryn-Platform#1822). It adds one answer and a closed list of terminal reasons; every other rule of revision 3 is unchanged.
+The coordinator decided this for the account-wide contiguous G-11 stream after the T72 ingest (Oteryn/Oteryn-Platform#1822); Game signs it. No Game producer exists yet, so nothing breaks. It adds one answer and a closed list of terminal reasons; every other rule of revision 3 is unchanged, and every revision 3 answer stays byte-identical. `result` is `accepted` or `refused`; `reason` is a closed enum with the single value `CHARACTER_SCOPE_DELETED`.
 
 - **Terminal refusal (Option A):** only a deterministic refusal tied to the state of the record's subject, listed in §8.2 *Terminal refusals*, consumes its `source_revision`. Platform records the refusal durably and content-free (record_id, source_revision, digest and reason code, no payload), advances the stream past it and answers 200 with the refusal answer of §4. An exact replay returns identical answer bytes and writes nothing; other bytes at that revision or under that record_id remain a `409` conflict.
+- **Lost response:** a record already accepted has a durable `accepted` answer. An exact replay of its bytes returns that stored `accepted` answer, also after its character scope was deleted; it is never turned into `refused` or `409`.
+- **Check order:** the authority lease is validated first; then an exact replay by `record_id` and bytes returns its stored answer; only then do the tombstone check and the remaining validation run. An authority adapter must not refuse a lease only because the character scope is deleted, so a deleted scope reaches the tombstone check and is answered `refused`.
 - **Everything else (Option B):** canonical/schema/digest violations, gaps and ordering faults, a revision outside the contiguous window, binding conflicts, account deletion, ownership or fence failures and transient storage errors keep their §7 status, write nothing and never advance the stream.
 
 ## Revision 3 changes
@@ -610,8 +612,9 @@ list of terminal reasons, each a deterministic refusal tied to subject state:
 Such a record is answered with the §4 refusal answer and consumes its revision. A
 record whose account is deleted is not a terminal refusal: account deletion closes
 the stream itself, which stays closed and answers `409` (above). An exact replay of
-a record accepted before its character scope was deleted stays `409`. No other
-condition is terminal; a new reason requires a contract amendment.
+a record accepted before its character scope was deleted returns its stored
+`accepted` answer (revision 4). No other condition is terminal; a new reason
+requires a contract revision.
 
 ### 8.3 Legal hold
 
