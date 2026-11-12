@@ -609,22 +609,58 @@ pub fn configured_routes<S: Clone + Send + Sync + 'static>(
     pool: PgPool,
     lookup: impl Fn(&str) -> Option<String>,
 ) -> Router<S> {
-    let (runtime, evidence, identities) = configuration(lookup).unwrap_or_default();
+    let (runtime, evidence, locator, identities) = configuration(lookup).unwrap_or_default();
     let identities = Arc::new(identities);
     router(pool.clone(), runtime, identities.clone())
-        .merge(crate::evidence::router(pool, evidence, identities))
+        .merge(crate::evidence::router(
+            pool.clone(),
+            evidence,
+            identities.clone(),
+        ))
+        .merge(crate::locator::router(pool, locator, identities))
 }
 /// The runtime-status read settings of `configured_routes`, for readers outside
 /// the ingestion route (the native admission issuer). Invalid configuration is
 /// the disabled default, which reads every scope as unavailable.
 pub fn configured_settings(lookup: impl Fn(&str) -> Option<String>) -> Settings {
     configuration(lookup)
-        .map(|(runtime, _, _)| runtime)
+        .map(|(runtime, _, _, _)| runtime)
         .unwrap_or_default()
 }
-fn configuration(
-    lookup: impl Fn(&str) -> Option<String>,
-) -> Option<(Settings, crate::evidence::Settings, IdentityMap)> {
+/// `[(name, scopes)]` from an identities variable, `{"<SAN>":["<world>/<channel>"]}`.
+fn scoped_identities(raw: &str) -> Option<Vec<Peer>> {
+    let Value::Object(peers) = canonical::decode(raw.as_bytes(), 131072, 4).ok()? else {
+        return None;
+    };
+    let mut parsed = Vec::new();
+    for (name, scopes) in peers {
+        let identity = Identity::san(&name).ok()?;
+        let Value::Array(scopes) = scopes else {
+            return None;
+        };
+        let mut list = Vec::new();
+        for scope in scopes {
+            let Value::String(scope) = scope else {
+                return None;
+            };
+            let (world, channel) = scope.split_once('/')?;
+            list.push((uuid(world, true).ok()?, uuid(channel, true).ok()?));
+        }
+        parsed.push(Peer {
+            name,
+            identity,
+            scopes: list,
+        });
+    }
+    Some(parsed)
+}
+pub(crate) type Configuration = (
+    Settings,
+    crate::evidence::Settings,
+    crate::locator::Settings,
+    IdentityMap,
+);
+pub(crate) fn configuration(lookup: impl Fn(&str) -> Option<String>) -> Option<Configuration> {
     let number = |key: &str, min: u64, max: u64, default: u64| -> Option<u64> {
         let raw = lookup(key).unwrap_or_else(|| default.to_string());
         let n = decimal(&raw, false).ok()?;
@@ -654,31 +690,37 @@ fn configuration(
         ..Settings::default()
     };
     if let Some(raw) = lookup("GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES") {
-        let Value::Object(peers) = canonical::decode(raw.as_bytes(), 131072, 4).ok()? else {
-            return None;
-        };
-        for (name, scopes) in peers {
-            let identity = Identity::san(&name).ok()?;
-            let Value::Array(scopes) = scopes else {
-                return None;
-            };
-            let mut parsed = Vec::new();
-            for scope in scopes {
-                let Value::String(scope) = scope else {
-                    return None;
-                };
-                let (world, channel) = scope.split_once('/')?;
-                parsed.push((uuid(world, true).ok()?, uuid(channel, true).ok()?));
-            }
+        for peer in scoped_identities(&raw)? {
             bindings.push(Binding {
-                identity: identity.clone(),
+                identity: peer.identity.clone(),
                 group: "native-runtime-status".into(),
             });
-            runtime.peers.push(Peer {
-                name,
-                identity,
-                scopes: parsed,
+            runtime.peers.push(peer);
+        }
+    }
+    // §19.6.1: one locator certificate per node host, never a runtime-status,
+    // evidence or other purpose identity (the shared map refuses an overlap).
+    let environment = lookup("OTERYN_ENV").unwrap_or_default();
+    let mut locator = crate::locator::Settings {
+        enabled: lookup(crate::admission::PROTOCOL3_ENABLED).as_deref() == Some("true")
+            && lookup(crate::admission::RECOVERY_ENABLED).as_deref() == Some("true")
+            && matches!(environment.as_str(), "testing" | "preprod"),
+        projection_authority: if lookup("OTERYN_LCFA_ENABLED").as_deref() == Some("true") {
+            lookup("OTERYN_LCFA_SOURCE_AUTHORITY").unwrap_or_default()
+        } else {
+            String::new()
+        },
+        clock_uncertainty_seconds: runtime.clock_uncertainty_seconds,
+        requests_per_minute: runtime.requests_per_minute,
+        ..crate::locator::Settings::default()
+    };
+    if let Some(raw) = lookup(crate::locator::IDENTITIES) {
+        for peer in scoped_identities(&raw)? {
+            bindings.push(Binding {
+                identity: peer.identity.clone(),
+                group: crate::locator::GROUP.into(),
             });
+            locator.peers.push(peer);
         }
     }
     let peer_identity = lookup("GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY")
@@ -721,7 +763,7 @@ fn configuration(
         requests_per_minute: number("GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE", 1, 600, 120)?
             as u16,
     };
-    Some((runtime, evidence, IdentityMap::new(bindings).ok()?))
+    Some((runtime, evidence, locator, IdentityMap::new(bindings).ok()?))
 }
 
 pub(crate) async fn no_cache(request: Request, next: Next) -> Response {

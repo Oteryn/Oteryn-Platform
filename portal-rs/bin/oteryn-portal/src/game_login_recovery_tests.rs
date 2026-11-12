@@ -884,3 +884,43 @@ async fn pg_recovery_account_limit_is_twenty_committed_attempts_per_hour() -> Te
     assert_eq!(r.attempts().await?, before);
     r.close().await
 }
+
+#[tokio::test]
+async fn pg_recovery_ignores_locator_entries_of_a_lower_epoch() -> TestResult {
+    let Some(r) = Recovery::open().await? else {
+        return Ok(());
+    };
+    let app = r.app()?;
+    let attempt = Uuid::now_v7();
+    // §19.6.3 restore reset: an entry of the current epoch steers recovery.
+    r.locator(r.account, WORLD, CHANNEL, false, false).await?;
+    assert_refused(
+        &r.recover(app.clone(), attempt).await?,
+        StatusCode::CONFLICT,
+        "NATIVE_RECOVERY_CHARACTER_CONFLICT",
+        "SESSION_UNAVAILABLE",
+        attempt,
+    );
+    // A higher assignment epoch invalidates every entry of lower epochs: the
+    // handle's bound channel is the target again.
+    r.db.execute("UPDATE native_scope_assignments SET assignment_epoch=2")
+        .await?;
+    r.db.report_with(
+        &r.grants.revision,
+        2,
+        &[(
+            "assignment_epoch",
+            oteryn_internal_api::canonical::Value::String("2".into()),
+        )],
+    )
+    .await?;
+    let reply = r.recover(app, attempt).await?;
+    assert_eq!(
+        reply.status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
+    assert!(String::from_utf8(reply.body)?.contains(&format!(r#""channel_id":"{CHANNEL}""#)));
+    r.close().await
+}

@@ -464,7 +464,9 @@ async fn target(
         Some(_) => {}
     }
     let get = |_: sqlx::Error| RecoveryError::Unavailable;
-    let entry = sqlx::query("SELECT account_id, world_id, channel_id, present, conflicted FROM native_recovery_locators WHERE character_id=$1")
+    // §19.6.3 restore reset: an entry of a lower epoch than the highest
+    // assignment epoch is invalidated and steers nothing.
+    let entry = sqlx::query("SELECT account_id, world_id, channel_id, present, conflicted FROM native_recovery_locators WHERE character_id=$1 AND assignment_epoch >= (SELECT max(assignment_epoch) FROM native_scope_assignments)")
         .bind(request.character_id).fetch_optional(&mut *tx).await.map_err(get)?;
     let mut channel = bound.channel;
     if let Some(entry) = entry

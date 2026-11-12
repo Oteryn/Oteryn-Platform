@@ -24,6 +24,7 @@ pub use store::{
     AccountState, AccountStateLookup, AdmissionAuthority, AuthorizedAccount, Future, Unavailable,
 };
 pub use tickets::NativeTickets;
+pub(crate) use tickets::listing;
 pub use wire::{AdmissionRequest, Channel, Endpoint, Error, Material, Recovery, channel_key_valid};
 
 #[cfg(test)]

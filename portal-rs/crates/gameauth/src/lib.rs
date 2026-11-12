@@ -3,6 +3,7 @@
 pub mod admission;
 pub mod devices;
 pub mod evidence;
+pub mod locator;
 pub mod runtime;
 
 pub mod keys;

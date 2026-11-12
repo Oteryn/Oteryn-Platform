@@ -34,7 +34,7 @@ async fn seconds(db: &mut PgConnection) -> Result<i64, Error> {
 /// The §5 read model's listing of `character` for `account`: its World and
 /// availability, `None` when it is not listed. A disabled, stale or invalid
 /// read model is `RouteUnavailable` (§5.4, §19.4 step 4).
-pub(super) async fn listing(
+pub(crate) async fn listing(
     db: &mut PgConnection,
     projection_authority: &str,
     account: Uuid,
