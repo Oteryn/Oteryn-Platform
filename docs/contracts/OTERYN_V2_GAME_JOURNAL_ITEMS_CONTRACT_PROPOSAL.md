@@ -12,6 +12,10 @@ Coordinator verdict on 2026-11-07: **ACCEPT**, with three clarifications:
 
 Open questions are resolved in the Game producer lanes and do not block this acceptance. Acceptance does not start Game producers.
 
+## Golden erratum (2026-11-12)
+
+Coordinator, verified against `Oteryn/Oteryn-Game@29eb08d392182a65da0304d8d29019588e1e7186`: the wire-canonical item definition family is `Item` (every item content record, `DefinitionFamily::Item`, the pickup wire name and the cyclopedia SQL use it). The three golden payloads below carried `ITEM`; they now carry `Item`. `definition_family` was always "exact Game typed definition family", so this corrects the examples only; no member, type, bound or rule changes. The golden keys (`oteryn:content.item.*`, `rev-1`) remain illustrative; real keys are in `OTERYN_V2_GAME_JOURNAL_DEFINITION_MAPPING_CONTRACT.md`.
+
 ## Revision 3 changes
 
 Game-owner decisions relayed by the coordinator on 2026-11-07, common to G-9, G-10 and G-11. Every other revision 2 decision is unchanged; open questions stay open.
@@ -602,19 +606,19 @@ snapshot declares one item/page). Definition references and family `ITEM` below 
 catalogue bindings; real activation requires accepted source definitions:
 
 ```json
-{"snapshot_id":"019a0000-0000-7000-8000-000000000005","page_index":0,"items":[{"item_instance_id":"019a0000-0000-7000-8000-00000000000b","definition_family":"ITEM","definition_production_key":"oteryn:content.item.backpack","definition_revision_ref":"rev-1","quantity":1,"root":"EQUIPMENT","town_id":null,"depot_box":null,"house_id":null,"spatial_position_hex":null,"equipment_slot":3,"parent_item_instance_id":null,"placement_ordinal":"1"}]}
+{"snapshot_id":"019a0000-0000-7000-8000-000000000005","page_index":0,"items":[{"item_instance_id":"019a0000-0000-7000-8000-00000000000b","definition_family":"Item","definition_production_key":"oteryn:content.item.backpack","definition_revision_ref":"rev-1","quantity":1,"root":"EQUIPMENT","town_id":null,"depot_box":null,"house_id":null,"spatial_position_hex":null,"equipment_slot":3,"parent_item_instance_id":null,"placement_ordinal":"1"}]}
 ```
 
 Valid MARKET_EVENT payload object for a fully filled sell offer:
 
 ```json
-{"event_id":"019a0000-0000-7000-8000-00000000000c","offer_id":"019a0000-0000-7000-8000-00000000000d","side":"SELL","state":"FILLED","end_state":null,"definition_family":"ITEM","definition_production_key":"oteryn:content.item.gold_coin","definition_revision_ref":"rev-1","amount":10,"remaining":0,"piece_price":"2","fee_gold":"0","held_credit_gold":"0"}
+{"event_id":"019a0000-0000-7000-8000-00000000000c","offer_id":"019a0000-0000-7000-8000-00000000000d","side":"SELL","state":"FILLED","end_state":null,"definition_family":"Item","definition_production_key":"oteryn:content.item.gold_coin","definition_revision_ref":"rev-1","amount":10,"remaining":0,"piece_price":"2","fee_gold":"0","held_credit_gold":"0"}
 ```
 
 Valid PLAYER_TRADE_EVENT payload object, one owner perspective:
 
 ```json
-{"occurrence_id":"019a0000-0000-7000-8000-00000000000e","transaction_id":"019a0000-0000-7000-8000-00000000000f","event_id":"019a0000-0000-7000-8000-000000000010","given":[{"item_instance_id":"019a0000-0000-7000-8000-000000000011","definition_family":"ITEM","definition_production_key":"oteryn:content.item.gold_coin","definition_revision_ref":"rev-1","quantity":10}],"received":[{"item_instance_id":"019a0000-0000-7000-8000-000000000012","definition_family":"ITEM","definition_production_key":"oteryn:content.item.platinum_coin","definition_revision_ref":"rev-1","quantity":1}]}
+{"occurrence_id":"019a0000-0000-7000-8000-00000000000e","transaction_id":"019a0000-0000-7000-8000-00000000000f","event_id":"019a0000-0000-7000-8000-000000000010","given":[{"item_instance_id":"019a0000-0000-7000-8000-000000000011","definition_family":"Item","definition_production_key":"oteryn:content.item.gold_coin","definition_revision_ref":"rev-1","quantity":10}],"received":[{"item_instance_id":"019a0000-0000-7000-8000-000000000012","definition_family":"Item","definition_production_key":"oteryn:content.item.platinum_coin","definition_revision_ref":"rev-1","quantity":1}]}
 ```
 
 Invalid cursor request: BANK must use null character and all four receipt-cut fields (400; no cursor change):

@@ -79,7 +79,7 @@
       "game_field": "/records/*/definition/identity with /records/*/authoring/profile/details/bosstiary/category",
       "platform_target": {"table": "world_catalog_records", "capability_id": "creature", "state": "unsupported"},
       "resolves": [
-        {"boss_key": "oteryn:creature.ahau", "creature_revision": "definition-r1", "category": "archfoe"}
+        {"boss_key": "oteryn:creature.ahau", "definition_revision": "definition-r1", "category": "archfoe"}
       ],
       "definition_revision": "UNKNOWN"
     },
