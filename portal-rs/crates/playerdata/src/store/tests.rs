@@ -73,6 +73,9 @@ struct TestAuthority(Arc<RwLock<Vec<Scope>>>);
 #[derive(Debug)]
 struct TestLease(OwnedRwLockReadGuard<Vec<Scope>>);
 impl Lease for TestLease {
+    fn fence<'a>(&'a self, _: &'a mut sqlx::PgConnection, _: &'a Scope) -> FenceFuture<'a> {
+        Box::pin(async { Ok(Admission::Owner) })
+    }
     fn validate(&self, r: &Record) -> Result<()> {
         if self.0.contains(&r.scope) {
             Ok(())
@@ -140,16 +143,11 @@ impl Db {
             })
             .connect(&url)
             .await?;
-        sqlx::raw_sql(include_str!(
-            "../../../../migrations/20261105230108_t72_private_journal.sql"
-        ))
-        .execute(&pool)
-        .await?;
-        sqlx::raw_sql(include_str!(
-            "../../../../migrations/20261112090003_t72_game_journal.sql"
-        ))
-        .execute(&pool)
-        .await?;
+        // The whole schema: the journal migrations plus T72 admission's
+        // `pd_streams.watermark_recovery`, which needs the character tables.
+        oteryn_db::migrate(&pool)
+            .await
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
         Ok(Some(Self {
             pool,
             admin,
@@ -511,8 +509,8 @@ fn sources(progress: bool) -> http::Sources {
 #[derive(Debug)]
 struct TestClock;
 impl http::Clock for TestClock {
-    fn trusted_time(&self) -> Result<TrustedTime> {
-        Ok(clock())
+    fn trusted_time(&self) -> http::ClockFuture<'_> {
+        Box::pin(async { Ok(clock()) })
     }
 }
 #[tokio::test]

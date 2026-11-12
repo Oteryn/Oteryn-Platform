@@ -1,9 +1,10 @@
 //! T72 ingest through the composed routes, byte for byte against the golden
 //! payloads of the accepted G-10 and G-11 revision 3 contracts (the contracts
-//! carry their goldens inline; there is no separate fixture directory).
+//! carry their goldens inline; `docs/contracts/fixtures/game-journal-*` holds
+//! byte copies, checked against the contracts in `authority::tests`).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
-use crate::store::{Error, Lease, LeaseFuture, TrustedTime};
+use crate::store::{Admission, Error, FenceFuture, Lease, LeaseFuture, TrustedTime};
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode, header},
@@ -62,10 +63,13 @@ fn progress(needles: &[&str]) -> &'static str {
 #[derive(Debug)]
 struct FixedClock(u64);
 impl Clock for FixedClock {
-    fn trusted_time(&self) -> std::result::Result<TrustedTime, Error> {
-        Ok(TrustedTime {
-            unix_ms: self.0,
-            uncertainty_ms: 0,
+    fn trusted_time(&self) -> http::ClockFuture<'_> {
+        let unix_ms = self.0;
+        Box::pin(async move {
+            Ok(TrustedTime {
+                unix_ms,
+                uncertainty_ms: 0,
+            })
         })
     }
 }
@@ -75,6 +79,9 @@ struct Allowed(Arc<RwLock<Vec<Scope>>>);
 #[derive(Debug)]
 struct AllowedLease;
 impl Lease for AllowedLease {
+    fn fence<'a>(&'a self, _: &'a mut sqlx::PgConnection, _: &'a Scope) -> FenceFuture<'a> {
+        Box::pin(async { Ok(Admission::Owner) })
+    }
     fn validate(&self, _: &Record) -> std::result::Result<(), Error> {
         Ok(())
     }
@@ -205,12 +212,7 @@ impl Db {
             .connect(&url)
             .await
             .unwrap();
-        for migration in [
-            include_str!("../../../migrations/20261105230108_t72_private_journal.sql"),
-            include_str!("../../../migrations/20261112090003_t72_game_journal.sql"),
-        ] {
-            sqlx::raw_sql(migration).execute(&pool).await.unwrap();
-        }
+        oteryn_db::migrate(&pool).await.unwrap();
         Some(Self {
             pool,
             admin,

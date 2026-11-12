@@ -1,3 +1,4 @@
+pub mod authority;
 pub mod dashboard;
 pub mod deaths;
 pub mod drops;

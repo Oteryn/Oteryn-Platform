@@ -26,9 +26,14 @@ pub fn configured_router(pool: PgPool) -> Router {
             progress_read_enabled: enabled("OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED"),
             game_login_history_enabled: enabled("OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED"),
         },
-        // Replaced only by T72's accepted ownership/baseline adapter. Environment
-        // flags alone cannot turn journal telemetry into authority.
-        authority: Arc::new(UnavailableAuthority),
+        // T72's ownership and watermark-baseline adapter, only for a configured
+        // G-11 source; journal telemetry alone is never authority.
+        authority: match std::env::var(crate::journal::PROGRESS_SOURCE) {
+            Ok(source) if !source.is_empty() => {
+                Arc::new(crate::authority::JournalLoginAuthority { source })
+            }
+            _ => Arc::new(UnavailableAuthority),
+        },
     };
     let mut layer = SessionLayer::new(pool);
     layer.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")

@@ -25,3 +25,15 @@ OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- bootstrap-inten
 - Game-facing `/internal/v1` routes keep the existing contracts byte for byte; tests read fixtures from `docs/contracts/fixtures/`.
 - Features that touch the game or money are off by default behind a flag.
 - Never commit secrets. Configuration comes from `OTERYN_*` environment variables.
+
+## Game journal flags (T72)
+
+All default to off; `bin/oteryn-portal` mounts the ingest only on a qualified internal mTLS listener and keeps refusing it in production.
+
+| flag | effect when `true` |
+|---|---|
+| `PORTAL_PLAYERDATA_G10_INGEST_ENABLED`, `PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED` | G-10 / G-11 ingest admits records through the PostgreSQL ownership fence (`playerdata::authority::DbAuthority`) and the database clock (30 s / 5 s uncertainty bound); a baseline watermark promotes G-11 `game_login` records to the login history. Families also need `PORTAL_PLAYERDATA_JOURNAL_FAMILIES`. |
+| `PLAYERDATA_G10_ITEMS_ENABLED`, `PLAYERDATA_G10_HISTORY_ENABLED` | With `PORTAL_PLAYERDATA_G10_SOURCE_AUTHORITY` set, item reads prove the current owner and cut, and still answer 503 until a G-10 baseline is verified and the catalogue mapping is accepted. |
+| `OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED` with `OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED` | With `PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY` set, login history reads the promoted cut. |
+
+Ownership comes from the character projection, committed transfer receipts and accepted `pd_ownership_baselines` rows. A pending transfer or missing evidence answers 503; a wrong owner or a stale cut answers 409.
