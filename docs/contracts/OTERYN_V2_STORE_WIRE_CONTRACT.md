@@ -55,10 +55,10 @@ Transport rules, as on the command routes:
 | `hex64` | lower-case SHA-256 hex `^[0-9a-f]{64}$` |
 | `int[a,b]` | JSON integer between `a` and `b` inclusive |
 | `source_authority` | `[A-Za-z0-9._:/-]{1,128}`, equal to the configured `store.source_authority` |
-| `offer_key` | `^[a-z0-9][a-z0-9._-]{0,63}$`, copied from the Game catalog |
+| `offer_key` | `^[a-z0-9][a-z0-9_.:-]{0,127}$`, copied from the Game catalog; Game keys keep `:`, for example `store:exercise-sword` (owner D1, 2026-11-02) |
 | `grant_key` | `^[a-z0-9][a-z0-9._:-]{0,63}$` (item, cosmetic or `premium_time` key) |
 | `product_id` | `^[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){1,3}$`, at most 64 bytes |
-| `currency` | `COINS` \| `TRANSFERABLE_COINS` (§10, open question Q1) |
+| `currency` | `COINS` only (owner D1, 2026-11-02; §10, Q1 resolved for this wire) |
 | `unit_kind` | `PREMIUM_TIME` \| `COSMETIC` \| `ITEM` |
 | `operation_kind` | `DELIVER` \| `CLAIM` \| `REVOKE_UNCLAIMED` \| `RECLAIM` \| `FLAG` |
 | `reversal_reason` | `REFUND` \| `CHARGEBACK` \| `SUPPORT_CORRECTION` |
@@ -152,7 +152,7 @@ Request: head, then `account_id` (`uuid7`, Platform `AccountId`).
 | `contract_version` | integer | `1` |
 | `result` | string | `OK` |
 | `account_id` | `uuid7` | equal to the request |
-| `balances` | array 1–2 | one entry per currency Platform holds, `COINS` first; no currency twice |
+| `balances` | array of exactly 1 | the `COINS` entry (owner D1); Game refuses a second entry |
 | `balances[].currency` | `currency` | |
 | `balances[].available` | `amount` | spendable now |
 | `balances[].reserved` | `amount` | held, for example by an auction escrow; not spendable |
@@ -172,7 +172,7 @@ Result codes:
 
 An account without a Wallet row reads `"0"`; Platform does not create the row on a read.
 
-Platform v1 holds exactly one currency, `COINS`, which is the existing Wallet `available_balance` / `reserved_balance` of the account's Platform identity. `TRANSFERABLE_COINS` appears only after the owner decides Q1 (§10).
+The Store wire carries exactly one currency, `COINS`, which is the existing Wallet `available_balance` / `reserved_balance` of the account's Platform identity. `TRANSFERABLE_COINS` is not part of this wire (owner D1, §10).
 
 The balance is display only (semantic contract §14.5). Game caches nothing as authority.
 
@@ -238,7 +238,7 @@ Platform processes the request in one transaction, in the semantic contract's §
 6. **Quote.** `currency` or `unit_price` differs from the import: `STALE_QUOTE`.
 7. **Quantity and currency.** Any of these gives `OFFER_UNAVAILABLE`:
    - `quantity` is above the offer's maximum;
-   - the currency is not held by the Wallet (Q1);
+   - the currency is not `COINS` (defence in depth; the decoder already refuses it, §10);
    - `quantity × unit_price` is above `9223372036854775807`;
    - the units of the offer exceed 8.
 8. **Balance.** Lock the Wallet row (the Wallet mutator's insert-or-ignore plus `lockForUpdate`). If `available` is below the total: `INSUFFICIENT_BALANCE`.
@@ -502,12 +502,11 @@ Cursors are not opaque: they are the values of the last entry returned. Platform
 
 ## 10. Currency
 
-The owner asked for ordinary and transferable coins. Platform's Wallet today holds one balance per identity ("Oteryn Coins", not legacy transferable coins), so the wire reserves both values and v1 behaves as follows:
+Owner decision D1 (2026-11-02): the Store wire currency is `COINS` only, the existing Wallet balance ("Oteryn Coins").
 
-- `COINS` is the existing Wallet balance;
-- `TRANSFERABLE_COINS` is not held, so an offer quoted in it answers `OFFER_UNAVAILABLE` and the balance read omits it.
-
-Semantics, spend order and Wallet storage for transferable coins are open question Q1. Adding them changes no member.
+- Every `currency` member of this wire is `COINS`; a request quoting another value is malformed (`400`).
+- The balance read answers exactly one entry, `COINS`. Game refuses `TRANSFERABLE_COINS` and refuses a second balance entry.
+- Transferable coins stay a separate concept on the Game side (`OTERYN_COIN_PURCHASE_V1`) and are not part of this wire.
 
 ## 11. Configuration and rollout flags
 
@@ -594,7 +593,7 @@ Beyond semantic contract §11:
 
 The following are genuinely new. None is decided here, and each blocks only what it names.
 
-1. **Q1, transferable coins.** The Wallet holds one balance per identity, with no ordinary/transferable split. The owner needs to decide the semantics, the spend order and the Wallet storage of `TRANSFERABLE_COINS`. Until then, offers quoted in it answer `OFFER_UNAVAILABLE`.
+1. **Q1, transferable coins.** RESOLVED for the Store wire by owner decision D1 (2026-11-02): the wire carries `COINS` only and the balance read has exactly one entry (§2.2, §5.1, §10). Transferable coins stay a separate concept in Game `OTERYN_COIN_PURCHASE_V1`, not this wire. Source: Game aee3f57a `crates/gameplay/native-admission-source/tests/fixtures/store-wire-v1/README.md`.
 2. **Q2, `catalog_revision` source.** RESOLVED 2026-11-12: `catalog_revision` is `hex64`, the lowercase SHA-256 revision of the Game catalog Game quotes (§5.3, §5.5). Source: Game main aee3f57a store-wire-v1 fixtures; `gameplay_transport/store.rs` `catalogue.rules.revision()`. It is compared for equality only, never ordered. Q2 no longer blocks route 3; the other questions that block it stay open.
 3. **Q3, Premium time v1 fit.** `oteryn.premium_time` v1 allows one entitlement per account and `OPERATOR_GRANT` issuance only, and a revocation removes all remaining time. That conflicts with one entitlement per fulfilment unit and with a per-purchase refund. Does Premium time need a v2 product contract before step 2 of §11?
 4. **Q4, cosmetic authority read.** No Profile-B read contract exists for cosmetics, yet S-9 launches cosmetics first. A Game consumer fence read for cosmetics is needed before step 2.
