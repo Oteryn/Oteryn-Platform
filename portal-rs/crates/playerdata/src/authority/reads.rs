@@ -1,9 +1,7 @@
 //! Read-side consumers of the T72 journal: the G-11 login cut and promotion,
 //! and the G-10 item-read evidence. Each re-proves ownership in its own
 //! transaction with [`super::ownership`]; journal rows are never ownership.
-use super::{
-    Ownership, OwnershipCut, account, account_epoch, ownership, restore_generation, shared_fences,
-};
+use super::{Ownership, account, account_epoch, ownership, restore_generation, shared_fences};
 use crate::items::{
     model::{self as item_model, Cut as ItemCut, Item},
     store::{Access, Definition, Evidence, Proof, Scope as ItemScope},
@@ -40,9 +38,9 @@ fn item_error(e: Error) -> item_model::Error {
     }
 }
 
-/// The receipt cut of a current owner as the login projection's character cut.
-fn floor_ms(cut: &OwnershipCut) -> Result<i64, Error> {
-    i64::try_from(cut.decided_at)
+/// A receipt decision time (unix seconds) as a login visibility bound.
+fn bound_ms(decided_at: u64) -> Result<i64, Error> {
+    i64::try_from(decided_at)
         .ok()
         .and_then(|s| s.checked_mul(1000))
         .ok_or(Error::Unavailable)
@@ -66,7 +64,8 @@ impl JournalLoginAuthority {
         shared_fences(tx).await?;
         account(tx, account_id).await?;
         let restored = restore_generation(tx).await?;
-        // A character the account does not own now is denied before any stream.
+        // A character the account never owned is denied before any stream; a
+        // former owner's cut is its own period, closed at the transfer cut.
         let owned = match character {
             None => None,
             Some(character) => {
@@ -79,10 +78,11 @@ impl JournalLoginAuthority {
                 {
                     return Err(Error::Denied);
                 }
-                let Ownership::Owner(owned) = ownership(tx, account_id, character).await? else {
-                    return Err(Error::Denied);
-                };
-                Some(owned)
+                match ownership(tx, account_id, character).await? {
+                    Ownership::Owner(owned) => Some((owned, None)),
+                    Ownership::Former(period) => Some((period.cut, Some(period.until))),
+                    Ownership::Stranger => return Err(Error::Denied),
+                }
             }
         };
         let epoch = account_epoch(tx, account_id).await?;
@@ -121,18 +121,20 @@ impl JournalLoginAuthority {
             time_uncertainty_ms: 0,
             baseline_complete: row.try_get("baseline_complete")?,
             visibility_floor_ms: 0,
+            visibility_ceiling_ms: None,
             projection_revision: None,
             ownership_character_revision: None,
             world_id: None,
         };
-        if let Some(owned) = owned {
+        if let Some((owned, until)) = owned {
             if owned.epoch != epoch {
                 return Err(Error::Unavailable);
             }
             cut.projection_revision = Some(owned.to_projection_revision);
             cut.ownership_character_revision = Some(owned.character_revision);
             cut.world_id = Some(owned.world);
-            cut.visibility_floor_ms = floor_ms(&owned)?;
+            cut.visibility_floor_ms = bound_ms(owned.decided_at)?;
+            cut.visibility_ceiling_ms = until.map(bound_ms).transpose()?;
         }
         Ok(cut)
     }
@@ -191,21 +193,19 @@ impl LoginPromoter {
                 .map(|c| Uuid::parse_str(&c))
                 .transpose()
                 .map_err(|_| Error::Unavailable)?;
-            if let Some(character) = character {
-                // A character sold since the record stays out of the seller's view.
-                if !matches!(
-                    ownership(tx, account_id, character).await?,
-                    Ownership::Owner(_)
-                ) {
-                    continue;
-                }
-            }
-            let cut = self
+            // A character the account never owned, or a deleted scope, projects
+            // nothing; a sold one projects only inside the seller's period,
+            // which `apply` bounds by the transfer cut.
+            let cut = match self
                 .logins
                 .authority
                 .current(tx, account_id, character)
                 .await
-                .map_err(from_login)?;
+            {
+                Ok(cut) => cut,
+                Err(logins::Error::Denied) if character.is_some() => continue,
+                Err(e) => return Err(from_login(e)),
+            };
             let record = PromotedLogin {
                 account: account_id,
                 character,

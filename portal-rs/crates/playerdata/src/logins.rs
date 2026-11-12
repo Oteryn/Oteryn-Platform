@@ -4,7 +4,12 @@
 //! deliberately not a second wire parser or a game session command surface.
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Transaction};
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{
+    collections::{HashMap, hash_map::Entry as Slot},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 use uuid::Uuid;
 
 #[cfg(test)]
@@ -100,6 +105,9 @@ pub struct Cut {
     pub time_uncertainty_ms: u32,
     pub baseline_complete: bool,
     pub visibility_floor_ms: i64,
+    /// A former owner's period ends at the transfer cut; rows from then on are
+    /// not its history. `None` for the current owner and account-level cuts.
+    pub visibility_ceiling_ms: Option<i64>,
     pub projection_revision: Option<u64>,
     pub ownership_character_revision: Option<u64>,
     pub world_id: Option<Uuid>,
@@ -189,6 +197,9 @@ fn check_cut(cut: &Cut, character: Option<Uuid>, now: i64) -> Result<()> {
         || cut.observed_at_ms > now
         || now - cut.observed_at_ms > 86_400_000
         || cut.visibility_floor_ms < 0
+        || cut
+            .visibility_ceiling_ms
+            .is_some_and(|ceiling| character.is_none() || ceiling < cut.visibility_floor_ms)
         || character.is_some() != cut.projection_revision.is_some()
         || character.is_some() != cut.ownership_character_revision.is_some()
         || character.is_some() != cut.world_id.is_some()
@@ -237,7 +248,10 @@ impl Logins {
             return Err(Error::Conflict);
         }
         let entered = time(&record.login.entered_at)?;
-        if entered > now || entered < current.visibility_floor_ms {
+        if entered > now
+            || entered < current.visibility_floor_ms
+            || current.visibility_ceiling_ms.is_some_and(|c| entered >= c)
+        {
             return Err(Error::Denied);
         }
         let left = record.login.left_at.as_deref().map(time).transpose()?;
@@ -298,12 +312,18 @@ impl Logins {
             return Err(Error::Unavailable);
         }
         let mut entries = Vec::new();
+        // One proven period per subject; `None` hides that character's rows.
+        let mut periods: HashMap<Option<Uuid>, Option<Cut>> = HashMap::new();
         for row in rows {
-            let cut = self
-                .authority
-                .current(&mut tx, actor, row.character_id)
-                .await?;
-            check_cut(&cut, row.character_id, now)?;
+            let cut = match periods.entry(row.character_id) {
+                Slot::Occupied(known) => known.into_mut(),
+                Slot::Vacant(slot) => {
+                    slot.insert(self.period(&mut tx, actor, row.character_id, now).await?)
+                }
+            };
+            let Some(cut) = cut else {
+                continue;
+            };
             let character_revision = row
                 .character_revision
                 .as_deref()
@@ -326,6 +346,13 @@ impl Logins {
             {
                 return Err(Error::Unavailable);
             }
+            // A former owner's period ends at the transfer cut.
+            if cut
+                .visibility_ceiling_ms
+                .is_some_and(|ceiling| row.entered_at >= ceiling)
+            {
+                continue;
+            }
             entries.push(Entry {
                 login_event_id: row.login_event_id,
                 character: row.character_id,
@@ -337,6 +364,33 @@ impl Logins {
         }
         tx.commit().await?;
         Ok(entries)
+    }
+    /// The proven cut of one history subject. An account-level cut that fails
+    /// fails the read; a character whose period cannot be proven (not owned, a
+    /// deleted scope, an ambiguous or broken chain) is hidden, never guessed.
+    /// A database failure is never read as a hidden character.
+    async fn period(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        actor: Uuid,
+        character: Option<Uuid>,
+        now: i64,
+    ) -> Result<Option<Cut>> {
+        let cut = match self.authority.current(tx, actor, character).await {
+            Ok(cut) => check_cut(&cut, character, now).map(|()| cut),
+            Err(e) => Err(e),
+        };
+        match cut {
+            Ok(cut) => Ok(Some(cut)),
+            Err(e @ Error::Database(_)) => Err(e),
+            Err(e) if character.is_none() => Err(e),
+            Err(_) => {
+                // The authority maps a database failure to Unavailable; an
+                // aborted transaction must still fail the whole read.
+                sqlx::query("SELECT 1").execute(&mut **tx).await?;
+                Ok(None)
+            }
+        }
     }
     /// Called by the owning T72 privacy/removal worker in its transaction.
     pub async fn remove(

@@ -52,6 +52,7 @@ fn cut_denies_unknown_time_scope_and_recovery() {
         time_uncertainty_ms: 0,
         baseline_complete: true,
         visibility_floor_ms: 0,
+        visibility_ceiling_ms: None,
         projection_revision: None,
         ownership_character_revision: None,
         world_id: None,
@@ -83,10 +84,31 @@ fn cut_denies_unknown_time_scope_and_recovery() {
             observed_at_ms: 101,
             ..cut.clone()
         },
+        // Only a character period ends at a transfer cut.
+        Cut {
+            visibility_ceiling_ms: Some(50),
+            ..cut.clone()
+        },
     ] {
         assert!(check_cut(&bad, None, 100).is_err());
     }
     assert!(check_cut(&cut, None, 86_400_101).is_err());
+    // A period cannot end before it begins.
+    let period = Cut {
+        visibility_floor_ms: 50,
+        visibility_ceiling_ms: Some(50),
+        projection_revision: Some(1),
+        ownership_character_revision: Some(1),
+        world_id: Some(Uuid::now_v7()),
+        ..cut.clone()
+    };
+    let character = Some(Uuid::now_v7());
+    assert!(check_cut(&period, character, 100).is_ok());
+    let inverted = Cut {
+        visibility_ceiling_ms: Some(49),
+        ..period
+    };
+    assert!(check_cut(&inverted, character, 100).is_err());
 }
 
 struct Database {
@@ -183,6 +205,7 @@ async fn fixture(pool: &PgPool) -> (Logins, PromotedLogin) {
         time_uncertainty_ms: 0,
         baseline_complete: true,
         visibility_floor_ms: 0,
+        visibility_ceiling_ms: None,
         projection_revision: None,
         ownership_character_revision: None,
         world_id: None,

@@ -2,12 +2,14 @@
 //! progress rev 4) and the trusted database clock.
 //!
 //! Ownership evidence is read only from the character projection
-//! (`account_characters`, `account_character_snapshots`), the committed
-//! `TransferCharacterOwnership` receipts in `character_commands` and an
-//! accepted `pd_ownership_baselines` row. Journal rows are never evidence.
-//! Every read takes a row lock shared with the writer it must serialize with,
-//! inside the store transaction, so a transfer, erasure or restore cannot
-//! commit between the proof and the journal write.
+//! (`account_characters`, `account_character_snapshots`) and the committed
+//! character-command receipts in `character_commands`: the `CreateCharacter`
+//! receipt is the initial cut (an accepted `pd_ownership_baselines` row stands
+//! in for it only where no create receipt exists) and every committed
+//! `TransferCharacterOwnership` receipt chains from it. Journal rows are never
+//! evidence. Every read takes a row lock shared with the writer it must
+//! serialize with, inside the store transaction, so a transfer, erasure or
+//! restore cannot commit between the proof and the journal write.
 use crate::store::{
     Admission, Authority, Error, FenceFuture, Lease, LeaseFuture, TrustedTime,
     http::{Clock, ClockFuture},
@@ -53,13 +55,22 @@ pub struct OwnershipCut {
     pub decided_at: u64,
 }
 
+/// One proven ownership period: the cut that began it and the decision time
+/// (unix seconds) of the transfer that ended it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Period {
+    pub cut: OwnershipCut,
+    pub until: u64,
+}
+
 /// The result of proving one character inside a transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ownership {
     /// The account owns the character at this cut.
     Owner(OwnershipCut),
-    /// The account owned the character before a committed transfer.
-    Former,
+    /// The account owned the character before a committed transfer: its last
+    /// period, which that transfer ended.
+    Former(Period),
     /// The account never owned the character.
     Stranger,
 }
@@ -157,8 +168,64 @@ fn receipt(json: &str) -> Result<Option<(Uuid, OwnershipCut)>> {
     )))
 }
 
+/// The committed `CreateCharacter` receipt of `character` as its initial cut.
+/// Any other receipt is not creation evidence.
+fn create_receipt(json: &str, character: Uuid) -> Result<OwnershipCut> {
+    let v: serde_json::Value = serde_json::from_str(json).map_err(|_| Error::Unavailable)?;
+    let s = |k: &str| v.get(k).and_then(serde_json::Value::as_str);
+    if s("command") != Some("CreateCharacter")
+        || s("outcome") != Some("COMMITTED")
+        || s("result_code") != Some("CHAR_CMD_OK")
+        || uuid(s("character_id").ok_or(Error::Unavailable)?)? != character
+    {
+        return Err(Error::Unavailable);
+    }
+    // A creation has no prior owner: both projection revisions are the creator's.
+    let revision = opt_counter(s("projection_revision"))?;
+    Ok(OwnershipCut {
+        account: uuid(s("account_id").ok_or(Error::Unavailable)?)?,
+        world: uuid(s("world_id").ok_or(Error::Unavailable)?)?,
+        character_revision: opt_counter(s("character_revision"))?,
+        from_projection_revision: revision,
+        to_projection_revision: revision,
+        epoch: opt_counter(s("projection_epoch"))?,
+        recovery: opt_counter(s("recovery_generation"))?,
+        decided_at: opt_counter(s("decided_at"))?,
+    })
+}
+
+/// The initial ownership cut: the character's one committed `CreateCharacter`
+/// receipt, else an accepted baseline. Neither, or more than one creation, is
+/// unavailable; there is never a default owner.
+async fn initial_cut(tx: &mut PgConnection, character: Uuid) -> Result<OwnershipCut> {
+    let created = sqlx::query("SELECT receipt_json FROM character_commands WHERE command='CreateCharacter' AND state='TERMINAL' AND receipt_json::jsonb->>'character_id'=$1 LIMIT 2 FOR SHARE")
+        .bind(character.to_string())
+        .fetch_all(&mut *tx)
+        .await?;
+    match created.as_slice() {
+        [row] => return create_receipt(&row.try_get::<String, _>("receipt_json")?, character),
+        [] => {}
+        _ => return Err(Error::Unavailable),
+    }
+    let base = sqlx::query("SELECT account_id,world_id,character_revision::text AS cr,from_projection_revision::text AS f,to_projection_revision::text AS t,projection_epoch::text AS e,recovery_generation::text AS r,extract(epoch FROM accepted_at)::bigint AS at FROM pd_ownership_baselines WHERE character_id=$1 FOR SHARE")
+        .bind(character)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::Unavailable)?;
+    Ok(OwnershipCut {
+        account: base.try_get("account_id")?,
+        world: base.try_get("world_id")?,
+        character_revision: counter(&base.try_get::<String, _>("cr")?)?,
+        from_projection_revision: counter(&base.try_get::<String, _>("f")?)?,
+        to_projection_revision: counter(&base.try_get::<String, _>("t")?)?,
+        epoch: counter(&base.try_get::<String, _>("e")?)?,
+        recovery: counter(&base.try_get::<String, _>("r")?)?,
+        decided_at: u64::try_from(base.try_get::<i64, _>("at")?).map_err(|_| Error::Unavailable)?,
+    })
+}
+
 /// Proves who owns `character` now. Pending or ambiguous evidence denies
-/// (`Unavailable`). Locks the transfer commands and the projection rows shared.
+/// (`Unavailable`). Locks the character's commands and projection rows shared.
 pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) -> Result<Ownership> {
     let rows = sqlx::query("SELECT state,receipt_json FROM character_commands WHERE command='TransferCharacterOwnership' AND binding_json::jsonb->>'character_id'=$1 ORDER BY source_revision LIMIT $2 FOR SHARE")
         .bind(character.to_string())
@@ -168,7 +235,7 @@ pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) ->
     if rows.len() as i64 > MAX_TRANSFERS {
         return Err(Error::Unavailable);
     }
-    let mut cuts: Vec<(Uuid, OwnershipCut)> = Vec::new();
+    let mut transfers: Vec<(Uuid, OwnershipCut)> = Vec::new();
     for row in &rows {
         if row.try_get::<String, _>("state")? != "TERMINAL" {
             return Err(Error::Unavailable);
@@ -176,14 +243,18 @@ pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) ->
         let json: String = row
             .try_get::<Option<String>, _>("receipt_json")?
             .ok_or(Error::Unavailable)?;
-        cuts.extend(receipt(&json)?);
+        transfers.extend(receipt(&json)?);
     }
-    // Committed receipts must form one ownership chain.
-    for pair in cuts.windows(2) {
-        let (prev, next) = (&pair[0].1, &pair[1]);
-        if next.0 != prev.account || next.1.character_revision <= prev.character_revision {
+    // Committed transfers chain from the initial cut: each seller is the
+    // previous owner, at a later character revision. (A baseline's acceptance
+    // time is no decision time; the login read refuses an inverted period.)
+    let mut chain = vec![initial_cut(tx, character).await?];
+    for (from, cut) in transfers {
+        let prev = chain.last().ok_or(Error::Unavailable)?;
+        if from != prev.account || cut.character_revision <= prev.character_revision {
             return Err(Error::Unavailable);
         }
+        chain.push(cut);
     }
     let projection = sqlx::query("SELECT c.account_id,c.world_id,s.projection_epoch,s.projection_revision,s.invalid FROM account_characters c JOIN account_character_snapshots s ON s.account_id=c.account_id WHERE c.character_id=$1 FOR SHARE OF c, s")
         .bind(character)
@@ -199,45 +270,30 @@ pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) ->
     let world: Uuid = row.try_get("world_id")?;
     let epoch = counter(&row.try_get::<String, _>("projection_epoch")?)?;
     let revision = counter(&row.try_get::<String, _>("projection_revision")?)?;
-    let agrees = |c: &OwnershipCut| {
-        c.account == owner && c.epoch == epoch && revision >= c.to_projection_revision
-    };
-    let current = if let Some((_, last)) = cuts.last() {
-        if !agrees(last) {
-            return Err(Error::Unavailable);
-        }
-        OwnershipCut {
-            world,
-            ..last.clone()
-        }
-    } else {
-        let base = sqlx::query("SELECT account_id,world_id,character_revision::text AS cr,from_projection_revision::text AS f,to_projection_revision::text AS t,projection_epoch::text AS e,recovery_generation::text AS r,extract(epoch FROM accepted_at)::bigint AS at FROM pd_ownership_baselines WHERE character_id=$1 FOR SHARE")
-            .bind(character)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(Error::Unavailable)?;
-        let cut = OwnershipCut {
-            account: base.try_get("account_id")?,
-            world: base.try_get("world_id")?,
-            character_revision: counter(&base.try_get::<String, _>("cr")?)?,
-            from_projection_revision: counter(&base.try_get::<String, _>("f")?)?,
-            to_projection_revision: counter(&base.try_get::<String, _>("t")?)?,
-            epoch: counter(&base.try_get::<String, _>("e")?)?,
-            recovery: counter(&base.try_get::<String, _>("r")?)?,
-            decided_at: u64::try_from(base.try_get::<i64, _>("at")?)
-                .map_err(|_| Error::Unavailable)?,
-        };
-        if !agrees(&cut) || cut.world != world {
-            return Err(Error::Unavailable);
-        }
-        cut
-    };
-    Ok(if current.account == account {
-        Ownership::Owner(current)
-    } else if cuts.iter().any(|(from, _)| *from == account) {
-        Ownership::Former
-    } else {
-        Ownership::Stranger
+    // The initial cut names the world; transfer receipts carry none.
+    if chain[0].world != world {
+        return Err(Error::Unavailable);
+    }
+    for cut in &mut chain {
+        cut.world = world;
+    }
+    let current = chain.last().ok_or(Error::Unavailable)?;
+    if current.account != owner
+        || current.epoch != epoch
+        || revision < current.to_projection_revision
+    {
+        return Err(Error::Unavailable);
+    }
+    if current.account == account {
+        return Ok(Ownership::Owner(current.clone()));
+    }
+    // The account's last period ends at the next cut of the chain.
+    Ok(match chain.iter().rposition(|c| c.account == account) {
+        Some(i) => Ownership::Former(Period {
+            cut: chain[i].clone(),
+            until: chain.get(i + 1).ok_or(Error::Unavailable)?.decided_at,
+        }),
+        None => Ownership::Stranger,
     })
 }
 
@@ -273,7 +329,7 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
     let cut = match proof {
         Ok(Ownership::Owner(_)) | Err(_) if deleted => return Ok(Admission::Deleted),
         Ok(Ownership::Owner(cut)) => cut,
-        Ok(Ownership::Former) => return Ok(Admission::Transferred),
+        Ok(Ownership::Former(_)) => return Ok(Admission::Transferred),
         Ok(Ownership::Stranger) => return Err(Error::Conflict),
         Err(e) => return Err(e),
     };

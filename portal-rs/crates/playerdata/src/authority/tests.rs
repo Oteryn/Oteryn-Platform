@@ -184,6 +184,39 @@ impl Db {
         )
         .await;
     }
+    /// A committed `CreateCharacter` receipt at epoch 1, recovery 3:
+    /// (character revision, projection revision, decided at seconds).
+    async fn create(&self, account: &str, character: &str, world: &str, cut: [&str; 3]) {
+        let id = Uuid::now_v7();
+        let [cr, pr, at] = cut;
+        let receipt = format!(
+            r#"{{"contract_version":1,"operation":"PublishCharacterCommandReceiptV1","source_authority":"test","command":"CreateCharacter","operation_id":"{id}","outcome":"COMMITTED","result_code":"CHAR_CMD_OK","character_id":"{character}","account_id":"{account}","world_id":"{world}","name":"Hero","character_revision":"{cr}","projection_epoch":"1","projection_revision":"{pr}","recovery_generation":"3","decided_at":"{at}"}}"#
+        );
+        self.exec(
+            "INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,binding_json,intent_json,receipt_json,state) VALUES($1::uuid,$1::uuid,$1,'CreateCharacter',$2::uuid,'{}','',$3,'TERMINAL')",
+            &[&id.to_string(), account, &receipt],
+        )
+        .await;
+    }
+    /// A committed transfer at epoch 1, recovery 3, moving the projection row:
+    /// (character revision, from and to projection revision, decided at seconds).
+    async fn transfer(&self, character: &str, from: &str, to: &str, cut: [&str; 4]) {
+        let id = Uuid::now_v7();
+        let [cr, fpr, tpr, at] = cut;
+        let receipt = format!(
+            r#"{{"contract_version":1,"operation":"PublishCharacterCommandReceiptV1","source_authority":"test","command":"TransferCharacterOwnership","operation_id":"{id}","outcome":"COMMITTED","result_code":"CHAR_CMD_OK","character_id":"{character}","from_account_id":"{from}","to_account_id":"{to}","character_revision":"{cr}","projection_epoch":"1","from_projection_revision":"{fpr}","to_projection_revision":"{tpr}","recovery_generation":"3","decided_at":"{at}"}}"#
+        );
+        self.exec(
+            "INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json,receipt_json,state) VALUES($1::uuid,$1::uuid,$1,'TransferCharacterOwnership',$2::uuid,$3::uuid,json_build_object('character_id',$4)::text,'',$5,'TERMINAL')",
+            &[&id.to_string(), from, to, character, &receipt],
+        )
+        .await;
+        self.exec(
+            "UPDATE account_characters SET account_id=$2::uuid WHERE character_id=$1::uuid",
+            &[character, to],
+        )
+        .await;
+    }
     async fn count(&self, sql: &str) -> i64 {
         sqlx::query_scalar(sqlx::AssertSqlSafe(sql.to_owned()))
             .fetch_one(&self.pool)
@@ -659,5 +692,279 @@ async fn postgres_game_login_is_promoted_by_a_baseline_watermark_only() {
         cut.baseline_complete && cut.complete_through == 1 && cut.projection_revision == Some(12)
     );
     tx.rollback().await.unwrap();
+    db.close().await;
+}
+
+/// Another account and a second character of the seller.
+const OTHER: &str = "0190f2a1-3b4c-7d5e-8f60-718293a4b5c8";
+const KEPT: &str = "01934f10-7c04-7001-805b-3b11223344a5";
+
+fn id(s: &str) -> Uuid {
+    Uuid::parse_str(s).unwrap()
+}
+async fn proof(db: &Db, account: &str, character: &str) -> Result<Ownership> {
+    let mut tx = db.pool.begin().await.unwrap();
+    let proof = ownership(&mut tx, id(account), id(character)).await;
+    tx.rollback().await.unwrap();
+    proof
+}
+/// The seller's create cut as the authority reads it.
+fn created(cr: u64, decided_at: u64) -> OwnershipCut {
+    OwnershipCut {
+        account: id(SELLER),
+        world: id(WORLD),
+        character_revision: cr,
+        from_projection_revision: 12,
+        to_projection_revision: 12,
+        epoch: 1,
+        recovery: 3,
+        decided_at,
+    }
+}
+/// The golden stamina record of the buyer at its transfer cut (pr 13, cr 10).
+fn buyer_stamina() -> String {
+    progress("record-stamina.valid.json")
+        .replace(SELLER, BUYER)
+        .replace(
+            "\"projection_revision\":\"12\"",
+            "\"projection_revision\":\"13\"",
+        )
+        .replace(
+            "\"character_revision\":\"9\"",
+            "\"character_revision\":\"10\"",
+        )
+}
+
+#[tokio::test]
+async fn postgres_create_receipt_is_the_initial_cut_and_its_absence_is_503() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    db.account(SELLER, "1", "12").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    let stamina = progress("record-stamina.valid.json");
+    // No create receipt and no baseline: unavailable, never a default owner.
+    assert!(matches!(
+        proof(&db, SELLER, CHARACTER).await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(
+        record(&app, &stamina).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    // Another character's creation proves nothing about this one.
+    db.character(SELLER, KEPT, WORLD).await;
+    db.create(SELLER, KEPT, WORLD, ["9", "12", "1789990000"])
+        .await;
+    assert_eq!(
+        record(&app, &stamina).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    db.create(SELLER, CHARACTER, WORLD, ["9", "12", "1789990000"])
+        .await;
+    assert_eq!(
+        proof(&db, SELLER, CHARACTER).await.unwrap(),
+        Ownership::Owner(created(9, 1789990000))
+    );
+    assert_eq!(
+        proof(&db, BUYER, CHARACTER).await.unwrap(),
+        Ownership::Stranger
+    );
+    assert_eq!(
+        record(&app, &stamina).await,
+        (StatusCode::OK, progress("response-accepted.valid.json"))
+    );
+    // A second creation of the same character is ambiguous.
+    db.create(OTHER, CHARACTER, WORLD, ["9", "12", "1789990000"])
+        .await;
+    assert!(matches!(
+        proof(&db, SELLER, CHARACTER).await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_transfers_chain_from_the_create_receipt() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    db.account(SELLER, "1", "12").await;
+    db.account(BUYER, "1", "20").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    db.create(SELLER, CHARACTER, WORLD, ["9", "12", "1789990000"])
+        .await;
+    db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", "1789999000"])
+        .await;
+    assert_eq!(
+        proof(&db, BUYER, CHARACTER).await.unwrap(),
+        Ownership::Owner(OwnershipCut {
+            account: id(BUYER),
+            to_projection_revision: 13,
+            ..created(10, 1789999000)
+        })
+    );
+    assert_eq!(
+        proof(&db, SELLER, CHARACTER).await.unwrap(),
+        Ownership::Former(Period {
+            cut: created(9, 1789990000),
+            until: 1789999000,
+        })
+    );
+    assert_eq!(
+        proof(&db, OTHER, CHARACTER).await.unwrap(),
+        Ownership::Stranger
+    );
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    let (status, body) = record(&app, &buyer_stamina()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_first_transfer_not_from_the_creator_is_a_broken_chain() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    db.account(SELLER, "1", "12").await;
+    db.account(BUYER, "1", "20").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    // The other account created the character; the seller never received it.
+    db.create(OTHER, CHARACTER, WORLD, ["9", "12", "1789990000"])
+        .await;
+    db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", "1789999000"])
+        .await;
+    for account in [BUYER, SELLER, OTHER] {
+        assert!(matches!(
+            proof(&db, account, CHARACTER).await,
+            Err(Error::Unavailable)
+        ));
+    }
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    assert_eq!(
+        record(&app, &buyer_stamina()).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
+    db.close().await;
+}
+
+/// A `game_login` record of `account` for `character` at its cut (pr, cr).
+fn login_record(
+    account: &str,
+    character: &str,
+    cut: [&str; 2],
+    revision: u64,
+    event: Uuid,
+    entered: i64,
+) -> String {
+    let [pr, cr] = cut;
+    let record = Uuid::now_v7();
+    format!(
+        r#"{{"contract_version":1,"operation":"PublishGameJournalProgressV1","source_authority":"{PROGRESS_AUTHORITY}","account_id":"{account}","character_id":"{character}","world_id":"{WORLD}","projection_revision":"{pr}","projection_epoch":"1","recovery_generation":"3","family":"game_login","source_revision":"{revision}","record_id":"{record}","entity_key":"{event}","character_revision":"{cr}","occurred_at_unix_ms":"{entered}","record_kind":"UPSERT","payload":{{"login_event_id":"{event}","entered_at":"{entered}","left_at":null,"end_reason":null}}}}"#
+    )
+}
+async fn db_now(db: &Db) -> i64 {
+    sqlx::query_scalar("SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap()
+}
+/// A baseline-complete `game_login` watermark of `account`.
+async fn login_watermark(app: &Router, db: &Db, account: &str, through: u64) {
+    let now = db_now(db).await;
+    let body = format!(
+        r#"{{"contract_version":1,"operation":"PublishGameJournalProgressWatermarkV1","source_authority":"{PROGRESS_AUTHORITY}","account_id":"{account}","projection_epoch":"1","recovery_generation":"3","family":"game_login","complete_through":"{through}","observed_at_unix_ms":"{now}","baseline_complete":true}}"#
+    );
+    let (status, body) = post(app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &body).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+/// The login history of `account` as event ids, newest first.
+async fn history(db: &Db, account: &str) -> Vec<Uuid> {
+    crate::logins::Logins {
+        pool: db.pool.clone(),
+        flags: crate::logins::Flags {
+            progress_ingest_enabled: true,
+            progress_read_enabled: true,
+            game_login_history_enabled: true,
+        },
+        authority: Arc::new(JournalLoginAuthority {
+            source: PROGRESS_AUTHORITY.into(),
+        }),
+    }
+    .history(id(account))
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|entry| entry.login_event_id)
+    .collect()
+}
+
+#[tokio::test]
+async fn postgres_sold_character_history_is_the_sellers_period_only() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let now = db_now(&db).await;
+    let secs = now / 1000;
+    db.account(SELLER, "1", "12").await;
+    db.account(BUYER, "1", "20").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    db.character(SELLER, KEPT, WORLD).await;
+    let born = (secs - 100).to_string();
+    db.create(SELLER, CHARACTER, WORLD, ["9", "12", &born])
+        .await;
+    db.create(SELLER, KEPT, WORLD, ["5", "12", &born]).await;
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    // Two sessions on the sold character around the transfer cut, one on the kept.
+    let (early, late, kept) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    for body in [
+        login_record(SELLER, CHARACTER, ["12", "9"], 1, early, now - 60_000),
+        login_record(SELLER, CHARACTER, ["12", "9"], 2, late, now - 10_000),
+        login_record(SELLER, KEPT, ["12", "5"], 3, kept, now - 30_000),
+    ] {
+        let (status, body) = record(&app, &body).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    login_watermark(&app, &db, SELLER, 3).await;
+    assert_eq!(db.count("SELECT count(*) FROM pd_game_logins").await, 3);
+    assert_eq!(history(&db, SELLER).await, vec![late, kept, early]);
+
+    // The sale: its cut falls between the early and the late session.
+    db.transfer(
+        CHARACTER,
+        SELLER,
+        BUYER,
+        ["10", "12", "13", &(secs - 30).to_string()],
+    )
+    .await;
+    // The seller keeps the rows of its own period only; the kept character is
+    // unaffected.
+    assert_eq!(history(&db, SELLER).await, vec![kept, early]);
+
+    // The buyer's sessions from before its cut never project; after it they do.
+    let (before, after) = (Uuid::now_v7(), Uuid::now_v7());
+    for body in [
+        login_record(BUYER, CHARACTER, ["13", "10"], 1, before, now - 50_000),
+        login_record(BUYER, CHARACTER, ["13", "10"], 2, after, now - 5_000),
+    ] {
+        let (status, body) = record(&app, &body).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    login_watermark(&app, &db, BUYER, 2).await;
+    let buyer = history(&db, BUYER).await;
+    assert_eq!(buyer, vec![after]);
+    for pre_cut in [early, before] {
+        assert!(!buyer.contains(&pre_cut), "buyer saw pre-cut row {pre_cut}");
+    }
+    assert_eq!(history(&db, SELLER).await, vec![kept, early]);
+
+    // A pending transfer leaves the period boundary undeterminable: that
+    // character is hidden, the rest of the history stays readable.
+    db.pending_transfer(CHARACTER).await;
+    assert_eq!(history(&db, SELLER).await, vec![kept]);
+    assert!(history(&db, BUYER).await.is_empty());
     db.close().await;
 }
