@@ -1,3 +1,5 @@
 node_modules/
 test-results/
 playwright-report/
+# Generated per run by harness.mjs: certificates, keys, witnesses, logs.
+.harness/

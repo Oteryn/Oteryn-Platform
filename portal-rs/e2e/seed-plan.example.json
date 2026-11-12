@@ -1,0 +1,12 @@
+{
+  "steps": [
+    {"name": "player", "entity": "account", "args": {"email": "player1@example.invalid", "password": "e2e-player-password", "accountId": "019a0000-0000-7000-8000-00000000a001"}},
+    {"name": "world", "entity": "world", "args": {"worldId": "019a0000-0000-7000-8000-00000000e001", "slug": "entry", "name": "Entry", "region": "local", "host": "127.0.0.1", "port": 7171}},
+    {"name": "channel", "entity": "channel", "args": {"worldId": "${world.worldId}", "channelKey": "entry-1"}},
+    {"name": "route", "entity": "route", "args": {"worldId": "${world.worldId}", "channelKey": "entry-1", "host": "127.0.0.1", "port": 7171, "serverName": "localhost", "enabled": true}},
+    {"name": "freshTrust", "entity": "signing-trust", "args": {"purpose": "fresh_admission", "keyId": "e2e-fresh-1", "publicKeyHex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"}},
+    {"name": "recoveryTrust", "entity": "signing-trust", "args": {"issuer": "urn:oteryn:platform:game-recovery", "purpose": "existing_actor_recovery", "keyId": "e2e-recovery-1", "publicKeyHex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"}},
+    {"name": "nativeClient", "entity": "oauth-native-client", "args": {}},
+    {"name": "bootstrap", "entity": "bootstrap-intent", "args": {"accountId": "${player.accountId}", "operationId": "019a0000-0000-7000-8000-0000000b0001", "targetWorldId": "${world.worldId}", "requestedName": "Aldric Vale", "requestedSex": "Female", "profileRevision": "profile:1", "rulesetRevision": "ruleset:1", "contentRevision": "content:1", "starterTemplateRevision": "starter:1"}}
+  ]
+}

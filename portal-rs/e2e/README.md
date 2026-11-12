@@ -2,13 +2,10 @@
 
 Node 22+, Python 3 (pinned negative fixture generation), OpenSSL, the repository Rust toolchain, PostgreSQL 18.6, and an installed Chromium are required. No browser download is performed. The suite has four projects: Polish and English, each at 1440 × 900 and 390 × 900. Retries are disabled. Traces and screenshots remain local and can contain throwaway authentication material; do not publish them.
 
-From the repository root in the supplied environment:
+From the repository root, with a native Node 22+ on `PATH` and a throwaway local
+PostgreSQL 18.6 already running (nothing outside the repository is sourced):
 
 ```sh
-portal_e2e_node_bin="$(dirname "$(command -v node)")"
-source /workspace/oteryn-platform-env/env.sh
-export PATH="$portal_e2e_node_bin:$PATH"
-/workspace/oteryn-platform-env/start.sh
 cd portal-rs/e2e
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --cache /tmp/portal-browser-npm
 # Supply a LOCAL disposable PostgreSQL administrator connection through the environment.
@@ -21,18 +18,13 @@ node local.mjs
 In a second shell, using the scratch path printed by that process:
 
 ```sh
-portal_e2e_node_bin="$(dirname "$(command -v node)")"
-source /workspace/oteryn-platform-env/env.sh
-export PATH="$portal_e2e_node_bin:$PATH"
-cd /workspace/Oteryn-Platform/portal-rs/e2e
+cd portal-rs/e2e
 CHROMIUM_PATH=/usr/bin/chromium node run.mjs /absolute/scratch/env.json test
 ```
 
 That is the exact browser command; it runs every project. `--project=pl-390` can be appended for diagnosis. The existing Chromium path can be overridden using `CHROMIUM_PATH`; never run a browser installation command when Chromium is present.
 
-The environment script prepends a container wrapper for Node. The commands above
-retain the native Node executable already on PATH before sourcing that script, so
-loopback services and Chromium run together. Use a native Node 22+ installation.
+Use a native Node 22+ installation, so loopback services and Chromium run together.
 
 For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.
 
@@ -51,7 +43,7 @@ drop its disposable test database.
 Workspace acceptance uses the generated `PORTAL_TEST_DATABASE_URL`. Export it from the private scratch JSON without printing it, then run:
 
 ```sh
-cd /workspace/Oteryn-Platform/portal-rs
+cd portal-rs
 RUST_TEST_THREADS=1 cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
 RUST_TEST_THREADS=1 cargo test --locked
@@ -73,6 +65,92 @@ Registration allows 90 seconds for the real browser proof of work. Native form
 actions allow 30 seconds for password hashing and navigation. These waits retain
 the exact destination assertions, production proof difficulty and zero retries.
 
+
+## Cross-repository harness (Game server + client + portal-rs + PostgreSQL)
+
+One command starts portal-rs for an external E2E harness. It needs Node 22+,
+OpenSSL, the repository Rust toolchain and a throwaway **local** PostgreSQL 18.6
+administrator URL; everything else is generated per run:
+
+```sh
+set +x
+export PORTAL_E2E_ADMIN_DATABASE_URL=...   # local PostgreSQL only; never commit or print it
+portal-rs/e2e/start.sh --seed-plan portal-rs/e2e/seed-plan.example.json
+```
+
+`start.sh` checks the tools, installs the pinned `pg` client from
+`package-lock.json` when missing (no browser, no install scripts) and runs
+`harness.mjs`, which:
+
+1. reads the test-only settings in [`test.env`](test.env) (flags, authorities,
+   ports; no secrets; a variable already set in the calling shell overrides a
+   name listed there);
+2. creates a fresh `portal_e2e_*` database, builds `oteryn-portal`, copies the
+   binary into the output directory and runs `migrate`;
+3. generates a throwaway CA, an internal-listener server certificate
+   (`localhost`, `127.0.0.1`) and one client certificate per internal Game
+   identity, each with a single DNS SAN `<identity>.game.e2e.oteryn.test`, and
+   binds each SAN to its own `*_IDENTITY` / `*_IDENTITIES` / `*_SAN` variable
+   (no overlap, so the shared identity check keeps every route available);
+4. starts `serve` (public listener plus the internal mTLS listener), `worker`
+   and `gateway` (with a generated service token for the native admission
+   listener), waits until each answers, runs the seed plan if given, and
+   prints **one JSON object** on stdout (also saved as `report.json`).
+
+Output (default `portal-rs/e2e/.harness/run`, ignored by git, replaced on
+each run; override with `PORTAL_E2E_OUT`):
+
+```json
+{"status":"ready","database":"portal_e2e_<hex>",
+ "baseUrls":{"public":"http://127.0.0.1:18080","internal":"https://127.0.0.1:18543",
+             "nativeAdmission":"http://127.0.0.1:18091","gateway":"http://127.0.0.1:18090"},
+ "outputDirectory":"...","certificateDirectory":".../certs/clients","caFile":".../certs/ca.pem",
+ "internalServerName":"localhost",
+ "clients":{"native-evidence":{"san":"native-evidence.game.e2e.oteryn.test",
+            "env":"GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY","cert":"...pem","key":"...key"}, "...": {}},
+ "witnessDirectory":"...","logs":{"migrate":"...","serve":"...","worker":"...","gateway":"..."},
+ "seed":{"<step name>":{"...":"command output"}},"pending":[{"step":"channel","error":"pending","reason":"..."}],
+ "pid":12345}
+```
+
+Client identities: `native-evidence`, `runtime-status`, `scope-assignment`,
+`bootstrap-intents`, `lcfa`, `character-commands`, `character-services`,
+`restore-notice`, `store`, `premium`, `loyalty-snapshot`, `loyalty-stream`,
+`coins`, `sanctions`, `security-revocations`, `public-projections`. Runtime
+status and scope assignment are bound to the scopes in
+`PORTAL_E2E_NATIVE_SCOPES` (JSON array of `"<world UUIDv7>/<channel UUIDv7>"`,
+default one `Entry` scope). Ports come from `PORTAL_E2E_HTTP_PORT`,
+`PORTAL_E2E_INTERNAL_PORT`, `PORTAL_E2E_ADMISSION_PORT` and
+`PORTAL_E2E_GATEWAY_PORT`. `PORTAL_E2E_BINARY` skips the build.
+`--exit-after-ready` stops after the report. Ctrl-C or SIGTERM stops the
+services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it).
+The private CA key, CSRs, server key, gateway token and the full child
+environment (with the database URL) stay in `<out>/secrets`, mode 0600.
+
+### Seed commands
+
+`oteryn-portal seed <entity> '<json object>'` runs only with
+`OTERYN_ENV=testing` and `OTERYN_DATABASE_URL`, prints one JSON object on
+stdout and exits 0 (done), 2 (`bad_input` / `conflict`), 3 (`pending` /
+`not_applicable`) or 1 (`unavailable`). Every command is an idempotent
+ensure: the same input gives the same output and no new row; other input for
+an existing key is a `conflict`. A seed plan is `{"steps":[{"name","entity","args"}]}`;
+`"${name.field}"` in later arguments is replaced by that step's output.
+
+| entity | arguments | output |
+|---|---|---|
+| `account` | `email` (`*@example.invalid`), `password` (hashed with the portal's Argon2id), optional `accountId` (UUIDv7, generated otherwise), `locale` | `accountId`, `email`, `status` (`active`, e-mail verified), `nativeSecurityGeneration` (1) |
+| `world` | `worldId` (UUIDv7), `name`, `region` (default `local`); `slug`, `host`, `port` are accepted but not stored | `worldId`, `name`, `region`, `notStored` |
+| `oauth-native-client` | optional `clientId` (default `019a0000-0000-7000-8000-0000000c11e7`) | `clientId`, `enabled`, `firstParty`, `publicClient`, `nativeTicket` |
+| `signing-trust` | `purpose`, `keyId`, `publicKeyHex` (Ed25519, 64 hex); `issuer`/`profile` default to the fresh-admission scope, or `urn:oteryn:platform:game-recovery` with purpose `existing_actor_recovery` | `issuer`, `profile`, `purpose`, `keyId`, `publicKey` (base64url), `issuerRevision` |
+| `bootstrap-intent` | `accountId`, `operationId`, `targetWorldId`, `requestedName`, `requestedSex` (`Female`/`Male`), `profileRevision`, `rulesetRevision`, `contentRevision`, `starterTemplateRevision`, optional `ttlSeconds` (1..=300, default 300) | `operationId`, `issuerDecisionId`, `sourceRevision`, `accountId`, `targetWorldId`, `issuedAtSource`, `expiresAtSource`, `intentSha256` |
+| `channel`, `route` | - | `pending`: the T19c `game_channels` registry and route record (gateway contract §7.3, mode 34a) are not on this tree |
+| `native-evidence` | - | `not_applicable`: evidence is observed live; the first observation bootstraps the retained witness |
+
+`signing-trust` writes the retained witness in
+`GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`, so run it with the harness
+environment (`<out>/secrets/env.json`). A bootstrap intent expires
+`ttlSeconds` after issue, as the read contract bounds it.
 
 ## Native world source and expected refusals
 
