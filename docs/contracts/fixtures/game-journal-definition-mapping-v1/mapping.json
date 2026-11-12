@@ -1,0 +1,142 @@
+{
+  "contract": "docs/contracts/OTERYN_V2_GAME_JOURNAL_DEFINITION_MAPPING_CONTRACT.md",
+  "status": "CANDIDATE",
+  "game_source": {
+    "repository": "Oteryn/Oteryn-Game",
+    "revision": "29eb08d392182a65da0304d8d29019588e1e7186"
+  },
+  "families": [
+    {
+      "family": "ITEMS|MARKET|PLAYER_TRADE",
+      "wire_fields": ["definition_family", "definition_production_key", "definition_revision_ref"],
+      "ref_kind": "Item",
+      "game_path": "content/items/definitions/items-00000-00499.json",
+      "game_field": "/records/*/definition/identity",
+      "platform_target": {"table": "world_catalog_records", "capability_id": "item", "state": "unsupported"},
+      "resolves": [
+        {
+          "ref": {"definition_family": "Item", "definition_production_key": "oteryn:item.tibia.i10326", "definition_revision_ref": "definition-r1"},
+          "materializable": true,
+          "stack_class": "NonStackable",
+          "maximum_quantity": 1,
+          "container_capacity": 20
+        },
+        {
+          "ref": {"definition_family": "Item", "definition_production_key": "oteryn:item.tibia.i10196", "definition_revision_ref": "definition-r1"},
+          "materializable": true,
+          "stack_class": "StackCapable",
+          "maximum_quantity": 100,
+          "container_capacity": null
+        }
+      ],
+      "does_not_resolve": [
+        {"ref": {"definition_family": "ITEM", "definition_production_key": "oteryn:item.tibia.i10326", "definition_revision_ref": "definition-r1"}, "reason": "FAMILY_MISMATCH"},
+        {"ref": {"definition_family": "Item", "definition_production_key": "oteryn:item.tibia.i10326", "definition_revision_ref": "definition-r2"}, "reason": "REVISION_ABSENT"},
+        {"ref": {"definition_family": "Item", "definition_production_key": "oteryn:item.ammunition.arrow", "definition_revision_ref": "definition-r1"}, "reason": "ALIAS_KEY", "alias_target": "oteryn:item.tibia.i3447", "alias_path": "content/items/aliases.json"},
+        {"ref": {"definition_family": "Item", "definition_production_key": "oteryn:item.tibia.i100", "definition_revision_ref": "definition-r1"}, "reason": "NOT_MATERIALIZABLE"},
+        {"ref": {"definition_family": "ITEM", "definition_production_key": "oteryn:content.item.backpack", "definition_revision_ref": "rev-1"}, "reason": "SYNTHETIC_GOLDEN"}
+      ]
+    },
+    {
+      "family": "BANK",
+      "ref_kind": null,
+      "mapping": "NOT_APPLICABLE"
+    },
+    {
+      "family": "ITEMS_BEGIN.houses",
+      "wire_fields": ["houses[]", "house_id"],
+      "ref_kind": "house_key",
+      "game_path": "content/houses/houses-00000-00499.json",
+      "game_field": "/houses/*/identity/key",
+      "game_custody_check": "^oteryn:content\\.house\\.[a-z0-9_]+$",
+      "platform_target": null,
+      "resolves": [
+        {"house_key": "oteryn:content.house.admiral_s_avenue_1", "kind": "private_house"},
+        {"house_key": "oteryn:content.house.bamboo_fortress", "kind": "guildhall"}
+      ],
+      "eligibility": "UNKNOWN",
+      "ingest_when_nonempty": 503
+    },
+    {
+      "family": "bestiary",
+      "wire_fields": ["race_key", "race_definition_revision", "final_kill_threshold"],
+      "ref_kind": "Creature",
+      "game_path": "content/creatures/definitions/creatures-00000-00499.json",
+      "game_field": "/records/*/definition/identity with /records/*/authoring/profile/bestiary",
+      "platform_target": {"table": "world_catalog_records", "capability_id": "creature", "state": "unsupported"},
+      "resolves": [
+        {"race_key": "oteryn:creature.abyssal_calamary", "race_definition_revision": "definition-r1", "kill_thresholds": [25, 250, 500], "final_kill_threshold": 500}
+      ],
+      "does_not_resolve": [
+        {"race_key": "oteryn:creature.ahau", "race_definition_revision": "definition-r1", "reason": "NO_BESTIARY_BLOCK"}
+      ]
+    },
+    {
+      "family": "boss_cooldown",
+      "wire_fields": ["boss_key", "definition_revision"],
+      "ref_kind": "Creature",
+      "game_path": "content/creatures/definitions/creatures-00000-00499.json",
+      "game_field": "/records/*/definition/identity with /records/*/authoring/profile/details/bosstiary/category",
+      "platform_target": {"table": "world_catalog_records", "capability_id": "creature", "state": "unsupported"},
+      "resolves": [
+        {"boss_key": "oteryn:creature.ahau", "creature_revision": "definition-r1", "category": "archfoe"}
+      ],
+      "definition_revision": "UNKNOWN"
+    },
+    {
+      "family": "quest",
+      "wire_fields": ["quest_key", "pinned_content_revision", "definition_hash", "tracks[].track_key"],
+      "ref_kind": "Quest",
+      "game_path": "content/quests/missions/quest-state.json",
+      "game_field": "/quests/*/quest and /quests/*/tracks/*/key",
+      "platform_target": {"table": "world_catalog_records", "capability_id": "quest", "state": "unsupported"},
+      "resolves": [
+        {
+          "quest_key": "oteryn:quest.a_father_s_burden_quest",
+          "track_keys": [
+            "oteryn:quest-progress/quest/u8_6/afathers_burden/cloth",
+            "oteryn:quest-progress/quest/u8_6/afathers_burden/crystal"
+          ]
+        }
+      ],
+      "pinned_content_revision": "UNKNOWN",
+      "definition_hash": "UNKNOWN",
+      "owner_visible_tracks": "UNKNOWN"
+    },
+    {
+      "family": "achievement",
+      "wire_fields": ["achievement_key", "definition_revision"],
+      "ref_kind": "Achievement",
+      "game_path": "content/achievements/achievements-00000-00499.json",
+      "game_field": "/records/*/identity",
+      "platform_target": {"table": "world_catalog_records", "capability_id": "achievement", "state": "unsupported"},
+      "resolves": [
+        {"achievement_key": "oteryn:achievement/a_reliable_friend", "definition_revision": "1", "secret": false}
+      ],
+      "does_not_resolve": [
+        {"achievement_key": "oteryn:achievement/a_friend_in_need", "definition_revision": "1", "secret": true, "reason": "SECRET_NOT_EXPORTED"}
+      ]
+    },
+    {
+      "family": "death_recap",
+      "wire_fields": ["lost_items[].item_key", "blessings_before[]", "blessings_after[]"],
+      "ref_kind": "item key; blessing storage key",
+      "game_path": "content/items/definitions/items-00000-00499.json; rulesets/character/blessings/catalogue.json",
+      "game_field": "/records/*/definition/identity/key; /blessings/*/storage_key",
+      "platform_target": null,
+      "resolves": [
+        {"item_key": "oteryn:item.tibia.i10196"},
+        {"blessing": "oteryn:blessing.the_spiritual_shielding"}
+      ],
+      "does_not_resolve": [
+        {"blessing": "oteryn:service.blessing.the_spiritual_shielding", "reason": "SERVICE_KEY_NOT_STORAGE_KEY"}
+      ],
+      "item_key_without_revision": "UNKNOWN"
+    },
+    {
+      "family": "house_rent",
+      "mapping": "UNKNOWN",
+      "reason": "no accepted payload schema"
+    }
+  ]
+}
