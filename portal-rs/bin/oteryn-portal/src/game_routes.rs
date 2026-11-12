@@ -12,10 +12,13 @@
 //! | `premium-snapshots/read` | `PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_ENABLED` | `PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_MTLS_CLIENT_IDENTITY` |
 //! | `loyalty-snapshots/read` | `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_ENABLED` | `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_MTLS_CLIENT_IDENTITY` |
 //! | `store/operations/{pending,read,receipt,reconcile}` | `PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED` | `PRODUCTS_ENTITLEMENTS_STORE_MTLS_CLIENT_IDENTITY` |
+//! | `store/{balance/read,history/read,purchases}` | `PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED` with the delivery flag | `PRODUCTS_ENTITLEMENTS_STORE_MTLS_CLIENT_IDENTITY` (one Store identity, store wire contract §4.1) |
 //! | v2 `game-public/{character-online-session,world-daily-kills}` and their watermarks | `PORTAL_PUBLIC_PROJECTIONS_ENABLED` with the G-8 family flags | `PORTAL_PUBLIC_PROJECTIONS_SAN` |
 //!
 //! Character commands and both character-service exchanges also require
 //! `OTERYN_ENV` `testing` or `preproduction`, as the enablement runbook states.
+//! Store purchases require the same, and an `APP_ENV` set to one of those two
+//! (unset refuses): a production sale is impossible under the proposed store wire.
 //! `PORTAL_CHARACTER_COMMAND_IDENTITIES` is a JSON object keyed by one DNS SAN
 //! per Character Authority host, each value `[]`; those identities are bound to
 //! the command routes only, so every other route refuses them.
@@ -167,6 +170,22 @@ impl Routes {
 
         let mut store_settings = purchase::Settings::from_lookup(get);
         store_settings.delivery_enabled &= valid;
+        let mut purchase_settings = store_settings.clone();
+        purchase_settings.purchase_enabled &= qualified
+            && matches!(
+                values.get("APP_ENV").map(String::as_str),
+                Some("testing" | "preproduction")
+            );
+        // As for delivery, the factory adds the shared Store identity itself.
+        let purchase_others = bindings
+            .iter()
+            .filter(|binding| binding.group != purchase::http::GROUP)
+            .cloned()
+            .collect();
+        let purchase = purchase::http::router(
+            purchase::database(pool.clone(), purchase_settings),
+            purchase_others,
+        );
         // The factory adds the Store identity itself and refuses any other in its group.
         let others = bindings
             .into_iter()
@@ -205,6 +224,7 @@ impl Routes {
                 .merge(premium)
                 .merge(loyalty)
                 .merge(delivery)
+                .merge(purchase)
                 .merge(online),
             stats,
             identities_valid: valid,
@@ -319,3 +339,7 @@ async fn watermark(State(stats): State<Router>, request: Request, next: Next) ->
 #[cfg(test)]
 #[path = "game_routes_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "game_routes_store_tests.rs"]
+mod store_tests;

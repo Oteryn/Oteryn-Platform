@@ -9,6 +9,9 @@ pub mod http;
 #[path = "purchase_repository.rs"]
 mod repository;
 pub use repository::{AccountState, Accounts, Purchases};
+#[path = "purchase_accounts.rs"]
+mod accounts;
+pub use accounts::{DatabaseAccounts, DatabasePurchases, database};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
