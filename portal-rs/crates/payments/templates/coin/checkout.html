@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sandbox coin checkout · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-stack">
+<h1>Sandbox coin checkout</h1>
+<p>Test payment only. No real money is charged. Coins are credited only after the payment is verified.</p>
+<dl><dt>Order</dt><dd><small>{{ order_id }}</small></dd><dt>Coins</dt><dd>{{ coins }}</dd><dt>Price</dt><dd>{{ price }}</dd><dt>Status</dt><dd>{{ state }}</dd></dl>
+{% if awaiting %}<div class="op-row">
+<form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="pay"><button class="op-button" type="submit">Complete test payment</button></form>
+<form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="fail"><button class="op-button op-button--secondary" type="submit">Fail test payment</button></form>
+</div>{% else %}<p>You can return to the game. It reads the order status and your coin balance from Oteryn.</p>{% endif %}
+</main></body></html>

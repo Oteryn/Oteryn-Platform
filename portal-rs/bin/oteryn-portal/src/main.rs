@@ -154,6 +154,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 db.clone(),
             )?);
             let app = app.merge(oteryn_payments::account::configured_router(db.clone()));
+            let app = app.merge(coin_purchases::configured_router(db.clone()));
             let app = app.merge(oteryn_atlas::web::configured_router(db.clone()));
             let app = app.merge(login_http::configured_router(db.clone()));
             let app = app.merge(oteryn_content::pages::configured_router(db.clone())?);
@@ -461,6 +462,7 @@ mod tests {
 }
 
 mod bootstrap_intent;
+mod coin_purchases;
 mod game_login;
 mod game_routes;
 mod gateway;

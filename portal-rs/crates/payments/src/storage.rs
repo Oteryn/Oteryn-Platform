@@ -81,6 +81,53 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         })
     }
 
+    /// Idempotent creation under a caller-reserved UUIDv7 intent ID, which is also
+    /// the provider creation key. A replay returns the stored intent when account
+    /// and amount match; a different binding is refused.
+    pub async fn ensure_intent(
+        &self,
+        id: Uuid,
+        account_id: Uuid,
+        amount: Amount,
+    ) -> Result<Intent, Error> {
+        self.enabled()?;
+        amount.validate()?;
+        if account_id.is_nil() || id.get_version_num() != 7 {
+            return Err(Error::InvalidInput);
+        }
+        identifier(self.provider.name())?;
+        let existing = |intent: Intent| {
+            if intent.account_id == account_id && intent.amount == amount {
+                Ok(intent)
+            } else {
+                Err(Error::InvalidInput)
+            }
+        };
+        match self.intent(id).await {
+            Ok(intent) => return existing(intent),
+            Err(Error::NotFound) => {}
+            Err(error) => return Err(error),
+        }
+        self.eligible(account_id).await?;
+        let reference = self.provider.create_intent(id, &amount).await?;
+        identifier(&reference)?;
+        let mut tx = self.pool.begin().await?;
+        let inserted = sqlx::query("INSERT INTO payment_intents (id, account_id, provider, provider_reference, amount, currency, state) VALUES ($1,$2,$3,$4,$5,$6,'created') ON CONFLICT DO NOTHING")
+            .bind(id).bind(account_id).bind(self.provider.name()).bind(&reference)
+            .bind(amount.minor_units).bind(&amount.currency).execute(&mut *tx).await?.rows_affected();
+        if inserted == 1 {
+            IntentState::Created.transition(IntentState::Pending)?;
+            sqlx::query(
+                "UPDATE payment_intents SET state = 'pending', updated_at = now() WHERE id = $1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        existing(self.intent(id).await?)
+    }
+
     pub async fn intent(&self, id: Uuid) -> Result<Intent, Error> {
         self.enabled()?;
         let row = sqlx::query("SELECT account_id, amount, currency, state, provider_reference FROM payment_intents WHERE id=$1 AND provider=$2")
@@ -114,6 +161,16 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         // Lock before inserting an event: distinct concurrent events cannot upgrade FK locks.
         let row = sqlx::query("SELECT account_id, amount, currency, state, provider_reference FROM payment_intents WHERE id=$1 AND provider=$2 FOR UPDATE")
             .bind(event.intent_id).bind(self.provider.name()).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        // Native coin orders apply their own events (`CoinPurchases::webhook`).
+        let coin: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM coin_purchase_orders WHERE payment_intent_id=$1)",
+        )
+        .bind(event.intent_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if coin {
+            return Err(Error::NotFound);
+        }
         let inserted = sqlx::query("INSERT INTO payment_events (id, provider, provider_event_id, intent_id, state) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (provider,provider_event_id) DO NOTHING")
             .bind(oteryn_core::new_id()).bind(self.provider.name()).bind(&event.event_id).bind(event.intent_id).bind(event.state.as_str())
             .execute(&mut *tx).await?.rows_affected();

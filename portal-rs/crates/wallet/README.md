@@ -44,6 +44,7 @@ Never send external effects from a hook; use a transactional outbox. This crate
 has no permissive production adapters. The test adapters are local to the tests.
 Viewer authorization for history and balance remains the caller's responsibility.
 History uses descending entry UUIDs with a bounded limit and an exclusive cursor.
+`snapshot_in` reads balance and a revision (operation count + 1) in a caller transaction.
 
 Runtime SQL uses bound parameters, without query macros or offline metadata.
 The new migration preserves existing data; rollback means disabling the wallet
