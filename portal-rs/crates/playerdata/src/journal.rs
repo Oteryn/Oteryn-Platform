@@ -8,13 +8,18 @@
 //!
 //! Both also need the family in `PORTAL_PLAYERDATA_JOURNAL_FAMILIES` (comma
 //! separated, default empty). Every flag defaults to false; the caller adds its
-//! environment and identity checks. The production authority adapter and clock
-//! are the fail-closed defaults of [`crate::store`]: until an accepted ownership,
-//! transfer-receipt, baseline and trusted-clock adapter exists, an enabled route
-//! still answers a valid record with 503 and stores nothing.
-use crate::store::{
-    Authority, Flags, Store, UnavailableAuthority,
-    http::{self, Clock, HttpState, Sources},
+//! environment and identity checks. With both ingest flags off the adapters are
+//! the fail-closed defaults of [`crate::store`]. With an ingest flag on, the
+//! PostgreSQL admission fence ([`crate::authority::DbAuthority`]) and the
+//! database clock ([`crate::authority::DbClock`]) admit records, and an enabled
+//! G-11 ingest promotes `game_login` records into the login projection.
+use crate::{
+    authority::{DbAuthority, DbClock, JournalLoginAuthority, LoginPromoter},
+    logins::{self, Logins},
+    store::{
+        Authority, Consumer, Flags, Store, UnavailableAuthority,
+        http::{self, Clock, HttpState, Sources},
+    },
 };
 use axum::Router;
 use oteryn_internal_api::guard::IdentityMap;
@@ -60,7 +65,7 @@ impl Settings {
                 .collect(),
         }
     }
-    fn flags(&self) -> Flags {
+    pub(crate) fn flags(&self) -> Flags {
         Flags {
             items_ingest: self.items_ingest,
             progress_ingest: self.progress_ingest,
@@ -79,23 +84,68 @@ pub fn router(
     settings: &Settings,
     identities: Arc<IdentityMap>,
 ) -> Router {
-    let store = Store::new(pool, authority, settings.flags());
+    router_with(pool, authority, clock, Vec::new(), settings, identities)
+}
+
+/// [`router`] with read-model consumers assembled in the ingest transaction.
+pub fn router_with(
+    pool: PgPool,
+    authority: Arc<dyn Authority>,
+    clock: Arc<dyn Clock>,
+    consumers: Vec<Arc<dyn Consumer>>,
+    settings: &Settings,
+    identities: Arc<IdentityMap>,
+) -> Router {
+    let store = consumers.into_iter().fold(
+        Store::new(pool, authority, settings.flags()),
+        Store::with_consumer,
+    );
     http::router(
         HttpState::new(store, clock).with_sources(settings.sources.clone()),
         identities,
     )
 }
 
-/// Production: fail-closed authority and clock (see the module comment).
+/// The login read model fed by an enabled G-11 ingest.
+pub fn login_promoter(pool: PgPool, settings: &Settings) -> LoginPromoter {
+    LoginPromoter {
+        logins: Logins {
+            pool,
+            flags: logins::Flags {
+                progress_ingest_enabled: settings.progress_ingest,
+                ..logins::Flags::default()
+            },
+            authority: Arc::new(JournalLoginAuthority {
+                source: settings.sources.progress.clone(),
+            }),
+        },
+    }
+}
+
+/// Production composition (see the module comment).
 pub fn configured_router(
     pool: PgPool,
     settings: &Settings,
     identities: Arc<IdentityMap>,
 ) -> Router {
-    router(
-        pool,
-        Arc::new(UnavailableAuthority),
-        Arc::new(http::NoClock),
+    if !settings.items_ingest && !settings.progress_ingest {
+        return router(
+            pool,
+            Arc::new(UnavailableAuthority),
+            Arc::new(http::NoClock),
+            settings,
+            identities,
+        );
+    }
+    let mut consumers: Vec<Arc<dyn Consumer>> = Vec::new();
+    if settings.progress_ingest {
+        consumers.push(Arc::new(login_promoter(pool.clone(), settings)));
+    }
+    router_with(
+        pool.clone(),
+        Arc::new(DbAuthority),
+        Arc::new(DbClock::new(pool)),
+        consumers,
         settings,
         identities,
     )

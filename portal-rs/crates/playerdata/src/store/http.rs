@@ -41,14 +41,15 @@ fn authority_key(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"._:/-".contains(&b))
 }
 
+pub type ClockFuture<'a> = Pin<Box<dyn Future<Output = Result<TrustedTime>> + Send + 'a>>;
 pub trait Clock: Debug + Send + Sync {
-    fn trusted_time(&self) -> Result<TrustedTime>;
+    fn trusted_time(&self) -> ClockFuture<'_>;
 }
 #[derive(Debug)]
 pub struct NoClock;
 impl Clock for NoClock {
-    fn trusted_time(&self) -> Result<TrustedTime> {
-        Err(Error::Unavailable)
+    fn trusted_time(&self) -> ClockFuture<'_> {
+        Box::pin(async { Err(Error::Unavailable) })
     }
 }
 #[derive(Debug, Clone)]
@@ -129,7 +130,10 @@ fn response(result: Result<Vec<u8>>) -> Response {
 async fn publish(State(state): State<HttpState>, bytes: Bytes) -> Response {
     let result = async {
         let r = playerdata::items(&bytes)?;
-        state.store.ingest(r, state.clock.trusted_time()?).await
+        state
+            .store
+            .ingest(r, state.clock.trusted_time().await?)
+            .await
     }
     .await;
     response(result)
@@ -144,13 +148,22 @@ async fn progress(State(state): State<HttpState>, bytes: Bytes) -> Response {
         Ok(false) => return too_many("60"),
         Err(e) => return response(Err(e)),
     }
-    let result = async { state.store.ingest(r, state.clock.trusted_time()?).await }.await;
+    let result = async {
+        state
+            .store
+            .ingest(r, state.clock.trusted_time().await?)
+            .await
+    }
+    .await;
     response(result)
 }
 async fn watermark(State(state): State<HttpState>, bytes: Bytes) -> Response {
     let result = async {
         let w = playerdata::watermark(&bytes)?;
-        state.store.watermark(w, state.clock.trusted_time()?).await
+        state
+            .store
+            .watermark(w, state.clock.trusted_time().await?)
+            .await
     }
     .await;
     response(result)

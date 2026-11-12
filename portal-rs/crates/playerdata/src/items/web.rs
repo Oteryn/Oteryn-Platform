@@ -133,7 +133,14 @@ pub fn configured_router(pool: PgPool) -> Router {
             ingest: false,
             bazaar_shortcut: false,
         },
-        evidence: Arc::new(UnavailableEvidence),
+        // T72's ownership evidence, only for a configured G-10 source. Without a
+        // verified G-10 baseline it proves the owner and still answers 503.
+        evidence: match std::env::var(crate::journal::ITEMS_SOURCE) {
+            Ok(source) if !source.is_empty() => {
+                Arc::new(crate::authority::JournalEvidence { source })
+            }
+            _ => Arc::new(UnavailableEvidence),
+        },
     })
 }
 async fn private(request: axum::extract::Request, next: Next) -> Response {

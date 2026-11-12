@@ -4,7 +4,12 @@
 //! deliberately not a second wire parser or a game session command surface.
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Transaction};
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{
+    collections::{HashMap, hash_map::Entry as Slot},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 use uuid::Uuid;
 
 #[cfg(test)]
@@ -298,12 +303,18 @@ impl Logins {
             return Err(Error::Unavailable);
         }
         let mut entries = Vec::new();
+        // One proven period per subject; `None` hides that character's rows.
+        let mut periods: HashMap<Option<Uuid>, Option<Cut>> = HashMap::new();
         for row in rows {
-            let cut = self
-                .authority
-                .current(&mut tx, actor, row.character_id)
-                .await?;
-            check_cut(&cut, row.character_id, now)?;
+            let cut = match periods.entry(row.character_id) {
+                Slot::Occupied(known) => known.into_mut(),
+                Slot::Vacant(slot) => {
+                    slot.insert(self.period(&mut tx, actor, row.character_id, now).await?)
+                }
+            };
+            let Some(cut) = cut else {
+                continue;
+            };
             let character_revision = row
                 .character_revision
                 .as_deref()
@@ -337,6 +348,34 @@ impl Logins {
         }
         tx.commit().await?;
         Ok(entries)
+    }
+    /// The proven cut of one history subject. An account-level cut that fails
+    /// fails the read; a character the account does not own now (sold at a
+    /// transfer cut, never owned, a deleted scope) or whose ownership cannot be
+    /// proven (an ambiguous or broken chain) is hidden, never guessed.
+    /// A database failure is never read as a hidden character.
+    async fn period(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        actor: Uuid,
+        character: Option<Uuid>,
+        now: i64,
+    ) -> Result<Option<Cut>> {
+        let cut = match self.authority.current(tx, actor, character).await {
+            Ok(cut) => check_cut(&cut, character, now).map(|()| cut),
+            Err(e) => Err(e),
+        };
+        match cut {
+            Ok(cut) => Ok(Some(cut)),
+            Err(e @ Error::Database(_)) => Err(e),
+            Err(e) if character.is_none() => Err(e),
+            Err(_) => {
+                // The authority maps a database failure to Unavailable; an
+                // aborted transaction must still fail the whole read.
+                sqlx::query("SELECT 1").execute(&mut **tx).await?;
+                Ok(None)
+            }
+        }
     }
     /// Called by the owning T72 privacy/removal worker in its transaction.
     pub async fn remove(

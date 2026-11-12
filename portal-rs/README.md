@@ -37,3 +37,15 @@ Gateway login contract §19 (N4P-4) runs only behind these default-off flags. Pr
 - Game-facing `/internal/v1` routes keep the existing contracts byte for byte; tests read fixtures from `docs/contracts/fixtures/`.
 - Features that touch the game or money are off by default behind a flag.
 - Never commit secrets. Configuration comes from `OTERYN_*` environment variables.
+
+## Game journal flags (T72)
+
+All default to off; `bin/oteryn-portal` mounts the ingest only on a qualified internal mTLS listener and keeps refusing it in production.
+
+| flag | effect when `true` |
+|---|---|
+| `PORTAL_PLAYERDATA_G10_INGEST_ENABLED`, `PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED` | G-10 / G-11 ingest admits records through the PostgreSQL ownership fence (`playerdata::authority::DbAuthority`) and the database clock (30 s / 5 s uncertainty bound); a baseline watermark promotes G-11 `game_login` records to the login history. Families also need `PORTAL_PLAYERDATA_JOURNAL_FAMILIES`. |
+| `PLAYERDATA_G10_ITEMS_ENABLED`, `PLAYERDATA_G10_HISTORY_ENABLED` | With `PORTAL_PLAYERDATA_G10_SOURCE_AUTHORITY` set, item reads prove the current owner and cut, and still answer 503 until a G-10 baseline is verified and the catalogue mapping is accepted. |
+| `OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED` with `OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED` | With `PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY` set, login history reads the promoted cut. |
+
+Ownership comes from the character projection and a receipt chain: the committed `CreateCharacter` receipt is the initial cut (an accepted `pd_ownership_baselines` row only where no create receipt exists), and each committed transfer must name the previous owner as its seller. A pending transfer, missing creation evidence or a broken chain answers 503; a wrong owner or a stale cut answers 409. At the transfer cut the character's earlier login sessions are hidden from both accounts (G-11): the seller sees none of them, and the buyer sees only sessions after its cut. A sold character, or one whose ownership cannot be proven, is hidden from the login history; the rest of the page stays readable.
