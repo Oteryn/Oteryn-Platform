@@ -31,6 +31,8 @@ pub enum Error {
 pub struct Flags {
     pub players: bool,
     pub characters: bool,
+    /// The coin-native purchase flag; coin purchase holds exist only with it.
+    pub coin_holds: bool,
 }
 /// No credentials, email, network address, device fingerprint or session token.
 #[derive(Debug, Clone)]
@@ -329,6 +331,66 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         .await?;
         tx.commit().await?;
         Ok(generation)
+    }
+    /// The account's coin purchase hold, for staff who may release it.
+    pub async fn coin_hold(
+        &self,
+        context: CheckContext,
+        id: Uuid,
+    ) -> Result<Option<oteryn_payments::coin_store::PurchaseHold>, Error> {
+        self.check(context, Permission::ReleaseCoinPurchaseHold)
+            .await?;
+        if !self.flags.coin_holds {
+            return Err(Error::NotFound);
+        }
+        self.target(id).await?;
+        let mut connection = self.pool.acquire().await?;
+        Ok(oteryn_payments::coin_store::purchase_hold(&mut connection, id).await?)
+    }
+    /// Staff release of a coin purchase hold. The hold moves to its history
+    /// table and the audit row (actor, target, reason, order) commits in the
+    /// same transaction. The held reversal stays recorded: nothing is settled
+    /// or credited. No hold is an idempotent no-op (`None`) without an audit row.
+    pub async fn release_coin_hold(
+        &self,
+        context: CheckContext,
+        id: Uuid,
+        reason: &str,
+    ) -> Result<Option<Uuid>, Error> {
+        self.check(context, Permission::ReleaseCoinPurchaseHold)
+            .await?;
+        if !self.flags.coin_holds {
+            return Err(Error::NotFound);
+        }
+        valid_text(reason, 500)?;
+        self.target(id).await?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+            .execute(&mut *tx)
+            .await?;
+        self.check(context, Permission::ReleaseCoinPurchaseHold)
+            .await?;
+        let Some(hold) = oteryn_payments::coin_store::release_purchase_hold_in(
+            &mut tx,
+            id,
+            context.account,
+            reason.trim(),
+        )
+        .await?
+        else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+        append(
+            &mut tx,
+            context,
+            "players.coin_hold.released",
+            id,
+            json!({"reason":reason.trim(),"order_id":hold.order_id,"hold_reason":hold.reason}),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(Some(hold.order_id))
     }
     pub async fn request_reset(
         &self,

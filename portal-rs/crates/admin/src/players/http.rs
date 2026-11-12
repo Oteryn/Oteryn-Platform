@@ -17,6 +17,8 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     let flags = Flags {
         players: std::env::var("OTERYN_ADMIN_PLAYERS").is_ok_and(|v| v == "true"),
         characters: std::env::var("OTERYN_ADMIN_PLAYER_CHARACTERS").is_ok_and(|v| v == "true"),
+        coin_holds: oteryn_payments::coin::CoinSettings::from_lookup(|key| std::env::var(key).ok())
+            .enabled,
     };
     let characters_enabled = flags.characters;
     let routes = routes(Players::new(
@@ -125,6 +127,14 @@ struct Page {
     yes: String,
     no: String,
     result: String,
+    coin_hold_label: String,
+    release_coin_hold: String,
+    /// `Some` when the viewer may release coin purchase holds.
+    coin_hold: Option<CoinHold>,
+}
+struct CoinHold {
+    order: String,
+    status: String,
 }
 fn language(headers: &HeaderMap) -> &'static str {
     if headers
@@ -193,6 +203,9 @@ impl Page {
             yes: text(lang, "yes"),
             no: text(lang, "no"),
             result: String::new(),
+            coin_hold_label: text(lang, "coin-hold"),
+            release_coin_hold: text(lang, "coin-hold-release"),
+            coin_hold: None,
         }
     }
 }
@@ -213,6 +226,7 @@ async fn search<A: AccountStateReader, I: Accounts>(
 #[derive(Deserialize)]
 struct ResultQuery {
     request: Option<Uuid>,
+    coin_hold: Option<String>,
 }
 async fn detail<A: AccountStateReader, I: Accounts>(
     State(s): State<Arc<Players<A, I>>>,
@@ -237,6 +251,22 @@ async fn detail<A: AccountStateReader, I: Accounts>(
         Err(Error::Unavailable | Error::NotFound) => page.characters_unavailable = true,
         Err(e) => return Err(e),
     }
+    match s.coin_hold(context, id).await {
+        Ok(hold) => {
+            let status = match query.coin_hold.as_deref() {
+                Some("released") => text(page.lang, "coin-hold-released"),
+                Some("absent") => text(page.lang, "coin-hold-absent"),
+                _ if hold.is_none() => text(page.lang, "coin-hold-none"),
+                _ => String::new(),
+            };
+            page.coin_hold = Some(CoinHold {
+                order: hold.map(|h| h.order_id.to_string()).unwrap_or_default(),
+                status,
+            });
+        }
+        Err(Error::NotFound | Error::Authorization(crate::rbac::Error::Denied)) => (),
+        Err(e) => return Err(e),
+    }
     page.csrf = session.csrf_token().await?;
     if let Some(request) = query.request {
         page.result = request.to_string();
@@ -255,6 +285,14 @@ async fn change<A: AccountStateReader, I: Accounts>(
         "logout" => s.logout_all(context, id, &form.reason).await?,
         "kick" => {
             s.kick(context, id, &form.reason).await?;
+        }
+        "release-coin-hold" => {
+            let released = s.release_coin_hold(context, id, &form.reason).await?;
+            location.push_str(if released.is_some() {
+                "?coin_hold=released"
+            } else {
+                "?coin_hold=absent"
+            });
         }
         "request-reset" => {
             let request = s

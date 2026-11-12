@@ -1410,6 +1410,52 @@ async fn reversal_of_unavailable_coins_holds_and_freezes_purchasing() -> TestRes
             .await?,
         1
     );
+
+    // Staff release the hold: purchasing works again, the held reversal (the
+    // unsettled debt) and the wallet stay as they were.
+    let staff = Uuid::now_v7();
+    let mut connection = db.pool.acquire().await?;
+    assert_eq!(
+        oteryn_payments::coin_store::release_purchase_hold_in(
+            &mut connection,
+            payer,
+            staff,
+            "Reviewed"
+        )
+        .await?
+        .map(|hold| hold.order_id),
+        Some(order)
+    );
+    assert_eq!(
+        oteryn_payments::coin_store::release_purchase_hold_in(
+            &mut connection,
+            payer,
+            staff,
+            "Reviewed"
+        )
+        .await?,
+        None
+    );
+    drop(connection);
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_hold_releases")
+            .await?,
+        1
+    );
+    let fresh = self::quote(db.app(&service), &token).await;
+    let (status, _) = post(
+        db.app(&service),
+        &token,
+        order_body(Uuid::now_v7(), &fresh, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_reversals WHERE outcome='held' AND debited=0")
+            .await?,
+        1
+    );
+    assert_eq!(wallet_of(&service, payer).await.total_coins, 500);
     db.close().await
 }
 

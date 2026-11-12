@@ -71,6 +71,8 @@ pub enum Permission {
     GameAuditRead,
     /// Staff kick: advance the account's native security generation only.
     KickAccountSessions,
+    /// Release one account's coin purchase hold; settles nothing.
+    ReleaseCoinPurchaseHold,
 }
 
 impl Permission {
@@ -151,6 +153,7 @@ impl Permission {
         Self::GameAnalyticsExport,
         Self::GameAuditRead,
         Self::KickAccountSessions,
+        Self::ReleaseCoinPurchaseHold,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -220,6 +223,7 @@ impl Permission {
             Self::GameAnalyticsExport => "game.analytics.export",
             Self::GameAuditRead => "game.audit.read",
             Self::KickAccountSessions => "account.security.kick",
+            Self::ReleaseCoinPurchaseHold => "payments.coin_hold.release",
         }
     }
 }
@@ -331,6 +335,7 @@ impl BuiltInRole {
                 Permission::ManageWikiCategories,
                 Permission::PublishWiki,
                 Permission::KickAccountSessions,
+                Permission::ReleaseCoinPurchaseHold,
             ],
             Self::SecurityAdmin => &[
                 Permission::Access,

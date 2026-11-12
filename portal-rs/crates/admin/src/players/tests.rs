@@ -149,6 +149,7 @@ impl Db {
             Flags {
                 players: true,
                 characters: true,
+                coin_holds: true,
             },
             Staff,
             Backend { id: self.target },
@@ -170,6 +171,7 @@ impl Db {
 fn rejects_bad_input_and_defaults_off() {
     assert!(!Flags::default().players);
     assert!(!Flags::default().characters);
+    assert!(!Flags::default().coin_holds);
     assert!(valid_id(Uuid::nil()).is_err());
     for value in ["", " \t\n", "bad\0input", "too long"] {
         assert!(valid_text(value, 4).is_err());
@@ -392,6 +394,7 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
         Flags {
             players: true,
             characters: true,
+            coin_holds: false,
         },
         PanelConfig {
             admin_panel: true,
@@ -502,6 +505,7 @@ async fn postgres_flags_and_pending_security_fail_closed() {
         Flags {
             players: true,
             characters: false,
+            coin_holds: false,
         },
         Staff,
         Backend { id: db.target },
@@ -790,6 +794,7 @@ async fn postgres_http_kick_csrf_permission_and_mfa() {
             Flags {
                 players: true,
                 characters: false,
+                coin_holds: false,
             },
             PanelConfig {
                 admin_panel: true,
@@ -857,5 +862,344 @@ async fn postgres_http_kick_csrf_permission_and_mfa() {
         kick_state(&db).await,
         (2, "active".into(), "synthetic-hash".into(), 1)
     );
+    db.close().await;
+}
+/// A hold on `db.target` for a synthetic processing order (no wallet effect).
+async fn coin_hold_fixture(db: &Db) -> Uuid {
+    let quote = Uuid::now_v7();
+    let order = Uuid::now_v7();
+    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at) VALUES($1,$2,$3,500,499,'EUR',2,'testing',now(),now())")
+        .bind(quote).bind(db.target).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,review_required,code) VALUES($1,$2,$3,$4,$5,500,499,'EUR',2,'testing',$6,'processing',true,'COIN_ORDER_REVERSAL_REVIEW_REQUIRED')")
+        .bind(order).bind(db.target).bind(Uuid::now_v7()).bind(quote).bind(Uuid::now_v7()).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance')")
+        .bind(db.target).bind(order).execute(&db.pool).await.unwrap();
+    order
+}
+/// (holds, release history rows, release audit rows)
+async fn coin_hold_state(db: &Db) -> (i64, i64, i64) {
+    let mut counts = [0; 3];
+    for (count, sql) in counts.iter_mut().zip([
+        "SELECT count(*) FROM coin_purchase_holds",
+        "SELECT count(*) FROM coin_purchase_hold_releases",
+        "SELECT count(*) FROM audit_log WHERE action='players.coin_hold.released'",
+    ]) {
+        *count = sqlx::query_scalar::<_, i64>(sql)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    }
+    (counts[0], counts[1], counts[2])
+}
+#[tokio::test]
+async fn postgres_coin_hold_release_permission_reason_audit_and_idempotent() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let order = coin_hold_fixture(&db).await;
+    let s = db.service();
+    // The dedicated permission is held by the platform admin built-in only.
+    assert!(matches!(
+        s.release_coin_hold(context(db.support), db.target, "Reviewed")
+            .await,
+        Err(Error::Authorization(crate::rbac::Error::Denied))
+    ));
+    assert!(matches!(
+        s.coin_hold(context(db.support), db.target).await,
+        Err(Error::Authorization(crate::rbac::Error::Denied))
+    ));
+    for unverified in [
+        CheckContext::new(db.approver),
+        CheckContext {
+            account: db.approver,
+            require_staff_mfa: true,
+            mfa_verified: false,
+        },
+    ] {
+        assert!(matches!(
+            s.release_coin_hold(unverified, db.target, "Reviewed").await,
+            Err(Error::Denied)
+        ));
+    }
+    let long = "x".repeat(501);
+    for (target, reason) in [
+        (db.target, ""),
+        (db.target, " "),
+        (db.target, "bad\0reason"),
+        (db.target, long.as_str()),
+        (Uuid::nil(), "Reviewed"),
+    ] {
+        assert!(matches!(
+            s.release_coin_hold(context(db.approver), target, reason)
+                .await,
+            Err(Error::BadInput)
+        ));
+    }
+    assert!(matches!(
+        s.release_coin_hold(context(db.approver), Uuid::now_v7(), "Reviewed")
+            .await,
+        Err(Error::NotFound)
+    ));
+    // Behind the coin-native flag.
+    let off = Players::new(
+        db.pool.clone(),
+        Flags {
+            players: true,
+            characters: false,
+            coin_holds: false,
+        },
+        Staff,
+        Backend { id: db.target },
+    );
+    assert!(matches!(
+        off.release_coin_hold(context(db.approver), db.target, "Reviewed")
+            .await,
+        Err(Error::NotFound)
+    ));
+    assert_eq!(coin_hold_state(&db).await, (1, 0, 0));
+    assert_eq!(
+        s.coin_hold(context(db.approver), db.target)
+            .await
+            .unwrap()
+            .map(|h| h.order_id),
+        Some(order)
+    );
+
+    assert_eq!(
+        s.release_coin_hold(context(db.approver), db.target, " Debt reviewed ")
+            .await
+            .unwrap(),
+        Some(order)
+    );
+    assert_eq!(coin_hold_state(&db).await, (0, 1, 1));
+    let history: (Uuid, Uuid, String, Uuid, String, bool) = sqlx::query_as(
+        "SELECT account_id,order_id,reason,released_by,release_reason,held_at<=released_at FROM coin_purchase_hold_releases",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        history,
+        (
+            db.target,
+            order,
+            "reversal_insufficient_balance".into(),
+            db.approver,
+            "Debt reviewed".into(),
+            true
+        )
+    );
+    let audit: (Option<Uuid>, String, serde_json::Value) = sqlx::query_as(
+        "SELECT actor,target,after FROM audit_log WHERE action='players.coin_hold.released'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        audit,
+        (
+            Some(db.approver),
+            db.target.to_string(),
+            json!({"reason":"Debt reviewed","order_id":order,"hold_reason":"reversal_insufficient_balance"})
+        )
+    );
+    // The order keeps its review flag: releasing settles nothing.
+    let review: bool =
+        sqlx::query_scalar("SELECT review_required FROM coin_purchase_orders WHERE id=$1")
+            .bind(order)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert!(review);
+    // Releasing again is a no-op: no second history or audit row.
+    assert_eq!(
+        s.release_coin_hold(context(db.approver), db.target, "Debt reviewed")
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(coin_hold_state(&db).await, (0, 1, 1));
+    assert_eq!(
+        s.coin_hold(context(db.approver), db.target).await.unwrap(),
+        None
+    );
+    // History does not block a later hold on the same account.
+    sqlx::query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance') ON CONFLICT (account_id) DO NOTHING")
+        .bind(db.target).bind(order).execute(&db.pool).await.unwrap();
+    assert_eq!(coin_hold_state(&db).await, (1, 1, 1));
+    db.close().await;
+}
+#[tokio::test]
+async fn postgres_coin_hold_release_audit_failure_keeps_the_hold() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    coin_hold_fixture(&db).await;
+    sqlx::query("CREATE FUNCTION reject_test_audit() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''test audit unavailable''; END'").execute(&db.pool).await.unwrap();
+    sqlx::query("CREATE TRIGGER reject_test_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_test_audit()").execute(&db.pool).await.unwrap();
+    assert!(
+        db.service()
+            .release_coin_hold(context(db.approver), db.target, "Reviewed")
+            .await
+            .is_err()
+    );
+    assert_eq!(coin_hold_state(&db).await, (1, 0, 0));
+    db.close().await;
+}
+async fn coin_hold_page(app: axum::Router, path: &str) -> String {
+    let response = app
+        .oneshot(
+            Request::get(path)
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}
+async fn coin_hold_post(
+    app: axum::Router,
+    path: &str,
+    cookie: &str,
+    body: String,
+) -> (StatusCode, String) {
+    let response = app
+        .oneshot(
+            Request::post(path)
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let location = response
+        .headers()
+        .get("location")
+        .map(|v| v.to_str().unwrap().to_owned())
+        .unwrap_or_default();
+    (response.status(), location)
+}
+#[tokio::test]
+async fn postgres_http_coin_hold_release_csrf_permission_mfa_and_result() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let order = coin_hold_fixture(&db).await;
+    let path = format!("/admin/players/{}", db.target);
+    let app = |account: Uuid, mfa: bool| {
+        http::router(
+            db.pool.clone(),
+            Flags {
+                players: true,
+                characters: false,
+                coin_holds: true,
+            },
+            PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            KickBrowser { account, mfa },
+            Staff,
+            Backend { id: db.target },
+        )
+    };
+    let release =
+        |csrf: &str, reason: &str| format!("_csrf={csrf}&action=release-coin-hold&reason={reason}");
+    // Support staff see no hold section and may not release.
+    assert!(
+        !coin_hold_page(app(db.support, true), &path)
+            .await
+            .contains("release-coin-hold")
+    );
+    let held = coin_hold_page(app(db.approver, true), &path).await;
+    assert!(held.contains("value=\"release-coin-hold\""));
+    assert!(held.contains("for=\"coin-hold-reason\""));
+    assert!(held.contains(&order.to_string()));
+    let (cookie, csrf) = kick_session(app(db.support, true), &path).await;
+    assert_eq!(
+        coin_hold_post(
+            app(db.support, true),
+            &path,
+            &cookie,
+            release(&csrf, "Reviewed")
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (cookie, csrf) = kick_session(app(db.approver, true), &path).await;
+    for (body, status) in [
+        (release("wrong", "Reviewed"), StatusCode::FORBIDDEN),
+        (
+            "action=release-coin-hold&reason=Reviewed".to_owned(),
+            StatusCode::FORBIDDEN,
+        ),
+        (release(&csrf, ""), StatusCode::BAD_REQUEST),
+        (
+            format!("_csrf={csrf}&action=release-coin-hold"),
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        assert_eq!(
+            coin_hold_post(app(db.approver, true), &path, &cookie, body)
+                .await
+                .0,
+            status
+        );
+    }
+    // Without confirmed staff MFA the guard refuses before the handler.
+    assert_eq!(
+        coin_hold_post(
+            app(db.approver, false),
+            &path,
+            &cookie,
+            release(&csrf, "Reviewed")
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(coin_hold_state(&db).await, (1, 0, 0));
+    assert_eq!(
+        coin_hold_post(
+            app(db.approver, true),
+            &path,
+            &cookie,
+            release(&csrf, "Debt+reviewed")
+        )
+        .await,
+        (StatusCode::SEE_OTHER, format!("{path}?coin_hold=released"))
+    );
+    assert_eq!(coin_hold_state(&db).await, (0, 1, 1));
+    assert!(
+        coin_hold_page(
+            app(db.approver, true),
+            &format!("{path}?coin_hold=released")
+        )
+        .await
+        .contains("role=\"status\"")
+    );
+    assert_eq!(
+        coin_hold_post(
+            app(db.approver, true),
+            &path,
+            &cookie,
+            release(&csrf, "Debt+reviewed")
+        )
+        .await,
+        (StatusCode::SEE_OTHER, format!("{path}?coin_hold=absent"))
+    );
+    assert_eq!(coin_hold_state(&db).await, (0, 1, 1));
     db.close().await;
 }
