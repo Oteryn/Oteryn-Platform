@@ -48,7 +48,7 @@
     },
     "catalog_revision": {
       "type": "string",
-      "pattern": "^[1-9][0-9]{0,19}$"
+      "pattern": "^[0-9a-f]{64}$"
     },
     "offer_key": {
       "type": "string",
