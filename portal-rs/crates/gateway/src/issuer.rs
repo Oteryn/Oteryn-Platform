@@ -1,6 +1,7 @@
 //! One HTTP/1 exchange per admission. No redirects, retries, cookies or ambient proxy credentials.
 use crate::{
     errors::{Code, Refusal, parse_issuer_error, retry_after},
+    v3::{self, Refusal3},
     wire::{MAX_RESPONSE_BYTES, Request, Success, encode_request, parse_success},
 };
 use axum::body::Bytes;
@@ -201,6 +202,67 @@ impl IssuerClient {
             }
             .into()),
         }
+    }
+    /// One authenticated POST to a private issuer operation with the protocol
+    /// 2 timeout and reconciliation rules: `(status, Retry-After, body)`.
+    pub(crate) async fn call(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        success_limit: usize,
+    ) -> Result<(u16, u64, Vec<u8>), Code> {
+        let mut written = false;
+        let result = tokio::time::timeout(self.timeout, async {
+            let response = self
+                .exchange(
+                    "POST",
+                    &format!("{}{path}", self.base_url),
+                    body,
+                    true,
+                    &mut written,
+                )
+                .await?;
+            let status = response.status().as_u16();
+            let retry = response
+                .headers()
+                .get("Retry-After")
+                .and_then(|v| v.to_str().ok())
+                .map(retry_after)
+                .unwrap_or(60);
+            let (failure, limit) = if status == 200 {
+                (Code::ReconciliationRequired, success_limit)
+            } else {
+                (Code::Unavailable, 4096)
+            };
+            let payload = read_body(response.into_body(), limit)
+                .await
+                .map_err(|_| failure)?;
+            Ok((status, retry, payload))
+        })
+        .await;
+        match result {
+            Ok(r) => r,
+            Err(_) if written => Err(Code::ReconciliationRequired),
+            Err(_) => Err(Code::Unavailable),
+        }
+    }
+    /// Protocol 3 admission (§19.2): same private operation, protocol 3 shapes.
+    pub async fn admit3(&self, request: &Request) -> Result<v3::Success, Refusal3> {
+        let body = encode_request(request).map_err(Refusal3::from)?;
+        let (status, retry, payload) = self
+            .call(ISSUER_PATH, body, v3::MAX_RESPONSE_BYTES)
+            .await
+            .map_err(Refusal3::from)?;
+        if status == 200 {
+            return v3::parse_success(&payload, request)
+                .ok_or_else(|| Code::ReconciliationRequired.into());
+        }
+        let mut refused = v3::parse_issuer_error(status, &payload, &request.attempt_ref)
+            .ok_or_else(|| Refusal3::from(Code::Unavailable))?;
+        if refused.refusal.code == Code::RateLimited {
+            refused.refusal.retry_after = retry;
+        }
+        Err(refused)
     }
 }
 async fn read_body(mut body: Incoming, limit: usize) -> Result<Vec<u8>, ()> {

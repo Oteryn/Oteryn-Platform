@@ -421,6 +421,107 @@ pub(super) async fn select(
     }
     Err(Error::RouteUnavailable)
 }
+/// A §7.4 candidate under protocol 3 (§19.2): a keyed channel whose record and
+/// fresh runtime report pass every per-channel condition.
+pub(super) struct Candidate {
+    pub route: Route,
+    pub report: Value,
+    pub key: String,
+}
+/// §19.2.1 and §19.2.3: the protocol 3 candidates of `world` in canonical
+/// `channel_id` order. Decision M1: a record whose `(host, port)` equals another
+/// valid route record of the World routes nowhere, for both records. A channel
+/// without a valid Registry key is never a candidate. Nothing is locked.
+pub(super) async fn candidates(
+    db: &mut PgConnection,
+    runtime: &runtime::Settings,
+    world: Uuid,
+    now: i64,
+) -> Result<Vec<Candidate>, Error> {
+    let rows = sqlx::query("SELECT channel_id, channel_key, native_login_enabled, native_route_host, native_route_port, native_route_tls_server_name, native_route_version, native_route_revision FROM game_channels WHERE world_id=$1 AND native_route_revision IS NOT NULL ORDER BY channel_id LIMIT $2")
+        .bind(world).bind(MAX_CHANNELS)
+        .fetch_all(&mut *db).await.map_err(|_| Error::Unavailable)?;
+    let mut records = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let Some(route) = record(world, row)? else {
+            continue;
+        };
+        let enabled: bool = row
+            .try_get("native_login_enabled")
+            .map_err(|_| Error::Unavailable)?;
+        let key: Option<String> = row.try_get("channel_key").map_err(|_| Error::Unavailable)?;
+        records.push((route, enabled, key));
+    }
+    let mut found = Vec::new();
+    for (route, enabled, key) in &records {
+        let shared = records.iter().any(|(other, _, _)| {
+            other.channel != route.channel
+                && other
+                    .endpoint
+                    .host
+                    .eq_ignore_ascii_case(&route.endpoint.host)
+                && other.endpoint.port == route.endpoint.port
+        });
+        let Some(key) = key.as_ref().filter(|k| super::wire::channel_key_valid(k)) else {
+            continue;
+        };
+        if !enabled || shared {
+            continue;
+        }
+        let observation = runtime::read_in(db, runtime, world, route.channel, now)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        let Some(report) = observation.content else {
+            continue;
+        };
+        if observation.state == EvidenceState::Fresh && runtime_matches(&report, &route.revision) {
+            found.push(Candidate {
+                route: route.clone(),
+                report,
+                key: key.clone(),
+            });
+        }
+    }
+    Ok(found)
+}
+fn runtime_matches(report: &Value, revision: &str) -> bool {
+    matches!(report.get("ready"), Some(Value::Bool(true)))
+        && matches!(report.get("route_revision"), Some(Value::String(r)) if r == revision)
+        && matches!(report.get("protocol_major"), Some(Value::Unsigned(1)))
+        && matches!(report.get("transport_profile"), Some(Value::Unsigned(1)))
+}
+/// §19.2.3 selection. The selected record is share-locked until commit as in
+/// protocol 2; a requested non-candidate is `ChannelUnavailable` while another
+/// channel is a candidate and `RouteUnavailable` when none is.
+pub(super) async fn select3(
+    db: &mut PgConnection,
+    runtime: &runtime::Settings,
+    world: Uuid,
+    requested: Option<Uuid>,
+    now: i64,
+) -> Result<(Route, Value), Error> {
+    let found = candidates(db, runtime, world, now).await?;
+    let mut locked = false;
+    for candidate in &found {
+        if requested.is_some_and(|id| id != candidate.route.channel) {
+            continue;
+        }
+        let route = &candidate.route;
+        match current(db, world, route.channel, &route.endpoint, &route.revision).await {
+            Ok(()) => return Ok((route.clone(), candidate.report.clone())),
+            Err(Error::RouteUnavailable) => locked = true,
+            Err(error) => return Err(error),
+        }
+    }
+    let others = found
+        .iter()
+        .any(|c| requested.is_some_and(|id| id != c.route.channel));
+    if requested.is_some() && others && !locked {
+        Err(Error::ChannelUnavailable)
+    } else {
+        Err(Error::RouteUnavailable)
+    }
+}
 /// Replay revalidation (§17): the bound record must still be the one in the
 /// grant, with native login still enabled.
 pub(super) async fn current(

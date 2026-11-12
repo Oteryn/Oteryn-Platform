@@ -15,6 +15,8 @@ pub enum Code {
     ReconciliationRequired,
     GrantExpired,
     Unavailable,
+    /// §19.2.5, protocol 3 only; not in the protocol 2 table `ALL`.
+    ChannelUnavailable,
 }
 impl Code {
     pub const ALL: [Self; 11] = [
@@ -43,6 +45,7 @@ impl Code {
             Self::ReconciliationRequired => "ADMISSION_ATTEMPT_RECONCILIATION_REQUIRED",
             Self::GrantExpired => "NATIVE_LOGIN_GRANT_EXPIRED",
             Self::Unavailable => "NATIVE_LOGIN_UNAVAILABLE",
+            Self::ChannelUnavailable => "NATIVE_LOGIN_CHANNEL_UNAVAILABLE",
         }
     }
     pub fn status(self) -> u16 {
@@ -52,7 +55,8 @@ impl Code {
             Self::OfferUnsupported
             | Self::AttemptConflict
             | Self::CharacterConflict
-            | Self::GrantExpired => 409,
+            | Self::GrantExpired
+            | Self::ChannelUnavailable => 409,
             Self::RateLimited => 429,
             _ => 503,
         }

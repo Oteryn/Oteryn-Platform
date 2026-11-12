@@ -118,6 +118,10 @@ pub fn attempt_echo(body: &[u8]) -> Option<String> {
 }
 
 pub fn parse_request(body: &[u8]) -> Result<Request, Code> {
+    parse_versioned(body, 2)
+}
+/// The §3.1 request rules for `expected` (2, or 3 under §19.1).
+pub(crate) fn parse_versioned(body: &[u8], expected: i64) -> Result<Request, Code> {
     let malformed = Code::RequestMalformed;
     if body.is_empty() || body.len() > MAX_REQUEST_BYTES || !check_json(body, 4) {
         return Err(malformed);
@@ -139,7 +143,7 @@ pub fn parse_request(body: &[u8]) -> Result<Request, Code> {
         return Err(malformed);
     }
     let version = v["protocol_version"].as_i64().ok_or(malformed)?;
-    if version != 2 {
+    if version != expected {
         return Err(Code::UnsupportedVersion);
     }
     let r: Request = serde_json::from_slice(body).map_err(|_| malformed)?;
@@ -186,6 +190,10 @@ pub fn parse_success(body: &[u8], r: &Request) -> Option<Success> {
         return None;
     }
     let s: Success = serde_json::from_slice(body).ok()?;
+    (s.protocol_version == 2 && core_valid(&s, r)).then_some(s)
+}
+/// The §3.2 checks shared by protocol 2 and the protocol 3 core members.
+pub(crate) fn core_valid(s: &Success, r: &Request) -> bool {
     let e = &s.endpoint;
     let t = Transport {
         protocol_major: e.protocol_major,
@@ -193,8 +201,7 @@ pub fn parse_success(body: &[u8], r: &Request) -> Option<Success> {
         alpn: e.alpn.clone(),
     };
     let token_parts: Vec<_> = s.grant.token.split('.').collect();
-    let valid = s.protocol_version == 2
-        && s.attempt_ref == r.attempt_ref
+    s.attempt_ref == r.attempt_ref
         && uuid_v7(&s.world_id)
         && uuid_v7(&s.channel_id)
         && r.channel_id.as_ref().is_none_or(|c| c == &s.channel_id)
@@ -204,9 +211,8 @@ pub fn parse_success(body: &[u8], r: &Request) -> Option<Success> {
         && !e
             .tls_server_name
             .rsplit('.')
-            .next()?
-            .bytes()
-            .all(|b| b.is_ascii_digit())
+            .next()
+            .is_none_or(|label| label.bytes().all(|b| b.is_ascii_digit()))
         && t.supported()
         && s.grant.profile == "oteryn-pre-admission-v1"
         && s.grant.token.len() <= 4096
@@ -216,8 +222,7 @@ pub fn parse_success(body: &[u8], r: &Request) -> Option<Success> {
                 && p.bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         })
-        && (1..=30).contains(&s.grant.valid_for_seconds);
-    valid.then_some(s)
+        && (1..=30).contains(&s.grant.valid_for_seconds)
 }
 fn dns_name(s: &str) -> bool {
     !s.is_empty()

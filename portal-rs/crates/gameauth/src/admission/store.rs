@@ -1,4 +1,4 @@
-use super::{AdmissionRequest, Error, GrantSigner, Material, grant, wire};
+use super::{AdmissionRequest, Error, GrantSigner, Material, grant, protocol3, wire};
 use sqlx::{PgConnection, PgPool, Row};
 use std::{future::Future as StdFuture, pin::Pin};
 use subtle::ConstantTimeEq;
@@ -103,13 +103,34 @@ async fn now(connection: &mut PgConnection) -> Result<i64, Error> {
         .await
         .map_err(|_| Error::Unavailable)
 }
+/// A refusal and, for a protocol 3 channel refusal, its §19.2.5 candidates.
+#[derive(Debug)]
+pub(super) struct Refusal {
+    pub error: Error,
+    pub channels: Vec<wire::Channel>,
+}
+impl From<Error> for Refusal {
+    fn from(error: Error) -> Self {
+        Self {
+            error,
+            channels: Vec::new(),
+        }
+    }
+}
 pub(super) async fn admit(
     pool: &PgPool,
     request: &AdmissionRequest,
     accounts: &dyn AccountStateLookup,
     authority: &dyn AdmissionAuthority,
     signer: Option<&dyn GrantSigner>,
-) -> Result<Vec<u8>, Error> {
+    protocol3: Option<&protocol3::Protocol3>,
+) -> Result<Vec<u8>, Refusal> {
+    // Protocol 3 is decoded only while its switch is on (§19.1).
+    let v3 = match (request.protocol, protocol3) {
+        (2, _) => None,
+        (3, Some(settings)) => Some(settings),
+        _ => return Err(Error::UnsupportedVersion.into()),
+    };
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
     sqlx::query("SET LOCAL lock_timeout = '2s'")
         .execute(&mut *tx)
@@ -127,7 +148,7 @@ pub(super) async fn admit(
             .try_get("request_digest")
             .map_err(|_| Error::ReconciliationRequired)?;
         if !bool::from(ticket.ct_eq(request.ticket_hash()) & digest.ct_eq(request.digest())) {
-            return Err(Error::AttemptConflict);
+            return Err(Error::AttemptConflict.into());
         }
         let body: Vec<u8> = row
             .try_get("response_body")
@@ -141,7 +162,8 @@ pub(super) async fn admit(
         // Ed25519 is deterministic, so re-signing returns the same token.
         let input = wire::token(&body)?;
         if input.matches('.').count() != 1 {
-            return Ok(response);
+            let response = finish_replay(&mut tx, v3, request, &body, response).await?;
+            return commit_replay(tx, v3, response).await;
         }
         let signer = signer.ok_or(Error::ReconciliationRequired)?;
         signer
@@ -154,7 +176,9 @@ pub(super) async fn admit(
             u64::try_from(expires / 1000).map_err(|_| Error::ReconciliationRequired)?,
             u64::try_from(at).map_err(|_| Error::ReconciliationRequired)?,
         )?;
-        return wire::with_token(&response, &token);
+        let response = wire::with_token(&response, &token)?;
+        let response = finish_replay(&mut tx, v3, request, &body, response).await?;
+        return commit_replay(tx, v3, response).await;
     }
     lock(&mut tx, request.ticket_hash()).await?;
     let consumed: bool =
@@ -164,22 +188,40 @@ pub(super) async fn admit(
             .await
             .map_err(|_| Error::Unavailable)?;
     if consumed {
-        return Err(Error::TicketRejected);
+        return Err(Error::TicketRejected.into());
     }
     let account = authority.redeem(&mut tx, request).await?;
     if account.security_generation == 0 || wire::uuid(&account.id.to_string()).is_err() {
-        return Err(Error::SecurityDenied);
+        return Err(Error::SecurityDenied.into());
     }
     lock(&mut tx, account.id.as_bytes()).await?;
     if accounts.state(&mut tx, account.id).await? != AccountState::Active {
-        return Err(Error::SecurityDenied);
+        return Err(Error::SecurityDenied.into());
     }
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM native_admissions WHERE account_id = $1 AND created_at >= clock_timestamp() - interval '60 seconds'")
         .bind(account.id).fetch_one(&mut *tx).await.map_err(|_| Error::Unavailable)?;
     if count >= 10 {
-        return Err(Error::RateLimited);
+        return Err(Error::RateLimited.into());
     }
-    let material = authority.issue(&mut tx, request, account).await?;
+    let material = match authority.issue(&mut tx, request, account).await {
+        Ok(material) => material,
+        Err(Error::ChannelUnavailable) => {
+            let channels = match v3 {
+                Some(settings) => refusal_channels(&mut tx, settings, request, account.id).await?,
+                None => Vec::new(),
+            };
+            // §19.2.5: a refusal lists at least one candidate; the transaction
+            // rolls back, so the ticket stays unused.
+            if channels.is_empty() {
+                return Err(Error::RouteUnavailable.into());
+            }
+            return Err(Refusal {
+                error: Error::ChannelUnavailable,
+                channels,
+            });
+        }
+        Err(error) => return Err(error.into()),
+    };
     let body = material.encode(request, now(&mut tx).await?)?;
     // A §8.1 grant is stored as its signing input only (§6.1), and only when the
     // signer that re-signs a retry is composed; any other pairing fails closed.
@@ -191,7 +233,40 @@ pub(super) async fn admit(
     let stored = match (signer, input) {
         (Some(_), Some(input)) => wire::with_token(&body, input)?,
         (None, None) => body.clone(),
-        _ => return Err(Error::Unavailable),
+        _ => return Err(Error::Unavailable.into()),
+    };
+    // §19.3: while protocol 3 is configured every committed fresh attempt, under
+    // protocol 2 or 3, advances the play generation and revokes older handles.
+    let response = match protocol3 {
+        None => body,
+        Some(settings) => {
+            let play_generation = protocol3::advance(&mut tx, account.id).await?;
+            match v3 {
+                None => body,
+                Some(_) => {
+                    let recovery = protocol3::issue(
+                        &mut tx,
+                        settings.handles,
+                        protocol3::Binding {
+                            request,
+                            account,
+                            world: material.world_id,
+                            channel: material.channel_id,
+                            play_generation,
+                        },
+                    )
+                    .await?;
+                    let channels =
+                        protocol3::channels(&mut tx, settings, material.world_id).await?;
+                    wire::success3(
+                        &body,
+                        request.channel_id.is_none(),
+                        &channels,
+                        recovery.as_ref(),
+                    )?
+                }
+            }
+        }
     };
     sqlx::query("INSERT INTO native_admissions (attempt_ref, ticket_hash, request_digest, account_id, response_body, expires_at_ms) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(request.attempt_ref).bind(request.ticket_hash()).bind(request.digest()).bind(account.id).bind(&stored).bind(material.expires_at_ms)
@@ -199,7 +274,67 @@ pub(super) async fn admit(
     tx.commit()
         .await
         .map_err(|_| Error::ReconciliationRequired)?;
+    Ok(response)
+}
+/// A protocol 3 retry recomputes `channels` and replaces the attempt's handle
+/// (§19.2.4, §19.3), committing the replacement; protocol 2 is unchanged.
+async fn finish_replay(
+    tx: &mut PgConnection,
+    v3: Option<&protocol3::Protocol3>,
+    request: &AdmissionRequest,
+    stored: &[u8],
+    response: Vec<u8>,
+) -> Result<Vec<u8>, Error> {
+    let Some(settings) = v3 else {
+        return Ok(response);
+    };
+    let (world, _, _) = wire::scope(stored)?;
+    let recovery = protocol3::replace(&mut *tx, settings.handles, request.attempt_ref).await?;
+    let channels = protocol3::channels(&mut *tx, settings, world).await?;
+    if channels.is_empty() {
+        return Err(Error::RouteUnavailable);
+    }
+    let body = wire::success3(
+        &response,
+        request.channel_id.is_none(),
+        &channels,
+        recovery.as_ref(),
+    )?;
     Ok(body)
+}
+/// A protocol 3 retry commits its handle replacement; protocol 2 commits nothing.
+async fn commit_replay(
+    tx: sqlx::Transaction<'_, sqlx::Postgres>,
+    v3: Option<&protocol3::Protocol3>,
+    response: Vec<u8>,
+) -> Result<Vec<u8>, Refusal> {
+    if v3.is_some() {
+        tx.commit()
+            .await
+            .map_err(|_| Error::ReconciliationRequired)?;
+    }
+    Ok(response)
+}
+/// §19.2.5 candidates of the Character's World, read in the refused transaction
+/// after the authority's character checks passed.
+async fn refusal_channels(
+    tx: &mut PgConnection,
+    settings: &protocol3::Protocol3,
+    request: &AdmissionRequest,
+    account: Uuid,
+) -> Result<Vec<wire::Channel>, Error> {
+    let world: Option<Uuid> = sqlx::query_scalar(
+        "SELECT world_id FROM account_characters WHERE account_id=$1 AND character_id=$2",
+    )
+    .bind(account)
+    .bind(request.character_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| Error::Unavailable)?;
+    match world {
+        Some(world) => protocol3::channels(tx, settings, world).await,
+        None => Ok(Vec::new()),
+    }
 }
 pub(super) async fn budget(pool: &PgPool, credential: &[u8], limit: u32) -> Result<(), Error> {
     let count: i64 = sqlx::query_scalar("INSERT INTO native_admission_budgets (credential_hash, window_start, requests) VALUES ($1, clock_timestamp(), 1) ON CONFLICT (credential_hash) DO UPDATE SET requests = CASE WHEN native_admission_budgets.window_start <= clock_timestamp() - interval '60 seconds' THEN 1 ELSE native_admission_budgets.requests + 1 END, window_start = CASE WHEN native_admission_budgets.window_start <= clock_timestamp() - interval '60 seconds' THEN clock_timestamp() ELSE native_admission_budgets.window_start END RETURNING requests")

@@ -150,6 +150,15 @@ impl Database {
         issuance: admission::Issuance,
         signer: Option<Arc<dyn admission::GrantSigner>>,
     ) -> Result<Router, Box<dyn std::error::Error>> {
+        self.admission_v3(issuance, signer, None)
+    }
+    /// The listener composition with protocol 3 (§19) configured.
+    fn admission_v3(
+        &self,
+        issuance: admission::Issuance,
+        signer: Option<Arc<dyn admission::GrantSigner>>,
+        protocol3: Option<admission::Protocol3>,
+    ) -> Result<Router, Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let current = dir.path().join("current");
         std::fs::write(
@@ -164,6 +173,7 @@ impl Database {
                 tokens: Some(tokens),
                 requests_per_minute: 120,
                 signer,
+                protocol3,
             },
             Arc::new(admission_accounts()),
             Arc::new(admission_authority(&Self::projection_settings(), issuance)),
@@ -1422,3 +1432,6 @@ async fn pg_grant_is_never_stored_without_the_composed_replay_signer() -> TestRe
     db.nothing_committed(&native).await?;
     db.close().await
 }
+
+#[path = "game_login_protocol3_tests.rs"]
+mod protocol3;
