@@ -53,6 +53,7 @@ impl Database {
     fn settings(&self) -> Settings {
         Settings {
             witness_directory: Some(self.witness.path().to_path_buf()),
+            key_purpose: None,
             mfa: Some(Mfa::new(self.pool.clone(), [7; 32])),
         }
     }
@@ -468,6 +469,7 @@ async fn every_seed_action_refuses_outside_testing() -> TestResult {
         None,
         Some("production"),
         Some("preproduction"),
+        Some("preprod"),
         Some("Testing"),
     ] {
         assert_eq!(
@@ -582,4 +584,231 @@ fn hex_keys_decode_exactly() {
     assert_eq!(hex32(&"FF".repeat(32)), Ok([255; 32]));
     assert!(hex32(&"0".repeat(63)).is_err());
     assert!(hex32(&"zz".repeat(32)).is_err());
+}
+
+const CUSTODY_PURPOSE: &str = "fresh_admission";
+
+fn custody_input(directory: &std::path::Path) -> Value {
+    json!({"directory": directory.to_string_lossy(), "purpose": CUSTODY_PURPOSE})
+}
+fn mode(path: &std::path::Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::symlink_metadata(path)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777
+}
+
+#[tokio::test]
+async fn signing_custody_is_created_once_and_signs_verifiable_grants() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let directory = scratch.path().join("custody");
+    let first = db
+        .seed("signing-custody", custody_input(&directory))
+        .await?;
+    let custody = directory.join(CUSTODY_FILE);
+    let wrapping = directory.join(WRAPPING_KEY_FILE);
+    let witness = db.witness.path().to_string_lossy().into_owned();
+    let key_id = first["keyId"].as_str().unwrap().to_owned();
+    let public_key = first["publicKey"].as_str().unwrap().to_owned();
+    assert!(key_id.starts_with("fresh-") && key_id.len() == 38);
+    let path = |p: &std::path::Path| p.to_string_lossy().into_owned();
+    let mut env = Map::new();
+    env.insert(admission::KEY_CUSTODY_FILE.into(), json!(path(&custody)));
+    env.insert(admission::KEY_WRAPPING_FILE.into(), json!(path(&wrapping)));
+    env.insert(admission::KEY_PURPOSE.into(), json!(CUSTODY_PURPOSE));
+    env.insert(admission::WITNESS_DIRECTORY.into(), json!(witness));
+    assert_eq!(
+        first,
+        json!({"entity": "signing-custody", "issuer": keys::ISSUER, "profile": keys::PROFILE,
+               "purpose": CUSTODY_PURPOSE, "keyId": key_id, "publicKey": public_key,
+               "state": "active", "custodyFile": path(&custody),
+               "wrappingKeyFile": path(&wrapping), "witnessDirectory": witness, "env": env})
+    );
+    // Owner-only files; the wrapping key is 32 raw bytes and never printed.
+    assert_eq!(
+        (mode(&directory), mode(&custody), mode(&wrapping)),
+        (0o700, 0o600, 0o600)
+    );
+    let wrapping_key = std::fs::read(&wrapping)?;
+    assert_eq!(wrapping_key.len(), 32);
+    let printed = first.to_string();
+    for encoded in [
+        URL_SAFE_NO_PAD.encode(&wrapping_key),
+        base64::engine::general_purpose::STANDARD.encode(&wrapping_key),
+        wrapping_key.iter().map(|b| format!("{b:02x}")).collect(),
+    ] {
+        assert!(!printed.contains(&encoded));
+    }
+    // The published public key is the custody key, trusted in the §9.2 scope.
+    let rows: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT public_key, trusted FROM native_game_signing_trust_key_versions WHERE key_id=$1",
+    )
+    .bind(&key_id)
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(rows, vec![(public_key.clone(), true)]);
+
+    // A rerun reuses the Active key: same output, untouched custody, one row.
+    let snapshot = std::fs::read(&custody)?;
+    assert_eq!(
+        db.seed("signing-custody", custody_input(&directory))
+            .await?,
+        first
+    );
+    let mut named = custody_input(&directory);
+    named["keyId"] = json!(key_id);
+    assert_eq!(db.seed("signing-custody", named.clone()).await?, first);
+    assert_eq!(std::fs::read(&custody)?, snapshot);
+    assert_eq!(std::fs::read(&wrapping)?, wrapping_key);
+    assert_eq!(
+        db.count("SELECT count(*) FROM native_game_signing_trust_key_versions")
+            .await?,
+        1
+    );
+    // Another key id is a conflict, never a rotation.
+    named["keyId"] = json!("fresh-other-1");
+    assert!(is_conflict(db.seed("signing-custody", named).await));
+    assert_eq!(std::fs::read(&custody)?, snapshot);
+
+    // Round trip: the issuer composed from the printed environment signs a
+    // grant that verifies against the key the registry publishes.
+    let mut vars: Vec<(String, String)> = env
+        .iter()
+        .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+        .collect();
+    vars.push((admission::GRANTS_ENABLED.into(), "true".into()));
+    vars.push(("OTERYN_ENV".into(), "testing".into()));
+    let lookup = |key: &str| vars.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+    let issuance = admission::Issuance::configured(lookup);
+    assert!(issuance.permitted());
+    let signer = admission::configured_signer(db.pool.clone(), &issuance, lookup)?
+        .expect("custody opens for the issuer");
+    // The running issuer holds custody: a concurrent rerun cannot write it.
+    assert!(matches!(
+        db.seed("signing-custody", custody_input(&directory)).await,
+        Err(SeedError::Unavailable(_))
+    ));
+    signer.prepare().await.map_err(|e| format!("{e:?}"))?;
+    let now = database_now(&db.pool).await?;
+    let token = signer
+        .sign(br#"{"purpose":"fresh_entry"}"#, now + 20, now)
+        .map_err(|e| format!("{e:?}"))?;
+    let (input, signature) = token.rsplit_once('.').unwrap();
+    let header = URL_SAFE_NO_PAD.decode(input.split('.').next().unwrap())?;
+    assert_eq!(
+        String::from_utf8(header)?,
+        format!(r#"{{"alg":"Ed25519","kid":"{key_id}","typ":"oteryn-admission+jwt"}}"#)
+    );
+    let published: String = sqlx::query_scalar("SELECT public_key FROM native_game_signing_trust_key_versions WHERE key_id=$1 AND trusted ORDER BY key_revision DESC LIMIT 1")
+        .bind(&key_id)
+        .fetch_one(&db.pool)
+        .await?;
+    let published: [u8; 32] = URL_SAFE_NO_PAD.decode(published)?.try_into().unwrap();
+    let signature = URL_SAFE_NO_PAD.decode(signature)?;
+    assert_eq!(
+        keys::verify(published, input.as_bytes(), &signature),
+        Ok(())
+    );
+    let mut forged = input.as_bytes().to_vec();
+    forged[0] ^= 1;
+    assert!(keys::verify(published, &forged, &signature).is_err());
+    drop(signer);
+    db.close().await
+}
+
+#[tokio::test]
+async fn signing_custody_refuses_bad_directories_and_input() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+    // Every refusal here happens before the database is touched.
+    let pool = PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+    let scratch = tempfile::tempdir()?;
+    let settings = Settings {
+        witness_directory: Some(scratch.path().join("witness")),
+        key_purpose: Some(CUSTODY_PURPOSE.into()),
+        mfa: None,
+    };
+    let open = scratch.path().join("open");
+    std::fs::create_dir(&open)?;
+    std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o755))?;
+    let file = scratch.path().join("file");
+    std::fs::write(&file, b"x")?;
+    let link = scratch.path().join("link");
+    std::os::unix::fs::symlink(scratch.path(), &link)?;
+    for directory in [
+        PathBuf::from("relative/custody"),
+        open.clone(),
+        file,
+        link,
+        scratch.path().join("missing/custody"),
+    ] {
+        let input = json!({"directory": directory.to_string_lossy()});
+        let result = execute(&pool, &settings, "signing-custody", &input).await;
+        assert!(is_bad(result), "{directory:?} was accepted");
+    }
+    assert_eq!(
+        mode(&open),
+        0o755,
+        "an open directory is refused, not changed"
+    );
+    let fresh = scratch.path().join("fresh");
+    for (key, value) in [
+        ("purpose", json!("other_purpose")),
+        ("keyId", json!("bad id")),
+        ("keyId", json!("x".repeat(65))),
+        ("directory", json!(7)),
+        ("seed", json!("00")),
+    ] {
+        let mut input = json!({"directory": fresh.to_string_lossy()});
+        input[key] = value;
+        let result = execute(&pool, &settings, "signing-custody", &input).await;
+        assert!(is_bad(result), "{key} was accepted");
+    }
+    assert!(!fresh.exists(), "refused input created nothing");
+    // Without a configured purpose one must be given.
+    let unset = Settings {
+        key_purpose: None,
+        ..settings.clone()
+    };
+    let input = json!({"directory": fresh.to_string_lossy()});
+    assert!(is_bad(
+        execute(&pool, &unset, "signing-custody", &input).await
+    ));
+    // Custody without its wrapping key is never re-wrapped with a new key.
+    let orphan = scratch.path().join("orphan");
+    std::fs::create_dir(&orphan)?;
+    std::fs::set_permissions(&orphan, std::fs::Permissions::from_mode(0o700))?;
+    std::fs::write(orphan.join(CUSTODY_FILE), b"sealed")?;
+    let input = json!({"directory": orphan.to_string_lossy()});
+    assert!(is_conflict(
+        execute(&pool, &settings, "signing-custody", &input).await
+    ));
+    assert!(!orphan.join(WRAPPING_KEY_FILE).exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn signing_custody_runs_only_in_testing_or_preprod() -> TestResult {
+    let args = [
+        "signing-custody".to_owned(),
+        r#"{"directory":"relative"}"#.to_owned(),
+    ];
+    let gate = Err(SeedError::Unavailable(
+        "signing-custody runs only with OTERYN_ENV=testing or preprod",
+    ));
+    for environment in [
+        None,
+        Some("production"),
+        Some("preproduction"),
+        Some("Testing"),
+    ] {
+        assert_eq!(run_in(environment, &args).await, gate);
+    }
+    // preprod passes the gate and stops later, at configuration or input.
+    assert_ne!(run_in(Some("preprod"), &args).await, gate);
+    Ok(())
 }

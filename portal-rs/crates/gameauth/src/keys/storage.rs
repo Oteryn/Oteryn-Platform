@@ -83,6 +83,32 @@ impl EncryptedFileStorage {
             _lock: lock,
         })
     }
+    /// Testing/preproduction provisioning: a fresh random 32-byte wrapping key
+    /// in a new owner-only (0600) file inside an owner-only directory. An
+    /// existing file is never replaced; the key bytes are never returned.
+    pub fn create_key_file(key_path: &Path) -> Result<(), KeyError> {
+        use std::os::unix::fs::OpenOptionsExt;
+        if !key_path.is_absolute() {
+            return Err(KeyError::BadInput);
+        }
+        private_metadata(key_path.parent().ok_or(KeyError::BadInput)?, true)?;
+        let mut key = Zeroizing::new([0; 32]);
+        getrandom::fill(&mut *key).map_err(|_| KeyError::Unavailable)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(key_path)
+            .map_err(|_| KeyError::Unavailable)?;
+        let written = file
+            .write_all(&*key)
+            .and_then(|()| file.sync_all())
+            .map_err(|_| KeyError::Unavailable);
+        if written.is_err() {
+            let _ = fs::remove_file(key_path);
+        }
+        written
+    }
     fn cipher(&self) -> Result<Aes256Gcm, KeyError> {
         Aes256Gcm::new_from_slice(&*self.wrapping_key).map_err(|_| KeyError::Unavailable)
     }
