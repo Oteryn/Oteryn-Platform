@@ -283,22 +283,33 @@ impl Report {
 
 /// T20 owns these tables and mutations. Missing schema/lock rows fail closed.
 /// All readers and writers use epoch -> assignment -> report lock order.
+/// Ingestion locks the assignment row exclusively; readers only share it.
 async fn assignment_matches(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tx: &mut sqlx::PgConnection,
     peer: &str,
     report: &Report,
+    exclusive: bool,
 ) -> Result<bool, Failure> {
     let lock: Option<i16> =
         sqlx::query_scalar("SELECT id FROM native_assignment_epoch_locks WHERE id = 1 FOR SHARE")
-            .fetch_optional(&mut **tx)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|_| unavailable())?;
     if lock.is_none() {
         return Err(unavailable());
     }
-    let highest: Option<String> = sqlx::query_scalar("SELECT assignment_epoch::numeric::text FROM native_scope_assignments ORDER BY assignment_epoch::numeric DESC LIMIT 1").fetch_optional(&mut **tx).await.map_err(|_| unavailable())?;
-    let assignment: Option<(String,String,String)> = sqlx::query_as("SELECT assignment_epoch::text, ownership_generation::text, node_identity FROM native_scope_assignments WHERE world_id = $1 AND channel_id = $2 FOR UPDATE")
-        .bind(report.world_id).bind(report.channel_id).fetch_optional(&mut **tx).await.map_err(|_| unavailable())?;
+    let highest: Option<String> = sqlx::query_scalar("SELECT assignment_epoch::numeric::text FROM native_scope_assignments ORDER BY assignment_epoch::numeric DESC LIMIT 1").fetch_optional(&mut *tx).await.map_err(|_| unavailable())?;
+    let query = if exclusive {
+        "SELECT assignment_epoch::text, ownership_generation::text, node_identity FROM native_scope_assignments WHERE world_id = $1 AND channel_id = $2 FOR UPDATE"
+    } else {
+        "SELECT assignment_epoch::text, ownership_generation::text, node_identity FROM native_scope_assignments WHERE world_id = $1 AND channel_id = $2 FOR SHARE"
+    };
+    let assignment: Option<(String, String, String)> = sqlx::query_as(query)
+        .bind(report.world_id)
+        .bind(report.channel_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| unavailable())?;
     Ok(assignment.is_some_and(|(epoch, generation, identity)| {
         highest.as_deref() == Some(epoch.as_str())
             && epoch == report.assignment_epoch.to_string()
@@ -309,7 +320,7 @@ async fn assignment_matches(
 
 pub async fn ingest(pool: &PgPool, peer: &str, report: &Report) -> Result<&'static str, Failure> {
     let mut tx = pool.begin().await.map_err(|_| unavailable())?;
-    if !assignment_matches(&mut tx, peer, report).await? {
+    if !assignment_matches(&mut tx, peer, report, true).await? {
         return Err(StatusCode::CONFLICT);
     }
     let row = sqlx::query("SELECT assignment_epoch::text AS epoch, scope_ownership_generation::text AS generation, source_revision::text AS revision, content_json, observed_at, invalid FROM native_runtime_status_reports WHERE world_id=$1 AND channel_id=$2 FOR UPDATE")
@@ -369,6 +380,25 @@ pub async fn read(
     channel: Uuid,
     at: i64,
 ) -> Result<Observation, Failure> {
+    if !settings.enabled || !settings.valid() {
+        return Ok(Observation {
+            state: EvidenceState::Unavailable,
+            content: None,
+            observed_at: None,
+        });
+    }
+    let mut tx = pool.begin().await.map_err(|_| unavailable())?;
+    read_in(&mut tx, settings, world, channel, at).await
+}
+/// `read` inside the caller's transaction, under the same epoch fence; the
+/// native admission issuer selects its route with it (contract §7.4, §17).
+pub async fn read_in(
+    tx: &mut sqlx::PgConnection,
+    settings: &Settings,
+    world: Uuid,
+    channel: Uuid,
+    at: i64,
+) -> Result<Observation, Failure> {
     let mut result = Observation {
         state: EvidenceState::Unavailable,
         content: None,
@@ -377,7 +407,6 @@ pub async fn read(
     if !settings.enabled || !settings.valid() {
         return Ok(result);
     }
-    let mut tx = pool.begin().await.map_err(|_| unavailable())?;
     // Take the epoch fence before reading a report; retain it throughout the ownership check.
     let lock: Option<i16> =
         sqlx::query_scalar("SELECT id FROM native_assignment_epoch_locks WHERE id=1 FOR SHARE")
@@ -406,7 +435,7 @@ pub async fn read(
         .any(|p| p.name == identity && p.scopes.contains(&(world, channel)));
     result.state = if invalid
         || !authorized
-        || !assignment_matches(&mut tx, &identity, &report).await?
+        || !assignment_matches(tx, &identity, &report, false).await?
         || observed > at.saturating_add(i64::from(settings.clock_uncertainty_seconds))
     {
         EvidenceState::Invalid
@@ -584,6 +613,14 @@ pub fn configured_routes<S: Clone + Send + Sync + 'static>(
     let identities = Arc::new(identities);
     router(pool.clone(), runtime, identities.clone())
         .merge(crate::evidence::router(pool, evidence, identities))
+}
+/// The runtime-status read settings of `configured_routes`, for readers outside
+/// the ingestion route (the native admission issuer). Invalid configuration is
+/// the disabled default, which reads every scope as unavailable.
+pub fn configured_settings(lookup: impl Fn(&str) -> Option<String>) -> Settings {
+    configuration(lookup)
+        .map(|(runtime, _, _)| runtime)
+        .unwrap_or_default()
 }
 fn configuration(
     lookup: impl Fn(&str) -> Option<String>,

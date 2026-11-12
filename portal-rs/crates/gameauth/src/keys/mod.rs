@@ -228,6 +228,14 @@ impl<S: KeyStorage> Keyring<S> {
             })
             .collect())
     }
+    /// Key id of the current signing key, placed in the grant header before signing.
+    pub fn active_key_id(&self) -> Option<&str> {
+        self.state
+            .records
+            .iter()
+            .find(|r| r.state == KeyState::Active)
+            .map(|r| r.kid.as_str())
+    }
     pub fn state(&self, kid: &str) -> Option<KeyState> {
         self.state
             .records
