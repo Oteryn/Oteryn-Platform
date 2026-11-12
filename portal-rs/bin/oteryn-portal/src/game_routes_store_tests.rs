@@ -75,7 +75,12 @@ fn result(bytes: &[u8]) -> String {
 }
 /// The fixture's request at the active revision, under a fresh or given id.
 fn request(revision: &str, id: Option<&str>) -> Vec<u8> {
+    request_for(revision, id, ACCOUNT)
+}
+/// As `request`, for the given buyer.
+fn request_for(revision: &str, id: Option<&str>, account: &str) -> Vec<u8> {
     let mut value = fixture("purchase-request.valid.json");
+    set(&mut value, "account_id", text(account));
     set(&mut value, "catalog_revision", text(revision));
     if let Some(id) = id {
         set(&mut value, "purchase_request_id", text(id));
@@ -90,6 +95,29 @@ fn golden(name: &str, actual: &[u8], generated: &[&str]) -> Vec<u8> {
     let mut expected = fixture(name);
     for key in generated {
         set(&mut expected, key, actual.get(key).unwrap().clone());
+    }
+    canonical::encode(&expected).unwrap()
+}
+/// `golden` for an answer with `units`: each fixture unit keeps its
+/// `unit_kind`, the units their count and order; only the ids the server
+/// generates per unit (`entitlement_id`, `delivery_operation_id`) are taken
+/// from the unit of `actual` at the same position.
+fn golden_units(name: &str, actual: &[u8], generated: &[&str]) -> Vec<u8> {
+    let decoded = decode(actual);
+    let mut expected = decode(&golden(name, actual, generated));
+    let Value::Object(members) = &mut expected else {
+        panic!("object required")
+    };
+    let Some((_, Value::Array(units))) = members.iter_mut().find(|(k, _)| k == "units") else {
+        panic!("units required")
+    };
+    let Some(Value::Array(actual_units)) = decoded.get("units") else {
+        panic!("actual units required: {decoded:?}")
+    };
+    for (unit, actual) in units.iter_mut().zip(actual_units) {
+        for key in ["entitlement_id", "delivery_operation_id"] {
+            set(unit, key, actual.get(key).unwrap().clone());
+        }
     }
     canonical::encode(&expected).unwrap()
 }
@@ -212,10 +240,13 @@ impl Database {
         )
     }
     async fn fund(&self, amount: i64) {
+        self.fund_account(ACCOUNT, amount).await;
+    }
+    async fn fund_account(&self, account: &str, amount: i64) {
         self.wallet()
             .adjust(
                 Uuid::now_v7(),
-                Uuid::parse_str(ACCOUNT).unwrap(),
+                Uuid::parse_str(account).unwrap(),
                 amount,
                 Uuid::parse_str(MODERATOR).unwrap(),
                 "test funding",
@@ -224,8 +255,11 @@ impl Database {
             .unwrap();
     }
     async fn available(&self) -> i64 {
+        self.available_of(ACCOUNT).await
+    }
+    async fn available_of(&self, account: &str) -> i64 {
         self.wallet()
-            .balance(Uuid::parse_str(ACCOUNT).unwrap())
+            .balance(Uuid::parse_str(account).unwrap())
             .await
             .unwrap()
             .available
@@ -289,12 +323,14 @@ async fn db_mounted_purchase_accepts_once_replays_bytes_and_refuses_conflicts() 
     let raw = request(&db.revision, Some("0192b6a0-4c00-7000-8000-000000000401"));
     let (status, first) = call(&app, STORE, PURCHASE, &raw).await;
     assert_eq!(status, StatusCode::OK);
+    // Generated per run: the order id and the decision time; the digest is
+    // checked against the raw request below.
     assert_eq!(
         first,
-        golden(
+        golden_units(
             "purchase-answer.accepted.json",
             &first,
-            &["request_digest", "order_id", "units", "decided_at"],
+            &["request_digest", "order_id", "decided_at"],
         )
     );
     assert_eq!(
@@ -387,14 +423,23 @@ async fn db_refusals_and_failures_roll_back() {
     let raw = request(&db.revision, None);
     let (status, refused) = call(&app, STORE, PURCHASE, &raw).await;
     assert_eq!(status, StatusCode::OK);
+    // Only the decision time is generated; the id and digest bind the request.
     let mut expected = fixture("purchase-answer.insufficient-balance.json");
-    for key in ["purchase_request_id", "request_digest", "decided_at"] {
-        set(
-            &mut expected,
-            key,
-            decode(&refused).get(key).unwrap().clone(),
-        );
-    }
+    set(
+        &mut expected,
+        "decided_at",
+        decode(&refused).get("decided_at").unwrap().clone(),
+    );
+    set(
+        &mut expected,
+        "purchase_request_id",
+        decode(&raw).get("purchase_request_id").unwrap().clone(),
+    );
+    set(
+        &mut expected,
+        "request_digest",
+        text(format!("{:x}", Sha256::digest(&raw))),
+    );
     assert_eq!(refused, canonical::encode(&expected).unwrap());
     assert_eq!(db.written().await, [0, 0, 0, 1, 0]);
     db.fund(1000).await;
@@ -449,6 +494,7 @@ async fn db_surface_off_or_production_answers_503_and_writes_nothing() {
         ("PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED", None),
         ("OTERYN_ENV", Some("production")),
         ("APP_ENV", Some("production")),
+        ("APP_ENV", None),
         (STORE_IDENTITY, Some(PREMIUM)),
     ] {
         let mut values = values();
@@ -466,5 +512,135 @@ async fn db_surface_off_or_production_answers_503_and_writes_nothing() {
     assert_eq!(db.written().await, [0, 0, 0, 0, 0]);
     assert_eq!(db.count("SELECT COUNT(*) FROM store_wire_limits").await, 0);
     assert_eq!(db.available().await, 1000);
+    db.finish().await;
+}
+
+/// One buyer state for the production account gate, set up on a fresh buyer.
+#[derive(Debug, Clone, Copy)]
+enum Buyer {
+    Suspended,
+    TypedBan,
+    ExpiredSuspension,
+    PendingSuspension,
+    UnknownCategory,
+    NotActive,
+    EmailNotVerified,
+    EmailChangeCooldown,
+    Unknown,
+}
+
+impl Database {
+    /// A fresh funded buyer in the given state; `Unknown` has no account row.
+    async fn buyer(&self, state: Buyer) -> String {
+        let account = Uuid::now_v7();
+        if matches!(state, Buyer::Unknown) {
+            return account.to_string();
+        }
+        sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,$2,now(),'x','active','en')")
+            .bind(account).bind(format!("{}@example.test", account.simple())).execute(&self.pool).await.unwrap();
+        self.fund_account(&account.to_string(), 1000).await;
+        let moderator = Uuid::parse_str(MODERATOR).unwrap();
+        let sanction = |category: &str, effective: &str, expires: &str| {
+            format!(
+                "INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'{category}','active','test',now()+interval '{effective}',now()+interval '{expires}',$2)"
+            )
+        };
+        let sql = match state {
+            Buyer::Suspended => sanction("suspension", "-1 minute", "1 day"),
+            Buyer::ExpiredSuspension => sanction("suspension", "-2 days", "-1 day"),
+            Buyer::PendingSuspension => sanction("suspension", "1 day", "2 days"),
+            Buyer::UnknownCategory => {
+                // A category this build does not know must bar buying.
+                sqlx::raw_sql("ALTER TABLE sanctions DROP CONSTRAINT IF EXISTS sanctions_category_check")
+                    .execute(&self.pool)
+                    .await
+                    .unwrap();
+                sanction("future-category", "-1 minute", "1 day")
+            }
+            Buyer::TypedBan => {
+                let id = Uuid::now_v7();
+                sqlx::query("INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES($1,$2,'ban')")
+                    .bind(id).bind(account).execute(&self.pool).await.unwrap();
+                sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) VALUES($1,1,$2,'{}',true,now(),NULL)")
+                    .bind(account).bind(id).execute(&self.pool).await.unwrap();
+                return account.to_string();
+            }
+            Buyer::NotActive => {
+                "UPDATE accounts SET status='suspended' WHERE id=$1 AND $2::uuid IS NOT NULL".to_owned()
+            }
+            Buyer::EmailNotVerified => {
+                "UPDATE accounts SET email_verified_at=NULL WHERE id=$1 AND $2::uuid IS NOT NULL"
+                    .to_owned()
+            }
+            Buyer::EmailChangeCooldown => "UPDATE accounts SET email_change_blocked_until=now()+interval '1 day' WHERE id=$1 AND $2::uuid IS NOT NULL".to_owned(),
+            Buyer::Unknown => panic!("handled above"),
+        };
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(account)
+            .bind(moderator)
+            .execute(&self.pool)
+            .await
+            .unwrap();
+        account.to_string()
+    }
+}
+
+#[tokio::test]
+async fn db_account_gate_refuses_every_barred_buyer_and_writes_nothing() {
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    let app = db.app(&values()).await;
+    for state in [
+        Buyer::Suspended,
+        Buyer::TypedBan,
+        Buyer::UnknownCategory,
+        Buyer::NotActive,
+        Buyer::EmailNotVerified,
+        Buyer::EmailChangeCooldown,
+        Buyer::Unknown,
+    ] {
+        let buyer = db.buyer(state).await;
+        let before = db.written().await;
+        let (status, bytes) = call(
+            &app,
+            STORE,
+            PURCHASE,
+            &request_for(&db.revision, None, &buyer),
+        )
+        .await;
+        assert_eq!(
+            (status, result(&bytes).as_str()),
+            (StatusCode::OK, "ACCOUNT_RESTRICTED"),
+            "{state:?}"
+        );
+        // Only the refusal's own stored answer: no debit, order, intent or audit row.
+        let [debits, orders, intents, answers, audits] = before;
+        assert_eq!(
+            db.written().await,
+            [debits, orders, intents, answers + 1, audits],
+            "{state:?}"
+        );
+        if !matches!(state, Buyer::Unknown) {
+            assert_eq!(db.available_of(&buyer).await, 1000, "{state:?}");
+        }
+    }
+    // A sanction that has expired or is not yet effective does not bar buying.
+    for state in [Buyer::ExpiredSuspension, Buyer::PendingSuspension] {
+        let buyer = db.buyer(state).await;
+        let (status, bytes) = call(
+            &app,
+            STORE,
+            PURCHASE,
+            &request_for(&db.revision, None, &buyer),
+        )
+        .await;
+        assert_eq!(
+            (status, result(&bytes).as_str()),
+            (StatusCode::OK, "ACCEPTED"),
+            "{state:?}"
+        );
+        assert_eq!(db.available_of(&buyer).await, 750, "{state:?}");
+    }
     db.finish().await;
 }

@@ -452,6 +452,7 @@ async fn store_purchases_stay_off_outside_testing_and_preproduction() -> TestRes
         ("OTERYN_ENV", Some("production")),
         ("OTERYN_ENV", None),
         ("APP_ENV", Some("production")),
+        ("APP_ENV", None),
         ("PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED", None),
     ] {
         let mut values = enabled();

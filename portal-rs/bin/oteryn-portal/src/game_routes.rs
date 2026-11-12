@@ -17,8 +17,8 @@
 //!
 //! Character commands and both character-service exchanges also require
 //! `OTERYN_ENV` `testing` or `preproduction`, as the enablement runbook states.
-//! Store purchases require the same, and an `APP_ENV` that is unset or one of
-//! those two: a production sale is impossible under the proposed store wire.
+//! Store purchases require the same, and an `APP_ENV` set to one of those two
+//! (unset refuses): a production sale is impossible under the proposed store wire.
 //! `PORTAL_CHARACTER_COMMAND_IDENTITIES` is a JSON object keyed by one DNS SAN
 //! per Character Authority host, each value `[]`; those identities are bound to
 //! the command routes only, so every other route refuses them.
@@ -172,9 +172,10 @@ impl Routes {
         store_settings.delivery_enabled &= valid;
         let mut purchase_settings = store_settings.clone();
         purchase_settings.purchase_enabled &= qualified
-            && values
-                .get("APP_ENV")
-                .is_none_or(|env| matches!(env.as_str(), "testing" | "preproduction"));
+            && matches!(
+                values.get("APP_ENV").map(String::as_str),
+                Some("testing" | "preproduction")
+            );
         // As for delivery, the factory adds the shared Store identity itself.
         let purchase_others = bindings
             .iter()
