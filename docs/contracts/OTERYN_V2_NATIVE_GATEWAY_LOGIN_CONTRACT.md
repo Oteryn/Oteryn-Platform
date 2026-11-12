@@ -899,7 +899,7 @@ The request has an exact member set: no unknown, duplicate or `null` member. It 
 - `locator_revision` is a positive per-Character counter. Game advances it by one in the same transaction as each placement change.
 - `assignment_epoch` and `scope_ownership_generation` are the assignment the committing node held. They are private evidence, as in §7.2: stored, never logged, never placed in a grant or a public response.
 
-The response is `200` with exactly `{"contract_version":1,"result":"accepted"|"superseded"|"duplicate"}`, at most 256 bytes. Refusals are `400` (malformed), `401` (identity or scope), `409` (assignment mismatch or conflict) and `429`, each with the fixed §11.1-style body and no detail.
+The response is `200` with exactly `{"contract_version":1,"result":"accepted"|"superseded"|"duplicate"}`, at most 256 bytes. Refusals are `400` (malformed), `401` (identity or scope), `409` (assignment mismatch or conflict) and `429`, each with the fixed §11.1-style body and no detail. While ownership cannot be verified (§19.6.3 rule 5) the answer is `503` with an empty body: the producer keeps the outbox row and retries, and the reason is not disclosed.
 
 #### 19.6.3 Platform acceptance
 
@@ -909,7 +909,7 @@ Platform accepts a report only when every one of these holds:
 2. `(assignment_epoch, scope_ownership_generation)` equals the latest accepted assignment for that scope (§7.2), so a deposed owner cannot move a Character;
 3. `character_id` is a canonical id, and `account_id` is a canonical AccountId;
 4. `committed_at` is not later than Platform `now + clock_uncertainty`;
-5. the §5 read model is enabled and valid, and the report's `account_id` equals the account that read model lists as owner of `character_id` in `world_id`. While ownership cannot be verified (read model disabled, `invalid` or not live, or mode 33a under §17), every report is refused and not stored, and §19.4 step 5 uses the handle's bound channel.
+5. the §5 read model is enabled and valid, and the report's `account_id` equals the account that read model lists as owner of `character_id` in `world_id`. While ownership cannot be verified (read model disabled, `invalid` or not live, or mode 33a under §17), every report is refused with `503` and not stored, and §19.4 step 5 uses the handle's bound channel.
 
 Each Character has one entry, ordered by `(assignment_epoch, locator_revision)` numerically:
 
