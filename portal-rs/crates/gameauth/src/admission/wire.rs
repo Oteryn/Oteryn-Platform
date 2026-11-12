@@ -20,6 +20,9 @@ pub enum Error {
     GrantExpired,
     ReconciliationRequired,
     Unavailable,
+    /// §19.2.5, protocol 3 only: the requested channel is not a candidate while
+    /// another channel of the World is. The body carries the candidate list.
+    ChannelUnavailable,
 }
 impl Error {
     pub fn status(self) -> StatusCode {
@@ -29,12 +32,18 @@ impl Error {
             Self::OfferUnsupported
             | Self::AttemptConflict
             | Self::CharacterConflict
-            | Self::GrantExpired => StatusCode::CONFLICT,
+            | Self::GrantExpired
+            | Self::ChannelUnavailable => StatusCode::CONFLICT,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             _ => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
     pub fn body(self, attempt: Option<&str>) -> Vec<u8> {
+        self.body_for(attempt, 2, &[])
+    }
+    /// The §11.1 body for `protocol` (2 or 3); `channels` is the §19.2.5 member
+    /// and is emitted only for a protocol 3 channel refusal.
+    pub fn body_for(self, attempt: Option<&str>, protocol: u8, channels: &[Channel]) -> Vec<u8> {
         let (code, class) = match self {
             Self::Malformed => ("NATIVE_LOGIN_REQUEST_MALFORMED", "RETRY_LOGIN"),
             Self::UnsupportedVersion => {
@@ -55,10 +64,17 @@ impl Error {
                 "TEMPORARILY_UNAVAILABLE",
             ),
             Self::Unavailable => ("NATIVE_LOGIN_UNAVAILABLE", "TEMPORARILY_UNAVAILABLE"),
+            Self::ChannelUnavailable => (
+                "NATIVE_LOGIN_CHANNEL_UNAVAILABLE",
+                "TEMPORARILY_UNAVAILABLE",
+            ),
         };
         let attempt = attempt.map_or(Value::Null, |s| Value::String(s.to_owned()));
-        canonical::encode(&Value::Object(vec![
-            ("protocol_version".into(), Value::Unsigned(2)),
+        let mut members = vec![
+            (
+                "protocol_version".into(),
+                Value::Unsigned(u64::from(protocol)),
+            ),
             (
                 "error".into(),
                 Value::Object(vec![
@@ -67,8 +83,11 @@ impl Error {
                 ]),
             ),
             ("attempt_ref".into(), attempt),
-        ]))
-        .unwrap_or_default()
+        ];
+        if protocol == 3 && self == Self::ChannelUnavailable && !channels.is_empty() {
+            members.push(("channels".into(), channel_list(channels)));
+        }
+        canonical::encode(&Value::Object(members)).unwrap_or_default()
     }
 }
 impl std::fmt::Display for Error {
@@ -80,6 +99,8 @@ impl std::error::Error for Error {}
 
 #[derive(Clone)]
 pub struct AdmissionRequest {
+    /// 2, or 3 when the protocol 3 switch accepted the request (§19.1).
+    pub protocol: u8,
     pub attempt_ref: Uuid,
     pub character_id: Uuid,
     pub channel_id: Option<Uuid>,
@@ -106,12 +127,20 @@ impl AdmissionRequest {
     pub(super) fn digest(&self) -> &[u8] {
         &self.digest
     }
+    /// Protocol 2 only.
     pub fn decode(raw: &[u8]) -> Result<Self, Error> {
+        Self::decode_with(raw, false)
+    }
+    /// Protocol 2, and protocol 3 when its switch is on (§19.1): the same member
+    /// set, with 3 bound into the request digest so a retry cannot change version.
+    pub fn decode_with(raw: &[u8], protocol3: bool) -> Result<Self, Error> {
         let value = canonical::decode(raw, MAX_BODY, 5).map_err(|_| Error::Malformed)?;
         let version = number(value.get("protocol_version"))?;
-        if version != 2 {
-            return Err(Error::UnsupportedVersion);
-        }
+        let protocol = match version {
+            2 => 2,
+            3 if protocol3 => 3,
+            _ => return Err(Error::UnsupportedVersion),
+        };
         keys(
             &value,
             &[
@@ -175,14 +204,19 @@ impl AdmissionRequest {
             }
         }
         let offer = sorted(offer);
-        let binding = Value::Array(vec![
+        let mut binding = vec![
             Value::String(character_id.to_string()),
             channel_id.map_or(Value::Null, |v| Value::String(v.to_string())),
             offer.clone(),
-        ]);
+        ];
+        if protocol == 3 {
+            binding.push(Value::Unsigned(3));
+        }
+        let binding = Value::Array(binding);
         let digest =
             Sha256::digest(canonical::encode(&binding).map_err(|_| Error::Malformed)?).into();
         Ok(Self {
+            protocol,
             attempt_ref,
             character_id,
             channel_id,
@@ -192,6 +226,11 @@ impl AdmissionRequest {
             offer,
         })
     }
+}
+/// The request's `protocol_version`, when the body decodes.
+pub(super) fn version(raw: &[u8]) -> Option<i64> {
+    let value = canonical::decode(raw, MAX_BODY, 5).ok()?;
+    number(value.get("protocol_version")).ok()
 }
 pub(super) fn attempt(raw: &[u8]) -> Option<String> {
     let value = canonical::decode(raw, MAX_BODY, 5).ok()?;
@@ -348,4 +387,96 @@ pub(super) fn replay(raw: &[u8], expires: i64, now: i64) -> Result<Vec<u8>, Erro
         serde_json::from_slice(raw).map_err(|_| Error::ReconciliationRequired)?;
     success.grant.valid_for_seconds = (expires - now) / 1000;
     encode_success(&success)
+}
+
+/// A §19.2.4 `channels` entry: a candidate channel and its Registry key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Channel {
+    pub channel_id: Uuid,
+    pub key: String,
+}
+impl Channel {
+    /// §19.2.2: the key with its first ASCII letter upper-cased.
+    pub fn label(&self) -> String {
+        let mut label = self.key.clone();
+        if let Some(index) = label.find(|c: char| c.is_ascii_lowercase()) {
+            label[index..=index].make_ascii_uppercase();
+        }
+        label
+    }
+}
+/// The Registry channel-key grammar `[a-z0-9][a-z0-9-]{0,63}`.
+pub fn channel_key_valid(key: &str) -> bool {
+    let bytes = key.as_bytes();
+    (1..=64).contains(&bytes.len())
+        && (bytes[0].is_ascii_lowercase() || bytes[0].is_ascii_digit())
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+}
+fn channel_list(channels: &[Channel]) -> Value {
+    Value::Array(
+        channels
+            .iter()
+            .map(|c| {
+                Value::Object(vec![
+                    ("channel_id".into(), Value::String(c.channel_id.to_string())),
+                    ("key".into(), Value::String(c.key.clone())),
+                    ("label".into(), Value::String(c.label())),
+                ])
+            })
+            .collect(),
+    )
+}
+/// Largest protocol 3 login response (§19.2.4).
+pub const MAX_SUCCESS3: usize = 8192;
+/// Most `channels` entries a response lists (§19.2.4).
+pub const MAX_LISTED_CHANNELS: usize = 16;
+/// The §19.3 `recovery` member: the plaintext handle and whole seconds until
+/// its absolute expiry. Never persisted.
+pub struct Recovery {
+    pub handle: String,
+    pub expires_in: u64,
+}
+impl std::fmt::Debug for Recovery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Recovery{redacted}")
+    }
+}
+/// The §19.2.4 protocol 3 success body from a protocol 2 shaped core body (the
+/// stored attempt shape), in the contract's member order.
+pub(super) fn success3(
+    core: &[u8],
+    automatic: bool,
+    channels: &[Channel],
+    recovery: Option<&Recovery>,
+) -> Result<Vec<u8>, Error> {
+    if channels.is_empty() || channels.len() > MAX_LISTED_CHANNELS {
+        return Err(Error::Unavailable);
+    }
+    let value = canonical::decode(core, 6144, 5).map_err(|_| Error::Unavailable)?;
+    let member = |name: &str| value.get(name).cloned().ok_or(Error::Unavailable);
+    let recovery = recovery.map_or(Value::Null, |r| {
+        Value::Object(vec![
+            ("handle".into(), Value::String(r.handle.clone())),
+            ("expires_in".into(), Value::Unsigned(r.expires_in)),
+        ])
+    });
+    let selection = if automatic { "automatic" } else { "requested" };
+    let body = canonical::encode(&Value::Object(vec![
+        ("protocol_version".into(), Value::Unsigned(3)),
+        ("attempt_ref".into(), member("attempt_ref")?),
+        ("world_id".into(), member("world_id")?),
+        ("channel_id".into(), member("channel_id")?),
+        ("channel_selection".into(), Value::String(selection.into())),
+        ("channels".into(), channel_list(channels)),
+        ("endpoint".into(), member("endpoint")?),
+        ("grant".into(), member("grant")?),
+        ("recovery".into(), recovery),
+    ]))
+    .map_err(|_| Error::Unavailable)?;
+    if body.len() > MAX_SUCCESS3 {
+        return Err(Error::Unavailable);
+    }
+    Ok(body)
 }

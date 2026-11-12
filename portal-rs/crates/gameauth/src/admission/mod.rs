@@ -2,6 +2,7 @@
 //! in the same transaction; unavailable dependencies never authorize an admission.
 mod grant;
 mod http;
+mod protocol3;
 mod store;
 mod tickets;
 mod wire;
@@ -12,11 +13,18 @@ pub use grant::{
     configured_signer, header, route_names_valid, route_revision,
 };
 pub use http::{AdmissionConfig, ServiceTokens, router, start_private_listener};
+pub use protocol3::{
+    HANDLE_LIFETIME_SECONDS, Handles, MAX_HANDLE_LIFETIME_SECONDS, PROTOCOL3_ENABLED, Protocol3,
+    RECOVERY_ENABLED, REQUIRE_DEVICE_BINDING, handle_hash,
+};
 pub use store::{
     AccountState, AccountStateLookup, AdmissionAuthority, AuthorizedAccount, Future, Unavailable,
 };
 pub use tickets::NativeTickets;
-pub use wire::{AdmissionRequest, Endpoint, Error, Material};
+pub use wire::{AdmissionRequest, Channel, Endpoint, Error, Material, Recovery, channel_key_valid};
 
+#[cfg(test)]
+#[path = "protocol3_tests.rs"]
+mod protocol3_tests;
 #[cfg(test)]
 mod tests;

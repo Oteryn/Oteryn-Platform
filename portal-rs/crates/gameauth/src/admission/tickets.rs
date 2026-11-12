@@ -144,8 +144,12 @@ impl AdmissionAuthority for NativeTickets {
                 .await?;
             let signer = self.issuance.signer()?;
             let at = seconds(db).await?;
-            let (route, report) =
-                grant::select(db, &self.issuance.runtime, world, request.channel_id, at).await?;
+            let runtime = &self.issuance.runtime;
+            let (route, report) = if request.protocol == 3 {
+                grant::select3(db, runtime, world, request.channel_id, at).await?
+            } else {
+                grant::select(db, runtime, world, request.channel_id, at).await?
+            };
             // The trust self-check is refreshed before the issuer clock is read.
             signer.prepare().await?;
             let iat = u64::try_from(seconds(db).await?).map_err(|_| Error::Unavailable)?;

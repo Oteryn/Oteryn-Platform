@@ -3,6 +3,7 @@ pub mod config;
 pub mod errors;
 pub mod issuer;
 pub mod limiter;
+pub mod v3;
 pub mod wire;
 
 use axum::{
@@ -29,17 +30,38 @@ use std::{
 struct StateData {
     issuer: IssuerClient,
     enabled: bool,
+    protocol3: bool,
     version: String,
     start: Instant,
     sources: Mutex<WindowLimiter>,
     attempts: Mutex<WindowLimiter>,
 }
+/// Public surface switches. Protocol 3 (contract §19.1) is a separate
+/// default-off switch that applies only while native login is enabled.
+#[derive(Debug, Clone, Default)]
+pub struct Options {
+    pub enabled: bool,
+    pub protocol3: bool,
+    pub version: String,
+}
 /// Constructs the same public HTTP surface as the Go gateway, with native login off unless enabled.
 pub fn router(issuer: IssuerClient, enabled: bool, version: String) -> Router {
+    router_with(
+        issuer,
+        Options {
+            enabled,
+            protocol3: false,
+            version,
+        },
+    )
+}
+/// `router` with the §19 switches.
+pub fn router_with(issuer: IssuerClient, options: Options) -> Router {
     let state = Arc::new(StateData {
         issuer,
-        enabled,
-        version,
+        enabled: options.enabled,
+        protocol3: options.enabled && options.protocol3,
+        version: options.version,
         start: Instant::now(),
         sources: Mutex::new(WindowLimiter::new(30, Duration::from_secs(60), 100_000)),
         attempts: Mutex::new(WindowLimiter::new(6, Duration::from_secs(120), 100_000)),
@@ -81,6 +103,13 @@ async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
     } else {
         match to_bytes(req.into_body(), 16 * 1024).await {
             Ok(b) if s.enabled && wire::is_native(&b) => native(&s, &source, &b).await,
+            // §19.1: with the protocol 3 switch off every protocol 3 request is
+            // NATIVE_LOGIN_UNSUPPORTED_VERSION, in the protocol 2 body.
+            Ok(b) if s.enabled && v3::is_v3(&b) && !s.protocol3 => refuse(
+                Code::UnsupportedVersion.into(),
+                wire::attempt_echo(&b).as_deref(),
+            ),
+            Ok(b) if s.protocol3 && v3::is_v3(&b) => native3(&s, &source, &b).await,
             _ => invalid(),
         }
     };
@@ -128,14 +157,58 @@ async fn native(s: &StateData, source: &str, body: &[u8]) -> Response {
         Err(r) => refuse(r, echo.as_deref()),
     }
 }
+async fn native3(s: &StateData, source: &str, body: &[u8]) -> Response {
+    let echo = wire::attempt_echo(body);
+    let result = match prepare_with(s, source, body, s.start.elapsed(), v3::parse_request) {
+        Ok(request) => s.issuer.admit3(&request).await.map(|ok| (request, ok)),
+        Err(r) => Err(r.into()),
+    };
+    match result {
+        Ok((request, success)) => {
+            tracing::info!(
+                attempt_ref = request.attempt_ref,
+                code = "OK",
+                protocol_version = 3,
+                "native_login_result"
+            );
+            json(200, &success)
+        }
+        Err(refused) => refuse3(&refused, echo.as_deref()),
+    }
+}
+fn refuse3(refused: &v3::Refusal3, echo: Option<&str>) -> Response {
+    let r = refused.refusal;
+    tracing::info!(
+        attempt_ref = echo.unwrap_or(""),
+        code = r.code.name(),
+        protocol_version = 3,
+        "native_login_result"
+    );
+    let mut response = json(r.code.status(), &v3::body(refused, echo));
+    if r.code == Code::RateLimited
+        && let Ok(value) = HeaderValue::from_str(&r.retry_after.clamp(1, 30).to_string())
+    {
+        response.headers_mut().insert("retry-after", value);
+    }
+    response
+}
 fn prepare(
     s: &StateData,
     source: &str,
     body: &[u8],
     now: Duration,
 ) -> Result<wire::Request, Refusal> {
+    prepare_with(s, source, body, now, wire::parse_request)
+}
+fn prepare_with(
+    s: &StateData,
+    source: &str,
+    body: &[u8],
+    now: Duration,
+    parse: fn(&[u8]) -> Result<wire::Request, Code>,
+) -> Result<wire::Request, Refusal> {
     allow(&s.sources, source.as_bytes(), now)?;
-    let request = wire::parse_request(body).map_err(Refusal::from)?;
+    let request = parse(body).map_err(Refusal::from)?;
     let mut digest = Sha256::new();
     digest.update(request.attempt_ref.as_bytes());
     digest.update([0]);
