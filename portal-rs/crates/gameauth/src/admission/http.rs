@@ -1,5 +1,6 @@
 use super::{
-    AccountStateLookup, AdmissionAuthority, AdmissionRequest, Error, GrantSigner, store, wire,
+    AccountStateLookup, AdmissionAuthority, AdmissionRequest, Error, GrantSigner,
+    protocol3::Protocol3, store, wire,
 };
 use axum::{
     Router,
@@ -62,6 +63,8 @@ pub struct AdmissionConfig {
     /// The grant signer the authority signs with, for replay re-signing (§6.2).
     /// When set, attempt records keep the signing input, never the token.
     pub signer: Option<Arc<dyn GrantSigner>>,
+    /// Protocol 3 (§19); `None` keeps every protocol 3 request unsupported.
+    pub protocol3: Option<Protocol3>,
 }
 impl Default for AdmissionConfig {
     fn default() -> Self {
@@ -70,6 +73,7 @@ impl Default for AdmissionConfig {
             tokens: None,
             requests_per_minute: 120,
             signer: None,
+            protocol3: None,
         }
     }
 }
@@ -111,7 +115,15 @@ fn response(status: StatusCode, body: Vec<u8>) -> Response {
         .into_response()
 }
 fn refusal(error: Error, attempt: Option<&str>) -> Response {
-    let mut result = response(error.status(), error.body(attempt));
+    refusal_for(error, attempt, 2, &[])
+}
+fn refusal_for(
+    error: Error,
+    attempt: Option<&str>,
+    protocol: u8,
+    channels: &[wire::Channel],
+) -> Response {
+    let mut result = response(error.status(), error.body_for(attempt, protocol, channels));
     if error == Error::RateLimited {
         result.headers_mut().insert(
             header::RETRY_AFTER,
@@ -149,15 +161,21 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
         Err(_) => return refusal(Error::Malformed, None),
     };
     let attempt = wire::attempt(&raw);
+    // A protocol 3 request answers in protocol 3 only while its switch is on.
+    let protocol = if app.config.protocol3.is_some() && wire::version(&raw) == Some(3) {
+        3
+    } else {
+        2
+    };
     if !app.config.enabled || !(1..=600).contains(&app.config.requests_per_minute) {
-        return refusal(Error::Unavailable, attempt.as_deref());
+        return refusal_for(Error::Unavailable, attempt.as_deref(), protocol, &[]);
     }
     if let Err(error) = store::budget(&app.db, &hash, app.config.requests_per_minute).await {
-        return refusal(error, attempt.as_deref());
+        return refusal_for(error, attempt.as_deref(), protocol, &[]);
     }
-    let decoded = match AdmissionRequest::decode(&raw) {
+    let decoded = match AdmissionRequest::decode_with(&raw, app.config.protocol3.is_some()) {
         Ok(decoded) => decoded,
-        Err(error) => return refusal(error, attempt.as_deref()),
+        Err(error) => return refusal_for(error, attempt.as_deref(), protocol, &[]),
     };
     match store::admit(
         &app.db,
@@ -165,11 +183,17 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
         app.accounts.as_ref(),
         app.authority.as_ref(),
         app.config.signer.as_deref(),
+        app.config.protocol3.as_ref(),
     )
     .await
     {
         Ok(body) => response(StatusCode::OK, body),
-        Err(error) => refusal(error, attempt.as_deref()),
+        Err(refused) => refusal_for(
+            refused.error,
+            attempt.as_deref(),
+            decoded.protocol,
+            &refused.channels,
+        ),
     }
 }
 /// Separate loopback listener; never merges service-only routes into the public
@@ -182,6 +206,7 @@ pub async fn start_private_listener(
     accounts: Arc<dyn AccountStateLookup>,
     authority: Arc<dyn AdmissionAuthority>,
     signer: Option<Arc<dyn GrantSigner>>,
+    protocol3: Option<Protocol3>,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let enabled = std::env::var("PORTAL_NATIVE_ADMISSIONS_ENABLED").is_ok_and(|v| v == "true");
     let current = std::env::var_os("PORTAL_GATEWAY_TOKEN_SHA256_FILE");
@@ -197,6 +222,7 @@ pub async fn start_private_listener(
             requests_per_minute: std::env::var("PORTAL_NATIVE_ADMISSION_REQUESTS_PER_MINUTE")
                 .map_or(120, |v| v.parse().unwrap_or(0)),
             signer,
+            protocol3,
         },
         accounts,
         authority,

@@ -137,6 +137,7 @@ async fn all_go_handler_vectors_are_byte_identical() {
                         )
                         .unwrap(),
                         enabled: true,
+                        protocol3: false,
                         version: "test".into(),
                         start: Instant::now(),
                         sources: Mutex::new(WindowLimiter::new(
