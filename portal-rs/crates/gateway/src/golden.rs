@@ -150,6 +150,7 @@ async fn all_go_handler_vectors_are_byte_identical() {
                             Duration::from_secs(120),
                             100_000,
                         )),
+                        recovery: Default::default(),
                     },
                     0u64,
                 )

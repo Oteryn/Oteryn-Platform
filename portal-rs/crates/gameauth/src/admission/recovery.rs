@@ -21,6 +21,8 @@ use uuid::Uuid;
 
 /// Largest recovery response (§19.9).
 pub const MAX_RESPONSE: usize = 6144;
+/// Committed recovery attempts per `AccountId` per hour (§19.9).
+const ACCOUNT_ATTEMPTS_PER_HOUR: i64 = 20;
 const ISSUER: &str = crate::keys::RECOVERY_ISSUER;
 const AUDIENCE: &str = "urn:oteryn:game:recovery";
 const PROFILE: &str = crate::keys::RECOVERY_PROFILE;
@@ -572,6 +574,12 @@ pub(super) async fn recover(
         return Ok(response);
     }
     let bound = authenticate(&mut tx, request, accounts, now).await?;
+    // §19.9: at most 20 committed recovery attempts per account per hour.
+    let committed: i64 = sqlx::query_scalar("SELECT count(*) FROM native_recoveries WHERE account_id=$1 AND created_at >= clock_timestamp() - interval '1 hour'")
+        .bind(bound.account).fetch_one(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+    if committed >= ACCOUNT_ATTEMPTS_PER_HOUR {
+        return Err(RecoveryError::RateLimited.into());
+    }
     // §19.4 step 3: one unretired recovery attempt per account.
     let pending: Option<i64> = sqlx::query_scalar(
         "SELECT max(retires_at_ms) FROM native_recoveries WHERE account_id=$1 AND retires_at_ms > $2",

@@ -1,6 +1,7 @@
 //! One HTTP/1 exchange per admission. No redirects, retries, cookies or ambient proxy credentials.
 use crate::{
     errors::{Code, Refusal, parse_issuer_error, retry_after},
+    recover::{self, RecoverCode, RecoverRefusal},
     v3::{self, Refusal3},
     wire::{MAX_RESPONSE_BYTES, Request, Success, encode_request, parse_success},
 };
@@ -263,6 +264,47 @@ impl IssuerClient {
             refused.refusal.retry_after = retry;
         }
         Err(refused)
+    }
+    /// §19.4 recovery: `native-recoveries`, with the recovery reconciliation
+    /// code for an exchange whose outcome is unknown.
+    pub async fn recover(
+        &self,
+        request: &recover::RecoverRequest,
+    ) -> Result<Success, RecoverRefusal> {
+        let body = recover::encode_request(request)?;
+        let (status, retry, payload) = self
+            .call(recover::RECOVER_PATH, body, recover::MAX_RESPONSE_BYTES)
+            .await?;
+        if status == 200 {
+            return recover::parse_success(&payload, request)
+                .ok_or_else(|| RecoverCode::ReconciliationRequired.into());
+        }
+        let code = recover::parse_issuer_error(status, &payload, Some(&request.attempt_ref))
+            .ok_or(RecoverCode::Unavailable)?;
+        Err(RecoverRefusal {
+            code,
+            retry_after: if code.retries_after() { retry } else { 0 },
+        })
+    }
+    /// §19.7 revocation. It is idempotent, so an unknown outcome is
+    /// `NATIVE_LOGIN_UNAVAILABLE` and the client sends it again.
+    pub async fn revoke(&self, request: &recover::RevokeRequest) -> Result<(), RecoverRefusal> {
+        let body = recover::encode_revoke(request)?;
+        let (status, retry, payload) = self
+            .call(recover::REVOKE_PATH, body, 256)
+            .await
+            .map_err(|_| RecoverCode::Unavailable)?;
+        if status == 200 {
+            return recover::revoked(&payload)
+                .then_some(())
+                .ok_or_else(|| RecoverCode::Unavailable.into());
+        }
+        let code =
+            recover::parse_issuer_error(status, &payload, None).ok_or(RecoverCode::Unavailable)?;
+        Err(RecoverRefusal {
+            code,
+            retry_after: if code.retries_after() { retry } else { 0 },
+        })
     }
 }
 async fn read_body(mut body: Incoming, limit: usize) -> Result<Vec<u8>, ()> {

@@ -3,6 +3,7 @@ pub mod config;
 pub mod errors;
 pub mod issuer;
 pub mod limiter;
+pub mod recover;
 pub mod v3;
 pub mod wire;
 
@@ -18,6 +19,7 @@ use axum::{
 use errors::{Code, Refusal};
 use issuer::IssuerClient;
 use limiter::WindowLimiter;
+use recover::{RecoverCode, RecoverRefusal};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -35,6 +37,24 @@ struct StateData {
     start: Instant,
     sources: Mutex<WindowLimiter>,
     attempts: Mutex<WindowLimiter>,
+    recovery: RecoveryLimits,
+}
+/// §19.9: `/v1/recover` per source and per (`attempt_ref`, handle hash),
+/// `/v1/recover/revoke` per source; separate from the login budgets.
+#[derive(Debug)]
+struct RecoveryLimits {
+    sources: Mutex<WindowLimiter>,
+    attempts: Mutex<WindowLimiter>,
+    revoke_sources: Mutex<WindowLimiter>,
+}
+impl Default for RecoveryLimits {
+    fn default() -> Self {
+        Self {
+            sources: Mutex::new(WindowLimiter::new(30, Duration::from_secs(60), 100_000)),
+            attempts: Mutex::new(WindowLimiter::new(6, Duration::from_secs(120), 100_000)),
+            revoke_sources: Mutex::new(WindowLimiter::new(30, Duration::from_secs(60), 100_000)),
+        }
+    }
 }
 /// Public surface switches. Protocol 3 (contract §19.1) is a separate
 /// default-off switch that applies only while native login is enabled.
@@ -65,6 +85,7 @@ pub fn router_with(issuer: IssuerClient, options: Options) -> Router {
         start: Instant::now(),
         sources: Mutex::new(WindowLimiter::new(30, Duration::from_secs(60), 100_000)),
         attempts: Mutex::new(WindowLimiter::new(6, Duration::from_secs(120), 100_000)),
+        recovery: RecoveryLimits::default(),
     });
     Router::new()
         .route(
@@ -74,6 +95,8 @@ pub fn router_with(issuer: IssuerClient, options: Options) -> Router {
         .route("/ready", get(ready))
         .route("/version", get(version_info))
         .route("/v1/login", post(login))
+        .route("/v1/recover", post(recover_route))
+        .route("/v1/recover/revoke", post(revoke_route))
         .layer(middleware::from_fn(request_log))
         .with_state(state)
 }
@@ -91,12 +114,14 @@ async fn version_info(State(s): State<Arc<StateData>>) -> Response {
     )
 }
 
-async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
-    let source = req
-        .extensions()
+fn source_of(req: &Request) -> String {
+    req.extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|i| i.0.ip().to_string())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
+    let source = source_of(&req);
     let query = req.uri().query().is_some_and(|q| !q.is_empty());
     let mut response = if query {
         invalid()
@@ -113,6 +138,10 @@ async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
             _ => invalid(),
         }
     };
+    no_store(&mut response);
+    response
+}
+fn no_store(response: &mut Response) {
     for (k, v) in [
         (
             "cache-control",
@@ -124,6 +153,134 @@ async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
         response
             .headers_mut()
             .insert(k, HeaderValue::from_static(v));
+    }
+}
+/// The recovery routes exist only while native login is on; with protocol 3
+/// off every request is `NATIVE_LOGIN_UNSUPPORTED_VERSION` in the protocol 2
+/// body (§19.1). Bodies are read up to the login bound and then held to the
+/// §19.9 request limit by the parser.
+async fn recovery_front(
+    s: &StateData,
+    req: Request,
+    echo_of: fn(&[u8]) -> Option<String>,
+) -> Result<(String, Vec<u8>), Response> {
+    if !s.enabled {
+        return Err(StatusCode::NOT_FOUND.into_response());
+    }
+    let source = source_of(&req);
+    let query = req.uri().query().is_some_and(|q| !q.is_empty());
+    let body = to_bytes(req.into_body(), 16 * 1024)
+        .await
+        .map(|b| b.to_vec())
+        .unwrap_or_default();
+    let echo = echo_of(&body);
+    if !s.protocol3 {
+        return Err(refuse(Code::UnsupportedVersion.into(), echo.as_deref()));
+    }
+    if query {
+        return Err(refuse_recovery(
+            RecoverCode::Malformed.into(),
+            echo.as_deref(),
+        ));
+    }
+    Ok((source, body))
+}
+async fn recover_route(State(s): State<Arc<StateData>>, req: Request) -> Response {
+    let mut response = match recovery_front(&s, req, wire::attempt_echo).await {
+        Ok((source, body)) => recovery(&s, &source, &body).await,
+        Err(refused) => refused,
+    };
+    no_store(&mut response);
+    response
+}
+async fn recovery(s: &StateData, source: &str, body: &[u8]) -> Response {
+    let echo = wire::attempt_echo(body);
+    let now = s.start.elapsed();
+    let result = match prepare_recovery(s, source, body, now) {
+        Ok(request) => s.issuer.recover(&request).await,
+        Err(refused) => Err(refused),
+    };
+    match result {
+        Ok(success) => {
+            tracing::info!(
+                attempt_ref = success.attempt_ref,
+                code = "OK",
+                protocol_version = 3,
+                "native_recovery_result"
+            );
+            json(200, &success)
+        }
+        Err(refused) => refuse_recovery(refused, echo.as_deref()),
+    }
+}
+/// §19.9 order as on login: the source budget, the parse, then the
+/// (`attempt_ref`, handle hash) budget. Only the handle's hash is kept.
+fn prepare_recovery(
+    s: &StateData,
+    source: &str,
+    body: &[u8],
+    now: Duration,
+) -> Result<recover::RecoverRequest, RecoverRefusal> {
+    allow(&s.recovery.sources, source.as_bytes(), now).map_err(recover_limit)?;
+    let request = recover::parse_request(body)?;
+    let mut digest = Sha256::new();
+    digest.update(request.attempt_ref.as_bytes());
+    digest.update([0]);
+    digest.update(Sha256::digest(request.recovery_handle.as_bytes()));
+    allow(&s.recovery.attempts, &digest.finalize(), now).map_err(recover_limit)?;
+    Ok(request)
+}
+fn recover_limit(r: Refusal) -> RecoverRefusal {
+    RecoverRefusal {
+        code: r.code.into(),
+        retry_after: r.retry_after,
+    }
+}
+async fn revoke_route(State(s): State<Arc<StateData>>, req: Request) -> Response {
+    let mut response = match recovery_front(&s, req, |_| None).await {
+        Ok((source, body)) => revocation(&s, &source, &body).await,
+        Err(refused) => refused,
+    };
+    no_store(&mut response);
+    response
+}
+async fn revocation(s: &StateData, source: &str, body: &[u8]) -> Response {
+    let result = match allow(
+        &s.recovery.revoke_sources,
+        source.as_bytes(),
+        s.start.elapsed(),
+    ) {
+        Ok(()) => match recover::parse_revoke(body) {
+            Ok(request) => s.issuer.revoke(&request).await,
+            Err(code) => Err(code.into()),
+        },
+        Err(r) => Err(recover_limit(r)),
+    };
+    match result {
+        Ok(()) => {
+            tracing::info!(code = "OK", "native_recovery_revoke_result");
+            json(200, &recover::REVOKED)
+        }
+        Err(refused) => refuse_recovery(refused, None),
+    }
+}
+/// §19.10: only the attempt and the code are logged, never the handle, its
+/// hash or the grant.
+fn refuse_recovery(r: RecoverRefusal, echo: Option<&str>) -> Response {
+    tracing::info!(
+        attempt_ref = echo.unwrap_or(""),
+        code = r.code.name(),
+        protocol_version = 3,
+        "native_recovery_result"
+    );
+    let mut response = json(r.code.status(), &recover::body(r.code, echo));
+    let seconds = match r.code {
+        RecoverCode::RateLimited => Some(r.retry_after.clamp(1, 30)),
+        RecoverCode::AttemptPending => Some(r.retry_after.max(1)),
+        _ => None,
+    };
+    if let Some(value) = seconds.and_then(|v| HeaderValue::from_str(&v.to_string()).ok()) {
+        response.headers_mut().insert("retry-after", value);
     }
     response
 }
