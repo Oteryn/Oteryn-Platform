@@ -3,6 +3,7 @@ pub mod deaths;
 pub mod drops;
 pub mod hunts;
 pub mod items;
+pub mod journal;
 pub mod logins;
 pub mod places;
 pub mod pricing;

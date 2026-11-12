@@ -13,9 +13,13 @@
 //! | `loyalty-snapshots/read` | `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_ENABLED` | `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_MTLS_CLIENT_IDENTITY` |
 //! | `store/operations/{pending,read,receipt,reconcile}` | `PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED` | `PRODUCTS_ENTITLEMENTS_STORE_MTLS_CLIENT_IDENTITY` |
 //! | v2 `game-public/{character-online-session,world-daily-kills}` and their watermarks | `PORTAL_PUBLIC_PROJECTIONS_ENABLED` with the G-8 family flags | `PORTAL_PUBLIC_PROJECTIONS_SAN` |
+//! | `playerdata/journal/{records,cursor}` (G-10) | `PORTAL_PLAYERDATA_G10_INGEST_ENABLED` | `PORTAL_PLAYERDATA_JOURNAL_ITEMS_SAN` |
+//! | `playerdata/progress/{record,watermark}` (G-11) | `PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED` | `PORTAL_PLAYERDATA_JOURNAL_PROGRESS_SAN` |
 //!
 //! Character commands and both character-service exchanges also require
 //! `OTERYN_ENV` `testing` or `preproduction`, as the enablement runbook states.
+//! So do both journal ingest purposes (T72, G-11 §9 rollout), which also need
+//! their source authority and family list (`oteryn_playerdata::journal`).
 //! `PORTAL_CHARACTER_COMMAND_IDENTITIES` is a JSON object keyed by one DNS SAN
 //! per Character Authority host, each value `[]`; those identities are bound to
 //! the command routes only, so every other route refuses them.
@@ -37,6 +41,7 @@ use oteryn_internal_api::{
     canonical::{self, Value},
     guard::{Binding, ConfigError, Identity, IdentityMap},
 };
+use oteryn_playerdata::journal;
 use oteryn_store::{delivery, loyalty, premium, purchase};
 use sqlx::PgPool;
 use std::{collections::BTreeMap, sync::Arc};
@@ -177,6 +182,12 @@ impl Routes {
             others,
         );
 
+        let mut journal_settings = journal::Settings::from_lookup(get);
+        journal_settings.items_ingest &= valid && qualified;
+        journal_settings.progress_ingest &= valid && qualified;
+        let journal =
+            journal::configured_router(pool.clone(), &journal_settings, identities.clone());
+
         let stats = oteryn_stats::online::router(
             pool,
             identities,
@@ -205,6 +216,7 @@ impl Routes {
                 .merge(premium)
                 .merge(loyalty)
                 .merge(delivery)
+                .merge(journal)
                 .merge(online),
             stats,
             identities_valid: valid,
@@ -253,6 +265,8 @@ fn bindings(values: &Values) -> Result<Vec<Binding>, ConfigError> {
                 LOYALTY_IDENTITY => loyalty::http::GROUP,
                 STORE_IDENTITY => delivery::http::GROUP,
                 PUBLIC_IDENTITY => PUBLIC_GROUP,
+                journal::ITEMS_IDENTITY => journal::ITEMS_GROUP,
+                journal::PROGRESS_IDENTITY => journal::PROGRESS_GROUP,
                 other => other,
             };
             bindings.push(Binding {

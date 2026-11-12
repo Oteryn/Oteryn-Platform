@@ -194,6 +194,40 @@ fn subject_key(s: &Scope) -> String {
 fn hash(bytes: &[u8]) -> Vec<u8> {
     Sha256::digest(bytes).to_vec()
 }
+/// Content-free deletion tombstones live 120 days (revision 3, G-10 and G-11 §8.2).
+const TOMBSTONE_MS: u64 = 120 * 86400000;
+/// SHA-256 of the canonical deleted-scope key: the account, or the account and
+/// one of its characters. No identifier is stored in clear.
+fn scope_digest(account: &str, character: Option<&str>) -> Vec<u8> {
+    hash(tuple(vec![Some("deleted-scope"), Some(account), character]).as_bytes())
+}
+async fn tombstone(
+    tx: &mut Transaction<'_, Postgres>,
+    account: &str,
+    character: Option<&str>,
+    now: u64,
+) -> Result<()> {
+    sqlx::query("INSERT INTO pd_deleted_scopes(scope_digest,deleted_ms,expires_ms) VALUES($1,$2,$3) ON CONFLICT(scope_digest) DO UPDATE SET expires_ms=GREATEST(pd_deleted_scopes.expires_ms,EXCLUDED.expires_ms)")
+        .bind(scope_digest(account, character))
+        .bind(now as i64)
+        .bind(now.saturating_add(TOMBSTONE_MS).min(i64::MAX as u64) as i64)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+/// A record inside a deleted scope is refused, an exact replay included.
+async fn deleted(tx: &mut Transaction<'_, Postgres>, s: &Scope) -> Result<bool> {
+    let mut digests = vec![scope_digest(&s.account, None)];
+    if let Some(character) = s.character.as_deref() {
+        digests.push(scope_digest(&s.account, Some(character)));
+    }
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest = ANY($1))",
+    )
+    .bind(digests)
+    .fetch_one(&mut **tx)
+    .await?)
+}
 fn decimal_row(row: &sqlx::postgres::PgRow, name: &str) -> Result<u64> {
     row.try_get::<String, _>(name)?
         .parse()
@@ -256,6 +290,9 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         lock(&mut tx, &r.scope.authority).await?;
         lease.validate(&r)?;
+        if deleted(&mut tx, &r.scope).await? {
+            return Err(Error::Conflict);
+        };
         let key = stream_key(&r.scope);
         let c = stream(&mut tx, &r.scope, r.progress).await?;
         let digest = hash(&r.bytes);
@@ -511,6 +548,7 @@ impl Store {
         }
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT r.stream_key FROM pd_records r JOIN pd_streams s USING(stream_key) WHERE s.account_id=$1 AND r.character_id=$2)").bind(account).bind(character).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_records SET payload=NULL,expires_ms=LEAST(expires_ms,$3) WHERE character_id=$2 AND stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).bind(character).bind(now as i64).execute(&mut *tx).await?;
+        tombstone(&mut tx, account, Some(character), now).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -538,6 +576,7 @@ impl Store {
         .await?;
         sqlx::query("UPDATE pd_records SET payload=NULL WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
+        tombstone(&mut tx, account, None, now).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -567,6 +606,10 @@ impl Store {
         sqlx::query("UPDATE pd_streams SET retention_floor=stored_through WHERE progress=true AND erased=true AND erased_ms<=$1")
             .bind(now.saturating_sub(90*86400000) as i64).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_records r USING pd_streams s WHERE r.stream_key=s.stream_key AND r.source_revision<=s.retention_floor").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM pd_deleted_scopes WHERE expires_ms<=$1")
+            .bind(now as i64)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM pd_conflicts WHERE expires_ms<=$1")
             .bind(now as i64)
             .execute(&mut *tx)

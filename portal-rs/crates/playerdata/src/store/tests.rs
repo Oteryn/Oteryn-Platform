@@ -142,6 +142,11 @@ impl Db {
         ))
         .execute(&pool)
         .await?;
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261112090003_t72_game_journal.sql"
+        ))
+        .execute(&pool)
+        .await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -487,6 +492,13 @@ async fn postgres_watermark_prefix_staleness_and_regression()
     db.close().await?;
     Ok(())
 }
+/// Both purposes bound to the authority of the synthetic vectors above.
+fn sources() -> http::Sources {
+    http::Sources {
+        items: "oteryn:journal:primary".into(),
+        progress: "oteryn:journal:primary".into(),
+    }
+}
 #[derive(Debug)]
 struct TestClock;
 impl http::Clock for TestClock {
@@ -508,12 +520,13 @@ async fn http_disabled_peer_bad_input_and_no_store()
     let identity = Identity::san("journal-test")?;
     let identities = Arc::new(IdentityMap::new(vec![Binding {
         identity: identity.clone(),
-        group: "private-journal".into(),
+        group: http::PROGRESS_GROUP.into(),
     }])?);
     let state = http::HttpState::new(
         Store::new(pool, Arc::new(UnavailableAuthority), flags()),
         Arc::new(TestClock),
-    );
+    )
+    .with_sources(sources());
     let app = http::router(state, identities);
     let response = app
         .clone()
@@ -682,10 +695,10 @@ async fn postgres_http_ack_cursor_conflict_and_length()
     let identity = Identity::san("journal-test")?;
     let identities = Arc::new(IdentityMap::new(vec![Binding {
         identity: identity.clone(),
-        group: "private-journal".into(),
+        group: http::ITEMS_GROUP.into(),
     }])?);
     let app = http::router(
-        http::HttpState::new(db.store(&a), Arc::new(TestClock)),
+        http::HttpState::new(db.store(&a), Arc::new(TestClock)).with_sources(sources()),
         identities,
     );
     let request = |body: Vec<u8>| {
@@ -775,6 +788,83 @@ async fn postgres_transfer_writer_serializes_without_lock_inversion()
             .fetch_one(&db.pool)
             .await?;
     assert_eq!(count, 0);
+    db.close().await?;
+    Ok(())
+}
+
+/// Revision 3 (G-10 retention, G-11 §8.2): a deleted scope refuses an exact
+/// replay and a first delivery even while the authority adapter still allows
+/// it, and keeps only a content-free digest that expires after 120 days.
+#[tokio::test]
+async fn postgres_deleted_scope_refuses_replay_and_first_delivery()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let first = playerdata::progress(&progress(1))?;
+    let scope = first.scope.clone();
+    a.allow(scope.clone()).await;
+    let store = db.store(&a);
+    store.ingest(first.clone(), clock()).await?;
+    let bank_first = playerdata::items(&bank(1, None, 0, 100))?;
+    a.allow(bank_first.scope.clone()).await;
+    store.ingest(bank_first.clone(), clock()).await?;
+
+    store.erase_character(ACCOUNT, CHARACTER, clock()).await?;
+    assert_eq!(store.ingest(first, clock()).await, Err(Error::Conflict));
+    assert_eq!(
+        store
+            .ingest(playerdata::progress(&progress(2))?, clock())
+            .await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(store.cursor(&scope).await?.0.stored, 1);
+    // Account-scoped bank history does not follow the character.
+    assert_eq!(
+        store.ingest(bank_first.clone(), clock()).await?,
+        b"{\"contract_version\":1,\"result\":\"accepted\"}".to_vec()
+    );
+
+    store.erase_account(ACCOUNT, clock()).await?;
+    // A stream the account never used before is inside the deleted scope too.
+    let fresh = String::from_utf8(bank(1, None, 0, 100))?.replace(
+        "\"recovery_generation\":\"3\"",
+        "\"recovery_generation\":\"4\"",
+    );
+    let fresh = playerdata::items(fresh.as_bytes())?;
+    a.allow(fresh.scope.clone()).await;
+    assert_eq!(store.ingest(fresh, clock()).await, Err(Error::Conflict));
+    let streams: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_streams")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(streams, 2);
+
+    let tombstones: Vec<i32> =
+        sqlx::query_scalar("SELECT octet_length(scope_digest) FROM pd_deleted_scopes")
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(tombstones, vec![32, 32]);
+    store
+        .expire(TrustedTime {
+            unix_ms: NOW + 119 * 86400000,
+            uncertainty_ms: 0,
+        })
+        .await?;
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_deleted_scopes")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(kept, 2);
+    store
+        .expire(TrustedTime {
+            unix_ms: NOW + 121 * 86400000,
+            uncertainty_ms: 0,
+        })
+        .await?;
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_deleted_scopes")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(kept, 0);
     db.close().await?;
     Ok(())
 }

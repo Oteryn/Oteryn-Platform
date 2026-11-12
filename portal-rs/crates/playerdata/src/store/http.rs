@@ -12,12 +12,38 @@ use axum::{
 };
 use oteryn_internal_api::guard::{self, IdentityMap, JsonRule, RoutePolicy};
 use std::{sync::Mutex, time::Instant};
+use tokio::sync::Semaphore;
+
+/// G-10 purpose (`OTERYN_GAME_JOURNAL`): `journal/records` and `journal/cursor`.
+pub const ITEMS_GROUP: &str = "playerdata-journal-items";
+/// G-11 purpose (`OTERYN_GAME_JOURNAL_PROGRESS`): `progress/record` and `progress/watermark`.
+pub const PROGRESS_GROUP: &str = "playerdata-journal-progress";
+pub const RECORDS_PATH: &str = "/internal/v1/playerdata/journal/records";
+pub const CURSOR_PATH: &str = "/internal/v1/playerdata/journal/cursor";
+pub const PROGRESS_RECORD_PATH: &str = "/internal/v1/playerdata/progress/record";
+pub const PROGRESS_WATERMARK_PATH: &str = "/internal/v1/playerdata/progress/watermark";
+/// G-11 §3: 32 in-flight exchanges per peer.
+const PROGRESS_IN_FLIGHT: usize = 32;
+
+/// The one configured `source_authority` each purpose is bound to. Empty, or not
+/// a contract `key`, leaves that purpose unavailable.
+#[derive(Debug, Clone, Default)]
+pub struct Sources {
+    pub items: String,
+    pub progress: String,
+}
+fn authority_key(value: &str) -> bool {
+    (1..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._:/-".contains(&b))
+}
 
 pub trait Clock: Debug + Send + Sync {
     fn trusted_time(&self) -> Result<TrustedTime>;
 }
 #[derive(Debug)]
-struct NoClock;
+pub struct NoClock;
 impl Clock for NoClock {
     fn trusted_time(&self) -> Result<TrustedTime> {
         Err(Error::Unavailable)
@@ -27,16 +53,28 @@ impl Clock for NoClock {
 pub struct HttpState {
     pub store: Store,
     pub clock: Arc<dyn Clock>,
-    budget: Arc<Mutex<(Instant, u32)>>,
+    sources: Sources,
 }
 impl HttpState {
+    /// No source authority is configured: every route stays unavailable.
     pub fn new(store: Store, clock: Arc<dyn Clock>) -> Self {
         Self {
             store,
             clock,
-            budget: Arc::new(Mutex::new((Instant::now(), 0))),
+            sources: Sources::default(),
         }
     }
+    pub fn with_sources(mut self, sources: Sources) -> Self {
+        self.sources = sources;
+        self
+    }
+}
+/// Per-peer operational limits of one purpose (each purpose has one identity).
+#[derive(Debug, Clone)]
+struct Budget {
+    window: Arc<Mutex<(Instant, u32)>>,
+    per_minute: u32,
+    in_flight: Option<Arc<Semaphore>>,
 }
 fn response(result: Result<Vec<u8>>) -> Response {
     let (status, bytes) = match result {
@@ -106,17 +144,26 @@ async fn cursor(State(state): State<HttpState>, bytes: Bytes) -> Response {
     .await;
     response(result)
 }
+fn too_many(retry_after: &'static str) -> Response {
+    let mut response = response(Err(Error::Unavailable));
+    *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+    response.headers_mut().insert(
+        header::RETRY_AFTER,
+        header::HeaderValue::from_static(retry_after),
+    );
+    response
+}
 async fn budget(
-    State(state): State<HttpState>,
+    State(budget): State<Budget>,
     request: axum::extract::Request,
     next: Next,
 ) -> Response {
-    let allowed = match state.budget.lock() {
+    let allowed = match budget.window.lock() {
         Ok(mut b) => {
             if b.0.elapsed().as_secs() >= 60 {
                 *b = (Instant::now(), 0)
             };
-            if b.1 >= 120 {
+            if b.1 >= budget.per_minute {
                 false
             } else {
                 b.1 += 1;
@@ -126,12 +173,14 @@ async fn budget(
         Err(_) => return response(Err(Error::Unavailable)),
     };
     if !allowed {
-        let mut response = response(Err(Error::Unavailable));
-        *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
-        response
-            .headers_mut()
-            .insert(header::RETRY_AFTER, header::HeaderValue::from_static("60"));
-        return response;
+        return too_many("60");
+    };
+    let _permit = match &budget.in_flight {
+        Some(slots) => match slots.clone().try_acquire_owned() {
+            Ok(permit) => Some(permit),
+            Err(_) => return too_many("1"),
+        },
+        None => None,
     };
     let expected = request
         .headers()
@@ -151,6 +200,27 @@ async fn budget(
     next.run(axum::extract::Request::from_parts(parts, Body::from(bytes)))
         .await
 }
+/// Source binding after the peer guard: a body naming another `source_authority`
+/// is a peer/source failure (401) before any content check. A body without a
+/// string member is left to the closed codec (400).
+async fn source(
+    State(configured): State<Arc<str>>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let named = request
+        .extensions()
+        .get::<Value>()
+        .and_then(|body| body.get("source_authority"))
+        .and_then(|value| match value {
+            Value::String(name) => Some(name.as_str() != &*configured),
+            _ => None,
+        });
+    if named == Some(true) {
+        return response(Err(Error::Denied));
+    }
+    next.run(request).await
+}
 async fn no_store(request: axum::extract::Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     response.headers_mut().insert(
@@ -161,43 +231,78 @@ async fn no_store(request: axum::extract::Request, next: Next) -> Response {
 }
 /// Mount only on a trusted internal listener. The caller must use the shared
 /// IdentityMap containing all purposes, so overlapping credentials fail closed.
+/// G-10 and G-11 are separate purposes: each binds its own identity group,
+/// `source_authority`, flag and per-peer budget. Order per request: flag and
+/// configuration (503), peer identity (401), transport and JSON bounds
+/// (400/413), budget (429), source binding (401), closed codec (400), store.
 pub fn router(state: HttpState, identities: Arc<IdentityMap>) -> Router {
+    let flags = &state.store.flags;
+    let items = Budget {
+        window: Arc::new(Mutex::new((Instant::now(), 0))),
+        per_minute: 120,
+        in_flight: None,
+    };
+    let progress_budget = Budget {
+        window: Arc::new(Mutex::new((Instant::now(), 0))),
+        per_minute: 600,
+        in_flight: Some(Arc::new(Semaphore::new(PROGRESS_IN_FLIGHT))),
+    };
+    let items_source = &state.sources.items;
+    let progress_source = &state.sources.progress;
+    let items_on = flags.items_ingest && authority_key(items_source);
+    let progress_on = flags.progress_ingest && authority_key(progress_source);
     let mut combined = Router::new();
-    for (path, handler, max, enabled) in [
+    for (path, handler, max, enabled, group, budget_state, configured) in [
         (
-            "/internal/v1/playerdata/journal/records",
+            RECORDS_PATH,
             post(publish),
             65536,
-            state.store.flags.items_ingest,
+            items_on,
+            ITEMS_GROUP,
+            items.clone(),
+            items_source,
         ),
         (
-            "/internal/v1/playerdata/journal/cursor",
+            CURSOR_PATH,
             post(cursor),
             1024,
-            state.store.flags.items_ingest,
+            items_on,
+            ITEMS_GROUP,
+            items,
+            items_source,
         ),
         (
-            "/internal/v1/playerdata/progress/record",
+            PROGRESS_RECORD_PATH,
             post(progress),
             262144,
-            state.store.flags.progress_ingest,
+            progress_on,
+            PROGRESS_GROUP,
+            progress_budget.clone(),
+            progress_source,
         ),
         (
-            "/internal/v1/playerdata/progress/watermark",
+            PROGRESS_WATERMARK_PATH,
             post(watermark),
             1024,
-            state.store.flags.progress_ingest,
+            progress_on,
+            PROGRESS_GROUP,
+            progress_budget,
+            progress_source,
         ),
     ] {
         let routes = Router::new()
             .route(path, handler)
-            .route_layer(middleware::from_fn_with_state(state.clone(), budget));
+            .route_layer(middleware::from_fn_with_state(
+                Arc::<str>::from(configured.as_str()),
+                source,
+            ))
+            .route_layer(middleware::from_fn_with_state(budget_state, budget));
         let routes = guard::protect(
             routes,
             identities.clone(),
             RoutePolicy {
                 enabled,
-                group: "private-journal".to_owned(),
+                group: group.to_owned(),
                 max_body_bytes: max,
                 max_json_depth: 9,
                 json: JsonRule::Object,
