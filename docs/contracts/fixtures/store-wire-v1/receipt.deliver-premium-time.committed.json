@@ -5,7 +5,7 @@
   "issuer_authority": "OTERYN_PLATFORM_STORE_AUTHORITY",
   "operation_kind": "DELIVER",
   "operation_id": "0192b6a0-4c00-7000-8000-000000000701",
-  "binding_digest": "eef4cd5c05e3bdbe0c0b68b6070a99db0d91d38f4a8153e5189cc1b5df46be35",
+  "binding_digest": "3abee31f1c2a04f4e7b3b6c0cf761d13ed0b39965ed2e737d00f1c97b9cd039a",
   "outcome": "COMMITTED",
   "result_code": "STORE_OK",
   "account_id": "0192b6a0-4c00-7000-8000-000000000101",

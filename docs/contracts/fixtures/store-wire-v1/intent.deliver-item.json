@@ -10,7 +10,7 @@
   "product_id": "oteryn.store.item_grant",
   "product_version": "2",
   "unit_kind": "ITEM",
-  "catalog_revision": "37",
+  "catalog_revision": "1f6ee35b3b46aa4e5e1a36d7eb0e0b76ce08fa78907a91e3aac5ad22bb11050d",
   "offer_key": "potion-pack-10",
   "grant_key": "item:great_health_potion",
   "grant_revision": "12",

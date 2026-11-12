@@ -222,7 +222,7 @@ Request (semantic contract §14.2):
 | `account_id` | `uuid7` | the buyer's Platform `AccountId` from Game's session authority |
 | `character_id` | `uuid7` | buying character; recorded as Game-asserted context, never ownership authority |
 | `world_id` | `uuid7` | the character's world; recorded |
-| `catalog_revision` | `uint64` | revision of the Game catalog import the offer was shown from (open question Q2) |
+| `catalog_revision` | `hex64` | lowercase SHA-256 revision of the Game catalog import the offer was shown from (Q2, resolved 2026-11-12). Source: Game main aee3f57a store-wire-v1 fixtures; `gameplay_transport/store.rs` `catalogue.rules.revision()` |
 | `offer_key` | `offer_key` | |
 | `currency` | `currency` | quoted currency |
 | `unit_price` | `amount+` | quoted unit price |
@@ -338,7 +338,7 @@ Kind-specific binding, in order:
 
 | Kind | Members |
 |---|---|
-| `DELIVER` | `order_id`, `entitlement_id`, `account_id`, `product_id`, `product_version` (`uint64`), `unit_kind`, `catalog_revision`, `offer_key`, `grant_key`, `grant_revision` (`uint64`), `quantity` (`int[1,65535]`) |
+| `DELIVER` | `order_id`, `entitlement_id`, `account_id`, `product_id`, `product_version` (`uint64`), `unit_kind`, `catalog_revision` (`hex64`, lowercase SHA-256; Q2), `offer_key`, `grant_key`, `grant_revision` (`uint64`), `quantity` (`int[1,65535]`) |
 | `CLAIM` | `delivery_operation_id`, `entitlement_id`, `account_id`, `product_id`, `product_version`, `unit_kind` (= `ITEM`), `grant_key`, `grant_revision`, `quantity` |
 | `REVOKE_UNCLAIMED` | `delivery_operation_id`, `entitlement_id`, `account_id`, `product_id`, `product_version`, `unit_kind` (= `ITEM`), `reversal_reason` |
 | `RECLAIM` | `delivery_operation_id`, `claim_operation_id`, `claim_receipt_digest`, `entitlement_id`, `account_id`, `product_id`, `product_version`, `unit_kind` (= `ITEM`), `reversal_reason` |
@@ -595,7 +595,7 @@ Beyond semantic contract §11:
 The following are genuinely new. None is decided here, and each blocks only what it names.
 
 1. **Q1, transferable coins.** The Wallet holds one balance per identity, with no ordinary/transferable split. The owner needs to decide the semantics, the spend order and the Wallet storage of `TRANSFERABLE_COINS`. Until then, offers quoted in it answer `OFFER_UNAVAILABLE`.
-2. **Q2, `catalog_revision` source.** The native catalog contract has no `store_offer` capability. Which Game catalog import carries offers, prices and the revision Game quotes? This blocks route 3.
+2. **Q2, `catalog_revision` source.** RESOLVED 2026-11-12: `catalog_revision` is `hex64`, the lowercase SHA-256 revision of the Game catalog Game quotes (§5.3, §5.5). Source: Game main aee3f57a store-wire-v1 fixtures; `gameplay_transport/store.rs` `catalogue.rules.revision()`. It is compared for equality only, never ordered. Q2 no longer blocks route 3; the other questions that block it stay open.
 3. **Q3, Premium time v1 fit.** `oteryn.premium_time` v1 allows one entitlement per account and `OPERATOR_GRANT` issuance only, and a revocation removes all remaining time. That conflicts with one entitlement per fulfilment unit and with a per-purchase refund. Does Premium time need a v2 product contract before step 2 of §11?
 4. **Q4, cosmetic authority read.** No Profile-B read contract exists for cosmetics, yet S-9 launches cosmetics first. A Game consumer fence read for cosmetics is needed before step 2.
 5. **Q5, Profile-B intents.** This wire gives Premium time and cosmetics a DELIVER intent (§6.1) so that semantic contract §6.1 holds literally. Confirm this, or amend §6.1 so that Profile-B units have no intent.

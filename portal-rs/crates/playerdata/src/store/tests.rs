@@ -142,6 +142,11 @@ impl Db {
         ))
         .execute(&pool)
         .await?;
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261112090003_t72_game_journal.sql"
+        ))
+        .execute(&pool)
+        .await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -487,6 +492,19 @@ async fn postgres_watermark_prefix_staleness_and_regression()
     db.close().await?;
     Ok(())
 }
+/// One purpose bound to the authority of the synthetic vectors above; binding
+/// both to one authority would be an overlap that disables both.
+fn sources(progress: bool) -> http::Sources {
+    let (items, progress) = if progress {
+        ("", "oteryn:journal:primary")
+    } else {
+        ("oteryn:journal:primary", "")
+    };
+    http::Sources {
+        items: items.into(),
+        progress: progress.into(),
+    }
+}
 #[derive(Debug)]
 struct TestClock;
 impl http::Clock for TestClock {
@@ -508,12 +526,13 @@ async fn http_disabled_peer_bad_input_and_no_store()
     let identity = Identity::san("journal-test")?;
     let identities = Arc::new(IdentityMap::new(vec![Binding {
         identity: identity.clone(),
-        group: "private-journal".into(),
+        group: http::PROGRESS_GROUP.into(),
     }])?);
     let state = http::HttpState::new(
         Store::new(pool, Arc::new(UnavailableAuthority), flags()),
         Arc::new(TestClock),
-    );
+    )
+    .with_sources(sources(true));
     let app = http::router(state, identities);
     let response = app
         .clone()
@@ -682,10 +701,10 @@ async fn postgres_http_ack_cursor_conflict_and_length()
     let identity = Identity::san("journal-test")?;
     let identities = Arc::new(IdentityMap::new(vec![Binding {
         identity: identity.clone(),
-        group: "private-journal".into(),
+        group: http::ITEMS_GROUP.into(),
     }])?);
     let app = http::router(
-        http::HttpState::new(db.store(&a), Arc::new(TestClock)),
+        http::HttpState::new(db.store(&a), Arc::new(TestClock)).with_sources(sources(false)),
         identities,
     );
     let request = |body: Vec<u8>| {
@@ -775,6 +794,270 @@ async fn postgres_transfer_writer_serializes_without_lock_inversion()
             .fetch_one(&db.pool)
             .await?;
     assert_eq!(count, 0);
+    db.close().await?;
+    Ok(())
+}
+
+/// Revision 3 (G-10 retention, G-11 §8.2): a deleted scope refuses an exact
+/// replay and a first delivery even while the authority adapter still allows
+/// it, and keeps only a content-free digest that expires after 120 days.
+#[tokio::test]
+async fn postgres_deleted_scope_refuses_replay_and_first_delivery()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let first = playerdata::progress(&progress(1))?;
+    let scope = first.scope.clone();
+    a.allow(scope.clone()).await;
+    let store = db.store(&a);
+    store.ingest(first.clone(), clock()).await?;
+    let bank_first = playerdata::items(&bank(1, None, 0, 100))?;
+    a.allow(bank_first.scope.clone()).await;
+    store.ingest(bank_first.clone(), clock()).await?;
+
+    store.erase_character(ACCOUNT, CHARACTER, clock()).await?;
+    assert_eq!(store.ingest(first, clock()).await, Err(Error::Conflict));
+    assert_eq!(
+        store
+            .ingest(playerdata::progress(&progress(2))?, clock())
+            .await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(store.cursor(&scope).await?.0.stored, 1);
+    // Account-scoped bank history does not follow the character.
+    assert_eq!(
+        store.ingest(bank_first.clone(), clock()).await?,
+        b"{\"contract_version\":1,\"result\":\"accepted\"}".to_vec()
+    );
+
+    store.erase_account(ACCOUNT, clock()).await?;
+    // A stream the account never used before is inside the deleted scope too.
+    let fresh = String::from_utf8(bank(1, None, 0, 100))?.replace(
+        "\"recovery_generation\":\"3\"",
+        "\"recovery_generation\":\"4\"",
+    );
+    let fresh = playerdata::items(fresh.as_bytes())?;
+    a.allow(fresh.scope.clone()).await;
+    assert_eq!(store.ingest(fresh, clock()).await, Err(Error::Conflict));
+    let streams: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_streams")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(streams, 2);
+
+    let tombstones: Vec<i32> =
+        sqlx::query_scalar("SELECT octet_length(scope_digest) FROM pd_deleted_scopes")
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(tombstones, vec![32, 32]);
+    store
+        .expire(TrustedTime {
+            unix_ms: NOW + 119 * 86400000,
+            uncertainty_ms: 0,
+        })
+        .await?;
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_deleted_scopes")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(kept, 2);
+    store
+        .expire(TrustedTime {
+            unix_ms: NOW + 121 * 86400000,
+            uncertainty_ms: 0,
+        })
+        .await?;
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_deleted_scopes")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(kept, 0);
+    db.close().await?;
+    Ok(())
+}
+
+fn watermark_for(family: &str, through: u64) -> Watermark {
+    playerdata::watermark(format!("{{\"contract_version\":1,\"operation\":\"PublishGameJournalProgressWatermarkV1\",\"source_authority\":\"oteryn:journal:primary\",\"account_id\":\"{ACCOUNT}\",\"projection_epoch\":\"1\",\"recovery_generation\":\"3\",\"family\":\"{family}\",\"complete_through\":\"{through}\",\"observed_at_unix_ms\":\"{NOW}\",\"baseline_complete\":true}}").as_bytes()).unwrap()
+}
+/// The backend waiting on `holder`, polled until it appears, `done` or a deadline.
+async fn blocked_by(
+    admin: &PgPool,
+    holder: i32,
+    done: impl Fn() -> bool,
+) -> std::result::Result<Option<i32>, sqlx::Error> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let pid: Option<i32> = sqlx::query_scalar(
+            "SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)) LIMIT 1",
+        )
+        .bind(holder)
+        .fetch_optional(admin)
+        .await?;
+        if pid.is_some() || done() || tokio::time::Instant::now() > deadline {
+            return Ok(pid);
+        }
+        tokio::task::yield_now().await;
+    }
+}
+async fn streams(db: &Db) -> std::result::Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT count(*) FROM pd_streams")
+        .fetch_one(&db.pool)
+        .await
+}
+
+/// G-10/G-11 §8.2: a watermark or cursor into a deleted scope is refused like a
+/// record, and a watermark never creates a stream for a deleted account.
+#[tokio::test]
+async fn postgres_watermark_and_cursor_refuse_a_deleted_scope()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let store = db.store(&a);
+    let begin = snapshot(1, &Uuid::now_v7().to_string(), false);
+    let items = begin.scope.clone();
+    a.allow(items.clone()).await;
+    let first = playerdata::progress(&progress(1))?;
+    let progress_scope = first.scope.clone();
+    a.allow(progress_scope.clone()).await;
+    a.allow(watermark_scope(&progress_scope)).await;
+    let mut skull = watermark_scope(&progress_scope);
+    skull.family = "skull".into();
+    a.allow(skull).await;
+    let bank_first = playerdata::items(&bank(1, None, 0, 100))?;
+    a.allow(bank_first.scope.clone()).await;
+    store.ingest(begin, clock()).await?;
+    store.ingest(first.clone(), clock()).await?;
+    store.ingest(bank_first.clone(), clock()).await?;
+    assert!(
+        store
+            .watermark(watermark_for("stamina", 1), clock())
+            .await
+            .is_ok()
+    );
+    assert_eq!(store.cursor(&items).await?.0.stored, 1);
+
+    // Erased character: its G-10 ITEMS stream cursor is closed.
+    store.erase_character(ACCOUNT, CHARACTER, clock()).await?;
+    assert_eq!(store.cursor(&items).await, Err(Error::Conflict));
+
+    // Erased account: an exact replay, a cursor and a watermark on a stream the
+    // account never used are all refused, and no stream row is created.
+    store.erase_account(ACCOUNT, clock()).await?;
+    let before = streams(&db).await?;
+    assert_eq!(store.ingest(first, clock()).await, Err(Error::Conflict));
+    assert_eq!(
+        store.ingest(bank_first.clone(), clock()).await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(
+        store.watermark(watermark_for("stamina", 1), clock()).await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(
+        store.watermark(watermark_for("skull", 0), clock()).await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(store.cursor(&bank_first.scope).await, Err(Error::Conflict));
+    assert_eq!(streams(&db).await?, before);
+    db.close().await?;
+    Ok(())
+}
+
+/// Erasure and a first delivery of an authority the account has no stream for
+/// yet serialize: whichever commits first, the account ends deleted with no
+/// readable record. The external transaction holds the new stream row so the
+/// delivery has passed its tombstone check when the erasure starts.
+#[tokio::test]
+async fn postgres_erasure_and_first_delivery_serialize()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let r = playerdata::progress(&progress(1))?;
+    a.allow(r.scope.clone()).await;
+    let store = db.store(&a);
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("INSERT INTO pd_streams(stream_key,authority,account_id,family,progress) VALUES($1,$2,$3,$4,true)")
+        .bind(stream_key(&r.scope))
+        .bind(&r.scope.authority)
+        .bind(&r.scope.account)
+        .bind(&r.scope.family)
+        .execute(&mut *blocker)
+        .await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    let ingest = tokio::spawn({
+        let store = store.clone();
+        let r = r.clone();
+        async move { store.ingest(r, clock()).await }
+    });
+    // The delivery passed its tombstone check and waits on the held stream row.
+    let ingest_pid = blocked_by(&db.admin, blocker_pid, || false).await?;
+    assert!(ingest_pid.is_some());
+    let erase = tokio::spawn({
+        let store = store.clone();
+        async move { store.erase_account(ACCOUNT, clock()).await }
+    });
+    // Serialized, the erasure waits behind the delivery; otherwise it finishes.
+    if let Some(pid) = ingest_pid {
+        blocked_by(&db.admin, pid, || erase.is_finished()).await?;
+    }
+    blocker.rollback().await?;
+    let _ = ingest.await?;
+    erase.await??;
+    let readable: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM pd_records WHERE payload IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(readable, 0);
+    let open: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_streams WHERE NOT erased")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(open, 0);
+    assert_eq!(store.ingest(r, clock()).await, Err(Error::Conflict));
+    db.close().await?;
+    Ok(())
+}
+
+/// Revision 3 §8.2 tombstone lifetime: a tombstone is kept until exactly 120
+/// days after deletion, and a repeated erasure only ever extends it.
+#[tokio::test]
+async fn postgres_tombstones_expire_at_120_days_and_double_erase_extends()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let store = db.store(&a);
+    let at = |ms: u64| TrustedTime {
+        unix_ms: ms,
+        uncertainty_ms: 0,
+    };
+    let day = 86400000;
+    store.erase_character(ACCOUNT, CHARACTER, at(NOW)).await?;
+    store.erase_account(ACCOUNT, at(NOW + 5 * day)).await?;
+    // An erasure recorded with an earlier time never shortens the lifetime.
+    store.erase_account(ACCOUNT, at(NOW)).await?;
+    let kept = |db: &Db| {
+        let pool = db.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pd_deleted_scopes")
+                .fetch_one(&pool)
+                .await
+        }
+    };
+    for (now, expected) in [
+        (NOW + 120 * day - 1, 2),
+        (NOW + 120 * day, 1),
+        (NOW + 125 * day - 1, 1),
+        (NOW + 125 * day, 0),
+    ] {
+        store.expire(at(now)).await?;
+        assert_eq!(kept(&db).await?, expected, "{now}");
+    }
     db.close().await?;
     Ok(())
 }
