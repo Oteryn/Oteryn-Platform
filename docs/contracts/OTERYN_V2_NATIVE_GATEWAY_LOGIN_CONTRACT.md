@@ -434,13 +434,13 @@ Rollback: switch the native branch off; outstanding grants expire within 30 s; l
 |---|---|---|---|
 | U1 | Native Rust OAuth client: separate Passport public client or the existing native client; redirect URI | #1419 item 2 | Platform + owner |
 | U2 | (Decision D2) character list before ticket vs two-phase Gateway selection | item 3, Game N4 | architect |
-| U3 | Client trust anchor for the gameplay TLS certificate; prerequisite of D3. Recommended: Oteryn-operated, name-constrained gameplay CA pinned in the client; alternative WebPKI | N4, item 3 | architect + owner |
+| U3 | Client trust anchor for the gameplay TLS certificate; prerequisite of D3. Recommended: Oteryn-operated, name-constrained gameplay CA pinned in the client; alternative WebPKI. Options and recommendation: §17A.5 | N4, item 3 | architect + owner |
 | U4 | Grant TTL default (proposed 20 s, bound 5..30 s) | item 4 | architect |
 | U5 | Runtime-status freshness F and heartbeat H (proposed 15 s / 5 s) | item 3 | architect, measured |
 | U6 | Channel selection beyond lowest ChannelId (capacity, load) | later | Game OPS-CHANNEL-01 |
 | U7 | Representation of Platform native login policy per (WorldId, ChannelId) | item 3 | Platform |
-| U8 | Production native topology issuance (`NativeTopologyRegistry` is restricted to `testing`/`preproduction`) | production | Platform + owner |
-| U9 | Production key custody (file vs KMS/HSM), secret delivery and rotation cadence | production | owner |
+| U8 | Production native topology issuance (`NativeTopologyRegistry` is restricted to `testing`/`preproduction`). Proposal: §17A.6 | production | Platform + owner |
+| U9 | Production key custody (file vs KMS/HSM), secret delivery and rotation cadence. Proposal: §17A.7 | production | owner |
 | U10 | Rate-limit values | tuning | Platform, measured |
 | U11 | (Decision D3) Registry route record and `route_revision` digest form (§7.3); U3 first | item 3 | architect |
 | U12 | Push vs pull for the release entry (Decision P1, §5.2) | release | architect |
@@ -497,6 +497,115 @@ Issuer limits in this amendment: every InnoDB lock wait inside the issuer transa
 ## 18. Non-authorization
 
 This candidate authorizes no code, migration, route, configuration, secret, key, certificate, deployment, production change or Game repository change. Each #1419 delivery item needs its own task packet and PR after acceptance.
+
+## 17A. Amendment N4P-5 (PROPOSED): production issuance
+
+Status: `PROPOSED — OWNER DECISIONS REQUIRED (U3 architect + owner, U7 Platform, U8 Platform + owner, U9 owner); ACTIVATES NOTHING, CHANGES NO FLAG, AUTHORIZES NO IMPLEMENTATION, KEY, CERTIFICATE, ROUTE RECORD OR DEPLOYMENT`. §18 applies to this section unchanged. It is numbered 17A so that no existing section number moves, and it amends §17.
+
+This amendment states what must be true before the native issuer (§3.3, §8) issues grants in `production`. Until the owner accepts it, mode 34a (§17) stays the only route-record mode, limited to `testing`/`preproduction`, and production issuance stays refused: no production route record, no production trust publication (D1006) and no production key. Nothing here is decided. The Game items called U3 and U8 in Game's `ARCH_ALPHA_OPERABILITY` are different items and are not addressed here.
+
+### 17A.1 Preconditions
+
+Production issuance may be enabled only when all of these hold, each with a recorded decision:
+
+1. **U3 closed** (architect + owner): the gameplay TLS client trust anchor is chosen (options in §17A.5) and the released client verifies `tls_server_name` against it.
+2. **D3 accepted** (architect): the §7.3 route record and `route_revision` digest form (U11), after U3.
+3. **U7 closed** (Platform): the production representation of the per-scope native login policy (§7.4 condition 2). Mode 34a's `native_login_enabled` is a `testing`/`preproduction` representation only.
+4. **U9 closed** (owner): production key custody, secret delivery, rotation cadence and revocation (proposal §17A.7).
+5. **U8 closed** (Platform + owner): the production topology (proposal §17A.6), including the production path for issuing `NativeTopologyRegistry` scopes, which today is restricted to `testing`/`preproduction`.
+6. **A production route record** exists for each scope to be served, published through the production path of §17A.2 after items 1–5, and its `route_revision` equals the value the game node is deployed with.
+7. Mode 33a (§17) is off and the full §5.4 issuance check applies (its release gate, unchanged).
+8. Every test in §16 and §17A.4 passes on the exact candidate, and the joint E2E (§14 step 6) has passed on a production-shaped stack.
+
+### 17A.2 What changes from mode 34a
+
+| | Mode 34a (§17, today) | Production (proposed) |
+|---|---|---|
+| Allowed environments | `testing`, `preproduction`; every read of route records refuses elsewhere | `production` only through a separate production path with its own setting (default off). The 34a path keeps refusing in `production` and is not widened |
+| Route record publication | `publishRouteForPreproduction` / `game-auth:native-route:publish`, one World (the configured native World) | a production publish operation, admin-audited, with two-person approval (operator and owner), for any World with a production scope; idempotent under the §7.3 version and revision rules |
+| Login policy (§7.4 condition 2) | `native_login_enabled` on `game_channels` | the U7 representation; an absent or ambiguous policy refuses |
+| Gameplay TLS trust | the client uses the explicitly configured root of `oteryn-dev-client` (§3.2) | the client pins the U3 anchor shipped with the release |
+| Key custody | owner key custody on the preproduction stack | §17A.7: a dedicated production key pair, never shared with or copied from `testing`/`preproduction` |
+| Trust registry | D1006 `game-auth:native-admission:publish-trust` in the preproduction database; no production trust | a production-only trust publication with its own command; the D1006 command keeps refusing in `production` |
+| Character check | mode 33a or the full §5.4 check | the full §5.4 check only |
+
+No claim, header, error, wire shape or limit of §3–§13 changes. A production `kid` is never used in another environment, and a `testing`/`preproduction` key is never trusted in production.
+
+### 17A.3 Rollout and rollback
+
+Rollout; each step can be reversed on its own:
+
+1. The owner accepts this amendment and closes U3, U7, U8 and U9; the architect accepts D3 — documentation.
+2. Platform builds the production paths (route record, trust publication, login policy) behind default-off settings, with the §17A.4 tests — `backward-compatible`.
+3. Game ships a client release that pins the U3 anchor; `testing`/`preproduction` routes keep working — `client-first-safe`.
+4. The production gameplay certificate is issued under the U3 anchor and deployed on the game node; the production key pair is generated inside custody (§17A.7) — operations, owner authority.
+5. Publish the production trust key; wait at least 5 s plus clock uncertainty (§9.3 step 3); the issuer self-check (§9.2) passes.
+6. Publish one production route record for one scope with its login policy off; deploy the game node with that `route_revision`; confirm `fresh`, ownership-bound reports (§7.2).
+7. Turn the login policy on for that scope; run the joint E2E; then widen scope by scope.
+8. Turn the Gateway native branch on for production clients.
+
+Rollback, fastest first:
+
+- one scope: turn its login policy off (§7.4 condition 2 fails; `NATIVE_LOGIN_ROUTE_UNAVAILABLE`);
+- the whole branch: turn the Gateway native branch off (§14); outstanding grants expire within 30 s;
+- key compromise: `revokeKey` (§9.3 emergency); the self-check stops signing and Game rejects within 5 s;
+- route compromise: publish a changed route record, which advances `route_revision` and invalidates outstanding grants (§7.3).
+
+Legacy engine paths are untouched by every step. No rollback step deletes a route record, trust row or audit row.
+
+### 17A.4 Required tests before activation
+
+In addition to §16:
+
+- each production path refuses with nothing written when its setting is off or malformed, or the environment is not `production`; the mode 34a and D1006 paths refuse in `production`;
+- a route record or trusted key created in `testing`/`preproduction` is never read or accepted in `production`, and the reverse;
+- login policy absent, ambiguous or off refuses (U7);
+- key custody: custody file or wrapping key missing, unreadable, of the wrong length, readable by group or others, given as a relative path, the same path for both, or held by a second writer: the issuer signs nothing (`NATIVE_LOGIN_UNAVAILABLE`); an older custody snapshot is refused;
+- self-check: production `kid` untrusted, revoked, or public key mismatch: no signing;
+- rotation overlap and emergency revocation, each observed by the pinned Game verifier within the 5 s window;
+- client: a gameplay certificate that does not chain to the U3 anchor, or whose name differs from the route `tls_server_name`, is refused;
+- private ingress: the admission listener refuses a non-loopback bind, and the internal mTLS listener refuses a client certificate outside its CA;
+- logs and responses free of every §13 secret and of custody and wrapping-key file contents;
+- joint E2E through a production-shaped Gateway, issuer and game node.
+
+### 17A.5 U3 options: gameplay TLS client trust anchor (architect + owner)
+
+Options with a recommendation only; not decided.
+
+| Option | What | For | Against |
+|---|---|---|---|
+| A | Oteryn-operated gameplay CA, name-constrained (X.509 `nameConstraints`) to the gameplay domain, root pinned in the client; the server certificate name equals the Registry `tls_server_name` | trust limited to gameplay names; no public CA can mis-issue for the client; works for any host the Registry names; rotation under Oteryn control | Oteryn operates an offline root and an issuing CA; root rotation needs a client release carrying two roots for an overlap; revocation is Oteryn's job (short-lived leaves instead of CRL/OCSP) |
+| B | Public WebPKI for the gameplay domain; the client uses a standard root store | no CA to operate; automated issuance (ACME); known revocation path | any public CA can mis-issue for the name; the client must ship or read a root store; certificate transparency logs disclose gameplay host names |
+| C | WebPKI plus a pinned intermediate or SPKI set in the client | narrows B to chosen CAs | pins break when the CA changes intermediates; recovery needs a client release; risk of locking clients out |
+| D | Per-route SPKI pin in the Registry route record, returned in the login response | no CA at all | changes the §7.3 descriptor and §3.2 response (a new protocol revision); the pin travels over the Platform TLS session, so it adds no independent anchor |
+
+**Recommendation: option A**, as §7.3 and U3 already recommend: an offline root, one name-constrained issuing CA, server leaves valid at most 30 days, and two roots in the client during a root rotation. Option B is the fallback if the owner will not operate a CA. The U3 CA is separate from the internal client CA of §17A.6.
+
+### 17A.6 U8 proposal: production topology (PROPOSED / owner decision)
+
+Platform-side proposal. Placeholders only: `<platform-host>`, `<gameplay-domain>`.
+
+- **Public Gateway** (`gateway` role): the only native-login endpoint exposed to the internet, behind the public TLS terminator, listening on `GATEWAY_LISTEN_ADDR`. It holds only the Gateway service credential (`OTERYN_PLATFORM_SERVICE_TOKEN_FILE`) and calls the issuer at `OTERYN_PLATFORM_BASE_URL`. It never holds a signing key or a database credential.
+- **Private admission issuer**: the `serve` role's private listener (`PORTAL_NATIVE_ADMISSIONS_ENABLED`, `PORTAL_NATIVE_ADMISSION_BIND`), which refuses any non-loopback bind. Proposal: keep that refusal in production and run the Gateway and the issuer on the same `<platform-host>`, so the Gateway reaches the issuer over loopback; the issuer checks the Gateway credential against `PORTAL_GATEWAY_TOKEN_SHA256_FILE` (and `PORTAL_GATEWAY_PREVIOUS_TOKEN_SHA256_FILE` during a rotation). Separate hosts would need U14 (mTLS Gateway to issuer) first and are not proposed.
+- **Internal mTLS listener** (`OTERYN_INTERNAL_TLS_BIND`, `OTERYN_INTERNAL_TLS_CERT_FILE`, `OTERYN_INTERNAL_TLS_KEY_FILE`, `OTERYN_INTERNAL_TLS_CLIENT_CA_FILE`): bound to a private interface of `<platform-host>` that only the game network reaches, never the public interface. It carries the runtime-status, scope-assignment and projection routes (§7.2, §5.2) with per-purpose client identities (U15) from an internal client CA, separate from the U3 gameplay CA.
+- **Public web** (`serve` role public listener): unchanged; it never serves `/internal/*` or the admission route.
+- **Game nodes**: on the game network; the gameplay listener is the Registry `host`/`port` under `<gameplay-domain>`, with a certificate under the U3 anchor. Nodes reach Platform only through the internal mTLS listener and never reach the issuer's loopback.
+- **Database**: reachable only from `<platform-host>`; not from the game network or the public network.
+- **Network boundaries**: internet to the public terminator (web, Gateway) only; game network to the internal mTLS listener only; the admission issuer on loopback only. Default deny between them.
+- **Scope issuance and route publication**: audited admin operations on `<platform-host>` with two-person approval (operator and owner), never from CI or a game node.
+
+### 17A.7 U9 proposal: production key custody (PROPOSED / owner decision)
+
+Based on §9 and D1006, and consistent with the key custody in `portal-rs/crates/gameauth/src/keys`:
+
+- **Where the key lives:** only in the issuer process on `<platform-host>`. The portal-rs keyring keeps keys in an AES-256-GCM encrypted custody file and a separate 32-byte wrapping-key file: both absolute paths, both owner-only regular files, the custody file in an owner-only directory, one writer at a time. Both stay outside the repository, images, the database, database backups and logs. portal-rs has no setting names for these paths yet; §9.1's `GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE` and `..._KEY_ID` were proposed for the removed Laravel issuer. Proposed portal names, to be confirmed by the wiring task: `PORTAL_NATIVE_ADMISSION_KEY_CUSTODY_FILE` and `PORTAL_NATIVE_ADMISSION_KEY_WRAPPING_FILE`. The trust key purpose stays `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE` (deployed value `fresh_admission`).
+- **Wrapping-key delivery:** generated once by the owner, delivered to `<platform-host>` through the deployment's secret mechanism as a file mounted read-only for the issuer user, with an offline escrow copy held by the owner. A KMS/HSM is not proposed for the first production release; it stays a later option under §9.1 (pure Ed25519 over the exact signing input).
+- **Provisioning:** the keyring is created once, explicitly; creation is never used to recover lost custody. A lost or corrupted custody file is a key loss: a new `kid`, a new trust publication, and the old `kid` revoked. An older custody snapshot is never restored.
+- **Rotation:** every 90 days, and at once on any suspicion, by §9.3 (generate the next key inside custody, publish, wait 5 s plus clock uncertainty, activate, retire after the last grant expires). The wrapping key rotates yearly by re-encrypting the custody file.
+- **Revocation:** `revokeKey` for one key; `revokeProfile` then `publishNextProfileVersion` for a profile-wide compromise (§9.3). A revoked `kid` is never re-trusted.
+- **NativeSigningTrustRegistry publication:** a production-only command, separate from the D1006 command, that publishes only the public half of the current or next key of the loaded keyring under the §9.2 rules (high-water witness directory on its own owner-only path), prints only the trust scope, `kid` and public key, and runs while the Gateway is stopped, as D1006 does for preproduction.
+- **Access:** only the issuer service user reads the custody and wrapping-key files. Operators run rotation and publication as that user with two-person approval; no person reads the seed. Every publication, rotation and revocation is admin-audited.
+
 
 ## 19. Amendment N4P-4 (candidate): protocol 3, multiple channels per World and reauthenticated recovery
 
