@@ -1,8 +1,12 @@
 //! Database-backed admission authority: native ticket redemption (gateway login
-//! contract §4.2) and the character issuance check (§5.4). Grant issuance (§7
-//! route records, §8 claims, §9 signer) is not configured in this process, so
-//! `issue` ends with `Unavailable` after every Platform check has passed.
-use super::{AdmissionAuthority, AdmissionRequest, AuthorizedAccount, Error, Future, Material};
+//! contract §4.2), the character issuance check (§5.4) and, in testing and
+//! preproduction with `Issuance` permitted, route selection (§7.4 over the §17
+//! mode 34a route records), the §8 claims and the §9 signer. Otherwise `issue`
+//! ends with `Unavailable` after every Platform check has passed.
+use super::{
+    AdmissionAuthority, AdmissionRequest, AuthorizedAccount, Error, Future, Issuance, Material,
+    grant, wire,
+};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
@@ -17,6 +21,14 @@ pub struct NativeTickets {
     /// `source_authority` of the LCFA producer; empty means no character source,
     /// which fails issuance closed with `RouteUnavailable` (contract §17, 33a off).
     pub projection_authority: String,
+    /// Grant issuance policy and signer; the default issues nothing.
+    pub issuance: Issuance,
+}
+async fn seconds(db: &mut PgConnection) -> Result<i64, Error> {
+    sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+        .fetch_one(db)
+        .await
+        .map_err(|_| Error::Unavailable)
 }
 
 impl NativeTickets {
@@ -101,15 +113,21 @@ impl AdmissionAuthority for NativeTickets {
             })
         })
     }
-    /// No grant is ever stored by this authority, so a stored attempt cannot be
-    /// re-signed here.
+    /// A retry re-signs only while issuance is permitted and the route record
+    /// bound in the grant is unchanged (§6.2, §17); the store re-signs.
     fn validate_replay<'a>(
         &'a self,
-        _: &'a mut PgConnection,
+        db: &'a mut PgConnection,
         _: &'a AdmissionRequest,
-        _: &'a [u8],
+        body: &'a [u8],
     ) -> Future<'a, ()> {
-        Box::pin(async { Err(Error::ReconciliationRequired) })
+        Box::pin(async move {
+            self.issuance.signer()?;
+            let (world, channel, endpoint) = wire::scope(body)?;
+            let revision = grant::claim(&wire::token(body)?, "route_revision")
+                .ok_or(Error::ReconciliationRequired)?;
+            grant::current(db, world, channel, &endpoint, &revision).await
+        })
     }
     fn issue<'a>(
         &'a self,
@@ -118,13 +136,39 @@ impl AdmissionAuthority for NativeTickets {
         account: AuthorizedAccount,
     ) -> Future<'a, Material> {
         Box::pin(async move {
-            self.character_world(db, account.id, request.character_id)
+            let world = self
+                .character_world(db, account.id, request.character_id)
                 .await?;
-            // TODO(T19c, plan §6 "Granty admission", contract §7.3/§8/§9): route
-            // records, claim assembly and the issuer signer await owner decisions
-            // (FND-04B-AMEND-1, U3, U4, U7). Without a signer the issuer signs
-            // nothing (§9.2 self-check).
-            Err(Error::Unavailable)
+            let signer = self.issuance.signer()?;
+            let at = seconds(db).await?;
+            let (route, report) =
+                grant::select(db, &self.issuance.runtime, world, request.channel_id, at).await?;
+            // The trust self-check is refreshed before the issuer clock is read.
+            signer.prepare().await?;
+            let iat = u64::try_from(seconds(db).await?).map_err(|_| Error::Unavailable)?;
+            let ttl = self.issuance.ttl_seconds;
+            let payload = grant::payload(&grant::Claims {
+                iat,
+                ttl,
+                jti: grant::jti()?,
+                request,
+                account,
+                world,
+                route: &route,
+                report: &report,
+            })?;
+            let expires_at = iat + u64::from(ttl);
+            let token = signer.sign(&payload, expires_at, iat)?;
+            Ok(Material {
+                world_id: world,
+                channel_id: route.channel,
+                endpoint: route.endpoint,
+                token,
+                expires_at_ms: i64::try_from(expires_at)
+                    .ok()
+                    .and_then(|s| s.checked_mul(1000))
+                    .ok_or(Error::Unavailable)?,
+            })
         })
     }
 }

@@ -1,4 +1,4 @@
-use super::{AdmissionRequest, Error, Material, wire};
+use super::{AdmissionRequest, Error, GrantSigner, Material, wire};
 use sqlx::{PgConnection, PgPool, Row};
 use std::{future::Future as StdFuture, pin::Pin};
 use subtle::ConstantTimeEq;
@@ -108,6 +108,7 @@ pub(super) async fn admit(
     request: &AdmissionRequest,
     accounts: &dyn AccountStateLookup,
     authority: &dyn AdmissionAuthority,
+    signer: Option<&dyn GrantSigner>,
 ) -> Result<Vec<u8>, Error> {
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
     sqlx::query("SET LOCAL lock_timeout = '2s'")
@@ -136,7 +137,24 @@ pub(super) async fn admit(
             .map_err(|_| Error::ReconciliationRequired)?;
         let response = wire::replay(&body, expires, now(&mut tx).await?)?;
         authority.validate_replay(&mut tx, request, &body).await?;
-        return Ok(response);
+        // A signed grant is stored as its signing input only (contract §6.1);
+        // Ed25519 is deterministic, so re-signing returns the same token.
+        let input = wire::token(&body)?;
+        if input.matches('.').count() != 1 {
+            return Ok(response);
+        }
+        let signer = signer.ok_or(Error::ReconciliationRequired)?;
+        signer
+            .prepare()
+            .await
+            .map_err(|_| Error::ReconciliationRequired)?;
+        let at = now(&mut tx).await? / 1000;
+        let token = signer.resign(
+            &input,
+            u64::try_from(expires / 1000).map_err(|_| Error::ReconciliationRequired)?,
+            u64::try_from(at).map_err(|_| Error::ReconciliationRequired)?,
+        )?;
+        return wire::with_token(&response, &token);
     }
     lock(&mut tx, request.ticket_hash()).await?;
     let consumed: bool =
@@ -163,8 +181,15 @@ pub(super) async fn admit(
     }
     let material = authority.issue(&mut tx, request, account).await?;
     let body = material.encode(request, now(&mut tx).await?)?;
+    let stored = match signer {
+        Some(_) => match material.token.rsplit_once('.') {
+            Some((input, _)) if input.matches('.').count() == 1 => wire::with_token(&body, input)?,
+            _ => return Err(Error::Unavailable),
+        },
+        None => body.clone(),
+    };
     sqlx::query("INSERT INTO native_admissions (attempt_ref, ticket_hash, request_digest, account_id, response_body, expires_at_ms) VALUES ($1,$2,$3,$4,$5,$6)")
-        .bind(request.attempt_ref).bind(request.ticket_hash()).bind(request.digest()).bind(account.id).bind(&body).bind(material.expires_at_ms)
+        .bind(request.attempt_ref).bind(request.ticket_hash()).bind(request.digest()).bind(account.id).bind(&stored).bind(material.expires_at_ms)
         .execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
     tx.commit()
         .await

@@ -9,6 +9,16 @@
 //! `PORTAL_NATIVE_ADMISSIONS_ENABLED` (admission), `OTERYN_LCFA_ENABLED` (the
 //! character projection) and `PORTAL_LCFA_INTERNAL_IDENTITY` (LCFA ingestion on
 //! the internal listener).
+//!
+//! Admission grants (T19c) are issued only with
+//! `PORTAL_NATIVE_ADMISSION_GRANTS_ENABLED=true` and `OTERYN_ENV` `testing` or
+//! `preprod`/`preproduction`; production never loads the signing key. The key
+//! comes from the encrypted custody file `PORTAL_NATIVE_ADMISSION_KEY_CUSTODY_FILE`
+//! wrapped by `PORTAL_NATIVE_ADMISSION_KEY_WRAPPING_KEY_FILE`, trusted in the
+//! registry scope of `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE` with the
+//! witness directory `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`; the TTL
+//! is `PORTAL_NATIVE_ADMISSION_GRANT_TTL_SECONDS` (5..=30, default 20) and the
+//! route is selected from the `GAME_AUTH_NATIVE_RUNTIME_STATUS_*` read model.
 use axum::Router;
 use oteryn_characters::{lcfa, overview};
 use oteryn_gameauth::{admission, devices::PlatformAuthority, oauth, tickets};
@@ -39,10 +49,13 @@ pub fn ticket_authority(config: oauth::Config) -> Arc<dyn tickets::OAuthAuthorit
     ))
 }
 
-/// Ticket redemption and the character check behind the suspension guard.
-/// Without a live LCFA source the issuer answers `NATIVE_LOGIN_ROUTE_UNAVAILABLE`.
+/// Ticket redemption, the character check and grant issuance behind the
+/// suspension guard. Without a live LCFA source the issuer answers
+/// `NATIVE_LOGIN_ROUTE_UNAVAILABLE`; without permitted issuance and a signer,
+/// `NATIVE_LOGIN_UNAVAILABLE`.
 pub fn admission_authority(
     projection: &lcfa::Settings,
+    issuance: admission::Issuance,
 ) -> GuardedAdmission<admission::NativeTickets> {
     GuardedAdmission::new(
         admission::NativeTickets {
@@ -51,9 +64,22 @@ pub fn admission_authority(
             } else {
                 String::new()
             },
+            issuance,
         },
         FEATURES,
     )
+}
+
+/// Issuance policy from the environment with its signer when permitted. A
+/// signer that fails to load leaves issuance unavailable.
+pub fn issuance(pool: PgPool, lookup: impl Fn(&str) -> Option<String>) -> admission::Issuance {
+    let mut issuance = admission::Issuance::configured(&lookup);
+    issuance.signer =
+        admission::configured_signer(pool, &issuance, lookup).unwrap_or_else(|error| {
+            tracing::warn!(%error, "native admission grant signer unavailable");
+            None
+        });
+    issuance
 }
 
 pub fn admission_accounts() -> AdmissionAccounts {
@@ -73,10 +99,16 @@ pub fn player_router(pool: PgPool) -> Router {
 pub async fn start_admission_listener(
     pool: PgPool,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
+    let issuance = issuance(pool.clone(), |key| std::env::var(key).ok());
+    let signer = issuance.signer.clone();
     admission::start_private_listener(
         pool,
         Arc::new(admission_accounts()),
-        Arc::new(admission_authority(&overview::configured_projection())),
+        Arc::new(admission_authority(
+            &overview::configured_projection(),
+            issuance,
+        )),
+        signer,
     )
     .await
 }

@@ -240,7 +240,7 @@ pub(super) fn uuid(text: &str) -> Result<Uuid, Error> {
     Ok(id)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Endpoint {
     pub host: String,
@@ -284,7 +284,7 @@ impl Material {
         if self.expires_at_ms - now < 1000 {
             return Err(Error::GrantExpired);
         }
-        if self.expires_at_ms - now > 20_000
+        if self.expires_at_ms - now > 30_000
             || self.endpoint.port == 0
             || self.endpoint.alpn != "oteryn-game/1"
             || self.endpoint.protocol_major != 1
@@ -319,6 +319,26 @@ fn encode_success(success: &Success) -> Result<Vec<u8>, Error> {
     let raw = serde_json::to_vec(success).map_err(|_| Error::Unavailable)?;
     let value = canonical::decode(&raw, 6144, 5).map_err(|_| Error::Unavailable)?;
     canonical::encode(&value).map_err(|_| Error::Unavailable)
+}
+/// The grant token of a stored or encoded success body.
+pub(super) fn token(raw: &[u8]) -> Result<String, Error> {
+    let success: Success =
+        serde_json::from_slice(raw).map_err(|_| Error::ReconciliationRequired)?;
+    Ok(success.grant.token)
+}
+/// The same success body with another grant token: the signing input for the
+/// attempt record (§6.1 stores no signature) or the re-signed token on replay.
+pub(super) fn with_token(raw: &[u8], token: &str) -> Result<Vec<u8>, Error> {
+    let mut success: Success =
+        serde_json::from_slice(raw).map_err(|_| Error::ReconciliationRequired)?;
+    success.grant.token = token.into();
+    encode_success(&success)
+}
+/// World, channel and endpoint bound by a stored success body.
+pub(super) fn scope(raw: &[u8]) -> Result<(Uuid, Uuid, Endpoint), Error> {
+    let success: Success =
+        serde_json::from_slice(raw).map_err(|_| Error::ReconciliationRequired)?;
+    Ok((success.world_id, success.channel_id, success.endpoint))
 }
 pub(super) fn replay(raw: &[u8], expires: i64, now: i64) -> Result<Vec<u8>, Error> {
     if expires - now < 1000 {
