@@ -1,4 +1,4 @@
-//! Operator role `oteryn-portal bootstrap-intent issue [--input <file>]`
+//! Operator role `oteryn-portal bootstrap-intent issue --actor <uuidv7> [--input <file>]`
 //! (character bootstrap-intent producer contract v3, *Operator command*).
 //!
 //! Reads one JSON object from `--input <file>` or stdin, issues the intent through
@@ -8,14 +8,17 @@
 //!
 //! Requires `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_ENABLED=true` (default off) and
 //! `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS` (1..=300, no default).
+//! `--actor` is the issuing staff account (active, holding `game.player.manage`);
+//! a new issuance writes one Platform-local `audit_log` row in the same transaction.
 //!
 //! | exit | meaning |
 //! |---|---|
 //! | 0 | issued, or the stored decision for an exact retry |
-//! | 2 | bad input: usage, JSON, a field, or an Identity that is not active |
+//! | 2 | bad input: usage, actor, JSON, a field, or an Identity that is not active |
 //! | 3 | conflict: the operation id was issued with another binding |
 //! | 4 | unavailable: disabled, configuration, database or authority state |
-use oteryn_characters::bootstrap::issue::{self, Context, IssueError, IssueInput};
+use oteryn_characters::bootstrap::issue::{self, Actor, Context, IssueError, IssueInput};
+use oteryn_characters::lcfa::AccountId;
 use oteryn_internal_api::canonical::{self, Value};
 use serde_json::json;
 use sqlx::PgPool;
@@ -24,7 +27,7 @@ use std::{io::Read, path::PathBuf, process::ExitCode};
 pub const ENABLED: &str = "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_ENABLED";
 pub const TTL_SECONDS: &str = "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS";
 const MAX_INPUT_BYTES: usize = 16 * 1024;
-const USAGE: &str = "usage: oteryn-portal bootstrap-intent issue [--input <file>]";
+const USAGE: &str = "usage: oteryn-portal bootstrap-intent issue --actor <uuidv7> [--input <file>]";
 const FIELDS: [&str; 9] = [
     "identityId",
     "operationId",
@@ -89,15 +92,49 @@ pub enum Source {
     File(PathBuf),
 }
 
-/// `args` are the words after `bootstrap-intent`.
-pub fn parse_args(args: &[String]) -> Result<Source, CliError> {
-    match args {
-        [action] if action == "issue" => Ok(Source::Stdin),
-        [action, flag, path] if action == "issue" && flag == "--input" && !path.is_empty() => {
-            Ok(Source::File(PathBuf::from(path)))
-        }
-        _ => Err(bad(USAGE)),
+/// The parsed words; the actor is checked once issuance is known to be enabled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Command {
+    pub source: Source,
+    pub actor: Option<String>,
+}
+
+/// `args` are the words after `bootstrap-intent`: `issue`, then each of
+/// `--actor <id>` and `--input <file>` at most once, in any order.
+pub fn parse_args(args: &[String]) -> Result<Command, CliError> {
+    let Some((action, mut rest)) = args.split_first() else {
+        return Err(bad(USAGE));
+    };
+    if action != "issue" {
+        return Err(bad(USAGE));
     }
+    let mut command = Command {
+        source: Source::Stdin,
+        actor: None,
+    };
+    let mut input = false;
+    while let [flag, value, tail @ ..] = rest {
+        match flag.as_str() {
+            "--actor" if command.actor.is_none() => command.actor = Some(value.clone()),
+            "--input" if !input && !value.is_empty() => {
+                input = true;
+                command.source = Source::File(PathBuf::from(value));
+            }
+            _ => return Err(bad(USAGE)),
+        }
+        rest = tail;
+    }
+    if rest.is_empty() {
+        Ok(command)
+    } else {
+        Err(bad(USAGE))
+    }
+}
+
+/// `--actor` is required whenever issuance is enabled: there is no anonymous issuance.
+pub fn actor(raw: Option<&str>) -> Result<AccountId, CliError> {
+    let raw = raw.ok_or_else(|| bad("--actor <uuidv7> is required"))?;
+    AccountId::parse(raw).map_err(|_| bad("--actor must be a lower-case UUIDv7"))
 }
 
 /// The issuer's environment, read once per invocation.
@@ -172,10 +209,18 @@ pub fn parse_input(raw: &[u8], ttl_seconds: i64) -> Result<IssueInput, CliError>
 }
 
 /// Validates and issues; returns the stored canonical intent bytes.
-pub async fn execute(pool: &PgPool, settings: Settings, raw: &[u8]) -> Result<String, CliError> {
+pub async fn execute(
+    pool: &PgPool,
+    settings: Settings,
+    actor_id: Option<&str>,
+    raw: &[u8],
+) -> Result<String, CliError> {
     let ttl = settings.ttl()?;
+    let operator = actor(actor_id)?;
     let input = parse_input(raw, ttl)?;
-    Ok(issue::issue(pool, input).await?.intent_json)
+    Ok(issue::issue(pool, input, Actor::Operator(operator))
+        .await?
+        .intent_json)
 }
 
 fn read(source: &Source) -> Result<Vec<u8>, CliError> {
@@ -192,17 +237,18 @@ fn read(source: &Source) -> Result<Vec<u8>, CliError> {
 }
 
 async fn run(args: &[String]) -> Result<String, CliError> {
-    let source = parse_args(args)?;
+    let command = parse_args(args)?;
     let settings = Settings::from_env();
     let ttl = settings.ttl()?;
-    let raw = read(&source)?;
+    actor(command.actor.as_deref())?;
+    let raw = read(&command.source)?;
     // Input errors are reported before any database configuration is read.
     parse_input(&raw, ttl)?;
     let config = oteryn_core::Config::from_env()
         .map_err(|_| CliError::Unavailable("OTERYN_DATABASE_URL is not configured"))?;
     let pool = oteryn_db::lazy_pool(config.database_url())
         .map_err(|_| CliError::Unavailable("database"))?;
-    let result = execute(&pool, settings, &raw).await;
+    let result = execute(&pool, settings, command.actor.as_deref(), &raw).await;
     pool.close().await;
     result
 }

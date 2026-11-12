@@ -13,7 +13,7 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- migrate
 OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- serve
-OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- bootstrap-intent issue --input request.json  # operator issuer, see the producer contract
+OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- bootstrap-intent issue --actor <staff-uuidv7> --input request.json  # operator issuer, audited, see the producer contract
 ```
 
 ## Rules for every task

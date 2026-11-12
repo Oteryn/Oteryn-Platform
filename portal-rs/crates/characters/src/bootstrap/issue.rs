@@ -3,6 +3,7 @@
 use super::wire;
 use crate::lcfa::AccountId;
 use oteryn_internal_api::canonical::{self, Value as Wire};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row, postgres::PgRow};
 use uuid::Uuid;
@@ -10,6 +11,22 @@ use uuid::Uuid;
 /// Upper bound of the technical expiry interval (contract: 1 through 300 seconds).
 pub const MAX_TTL_SECONDS: i64 = 300;
 const MAX_INTENT_BYTES: usize = 4096;
+/// The staff permission an operator actor must hold (an existing Game-staff permission).
+pub const ACTOR_PERMISSION: &str = "game.player.manage";
+/// The Platform-local `audit_log` action of a new issuance.
+pub const AUDIT_ACTION: &str = "character.bootstrap_intent.issued";
+
+/// Who answers for an issuance. Platform-local only: the actor is never part of the
+/// intent, the stored intent row or anything Game reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Actor {
+    /// A staff account, active and holding [`ACTOR_PERMISSION`], checked inside the
+    /// issuance transaction. A new decision writes one `audit_log` row in that same
+    /// transaction; an exact retry writes none (the first row already records it).
+    Operator(AccountId),
+    /// `oteryn-portal seed bootstrap-intent` (testing only): no actor, no audit row.
+    TestingSeed,
+}
 
 /// The four interpretation revisions bound into the intent.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,9 +128,25 @@ fn validate(input: &IssueInput) -> Result<AccountId, IssueError> {
 /// Issuance is serialized on the singleton authority row. A retained intent above
 /// the authority high water, or at it with another decision identity, means the
 /// authority was rolled back: issuance fails closed.
-pub async fn issue(pool: &PgPool, input: IssueInput) -> Result<Issued, IssueError> {
+pub async fn issue(pool: &PgPool, input: IssueInput, actor: Actor) -> Result<Issued, IssueError> {
     let identity = validate(&input)?;
+    let operation = Uuid::parse_str(&input.operation_id)
+        .map_err(|_| bad("operationId must be a lower-case UUID"))?;
     let mut tx = pool.begin().await?;
+    if let Actor::Operator(actor) = actor {
+        // Same rule as the downloads operator: an active account holding the staff
+        // permission. The account row stays locked until the decision commits.
+        let allowed: Option<bool> = sqlx::query_scalar("SELECT a.status='active' AND EXISTS(SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id WHERE ar.account_id=a.id AND rp.permission=$2) FROM accounts a WHERE a.id=$1 FOR SHARE OF a")
+            .bind(actor.as_uuid())
+            .bind(ACTOR_PERMISSION)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if allowed != Some(true) {
+            return Err(bad(
+                "actor is not an active staff account with game.player.manage",
+            ));
+        }
+    }
     // Subject resolution is a persisted primary-key lookup; the row stays locked
     // against a concurrent status change until the decision commits.
     let subject: Option<(Uuid, String)> =
@@ -234,6 +267,24 @@ pub async fn issue(pool: &PgPool, input: IssueInput) -> Result<Issued, IssueErro
     wire::stored(&row, raw.as_bytes()).map_err(|_| IssueError::Unavailable("encoding"))?;
     sqlx::query("UPDATE character_bootstrap_intent_authority SET last_source_revision=$1, last_issuer_decision_id=$2 WHERE id=1")
         .bind(&next).bind(&decision).execute(&mut *tx).await?;
+    if let Actor::Operator(actor) = actor {
+        // Hash, TTL and subject only: never the intent body or the requested name.
+        sqlx::query("INSERT INTO audit_log (actor, action, target, before, after, request_id) VALUES ($1,$2,$3,$4,$5,$6)")
+            .bind(actor.as_uuid())
+            .bind(AUDIT_ACTION)
+            .bind(&input.operation_id)
+            .bind(json!({}))
+            .bind(json!({
+                "identityId": input.identity_id,
+                "operationId": input.operation_id,
+                "sourceRevision": next,
+                "ttlSeconds": input.ttl_seconds,
+                "intentSha256": digest,
+            }))
+            .bind(operation)
+            .execute(&mut *tx)
+            .await?;
+    }
     tx.commit().await?;
     issued(&row)
 }

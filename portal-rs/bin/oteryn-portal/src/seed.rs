@@ -629,7 +629,8 @@ async fn bootstrap_intent(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedE
         },
         ttl_seconds,
     };
-    let issued = issue::issue(pool, input)
+    // Testing seed only: no actor and no audit row (the operator command requires both).
+    let issued = issue::issue(pool, input, issue::Actor::TestingSeed)
         .await
         .map_err(|error| match error {
             issue::IssueError::BadInput(reason) => SeedError::BadInput(reason),
