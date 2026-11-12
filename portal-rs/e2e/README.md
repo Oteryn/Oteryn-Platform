@@ -109,7 +109,7 @@ each run; override with `PORTAL_E2E_OUT`):
  "clients":{"native-evidence":{"san":"native-evidence.game.e2e.oteryn.test",
             "env":"GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY","cert":"...pem","key":"...key"}, "...": {}},
  "witnessDirectory":"...","logs":{"migrate":"...","serve":"...","worker":"...","gateway":"..."},
- "seed":{"<step name>":{"...":"command output"}},"pending":[{"step":"channel","error":"pending","reason":"..."}],
+ "seed":{"<step name>":{"...":"command output"}},"pending":[{"step":"native-evidence","error":"not_applicable","reason":"..."}],
  "pid":12345}
 ```
 
@@ -131,8 +131,7 @@ environment (with the database URL) stay in `<out>/secrets`, mode 0600.
 
 `oteryn-portal seed <entity> '<json object>'` runs only with
 `OTERYN_ENV=testing` and `OTERYN_DATABASE_URL`, prints one JSON object on
-stdout and exits 0 (done), 2 (`bad_input` / `conflict`), 3 (`pending` /
-`not_applicable`) or 1 (`unavailable`). Every command is an idempotent
+stdout and exits 0 (done), 2 (`bad_input` / `conflict`), 3 (`not_applicable`) or 1 (`unavailable`). Every command is an idempotent
 ensure: the same input gives the same output and no new row; other input for
 an existing key is a `conflict`. A seed plan is `{"steps":[{"name","entity","args"}]}`;
 `"${name.field}"` in later arguments is replaced by that step's output.
@@ -144,7 +143,8 @@ an existing key is a `conflict`. A seed plan is `{"steps":[{"name","entity","arg
 | `oauth-native-client` | optional `clientId` (default `019a0000-0000-7000-8000-0000000c11e7`) | `clientId`, `enabled`, `firstParty`, `publicClient`, `nativeTicket` |
 | `signing-trust` | `purpose`, `keyId`, `publicKeyHex` (Ed25519, 64 hex); `issuer`/`profile` default to the fresh-admission scope, or `urn:oteryn:platform:game-recovery` with purpose `existing_actor_recovery` | `issuer`, `profile`, `purpose`, `keyId`, `publicKey` (base64url), `issuerRevision` |
 | `bootstrap-intent` | `accountId`, `operationId`, `targetWorldId`, `requestedName`, `requestedSex` (`Female`/`Male`), `profileRevision`, `rulesetRevision`, `contentRevision`, `starterTemplateRevision`, optional `ttlSeconds` (1..=300, default 300) | `operationId`, `issuerDecisionId`, `sourceRevision`, `accountId`, `targetWorldId`, `issuedAtSource`, `expiresAtSource`, `intentSha256` |
-| `channel`, `route` | - | `pending`: the T19c `game_channels` registry and route record (gateway contract §7.3, mode 34a) are not on this tree |
+| `channel` | `worldId` (a seeded world), `channelId` (UUIDv7, not the world id) | the channel's record: `worldId`, `channelId`, route fields (`null` until a `route`), `nativeLoginEnabled` (`false`) |
+| `route` | `worldId`, `channelId`, `host` (IP literal or DNS name), `port` (1..=65535), `tlsServerName` (DNS name), `version` (positive), optional `nativeLoginEnabled` (default `true`) | `worldId`, `channelId`, `host`, `port`, `tlsServerName`, `version`, `routeRevision` (computed, gateway contract §7.3), `nativeLoginEnabled`; a higher `version` rotates the record, the same version with other values or a lower one is a `conflict` |
 | `native-evidence` | - | `not_applicable`: evidence is observed live; the first observation bootstraps the retained witness |
 
 `signing-trust` writes the retained witness in

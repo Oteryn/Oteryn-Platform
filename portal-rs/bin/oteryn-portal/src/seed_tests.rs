@@ -480,17 +480,94 @@ async fn every_seed_action_refuses_outside_testing() -> TestResult {
     Ok(())
 }
 
+const CHANNEL: &str = "019a0000-0000-7000-8000-00000000c001";
+
 #[tokio::test]
-async fn pending_and_unknown_entities_are_reported() -> TestResult {
+async fn channel_and_route_records_are_ensured_rotated_and_refused() -> TestResult {
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
-    for entity in ["channel", "route"] {
-        assert!(matches!(
-            db.seed(entity, json!({})).await,
-            Err(SeedError::Pending(_))
-        ));
+    let scope = json!({"worldId": WORLD, "channelId": CHANNEL});
+    // A channel of an unseeded world is refused before any row is written.
+    assert!(is_bad(db.seed("channel", scope.clone()).await));
+    assert_eq!(db.count("SELECT count(*) FROM game_channels").await?, 0);
+    db.seed("world", json!({"worldId": WORLD, "name": "Entry"}))
+        .await?;
+    let channel = db.twice("channel", scope.clone()).await?;
+    assert_eq!(channel["routeRevision"], Value::Null);
+    assert_eq!(channel["nativeLoginEnabled"], false);
+    let route = json!({"worldId": WORLD, "channelId": CHANNEL, "host": "127.0.0.1",
+                       "port": 7172, "tlsServerName": "entry.game.e2e.oteryn.test", "version": 1});
+    let out = db.twice("route", route.clone()).await?;
+    let world = Uuid::parse_str(WORLD)?;
+    let channel_id = Uuid::parse_str(CHANNEL)?;
+    let expected = route_revision(
+        1,
+        world,
+        channel_id,
+        "127.0.0.1",
+        7172,
+        "entry.game.e2e.oteryn.test",
+    )?;
+    assert_eq!(out["routeRevision"], json!(expected));
+    assert_eq!(out["nativeLoginEnabled"], true);
+    // The stored record is the one the issuer recomputes and selects (§7.3).
+    let stored: String = sqlx::query_scalar(
+        "SELECT native_route_revision FROM game_channels WHERE native_login_enabled",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(stored, expected);
+    // `channel` reads a routed channel back without changing it.
+    assert_eq!(
+        db.seed("channel", scope).await?["routeRevision"],
+        json!(expected)
+    );
+    // The same version with other values, or a lower version, is a conflict.
+    let mut moved = route.clone();
+    moved["port"] = json!(7173);
+    assert!(is_conflict(db.seed("route", moved.clone()).await));
+    let mut disabled = route.clone();
+    disabled["nativeLoginEnabled"] = json!(false);
+    assert!(is_conflict(db.seed("route", disabled).await));
+    // A higher version rotates the record and its revision.
+    moved["version"] = json!(2);
+    let rotated = db.twice("route", moved).await?;
+    assert_ne!(rotated["routeRevision"], out["routeRevision"]);
+    assert!(
+        rotated["routeRevision"]
+            .as_str()
+            .unwrap()
+            .starts_with("rt.2.")
+    );
+    assert!(is_conflict(db.seed("route", route.clone()).await));
+    assert_eq!(db.count("SELECT count(*) FROM game_channels").await?, 1);
+    for (key, value) in [
+        ("host", json!("bad host")),
+        ("host", json!("")),
+        ("tlsServerName", json!("127.0.0.1")),
+        ("port", json!(0)),
+        ("port", json!(65536)),
+        ("port", json!("7172")),
+        ("version", json!(0)),
+        ("version", json!(-1)),
+        ("nativeLoginEnabled", json!("yes")),
+        ("channelId", json!(WORLD)),
+        ("channelId", json!("5f0c6a52-2f8e-4c39-9a4d-0d3a1d0f0b11")),
+        ("revision", json!("rt.1.00")),
+    ] {
+        let mut input = route.clone();
+        input[key] = value;
+        assert!(is_bad(db.seed("route", input).await), "{key} was accepted");
     }
+    db.close().await
+}
+
+#[tokio::test]
+async fn not_applicable_and_unknown_entities_are_reported() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
     assert!(matches!(
         db.seed("native-evidence", json!({})).await,
         Err(SeedError::NotApplicable(_))

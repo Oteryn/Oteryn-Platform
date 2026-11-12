@@ -14,18 +14,23 @@
 //! | `signing-trust` | `native_game_signing_trust_*` + retained witness | `issuer`, `profile`, `purpose`, `keyId`, `publicKey`, `issuerRevision` |
 //! | `bootstrap-intent` | `character_bootstrap_intents` | `operationId`, `issuerDecisionId`, `sourceRevision`, `issuedAtSource`, `expiresAtSource`, `intentSha256` |
 //! | `account-mfa` | `account_mfa_totp` (via `oteryn_identity::mfa`) | `accountId`, `totpSecret`, `algorithm`, `digits`, `period`, `recoveryCodes` |
+//! | `channel` | `game_channels` (no route, login disabled) | the channel's current record |
+//! | `route` | `game_channels` route record (gateway contract §7.3, mode 34a) | `worldId`, `channelId`, `host`, `port`, `tlsServerName`, `version`, `routeRevision`, `nativeLoginEnabled` |
 //!
 //! `account-mfa` needs the portal's `OTERYN_MFA_KEY`. The secret exists only at
 //! enrolment, so a second run for an enrolled account is a conflict.
 //!
-//! `channel` and `route` need the T19c `game_channels` registry (gateway
-//! contract §7.3, mode 34a), which is not on this tree; they answer `pending`.
+//! `route` stores the record the T19c issuer selects; its revision is computed
+//! by `oteryn_gameauth::admission::route_revision`, never taken from input. A
+//! higher `version` replaces the record (rotation); the same version with other
+//! values, or a lower version, is a conflict.
 //! `native-evidence` answers `not_applicable`: portal-rs observes evidence live
 //! and its first observation bootstraps the retained witness, so no reconcile
 //! step exists.
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use oteryn_characters::bootstrap::issue;
 use oteryn_gameauth::{
+    admission::{route_names_valid, route_revision},
     evidence::{Witness, trust_state_namespace},
     keys::{self, PublicTrustRegistry},
 };
@@ -42,13 +47,13 @@ pub const DEFAULT_NATIVE_CLIENT: &str = "019a0000-0000-7000-8000-0000000c11e7";
 const RECOVERY_ISSUER: &str = "urn:oteryn:platform:game-recovery";
 const RECOVERY_PROFILE: &str = "oteryn-reauth-recovery-v1";
 const RECOVERY_PURPOSE: &str = "existing_actor_recovery";
-const PENDING_T19C: &str = "needs the T19c game_channels registry and route record (gateway contract §7.3, mode 34a), which is not on this tree";
+const NOT_STORED_WORLD: &str =
+    "world host, port and slug are not stored; a route record is seeded with the `route` entity";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SeedError {
     BadInput(String),
     Conflict(String),
-    Pending(&'static str),
     NotApplicable(&'static str),
     Unavailable(&'static str),
 }
@@ -64,7 +69,6 @@ impl SeedError {
         match self {
             Self::BadInput(r) => ("bad_input", r),
             Self::Conflict(r) => ("conflict", r),
-            Self::Pending(r) => ("pending", r),
             Self::NotApplicable(r) => ("not_applicable", r),
             Self::Unavailable(r) => ("unavailable", r),
         }
@@ -72,7 +76,7 @@ impl SeedError {
     fn exit(&self) -> ExitCode {
         match self {
             Self::BadInput(_) | Self::Conflict(_) => ExitCode::from(2),
-            Self::Pending(_) | Self::NotApplicable(_) => ExitCode::from(3),
+            Self::NotApplicable(_) => ExitCode::from(3),
             Self::Unavailable(_) => ExitCode::FAILURE,
         }
     }
@@ -158,7 +162,8 @@ pub async fn execute(
         "signing-trust" => signing_trust(pool, settings, &args).await,
         "bootstrap-intent" => bootstrap_intent(pool, &args).await,
         "account-mfa" => account_mfa(settings, &args).await,
-        "channel" | "route" => Err(SeedError::Pending(PENDING_T19C)),
+        "channel" => channel(pool, &args).await,
+        "route" => route(pool, &args).await,
         "native-evidence" => Err(SeedError::NotApplicable(
             "evidence is observed live; the first observation bootstraps the retained witness",
         )),
@@ -326,9 +331,153 @@ async fn world(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
         && let Some(map) = out.as_object_mut()
     {
         map.insert("notStored".into(), json!(not_stored));
-        map.insert("notStoredReason".into(), json!(PENDING_T19C));
+        map.insert("notStoredReason".into(), json!(NOT_STORED_WORLD));
     }
     Ok(out)
+}
+
+/// A world seeded with `world` and a distinct UUIDv7 channel in it.
+async fn scope(tx: &mut sqlx::PgConnection, args: &Args<'_>) -> Result<(Uuid, Uuid), SeedError> {
+    let world = args
+        .uuid("worldId", true)?
+        .ok_or_else(|| bad("worldId is required"))?;
+    let channel = args
+        .uuid("channelId", true)?
+        .ok_or_else(|| bad("channelId is required"))?;
+    if world == channel {
+        return Err(bad("channelId must differ from worldId"));
+    }
+    let known: Option<i32> = sqlx::query_scalar("SELECT 1 FROM world_status WHERE id=$1")
+        .bind(world)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if known.is_none() {
+        return Err(bad("worldId is not a seeded world"));
+    }
+    sqlx::query(
+        "INSERT INTO game_channels (world_id, channel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(world)
+    .bind(channel)
+    .execute(&mut *tx)
+    .await?;
+    Ok((world, channel))
+}
+
+/// The stored record of one channel, locked for the rest of the transaction.
+async fn channel_record(
+    tx: &mut sqlx::PgConnection,
+    world: Uuid,
+    channel: Uuid,
+) -> Result<Value, SeedError> {
+    let row = sqlx::query("SELECT native_route_host, native_route_port, native_route_tls_server_name, native_route_version, native_route_revision, native_login_enabled FROM game_channels WHERE world_id=$1 AND channel_id=$2 FOR UPDATE")
+        .bind(world)
+        .bind(channel)
+        .fetch_one(&mut *tx)
+        .await?;
+    Ok(json!({
+        "worldId": world.to_string(),
+        "channelId": channel.to_string(),
+        "host": row.try_get::<Option<String>, _>("native_route_host")?,
+        "port": row.try_get::<Option<i32>, _>("native_route_port")?,
+        "tlsServerName": row.try_get::<Option<String>, _>("native_route_tls_server_name")?,
+        "version": row.try_get::<Option<i64>, _>("native_route_version")?,
+        "routeRevision": row.try_get::<Option<String>, _>("native_route_revision")?,
+        "nativeLoginEnabled": row.try_get::<bool, _>("native_login_enabled")?,
+    }))
+}
+
+fn tagged(entity: &str, mut record: Value) -> Value {
+    if let Some(map) = record.as_object_mut() {
+        map.insert("entity".into(), json!(entity));
+    }
+    record
+}
+
+async fn channel(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
+    args.only(&["worldId", "channelId"])?;
+    let mut tx = pool.begin().await?;
+    let (world, channel) = scope(&mut tx, args).await?;
+    let record = channel_record(&mut tx, world, channel).await?;
+    tx.commit().await?;
+    Ok(tagged("channel", record))
+}
+
+async fn route(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
+    args.only(&[
+        "worldId",
+        "channelId",
+        "host",
+        "port",
+        "tlsServerName",
+        "version",
+        "nativeLoginEnabled",
+    ])?;
+    let host = args.required("host")?;
+    let tls = args.required("tlsServerName")?;
+    if !route_names_valid(host, tls) {
+        return Err(bad(
+            "host must be an IP literal or DNS name and tlsServerName a DNS name",
+        ));
+    }
+    let port = args
+        .0
+        .get("port")
+        .and_then(Value::as_u64)
+        .and_then(|p| u16::try_from(p).ok())
+        .filter(|p| *p > 0)
+        .ok_or_else(|| bad("port must be 1..=65535"))?;
+    let version = args
+        .0
+        .get("version")
+        .and_then(Value::as_u64)
+        .filter(|v| (1..=i64::MAX as u64).contains(v))
+        .ok_or_else(|| bad("version must be a positive integer"))?;
+    let enabled = match args.0.get("nativeLoginEnabled") {
+        None | Some(Value::Null) => true,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => return Err(bad("nativeLoginEnabled must be a boolean")),
+    };
+    let mut tx = pool.begin().await?;
+    let (world, channel) = scope(&mut tx, args).await?;
+    let revision = route_revision(version, world, channel, host, port, tls)
+        .map_err(|_| SeedError::Unavailable("route revision"))?;
+    let wanted = json!({
+        "worldId": world.to_string(),
+        "channelId": channel.to_string(),
+        "host": host,
+        "port": port,
+        "tlsServerName": tls,
+        "version": version,
+        "routeRevision": revision,
+        "nativeLoginEnabled": enabled,
+    });
+    let current = channel_record(&mut tx, world, channel).await?;
+    if current == wanted {
+        tx.commit().await?;
+        return Ok(tagged("route", wanted));
+    }
+    if current["version"]
+        .as_u64()
+        .is_some_and(|stored| stored >= version)
+    {
+        return Err(SeedError::Conflict(
+            "a route record with this or a higher version exists with other values".into(),
+        ));
+    }
+    sqlx::query("UPDATE game_channels SET native_route_host=$3, native_route_port=$4, native_route_tls_server_name=$5, native_route_version=$6, native_route_revision=$7, native_login_enabled=$8, updated_at=now() WHERE world_id=$1 AND channel_id=$2")
+        .bind(world)
+        .bind(channel)
+        .bind(host)
+        .bind(i32::from(port))
+        .bind(tls)
+        .bind(i64::try_from(version).map_err(|_| bad("version is too large"))?)
+        .bind(&revision)
+        .bind(enabled)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(tagged("route", wanted))
 }
 
 async fn oauth_native_client(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
