@@ -49,6 +49,11 @@ const STORE_PATHS: [&str; 4] = [
     "/internal/v1/products-entitlements/store/operations/receipt",
     "/internal/v1/products-entitlements/store/operations/reconcile",
 ];
+const PURCHASE_PATHS: [&str; 3] = [
+    "/internal/v1/products-entitlements/store/balance/read",
+    "/internal/v1/products-entitlements/store/history/read",
+    "/internal/v1/products-entitlements/store/purchases",
+];
 const LCFA_PATH: &str = "/internal/v1/game-auth/native-account-characters";
 const STATS_WATERMARK: &str = r#"{"family":"world_daily_kills"}"#;
 
@@ -91,6 +96,7 @@ fn enabled() -> Values {
             "oteryn:game:primary",
         ),
         (STORE_IDENTITY, STORE),
+        ("PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED", "true"),
         ("PORTAL_PUBLIC_PROJECTIONS_ENABLED", "true"),
         ("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY", "oteryn:game:primary"),
         ("PORTAL_STATS_ONLINE_INTERVALS_ENABLED", "true"),
@@ -234,6 +240,15 @@ fn surfaces() -> Vec<Surface> {
             path,
             STORE,
             &["PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED"],
+            StatusCode::SERVICE_UNAVAILABLE,
+        ));
+    }
+    for path in PURCHASE_PATHS {
+        // Purchases share the Store identity (wire contract §4.1) and budget.
+        surfaces.push((
+            path,
+            STORE,
+            &["PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED"],
             StatusCode::SERVICE_UNAVAILABLE,
         ));
     }
@@ -417,6 +432,43 @@ async fn v2_watermark_reaches_stats_only_for_its_families() -> TestResult {
             (StatusCode::OK, "community".to_owned()),
             "{body}"
         );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn store_purchases_stay_off_outside_testing_and_preproduction() -> TestResult {
+    // On, a stranger is refused at the identity check: the route is mounted.
+    let app = app_without_lcfa(&enabled()).await?;
+    for path in PURCHASE_PATHS {
+        assert_eq!(
+            status(&app, STRANGER, path).await?,
+            StatusCode::UNAUTHORIZED,
+            "{path}"
+        );
+    }
+    // Off, the surface answers 503 before any identity check.
+    for (key, value) in [
+        ("OTERYN_ENV", Some("production")),
+        ("OTERYN_ENV", None),
+        ("APP_ENV", Some("production")),
+        ("PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED", None),
+    ] {
+        let mut values = enabled();
+        match value {
+            Some(value) => values.insert(key.into(), value.into()),
+            None => values.remove(key),
+        };
+        let app = app_without_lcfa(&values).await?;
+        for path in PURCHASE_PATHS {
+            for identity in [STORE, STRANGER] {
+                assert_eq!(
+                    status(&app, identity, path).await?,
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "{path} {identity} with {key}={value:?}"
+                );
+            }
+        }
     }
     Ok(())
 }
