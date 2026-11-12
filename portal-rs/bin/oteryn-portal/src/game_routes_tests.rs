@@ -26,6 +26,16 @@ const STORE: &str = "store.oteryn.internal";
 const PUBLIC: &str = "public.oteryn.internal";
 const LCFA: &str = "lcfa.oteryn.internal";
 const STRANGER: &str = "stranger.oteryn.internal";
+const JOURNAL_ITEMS: &str = "journal-items.oteryn.internal";
+const JOURNAL_PROGRESS: &str = "journal-progress.oteryn.internal";
+const JOURNAL_ITEMS_PATHS: [&str; 2] = [
+    "/internal/v1/playerdata/journal/records",
+    "/internal/v1/playerdata/journal/cursor",
+];
+const JOURNAL_PROGRESS_PATHS: [&str; 2] = [
+    "/internal/v1/playerdata/progress/record",
+    "/internal/v1/playerdata/progress/watermark",
+];
 
 const COMMAND_PATHS: [&str; 6] = [
     "/internal/v1/game-auth/character-commands/pending",
@@ -48,6 +58,11 @@ const STORE_PATHS: [&str; 4] = [
     "/internal/v1/products-entitlements/store/operations/read",
     "/internal/v1/products-entitlements/store/operations/receipt",
     "/internal/v1/products-entitlements/store/operations/reconcile",
+];
+const PURCHASE_PATHS: [&str; 3] = [
+    "/internal/v1/products-entitlements/store/balance/read",
+    "/internal/v1/products-entitlements/store/history/read",
+    "/internal/v1/products-entitlements/store/purchases",
 ];
 const LCFA_PATH: &str = "/internal/v1/game-auth/native-account-characters";
 const STATS_WATERMARK: &str = r#"{"family":"world_daily_kills"}"#;
@@ -91,12 +106,26 @@ fn enabled() -> Values {
             "oteryn:game:primary",
         ),
         (STORE_IDENTITY, STORE),
+        ("PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED", "true"),
         ("PORTAL_PUBLIC_PROJECTIONS_ENABLED", "true"),
         ("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY", "oteryn:game:primary"),
         ("PORTAL_STATS_ONLINE_INTERVALS_ENABLED", "true"),
         ("PORTAL_STATS_WORLD_TOTALS_ENABLED", "true"),
         (PUBLIC_IDENTITY, PUBLIC),
         ("PORTAL_LCFA_INTERNAL_IDENTITY", LCFA),
+        ("PORTAL_PLAYERDATA_G10_INGEST_ENABLED", "true"),
+        (
+            "PORTAL_PLAYERDATA_G10_SOURCE_AUTHORITY",
+            "OTERYN_GAME_JOURNAL",
+        ),
+        ("PORTAL_PLAYERDATA_JOURNAL_ITEMS_SAN", JOURNAL_ITEMS),
+        ("PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED", "true"),
+        (
+            "PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY",
+            "oteryn:journal:primary",
+        ),
+        ("PORTAL_PLAYERDATA_JOURNAL_PROGRESS_SAN", JOURNAL_PROGRESS),
+        ("PORTAL_PLAYERDATA_JOURNAL_FAMILIES", "BANK,ITEMS,stamina"),
     ]
     .into_iter()
     .map(|(key, value)| (key.to_owned(), value.to_owned()))
@@ -237,6 +266,15 @@ fn surfaces() -> Vec<Surface> {
             StatusCode::SERVICE_UNAVAILABLE,
         ));
     }
+    for path in PURCHASE_PATHS {
+        // Purchases share the Store identity (wire contract §4.1) and budget.
+        surfaces.push((
+            path,
+            STORE,
+            &["PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED"],
+            StatusCode::SERVICE_UNAVAILABLE,
+        ));
+    }
     for path in [
         ONLINE_SESSION_PATH,
         WORLD_DAILY_KILLS_PATH,
@@ -246,6 +284,22 @@ fn surfaces() -> Vec<Surface> {
             path,
             PUBLIC,
             &["PORTAL_PUBLIC_PROJECTIONS_ENABLED"],
+            StatusCode::BAD_REQUEST,
+        ));
+    }
+    for path in JOURNAL_ITEMS_PATHS {
+        surfaces.push((
+            path,
+            JOURNAL_ITEMS,
+            &["PORTAL_PLAYERDATA_G10_INGEST_ENABLED"],
+            StatusCode::BAD_REQUEST,
+        ));
+    }
+    for path in JOURNAL_PROGRESS_PATHS {
+        surfaces.push((
+            path,
+            JOURNAL_PROGRESS,
+            &["PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED"],
             StatusCode::BAD_REQUEST,
         ));
     }
@@ -417,6 +471,141 @@ async fn v2_watermark_reaches_stats_only_for_its_families() -> TestResult {
             (StatusCode::OK, "community".to_owned()),
             "{body}"
         );
+    }
+    Ok(())
+}
+
+/// T72: each journal purpose answers only its own identity and source, stays
+/// off outside testing/preproduction and without its source authority, and
+/// with no ownership adapter a valid contract record is 503, never accepted.
+#[tokio::test]
+async fn journal_ingest_binds_its_purpose_source_and_environment() -> TestResult {
+    let app = app_without_lcfa(&enabled()).await?;
+    for (own, other, paths, source) in [
+        (
+            JOURNAL_ITEMS,
+            JOURNAL_PROGRESS,
+            JOURNAL_ITEMS_PATHS,
+            "OTERYN_GAME_JOURNAL",
+        ),
+        (
+            JOURNAL_PROGRESS,
+            JOURNAL_ITEMS,
+            JOURNAL_PROGRESS_PATHS,
+            "oteryn:journal:primary",
+        ),
+    ] {
+        for path in paths {
+            let named = format!(r#"{{"source_authority":"{source}"}}"#);
+            assert_eq!(
+                call(&app, own, path, &named).await?.0,
+                StatusCode::BAD_REQUEST
+            );
+            assert_eq!(
+                call(&app, own, path, r#"{"source_authority":"oteryn:other"}"#).await?,
+                (StatusCode::UNAUTHORIZED, String::new()),
+                "{path}"
+            );
+            assert_eq!(
+                call(&app, other, path, &named).await?.0,
+                StatusCode::UNAUTHORIZED,
+                "{other} on {path}"
+            );
+        }
+    }
+    let bank = concat!(
+        r#"{"contract_version":1,"operation":"PublishGameJournalRecordV1","source_authority":"OTERYN_GAME_JOURNAL","#,
+        r#""account_id":"019a0000-0000-7000-8000-000000000001","world_id":"019a0000-0000-7000-8000-000000000002","#,
+        r#""character_id":null,"character_revision":null,"from_projection_revision":null,"to_projection_revision":null,"#,
+        r#""projection_epoch":null,"family":"BANK","recovery_generation":"1","source_revision":"1","#,
+        r#""record_id":"019a0000-0000-7000-8000-000000000007","occurred_at":"1793836800","coverage_start_at":"1793836800","#,
+        r#""kind":"BANK_ENTRY","payload":{"operation_occurrence_id":"019a0000-0000-7000-8000-000000000008","#,
+        r#""event_id":"019a0000-0000-7000-8000-000000000009","entry_id":"019a0000-0000-7000-8000-00000000000a","#,
+        r#""previous_entry_id":null,"kind":"DEPOSIT","direction":"CREDIT","amount":"100","balance_before":"0","balance_after":"100"}}"#
+    );
+    assert_eq!(
+        call(&app, JOURNAL_ITEMS, JOURNAL_ITEMS_PATHS[0], bank).await?,
+        (StatusCode::SERVICE_UNAVAILABLE, String::new())
+    );
+    for (key, value) in [
+        ("OTERYN_ENV", Some("production")),
+        ("OTERYN_ENV", None),
+        ("PORTAL_PLAYERDATA_G10_SOURCE_AUTHORITY", None),
+        ("PORTAL_PLAYERDATA_JOURNAL_ITEMS_SAN", None),
+    ] {
+        let mut values = enabled();
+        match value {
+            Some(value) => values.insert(key.into(), value.into()),
+            None => values.remove(key),
+        };
+        let off = app_without_lcfa(&values).await?;
+        assert_eq!(
+            status(&off, JOURNAL_ITEMS, JOURNAL_ITEMS_PATHS[0]).await?,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{key}={value:?}"
+        );
+    }
+    for (key, value) in [
+        ("OTERYN_ENV", Some("production")),
+        ("OTERYN_ENV", None),
+        ("PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY", None),
+        ("PORTAL_PLAYERDATA_JOURNAL_PROGRESS_SAN", None),
+    ] {
+        let mut values = enabled();
+        match value {
+            Some(value) => values.insert(key.into(), value.into()),
+            None => values.remove(key),
+        };
+        let off = app_without_lcfa(&values).await?;
+        for path in JOURNAL_PROGRESS_PATHS {
+            assert_eq!(
+                status(&off, JOURNAL_PROGRESS, path).await?,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{path} {key}={value:?}"
+            );
+        }
+    }
+    // A journal identity reused by another purpose disables every route.
+    let mut values = enabled();
+    values.insert(PREMIUM_IDENTITY.into(), JOURNAL_PROGRESS.into());
+    assert!(bindings(&values).is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn store_purchases_stay_off_outside_testing_and_preproduction() -> TestResult {
+    // On, a stranger is refused at the identity check: the route is mounted.
+    let app = app_without_lcfa(&enabled()).await?;
+    for path in PURCHASE_PATHS {
+        assert_eq!(
+            status(&app, STRANGER, path).await?,
+            StatusCode::UNAUTHORIZED,
+            "{path}"
+        );
+    }
+    // Off, the surface answers 503 before any identity check.
+    for (key, value) in [
+        ("OTERYN_ENV", Some("production")),
+        ("OTERYN_ENV", None),
+        ("APP_ENV", Some("production")),
+        ("APP_ENV", None),
+        ("PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED", None),
+    ] {
+        let mut values = enabled();
+        match value {
+            Some(value) => values.insert(key.into(), value.into()),
+            None => values.remove(key),
+        };
+        let app = app_without_lcfa(&values).await?;
+        for path in PURCHASE_PATHS {
+            for identity in [STORE, STRANGER] {
+                assert_eq!(
+                    status(&app, identity, path).await?,
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "{path} {identity} with {key}={value:?}"
+                );
+            }
+        }
     }
     Ok(())
 }

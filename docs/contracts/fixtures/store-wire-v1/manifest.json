@@ -255,32 +255,32 @@
     "purchase-request.valid.json": {
       "schema": "purchase-request.schema.json",
       "max_bytes": 1024,
-      "canonical_bytes": 423,
-      "sha256": "895d8b1edbad9ad72df392cc4a7c25453fe0a03dbd0fb8f335a19950da570d52"
+      "canonical_bytes": 485,
+      "sha256": "6e01402822c3e0344dacd18eaf46161cd8bf9611f0627988367d375e057d971c"
     },
     "purchase-answer.accepted.json": {
       "schema": "purchase-answer.schema.json",
       "max_bytes": 2048,
       "canonical_bytes": 485,
-      "sha256": "671fa38669097cef1c3535f5dcad5a5a303ff07550b73754f9bd7f0a30ba444e"
+      "sha256": "799b91af9fc7e000a19dab633c42ed1df28c1af05cb778a001b5440fe727cbfe"
     },
     "purchase-answer.insufficient-balance.json": {
       "schema": "purchase-answer.schema.json",
       "max_bytes": 2048,
       "canonical_bytes": 225,
-      "sha256": "dfd4dcb2798cce7652399a315925d29e06e1050599e2da0559251947685090ae"
+      "sha256": "1013d46a14375569cac0c2d85a38d89a827669b264f0091b7ba1c14329637998"
     },
     "purchase-answer.stale-quote.json": {
       "schema": "purchase-answer.schema.json",
       "max_bytes": 2048,
       "canonical_bytes": 216,
-      "sha256": "eadb7c5647e351710e047681385aef55c5ec368818e4674297363a2eeceb4f74"
+      "sha256": "6be3c7e79a057c3806b8bf5308c3d29be57efe79709eaacd849a233c96b0ff83"
     },
     "purchase-answer.purchase-disabled.json": {
       "schema": "purchase-answer.schema.json",
       "max_bytes": 2048,
       "canonical_bytes": 222,
-      "sha256": "a00286ce9da0ecbdf4dd3f97d059d688121e6d3cde76438bbcbea246cbe94885"
+      "sha256": "b1338657288ae9dce8cc17779c3e14b0e33cf81e90c0329091108ab8d6d07698"
     },
     "pending-request.valid.json": {
       "schema": "pending-request.schema.json",
@@ -291,20 +291,20 @@
     "intent.deliver-premium-time.json": {
       "schema": "intent.schema.json",
       "max_bytes": 4096,
-      "canonical_bytes": 597,
-      "sha256": "eef4cd5c05e3bdbe0c0b68b6070a99db0d91d38f4a8153e5189cc1b5df46be35"
+      "canonical_bytes": 659,
+      "sha256": "3abee31f1c2a04f4e7b3b6c0cf761d13ed0b39965ed2e737d00f1c97b9cd039a"
     },
     "intent.deliver-cosmetic.json": {
       "schema": "intent.schema.json",
       "max_bytes": 4096,
-      "canonical_bytes": 602,
-      "sha256": "67feee262a0352095ad5da0ee701ce008c1c8aef924a447434369c1749831943"
+      "canonical_bytes": 664,
+      "sha256": "e259eb478e5e2ff9f96a9311d3bf998583a6b0054c4994190f83b7fbbd5c0801"
     },
     "intent.deliver-item.json": {
       "schema": "intent.schema.json",
       "max_bytes": 4096,
-      "canonical_bytes": 609,
-      "sha256": "232a47fef23b49b8cb159b4f388eb8c99825315a27f7291373e700d1e0a19f7d"
+      "canonical_bytes": 671,
+      "sha256": "575c687da93282bcab098327605be6a9ca1f33454c07162175881be01d059ee0"
     },
     "intent.claim.json": {
       "schema": "intent.schema.json",
@@ -334,13 +334,13 @@
       "schema": "receipt.schema.json",
       "max_bytes": 1024,
       "canonical_bytes": 620,
-      "sha256": "d6f7e66e456448c3444b672d0f901deaa0a46af5b9ed80373857974de0a50839"
+      "sha256": "b076a2e1b1689401daafd337c275b26b9a56af8b9d45b713125ee241395215fc"
     },
     "receipt.deliver-item.committed.json": {
       "schema": "receipt.schema.json",
       "max_bytes": 1024,
       "canonical_bytes": 624,
-      "sha256": "497d493b70987963c324a1f1eeceb071dba40f28728747c86ce03580a6144913"
+      "sha256": "1bddd519d26ce36b9a40fef25ce5ef744755eeb7473a1ad522c7bf3a0de586e3"
     },
     "receipt.claim.committed.json": {
       "schema": "receipt.schema.json",
@@ -406,7 +406,7 @@
       "schema": "reconcile-response.schema.json",
       "max_bytes": 12288,
       "canonical_bytes": 623,
-      "sha256": "8124a5b8325cfaf54e465e3c370f5ebfe9a1aeae55f75a680f80c0e11631f5ec"
+      "sha256": "e6487bd6ba22351ed0e69c1cc3e32486ff9b59fb8c975dafe6182f07be56f00b"
     }
   },
   "cross_field_rules": [
@@ -504,7 +504,7 @@
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
         "character_id": "0192b6a0-4c00-7000-8000-000000000201",
         "world_id": "0192b6a0-4c00-7000-8000-000000000301",
-        "catalog_revision": "37",
+        "catalog_revision": "1f6ee35b3b46aa4e5e1a36d7eb0e0b76ce08fa78907a91e3aac5ad22bb11050d",
         "offer_key": "premium-30d",
         "currency": "COINS",
         "unit_price": "250",
@@ -524,7 +524,7 @@
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
         "character_id": "0192b6a0-4c00-7000-8000-000000000201",
         "world_id": "0192b6a0-4c00-7000-8000-000000000301",
-        "catalog_revision": "37",
+        "catalog_revision": "1f6ee35b3b46aa4e5e1a36d7eb0e0b76ce08fa78907a91e3aac5ad22bb11050d",
         "offer_key": "premium-30d",
         "currency": "COINS",
         "unit_price": "250",
@@ -544,7 +544,7 @@
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
         "character_id": "0192b6a0-4c00-7000-8000-000000000201",
         "world_id": "0192b6a0-4c00-7000-8000-000000000301",
-        "catalog_revision": "37",
+        "catalog_revision": "1f6ee35b3b46aa4e5e1a36d7eb0e0b76ce08fa78907a91e3aac5ad22bb11050d",
         "offer_key": "premium-30d",
         "currency": "COINS",
         "unit_price": "250",
@@ -564,7 +564,7 @@
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
         "character_id": "0192b6a0-4c00-7000-8000-000000000201",
         "world_id": "0192b6a0-4c00-7000-8000-000000000301",
-        "catalog_revision": "37",
+        "catalog_revision": "1f6ee35b3b46aa4e5e1a36d7eb0e0b76ce08fa78907a91e3aac5ad22bb11050d",
         "offer_key": "premium-30d",
         "currency": "COINS",
         "unit_price": 250,
@@ -584,7 +584,7 @@
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
         "character_id": "0192b6a0-4c00-7000-8000-000000000201",
         "world_id": "0192b6a0-4c00-7000-8000-000000000301",
-        "catalog_revision": "37",
+        "catalog_revision": "1f6ee35b3b46aa4e5e1a36d7eb0e0b76ce08fa78907a91e3aac5ad22bb11050d",
         "offer_key": "premium-30d",
         "currency": "COINS",
         "unit_price": "0",
@@ -604,7 +604,7 @@
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
         "character_id": "0192b6a0-4c00-7000-8000-000000000201",
         "world_id": "0192b6a0-4c00-7000-8000-000000000301",
-        "catalog_revision": "37",
+        "catalog_revision": "1f6ee35b3b46aa4e5e1a36d7eb0e0b76ce08fa78907a91e3aac5ad22bb11050d",
         "offer_key": "premium-30d",
         "currency": "GOLD",
         "unit_price": "250",
@@ -624,7 +624,7 @@
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
         "character_id": "0192b6a0-4c00-7000-8000-000000000201",
         "world_id": "0192b6a0-4c00-7000-8000-000000000301",
-        "catalog_revision": "37",
+        "catalog_revision": "1f6ee35b3b46aa4e5e1a36d7eb0e0b76ce08fa78907a91e3aac5ad22bb11050d",
         "offer_key": "premium-30d",
         "currency": "COINS",
         "unit_price": "250",
@@ -723,7 +723,7 @@
         "issuer_authority": "OTERYN_PLATFORM_STORE_AUTHORITY",
         "operation_kind": "DELIVER",
         "operation_id": "0192b6a0-4c00-7000-8000-000000000702",
-        "binding_digest": "232a47fef23b49b8cb159b4f388eb8c99825315a27f7291373e700d1e0a19f7d",
+        "binding_digest": "575c687da93282bcab098327605be6a9ca1f33454c07162175881be01d059ee0",
         "outcome": "COMMITTED",
         "result_code": "STORE_OK",
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
@@ -794,7 +794,7 @@
         "issuer_authority": "OTERYN_PLATFORM_STORE_AUTHORITY",
         "operation_kind": "DELIVER",
         "operation_id": "0192b6a0-4c00-7000-8000-000000000702",
-        "binding_digest": "232a47fef23b49b8cb159b4f388eb8c99825315a27f7291373e700d1e0a19f7d",
+        "binding_digest": "575c687da93282bcab098327605be6a9ca1f33454c07162175881be01d059ee0",
         "outcome": "COMMITTED",
         "result_code": "STORE_OK",
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
@@ -852,7 +852,7 @@
         "issuer_authority": "OTERYN_PLATFORM_STORE_AUTHORITY",
         "operation_kind": "DELIVER",
         "operation_id": "0192b6a0-4c00-7000-8000-000000000702",
-        "binding_digest": "eef4cd5c05e3bdbe0c0b68b6070a99db0d91d38f4a8153e5189cc1b5df46be35",
+        "binding_digest": "3abee31f1c2a04f4e7b3b6c0cf761d13ed0b39965ed2e737d00f1c97b9cd039a",
         "outcome": "COMMITTED",
         "result_code": "STORE_OK",
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
@@ -877,7 +877,7 @@
         "issuer_authority": "OTERYN_PLATFORM_STORE_AUTHORITY",
         "operation_kind": "DELIVER",
         "operation_id": "0192b6a0-4c00-7000-8000-000000000702",
-        "binding_digest": "232a47fef23b49b8cb159b4f388eb8c99825315a27f7291373e700d1e0a19f7d",
+        "binding_digest": "575c687da93282bcab098327605be6a9ca1f33454c07162175881be01d059ee0",
         "outcome": "COMMITTED",
         "result_code": "STORE_OK",
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
@@ -902,7 +902,7 @@
         "issuer_authority": "OTERYN_PLATFORM_STORE_AUTHORITY",
         "operation_kind": "DELIVER",
         "operation_id": "0192b6a0-4c00-7000-8000-000000000702",
-        "binding_digest": "232a47fef23b49b8cb159b4f388eb8c99825315a27f7291373e700d1e0a19f7d",
+        "binding_digest": "575c687da93282bcab098327605be6a9ca1f33454c07162175881be01d059ee0",
         "outcome": "COMMITTED",
         "result_code": "STORE_OK",
         "account_id": "0192b6a0-4c00-7000-8000-000000000102",
@@ -988,7 +988,7 @@
     },
     {
       "message": "purchase-request",
-      "case": "uint64 above 18446744073709551615",
+      "case": "numeric catalog revisions are not accepted",
       "expected_status": 400,
       "rule": "uint64_range",
       "body": {
@@ -1019,7 +1019,7 @@
         "account_id": "0192b6a0-4c00-7000-8000-000000000101",
         "character_id": "0192b6a0-4c00-7000-8000-000000000201",
         "world_id": "0192b6a0-4c00-7000-8000-000000000301",
-        "catalog_revision": "37",
+        "catalog_revision": "1f6ee35b3b46aa4e5e1a36d7eb0e0b76ce08fa78907a91e3aac5ad22bb11050d",
         "offer_key": "premium-30d",
         "currency": "COINS",
         "unit_price": "9223372036854775808",
