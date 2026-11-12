@@ -17,6 +17,12 @@ pub struct Browser {
     pub csrf: String,
     pub language: String,
 }
+/// Supplied exclusively by the web session adapter, next to [`Browser`], when the
+/// browser session holds a live web MFA grant for `account`. Never built from request input.
+#[derive(Clone, Copy)]
+pub struct MfaSession {
+    pub account: Uuid,
+}
 #[derive(Clone)]
 struct HttpState {
     pool: PgPool,
@@ -143,9 +149,23 @@ fn texts(language: &str) -> Result<[String; 5], Error> {
     }
     output.try_into().map_err(|_| Error::Unavailable)
 }
+/// The existing sign-in page; the language is one of the two fixed site prefixes.
+fn sign_in(language: &str) -> Response {
+    let path = if language == "en" {
+        "/en/login"
+    } else {
+        "/pl/login"
+    };
+    no_store(Redirect::to(path).into_response())
+}
+/// True only for a server-supplied proof bound to the same account.
+fn mfa_proven(mfa: Option<Extension<MfaSession>>, account: Uuid) -> bool {
+    mfa.is_some_and(|Extension(m)| m.account == account)
+}
 async fn show(
     State(state): State<HttpState>,
     Extension(browser): Extension<Browser>,
+    mfa: Option<Extension<MfaSession>>,
     query: Result<Query<Authorization>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     if !state.config.enabled {
@@ -158,11 +178,16 @@ async fn show(
         return refused(&state, browser.account, Error::InvalidRequest).await;
     }
     let Some(account) = browser.account else {
-        return no_store(Redirect::to(&format!("/{}/login", browser.language)).into_response());
+        return sign_in(&browser.language);
     };
+    let mfa = mfa_proven(mfa, account);
+    let language = browser.language.clone();
     let result = async {
         let mut tx = state.pool.begin().await?;
-        stamp(&mut tx, account).await?;
+        if step_up(&mut tx, account, mfa).await?.is_none() {
+            tx.commit().await?;
+            return Ok(None);
+        }
         event(&mut tx, Some(account), "consent_presented").await?;
         tx.commit().await?;
         let [title, description, approve, deny, skip] = texts(&browser.language)?;
@@ -176,17 +201,19 @@ async fn show(
             skip,
             request,
         };
-        page.render().map_err(|_| Error::Unavailable)
+        page.render().map(Some).map_err(|_| Error::Unavailable)
     }
     .await;
     match result {
-        Ok(html) => no_store(Html(html).into_response()),
+        Ok(Some(html)) => no_store(Html(html).into_response()),
+        Ok(None) => sign_in(&language),
         Err(e) => refused(&state, Some(account), e).await,
     }
 }
 async fn consent(
     State(state): State<HttpState>,
     Extension(browser): Extension<Browser>,
+    mfa: Option<Extension<MfaSession>>,
     form: Result<Form<Vec<(String, String)>>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if !state.config.enabled {
@@ -231,8 +258,10 @@ async fn consent(
             .append_pair("error", "access_denied")
             .append_pair("state", &request.state);
     } else {
-        match authorize(&state.pool, &state.config, account, &request).await {
-            Ok(code) => {
+        let mfa = mfa_proven(mfa, account);
+        match approve(&state.pool, &state.config, account, mfa, &request).await {
+            Ok(None) => return sign_in(&browser.language),
+            Ok(Some(code)) => {
                 redirect
                     .query_pairs_mut()
                     .append_pair("code", &code)

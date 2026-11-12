@@ -599,3 +599,202 @@ async fn consent_policy_keeps_form_origin_and_does_not_send_query_referrers() ->
     }
     Ok(())
 }
+
+fn authorize_query() -> String {
+    let a = authorization();
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    for (k, v) in [
+        ("response_type", a.response_type),
+        ("client_id", a.client_id),
+        ("redirect_uri", a.redirect_uri),
+        ("scope", a.scope),
+        ("state", a.state),
+        ("code_challenge", a.code_challenge),
+        ("code_challenge_method", a.code_challenge_method),
+    ] {
+        query.append_pair(k, &v);
+    }
+    query.finish()
+}
+async fn mfa_account(db: &Database) -> Result<Uuid, sqlx::Error> {
+    let account = db.account().await?;
+    sqlx::query("UPDATE accounts SET login_mfa_required=true WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    Ok(account)
+}
+fn browser_app(db: &Database, account: Uuid, language: &str, mfa: Option<Uuid>) -> axum::Router {
+    let app = browser_routes(db.pool.clone(), config()).layer(Extension(Browser {
+        account: Some(account),
+        csrf: "a".repeat(64),
+        language: language.into(),
+    }));
+    match mfa {
+        Some(account) => app.layer(Extension(MfaSession { account })),
+        None => app,
+    }
+}
+async fn approve_post(
+    app: &axum::Router,
+    fields: &str,
+) -> Result<axum::response::Response, Box<dyn std::error::Error>> {
+    Ok(app
+        .clone()
+        .oneshot(
+            Request::post("/oauth/authorize")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "{fields}&_csrf={}&decision=approve",
+                    "a".repeat(64)
+                )))?,
+        )
+        .await?)
+}
+async fn codes(db: &Database, account: Uuid) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT count(*) FROM oauth_authorization_codes WHERE account_id=$1")
+        .bind(account)
+        .fetch_one(&db.pool)
+        .await
+}
+
+#[tokio::test]
+async fn postgres_mfa_session_authorizes_exchanges_refreshes_and_verifies() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let account = mfa_account(&db).await?;
+    let app = browser_app(&db, account, "en", Some(account));
+    let fields = authorize_query();
+    let r = app
+        .clone()
+        .oneshot(Request::get(format!("/oauth/authorize?{fields}")).body(Body::empty())?)
+        .await?;
+    assert_eq!(r.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(r.into_body(), 16384).await?.to_vec())?;
+    assert!(html.contains("Authorize game sign-in"));
+    let r = approve_post(&app, &fields).await?;
+    assert_eq!(r.status(), StatusCode::FOUND);
+    let location = url::Url::parse(r.headers()["location"].to_str()?)?;
+    let code = location
+        .query_pairs()
+        .find(|(k, _)| k == "code")
+        .map(|(_, v)| v.into_owned())
+        .ok_or("code missing")?;
+    assert_eq!(codes(&db, account).await?, 1);
+    let tokens = exchange(
+        &db.pool,
+        &config(),
+        &TokenRequest {
+            grant_type: "authorization_code".into(),
+            client_id: "native-test".into(),
+            redirect_uri: authorization().redirect_uri,
+            code,
+            code_verifier: VERIFIER.into(),
+            ..Default::default()
+        },
+    )
+    .await?;
+    assert_eq!(
+        verify_access(&db.pool, &config(), &tokens.access_token).await?,
+        account
+    );
+    let rotated = exchange(&db.pool, &config(), &refresh_input(&tokens.refresh_token)).await?;
+    assert_eq!(
+        verify_access(&db.pool, &config(), &rotated.access_token).await?,
+        account
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_mfa_account_without_mfa_session_steps_up_without_a_code() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let account = mfa_account(&db).await?;
+    let other = db.account().await?;
+    let fields = authorize_query();
+    for (language, mfa, expected) in [
+        ("en", None, "/en/login"),
+        ("pl", Some(other), "/pl/login"),
+        ("//evil.example/x", None, "/pl/login"),
+    ] {
+        let app = browser_app(&db, account, language, mfa);
+        let r = app
+            .clone()
+            .oneshot(Request::get(format!("/oauth/authorize?{fields}")).body(Body::empty())?)
+            .await?;
+        assert_eq!(r.status(), StatusCode::SEE_OTHER, "{language}");
+        assert_eq!(r.headers()["location"], expected);
+        assert_eq!(r.headers()["cache-control"], "no-store");
+        let r = approve_post(&app, &fields).await?;
+        assert_eq!(r.status(), StatusCode::SEE_OTHER, "{language}");
+        assert_eq!(r.headers()["location"], expected);
+    }
+    // A client-supplied MFA or return claim is never accepted.
+    let app = browser_app(&db, account, "en", None);
+    for extra in [
+        "mfa=true",
+        "mfa_satisfied=1",
+        "return_to=https%3A%2F%2Fevil.example%2F",
+        "next=%2F%2Fevil.example",
+    ] {
+        let r = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/oauth/authorize?{fields}&{extra}")).body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST, "{extra}");
+        let r = approve_post(&app, &format!("{fields}&{extra}")).await?;
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST, "{extra}");
+    }
+    assert_eq!(codes(&db, account).await?, 0);
+    assert_eq!(
+        authorize(&db.pool, &config(), account, &authorization())
+            .await
+            .err(),
+        Some(Error::InvalidGrant)
+    );
+    assert_eq!(codes(&db, account).await?, 0);
+    let steps: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM oauth_security_events WHERE account_id=$1 AND event='mfa_step_up_required'",
+    )
+    .bind(account)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(steps >= 6);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_mfa_enabled_after_issue_keeps_valid_tokens_working() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let account = db.account().await?;
+    let pending = code(&db, account).await?;
+    let tokens = exchange(&db.pool, &config(), &code(&db, account).await?).await?;
+    sqlx::query("UPDATE accounts SET login_mfa_required=true WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    // The credential stamp ignores the MFA flag: password, email and
+    // verification still fence; MFA itself is enforced at authorize.
+    let exchanged = exchange(&db.pool, &config(), &pending).await?;
+    assert_eq!(
+        verify_access(&db.pool, &config(), &exchanged.access_token).await?,
+        account
+    );
+    assert_eq!(
+        verify_access(&db.pool, &config(), &tokens.access_token).await?,
+        account
+    );
+    let rotated = exchange(&db.pool, &config(), &refresh_input(&tokens.refresh_token)).await?;
+    assert_eq!(
+        verify_access(&db.pool, &config(), &rotated.access_token).await?,
+        account
+    );
+    db.close().await
+}
