@@ -1,6 +1,8 @@
 # Coin transfer and market wire v1
 
 Status: **ACCEPTED** — owner decision 2026-11-09 (#3058 CLIENT-GAPS, option B).
+Amended 2026-11-12 (owner decision, Platform #1846): there is one coin class.
+Wire member names and shapes are unchanged; see *One coin class* below.
 Platform Wallet owns coins. Game consumes this API and owns gold, trade matching,
 character resolution, offer expiry scheduling and the durable retry queue. No
 payment provider or real payments are enabled by this contract.
@@ -69,7 +71,7 @@ A missing operation returns unknown_account (no separate not-found result).
 Balance returns `{result,account_id,transferable,non_transferable,reserved}`.
 History returns `{result,entries,next_cursor}`; entry members are
 `{entry_id,operation_id,kind,coin_class,counterparty_account_id,available_delta,
-reserved_delta,occurred_at}`. coin_class is transferable or non_transferable.
+reserved_delta,occurred_at}`. coin_class is always `transferable` (one coin class).
 Counterparty is the other account, including on a recipient entry. Cursor is the
 last entry UUID, exclusive, ordered descending. next_cursor is null on an empty
 page, otherwise the last entry ID (a following empty page ends the scan). Default
@@ -94,11 +96,22 @@ Errors contain only `{result}`. Transport/body/canonical failures are invalid
 (422), including size violations; unauthorized remains empty 401. No refusal
 commits a claim or ledger entries. Unknown authorization fails closed as unavailable.
 
-Purchased top_up coins are transferable. Audited reward/promotion/staff credits
-may be non-transferable. Store spending consumes non-transferable first and then
-transferable. Transfers and SELL reserves consume transferable only. Both transfer
-parties and market settlement parties must be Active and transfer Allowed. A gift
-and a settlement credit the recipient as transferable.
+### One coin class
+
+There is one coin class (owner decision 2026-11-12). Top-ups, audited
+reward/promotion/staff grants, gifts and settlements all credit the same balance,
+and store spending, transfers and SELL reserves all consume it. The wire keeps its
+member names for compatibility:
+
+- `transferable` and `transferable_after` carry the whole available balance;
+- `non_transferable` and `non_transferable_after` are always `"0"`;
+- history `coin_class` is always `transferable`; historical entries recorded as
+  non-transferable count toward the one balance;
+- `insufficient_transferable` means the available balance or the reservation
+  remainder is too small or closed.
+
+Both transfer parties and market settlement parties must be Active and transfer
+Allowed.
 
 Settlement uses the trade UUIDv7 as operation_id and atomically reduces the seller's
 remaining reservation and credits the buyer by the same amount in one transaction.
