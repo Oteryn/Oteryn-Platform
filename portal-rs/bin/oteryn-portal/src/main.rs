@@ -154,6 +154,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 db.clone(),
             )?);
             let app = app.merge(oteryn_payments::account::configured_router(db.clone()));
+            let app = app.merge(coin_purchases::configured_router(db.clone()));
             let app = app.merge(oteryn_atlas::web::configured_router(db.clone()));
             let app = app.merge(login_http::configured_router(db.clone()));
             let app = app.merge(oteryn_content::pages::configured_router(db.clone())?);
@@ -240,8 +241,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                                 .get(axum::http::header::LOCATION)
                                 .and_then(|v| v.to_str().ok())
                                 .is_some_and(|v| matches!(v, "/pl/" | "/en/"))
-                            && let Some(target) = pending
-                                .filter(|p| p.starts_with("/oauth/authorize?") && p.len() <= 8192)
+                            && let Some(target) = pending.filter(|p| {
+                                (p.starts_with("/oauth/authorize?")
+                                    || oteryn_payments::coin::is_checkout_return(p))
+                                    && p.len() <= 8192
+                            })
                             && let Ok(value) = axum::http::HeaderValue::from_str(&target)
                         {
                             response
@@ -461,6 +465,7 @@ mod tests {
 }
 
 mod bootstrap_intent;
+mod coin_purchases;
 mod game_login;
 mod game_routes;
 mod gateway;

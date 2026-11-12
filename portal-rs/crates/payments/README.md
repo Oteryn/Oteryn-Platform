@@ -40,3 +40,35 @@ Set `PORTAL_TEST_DATABASE_URL` to a disposable PostgreSQL 18.6 database whose us
 can create schemas. Nine database tests run when set; otherwise each prints a
 skip notice. Three independent tests cover transitions, provider behavior and an
 RFC 4231 HMAC vector. No SQL query macros are used; builds support SQLX_OFFLINE.
+
+## Native coin purchases (sandbox, phase A)
+
+`coin`, `coin_store` and `coin_http` implement Game contract
+OTERYN_COIN_PURCHASE_V1 under `/api/v1/native-account/coin-purchases`
+(`catalogue`, `balance`, `orders`, `requests/{request_id}`) and the hosted
+checkout page `/native-account/coin-checkout/{order_id}`. Off by default: every
+route answers 503 unless `PORTAL_COIN_PURCHASES_ENABLED=true`, `OTERYN_ENV` is
+`testing` or `preprod` (never production) and `OTERYN_PUBLIC_ORIGIN` is valid.
+`PORTAL_COIN_PACKAGES` is a JSON package list; unset means no packages and a
+malformed value keeps the feature off. Only `game:account-services` access
+tokens name the payer; `game:ticket` tokens are refused, and the reverse holds.
+
+An order consumes its single-use quote in the transaction that rechecks the
+quote's expiry, owner, character, environment and the payer's eligibility.
+Provider I/O happens after commit. An identical replay returns the current
+order; a changed body for an existing `request_id` is 409. Only a verified
+`TestProvider` webhook (signed in-process by the checkout page) marks an order
+paid; in one transaction it writes the invoice receipt, credits transferable
+coins through the host's wallet ledger keyed by the intent ID (once), and bumps
+the order revision. States never move backwards and `sandbox` is always true.
+A payer no longer eligible when the verified payment arrives gets no coins:
+the order is held in `processing` with `review_required` and code
+`COIN_ORDER_REVIEW_REQUIRED` for manual handling. Every delivery, replays
+included, must match the bound intent's amount, currency, provider reference
+and payer; a replayed event ID with another payload is refused and changes
+nothing. A wrong-scope token is 401, as on the existing game OAuth routes. A
+signed-out checkout visit stores the exact checkout path as the post-login
+return target (`oauth_return`), which the login hook accepts only in that form.
+The generic `Payments::webhook` refuses coin intents. Refunds and chargebacks
+are representable states only: no refund, chargeback or wallet reversal handler
+exists in this phase.

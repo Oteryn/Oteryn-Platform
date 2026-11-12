@@ -139,7 +139,7 @@ impl Delivery {
     }
 }
 #[derive(Debug, Clone, Copy)]
-struct Policy;
+pub(crate) struct Policy;
 impl wallet::AccountStateReader for Policy {
     async fn state(&self, conn: &mut PgConnection, account: Uuid) -> wallet::AccountState {
         // Serialize account restriction/closure against delivery. Match payments'

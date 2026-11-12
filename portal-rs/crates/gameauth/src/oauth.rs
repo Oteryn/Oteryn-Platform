@@ -73,10 +73,22 @@ pub struct Authorization {
     pub code_challenge: String,
     pub code_challenge_method: String,
 }
+/// Game login tickets. Its tokens never authorize account services.
+pub const TICKET_SCOPE: &str = "game:ticket";
+/// Native account services (coin purchases). Its tokens never mint game tickets.
+pub const ACCOUNT_SERVICES_SCOPE: &str = "game:account-services";
+/// Each grant carries exactly one scope; codes, families and tokens keep it.
+fn known_scope(scope: &str) -> Option<&'static str> {
+    match scope {
+        TICKET_SCOPE => Some(TICKET_SCOPE),
+        ACCOUNT_SERVICES_SCOPE => Some(ACCOUNT_SERVICES_SCOPE),
+        _ => None,
+    }
+}
 impl Authorization {
     fn valid(&self, config: &Config) -> bool {
         self.response_type == "code"
-            && self.scope == "game:ticket"
+            && known_scope(&self.scope).is_some()
             && self.code_challenge_method == "S256"
             && self.state.len() >= 16
             && self.state.len() <= 1024
@@ -213,8 +225,9 @@ pub(crate) async fn approve(
         return Ok(None);
     };
     let code = secret()?;
-    sqlx::query("INSERT INTO oauth_authorization_codes(code_hash,account_id,client_id,redirect_uri,challenge,credential_hash) VALUES($1,$2,$3,$4,$5,$6)")
-        .bind(hash(&code)).bind(account).bind(&request.client_id).bind(&request.redirect_uri).bind(&request.code_challenge).bind(stamp).execute(&mut *tx).await?;
+    let scope = known_scope(&request.scope).ok_or(Error::InvalidRequest)?;
+    sqlx::query("INSERT INTO oauth_authorization_codes(code_hash,account_id,client_id,redirect_uri,challenge,credential_hash,scope) VALUES($1,$2,$3,$4,$5,$6,$7)")
+        .bind(hash(&code)).bind(account).bind(&request.client_id).bind(&request.redirect_uri).bind(&request.code_challenge).bind(stamp).bind(scope).execute(&mut *tx).await?;
     event(&mut tx, Some(account), "authorization_approved").await?;
     tx.commit().await?;
     Ok(Some(code))
@@ -233,7 +246,11 @@ async fn step_up(
     }
     Ok(Some(stamp))
 }
-async fn issue(tx: &mut Transaction<'_, Postgres>, family: Uuid) -> Result<Tokens, Error> {
+async fn issue(
+    tx: &mut Transaction<'_, Postgres>,
+    family: Uuid,
+    scope: &'static str,
+) -> Result<Tokens, Error> {
     let access = secret()?;
     let refresh = secret()?;
     sqlx::query(
@@ -250,7 +267,7 @@ async fn issue(tx: &mut Transaction<'_, Postgres>, family: Uuid) -> Result<Token
         expires_in: 1800,
         access_token: access,
         refresh_token: refresh,
-        scope: "game:ticket",
+        scope,
     })
 }
 pub async fn exchange(
@@ -306,6 +323,7 @@ async fn exchange_code(
     {
         return Err(Error::InvalidGrant);
     }
+    let scope = known_scope(&row.get::<String, _>("scope")).ok_or(Error::InvalidGrant)?;
     sqlx::query(
         "UPDATE oauth_authorization_codes SET used_at=now(),updated_at=now() WHERE code_hash=$1",
     )
@@ -319,8 +337,8 @@ async fn exchange_code(
     .bind(account)
     .fetch_one(&mut *tx)
     .await?;
-    sqlx::query("INSERT INTO oauth_token_families(id,account_id,client_id,credential_hash,game_generation,native_generation) VALUES($1,$2,$3,$4,$5,$6)").bind(family).bind(account).bind(&input.client_id).bind(current).bind(game_generation).bind(native_generation).execute(&mut *tx).await?;
-    let tokens = issue(&mut tx, family).await?;
+    sqlx::query("INSERT INTO oauth_token_families(id,account_id,client_id,credential_hash,game_generation,native_generation,scope) VALUES($1,$2,$3,$4,$5,$6,$7)").bind(family).bind(account).bind(&input.client_id).bind(current).bind(game_generation).bind(native_generation).bind(scope).execute(&mut *tx).await?;
+    let tokens = issue(&mut tx, family, scope).await?;
     event(&mut tx, Some(account), "code_exchanged").await?;
     tx.commit().await?;
     Ok(tokens)
@@ -330,7 +348,7 @@ async fn refresh(pool: &PgPool, input: &TokenRequest) -> Result<Tokens, Error> {
         || !input.code.is_empty()
         || !input.code_verifier.is_empty()
         || !input.redirect_uri.is_empty()
-        || (!input.scope.is_empty() && input.scope != "game:ticket")
+        || (!input.scope.is_empty() && known_scope(&input.scope).is_none())
     {
         return Err(Error::InvalidRequest);
     }
@@ -367,11 +385,16 @@ async fn refresh(pool: &PgPool, input: &TokenRequest) -> Result<Tokens, Error> {
     if !row.get::<bool, _>("valid") {
         return Err(Error::InvalidGrant);
     }
+    // A refresh never changes or widens the family's single scope.
+    let scope = known_scope(&row.get::<String, _>("scope")).ok_or(Error::InvalidGrant)?;
+    if !input.scope.is_empty() && input.scope != scope {
+        return Err(Error::InvalidGrant);
+    }
     sqlx::query("UPDATE oauth_tokens SET used_at=now(),updated_at=now() WHERE refresh_hash=$1")
         .bind(hash(&input.refresh_token))
         .execute(&mut *tx)
         .await?;
-    let tokens = issue(&mut tx, family).await?;
+    let tokens = issue(&mut tx, family, scope).await?;
     event(&mut tx, Some(account), "refresh_rotated").await?;
     tx.commit().await?;
     Ok(tokens)
@@ -391,7 +414,25 @@ pub async fn revoke_account(
     event(tx, Some(account), "account_oauth_revoked").await
 }
 /// Public ticket consumers must verify the current account and family on every use.
+/// Only `game:ticket` tokens verify here.
 pub async fn verify_access(pool: &PgPool, config: &Config, token: &str) -> Result<Uuid, Error> {
+    verify_scoped(pool, config, token, TICKET_SCOPE).await
+}
+/// Account-services consumers (native coin purchases) verify the current account
+/// and family on every use. Only `game:account-services` tokens verify here.
+pub async fn verify_account_services(
+    pool: &PgPool,
+    config: &Config,
+    token: &str,
+) -> Result<Uuid, Error> {
+    verify_scoped(pool, config, token, ACCOUNT_SERVICES_SCOPE).await
+}
+async fn verify_scoped(
+    pool: &PgPool,
+    config: &Config,
+    token: &str,
+    scope: &'static str,
+) -> Result<Uuid, Error> {
     if !config.enabled {
         return Err(Error::Disabled);
     }
@@ -399,12 +440,12 @@ pub async fn verify_access(pool: &PgPool, config: &Config, token: &str) -> Resul
         return Err(Error::InvalidGrant);
     }
     let mut tx = pool.begin().await?;
-    let row = sqlx::query("SELECT f.account_id, f.client_id, f.credential_hash FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND t.access_expires_at>clock_timestamp() AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL").bind(hash(token)).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
+    let row = sqlx::query("SELECT f.account_id, f.client_id, f.credential_hash FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND t.access_expires_at>clock_timestamp() AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL AND f.scope=$2").bind(hash(token)).bind(scope).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
     let account = row.get("account_id");
     let current = stamp(&mut tx, account).await?;
     // Re-read after acquiring the account lock so concurrent revocation cannot
     // leave a stale family snapshot authorized.
-    let row = sqlx::query("SELECT f.client_id, f.credential_hash FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND t.access_expires_at>clock_timestamp() AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL").bind(hash(token)).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
+    let row = sqlx::query("SELECT f.client_id, f.credential_hash FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND t.access_expires_at>clock_timestamp() AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL AND f.scope=$2").bind(hash(token)).bind(scope).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
     if !config.client(&row.get::<String, _>("client_id"))
         || !same(&current, &row.get::<Vec<u8>, _>("credential_hash"))
     {
@@ -440,8 +481,9 @@ pub(crate) async fn native_enrollment(
     if !opaque(token) {
         return Err(Error::InvalidGrant);
     }
-    let (account, client): (Uuid, String) = sqlx::query_as("SELECT f.account_id,f.client_id FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1")
-        .bind(hash(token)).fetch_optional(&mut *db).await?.ok_or(Error::InvalidGrant)?;
+    // Device enrollment (and so every game ticket) needs a game:ticket grant.
+    let (account, client): (Uuid, String) = sqlx::query_as("SELECT f.account_id,f.client_id FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND f.scope=$2")
+        .bind(hash(token)).bind(TICKET_SCOPE).fetch_optional(&mut *db).await?.ok_or(Error::InvalidGrant)?;
     let current = stamp(db, account).await?;
     let client_id = Uuid::parse_str(&client).map_err(|_| Error::InvalidClient)?;
     crate::devices::native::lock_client(db, config, client_id)
@@ -453,8 +495,8 @@ pub(crate) async fn native_enrollment(
                 Error::Unavailable
             }
         })?;
-    let row = sqlx::query("SELECT t.id, t.access_hash, f.account_id, f.client_id, f.credential_hash, f.game_generation, f.native_generation FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND t.access_expires_at>clock_timestamp() AND t.used_at IS NULL AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL FOR UPDATE OF f,t")
-        .bind(hash(token)).fetch_optional(&mut *db).await?.ok_or(Error::InvalidGrant)?;
+    let row = sqlx::query("SELECT t.id, t.access_hash, f.account_id, f.client_id, f.credential_hash, f.game_generation, f.native_generation FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND t.access_expires_at>clock_timestamp() AND t.used_at IS NULL AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL AND f.scope=$2 FOR UPDATE OF f,t")
+        .bind(hash(token)).bind(TICKET_SCOPE).fetch_optional(&mut *db).await?.ok_or(Error::InvalidGrant)?;
     let client: String = row.try_get("client_id")?;
     if row.try_get::<Uuid, _>("account_id")? != account
         || client != client_id.to_string()

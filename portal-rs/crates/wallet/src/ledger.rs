@@ -524,6 +524,23 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         balance(tx, account).await
     }
 
+    /// Balance and wallet revision read by one statement, without creating a
+    /// wallet row. The revision is 1 plus the count of the account's immutable
+    /// entries, so it is positive and every committed ledger effect raises it.
+    pub async fn snapshot_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+    ) -> Result<(Balance, i64), Error> {
+        self.enabled()?;
+        valid_id(account)?;
+        self.known(tx, account).await?;
+        let (transferable, non_transferable, reserved, entries): (i64, i64, i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta) FILTER (WHERE COALESCE(to_jsonb(wallet_entries)->>'coin_class','transferable')='transferable'),0)::bigint, COALESCE(SUM(available_delta) FILTER (WHERE to_jsonb(wallet_entries)->>'coin_class'='non_transferable'),0)::bigint, COALESCE(SUM(reserved_delta),0)::bigint, COUNT(*)::bigint FROM wallet_entries WHERE account_id=$1")
+            .bind(account).fetch_one(&mut **tx).await?;
+        let balance = Balance::default().apply_classes(transferable, reserved, non_transferable)?;
+        Ok((balance, entries.checked_add(1).ok_or(Refusal::Overflow)?))
+    }
+
     /// Numeric wire cursor, independent of the existing UUID history API.
     /// Fetch one extra entry to determine whether an older page exists.
     pub async fn numeric_history_in(
