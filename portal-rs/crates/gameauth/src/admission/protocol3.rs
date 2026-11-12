@@ -18,6 +18,9 @@ pub const RECOVERY_ENABLED: &str = "PORTAL_NATIVE_RECOVERY_ENABLED";
 pub const HANDLE_LIFETIME_SECONDS: &str = "PORTAL_NATIVE_RECOVERY_HANDLE_LIFETIME_SECONDS";
 /// Device binding (§19.15), default on; `false` is accepted only in `testing`.
 pub const REQUIRE_DEVICE_BINDING: &str = "PORTAL_NATIVE_RECOVERY_REQUIRE_DEVICE_BINDING";
+/// The native device-session switch. §19.15.1: with binding on it must be on,
+/// otherwise handle issuance and recovery refuse.
+pub const DEVICES_ENABLED: &str = "OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED";
 
 pub const MAX_HANDLE_LIFETIME_SECONDS: u32 = 43_200;
 const HANDLE_PREFIX: &str = "otr1.";
@@ -60,8 +63,9 @@ impl Protocol3 {
                         raw == v.to_string() && (3600..=MAX_HANDLE_LIFETIME_SECONDS).contains(v)
                     })
                 });
+            let devices = lookup(DEVICES_ENABLED).as_deref() == Some("true");
             let binding = match lookup(REQUIRE_DEVICE_BINDING).as_deref() {
-                None | Some("true") => Some(true),
+                None | Some("true") if devices => Some(true),
                 Some("false") if environment == "testing" => Some(false),
                 _ => None,
             };

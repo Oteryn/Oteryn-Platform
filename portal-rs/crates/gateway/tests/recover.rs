@@ -31,6 +31,8 @@ macro_rules! fixture {
     };
 }
 const REQUEST: &str = fixture!("recover-request.json");
+const PROOF_REQUEST: &str = fixture!("recover-request-device-proof.json");
+const KID: &str = "_oEsEvOrTOasXbaaw1L5BssbEe9D-zPiUu9_9VImOIk";
 const SUCCESS: &str = fixture!("recover-success.json");
 const MALFORMED: &str = fixture!("recover-request-malformed.json");
 const UNSUPPORTED: &str = fixture!("recover-unsupported-version.json");
@@ -270,6 +272,22 @@ async fn recover_success_and_revoke_relay_byte_exact() {
         (StatusCode::OK, line(SUCCESS))
     );
     assert_eq!(upstream.calls.load(Ordering::SeqCst), 1);
+    // §19.15: a `device_proof` is relayed unchanged, last, as in the request.
+    let upstream = serve(Reply {
+        path: recover::RECOVER_PATH,
+        expected: Some(PROOF_REQUEST),
+        status: 200,
+        body: SUCCESS.to_owned(),
+        retry_after: None,
+        hang: false,
+        calls: Arc::default(),
+    })
+    .await;
+    assert_eq!(
+        post(app(&upstream.url), "/v1/recover", PROOF_REQUEST).await,
+        (StatusCode::OK, line(SUCCESS))
+    );
+    assert_eq!(upstream.calls.load(Ordering::SeqCst), 1);
     let upstream = revoke_issuer(200, REVOKE_SUCCESS).await;
     assert_eq!(
         post(app(&upstream.url), "/v1/recover/revoke", REVOKE_REQUEST).await,
@@ -332,8 +350,22 @@ async fn recover_rejects_bad_input_before_the_issuer() {
             "\"protocol_version\":3,",
             "\"protocol_version\":3,\"protocol_version\":3,",
         ),
-        // §19.15 binding is not built; `device_proof` is not in the member set yet.
+        // §19.15 `device_proof`: null, wrong types, unknown or missing members,
+        // and a kid or sig that is not canonical base64url of 32 or 64 bytes.
+        REQUEST.replace("]}}", "]},\"device_proof\":null}"),
+        REQUEST.replace("]}}", "]},\"device_proof\":\"x\"}"),
         REQUEST.replace("]}}", "]},\"device_proof\":{\"kid\":\"k\",\"sig\":\"s\"}}"),
+        PROOF_REQUEST.replace("{\"kid\":", "{\"alg\":\"EdDSA\",\"kid\":"),
+        PROOF_REQUEST.replace(&format!("\"kid\":\"{KID}\","), ""),
+        PROOF_REQUEST.replace(KID, &KID[..42]),
+        PROOF_REQUEST.replace(KID, &format!("{KID}=")),
+        PROOF_REQUEST.replace(KID, &KID.replace("Ik", "Il")),
+        PROOF_REQUEST.replace(KID, &KID.replace('_', "/")),
+        PROOF_REQUEST.replace("Dg\"}", "Dh\"}"),
+        PROOF_REQUEST.replace("Dg\"}", "D\"}"),
+        PROOF_REQUEST.replace("Dg\"}", "Dg==\"}"),
+        PROOF_REQUEST.replace("\"sig\":\"", "\"sig\":1,\"x\":\""),
+        PROOF_REQUEST.replace("}}", "},\"device_proof\":null}"),
         // A handle that is not `otr1.` and 43 base64url characters of 32 bytes.
         REQUEST.replace(HANDLE, "otr1.short"),
         REQUEST.replace(HANDLE, &HANDLE.replace("Hh8", "Hh9")),

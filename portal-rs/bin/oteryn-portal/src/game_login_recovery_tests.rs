@@ -558,12 +558,17 @@ async fn pg_recovery_refusals_fail_closed_without_recording_an_attempt() -> Test
         },
         ..r.protocol3.clone()
     };
-    unavailable(
+    // §19.15: with binding on, a request without `device_proof` is malformed.
+    assert_refused(
         &r.send(
             r.app_with(Some(bound), Some(r.issuer.clone()))?,
             body.clone(),
         )
         .await?,
+        StatusCode::BAD_REQUEST,
+        "NATIVE_RECOVERY_REQUEST_MALFORMED",
+        "RETRY_LOGIN",
+        attempt,
     );
     let unsigned = admission::RecoveryIssuer {
         signer: None,
@@ -922,5 +927,160 @@ async fn pg_recovery_ignores_locator_entries_of_a_lower_epoch() -> TestResult {
         String::from_utf8_lossy(&reply.body)
     );
     assert!(String::from_utf8(reply.body)?.contains(&format!(r#""channel_id":"{CHANNEL}""#)));
+    r.close().await
+}
+
+/// The §19.15.2 recovery proof: the JCS input, signed by `key`, under `kid`.
+fn device_proof(key: &ed25519_dalek::SigningKey, kid: &str, handle: &str, attempt: Uuid) -> String {
+    use ed25519_dalek::Signer;
+    let thumbprint = URL_SAFE_NO_PAD.encode(Sha256::digest(key.verifying_key().as_bytes()));
+    let handle: String = Sha256::digest(handle.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let input = format!(
+        r#"{{"attempt_ref":"{attempt}","character_id":"{CHARACTER}","device_key_thumbprint":"{thumbprint}","purpose":"oteryn-native-recovery-pop-v1","recovery_handle_sha256":"{handle}"}}"#
+    );
+    let sig = URL_SAFE_NO_PAD.encode(key.sign(input.as_bytes()).to_bytes());
+    format!(r#","device_proof":{{"kid":"{kid}","sig":"{sig}"}}}}"#)
+}
+fn with_proof(body: &str, proof: &str) -> String {
+    let body = body.strip_suffix('}').expect("object");
+    format!("{body}{proof}")
+}
+
+#[tokio::test]
+async fn pg_recovery_with_device_binding_requires_a_proof_of_the_bound_family() -> TestResult {
+    let Some(r) = Recovery::open().await? else {
+        return Ok(());
+    };
+    let bound = admission::Protocol3 {
+        handles: admission::Handles::On {
+            lifetime_seconds: 43200,
+            require_device_binding: true,
+        },
+        ..r.protocol3.clone()
+    };
+    let app = r.app_with(Some(bound), Some(r.issuer.clone()))?;
+    // A live session-class family with the synthetic device key (seed [7; 32]).
+    let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+    let public = key.verifying_key().to_bytes();
+    let kid = URL_SAFE_NO_PAD.encode(Sha256::digest(public));
+    let family = Uuid::now_v7();
+    let now = r.db.now().await?;
+    sqlx::query("INSERT INTO device_sessions (id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at,persistence_class,device_public_key,device_key_thumbprint) SELECT $1,$2,$3,$4,game_auth_generation,native_security_generation,$5,$5,'session',$6,$7 FROM accounts WHERE id=$2")
+        .bind(family).bind(r.account).bind(Uuid::now_v7()).bind(family.to_string())
+        .bind(now + 600).bind(&public[..]).bind(&kid)
+        .execute(&r.db.pool).await?;
+    let native = r.db.native_ticket(r.account).await?;
+    sqlx::query("UPDATE game_login_tickets SET device_family_id=$1 WHERE ticket_hash=$2")
+        .bind(family)
+        .bind(&Sha256::digest(native.as_bytes())[..])
+        .execute(&r.db.pool)
+        .await?;
+    let raw = login3(&native, Uuid::now_v7(), None);
+    let (status, body) = admit(app.clone(), SERVICE, raw.clone()).await?;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let handle = success3(&body, &raw)?
+        .recovery
+        .expect("bound handle")
+        .handle;
+    let family_state = || async {
+        sqlx::query_as::<_, (i64, Option<i64>)>(
+            "SELECT idle_expires_at, revoked_at FROM device_sessions WHERE id=$1",
+        )
+        .bind(family)
+        .fetch_one(&r.db.pool)
+        .await
+    };
+    let before = family_state().await?;
+
+    let attempt = Uuid::now_v7();
+    let plain = recover_body(&handle, attempt, CHARACTER);
+    let good = with_proof(&plain, &device_proof(&key, &kid, &handle, attempt));
+    // Missing proof: malformed. Wrong kid, another key, another attempt's or
+    // handle's signature: refused, and no attempt is recorded.
+    assert_refused(
+        &r.send(app.clone(), plain.clone()).await?,
+        StatusCode::BAD_REQUEST,
+        "NATIVE_RECOVERY_REQUEST_MALFORMED",
+        "RETRY_LOGIN",
+        attempt,
+    );
+    let other = ed25519_dalek::SigningKey::from_bytes(&[8; 32]);
+    let other_kid = URL_SAFE_NO_PAD.encode(Sha256::digest(other.verifying_key().as_bytes()));
+    for proof in [
+        device_proof(&key, &other_kid, &handle, attempt),
+        device_proof(&other, &kid, &handle, attempt),
+        device_proof(&other, &other_kid, &handle, attempt),
+        device_proof(&key, &kid, &handle, Uuid::now_v7()),
+        device_proof(&key, &kid, UNKNOWN, attempt),
+    ] {
+        assert_authentication(
+            &r.send(app.clone(), with_proof(&plain, &proof)).await?,
+            attempt,
+        );
+    }
+    // A handle bound to no family never recovers with binding on.
+    r.db.execute("UPDATE native_recovery_handles SET device_family_id=NULL, device_key_thumbprint=NULL WHERE device_family_id IS NOT NULL")
+        .await?;
+    assert_authentication(&r.send(app.clone(), good.clone()).await?, attempt);
+    sqlx::query("UPDATE native_recovery_handles SET device_family_id=$1, device_key_thumbprint=$2 WHERE revoked_at IS NULL")
+        .bind(family)
+        .bind(&kid)
+        .execute(&r.db.pool)
+        .await?;
+    // An idle-expired family refuses even before any cleanup write.
+    sqlx::query("UPDATE device_sessions SET idle_expires_at=$2 WHERE id=$1")
+        .bind(family)
+        .bind(now)
+        .execute(&r.db.pool)
+        .await?;
+    assert_authentication(&r.send(app.clone(), good.clone()).await?, attempt);
+    sqlx::query("UPDATE device_sessions SET idle_expires_at=$2 WHERE id=$1")
+        .bind(family)
+        .bind(before.0)
+        .execute(&r.db.pool)
+        .await?;
+    assert_eq!(r.attempts().await?, 0, "refusals record no attempt");
+
+    // The valid proof recovers, and reading the family never rotates or
+    // touches it.
+    let reply = r.send(app.clone(), good.clone()).await?;
+    assert_eq!(
+        reply.status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
+    assert_eq!(family_state().await?, before);
+    // A retry authenticates like a first request: a bad or missing proof
+    // never returns the stored grant; the valid one does.
+    assert_authentication(
+        &r.send(
+            app.clone(),
+            with_proof(&plain, &device_proof(&other, &kid, &handle, attempt)),
+        )
+        .await?,
+        attempt,
+    );
+    assert_refused(
+        &r.send(app.clone(), plain.clone()).await?,
+        StatusCode::BAD_REQUEST,
+        "NATIVE_RECOVERY_REQUEST_MALFORMED",
+        "RETRY_LOGIN",
+        attempt,
+    );
+    let retry = r.send(app.clone(), good.clone()).await?;
+    assert_eq!(retry.status, StatusCode::OK);
+    assert_eq!(token(&retry.body)?.len(), token(&reply.body)?.len());
+    assert_eq!(r.attempts().await?, 1);
+    // Revoking the family revokes the handle (DB-6): the retry is refused.
+    sqlx::query("UPDATE device_sessions SET revoked_at=$2 WHERE id=$1")
+        .bind(family)
+        .bind(now)
+        .execute(&r.db.pool)
+        .await?;
+    assert_authentication(&r.send(app.clone(), good).await?, attempt);
     r.close().await
 }

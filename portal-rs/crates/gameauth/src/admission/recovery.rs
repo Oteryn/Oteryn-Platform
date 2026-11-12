@@ -1,9 +1,10 @@
 //! Gateway login contract §19.4 recovery issuance (`native-recoveries`), §19.7
 //! handle revocation and the §19.8 recovery errors on the private issuer.
 //! Testing only and default off (owner decision U21): recovery runs only while
-//! protocol 3 and recovery handles are on and §19.15 device binding is off;
-//! with binding on it stays `NATIVE_LOGIN_UNAVAILABLE` until the §19.15 device
-//! proof is built. Recovery attempts share the `attempt_ref` namespace and the
+//! protocol 3 and recovery handles are on. With §19.15 device binding on, every
+//! request and every retry carries a `device_proof` that must verify under the
+//! key of the live family bound to the handle. Recovery attempts share the
+//! `attempt_ref` namespace and the
 //! advisory attempt lock with fresh admissions, and are stored like them: the
 //! signing input only, never the token (§6.1).
 use super::{
@@ -11,6 +12,8 @@ use super::{
     tickets, wire,
 };
 use crate::runtime;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use ed25519_dalek::{Signature, VerifyingKey};
 use oteryn_internal_api::canonical::{self, Value};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -195,6 +198,7 @@ pub(super) struct RecoveryRequest {
     pub character_id: Uuid,
     handle_hash: [u8; 32],
     digest: [u8; 32],
+    proof: Option<DeviceProof>,
 }
 impl std::fmt::Debug for RecoveryRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -204,22 +208,26 @@ impl std::fmt::Debug for RecoveryRequest {
     }
 }
 impl RecoveryRequest {
-    /// The §19.4 member set with `device_proof` absent (§19.15 binding off).
-    pub(super) fn decode(raw: &[u8]) -> Result<Self, RecoveryError> {
+    /// The §19.4 member set. `device_proof` is required with §19.15 binding on
+    /// and absent with it off (testing only).
+    pub(super) fn decode(raw: &[u8], binding: bool) -> Result<Self, RecoveryError> {
         let value = canonical::decode(raw, wire::MAX_BODY, 5).map_err(|_| Error::Malformed)?;
         if wire::number(value.get("protocol_version"))? != 3 {
             return Err(RecoveryError::UnsupportedVersion);
         }
-        wire::keys(
-            &value,
-            &[
-                "protocol_version",
-                "recovery_handle",
-                "attempt_ref",
-                "character_id",
-                "offer",
-            ],
-        )?;
+        const MEMBERS: [&str; 6] = [
+            "protocol_version",
+            "recovery_handle",
+            "attempt_ref",
+            "character_id",
+            "offer",
+            "device_proof",
+        ];
+        wire::keys(&value, if binding { &MEMBERS } else { &MEMBERS[..5] })?;
+        let proof = match value.get("device_proof") {
+            Some(proof) => Some(DeviceProof::decode(proof)?),
+            None => None,
+        };
         let handle_hash = protocol3::handle_hash(wire::string(value.get("recovery_handle"))?)
             .ok_or(RecoveryError::Malformed)?;
         let attempt_ref = wire::uuid(wire::string(value.get("attempt_ref"))?)?;
@@ -234,13 +242,58 @@ impl RecoveryRequest {
         ]);
         let digest =
             Sha256::digest(canonical::encode(&binding).map_err(|_| Error::Malformed)?).into();
+        // The proof is not part of the digest: it is verified again on every
+        // retry instead (§19.4 step 1).
         Ok(Self {
             attempt_ref,
             character_id,
             handle_hash,
             digest,
+            proof,
         })
     }
+}
+/// §19.4 `device_proof`: the family's key thumbprint and an Ed25519 signature,
+/// both canonical unpadded base64url (§19.15.2). Never logged.
+struct DeviceProof {
+    kid: String,
+    sig: [u8; 64],
+}
+impl DeviceProof {
+    fn decode(value: &Value) -> Result<Self, RecoveryError> {
+        wire::keys(value, &["kid", "sig"])?;
+        let kid = wire::string(value.get("kid"))?;
+        let sig = wire::string(value.get("sig"))?;
+        let canonical = |text: &str, chars: usize| {
+            URL_SAFE_NO_PAD
+                .decode(text)
+                .ok()
+                .filter(|bytes| text.len() == chars && URL_SAFE_NO_PAD.encode(bytes) == text)
+        };
+        canonical(kid, 43)
+            .filter(|bytes| bytes.len() == 32)
+            .ok_or(RecoveryError::Malformed)?;
+        let sig = canonical(sig, 86)
+            .and_then(|bytes| <[u8; 64]>::try_from(bytes).ok())
+            .ok_or(RecoveryError::Malformed)?;
+        Ok(Self {
+            kid: kid.to_owned(),
+            sig,
+        })
+    }
+}
+/// The §19.15.2 recovery proof input: UTF-8 JCS, members in lexical order.
+/// Every value is ASCII without JSON escapes.
+fn proof_input(request: &RecoveryRequest, thumbprint: &str) -> String {
+    let handle: String = request
+        .handle_hash
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!(
+        "{{\"attempt_ref\":\"{}\",\"character_id\":\"{}\",\"device_key_thumbprint\":\"{thumbprint}\",\"purpose\":\"oteryn-native-recovery-pop-v1\",\"recovery_handle_sha256\":\"{handle}\"}}",
+        request.attempt_ref, request.character_id
+    )
 }
 /// The §19.7 body: exactly `protocol_version` 3 and a well-formed handle.
 pub(super) fn decode_revoke(raw: &[u8]) -> Result<[u8; 32], RecoveryError> {
@@ -380,6 +433,9 @@ struct Bound {
 /// Identity, device family (shared), play generation. A family-bound handle
 /// also needs its family live and current (§19.15.1: an expired family's
 /// handles count as revoked on every path); nothing here rotates or touches it.
+/// With binding on (a decoded `device_proof`), the handle must name a family
+/// whose thumbprint equals the handle's and the proof's `kid`; the signature is
+/// verified last, under the family's public key.
 async fn authenticate(
     tx: &mut PgConnection,
     request: &RecoveryRequest,
@@ -387,7 +443,7 @@ async fn authenticate(
     now: i64,
 ) -> Result<Bound, RecoveryError> {
     let get = |_: sqlx::Error| RecoveryError::Unavailable;
-    let row = sqlx::query("SELECT account_id, character_id, world_id, channel_id, security_generation, play_generation, device_family_id, expires_at, revoked_at IS NULL AS live FROM native_recovery_handles WHERE handle_hash=$1 FOR UPDATE")
+    let row = sqlx::query("SELECT account_id, character_id, world_id, channel_id, security_generation, play_generation, device_family_id, device_key_thumbprint, expires_at, revoked_at IS NULL AS live FROM native_recovery_handles WHERE handle_hash=$1 FOR UPDATE")
         .bind(&request.handle_hash[..]).fetch_optional(&mut *tx).await.map_err(get)?
         .ok_or(RecoveryError::HandleRejected)?;
     let live: bool = row.try_get("live").map_err(get)?;
@@ -411,12 +467,30 @@ async fn authenticate(
         return Err(RecoveryError::SecurityDenied);
     }
     let family: Option<Uuid> = row.try_get("device_family_id").map_err(get)?;
+    let bound_thumbprint: Option<String> = row.try_get("device_key_thumbprint").map_err(get)?;
+    if request.proof.is_some() && family.is_none() {
+        return Err(RecoveryError::HandleRejected);
+    }
+    let mut device_key = None;
     if let Some(family) = family {
-        let current: Option<i32> = sqlx::query_scalar("SELECT 1 FROM device_sessions d JOIN accounts a ON a.id=d.account_id WHERE d.id=$1 AND d.account_id=$2 AND d.revoked_at IS NULL AND d.absolute_expires_at > $3 AND d.idle_expires_at > $3 AND d.game_generation=a.game_auth_generation AND d.native_generation=a.native_security_generation FOR SHARE OF d")
+        let current = sqlx::query("SELECT d.device_public_key, d.device_key_thumbprint FROM device_sessions d JOIN accounts a ON a.id=d.account_id WHERE d.id=$1 AND d.account_id=$2 AND d.revoked_at IS NULL AND d.absolute_expires_at > $3 AND d.idle_expires_at > $3 AND d.game_generation=a.game_auth_generation AND d.native_generation=a.native_security_generation FOR SHARE OF d")
             .bind(family).bind(account).bind(now)
-            .fetch_optional(&mut *tx).await.map_err(get)?;
-        if current.is_none() {
-            return Err(RecoveryError::HandleRejected);
+            .fetch_optional(&mut *tx).await.map_err(get)?
+            .ok_or(RecoveryError::HandleRejected)?;
+        if let Some(proof) = &request.proof {
+            let key: Option<Vec<u8>> = current.try_get("device_public_key").map_err(get)?;
+            let thumbprint: Option<String> =
+                current.try_get("device_key_thumbprint").map_err(get)?;
+            let (Some(key), Some(thumbprint), Some(bound)) = (key, thumbprint, &bound_thumbprint)
+            else {
+                return Err(RecoveryError::HandleRejected);
+            };
+            if !bool::from(thumbprint.as_bytes().ct_eq(bound.as_bytes()))
+                || !bool::from(thumbprint.as_bytes().ct_eq(proof.kid.as_bytes()))
+            {
+                return Err(RecoveryError::HandleRejected);
+            }
+            device_key = Some((key, thumbprint));
         }
     }
     let play: Option<i64> = sqlx::query_scalar(
@@ -431,6 +505,15 @@ async fn authenticate(
         || character != request.character_id
     {
         return Err(RecoveryError::HandleRejected);
+    }
+    if let (Some(proof), Some((key, thumbprint))) = (&request.proof, device_key) {
+        let key: [u8; 32] = key.try_into().map_err(|_| RecoveryError::Unavailable)?;
+        let key = VerifyingKey::from_bytes(&key).map_err(|_| RecoveryError::Unavailable)?;
+        key.verify_strict(
+            proof_input(request, &thumbprint).as_bytes(),
+            &Signature::from_bytes(&proof.sig),
+        )
+        .map_err(|_| RecoveryError::DeviceProofRejected)?;
     }
     Ok(Bound {
         account,

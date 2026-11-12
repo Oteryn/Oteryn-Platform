@@ -136,7 +136,9 @@ impl From<Code> for RecoverRefusal {
     }
 }
 
-/// §19.4 request with §19.15 binding off: `device_proof` absent.
+/// §19.4 request. `device_proof` is present where §19.15 binding is on and
+/// absent where it is off; only the issuer knows which, so the gateway checks
+/// its shape and relays it.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecoverRequest {
@@ -145,6 +147,36 @@ pub struct RecoverRequest {
     pub attempt_ref: String,
     pub character_id: String,
     pub offer: Offer,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_proof: Option<DeviceProof>,
+}
+/// §19.4 `device_proof`: the device key thumbprint and the Ed25519 signature,
+/// canonical unpadded base64url of 32 and 64 bytes (§19.15.2). Never logged.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceProof {
+    pub kid: String,
+    pub sig: String,
+}
+impl fmt::Debug for DeviceProof {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("DeviceProof{redacted}")
+    }
+}
+/// Canonical unpadded base64url of `chars` characters whose last character
+/// carries only bits of the encoded bytes (`last` lists the allowed ones).
+fn base64url(text: &str, chars: usize, last: &[u8]) -> bool {
+    text.len() == chars
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && text.bytes().last().is_some_and(|b| last.contains(&b))
+}
+impl DeviceProof {
+    fn valid(&self) -> bool {
+        // 32 bytes leave two zero bits in the 43rd character, 64 bytes four in the 86th.
+        base64url(&self.kid, 43, b"AEIMQUYcgkosw048") && base64url(&self.sig, 86, b"AQgw")
+    }
 }
 impl fmt::Debug for RecoverRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -166,14 +198,17 @@ impl fmt::Debug for RevokeRequest {
     }
 }
 /// The §3.1 parsing rules: bounded body, no duplicate members, exact member
-/// set before the version, then `3` only.
-fn front(body: &[u8], members: &[&str]) -> Result<(), RecoverCode> {
+/// set (with the `optional` members that are present) before the version,
+/// then `3` only.
+fn front(body: &[u8], members: &[&str], optional: &[&str]) -> Result<(), RecoverCode> {
     let malformed = RecoverCode::Malformed;
     if body.is_empty() || body.len() > MAX_REQUEST_BYTES || !check_json(body, 4) {
         return Err(malformed);
     }
     let v: Value = serde_json::from_slice(body).map_err(|_| malformed)?;
-    if !exact(&v, members, &[]) {
+    let mut names = members.to_vec();
+    names.extend(optional.iter().filter(|name| v.get(**name).is_some()));
+    if !exact(&v, &names, &[]) {
         return Err(malformed);
     }
     if v["protocol_version"].as_i64().ok_or(malformed)? != 3 {
@@ -191,16 +226,21 @@ pub fn parse_request(body: &[u8]) -> Result<RecoverRequest, RecoverCode> {
             "character_id",
             "offer",
         ],
+        &["device_proof"],
     )?;
     let r: RecoverRequest = serde_json::from_slice(body).map_err(|_| RecoverCode::Malformed)?;
-    if !handle_valid(&r.recovery_handle) || !uuid_v7(&r.attempt_ref) || !uuid_v7(&r.character_id) {
+    if !handle_valid(&r.recovery_handle)
+        || !uuid_v7(&r.attempt_ref)
+        || !uuid_v7(&r.character_id)
+        || r.device_proof.as_ref().is_some_and(|proof| !proof.valid())
+    {
         return Err(RecoverCode::Malformed);
     }
     check_offer(&r.offer)?;
     Ok(r)
 }
 pub fn parse_revoke(body: &[u8]) -> Result<RevokeRequest, RecoverCode> {
-    front(body, &["protocol_version", "recovery_handle"])?;
+    front(body, &["protocol_version", "recovery_handle"], &[])?;
     let r: RevokeRequest = serde_json::from_slice(body).map_err(|_| RecoverCode::Malformed)?;
     if !handle_valid(&r.recovery_handle) {
         return Err(RecoverCode::Malformed);
