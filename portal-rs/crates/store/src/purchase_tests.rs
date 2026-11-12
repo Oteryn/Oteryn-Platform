@@ -95,6 +95,70 @@ fn read_request(history: bool, account: &str, before: &str, max: u8) -> Vec<u8> 
     canonical::encode(&value).unwrap()
 }
 #[test]
+fn wire_schemas_carry_owner_decision_d1() {
+    let schema = |name: &str| -> serde_json::Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../docs/contracts/fixtures/store-wire-v1")
+            .join(name);
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    };
+    let pattern = serde_json::json!("^[a-z0-9][a-z0-9_.:-]{0,127}$");
+    let coins = serde_json::json!(["COINS"]);
+    for (name, pointer, expected) in [
+        (
+            "purchase-request.schema.json",
+            "/properties/offer_key/pattern",
+            &pattern,
+        ),
+        (
+            "purchase-request.schema.json",
+            "/properties/currency/enum",
+            &coins,
+        ),
+        (
+            "intent.schema.json",
+            "/oneOf/0/properties/offer_key/pattern",
+            &pattern,
+        ),
+        (
+            "history-response.schema.json",
+            "/properties/entries/items/properties/offer_key/oneOf/0/pattern",
+            &pattern,
+        ),
+        (
+            "history-response.schema.json",
+            "/properties/entries/items/properties/currency/enum",
+            &coins,
+        ),
+        (
+            "purchase-answer.schema.json",
+            "/oneOf/0/properties/currency/enum",
+            &coins,
+        ),
+        (
+            "balance-response.schema.json",
+            "/properties/balances/items/properties/currency/enum",
+            &coins,
+        ),
+        (
+            "balance-response.schema.json",
+            "/properties/balances/minItems",
+            &serde_json::json!(1),
+        ),
+        (
+            "balance-response.schema.json",
+            "/properties/balances/maxItems",
+            &serde_json::json!(1),
+        ),
+    ] {
+        assert_eq!(
+            schema(name).pointer(pointer),
+            Some(expected),
+            "{name}{pointer}"
+        );
+    }
+}
+#[test]
 fn wire_requests_are_closed_canonical_and_bounded() {
     for history in [false, true] {
         let bytes = read_request(history, ACCOUNT, "18446744073709551615", 32);
@@ -107,7 +171,25 @@ fn wire_requests_are_closed_canonical_and_bounded() {
     // obsolete numeric form is deliberately refused.
     assert!(PurchaseRequest::decode(&fixture("purchase-request.valid.json")).is_ok());
     assert!(PurchaseRequest::decode(&request("37")).is_err());
+    // Game offer keys keep `:` and reach 128 bytes (owner D1, 2026-11-02).
+    for key in [
+        "store:exercise-sword".to_owned(),
+        "0.a_b:c-d".to_owned(),
+        format!("a{}", "b".repeat(127)),
+    ] {
+        assert!(
+            PurchaseRequest::decode(&change(&raw, "offer_key", text(&key))).is_ok(),
+            "{key}"
+        );
+    }
     for (key, new) in [
+        ("currency", text("TRANSFERABLE_COINS")),
+        ("offer_key", text("")),
+        ("offer_key", text(":store")),
+        ("offer_key", text("_store")),
+        ("offer_key", text("store/sword")),
+        ("offer_key", text("store sword")),
+        ("offer_key", text(format!("a{}", "b".repeat(128)))),
         ("contract_version", number(2)),
         ("operation", text("Other")),
         ("source_authority", text("bad source")),
@@ -528,7 +610,6 @@ async fn db_refusals_are_terminal_and_create_only_answers() {
         ("catalog_revision", text("0".repeat(64)), "STALE_QUOTE"),
         ("offer_key", text("missing"), "OFFER_UNAVAILABLE"),
         ("unit_price", text("251"), "STALE_QUOTE"),
-        ("currency", text("TRANSFERABLE_COINS"), "STALE_QUOTE"),
         ("quantity", number(11), "OFFER_UNAVAILABLE"),
     ] {
         let input = change(&unique(&raw), key, new);
@@ -536,6 +617,14 @@ async fn db_refusals_are_terminal_and_create_only_answers() {
         assert_eq!(string(&value(&bytes), "result"), result);
         assert_eq!(service.purchase(&input).await.unwrap(), bytes);
     }
+    // D1: the Store wire carries `COINS` only, so another currency is a bad request.
+    let answers = db.count("store_purchase_requests").await;
+    let other = change(&unique(&raw), "currency", text("TRANSFERABLE_COINS"));
+    assert!(matches!(
+        service.purchase(&other).await,
+        Err(Error::Invalid)
+    ));
+    assert_eq!(db.count("store_purchase_requests").await, answers);
     let mut off = settings();
     off.enabled_unit_kinds.clear();
     let bytes = db.service(off).purchase(&unique(&raw)).await.unwrap();
@@ -1255,7 +1344,7 @@ async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
             PRICE_LIST.replace("COINS", "TRANSFERABLE_COINS"),
             "250",
             1,
-            "OFFER_UNAVAILABLE",
+            "STALE_QUOTE",
             vec!["PREMIUM_TIME"],
         ),
         (
@@ -1298,9 +1387,6 @@ async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
         let mut raw = unique(&request(&revision));
         raw = change(&raw, "unit_price", text(price));
         raw = change(&raw, "quantity", number(quantity));
-        if document.contains("TRANSFERABLE_COINS") {
-            raw = change(&raw, "currency", text("TRANSFERABLE_COINS"));
-        }
         let mut s = settings();
         s.enabled_unit_kinds = kinds.into_iter().map(str::to_owned).collect();
         let bytes = db.service(s).purchase(&raw).await.unwrap();

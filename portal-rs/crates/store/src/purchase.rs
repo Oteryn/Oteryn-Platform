@@ -165,12 +165,13 @@ fn hex64(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
+/// `^[a-z0-9][a-z0-9_.:-]{0,127}$`: Game offer keys keep `:` (owner D1).
 fn offer_key(value: &str) -> bool {
-    (1..=64).contains(&value.len())
+    (1..=128).contains(&value.len())
         && value.as_bytes()[0].is_ascii_alphanumeric()
         && value
             .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b))
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.:-".contains(&b))
 }
 fn head(version: u8, operation: &str, expected: &str, authority: &str) -> Result<(), Error> {
     if version != 1 || operation != expected || !source(authority) {
@@ -242,7 +243,8 @@ impl PurchaseRequest {
         }
         if !hex64(&request.catalog_revision)
             || !offer_key(&request.offer_key)
-            || !matches!(request.currency.as_str(), "COINS" | "TRANSFERABLE_COINS")
+            // The Store wire carries `COINS` only (owner D1, 2026-11-02).
+            || request.currency != "COINS"
             || decimal(&request.unit_price, false).is_none_or(|n| n > i64::MAX as u64)
             || !(1..=100).contains(&request.quantity)
         {

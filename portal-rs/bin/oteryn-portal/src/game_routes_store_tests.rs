@@ -515,14 +515,37 @@ async fn db_surface_off_or_production_answers_503_and_writes_nothing() {
     db.finish().await;
 }
 
+#[tokio::test]
+async fn db_preproduction_app_env_accepts() {
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    db.fund(1000).await;
+    let mut values = values();
+    values.insert("APP_ENV".into(), "preproduction".into());
+    let app = db.app(&values).await;
+    let (status, bytes) = call(&app, STORE, PURCHASE, &request(&db.revision, None)).await;
+    assert_eq!(
+        (status, result(&bytes).as_str()),
+        (StatusCode::OK, "ACCEPTED")
+    );
+    assert_eq!(db.written().await, [1, 1, 1, 1, 1]);
+    assert_eq!(db.available().await, 750);
+    db.finish().await;
+}
+
 /// One buyer state for the production account gate, set up on a fresh buyer.
 #[derive(Debug, Clone, Copy)]
 enum Buyer {
     Suspended,
+    Restricted,
     TypedBan,
+    LiftedTypedBan,
+    ExpiredTypedBan,
     ExpiredSuspension,
     PendingSuspension,
     UnknownCategory,
+    UnknownStatus,
     NotActive,
     EmailNotVerified,
     EmailChangeCooldown,
@@ -540,30 +563,54 @@ impl Database {
             .bind(account).bind(format!("{}@example.test", account.simple())).execute(&self.pool).await.unwrap();
         self.fund_account(&account.to_string(), 1000).await;
         let moderator = Uuid::parse_str(MODERATOR).unwrap();
-        let sanction = |category: &str, effective: &str, expires: &str| {
+        let sanction = |category: &str, status: &str, effective: &str, expires: &str| {
             format!(
-                "INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'{category}','active','test',now()+interval '{effective}',now()+interval '{expires}',$2)"
+                "INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'{category}','{status}','test',now()+interval '{effective}',now()+interval '{expires}',$2)"
             )
         };
+        // Typed ban revisions, oldest first: (active, decided, expires).
+        let ban: &[(bool, &str, Option<&str>)] = match state {
+            Buyer::TypedBan => &[(true, "0 seconds", None)],
+            // The latest revision lifts the ban.
+            Buyer::LiftedTypedBan => &[(true, "-2 days", None), (false, "-1 day", None)],
+            Buyer::ExpiredTypedBan => &[(true, "-2 days", Some("-1 day"))],
+            _ => &[],
+        };
+        if !ban.is_empty() {
+            let id = Uuid::now_v7();
+            sqlx::query("INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES($1,$2,'ban')")
+                .bind(id).bind(account).execute(&self.pool).await.unwrap();
+            for (revision, (active, decided, expires)) in (1_i64..).zip(ban) {
+                sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) VALUES($1,$2,$3,'{}',$4,now()+$5::interval,now()+$6::interval)")
+                    .bind(account).bind(revision).bind(id).bind(active).bind(decided).bind(expires)
+                    .execute(&self.pool).await.unwrap();
+            }
+            return account.to_string();
+        }
         let sql = match state {
-            Buyer::Suspended => sanction("suspension", "-1 minute", "1 day"),
-            Buyer::ExpiredSuspension => sanction("suspension", "-2 days", "-1 day"),
-            Buyer::PendingSuspension => sanction("suspension", "1 day", "2 days"),
+            Buyer::Suspended => sanction("suspension", "active", "-1 minute", "1 day"),
+            Buyer::Restricted => sanction("restriction", "active", "-1 minute", "1 day"),
+            Buyer::ExpiredSuspension => sanction("suspension", "active", "-2 days", "-1 day"),
+            Buyer::PendingSuspension => sanction("suspension", "active", "1 day", "2 days"),
             Buyer::UnknownCategory => {
                 // A category this build does not know must bar buying.
                 sqlx::raw_sql("ALTER TABLE sanctions DROP CONSTRAINT IF EXISTS sanctions_category_check")
                     .execute(&self.pool)
                     .await
                     .unwrap();
-                sanction("future-category", "-1 minute", "1 day")
+                sanction("future-category", "active", "-1 minute", "1 day")
             }
-            Buyer::TypedBan => {
-                let id = Uuid::now_v7();
-                sqlx::query("INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES($1,$2,'ban')")
-                    .bind(id).bind(account).execute(&self.pool).await.unwrap();
-                sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) VALUES($1,1,$2,'{}',true,now(),NULL)")
-                    .bind(account).bind(id).execute(&self.pool).await.unwrap();
-                return account.to_string();
+            Buyer::UnknownStatus => {
+                // A status this build does not know must bar buying, even on a
+                // warning, which never bars by itself.
+                sqlx::raw_sql("ALTER TABLE sanctions DROP CONSTRAINT IF EXISTS sanctions_status_check")
+                    .execute(&self.pool)
+                    .await
+                    .unwrap();
+                sanction("warning", "future-status", "-1 minute", "1 day")
+            }
+            Buyer::TypedBan | Buyer::LiftedTypedBan | Buyer::ExpiredTypedBan => {
+                panic!("handled above")
             }
             Buyer::NotActive => {
                 "UPDATE accounts SET status='suspended' WHERE id=$1 AND $2::uuid IS NOT NULL".to_owned()
@@ -593,8 +640,10 @@ async fn db_account_gate_refuses_every_barred_buyer_and_writes_nothing() {
     let app = db.app(&values()).await;
     for state in [
         Buyer::Suspended,
+        Buyer::Restricted,
         Buyer::TypedBan,
         Buyer::UnknownCategory,
+        Buyer::UnknownStatus,
         Buyer::NotActive,
         Buyer::EmailNotVerified,
         Buyer::EmailChangeCooldown,
@@ -625,8 +674,14 @@ async fn db_account_gate_refuses_every_barred_buyer_and_writes_nothing() {
             assert_eq!(db.available_of(&buyer).await, 1000, "{state:?}");
         }
     }
-    // A sanction that has expired or is not yet effective does not bar buying.
-    for state in [Buyer::ExpiredSuspension, Buyer::PendingSuspension] {
+    // A sanction that has expired, is not yet effective or was lifted does not
+    // bar buying.
+    for state in [
+        Buyer::ExpiredSuspension,
+        Buyer::PendingSuspension,
+        Buyer::LiftedTypedBan,
+        Buyer::ExpiredTypedBan,
+    ] {
         let buyer = db.buyer(state).await;
         let (status, bytes) = call(
             &app,
