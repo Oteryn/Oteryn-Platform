@@ -24,6 +24,10 @@ fn parse_role(arg: Option<&str>) -> Option<Role> {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // Test-only seeding prints one JSON object on stdout, so it runs before logging starts.
+    if std::env::args().nth(1).as_deref() == Some("seed") {
+        return seed::main().await;
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -456,6 +460,7 @@ mod game_login;
 mod game_routes;
 mod gateway;
 mod internal_tls;
+mod seed;
 mod wallet_topup;
 mod worker;
 
