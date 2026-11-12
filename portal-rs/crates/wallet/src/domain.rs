@@ -49,45 +49,27 @@ pub trait AuditHook: Send + Sync {
 }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Balance {
+    /// There is one coin class: every credit adds to and every spend, reserve
+    /// and transfer takes from this amount.
     pub available: i64,
-    /// Spendable coins eligible for gifts and market reserves.
-    pub transferable: i64,
-    pub non_transferable: i64,
     pub reserved: i64,
 }
 impl Balance {
     pub(crate) fn apply(self, available: i64, reserved: i64) -> Result<Self, Error> {
-        self.apply_classes(available, reserved, 0)
-    }
-    pub(crate) fn apply_classes(
-        self,
-        transferable: i64,
-        reserved: i64,
-        non_transferable: i64,
-    ) -> Result<Self, Error> {
-        let transferable = self
-            .transferable
-            .checked_add(transferable)
-            .ok_or(Refusal::Overflow)?;
-        let non_transferable = self
-            .non_transferable
-            .checked_add(non_transferable)
+        let available = self
+            .available
+            .checked_add(available)
             .ok_or(Refusal::Overflow)?;
         let reserved = self
             .reserved
             .checked_add(reserved)
             .ok_or(Refusal::Overflow)?;
-        if transferable < 0 || non_transferable < 0 || reserved < 0 {
+        if available < 0 || reserved < 0 {
             return Err(Refusal::InsufficientFunds.into());
         }
-        let available = transferable
-            .checked_add(non_transferable)
-            .ok_or(Refusal::Overflow)?;
         available.checked_add(reserved).ok_or(Refusal::Overflow)?;
         Ok(Self {
             available,
-            transferable,
-            non_transferable,
             reserved,
         })
     }
@@ -143,8 +125,7 @@ pub struct Receipt {
     pub account_id: Uuid,
     pub counterparty_account_id: Option<Uuid>,
     pub amount: i64,
-    pub transferable_after: i64,
-    pub non_transferable_after: i64,
+    pub available_after: i64,
     pub reserved_after: i64,
     pub occurred_at: OffsetDateTime,
 }
@@ -160,7 +141,6 @@ pub struct AdjustmentAudit {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryEntry {
-    pub coin_class: String,
     pub counterparty_account_id: Option<Uuid>,
     pub id: Uuid,
     pub operation_id: Uuid,
@@ -197,7 +177,13 @@ mod tests {
     #[test]
     fn balance_checks_negative_and_overflow() -> Result<(), Error> {
         let balance = Balance::default().apply(10, 0)?;
-        assert_eq!(balance.transferable, 10);
+        assert_eq!(
+            balance,
+            Balance {
+                available: 10,
+                reserved: 0
+            }
+        );
         assert!(matches!(
             balance.apply(-11, 0),
             Err(Error::Refused(Refusal::InsufficientFunds))
@@ -254,7 +240,7 @@ pub struct NumericHistoryEntry {
     pub created_at: OffsetDateTime,
 }
 
-/// Audited source of a non-transferable credit.
+/// Audited source of a granted credit to the one coin balance.
 #[derive(Debug, Clone, Copy)]
 pub enum GrantKind {
     Reward,

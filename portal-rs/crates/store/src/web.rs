@@ -312,7 +312,7 @@ struct PackageView {
 <header class="op-card op-stack"><a href="#main">{{ skip }}</a><nav class="op-tabs" aria-label="{{ shop }}"><a href="/{{ lang }}/shop">{{ shop }}</a><a href="/{{ lang }}/shop/coins">{{ coins }}</a><a href="/{{ lang }}/shop/history">{{ history }}</a><a href="/{{ lang }}/shop/transfer">{{ transfer }}</a></nav></header>
 <main id="main" tabindex="-1" class="op-card op-stack"><h1>{{ title }}</h1>
 {% if !message.is_empty() %}<p class="op-alert" role="status">{{ message }}</p>{% endif %}
-{% if let Some(b) = balance %}<section class="op-panel"><dl><dt>{{ available }}</dt><dd>{{ b.available }}</dd><dt>{{ transferable }}</dt><dd>{{ b.transferable }}</dd><dt>{{ reserved }}</dt><dd>{{ b.reserved }}</dd></dl></section>{% endif %}
+{% if let Some(b) = balance %}<section class="op-panel"><dl><dt>{{ available }}</dt><dd>{{ b.available }}</dd><dt>{{ reserved }}</dt><dd>{{ b.reserved }}</dd></dl></section>{% endif %}
 {% if section == "checkout" %}
 <p class="op-alert">{{ test_banner }}</p>
 {% if let Some(c) = checkout %}<dl><dt>{{ package_label }}</dt><dd>{{ c.package.key }}</dd><dt>{{ coins_label }}</dt><dd>{{ c.package.coins }}</dd><dt>{{ payment_amount }}</dt><dd>{{ checkout_price }}</dd></dl>
@@ -350,7 +350,6 @@ struct Page {
     skip: String,
     available: String,
     reserved: String,
-    transferable: String,
     price: String,
     quantity: String,
     character: String,
@@ -403,7 +402,6 @@ impl Page {
             skip: l.text("skip"),
             available: l.text("available"),
             reserved: l.text("reserved"),
-            transferable: l.text("transferable"),
             price: l.text("price"),
             quantity: l.text("quantity"),
             character: l.text("character"),

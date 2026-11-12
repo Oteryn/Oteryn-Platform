@@ -22,7 +22,7 @@ reads featuring from committed promotion records. No private proxy maximum is
 part of the public view.
 
 `Accounts` must supply current account restrictions, verification and MFA/sudo
-state. `PromotionLedger` must debit transferable coins and append the Wallet
+state. `PromotionLedger` must debit coins (one coin class) and append the Wallet
 ledger using only the supplied transaction and promotion ID. Never commit the
 transaction or perform external I/O inside an adapter. Featuring binds the
 seller's displayed quote to an immutable fee revision; replay cannot debit twice.

@@ -94,6 +94,33 @@ fn ids() -> (Uuid, Uuid, Uuid, Uuid) {
         Uuid::parse_str(member(&o, "operation_id")).unwrap(),
     )
 }
+/// One coin class (owner decision 2026-11-12): the coin-wire-v1 members stay,
+/// the transferable member carries the fixture's whole balance (its
+/// transferable plus non-transferable figure) and the non-transferable one is 0.
+fn single_coin(v: &mut Value) {
+    let Value::Object(m) = v else {
+        return;
+    };
+    for (all, none) in [
+        ("transferable", "non_transferable"),
+        ("transferable_after", "non_transferable_after"),
+    ] {
+        let figure = |m: &[(String, Value)], key: &str| {
+            m.iter().find(|(k, _)| k == key).map(|(_, v)| match v {
+                Value::String(s) => s.parse::<i64>().unwrap(),
+                _ => panic!("string"),
+            })
+        };
+        if let (Some(t), Some(n)) = (figure(m, all), figure(m, none)) {
+            set(v, all, Value::String((t + n).to_string()));
+            set(v, none, Value::String("0".to_owned()));
+            return;
+        }
+    }
+    for (_, member) in m.iter_mut() {
+        single_coin(member);
+    }
+}
 fn normalize_receipt(expected: &mut Value, actual: &Value) {
     let actual = actual.get("receipt").unwrap();
     let Value::Object(m) = expected else {
@@ -124,7 +151,7 @@ async fn fixtures_round_trip_real_wallet_handlers_for_every_route() {
         let ledger = db.ledger(&[a, b]);
         fund(&ledger, a, 100).await;
         ledger
-            .credit_non_transferable(id(), a, 5, id(), "Reward", GrantKind::Reward)
+            .grant(id(), a, 5, id(), "Reward", GrantKind::Reward)
             .await
             .unwrap();
         if ["settlements", "cancellations"].contains(&route) {
@@ -162,6 +189,7 @@ async fn fixtures_round_trip_real_wallet_handlers_for_every_route() {
         );
         let actual = parse(&bytes);
         let mut expected = parse(&fixture(&format!("{route}-ok.json")));
+        single_coin(&mut expected);
         if ["balance", "history"].contains(&route) {
             if route == "history" {
                 let Value::Array(actual_entries) = actual.get("entries").unwrap() else {
@@ -226,6 +254,7 @@ async fn fixtures_round_trip_real_wallet_handlers_for_every_route() {
             let (status, replay) = call(router, &path, body, true).await;
             assert_eq!(status, StatusCode::OK);
             let mut expected = parse(&fixture("replay.json"));
+            single_coin(&mut expected);
             normalize_receipt(&mut expected, &parse(&replay));
             assert_eq!(canonical::encode(&expected).unwrap(), replay);
         }

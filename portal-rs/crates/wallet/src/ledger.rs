@@ -215,13 +215,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             return receipt(tx, key, true).await;
         }
         let before = balance(tx, account).await?;
-        let non_transferable_debit = if self.adjustment_kind == AdjustmentKind::StorePurchase {
-            before.non_transferable.min(-amount)
-        } else {
-            0
-        };
-        let transferable_delta = amount + non_transferable_debit;
-        let after = before.apply_classes(transferable_delta, 0, -non_transferable_debit)?;
+        let after = before.apply(amount, 0)?;
         let event = AdjustmentAudit {
             operation_id: key,
             account_id: account,
@@ -234,20 +228,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if !self.audit.adjustment(tx, &event).await {
             return Err(Refusal::AuditDenied.into());
         }
-        if non_transferable_debit > 0 {
-            class_entry(
-                tx,
-                key,
-                account,
-                -non_transferable_debit,
-                0,
-                "non_transferable",
-            )
-            .await?;
-        }
-        if transferable_delta != 0 {
-            entry(tx, key, account, transferable_delta, 0).await?;
-        }
+        entry(tx, key, account, amount, 0).await?;
         sqlx::query("INSERT INTO wallet_adjustments (id, account_id, actor_id, amount, reason) VALUES ($1,$2,$3,$4,$5)")
             .bind(key).bind(account).bind(actor).bind(amount).bind(reason).execute(&mut **tx).await?;
         receipt(tx, key, false).await
@@ -371,13 +352,12 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         }
         let mut tx = self.pool.begin().await?;
         self.active(&mut tx, account).await?;
-        let rows = sqlx::query("SELECT e.id, e.operation_id, o.kind, COALESCE(to_jsonb(e)->>'coin_class','transferable') AS coin_class, CASE WHEN e.account_id=o.account_id THEN o.counterparty_id ELSE o.account_id END AS counterparty, e.available_delta, e.reserved_delta, e.created_at FROM wallet_entries e JOIN wallet_operations o ON o.id=e.operation_id WHERE e.account_id=$1 AND ($2::uuid IS NULL OR e.id < $2) ORDER BY e.id DESC LIMIT $3")
+        let rows = sqlx::query("SELECT e.id, e.operation_id, o.kind, CASE WHEN e.account_id=o.account_id THEN o.counterparty_id ELSE o.account_id END AS counterparty, e.available_delta, e.reserved_delta, e.created_at FROM wallet_entries e JOIN wallet_operations o ON o.id=e.operation_id WHERE e.account_id=$1 AND ($2::uuid IS NULL OR e.id < $2) ORDER BY e.id DESC LIMIT $3")
             .bind(account).bind(page.before).bind(i64::from(page.limit)).fetch_all(&mut *tx).await?;
         let entries = rows
             .into_iter()
             .map(|row| {
                 Ok(HistoryEntry {
-                    coin_class: row.try_get("coin_class")?,
                     counterparty_account_id: row.try_get("counterparty")?,
                     id: row.try_get("id")?,
                     operation_id: row.try_get("operation_id")?,
@@ -401,7 +381,8 @@ async fn receipt(
         .bind(key).fetch_optional(&mut **tx).await?.ok_or(Refusal::ReservationMissing)?;
     let account: Uuid = row.try_get("account_id")?;
     let sequence: Option<i64> = row.try_get("sequence")?;
-    let (transferable, non_transferable, reserved): (i64,i64,i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta) FILTER (WHERE COALESCE(to_jsonb(wallet_entries)->>'coin_class','transferable')='transferable'),0)::bigint,COALESCE(SUM(available_delta) FILTER (WHERE to_jsonb(wallet_entries)->>'coin_class'='non_transferable'),0)::bigint,COALESCE(SUM(reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1 AND (($2::bigint IS NOT NULL AND (to_jsonb(wallet_entries)->>'entry_sequence')::bigint<=$2) OR ($2::bigint IS NULL AND id <= (SELECT id FROM wallet_entries WHERE operation_id=$3 AND account_id=$1 ORDER BY id DESC LIMIT 1)))")
+    // Entries of either historical coin_class count toward the one balance.
+    let (available, reserved): (i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta),0)::bigint,COALESCE(SUM(reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1 AND (($2::bigint IS NOT NULL AND (to_jsonb(wallet_entries)->>'entry_sequence')::bigint<=$2) OR ($2::bigint IS NULL AND id <= (SELECT id FROM wallet_entries WHERE operation_id=$3 AND account_id=$1 ORDER BY id DESC LIMIT 1)))")
         .bind(account).bind(sequence).bind(key).fetch_one(&mut **tx).await?;
     Ok(Receipt {
         operation_id: key,
@@ -410,8 +391,7 @@ async fn receipt(
         account_id: account,
         counterparty_account_id: row.try_get("counterparty_id")?,
         amount: row.try_get("amount")?,
-        transferable_after: transferable,
-        non_transferable_after: non_transferable,
+        available_after: available,
         reserved_after: reserved,
         occurred_at: row.try_get("created_at")?,
     })
@@ -448,9 +428,10 @@ async fn lock(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(), E
     Ok(())
 }
 async fn balance(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<Balance, Error> {
-    let (transferable, non_transferable, reserved): (i64, i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta) FILTER (WHERE COALESCE(to_jsonb(wallet_entries)->>'coin_class','transferable')='transferable'),0)::bigint, COALESCE(SUM(available_delta) FILTER (WHERE to_jsonb(wallet_entries)->>'coin_class'='non_transferable'),0)::bigint, COALESCE(SUM(reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1")
+    // One coin class: entries of either historical coin_class count.
+    let (available, reserved): (i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta),0)::bigint, COALESCE(SUM(reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1")
         .bind(account).fetch_one(&mut **tx).await?;
-    Balance::default().apply_classes(transferable, reserved, non_transferable)
+    Balance::default().apply(available, reserved)
 }
 async fn entry(
     tx: &mut Transaction<'_, Postgres>,
@@ -459,29 +440,9 @@ async fn entry(
     available: i64,
     reserved: i64,
 ) -> Result<(), Error> {
-    class_entry(tx, key, account, available, reserved, "transferable").await
-}
-async fn class_entry(
-    tx: &mut Transaction<'_, Postgres>,
-    key: Uuid,
-    account: Uuid,
-    available: i64,
-    reserved: i64,
-    class: &str,
-) -> Result<(), Error> {
-    let before = balance(tx, account).await?;
-    if class == "non_transferable" {
-        before.apply_classes(0, reserved, available)?;
-    } else {
-        before.apply(available, reserved)?;
-    }
-    if class == "transferable" {
-        sqlx::query("INSERT INTO wallet_entries (id,operation_id,account_id,available_delta,reserved_delta) VALUES ($1,$2,$3,$4,$5)")
-            .bind(Uuid::now_v7()).bind(key).bind(account).bind(available).bind(reserved).execute(&mut **tx).await?;
-    } else {
-        sqlx::query("INSERT INTO wallet_entries (id,operation_id,account_id,available_delta,reserved_delta,coin_class) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(Uuid::now_v7()).bind(key).bind(account).bind(available).bind(reserved).bind(class).execute(&mut **tx).await?;
-    }
+    balance(tx, account).await?.apply(available, reserved)?;
+    sqlx::query("INSERT INTO wallet_entries (id,operation_id,account_id,available_delta,reserved_delta) VALUES ($1,$2,$3,$4,$5)")
+        .bind(Uuid::now_v7()).bind(key).bind(account).bind(available).bind(reserved).execute(&mut **tx).await?;
     Ok(())
 }
 
@@ -535,9 +496,9 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         self.enabled()?;
         valid_id(account)?;
         self.known(tx, account).await?;
-        let (transferable, non_transferable, reserved, entries): (i64, i64, i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta) FILTER (WHERE COALESCE(to_jsonb(wallet_entries)->>'coin_class','transferable')='transferable'),0)::bigint, COALESCE(SUM(available_delta) FILTER (WHERE to_jsonb(wallet_entries)->>'coin_class'='non_transferable'),0)::bigint, COALESCE(SUM(reserved_delta),0)::bigint, COUNT(*)::bigint FROM wallet_entries WHERE account_id=$1")
+        let (available, reserved, entries): (i64, i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta),0)::bigint, COALESCE(SUM(reserved_delta),0)::bigint, COUNT(*)::bigint FROM wallet_entries WHERE account_id=$1")
             .bind(account).fetch_one(&mut **tx).await?;
-        let balance = Balance::default().apply_classes(transferable, reserved, non_transferable)?;
+        let balance = Balance::default().apply(available, reserved)?;
         Ok((balance, entries.checked_add(1).ok_or(Refusal::Overflow)?))
     }
 
@@ -690,9 +651,11 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         tx.commit().await?;
         Ok(Some(result))
     }
-    /// Explicit audited grant; paid top-ups keep using the transferable path.
+    /// Audited reward or staff credit to the one coin balance: spendable,
+    /// reservable and transferable like a top-up. The actor, reason and the
+    /// transactional audit adapter are required; replay does not repeat it.
     #[allow(clippy::too_many_arguments)]
-    pub async fn credit_non_transferable(
+    pub async fn grant(
         &self,
         key: Uuid,
         account: Uuid,
@@ -724,7 +687,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         let replayed = claim(&mut tx, &op).await?;
         if !replayed {
             let before = balance(&mut tx, account).await?;
-            let after = before.apply_classes(0, 0, amount)?;
+            let after = before.apply(amount, 0)?;
             if !self
                 .audit
                 .adjustment(
@@ -743,7 +706,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             {
                 return Err(Refusal::AuditDenied.into());
             }
-            class_entry(&mut tx, key, account, amount, 0, "non_transferable").await?;
+            entry(&mut tx, key, account, amount, 0).await?;
         }
         let result = receipt(&mut tx, key, replayed).await?;
         tx.commit().await?;
@@ -793,7 +756,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         tx.commit().await?;
         Ok(result)
     }
-    /// Atomic partial capture and transferable credit. All wallet rows lock in UUID order.
+    /// Atomic partial capture and buyer credit. All wallet rows lock in UUID order.
     pub async fn settle(
         &self,
         trade: Uuid,

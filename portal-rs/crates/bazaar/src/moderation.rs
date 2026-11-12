@@ -49,7 +49,7 @@ pub trait PublicViews: Send + Sync {
         listing: Uuid,
     ) -> impl Future<Output = Result<bool, Error>> + Send;
 }
-/// Debit transferable coins and write the immutable Wallet ledger in this transaction.
+/// Debit coins and write the immutable Wallet ledger in this transaction.
 /// The key is the promotion ID; errors roll back the promotion and debit together.
 pub trait PromotionLedger: Send + Sync {
     fn debit(

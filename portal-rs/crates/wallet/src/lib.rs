@@ -1,4 +1,4 @@
-//! Transactional ledger for one transferable coin in integer smallest units.
+//! Transactional ledger for one coin class in integer smallest units.
 //!
 //! Identity and staff authorization are supplied by fail-closed adapters. HTTP
 //! authentication and viewer authorization belong to the calling crate.

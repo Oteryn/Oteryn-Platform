@@ -58,8 +58,8 @@ quote's expiry, owner, character, environment and the payer's eligibility.
 Provider I/O happens after commit. An identical replay returns the current
 order; a changed body for an existing `request_id` is 409. Only a verified
 `TestProvider` webhook (signed in-process by the checkout page) marks an order
-paid; in one transaction it writes the invoice receipt, credits transferable
-coins through the host's wallet ledger keyed by the intent ID (once), and bumps
+paid; in one transaction it writes the invoice receipt, credits the
+payer's coin balance through the host's wallet ledger keyed by the intent ID (once), and bumps
 the order revision. States never move backwards and `sandbox` is always true.
 A payer no longer eligible when the verified payment arrives gets no coins:
 the order is held in `processing` with `review_required` and code
@@ -76,13 +76,14 @@ The generic `Payments::webhook` refuses coin intents.
 Under the same flag, a verified `refunded` or `chargeback` event (`CoinEvent`:
 the `PaymentEvent` shape whose state may also be `chargeback`) reverses a
 credited order once. In the event's transaction, with the intent, order and
-wallet rows locked, the whole credit is debited from unreserved transferable
-coins by a wallet adjustment keyed by the reversal ID (reason
+wallet rows locked, the whole credit is debited from the unreserved coin
+balance (one coin class: coins of any origin, top-up, reward, staff grant or
+referral, count) by a wallet adjustment keyed by the reversal ID (reason
 `coin-purchase-reversal:<id>`), whatever the payer's restrictions. One
 `coin_purchase_reversals` row per order (unique) and the unique provider event
 ID make redeliveries, restarts and concurrent deliveries debit at most once; a
 chargeback after a refund changes only the state. When the unreserved
-transferable coins no longer cover the credit (spent or reserved), nothing is
+coin balance no longer covers the credit (spent or reserved), nothing is
 debited (never partially, never below zero): the order is flagged
 `review_required` with code `COIN_ORDER_REVERSAL_REVIEW_REQUIRED` and the payer
 gets a `coin_purchase_holds` row that freezes new purchasing until staff

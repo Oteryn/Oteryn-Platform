@@ -1921,10 +1921,7 @@ async fn nwave_purchase_retries_entire_transaction_and_replays_original_answer()
         .await
         .unwrap();
     assert_eq!(orders, 1);
-    assert_eq!(
-        db.wallet().balance(invitee).await.unwrap().transferable,
-        9750
-    );
+    assert_eq!(db.wallet().balance(invitee).await.unwrap().available, 9750);
     assert_eq!(db.count("outfit").await, 1);
     db.close().await;
 }
