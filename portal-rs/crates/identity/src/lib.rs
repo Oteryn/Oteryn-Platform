@@ -29,3 +29,6 @@ pub mod recovery_key_http;
 
 /// Account security revocation stream (internal mTLS) and the staff kick seam.
 pub mod security_revocations;
+
+#[cfg(test)]
+mod oauth_mfa_web_tests;

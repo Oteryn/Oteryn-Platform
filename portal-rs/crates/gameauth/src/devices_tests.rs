@@ -391,12 +391,19 @@ fn protocol_one_fixture_bytes_and_proofs() {
 
 async fn native_setup()
 -> std::result::Result<Option<(Sessions, Uuid, Uuid, String)>, Box<dyn std::error::Error>> {
+    native_setup_with(false).await
+}
+/// `mfa` marks the account MFA-protected and approves through an MFA-satisfied browser session.
+async fn native_setup_with(
+    mfa: bool,
+) -> std::result::Result<Option<(Sessions, Uuid, Uuid, String)>, Box<dyn std::error::Error>> {
     let Some((mut sessions, auth)) = setup().await? else {
         return Ok(None);
     };
     let client = auth.client_id;
-    sqlx::query("UPDATE accounts SET email_verified_at=now() WHERE id=$1")
+    sqlx::query("UPDATE accounts SET email_verified_at=now(),login_mfa_required=$2 WHERE id=$1")
         .bind(auth.account_id)
+        .bind(mfa)
         .execute(&sessions.pool)
         .await?;
     sqlx::query("INSERT INTO oauth_native_clients(client_id,enabled,first_party,public_client,native_ticket) VALUES($1,true,true,true,true)").bind(client).execute(&sessions.pool).await?;
@@ -417,7 +424,13 @@ async fn native_setup()
         code_challenge: URL_SAFE_NO_PAD.encode(hash(&verifier)),
         code_challenge_method: "S256".into(),
     };
-    let code = crate::oauth::authorize(&sessions.pool, &config, auth.account_id, &request).await?;
+    let code = if mfa {
+        crate::oauth::approve(&sessions.pool, &config, auth.account_id, true, &request)
+            .await?
+            .ok_or("MFA session was refused")?
+    } else {
+        crate::oauth::authorize(&sessions.pool, &config, auth.account_id, &request).await?
+    };
     let tokens = crate::oauth::exchange(
         &sessions.pool,
         &config,
@@ -648,6 +661,26 @@ async fn database_native_password_mfa_suspension_and_client_revocation()
             .await?;
         assert_eq!(count, 0);
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn database_native_mfa_account_enrolls_and_issues_ticket()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some((s, account, client, bearer)) = native_setup_with(true).await? else {
+        return Ok(());
+    };
+    let required: bool = sqlx::query_scalar("SELECT login_mfa_required FROM accounts WHERE id=$1")
+        .bind(account)
+        .fetch_one(&s.pool)
+        .await?;
+    assert!(required);
+    let enrolled = s.enroll_test(&bearer, true).await.unwrap();
+    let ticket = s
+        .rotate_test(enrolled.secret(), client, Purpose::Ticket)
+        .await
+        .unwrap();
+    assert!(ticket["ticket"].is_string(), "{ticket}");
     Ok(())
 }
 
