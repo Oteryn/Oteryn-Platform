@@ -4,7 +4,7 @@ mod oauth_fixture_tests;
 mod oauth_http;
 #[cfg(test)]
 mod oauth_tests;
-pub use oauth_http::{Browser, browser_routes, token_routes};
+pub use oauth_http::{Browser, MfaSession, browser_routes, token_routes};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
@@ -142,12 +142,15 @@ fn verifier(s: &str) -> bool {
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(&b))
 }
-async fn stamp(tx: &mut sqlx::PgConnection, account: Uuid) -> Result<Vec<u8>, Error> {
+/// The credential stamp binds codes and token families to the password, email and
+/// verification state. `login_mfa_required` is deliberately not hashed: MFA is
+/// enforced where a browser approves a grant (`approve`), and turning it on rotates
+/// `game_auth_generation`, which fences native enrollment of older families.
+async fn credentials(tx: &mut sqlx::PgConnection, account: Uuid) -> Result<(Vec<u8>, bool), Error> {
     let row = sqlx::query("SELECT password_hash, email, email_verified_at::text AS verified, login_mfa_required, status FROM accounts WHERE id=$1 FOR UPDATE")
         .bind(account).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
     if row.get::<String, _>("status") != "active"
         || row.get::<Option<String>, _>("verified").is_none()
-        || row.get::<bool, _>("login_mfa_required")
     {
         return Err(Error::InvalidGrant);
     }
@@ -157,7 +160,10 @@ async fn stamp(tx: &mut sqlx::PgConnection, account: Uuid) -> Result<Vec<u8>, Er
         row.get::<Option<String>, _>("verified"),
     ))
     .map_err(|_| Error::Unavailable)?;
-    Ok(hash(&input))
+    Ok((hash(&input), row.get::<bool, _>("login_mfa_required")))
+}
+async fn stamp(tx: &mut sqlx::PgConnection, account: Uuid) -> Result<Vec<u8>, Error> {
+    Ok(credentials(tx, account).await?.0)
 }
 async fn event(
     tx: &mut Transaction<'_, Postgres>,
@@ -177,23 +183,55 @@ pub async fn audit(pool: &PgPool, account: Option<Uuid>, name: &str) -> Result<(
     tx.commit().await?;
     Ok(())
 }
+/// Approval without a browser MFA proof: MFA-protected accounts are refused.
 pub async fn authorize(
     pool: &PgPool,
     config: &Config,
     account: Uuid,
     request: &Authorization,
 ) -> Result<String, Error> {
+    approve(pool, config, account, false, request)
+        .await?
+        .ok_or(Error::InvalidGrant)
+}
+/// Issues a code for a browser approval. `mfa` is true only when the web session
+/// adapter proved a live MFA grant for `account`; an MFA-protected account without
+/// it gets `None` (step up) and no code row.
+pub(crate) async fn approve(
+    pool: &PgPool,
+    config: &Config,
+    account: Uuid,
+    mfa: bool,
+    request: &Authorization,
+) -> Result<Option<String>, Error> {
     if !request.valid(config) {
         return Err(Error::InvalidRequest);
     }
     let mut tx = pool.begin().await?;
-    let stamp = stamp(&mut tx, account).await?;
+    let Some(stamp) = step_up(&mut tx, account, mfa).await? else {
+        tx.commit().await?;
+        return Ok(None);
+    };
     let code = secret()?;
     sqlx::query("INSERT INTO oauth_authorization_codes(code_hash,account_id,client_id,redirect_uri,challenge,credential_hash) VALUES($1,$2,$3,$4,$5,$6)")
         .bind(hash(&code)).bind(account).bind(&request.client_id).bind(&request.redirect_uri).bind(&request.code_challenge).bind(stamp).execute(&mut *tx).await?;
     event(&mut tx, Some(account), "authorization_approved").await?;
     tx.commit().await?;
-    Ok(code)
+    Ok(Some(code))
+}
+/// Locks the account and returns its credential stamp; `None` (with an audit
+/// event) when MFA is required but the browser session has not proven it.
+async fn step_up(
+    tx: &mut Transaction<'_, Postgres>,
+    account: Uuid,
+    mfa: bool,
+) -> Result<Option<Vec<u8>>, Error> {
+    let (stamp, required) = credentials(tx, account).await?;
+    if required && !mfa {
+        event(tx, Some(account), "mfa_step_up_required").await?;
+        return Ok(None);
+    }
+    Ok(Some(stamp))
 }
 async fn issue(tx: &mut Transaction<'_, Postgres>, family: Uuid) -> Result<Tokens, Error> {
     let access = secret()?;
@@ -382,7 +420,7 @@ macro_rules! redacted_debug {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(concat!(stringify!($kind), "([redacted])")) }
     })+ };
 }
-redacted_debug!(Authorization, TokenRequest, Tokens, Browser);
+redacted_debug!(Authorization, TokenRequest, Tokens, Browser, MfaSession);
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
