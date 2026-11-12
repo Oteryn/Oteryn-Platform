@@ -51,7 +51,9 @@ Vector files are exact bytes with no trailing newline.
 
 Token responses carry `Cache-Control: no-store` and `Pragma: no-cache`; ticket
 responses carry `Cache-Control: no-store, private` and `Pragma: no-cache`.
-Neither route answers 403, 404 or 409 from its handler.
+The ticket handler answers no 403, 404 or 409. The token handler answers
+no 403 or 409; its only 404 is the `invalid_request` body for OAuth disabled
+at the handler, which the public router normally answers first (below).
 
 ## Synthetic values and normalization
 

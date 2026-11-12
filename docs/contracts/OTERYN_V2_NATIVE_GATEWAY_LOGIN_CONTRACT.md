@@ -139,6 +139,8 @@ Issuance is the existing `POST /api/v1/game-auth/tickets` under the existing OAu
 
 A legacy engine ticket never redeems on the native branch and a native ticket never redeems on the legacy engine branch (audience mismatch → `NATIVE_LOGIN_TICKET_REJECTED`).
 
+The Platform response bytes of `/oauth/token` and this route are pinned in `docs/contracts/fixtures/native-oauth-ticket-v1/`.
+
 ### 4.2 Native redemption
 
 Inside the issuer transaction (§6), under row locks, equivalent to:
@@ -155,7 +157,7 @@ Inside the issuer transaction (§6), under row locks, equivalent to:
 
 ## 5. Character selection (Q17a)
 
-**Status (PLATFORM-LCFA-1, Oteryn/Oteryn-Platform#1465):** the §5.2 ingestion, the §5.3 read and the §5.4 issuance check are implemented for `testing`/`preproduction` only, default off (`GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED`); enabled in any other environment or misconfigured, ingestion and the read answer `503` and issuance fails closed with `NATIVE_LOGIN_UNAVAILABLE`. Decision P1 and U12 stay open for the release entry.
+**Status (PLATFORM-LCFA-1, Oteryn/Oteryn-Platform#1465):** the §5.2 ingestion, the §5.3 read and the §5.4 issuance check are implemented for `testing`/`preproduction` only, default off (`OTERYN_LCFA_ENABLED`; the public routes sit behind `PORTAL_GAME_TICKETS_ENABLED`); enabled in any other environment or misconfigured, ingestion and the read answer `503` and issuance fails closed with `NATIVE_LOGIN_UNAVAILABLE`. Decision P1 and U12 stay open for the release entry.
 
 ### 5.1 Source
 
@@ -182,6 +184,8 @@ Platform stores a read model of the Game-owned projection `ListCharactersForAcco
 ```
 
 Empty list when the account has no snapshot. `503` (empty body) when the projection feed is `stale` (§5.2), the account's read model is `invalid`, or its snapshot is in an epoch below the highest seen (after an epoch raise, until its resync arrives). Never another account's data; never public. Rate limit §10.
+
+The response bytes are pinned in `docs/contracts/fixtures/native-characters-v1/`.
 
 Alternative considered: a two-phase Gateway call (redeem, return characters and a one-time selection handle, then select). Rejected here because it adds a second bearer credential; the architect may choose it instead.
 
