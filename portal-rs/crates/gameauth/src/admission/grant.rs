@@ -29,6 +29,11 @@ pub const KEY_WRAPPING_FILE: &str = "PORTAL_NATIVE_ADMISSION_KEY_WRAPPING_KEY_FI
 pub const CLOCK_UNCERTAINTY_SECONDS: &str = "PORTAL_NATIVE_ADMISSION_CLOCK_UNCERTAINTY_SECONDS";
 /// Fixed trust scope purpose shared with the native evidence producer (§9.1).
 pub const KEY_PURPOSE: &str = "GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE";
+/// Encrypted custody of the §19.5 recovery key pair, a file distinct from the
+/// fresh admission custody.
+pub const RECOVERY_KEY_CUSTODY_FILE: &str = "PORTAL_NATIVE_RECOVERY_KEY_CUSTODY_FILE";
+/// 32-byte owner-only wrapping key of the recovery custody snapshot.
+pub const RECOVERY_KEY_WRAPPING_FILE: &str = "PORTAL_NATIVE_RECOVERY_KEY_WRAPPING_KEY_FILE";
 /// Trust-registry witness directory shared with the native evidence producer.
 pub const WITNESS_DIRECTORY: &str = "GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY";
 
@@ -38,6 +43,8 @@ const ISSUER: &str = keys::ISSUER;
 const AUDIENCE: &str = "urn:oteryn:game:admission";
 const PROFILE: &str = keys::PROFILE;
 const TYPE: &str = "oteryn-admission+jwt";
+/// §19.4 step 6: the recovery grant header type.
+pub(super) const RECOVERY_TYPE: &str = "oteryn-recovery+jwt";
 const PURPOSE: &str = "fresh_entry";
 /// Bounded read of one World's route records; v1 Worlds have few channels.
 const MAX_CHANNELS: i64 = 64;
@@ -111,6 +118,8 @@ pub trait GrantSigner: Send + Sync + fmt::Debug {
 /// Key custody (`keys::Keyring`) with the public trust registry as self-check.
 pub struct KeyringSigner<S> {
     ring: Mutex<Keyring<S>>,
+    /// The header `typ` of the ring's scope (§8.1, §19.4 step 6).
+    header_type: &'static str,
     registry: PublicTrustRegistry,
     trust: Mutex<Option<(Instant, TrustSnapshot)>>,
     refresh: tokio::sync::Mutex<()>,
@@ -122,8 +131,17 @@ impl<S> fmt::Debug for KeyringSigner<S> {
 }
 impl<S: KeyStorage> KeyringSigner<S> {
     pub fn new(ring: Keyring<S>, registry: PublicTrustRegistry) -> Self {
+        Self::typed(ring, registry, TYPE)
+    }
+    /// A signer for the §19.5 recovery scope: `ring` and `registry` must be
+    /// opened in `keys::Scope::Recovery`, and headers carry `oteryn-recovery+jwt`.
+    pub fn recovery(ring: Keyring<S>, registry: PublicTrustRegistry) -> Self {
+        Self::typed(ring, registry, RECOVERY_TYPE)
+    }
+    fn typed(ring: Keyring<S>, registry: PublicTrustRegistry, header_type: &'static str) -> Self {
         Self {
             ring: Mutex::new(ring),
+            header_type,
             registry,
             trust: Mutex::new(None),
             refresh: tokio::sync::Mutex::new(()),
@@ -168,7 +186,7 @@ impl<S: KeyStorage + Send + 'static> GrantSigner for KeyringSigner<S> {
     fn sign(&self, payload: &[u8], expires_at: u64, now: u64) -> Result<String, Error> {
         self.with_trust(Error::Unavailable, |ring, trust| {
             let kid = ring.active_key_id().ok_or(Error::Unavailable)?.to_owned();
-            let input = signing_input(&kid, payload)?;
+            let input = signing_input(&typed_header(&kid, self.header_type)?, payload)?;
             let signed = ring
                 .sign(input.as_bytes(), expires_at, now, trust)
                 .map_err(|_| Error::Unavailable)?;
@@ -182,7 +200,7 @@ impl<S: KeyStorage + Send + 'static> GrantSigner for KeyringSigner<S> {
         })
     }
     fn resign(&self, input: &str, expires_at: u64, now: u64) -> Result<String, Error> {
-        let kid = header_key_id(input).ok_or(Error::ReconciliationRequired)?;
+        let kid = typed_key_id(input, self.header_type).ok_or(Error::ReconciliationRequired)?;
         self.with_trust(Error::ReconciliationRequired, |ring, trust| {
             let signature = ring
                 .resign(&kid, input.as_bytes(), expires_at, now, trust)
@@ -203,14 +221,7 @@ pub fn configured_signer(
     if !issuance.permitted() {
         return Ok(None);
     }
-    let clock = match lookup(CLOCK_UNCERTAINTY_SECONDS) {
-        None => 1,
-        Some(raw) => raw
-            .parse::<u8>()
-            .ok()
-            .filter(|n| raw == n.to_string() && *n <= 5)
-            .ok_or(keys::KeyError::BadInput)?,
-    };
+    let clock = clock_uncertainty(&lookup)?;
     let settings = keys::Settings {
         enabled: true,
         key_purpose: lookup(KEY_PURPOSE).unwrap_or_default(),
@@ -236,8 +247,67 @@ pub fn configured_signer(
     Ok(None)
 }
 
+/// §19.5: opens the existing recovery custody (never provisions keys) in the
+/// recovery trust scope, only when `issuance` permits issuance; `Ok(None)`
+/// otherwise. Its custody and wrapping files must differ from the fresh
+/// admission ones. Errors carry no path or secret.
+#[cfg(unix)]
+pub fn configured_recovery_signer(
+    pool: PgPool,
+    issuance: &Issuance,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Result<Option<Arc<dyn GrantSigner>>, keys::KeyError> {
+    if !issuance.permitted() {
+        return Ok(None);
+    }
+    let settings = keys::Settings {
+        enabled: true,
+        key_purpose: keys::RECOVERY_KEY_PURPOSE.into(),
+        clock_uncertainty_seconds: clock_uncertainty(&lookup)?,
+    };
+    let custody = lookup(RECOVERY_KEY_CUSTODY_FILE).ok_or(keys::KeyError::BadInput)?;
+    let wrapping = lookup(RECOVERY_KEY_WRAPPING_FILE).ok_or(keys::KeyError::BadInput)?;
+    let witness = lookup(WITNESS_DIRECTORY).ok_or(keys::KeyError::BadInput)?;
+    if lookup(KEY_CUSTODY_FILE).as_deref() == Some(custody.as_str())
+        || lookup(KEY_WRAPPING_FILE).as_deref() == Some(wrapping.as_str())
+    {
+        return Err(keys::KeyError::BadInput);
+    }
+    let storage = keys::EncryptedFileStorage::from_key_file(
+        std::path::PathBuf::from(custody),
+        std::path::Path::new(&wrapping),
+    )?;
+    let ring = Keyring::open_scoped(settings.clone(), keys::Scope::Recovery, storage)?;
+    let registry =
+        PublicTrustRegistry::new_scoped(pool, settings, keys::Scope::Recovery, witness.into())?;
+    Ok(Some(Arc::new(KeyringSigner::recovery(ring, registry))))
+}
+#[cfg(not(unix))]
+pub fn configured_recovery_signer(
+    _: PgPool,
+    _: &Issuance,
+    _: impl Fn(&str) -> Option<String>,
+) -> Result<Option<Arc<dyn GrantSigner>>, keys::KeyError> {
+    Ok(None)
+}
+/// Platform clock uncertainty, 0..=5 seconds, default 1.
+pub fn clock_uncertainty(lookup: impl Fn(&str) -> Option<String>) -> Result<u8, keys::KeyError> {
+    match lookup(CLOCK_UNCERTAINTY_SECONDS) {
+        None => Ok(1),
+        Some(raw) => raw
+            .parse::<u8>()
+            .ok()
+            .filter(|n| raw == n.to_string() && *n <= 5)
+            .ok_or(keys::KeyError::BadInput),
+    }
+}
+
 /// §8.1 header, exactly this member order and no whitespace.
 pub fn header(kid: &str) -> Result<String, Error> {
+    typed_header(kid, TYPE)
+}
+/// The §8.1 header shape with `typ` of the signing scope (§19.4 step 6).
+fn typed_header(kid: &str, header_type: &str) -> Result<String, Error> {
     if !(1..=64).contains(&kid.len())
         || !kid
             .bytes()
@@ -246,11 +316,10 @@ pub fn header(kid: &str) -> Result<String, Error> {
         return Err(Error::Unavailable);
     }
     Ok(format!(
-        r#"{{"alg":"Ed25519","kid":"{kid}","typ":"{TYPE}"}}"#
+        r#"{{"alg":"Ed25519","kid":"{kid}","typ":"{header_type}"}}"#
     ))
 }
-fn signing_input(kid: &str, payload: &[u8]) -> Result<String, Error> {
-    let header = header(kid)?;
+fn signing_input(header: &str, payload: &[u8]) -> Result<String, Error> {
     if header.len() > 512 || payload.len() > 3072 {
         return Err(Error::Unavailable);
     }
@@ -262,13 +331,17 @@ fn signing_input(kid: &str, payload: &[u8]) -> Result<String, Error> {
 }
 /// The `kid` of a stored signing input whose header is exactly §8.1.
 pub(super) fn header_key_id(input: &str) -> Option<String> {
+    typed_key_id(input, TYPE)
+}
+/// `header_key_id` for a header of type `header_type`.
+pub(super) fn typed_key_id(input: &str, header_type: &str) -> Option<String> {
     let (encoded, _) = input.split_once('.')?;
     let raw = URL_SAFE_NO_PAD.decode(encoded).ok()?;
     let value = canonical::decode(&raw, 512, 2).ok()?;
     let Some(Value::String(kid)) = value.get("kid") else {
         return None;
     };
-    (header(kid).ok()?.as_bytes() == raw.as_slice()).then(|| kid.clone())
+    (typed_header(kid, header_type).ok()?.as_bytes() == raw.as_slice()).then(|| kid.clone())
 }
 /// A claim of a stored signing input, for replay revalidation.
 pub(super) fn claim(input: &str, name: &str) -> Option<String> {
@@ -556,7 +629,7 @@ pub(super) struct Claims<'a> {
 }
 /// FND-04 revision grammar as enforced at runtime-status ingestion; the issuer
 /// re-checks before signing and fails closed.
-fn revision(report: &Value, name: &str) -> Result<Value, Error> {
+pub(super) fn revision(report: &Value, name: &str) -> Result<Value, Error> {
     match report.get(name) {
         Some(Value::String(s))
             if (1..=64).contains(&s.len())

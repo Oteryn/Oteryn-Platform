@@ -65,6 +65,13 @@ impl Database {
             sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator'")
                 .bind(id).execute(&pool).await?;
         }
+        // §19.3 fence and the §19.4 attempt namespace every fresh admission touches.
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261112100008_s19_play_generations.sql"
+        ))
+        .execute(&pool)
+        .await?;
+        sqlx::raw_sql("CREATE TABLE native_recovery_handles (handle_hash bytea PRIMARY KEY, account_id uuid NOT NULL, revoked_at bigint); CREATE TABLE native_recoveries (attempt_ref uuid PRIMARY KEY)").execute(&pool).await?;
         sqlx::raw_sql("CREATE TABLE fixture_issued_tickets (id uuid PRIMARY KEY)")
             .execute(&pool)
             .await?;

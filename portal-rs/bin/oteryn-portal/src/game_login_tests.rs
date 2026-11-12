@@ -159,6 +159,16 @@ impl Database {
         signer: Option<Arc<dyn admission::GrantSigner>>,
         protocol3: Option<admission::Protocol3>,
     ) -> Result<Router, Box<dyn std::error::Error>> {
+        self.admission_full(issuance, signer, protocol3, None)
+    }
+    /// `admission_v3` with the §19.4 recovery issuer.
+    fn admission_full(
+        &self,
+        issuance: admission::Issuance,
+        signer: Option<Arc<dyn admission::GrantSigner>>,
+        protocol3: Option<admission::Protocol3>,
+        recovery: Option<admission::RecoveryIssuer>,
+    ) -> Result<Router, Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let current = dir.path().join("current");
         std::fs::write(
@@ -174,6 +184,7 @@ impl Database {
                 requests_per_minute: 120,
                 signer,
                 protocol3,
+                recovery,
             },
             Arc::new(admission_accounts()),
             Arc::new(admission_authority(&Self::projection_settings(), issuance)),

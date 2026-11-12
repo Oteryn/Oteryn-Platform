@@ -160,50 +160,7 @@ impl AdmissionRequest {
             Some(Value::Null) => None,
             v => Some(uuid(string(v)?)?),
         };
-        let offer = value.get("offer").ok_or(Error::Malformed)?;
-        keys(offer, &["client_build", "client_platform", "transports"])?;
-        visible(string(offer.get("client_build"))?, 64)?;
-        if string(offer.get("client_platform"))? != "windows" {
-            return Err(Error::Malformed);
-        }
-        let Some(Value::Array(transports)) = offer.get("transports") else {
-            return Err(Error::Malformed);
-        };
-        if !(1..=4).contains(&transports.len()) {
-            return Err(Error::Malformed);
-        }
-        let mut supported = false;
-        for transport in transports {
-            keys(transport, &["protocol_major", "transport_profile", "alpn"])?;
-            let major = number(transport.get("protocol_major"))?;
-            let profile = number(transport.get("transport_profile"))?;
-            if !(0..=65535).contains(&major) || !(0..=65535).contains(&profile) {
-                return Err(Error::Malformed);
-            }
-            let alpn = string(transport.get("alpn"))?;
-            visible(alpn, 255)?;
-            supported |= major == 1 && profile == 1 && alpn == "oteryn-game/1";
-        }
-        if !supported {
-            return Err(Error::OfferUnsupported);
-        }
-        // The validated shape contains ASCII strings and integers only. Sorting
-        // object keys recursively is the contract's JCS offer serialization.
-        fn sorted(value: &Value) -> Value {
-            match value {
-                Value::Object(members) => {
-                    let mut members: Vec<_> = members
-                        .iter()
-                        .map(|(k, v)| (k.clone(), sorted(v)))
-                        .collect();
-                    members.sort_by(|a, b| a.0.cmp(&b.0));
-                    Value::Object(members)
-                }
-                Value::Array(values) => Value::Array(values.iter().map(sorted).collect()),
-                v => v.clone(),
-            }
-        }
-        let offer = sorted(offer);
+        let offer = offer(value.get("offer"))?;
         let mut binding = vec![
             Value::String(character_id.to_string()),
             channel_id.map_or(Value::Null, |v| Value::String(v.to_string())),
@@ -227,6 +184,53 @@ impl AdmissionRequest {
         })
     }
 }
+/// The validated §3.1 `offer`, members sorted recursively (its JCS form).
+pub(super) fn offer(offer: Option<&Value>) -> Result<Value, Error> {
+    let offer = offer.ok_or(Error::Malformed)?;
+    keys(offer, &["client_build", "client_platform", "transports"])?;
+    visible(string(offer.get("client_build"))?, 64)?;
+    if string(offer.get("client_platform"))? != "windows" {
+        return Err(Error::Malformed);
+    }
+    let Some(Value::Array(transports)) = offer.get("transports") else {
+        return Err(Error::Malformed);
+    };
+    if !(1..=4).contains(&transports.len()) {
+        return Err(Error::Malformed);
+    }
+    let mut supported = false;
+    for transport in transports {
+        keys(transport, &["protocol_major", "transport_profile", "alpn"])?;
+        let major = number(transport.get("protocol_major"))?;
+        let profile = number(transport.get("transport_profile"))?;
+        if !(0..=65535).contains(&major) || !(0..=65535).contains(&profile) {
+            return Err(Error::Malformed);
+        }
+        let alpn = string(transport.get("alpn"))?;
+        visible(alpn, 255)?;
+        supported |= major == 1 && profile == 1 && alpn == "oteryn-game/1";
+    }
+    if !supported {
+        return Err(Error::OfferUnsupported);
+    }
+    // The validated shape contains ASCII strings and integers only. Sorting
+    // object keys recursively is the contract's JCS offer serialization.
+    fn sorted(value: &Value) -> Value {
+        match value {
+            Value::Object(members) => {
+                let mut members: Vec<_> = members
+                    .iter()
+                    .map(|(k, v)| (k.clone(), sorted(v)))
+                    .collect();
+                members.sort_by(|a, b| a.0.cmp(&b.0));
+                Value::Object(members)
+            }
+            Value::Array(values) => Value::Array(values.iter().map(sorted).collect()),
+            v => v.clone(),
+        }
+    }
+    Ok(sorted(offer))
+}
 /// The request's `protocol_version`, when the body decodes.
 pub(super) fn version(raw: &[u8]) -> Option<i64> {
     let value = canonical::decode(raw, MAX_BODY, 5).ok()?;
@@ -237,7 +241,7 @@ pub(super) fn attempt(raw: &[u8]) -> Option<String> {
     let text = string(value.get("attempt_ref")).ok()?;
     uuid(text).ok().map(|_| text.into())
 }
-fn keys(value: &Value, names: &[&str]) -> Result<(), Error> {
+pub(super) fn keys(value: &Value, names: &[&str]) -> Result<(), Error> {
     match value {
         Value::Object(members)
             if members.len() == names.len()
@@ -248,13 +252,13 @@ fn keys(value: &Value, names: &[&str]) -> Result<(), Error> {
         _ => Err(Error::Malformed),
     }
 }
-fn string(value: Option<&Value>) -> Result<&str, Error> {
+pub(super) fn string(value: Option<&Value>) -> Result<&str, Error> {
     match value {
         Some(Value::String(s)) => Ok(s),
         _ => Err(Error::Malformed),
     }
 }
-fn number(value: Option<&Value>) -> Result<i64, Error> {
+pub(super) fn number(value: Option<&Value>) -> Result<i64, Error> {
     match value {
         Some(Value::Signed(n)) => Ok(*n),
         Some(Value::Unsigned(n)) => i64::try_from(*n).map_err(|_| Error::Malformed),

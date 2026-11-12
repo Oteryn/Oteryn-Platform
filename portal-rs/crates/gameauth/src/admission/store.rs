@@ -87,7 +87,7 @@ impl AdmissionAuthority for Unavailable {
         Box::pin(async { Err(Error::Unavailable) })
     }
 }
-async fn lock(connection: &mut PgConnection, key: &[u8]) -> Result<(), Error> {
+pub(super) async fn lock(connection: &mut PgConnection, key: &[u8]) -> Result<(), Error> {
     let mut bytes = [0; 8];
     bytes.copy_from_slice(&key[..8]);
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
@@ -97,7 +97,7 @@ async fn lock(connection: &mut PgConnection, key: &[u8]) -> Result<(), Error> {
         .map_err(|_| Error::Unavailable)?;
     Ok(())
 }
-async fn now(connection: &mut PgConnection) -> Result<i64, Error> {
+pub(super) async fn now(connection: &mut PgConnection) -> Result<i64, Error> {
     sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint")
         .fetch_one(connection)
         .await
@@ -180,6 +180,16 @@ pub(super) async fn admit(
         let response = finish_replay(&mut tx, v3, request, &body, response).await?;
         return commit_replay(tx, v3, response).await;
     }
+    // One attempt_ref namespace with §19.4 recoveries, under the same lock.
+    let recovered: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM native_recoveries WHERE attempt_ref = $1)")
+            .bind(request.attempt_ref)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+    if recovered {
+        return Err(Error::AttemptConflict.into());
+    }
     lock(&mut tx, request.ticket_hash()).await?;
     let consumed: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM native_admissions WHERE ticket_hash = $1)")
@@ -235,38 +245,36 @@ pub(super) async fn admit(
         (None, None) => body.clone(),
         _ => return Err(Error::Unavailable.into()),
     };
-    // §19.3: while protocol 3 is configured every committed fresh attempt, under
-    // protocol 2 or 3, advances the play generation and revokes older handles.
+    // §19.3: every committed fresh attempt, under protocol 2 or 3 and whatever
+    // the protocol 3 switch, advances the play generation and revokes older
+    // handles (coordinator decision 2026-11-12).
+    let play_generation = protocol3::advance(&mut tx, account.id).await?;
     let response = match protocol3 {
         None => body,
-        Some(settings) => {
-            let play_generation = protocol3::advance(&mut tx, account.id).await?;
-            match v3 {
-                None => body,
-                Some(_) => {
-                    let recovery = protocol3::issue(
-                        &mut tx,
-                        settings.handles,
-                        protocol3::Binding {
-                            request,
-                            account,
-                            world: material.world_id,
-                            channel: material.channel_id,
-                            play_generation,
-                        },
-                    )
-                    .await?;
-                    let channels =
-                        protocol3::channels(&mut tx, settings, material.world_id).await?;
-                    wire::success3(
-                        &body,
-                        request.channel_id.is_none(),
-                        &channels,
-                        recovery.as_ref(),
-                    )?
-                }
+        Some(settings) => match v3 {
+            None => body,
+            Some(_) => {
+                let recovery = protocol3::issue(
+                    &mut tx,
+                    settings.handles,
+                    protocol3::Binding {
+                        request,
+                        account,
+                        world: material.world_id,
+                        channel: material.channel_id,
+                        play_generation,
+                    },
+                )
+                .await?;
+                let channels = protocol3::channels(&mut tx, settings, material.world_id).await?;
+                wire::success3(
+                    &body,
+                    request.channel_id.is_none(),
+                    &channels,
+                    recovery.as_ref(),
+                )?
             }
-        }
+        },
     };
     sqlx::query("INSERT INTO native_admissions (attempt_ref, ticket_hash, request_digest, account_id, response_body, expires_at_ms) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(request.attempt_ref).bind(request.ticket_hash()).bind(request.digest()).bind(account.id).bind(&stored).bind(material.expires_at_ms)

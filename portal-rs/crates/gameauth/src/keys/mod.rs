@@ -20,6 +20,45 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub const ISSUER: &str = "urn:oteryn:platform:game-admission";
 pub const PROFILE: &str = "oteryn-pre-admission-v1";
+/// Gateway login contract §19.5: the existing-actor recovery trust scope.
+pub const RECOVERY_ISSUER: &str = "urn:oteryn:platform:game-recovery";
+pub const RECOVERY_PROFILE: &str = "oteryn-reauth-recovery-v1";
+/// The recovery trust key purpose, fixed by Game (§19.5).
+pub const RECOVERY_KEY_PURPOSE: &str = "existing_actor_recovery";
+
+/// The signing-trust scope a key pair belongs to (§19.5). The two scopes use
+/// separate key pairs; a custody file or registry serves exactly one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scope {
+    /// `oteryn-pre-admission-v1` under the configured fresh key purpose.
+    #[default]
+    Fresh,
+    /// `oteryn-reauth-recovery-v1` under `existing_actor_recovery`.
+    Recovery,
+}
+impl Scope {
+    pub fn issuer(self) -> &'static str {
+        match self {
+            Self::Fresh => ISSUER,
+            Self::Recovery => RECOVERY_ISSUER,
+        }
+    }
+    pub fn profile(self) -> &'static str {
+        match self {
+            Self::Fresh => PROFILE,
+            Self::Recovery => RECOVERY_PROFILE,
+        }
+    }
+    /// The recovery purpose is fixed, and no fresh scope may borrow it.
+    fn check(self, settings: &Settings) -> Result<(), KeyError> {
+        let recovery = settings.key_purpose == RECOVERY_KEY_PURPOSE;
+        if recovery == (self == Self::Recovery) {
+            Ok(())
+        } else {
+            Err(KeyError::BadInput)
+        }
+    }
+}
 
 /// Deliberately contains no underlying I/O, configuration or secret values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,6 +175,7 @@ impl SignedInput {
 #[derive(Debug)]
 pub struct Keyring<S> {
     settings: Settings,
+    scope: Scope,
     storage: S,
     state: State,
     poisoned: bool,
@@ -143,7 +183,12 @@ pub struct Keyring<S> {
 impl<S: KeyStorage> Keyring<S> {
     /// Explicit first-time provisioning. Never use this to recover lost custody.
     pub fn create(settings: Settings, storage: S) -> Result<Self, KeyError> {
+        Self::create_scoped(settings, Scope::Fresh, storage)
+    }
+    /// `create` for a key pair of `scope` (§19.5).
+    pub fn create_scoped(settings: Settings, scope: Scope, storage: S) -> Result<Self, KeyError> {
         check_settings(&settings)?;
+        scope.check(&settings)?;
         if storage.load()?.is_some() {
             return Err(KeyError::InvalidState);
         }
@@ -154,6 +199,7 @@ impl<S: KeyStorage> Keyring<S> {
         };
         let mut ring = Self {
             settings,
+            scope,
             storage,
             state,
             poisoned: false,
@@ -163,12 +209,18 @@ impl<S: KeyStorage> Keyring<S> {
     }
     /// Existing custody must be present, authenticated and internally consistent.
     pub fn open(settings: Settings, storage: S) -> Result<Self, KeyError> {
+        Self::open_scoped(settings, Scope::Fresh, storage)
+    }
+    /// `open` for a key pair of `scope` (§19.5).
+    pub fn open_scoped(settings: Settings, scope: Scope, storage: S) -> Result<Self, KeyError> {
         check_settings(&settings)?;
+        scope.check(&settings)?;
         let bytes = storage.load()?.ok_or(KeyError::InvalidState)?;
         let state = serde_json::from_slice(&bytes).map_err(|_| KeyError::InvalidState)?;
         validate(&state, &settings)?;
         Ok(Self {
             settings,
+            scope,
             storage,
             state,
             poisoned: false,
@@ -385,7 +437,13 @@ impl<S: KeyStorage> Keyring<S> {
             return Err(KeyError::TooEarly);
         }
         if trust
-            .trusted_key(ISSUER, PROFILE, &self.settings.key_purpose, kid, now)?
+            .trusted_key(
+                self.scope.issuer(),
+                self.scope.profile(),
+                &self.settings.key_purpose,
+                kid,
+                now,
+            )?
             .is_some()
         {
             return Err(KeyError::Untrusted);
@@ -424,8 +482,8 @@ impl<S: KeyStorage> Keyring<S> {
     ) -> Result<TrustedKey, KeyError> {
         let t = trust
             .trusted_key(
-                ISSUER,
-                PROFILE,
+                self.scope.issuer(),
+                self.scope.profile(),
                 &self.settings.key_purpose,
                 &record.kid,
                 now,

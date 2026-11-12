@@ -628,3 +628,88 @@ async fn postgres_witness_ahead_restore_and_missing_state_deny() -> TestResult {
     assert!(registry.publish(&key).await.is_err());
     db.close().await
 }
+
+/// Records the trust scope a ring asks for.
+#[derive(Debug, Default)]
+struct ScopedTrust(
+    std::sync::Mutex<Vec<(String, String, String)>>,
+    BTreeMap<String, TrustedKey>,
+);
+impl SigningTrust for ScopedTrust {
+    fn trusted_key(
+        &self,
+        issuer: &str,
+        profile: &str,
+        purpose: &str,
+        kid: &str,
+        _: u64,
+    ) -> Result<Option<TrustedKey>, KeyError> {
+        self.0.lock().map_err(|_| KeyError::InvalidState)?.push((
+            issuer.into(),
+            profile.into(),
+            purpose.into(),
+        ));
+        Ok(self.1.get(kid).copied())
+    }
+}
+fn recovery_settings() -> Settings {
+    Settings {
+        key_purpose: RECOVERY_KEY_PURPOSE.into(),
+        ..settings()
+    }
+}
+
+#[test]
+fn recovery_scope_is_a_separate_purpose_and_trust_scope() -> TestResult {
+    // Each scope refuses the other's purpose, in both directions (§19.5).
+    assert_eq!(
+        Keyring::create_scoped(settings(), Scope::Recovery, Memory::default()).err(),
+        Some(KeyError::BadInput)
+    );
+    assert_eq!(
+        Keyring::create(recovery_settings(), Memory::default()).err(),
+        Some(KeyError::BadInput)
+    );
+    let mut ring = Keyring::create_scoped(recovery_settings(), Scope::Recovery, Memory::default())?;
+    let key = ring.generate_next("recovery-1")?;
+    let mut trust = ScopedTrust::default();
+    trust.1.insert(
+        key.key_id.clone(),
+        TrustedKey {
+            public_key: trust::decode_key(&key.public_key)?,
+            trusted_since: 100,
+        },
+    );
+    ring.activate("recovery-1", 107, &trust)?;
+    let signed = ring.sign(b"header.payload", 137, 107, &trust)?;
+    verify(
+        trust.1["recovery-1"].public_key,
+        b"header.payload",
+        signed.signature(),
+    )?;
+    let asked = trust.0.lock().map_err(|_| "poisoned")?.clone();
+    assert!(!asked.is_empty());
+    for (issuer, profile, purpose) in asked {
+        assert_eq!(
+            (issuer.as_str(), profile.as_str(), purpose.as_str()),
+            (RECOVERY_ISSUER, RECOVERY_PROFILE, RECOVERY_KEY_PURPOSE)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn recovery_custody_never_opens_in_the_fresh_scope() -> TestResult {
+    let ring = Keyring::create_scoped(recovery_settings(), Scope::Recovery, Memory::default())?;
+    let saved = || Memory(RefCell::new(ring.storage.0.borrow().clone()));
+    assert_eq!(
+        Keyring::open(recovery_settings(), saved()).err(),
+        Some(KeyError::BadInput)
+    );
+    assert_eq!(
+        Keyring::open(settings(), saved()).err(),
+        Some(KeyError::InvalidState)
+    );
+    Keyring::open_scoped(recovery_settings(), Scope::Recovery, saved())?;
+    Ok(())
+}

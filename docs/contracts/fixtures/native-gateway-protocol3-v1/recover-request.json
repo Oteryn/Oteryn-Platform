@@ -1,0 +1,1 @@
+{"protocol_version":3,"recovery_handle":"otr1.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8","attempt_ref":"0192b3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b","character_id":"0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a7c","offer":{"client_build":"0.1.0+abc123","client_platform":"windows","transports":[{"protocol_major":1,"transport_profile":1,"alpn":"oteryn-game/1"}]}}

@@ -1,6 +1,8 @@
 use super::{
     AccountStateLookup, AdmissionAuthority, AdmissionRequest, Error, GrantSigner,
-    protocol3::Protocol3, store, wire,
+    protocol3::{Handles, Protocol3},
+    recovery::{self, RecoveryError, RecoveryIssuer, RecoveryRequest},
+    store, wire,
 };
 use axum::{
     Router,
@@ -65,6 +67,8 @@ pub struct AdmissionConfig {
     pub signer: Option<Arc<dyn GrantSigner>>,
     /// Protocol 3 (§19); `None` keeps every protocol 3 request unsupported.
     pub protocol3: Option<Protocol3>,
+    /// §19.4 recovery issuance; `None` keeps `native-recoveries` unavailable.
+    pub recovery: Option<RecoveryIssuer>,
 }
 impl Default for AdmissionConfig {
     fn default() -> Self {
@@ -74,6 +78,7 @@ impl Default for AdmissionConfig {
             requests_per_minute: 120,
             signer: None,
             protocol3: None,
+            recovery: None,
         }
     }
 }
@@ -95,6 +100,11 @@ pub fn router(
 ) -> Router {
     Router::new()
         .route("/internal/v1/game-auth/native-admissions", post(handle))
+        .route("/internal/v1/game-auth/native-recoveries", post(recover))
+        .route(
+            "/internal/v1/game-auth/native-recoveries/revoke",
+            post(revoke),
+        )
         .with_state(App {
             db,
             config,
@@ -132,12 +142,14 @@ fn refusal_for(
     }
     result
 }
-async fn handle(State(app): State<App>, request: Request) -> Response {
-    let Some(tokens) = app.config.tokens else {
-        return response(
+/// Gateway service authentication shared by every route: the credential's
+/// SHA-256, or the refusal to send.
+fn authenticate(app: &App, request: &Request) -> Result<[u8; 32], Box<Response>> {
+    let Some(tokens) = &app.config.tokens else {
+        return Err(Box::new(response(
             StatusCode::SERVICE_UNAVAILABLE,
             br#"{"error":"service_unavailable"}"#.to_vec(),
-        );
+        )));
     };
     let mut headers = request.headers().get_all(header::AUTHORIZATION).iter();
     let credential = headers
@@ -151,11 +163,18 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
         .filter(|v| !v.is_empty());
     let hash: [u8; 32] = Sha256::digest(credential.unwrap_or("").as_bytes()).into();
     if headers.next().is_some() || credential.is_none() || !tokens.authenticates(&hash) {
-        return response(
+        return Err(Box::new(response(
             StatusCode::UNAUTHORIZED,
             br#"{"error":"unauthorized_service"}"#.to_vec(),
-        );
+        )));
     }
+    Ok(hash)
+}
+async fn handle(State(app): State<App>, request: Request) -> Response {
+    let hash = match authenticate(&app, &request) {
+        Ok(hash) => hash,
+        Err(refused) => return *refused,
+    };
     let raw = match to_bytes(request.into_body(), wire::MAX_BODY).await {
         Ok(raw) => raw,
         Err(_) => return refusal(Error::Malformed, None),
@@ -196,6 +215,115 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
         ),
     }
 }
+fn recovery_refusal(
+    error: RecoveryError,
+    attempt: Option<&str>,
+    protocol: u8,
+    retry_after: Option<u64>,
+) -> Response {
+    let mut result = response(error.status(), error.body(attempt, protocol));
+    let seconds = match error {
+        RecoveryError::RateLimited => Some(60),
+        RecoveryError::AttemptPending => Some(retry_after.unwrap_or(1).max(1)),
+        _ => None,
+    };
+    if let Some(value) =
+        seconds.and_then(|s| axum::http::HeaderValue::from_str(&s.to_string()).ok())
+    {
+        result.headers_mut().insert(header::RETRY_AFTER, value);
+    }
+    result
+}
+/// The recovery routes' shared front: service authentication, the bounded
+/// body, the protocol 3 switch (protocol 2 bodies while it is off, like login)
+/// and the shared service budget. `Ok` carries the body and protocol 3 settings.
+async fn recovery_front(
+    app: &App,
+    request: Request,
+    attempt_of: fn(&[u8]) -> Option<String>,
+) -> Result<(axum::body::Bytes, &Protocol3, Option<String>), Box<Response>> {
+    let hash = authenticate(app, &request)?;
+    let raw = to_bytes(request.into_body(), wire::MAX_BODY)
+        .await
+        .map_err(|_| Box::new(recovery_refusal(RecoveryError::Malformed, None, 3, None)))?;
+    let attempt = attempt_of(&raw);
+    let Some(settings) = app.config.protocol3.as_ref() else {
+        return Err(Box::new(recovery_refusal(
+            RecoveryError::UnsupportedVersion,
+            attempt.as_deref(),
+            2,
+            None,
+        )));
+    };
+    if !app.config.enabled || !(1..=600).contains(&app.config.requests_per_minute) {
+        return Err(Box::new(recovery_refusal(
+            RecoveryError::Unavailable,
+            attempt.as_deref(),
+            3,
+            None,
+        )));
+    }
+    if let Err(error) = store::budget(&app.db, &hash, app.config.requests_per_minute).await {
+        return Err(Box::new(recovery_refusal(
+            error.into(),
+            attempt.as_deref(),
+            3,
+            None,
+        )));
+    }
+    Ok((raw, settings, attempt))
+}
+/// §19.4. Recovery is served only while handles are on and §19.15 device
+/// binding is off; with binding on there is no device proof verifier yet, so
+/// the route stays `NATIVE_LOGIN_UNAVAILABLE` (§19.8) rather than skipping it.
+async fn recover(State(app): State<App>, request: Request) -> Response {
+    let (raw, settings, attempt) = match recovery_front(&app, request, wire::attempt).await {
+        Ok(front) => front,
+        Err(refused) => return *refused,
+    };
+    let issuer = match (&app.config.recovery, settings.handles) {
+        (
+            Some(issuer),
+            Handles::On {
+                require_device_binding: false,
+                ..
+            },
+        ) => issuer,
+        _ => return recovery_refusal(RecoveryError::Unavailable, attempt.as_deref(), 3, None),
+    };
+    let decoded = match RecoveryRequest::decode(&raw) {
+        Ok(decoded) => decoded,
+        Err(error) => return recovery_refusal(error, attempt.as_deref(), 3, None),
+    };
+    match recovery::recover(
+        &app.db,
+        &decoded,
+        app.accounts.as_ref(),
+        issuer,
+        &settings.runtime,
+    )
+    .await
+    {
+        Ok(body) => response(StatusCode::OK, body),
+        Err(refused) => recovery_refusal(refused.error, attempt.as_deref(), 3, refused.retry_after),
+    }
+}
+/// §19.7, available whenever protocol 3 is on: a well-formed request always
+/// answers `revoked`, whatever the handle's state.
+async fn revoke(State(app): State<App>, request: Request) -> Response {
+    let (raw, _, _) = match recovery_front(&app, request, |_| None).await {
+        Ok(front) => front,
+        Err(refused) => return *refused,
+    };
+    let hash = match recovery::decode_revoke(&raw) {
+        Ok(hash) => hash,
+        Err(error) => return recovery_refusal(error, None, 3, None),
+    };
+    match recovery::revoke(&app.db, &hash).await {
+        Ok(()) => response(StatusCode::OK, recovery::REVOKED.to_vec()),
+        Err(error) => recovery_refusal(error, None, 3, None),
+    }
+}
 /// Separate loopback listener; never merges service-only routes into the public
 /// web router. The caller supplies the account-state lookup and the admission
 /// authority (the binary composes the suspension-aware ones) and the grant
@@ -207,6 +335,7 @@ pub async fn start_private_listener(
     authority: Arc<dyn AdmissionAuthority>,
     signer: Option<Arc<dyn GrantSigner>>,
     protocol3: Option<Protocol3>,
+    recovery: Option<RecoveryIssuer>,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let enabled = std::env::var("PORTAL_NATIVE_ADMISSIONS_ENABLED").is_ok_and(|v| v == "true");
     let current = std::env::var_os("PORTAL_GATEWAY_TOKEN_SHA256_FILE");
@@ -223,6 +352,7 @@ pub async fn start_private_listener(
                 .map_or(120, |v| v.parse().unwrap_or(0)),
             signer,
             protocol3,
+            recovery,
         },
         accounts,
         authority,
