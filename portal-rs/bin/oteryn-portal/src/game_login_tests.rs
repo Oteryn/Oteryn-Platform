@@ -1394,7 +1394,13 @@ async fn pg_route_selection_filters_the_channel_first_and_locks_only_its_record(
         r#""channel_id":null"#,
         &format!(r#""channel_id":"{CHANNEL}""#),
     );
-    let (status, body) = admit(app.clone(), SERVICE, raw.clone()).await?;
+    // A selection that locks every record blocks on the writer: fail, not hang.
+    let (status, body) = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        admit(app.clone(), SERVICE, raw.clone()),
+    )
+    .await
+    .map_err(|_| "route selection blocked on another scope's record")??;
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     assert_eq!(granted(&raw, &body)?.1["channel_id"], CHANNEL);
     writer.rollback().await?;
