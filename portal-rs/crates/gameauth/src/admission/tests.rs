@@ -162,6 +162,13 @@ impl Database {
         ))
         .execute(&pool)
         .await?;
+        // §19.3 fence and the §19.4 attempt namespace every fresh admission touches.
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261112100008_s19_play_generations.sql"
+        ))
+        .execute(&pool)
+        .await?;
+        sqlx::raw_sql("CREATE TABLE native_recovery_handles (handle_hash bytea PRIMARY KEY, account_id uuid NOT NULL, revoked_at bigint); CREATE TABLE native_recoveries (attempt_ref uuid PRIMARY KEY)").execute(&pool).await?;
         sqlx::raw_sql("CREATE TABLE fixture_accounts (id uuid PRIMARY KEY, state text NOT NULL); CREATE TABLE fixture_tickets (hash bytea PRIMARY KEY, account_id uuid NOT NULL, used boolean NOT NULL DEFAULT false)").execute(&pool).await?;
         sqlx::query("INSERT INTO fixture_accounts VALUES ($1, 'active')")
             .bind(Uuid::parse_str(ACCOUNT)?)

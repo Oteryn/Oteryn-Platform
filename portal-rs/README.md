@@ -23,9 +23,11 @@ Gateway login contract §19 (N4P-4) runs only behind these default-off flags. Pr
 | Flag | Where | Default | Effect |
 |---|---|---|---|
 | `GATEWAY_NATIVE_PROTOCOL3_ENABLED` | gateway | `false` | `protocol_version: 3` on `POST /v1/login` (needs `GATEWAY_NATIVE_LOGIN_ENABLED`). Off: protocol 3 is `NATIVE_LOGIN_UNSUPPORTED_VERSION`. |
-| `PORTAL_NATIVE_PROTOCOL3_ENABLED` | issuer | `false` | Protocol 3 on `native-admissions`: per-channel candidates (`game_channels.channel_key`), selection, the channel refusal and Decision M1. While on, every committed fresh attempt advances the account's play generation. |
-| `PORTAL_NATIVE_RECOVERY_ENABLED` | issuer | `false` | Issues a recovery handle in protocol 3 login responses; otherwise `"recovery": null`. |
+| `PORTAL_NATIVE_PROTOCOL3_ENABLED` | issuer | `false` | Protocol 3 on `native-admissions`: per-channel candidates (`game_channels.channel_key`), selection, the channel refusal and Decision M1. Every committed fresh attempt advances the account's play generation, whether this is on or off. |
+| `PORTAL_NATIVE_RECOVERY_ENABLED` | issuer | `false` | Issues a recovery handle in protocol 3 login responses; otherwise `"recovery": null`. Also serves §19.4 `native-recoveries` (testing only, binding off; with binding on it answers `NATIVE_LOGIN_UNAVAILABLE`). §19.7 `native-recoveries/revoke` answers whenever protocol 3 is on. |
 | `PORTAL_NATIVE_RECOVERY_HANDLE_LIFETIME_SECONDS` | issuer | `43200` | Handle lifetime H, 3600..=43200. Any other value refuses protocol 3 issuance. |
+| `PORTAL_NATIVE_RECOVERY_KEY_CUSTODY_FILE` | issuer | unset | §19.5 encrypted recovery key custody, distinct from the admission custody; trusted in the `existing_actor_recovery` scope. Unset or unreadable leaves recovery unavailable. |
+| `PORTAL_NATIVE_RECOVERY_KEY_WRAPPING_KEY_FILE` | issuer | unset | 32-byte owner-only wrapping key of the recovery custody, distinct from the admission one. |
 | `PORTAL_NATIVE_RECOVERY_REQUIRE_DEVICE_BINDING` | issuer | `true` | §19.15 binding. `false` is accepted only in `testing`; with binding on, a ticket without a live keyed device family gets `"recovery": null`. |
 
 ## Rules for every task

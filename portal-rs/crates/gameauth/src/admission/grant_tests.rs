@@ -55,8 +55,20 @@ fn header_is_exact_and_kid_is_bounded() -> TestResult {
     for kid in ["", "a b", "a\"b", &"k".repeat(65)] {
         assert_eq!(header(kid), Err(Error::Unavailable));
     }
-    let input = signing_input("k1", b"{}")?;
+    let input = signing_input(&header("k1")?, b"{}")?;
     assert_eq!(header_key_id(&input).as_deref(), Some("k1"));
+    // §19.4 step 6: each scope accepts only its own header type.
+    assert_eq!(typed_key_id(&input, RECOVERY_TYPE), None);
+    let recovery = signing_input(&typed_header("k1", RECOVERY_TYPE)?, b"{}")?;
+    assert_eq!(
+        URL_SAFE_NO_PAD.decode(recovery.split('.').next().unwrap_or_default())?,
+        br#"{"alg":"Ed25519","kid":"k1","typ":"oteryn-recovery+jwt"}"#
+    );
+    assert_eq!(
+        typed_key_id(&recovery, RECOVERY_TYPE).as_deref(),
+        Some("k1")
+    );
+    assert_eq!(header_key_id(&recovery), None);
     // A stored input whose header is not exactly §8.1 is never re-signed.
     let foreign = format!(
         "{}.e30",

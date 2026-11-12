@@ -1,8 +1,7 @@
 //! Public-only registry shared with the existing native-evidence producer. State
 //! witness advance precedes SQL commit; a witness-ahead ambiguity fails closed.
 use super::{
-    ISSUER, KeyError, PROFILE, PublicKey, Settings, SigningTrust, TrustedKey, check_settings,
-    valid_id,
+    KeyError, PublicKey, Scope, Settings, SigningTrust, TrustedKey, check_settings, valid_id,
 };
 use crate::evidence::{Witness, trust_state_namespace};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -14,12 +13,14 @@ use uuid::Uuid;
 pub struct PublicTrustRegistry {
     pool: PgPool,
     settings: Settings,
+    scope: Scope,
     witness_directory: PathBuf,
 }
 /// A bounded self-check cache. Refresh before every signing operation (no later
 /// than 5 seconds); a stale snapshot cannot authorize signing or key destruction.
 #[derive(Debug)]
 pub struct TrustSnapshot {
+    scope: Scope,
     purpose: String,
     observed_at: u64,
     keys: BTreeMap<String, TrustedKey>,
@@ -33,8 +34,8 @@ impl SigningTrust for TrustSnapshot {
         kid: &str,
         now: u64,
     ) -> Result<Option<TrustedKey>, KeyError> {
-        if issuer != ISSUER
-            || profile != PROFILE
+        if issuer != self.scope.issuer()
+            || profile != self.scope.profile()
             || purpose != self.purpose
             || now < self.observed_at
             || now - self.observed_at >= 5
@@ -50,20 +51,35 @@ impl PublicTrustRegistry {
         settings: Settings,
         witness_directory: PathBuf,
     ) -> Result<Self, KeyError> {
+        Self::new_scoped(pool, settings, Scope::Fresh, witness_directory)
+    }
+    /// `new` for the trust scope `scope` (§19.5).
+    pub fn new_scoped(
+        pool: PgPool,
+        settings: Settings,
+        scope: Scope,
+        witness_directory: PathBuf,
+    ) -> Result<Self, KeyError> {
         check_settings(&settings)?;
+        scope.check(&settings)?;
         if !witness_directory.is_absolute() {
             return Err(KeyError::BadInput);
         }
         Ok(Self {
             pool,
             settings,
+            scope,
             witness_directory,
         })
     }
     fn witness(&self) -> Result<(String, Witness), KeyError> {
         check_settings(&self.settings)?;
-        let namespace = trust_state_namespace(ISSUER, PROFILE, &self.settings.key_purpose)
-            .map_err(|_| KeyError::Unavailable)?;
+        let namespace = trust_state_namespace(
+            self.scope.issuer(),
+            self.scope.profile(),
+            &self.settings.key_purpose,
+        )
+        .map_err(|_| KeyError::Unavailable)?;
         let witness = Witness::lock(&self.witness_directory, &namespace)
             .map_err(|_| KeyError::Unavailable)?;
         Ok((namespace, witness))
@@ -78,7 +94,7 @@ impl PublicTrustRegistry {
         let (namespace, witness) = self.witness()?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
         let profile = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
-            .bind(ISSUER).bind(PROFILE).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
+            .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
         let floor = witness
             .floor(&namespace)
             .map_err(|_| KeyError::Unavailable)?;
@@ -101,11 +117,12 @@ impl PublicTrustRegistry {
             }
             let id = Uuid::now_v7();
             sqlx::query("INSERT INTO native_game_signing_trust_profiles (id,issuer,profile,key_purpose,profile_version,issuer_revision) VALUES ($1,$2,$3,$4,1,1)")
-                .bind(id).bind(ISSUER).bind(PROFILE).bind(&self.settings.key_purpose).execute(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
+                .bind(id).bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).execute(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
             (id, 0)
         };
-        let reused: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM native_game_signing_trust_key_versions k JOIN native_game_signing_trust_profiles p ON p.id=k.profile_id WHERE p.issuer=$1 AND p.profile=$2 AND p.key_purpose=$3 AND k.key_id=$4 AND p.id<>$5)")
-            .bind(ISSUER).bind(PROFILE).bind(&self.settings.key_purpose).bind(&key.key_id).bind(id).fetch_one(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
+        // §19.5: a kid or key pair is never published in both scopes.
+        let reused: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM native_game_signing_trust_key_versions k JOIN native_game_signing_trust_profiles p ON p.id=k.profile_id WHERE p.id<>$5 AND ((p.issuer=$1 AND p.profile=$2 AND p.key_purpose=$3 AND k.key_id=$4) OR (p.issuer<>$1 AND (k.key_id=$4 OR k.public_key=$6))))")
+            .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).bind(&key.key_id).bind(id).bind(&key.public_key).fetch_one(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
         if reused {
             return Err(KeyError::InvalidState);
         }
@@ -152,7 +169,7 @@ impl PublicTrustRegistry {
         let (namespace, witness) = self.witness()?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
         let row = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
-            .bind(ISSUER).bind(PROFILE).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?.ok_or(KeyError::InvalidState)?;
+            .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?.ok_or(KeyError::InvalidState)?;
         let id: Uuid = row.try_get("id").map_err(|_| KeyError::Unavailable)?;
         let revision: i64 = row
             .try_get("issuer_revision")
@@ -197,7 +214,7 @@ impl PublicTrustRegistry {
         let (namespace, witness) = self.witness()?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
         let row = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
-            .bind(ISSUER).bind(PROFILE).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?.ok_or(KeyError::InvalidState)?;
+            .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?.ok_or(KeyError::InvalidState)?;
         let revision: i64 = row
             .try_get("issuer_revision")
             .map_err(|_| KeyError::Unavailable)?;
@@ -245,6 +262,7 @@ impl PublicTrustRegistry {
                 .map_err(|_| KeyError::Unavailable)?;
         tx.commit().await.map_err(|_| KeyError::Unavailable)?;
         Ok(TrustSnapshot {
+            scope: self.scope,
             purpose: self.settings.key_purpose.clone(),
             observed_at: u64::try_from(now).map_err(|_| KeyError::InvalidState)?,
             keys,

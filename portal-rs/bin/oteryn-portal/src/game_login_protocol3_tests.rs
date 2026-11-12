@@ -394,3 +394,6 @@ async fn pg_protocol3_recovery_handles_bind_fence_and_revoke() -> TestResult {
     assert!(db.handle_row(&handle.handle).await?.0.is_some());
     db.close().await
 }
+
+#[path = "game_login_recovery_tests.rs"]
+mod recovery;

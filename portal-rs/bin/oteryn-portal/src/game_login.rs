@@ -23,7 +23,11 @@
 //! Protocol 3 (contract §19) is a separate default-off switch,
 //! `PORTAL_NATIVE_PROTOCOL3_ENABLED`, in the same environments. Recovery
 //! handles additionally need `PORTAL_NATIVE_RECOVERY_ENABLED` and
-//! `OTERYN_ENV=testing` (owner decision U21).
+//! `OTERYN_ENV=testing` (owner decision U21). The §19.4 `native-recoveries`
+//! issuer then signs with its own §19.5 custody,
+//! `PORTAL_NATIVE_RECOVERY_KEY_CUSTODY_FILE` wrapped by
+//! `PORTAL_NATIVE_RECOVERY_KEY_WRAPPING_KEY_FILE`, trusted in the
+//! `existing_actor_recovery` scope of `urn:oteryn:platform:game-recovery`.
 use axum::Router;
 use oteryn_characters::{lcfa, overview};
 use oteryn_gameauth::{admission, devices::PlatformAuthority, oauth, tickets};
@@ -95,6 +99,41 @@ pub fn protocol3(
     admission::Protocol3::configured(lookup, issuance.runtime.clone())
 }
 
+/// The §19.4 recovery issuer, composed only while protocol 3 recovery handles
+/// are on (testing only, U21) and issuance is permitted. A recovery signer that
+/// fails to load leaves `native-recoveries` unavailable; it never falls back to
+/// the fresh admission key.
+pub fn recovery_issuer(
+    pool: PgPool,
+    issuance: &admission::Issuance,
+    protocol3: Option<&admission::Protocol3>,
+    projection: &lcfa::Settings,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Option<admission::RecoveryIssuer> {
+    if !matches!(
+        protocol3.map(|settings| settings.handles),
+        Some(admission::Handles::On { .. })
+    ) {
+        return None;
+    }
+    let clock_uncertainty_seconds = admission::clock_uncertainty(&lookup).ok()?;
+    let signer =
+        admission::configured_recovery_signer(pool, issuance, lookup).unwrap_or_else(|error| {
+            tracing::warn!(%error, "native recovery grant signer unavailable");
+            None
+        });
+    Some(admission::RecoveryIssuer {
+        signer,
+        projection_authority: if projection.enabled {
+            projection.source_authority.clone()
+        } else {
+            String::new()
+        },
+        ttl_seconds: issuance.ttl_seconds,
+        clock_uncertainty_seconds,
+    })
+}
+
 pub fn admission_accounts() -> AdmissionAccounts {
     AdmissionAccounts(FEATURES)
 }
@@ -115,15 +154,21 @@ pub async fn start_admission_listener(
     let issuance = issuance(pool.clone(), |key| std::env::var(key).ok());
     let signer = issuance.signer.clone();
     let protocol3 = protocol3(&issuance, |key| std::env::var(key).ok());
+    let projection = overview::configured_projection();
+    let recovery = recovery_issuer(
+        pool.clone(),
+        &issuance,
+        protocol3.as_ref(),
+        &projection,
+        |key| std::env::var(key).ok(),
+    );
     admission::start_private_listener(
         pool,
         Arc::new(admission_accounts()),
-        Arc::new(admission_authority(
-            &overview::configured_projection(),
-            issuance,
-        )),
+        Arc::new(admission_authority(&projection, issuance)),
         signer,
         protocol3,
+        recovery,
     )
     .await
 }

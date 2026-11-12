@@ -31,6 +31,43 @@ async fn seconds(db: &mut PgConnection) -> Result<i64, Error> {
         .map_err(|_| Error::Unavailable)
 }
 
+/// The §5 read model's listing of `character` for `account`: its World and
+/// availability, `None` when it is not listed. A disabled, stale or invalid
+/// read model is `RouteUnavailable` (§5.4, §19.4 step 4).
+pub(super) async fn listing(
+    db: &mut PgConnection,
+    projection_authority: &str,
+    account: Uuid,
+    character: Uuid,
+) -> Result<Option<(Uuid, String)>, Error> {
+    if projection_authority.is_empty() {
+        return Err(Error::RouteUnavailable);
+    }
+    let live: Option<bool> = sqlx::query_scalar("SELECT highest_epoch IS NOT NULL AND highest_epoch=watermark_epoch AND source_authority=$1 AND complete_through<=extract(epoch FROM clock_timestamp())+$2 AND extract(epoch FROM clock_timestamp())-complete_through+$2<=$3 FROM account_character_feed WHERE id=1 FOR SHARE")
+            .bind(projection_authority).bind(CLOCK_UNCERTAINTY_SECONDS).bind(FRESHNESS_SECONDS)
+            .fetch_optional(&mut *db).await.map_err(|_| Error::Unavailable)?;
+    if live != Some(true) {
+        return Err(Error::RouteUnavailable);
+    }
+    let valid: Option<bool> = sqlx::query_scalar("SELECT NOT s.invalid AND s.projection_epoch=f.highest_epoch AND s.source_authority=$2 FROM account_character_snapshots s CROSS JOIN account_character_feed f WHERE s.account_id=$1 AND f.id=1")
+            .bind(account).bind(projection_authority)
+            .fetch_optional(&mut *db).await.map_err(|_| Error::Unavailable)?;
+    if valid != Some(true) {
+        return Err(Error::RouteUnavailable);
+    }
+    let row = sqlx::query("SELECT world_id, availability FROM account_characters WHERE account_id=$1 AND character_id=$2")
+            .bind(account).bind(character)
+            .fetch_optional(db).await.map_err(|_| Error::Unavailable)?;
+    row.map(|row| {
+        Ok((
+            row.try_get("world_id").map_err(|_| Error::Unavailable)?,
+            row.try_get("availability")
+                .map_err(|_| Error::Unavailable)?,
+        ))
+    })
+    .transpose()
+}
+
 impl NativeTickets {
     async fn character_world(
         &self,
@@ -38,33 +75,8 @@ impl NativeTickets {
         account: Uuid,
         character: Uuid,
     ) -> Result<Uuid, Error> {
-        if self.projection_authority.is_empty() {
-            return Err(Error::RouteUnavailable);
-        }
-        let live: Option<bool> = sqlx::query_scalar("SELECT highest_epoch IS NOT NULL AND highest_epoch=watermark_epoch AND source_authority=$1 AND complete_through<=extract(epoch FROM clock_timestamp())+$2 AND extract(epoch FROM clock_timestamp())-complete_through+$2<=$3 FROM account_character_feed WHERE id=1 FOR SHARE")
-            .bind(&self.projection_authority).bind(CLOCK_UNCERTAINTY_SECONDS).bind(FRESHNESS_SECONDS)
-            .fetch_optional(&mut *db).await.map_err(|_| Error::Unavailable)?;
-        if live != Some(true) {
-            return Err(Error::RouteUnavailable);
-        }
-        let valid: Option<bool> = sqlx::query_scalar("SELECT NOT s.invalid AND s.projection_epoch=f.highest_epoch AND s.source_authority=$2 FROM account_character_snapshots s CROSS JOIN account_character_feed f WHERE s.account_id=$1 AND f.id=1")
-            .bind(account).bind(&self.projection_authority)
-            .fetch_optional(&mut *db).await.map_err(|_| Error::Unavailable)?;
-        if valid != Some(true) {
-            return Err(Error::RouteUnavailable);
-        }
-        let row = sqlx::query("SELECT world_id, availability FROM account_characters WHERE account_id=$1 AND character_id=$2")
-            .bind(account).bind(character)
-            .fetch_optional(db).await.map_err(|_| Error::Unavailable)?;
-        match row {
-            Some(row)
-                if row
-                    .try_get::<String, _>("availability")
-                    .map_err(|_| Error::Unavailable)?
-                    == "AVAILABLE" =>
-            {
-                row.try_get("world_id").map_err(|_| Error::Unavailable)
-            }
+        match listing(db, &self.projection_authority, account, character).await? {
+            Some((world, availability)) if availability == "AVAILABLE" => Ok(world),
             _ => Err(Error::CharacterConflict),
         }
     }
