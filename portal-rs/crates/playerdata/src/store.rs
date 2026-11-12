@@ -53,6 +53,10 @@ type Result<T> = std::result::Result<T, Error>;
 pub type LeaseFuture<'a> = Pin<Box<dyn Future<Output = Result<Box<dyn Lease>>> + Send + 'a>>;
 /// Implementations must hold a fence shared with the authoritative cutoff writer.
 /// A browser or an internal request must never construct an implementation.
+/// It must not refuse a lease only because the record's character scope is
+/// deleted: the store checks tombstones after the lease and answers the G-11
+/// terminal refusal (revision 4, G-11 §8.2), and an exact replay of a record
+/// accepted before the deletion keeps its stored `accepted` answer.
 pub trait Authority: Debug + Send + Sync {
     fn acquire<'a>(&'a self, scope: &'a Scope) -> LeaseFuture<'a>;
 }
@@ -215,18 +219,40 @@ async fn tombstone(
         .await?;
     Ok(())
 }
+/// The deleted scope covering a record, if any; the account wins over its character.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Deleted {
+    No,
+    Account,
+    Character,
+}
+/// Reason code of the one terminal refusal tied to subject state: a G-11 record
+/// of a character whose scope is deleted (character deletion, opt-out or
+/// transfer cut, G-11 §8.2).
+const CHARACTER_SCOPE_DELETED: &str = "CHARACTER_SCOPE_DELETED";
+/// Terminal, deterministic refusals tied to subject state (G-11 §8.2, revision 4). Only these consume their revision on the
+/// account-wide G-11 stream; every other refusal fails closed without advance.
+const TERMINAL_REFUSALS: [&str; 1] = [CHARACTER_SCOPE_DELETED];
 /// A record inside a deleted scope is refused, an exact replay included.
-async fn deleted(tx: &mut Transaction<'_, Postgres>, s: &Scope) -> Result<bool> {
-    let mut digests = vec![scope_digest(&s.account, None)];
+async fn deleted(tx: &mut Transaction<'_, Postgres>, s: &Scope) -> Result<Deleted> {
+    let account = scope_digest(&s.account, None);
+    let mut digests = vec![account.clone()];
     if let Some(character) = s.character.as_deref() {
         digests.push(scope_digest(&s.account, Some(character)));
     }
-    Ok(sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest = ANY($1))",
+    let found: Vec<Vec<u8>> = sqlx::query_scalar(
+        "SELECT scope_digest FROM pd_deleted_scopes WHERE scope_digest = ANY($1)",
     )
     .bind(digests)
-    .fetch_one(&mut **tx)
-    .await?)
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(if found.contains(&account) {
+        Deleted::Account
+    } else if found.is_empty() {
+        Deleted::No
+    } else {
+        Deleted::Character
+    })
 }
 fn decimal_row(row: &sqlx::postgres::PgRow, name: &str) -> Result<u64> {
     row.try_get::<String, _>(name)?
@@ -302,13 +328,19 @@ impl Store {
         lock_account(&mut tx, &r.scope.account).await?;
         lock(&mut tx, &r.scope.authority).await?;
         lease.validate(&r)?;
-        if deleted(&mut tx, &r.scope).await? {
-            return Err(Error::Conflict);
+        // A G-11 stream is account-wide, so a record of a deleted character is a
+        // terminal refusal that consumes its revision. A deleted account closes
+        // the stream, and a G-10 stream with a character closes with it: both
+        // fail closed without advance.
+        let terminal = match deleted(&mut tx, &r.scope).await? {
+            Deleted::No => None,
+            Deleted::Character if r.progress => Some(CHARACTER_SCOPE_DELETED),
+            Deleted::Character | Deleted::Account => return Err(Error::Conflict),
         };
         let key = stream_key(&r.scope);
         let c = stream(&mut tx, &r.scope, r.progress).await?;
         let digest = hash(&r.bytes);
-        let existing=sqlx::query("SELECT stream_key,source_revision::text,digest FROM pd_records WHERE (stream_key=$1 AND source_revision=$2::numeric) OR (authority=$3 AND recovery_generation=$4 AND record_id=$5)").bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).fetch_all(&mut *tx).await?;
+        let existing=sqlx::query("SELECT stream_key,source_revision::text,digest,kind FROM pd_records WHERE (stream_key=$1 AND source_revision=$2::numeric) OR (authority=$3 AND recovery_generation=$4 AND record_id=$5)").bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).fetch_all(&mut *tx).await?;
         if !existing.is_empty() {
             if existing.len() != 1
                 || existing[0].try_get::<String, _>("stream_key")? != key
@@ -320,7 +352,13 @@ impl Store {
                 tx.commit().await?;
                 return Err(Error::Conflict);
             };
+            let kind = existing[0].try_get::<String, _>("kind")?;
             tx.commit().await?;
+            if let Some(reason) = TERMINAL_REFUSALS.iter().find(|reason| **reason == kind) {
+                return Ok(refusal(&r, reason));
+            };
+            // A record accepted before its scope was deleted keeps its stored
+            // `accepted` answer (revision 4).
             return acknowledgement(&r);
         }
         // Strict contiguous delivery is permitted by G-11 and required by G-10. This
@@ -328,6 +366,16 @@ impl Store {
         if c.stored.checked_add(1) != Some(r.revision) {
             return Err(Error::Conflict);
         };
+        if let Some(reason) = terminal {
+            // Content-free refusal row: record id, revision, digest and reason code
+            // only; no subject, entity, time or payload. Its empty scope key never
+            // matches a subject read or supersession.
+            sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) VALUES($1,$2::numeric,$3,'',$4,'',NULL,'',$5,0,0,$6,NULL,$7)")
+                .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(&r.id).bind(reason).bind(&digest).bind(now as i64).execute(&mut *tx).await?;
+            sqlx::query("UPDATE pd_streams SET highest_seen=$2::numeric,stored_through=$2::numeric,applied_through=$2::numeric,last_record_id=$3 WHERE stream_key=$1").bind(&key).bind(r.revision.to_string()).bind(&r.id).execute(&mut *tx).await?;
+            tx.commit().await?;
+            return Ok(refusal(&r, reason));
+        }
         let expires = r
             .occurred_ms
             .saturating_add(retention(&r))
@@ -393,7 +441,7 @@ impl Store {
         {
             covered.character = None;
         }
-        if deleted(&mut tx, &covered).await? {
+        if deleted(&mut tx, &covered).await? != Deleted::No {
             return Err(Error::Conflict);
         };
         let key = stream_key(s);
@@ -437,7 +485,7 @@ impl Store {
         lock_account(&mut tx, &scope.account).await?;
         lock(&mut tx, &scope.authority).await?;
         // Checked before `stream` so a deleted account never gets a new stream row.
-        if deleted(&mut tx, &scope).await? {
+        if deleted(&mut tx, &scope).await? != Deleted::No {
             return Err(Error::Conflict);
         };
         let c = stream(&mut tx, &scope, true).await?;
@@ -879,4 +927,9 @@ fn acknowledgement(r: &Record) -> Result<Vec<u8>> {
     } else {
         b"{\"contract_version\":1,\"result\":\"accepted\"}".to_vec()
     })
+}
+/// G-11 terminal refusal answer: the consumed revision and its reason code. An
+/// exact replay returns the same bytes.
+fn refusal(r: &Record, reason: &str) -> Vec<u8> {
+    format!("{{\"contract_version\":1,\"result\":\"refused\",\"record_id\":\"{}\",\"consumed_source_revision\":\"{}\",\"reason\":\"{reason}\"}}",r.id,r.revision).into_bytes()
 }

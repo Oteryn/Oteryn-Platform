@@ -37,7 +37,10 @@ fn flags() -> Flags {
 }
 // Synthetic contract vectors use the schemas in docs/contracts/G-10 and G-11.
 fn progress(revision: u64) -> Vec<u8> {
-    format!("{{\"contract_version\":1,\"operation\":\"PublishGameJournalProgressV1\",\"source_authority\":\"oteryn:journal:primary\",\"account_id\":\"{ACCOUNT}\",\"character_id\":\"{CHARACTER}\",\"world_id\":\"019a0000-0000-7000-8000-000000000002\",\"projection_revision\":\"12\",\"projection_epoch\":\"1\",\"recovery_generation\":\"3\",\"family\":\"stamina\",\"source_revision\":\"{revision}\",\"record_id\":\"{}\",\"entity_key\":\"stamina\",\"character_revision\":\"9\",\"occurred_at_unix_ms\":\"{NOW}\",\"record_kind\":\"UPSERT\",\"payload\":{{\"stamina_minutes\":2400,\"content_revision\":\"9\",\"build_occurrence_id\":\"019a0000-0000-7000-8000-000000000011\"}}}}",Uuid::now_v7()).into_bytes()
+    progress_for(revision, CHARACTER)
+}
+fn progress_for(revision: u64, character: &str) -> Vec<u8> {
+    format!("{{\"contract_version\":1,\"operation\":\"PublishGameJournalProgressV1\",\"source_authority\":\"oteryn:journal:primary\",\"account_id\":\"{ACCOUNT}\",\"character_id\":\"{character}\",\"world_id\":\"019a0000-0000-7000-8000-000000000002\",\"projection_revision\":\"12\",\"projection_epoch\":\"1\",\"recovery_generation\":\"3\",\"family\":\"stamina\",\"source_revision\":\"{revision}\",\"record_id\":\"{}\",\"entity_key\":\"stamina\",\"character_revision\":\"9\",\"occurred_at_unix_ms\":\"{NOW}\",\"record_kind\":\"UPSERT\",\"payload\":{{\"stamina_minutes\":2400,\"content_revision\":\"9\",\"build_occurrence_id\":\"019a0000-0000-7000-8000-000000000011\"}}}}",Uuid::now_v7()).into_bytes()
 }
 fn watermark(through: u64, observed: u64) -> Watermark {
     playerdata::watermark(format!("{{\"contract_version\":1,\"operation\":\"PublishGameJournalProgressWatermarkV1\",\"source_authority\":\"oteryn:journal:primary\",\"account_id\":\"{ACCOUNT}\",\"projection_epoch\":\"1\",\"recovery_generation\":\"3\",\"family\":\"stamina\",\"complete_through\":\"{through}\",\"observed_at_unix_ms\":\"{observed}\",\"baseline_complete\":true}}").as_bytes()).unwrap()
@@ -798,9 +801,10 @@ async fn postgres_transfer_writer_serializes_without_lock_inversion()
     Ok(())
 }
 
-/// Revision 3 (G-10 retention, G-11 §8.2): a deleted scope refuses an exact
-/// replay and a first delivery even while the authority adapter still allows
-/// it, and keeps only a content-free digest that expires after 120 days.
+/// Revision 3 and 4 (G-10 retention, G-11 §8.2): a deleted scope refuses a
+/// first delivery even while the authority adapter still allows it, answers an
+/// exact replay with its stored answer, and keeps only a content-free digest
+/// that expires after 120 days.
 #[tokio::test]
 async fn postgres_deleted_scope_refuses_replay_and_first_delivery()
 -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -818,14 +822,21 @@ async fn postgres_deleted_scope_refuses_replay_and_first_delivery()
     store.ingest(bank_first.clone(), clock()).await?;
 
     store.erase_character(ACCOUNT, CHARACTER, clock()).await?;
-    assert_eq!(store.ingest(first, clock()).await, Err(Error::Conflict));
+    // Revision 4: an exact replay of a record accepted before the deletion
+    // returns its stored `accepted` answer, nothing more.
     assert_eq!(
-        store
-            .ingest(playerdata::progress(&progress(2))?, clock())
-            .await,
-        Err(Error::Conflict)
+        store.ingest(first.clone(), clock()).await?,
+        acknowledgement(&first)?
     );
-    assert_eq!(store.cursor(&scope).await?.0.stored, 1);
+    // A first delivery of the deleted character on the account-wide G-11 stream
+    // reaches the tombstone check, is refused terminally and consumes its
+    // revision (G-11 §8.2 terminal refusals, revision 4); it is never inserted.
+    let second = playerdata::progress(&progress(2))?;
+    assert_eq!(
+        store.ingest(second.clone(), clock()).await?,
+        refusal(&second, "CHARACTER_SCOPE_DELETED")
+    );
+    assert_eq!(store.cursor(&scope).await?.0.stored, 2);
     // Account-scoped bank history does not follow the character.
     assert_eq!(
         store.ingest(bank_first.clone(), clock()).await?,
@@ -1058,6 +1069,302 @@ async fn postgres_tombstones_expire_at_120_days_and_double_erase_extends()
         store.expire(at(now)).await?;
         assert_eq!(kept(&db).await?, expected, "{now}");
     }
+    db.close().await?;
+    Ok(())
+}
+
+const OTHER: &str = "019a0000-0000-7000-8000-000000000004";
+/// The stream row and the counts of records and conflicts: the whole durable
+/// state one G-11 delivery can change.
+async fn state(db: &Db) -> std::result::Result<(String, i64, i64), sqlx::Error> {
+    let stream: String = sqlx::query_scalar(
+        "SELECT concat_ws('/',highest_seen,stored_through,applied_through,last_record_id) FROM pd_streams",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    let records: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_records")
+        .fetch_one(&db.pool)
+        .await?;
+    let conflicts: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_conflicts")
+        .fetch_one(&db.pool)
+        .await?;
+    Ok((stream, records, conflicts))
+}
+async fn stored(db: &Db) -> std::result::Result<String, sqlx::Error> {
+    sqlx::query_scalar("SELECT stored_through::text FROM pd_streams")
+        .fetch_one(&db.pool)
+        .await
+}
+/// A deleted character, another live character of the same account, and the
+/// deleted character's revision 1 already refused on the account-wide stream.
+async fn refused_first(
+    db: &Db,
+) -> std::result::Result<(TestAuthority, Store, Record), Box<dyn std::error::Error>> {
+    let a = TestAuthority::default();
+    let refused = playerdata::progress(&progress(1))?;
+    a.allow(refused.scope.clone()).await;
+    let other = playerdata::progress(&progress_for(1, OTHER))?;
+    a.allow(other.scope.clone()).await;
+    a.allow(watermark_scope(&other.scope)).await;
+    let store = db.store(&a);
+    store.erase_character(ACCOUNT, CHARACTER, clock()).await?;
+    assert_eq!(
+        store.ingest(refused.clone(), clock()).await?,
+        refusal(&refused, "CHARACTER_SCOPE_DELETED")
+    );
+    Ok((a, store, refused))
+}
+
+/// Option A: a G-11 record of a deleted character is a terminal refusal that
+/// consumes its revision, so the account-wide stream keeps flowing; an exact
+/// replay answers the same bytes without a write, other bytes stay a conflict.
+#[tokio::test]
+async fn postgres_terminal_refusal_consumes_its_revision()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let (_a, store, refused) = refused_first(&db).await?;
+    assert_eq!(
+        refusal(&refused, "CHARACTER_SCOPE_DELETED"),
+        format!(
+            "{{\"contract_version\":1,\"result\":\"refused\",\"record_id\":\"{}\",\"consumed_source_revision\":\"1\",\"reason\":\"CHARACTER_SCOPE_DELETED\"}}",
+            refused.id
+        )
+        .into_bytes()
+    );
+    let mut last = None;
+    for revision in 2..=4 {
+        let r = playerdata::progress(&progress_for(revision, OTHER))?;
+        assert_eq!(
+            store.ingest(r.clone(), clock()).await?,
+            acknowledgement(&r)?
+        );
+        last = Some(r);
+    }
+    let last = last.ok_or("no record")?;
+    let (stream, records, conflicts) = state(&db).await?;
+    assert_eq!(stream, format!("4/4/4/{}", last.id));
+    assert_eq!((records, conflicts), (4, 0));
+    let kinds: Vec<String> =
+        sqlx::query_scalar("SELECT kind FROM pd_records ORDER BY source_revision")
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(
+        kinds,
+        ["CHARACTER_SCOPE_DELETED", "UPSERT", "UPSERT", "UPSERT"]
+    );
+    // The refusal row is content-free: ids, revision, digest and reason only.
+    let row = sqlx::query("SELECT record_id,entity_key,character_id,scope_key,occurred_ms,coverage_ms,payload IS NULL AS empty,digest FROM pd_records WHERE source_revision=1")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(row.try_get::<String, _>("record_id")?, refused.id);
+    assert_eq!(row.try_get::<String, _>("entity_key")?, "");
+    assert_eq!(row.try_get::<Option<String>, _>("character_id")?, None);
+    assert_eq!(row.try_get::<String, _>("scope_key")?, "");
+    assert_eq!(row.try_get::<i64, _>("occurred_ms")?, 0);
+    assert_eq!(row.try_get::<i64, _>("coverage_ms")?, 0);
+    assert!(row.try_get::<bool, _>("empty")?);
+    assert_eq!(row.try_get::<Vec<u8>, _>("digest")?, hash(&refused.bytes));
+    // The consumed revision counts as applied: a watermark may cover it.
+    store
+        .watermark(watermark(4, NOW), clock())
+        .await
+        .map(|_| ())?;
+
+    // Exact replay: identical bytes, nothing written.
+    let before = state(&db).await?;
+    for _ in 0..2 {
+        assert_eq!(
+            store.ingest(refused.clone(), clock()).await?,
+            refusal(&refused, "CHARACTER_SCOPE_DELETED")
+        );
+    }
+    assert_eq!(state(&db).await?, before);
+
+    // Other bytes at the refused revision: same record id, or another one.
+    let changed = String::from_utf8(refused.bytes.clone())?.replace("2400", "2399");
+    assert_eq!(
+        store
+            .ingest(playerdata::progress(changed.as_bytes())?, clock())
+            .await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(
+        store
+            .ingest(playerdata::progress(&progress(1))?, clock())
+            .await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(state(&db).await?.0, before.0);
+    db.close().await?;
+    Ok(())
+}
+
+/// Option B, gap: a missing revision blocks the stream, also for a record of the
+/// deleted character; nothing advances.
+#[tokio::test]
+async fn postgres_gap_after_terminal_refusal_does_not_advance()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let (_a, store, _) = refused_first(&db).await?;
+    let before = state(&db).await?;
+    for character in [CHARACTER, OTHER] {
+        assert_eq!(
+            store
+                .ingest(playerdata::progress(&progress_for(3, character))?, clock())
+                .await,
+            Err(Error::Conflict)
+        );
+    }
+    assert_eq!(state(&db).await?, before);
+    assert_eq!(stored(&db).await?, "1");
+    db.close().await?;
+    Ok(())
+}
+
+/// Option B, revision outside the window: an already consumed revision under a
+/// new record id, and the highest representable revision, are both refused.
+#[tokio::test]
+async fn postgres_revision_outside_window_does_not_advance()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let (_a, store, _) = refused_first(&db).await?;
+    let before = state(&db).await?;
+    for (revision, character) in [
+        (1, OTHER),
+        (1, CHARACTER),
+        (u64::MAX, OTHER),
+        (u64::MAX, CHARACTER),
+    ] {
+        assert_eq!(
+            store
+                .ingest(
+                    playerdata::progress(&progress_for(revision, character))?,
+                    clock()
+                )
+                .await,
+            Err(Error::Conflict),
+            "{revision} {character}"
+        );
+    }
+    assert_eq!(state(&db).await?.0, before.0);
+    assert_eq!(stored(&db).await?, "1");
+    db.close().await?;
+    Ok(())
+}
+
+/// Option B, validation: noncanonical bytes and a future occurrence are refused
+/// before any lock, for the deleted character too; nothing advances.
+#[tokio::test]
+async fn postgres_invalid_record_does_not_advance()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let (_a, store, _) = refused_first(&db).await?;
+    let before = state(&db).await?;
+    for character in [CHARACTER, OTHER] {
+        let mut noncanonical = playerdata::progress(&progress_for(2, character))?;
+        noncanonical.bytes.push(b'\n');
+        assert_eq!(
+            store.ingest(noncanonical, clock()).await,
+            Err(Error::Invalid)
+        );
+        let future = String::from_utf8(progress_for(2, character))?.replace(
+            &format!("\"occurred_at_unix_ms\":\"{NOW}\""),
+            &format!("\"occurred_at_unix_ms\":\"{}\"", NOW + 1),
+        );
+        assert_eq!(
+            store
+                .ingest(playerdata::progress(future.as_bytes())?, clock())
+                .await,
+            Err(Error::Invalid)
+        );
+    }
+    assert_eq!(state(&db).await?, before);
+    db.close().await?;
+    Ok(())
+}
+
+/// Option B, transient database error: unavailable, never a refusal or advance.
+#[tokio::test]
+async fn postgres_transient_database_error_does_not_advance()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let (a, _, _) = refused_first(&db).await?;
+    let before = state(&db).await?;
+    let unreachable = sqlx::postgres::PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_secs(1))
+        .connect_lazy("postgres://portal@127.0.0.1:1/unreachable")?;
+    let down = Store::new(unreachable, Arc::new(a), flags());
+    for character in [CHARACTER, OTHER] {
+        assert_eq!(
+            down.ingest(playerdata::progress(&progress_for(2, character))?, clock())
+                .await,
+            Err(Error::Unavailable)
+        );
+    }
+    assert_eq!(state(&db).await?, before);
+    db.close().await?;
+    Ok(())
+}
+
+/// Account deletion is not a terminal refusal: it closes the whole account
+/// stream, so every later record is refused without advance (G-11 §8.2).
+#[tokio::test]
+async fn postgres_deleted_account_closes_the_stream_without_advance()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let (_a, store, refused) = refused_first(&db).await?;
+    store.erase_account(ACCOUNT, clock()).await?;
+    let before = state(&db).await?;
+    for character in [CHARACTER, OTHER] {
+        assert_eq!(
+            store
+                .ingest(playerdata::progress(&progress_for(2, character))?, clock())
+                .await,
+            Err(Error::Conflict)
+        );
+    }
+    assert_eq!(store.ingest(refused, clock()).await, Err(Error::Conflict));
+    assert_eq!(state(&db).await?, before);
+    db.close().await?;
+    Ok(())
+}
+
+/// Revision 4, lost response: accept, lose the answer, delete the character,
+/// resend the same bytes. A conforming adapter still grants the lease for the
+/// deleted character (the tombstone is the store's check), and the replay is
+/// answered from the stored record before the tombstone check, so it stays
+/// `accepted`; it writes nothing and advances nothing.
+#[tokio::test]
+async fn postgres_lost_response_replay_after_deletion_stays_accepted()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let first = playerdata::progress(&progress(1))?;
+    let scope = first.scope.clone();
+    a.allow(scope.clone()).await;
+    let store = db.store(&a);
+    let answer = store.ingest(first.clone(), clock()).await?;
+    store.erase_character(ACCOUNT, CHARACTER, clock()).await?;
+    assert_eq!(store.ingest(first.clone(), clock()).await?, answer);
+    assert_eq!(answer, acknowledgement(&first)?);
+    assert_eq!(store.cursor(&scope).await?.0.stored, 1);
+    // Different bytes under the same record are still not a replay.
+    let other = playerdata::progress(&progress(1))?;
+    assert_eq!(store.ingest(other, clock()).await, Err(Error::Conflict));
     db.close().await?;
     Ok(())
 }

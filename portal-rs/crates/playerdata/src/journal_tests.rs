@@ -256,7 +256,8 @@ fn defaults_are_off_and_families_parse() {
 #[test]
 fn contract_goldens_decode_or_refuse_as_specified() {
     assert_eq!(blocks(ITEMS_CONTRACT).len(), 10);
-    assert_eq!(blocks(PROGRESS_CONTRACT).len(), 21);
+    // 21 revision 3 goldens plus the terminal refusal answer (2026-11-12 amendment).
+    assert_eq!(blocks(PROGRESS_CONTRACT).len(), 22);
     assert!(
         playerdata::cursor(items(&["ReadGameJournalCursorV1", "\"character_id\":null"]).as_bytes())
             .is_ok()
@@ -772,6 +773,94 @@ async fn postgres_progress_goldens_ack_watermark_replay_and_conflicts() {
         assert!(a.body.is_empty());
     }
     assert_eq!(db.records().await, 1);
+    db.close().await;
+}
+
+/// G-11 §8.2 terminal refusal through the route: the golden record of a deleted
+/// character answers the golden refusal bytes, again on replay, and consumes
+/// revision 1 so the next revision of another character is accepted.
+#[tokio::test]
+async fn postgres_progress_terminal_refusal_golden_and_stream_continues() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let stamina = progress(&["PublishGameJournalProgressV1", "\"source_revision\":\"1\""]);
+    let refused = progress(&["\"result\":\"refused\""]);
+    let record = playerdata::progress(stamina.as_bytes()).unwrap();
+    let next = stamina
+        .replace("\"source_revision\":\"1\"", "\"source_revision\":\"2\"")
+        .replace(
+            "01934f10-7c04-7001-805b-3b1122334403",
+            "01934f10-7c04-7001-805b-3b11223344b3",
+        )
+        .replace(
+            "01934f10-7c04-7001-805b-3b1122334401",
+            "01934f10-7c04-7001-805b-3b11223344b1",
+        );
+    let other = playerdata::progress(next.as_bytes()).unwrap();
+    let allowed = Allowed::default();
+    allowed.allow(record.scope.clone()).await;
+    allowed.allow(other.scope.clone()).await;
+    let store = Store::new(
+        db.pool.clone(),
+        Arc::new(allowed.clone()),
+        settings().flags(),
+    );
+    store
+        .erase_character(
+            &record.scope.account,
+            record.scope.character.as_deref().unwrap(),
+            TrustedTime {
+                unix_ms: PROGRESS_NOW,
+                uncertainty_ms: 0,
+            },
+        )
+        .await
+        .unwrap();
+    let app = router(
+        db.pool.clone(),
+        Arc::new(allowed),
+        Arc::new(FixedClock(PROGRESS_NOW)),
+        &settings(),
+        identities(),
+    );
+    for _ in 0..2 {
+        let a = post(
+            &app,
+            PROGRESS_SAN,
+            http::PROGRESS_RECORD_PATH,
+            stamina.as_bytes(),
+        )
+        .await;
+        assert_eq!(a.status, StatusCode::OK);
+        assert_eq!(a.cache.as_deref(), Some("no-store"));
+        assert_eq!(a.body, refused.as_bytes());
+    }
+    let changed = stamina.replace("\"stamina_minutes\":2400", "\"stamina_minutes\":2399");
+    assert_eq!(
+        post(
+            &app,
+            PROGRESS_SAN,
+            http::PROGRESS_RECORD_PATH,
+            changed.as_bytes()
+        )
+        .await
+        .status,
+        StatusCode::CONFLICT
+    );
+    let a = post(
+        &app,
+        PROGRESS_SAN,
+        http::PROGRESS_RECORD_PATH,
+        next.as_bytes(),
+    )
+    .await;
+    assert_eq!(a.status, StatusCode::OK);
+    assert_eq!(
+        a.body,
+        br#"{"contract_version":1,"result":"accepted","record_id":"01934f10-7c04-7001-805b-3b11223344b3","accepted_source_revision":"2"}"#
+    );
+    assert_eq!(db.records().await, 2);
     db.close().await;
 }
 
