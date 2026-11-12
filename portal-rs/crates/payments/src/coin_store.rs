@@ -1,14 +1,17 @@
 //! Durable native coin orders: quotes, atomic order creation, the signed sandbox
-//! webhook and the single wallet credit. Identity, character ownership and the
-//! wallet are supplied by the composing binary through `CoinHost`.
+//! webhook, the single wallet credit and its single reversal (refund or
+//! chargeback). Identity, character ownership and the wallet are supplied by the
+//! composing binary through `CoinHost`.
 use std::{future::Future, pin::Pin, sync::Arc};
 
+use serde_json::{Value, json};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use uuid::Uuid;
 
 use crate::coin::{
-    CoinBalance, CoinCatalogue, CoinOrder, CoinOrderRequest, CoinPackage, CoinSettings, MAX_COINS,
-    MAX_RECENT_ORDERS, OrderState, Price, VERSION,
+    CoinBalance, CoinCatalogue, CoinEvent, CoinOrder, CoinOrderRequest, CoinPackage, CoinSettings,
+    EventState, MAX_COINS, MAX_RECENT_ORDERS, OrderState, Price, REVERSAL_REVIEW_CODE, REVIEW_CODE,
+    VERSION,
 };
 use crate::{
     AccountReader, AccountState, Amount, Error, Intent, IntentState, PaymentEvent, PaymentFlags,
@@ -55,18 +58,28 @@ pub struct WalletSnapshot {
     pub transferable: i64,
 }
 
+/// Outcome of reversing one purchase credit in the caller's transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Debit {
+    /// The whole credit was debited from unreserved transferable coins.
+    Debited,
+    /// Unreserved transferable coins no longer cover it; nothing was debited.
+    Insufficient,
+}
+
 /// Adapters owned by the composing binary. Failures must never grant access.
 pub trait CoinHost: Send + Sync {
     /// Resolve a `game:account-services` bearer token to its current account.
     fn payer<'a>(&'a self, bearer: &'a str) -> HostFuture<'a, Result<Uuid, CoinError>>;
     /// Whether the payer currently owns the character.
     fn ownership(&self, payer: Uuid, character: Uuid) -> HostFuture<'_, Ownership>;
-    /// Purchase eligibility, read (and locked) in the caller's transaction.
-    fn eligible_in<'a>(
+    /// Why the payer may not buy now (`None`: eligible), read (and locked) in
+    /// the caller's transaction. A missing account is a restriction.
+    fn restriction_in<'a>(
         &'a self,
         connection: &'a mut PgConnection,
         payer: Uuid,
-    ) -> HostFuture<'a, Result<bool, CoinError>>;
+    ) -> HostFuture<'a, Result<Option<String>, CoinError>>;
     /// Credit transferable coins once, keyed by `key`, in the caller's transaction.
     fn credit_in<'a>(
         &'a self,
@@ -75,7 +88,33 @@ pub trait CoinHost: Send + Sync {
         payer: Uuid,
         coins: i64,
     ) -> HostFuture<'a, Result<(), CoinError>>;
+    /// Debit the whole credit once, keyed by `key`, from unreserved
+    /// transferable coins in the caller's transaction, whatever the payer's
+    /// restrictions; never partially and never below zero.
+    fn reverse_in<'a>(
+        &'a self,
+        tx: &'a mut Transaction<'static, Postgres>,
+        key: Uuid,
+        payer: Uuid,
+        coins: i64,
+    ) -> HostFuture<'a, Result<Debit, CoinError>>;
     fn wallet(&self, payer: Uuid) -> HostFuture<'_, Result<WalletSnapshot, CoinError>>;
+}
+
+/// Append one `audit_log` row on the caller's connection or transaction.
+async fn audit(
+    connection: &mut PgConnection,
+    actor: Option<Uuid>,
+    action: &str,
+    target: &str,
+    request: Uuid,
+    before: Value,
+    after: Value,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES($1,$2,$3,$4::text::jsonb,$5::text::jsonb,$6)")
+        .bind(actor).bind(action).bind(target).bind(before.to_string()).bind(after.to_string()).bind(request)
+        .execute(connection).await?;
+    Ok(())
 }
 
 /// Payments account policy through the host; errors deny.
@@ -92,9 +131,9 @@ impl AccountReader for HostAccounts {
     async fn state(&self, account_id: Uuid) -> Result<AccountState, Error> {
         let mut connection = self.pool.acquire().await?;
         Ok(
-            match self.host.eligible_in(&mut connection, account_id).await {
-                Ok(true) => AccountState::Active,
-                Ok(false) => AccountState::Restricted,
+            match self.host.restriction_in(&mut connection, account_id).await {
+                Ok(None) => AccountState::Active,
+                Ok(Some(_)) => AccountState::Restricted,
                 Err(_) => AccountState::Unknown,
             },
         )
@@ -142,17 +181,8 @@ fn order_row(row: &PgRow) -> Result<OrderRow, CoinError> {
         },
     })
 }
-/// An identical replay returns the current order; any changed binding conflicts.
-fn replay(existing: OrderRow, request: &CoinOrderRequest) -> Result<CoinOrder, CoinError> {
-    let order = existing.order;
-    if order.package_id == request.package_id
-        && order.quote_id == request.quote_id
-        && order.character_id == request.character_id
-    {
-        Ok(order)
-    } else {
-        Err(CoinError::Conflict)
-    }
+fn binding(package: Uuid, quote: Uuid, character: Option<Uuid>) -> Value {
+    json!({"package_id": package, "quote_id": quote, "character_id": character})
 }
 enum Created {
     Inserted(OrderRow),
@@ -212,6 +242,92 @@ impl CoinPurchases {
     pub async fn payer(&self, bearer: &str) -> Result<Uuid, CoinError> {
         self.enabled()?;
         self.host.payer(bearer).await
+    }
+
+    /// Why the payer may not buy now: the host's account restrictions (taking
+    /// its account lock), then a coin purchase hold. Errors deny.
+    async fn restriction(
+        &self,
+        connection: &mut PgConnection,
+        payer: Uuid,
+    ) -> Result<Option<String>, CoinError> {
+        if let Some(reason) = self.host.restriction_in(connection, payer).await? {
+            return Ok(Some(reason));
+        }
+        let held: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)",
+        )
+        .bind(payer)
+        .fetch_one(connection)
+        .await?;
+        Ok(held.then(|| "coin_purchase_hold".to_owned()))
+    }
+
+    /// The refusal of a restricted payer is audited after the caller's
+    /// transaction has rolled back, so it survives the refusal.
+    async fn refused(
+        &self,
+        payer: Uuid,
+        request: Uuid,
+        stage: &str,
+        reason: &str,
+    ) -> Result<(), CoinError> {
+        let mut connection = self.pool.acquire().await?;
+        audit(
+            &mut connection,
+            Some(payer),
+            "coin_purchase.payment_refused",
+            &payer.to_string(),
+            request,
+            Value::Null,
+            json!({"stage": stage, "reason": reason}),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Checkout and sandbox payment refuse a restricted payer before any
+    /// provider call (409, changed account eligibility).
+    async fn payable(&self, payer: Uuid, order: Uuid, stage: &str) -> Result<(), CoinError> {
+        let mut connection = self.pool.acquire().await?;
+        let restriction = self.restriction(&mut connection, payer).await?;
+        drop(connection);
+        match restriction {
+            None => Ok(()),
+            Some(reason) => {
+                self.refused(payer, order, stage, &reason).await?;
+                Err(CoinError::Conflict)
+            }
+        }
+    }
+
+    /// An identical replay returns the current order; any changed binding is
+    /// refused with 409 and audited, and never creates or alters an order.
+    async fn replay(
+        &self,
+        payer: Uuid,
+        existing: OrderRow,
+        request: &CoinOrderRequest,
+    ) -> Result<CoinOrder, CoinError> {
+        let order = existing.order;
+        if order.package_id == request.package_id
+            && order.quote_id == request.quote_id
+            && order.character_id == request.character_id
+        {
+            return Ok(order);
+        }
+        let mut connection = self.pool.acquire().await?;
+        audit(
+            &mut connection,
+            Some(payer),
+            "coin_purchase.request_replay_refused",
+            &request.request_id.to_string(),
+            request.request_id,
+            binding(order.package_id, order.quote_id, order.character_id),
+            binding(request.package_id, request.quote_id, request.character_id),
+        )
+        .await?;
+        Err(CoinError::Conflict)
     }
 
     async fn owned(&self, payer: Uuid, character: Uuid) -> Result<(), CoinError> {
@@ -277,7 +393,7 @@ impl CoinPurchases {
     pub async fn balance(&self, payer: Uuid) -> Result<CoinBalance, CoinError> {
         self.enabled()?;
         let wallet = self.host.wallet(payer).await?;
-        let review_required: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM coin_purchase_orders WHERE payer_account_id=$1 AND review_required)")
+        let review_required: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM coin_purchase_orders WHERE payer_account_id=$1 AND review_required) OR EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)")
             .bind(payer).fetch_one(&self.pool).await?;
         let consistent = wallet.revision > 0
             && (0..=MAX_COINS).contains(&wallet.total)
@@ -342,14 +458,14 @@ impl CoinPurchases {
     ) -> Result<CoinOrder, CoinError> {
         self.enabled()?;
         if let Some(existing) = self.find(payer, request.request_id).await? {
-            return replay(existing, request);
+            return self.replay(payer, existing, request).await;
         }
         if let Some(character) = request.character_id {
             self.owned(payer, character).await?;
         }
         let row = match self.insert_order(payer, request).await? {
             Created::Inserted(row) => row,
-            Created::Existing(row) => return replay(row, request),
+            Created::Existing(row) => return self.replay(payer, row, request).await,
         };
         // The checkout page retries a failed binding; the order is durable already.
         self.ensure_intent(&row).await.ok();
@@ -362,7 +478,10 @@ impl CoinPurchases {
         request: &CoinOrderRequest,
     ) -> Result<Created, CoinError> {
         let mut tx = self.pool.begin().await?;
-        if !self.host.eligible_in(&mut tx, payer).await? {
+        if let Some(reason) = self.restriction(&mut tx, payer).await? {
+            tx.rollback().await?;
+            self.refused(payer, request.request_id, "order", &reason)
+                .await?;
             return Err(CoinError::Conflict);
         }
         let quote = sqlx::query("SELECT payer_account_id,character_id,package_id,coins,minor_units,currency,exponent,environment,consumed_at IS NOT NULL AS consumed,expires_at>clock_timestamp() AS live FROM coin_purchase_quotes WHERE id=$1 FOR UPDATE")
@@ -433,9 +552,11 @@ impl CoinPurchases {
     pub async fn checkout(&self, payer: Uuid, order: Uuid) -> Result<CoinOrder, CoinError> {
         self.enabled()?;
         let row = self.find_order(payer, order).await?;
-        if row.order.state == OrderState::AwaitingPayment && self.ensure_intent(&row).await.is_err()
-        {
-            return Err(CoinError::Unavailable);
+        if row.order.state == OrderState::AwaitingPayment {
+            self.payable(payer, order, "checkout").await?;
+            if self.ensure_intent(&row).await.is_err() {
+                return Err(CoinError::Unavailable);
+            }
         }
         Ok(row.order)
     }
@@ -453,6 +574,7 @@ impl CoinPurchases {
         if row.order.state != OrderState::AwaitingPayment {
             return Ok(row.order);
         }
+        self.payable(payer, order, "sandbox_payment").await?;
         let intent = self
             .ensure_intent(&row)
             .await
@@ -486,9 +608,10 @@ impl CoinPurchases {
     }
 
     /// Verified provider events only. In one transaction: lock intent and order,
-    /// record the event once, transition both, and for `paid` write the receipt
-    /// and the single transferable credit keyed by the intent ID. Refund and
-    /// chargeback events are refused here: phase A has no reversal handler.
+    /// record the event once, transition both; `paid` writes the receipt and the
+    /// single transferable credit keyed by the intent ID, `refunded` and
+    /// `chargeback` reverse that credit once. A refused delivery whose payload
+    /// differs from its event ID's record or from the order's binding is audited.
     pub async fn webhook(&self, body: &[u8], signature: &[u8]) -> Result<WebhookOutcome, Error> {
         if !self.settings.enabled {
             return Err(Error::Disabled);
@@ -497,7 +620,57 @@ impl CoinPurchases {
             return Err(Error::InvalidInput);
         }
         self.provider.verify_webhook_signature(body, signature)?;
-        let event = self.provider.parse_event(body)?;
+        let event = CoinEvent::decode(body).ok_or(Error::InvalidInput)?;
+        match self.apply(&event).await {
+            Err(Error::InvalidInput) => {
+                self.refused_event(&event).await?;
+                Err(Error::InvalidInput)
+            }
+            outcome => outcome,
+        }
+    }
+
+    /// Retains a refused event for audit after its transaction rolled back.
+    async fn refused_event(&self, event: &CoinEvent) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+        let recorded: Option<(Uuid, String)> = sqlx::query_as(
+            "SELECT intent_id,state FROM payment_events WHERE provider=$1 AND provider_event_id=$2",
+        )
+        .bind(self.provider.name())
+        .bind(&event.event_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let action = if recorded.is_some() {
+            "coin_purchase.event_replay_refused"
+        } else {
+            "coin_purchase.event_refused"
+        };
+        let before = recorded.map_or(
+            Value::Null,
+            |(intent, state)| json!({"intent_id": intent, "state": state}),
+        );
+        audit(
+            &mut tx,
+            None,
+            action,
+            &event.event_id,
+            event.intent_id,
+            before,
+            json!({
+                "event_id": event.event_id,
+                "intent_id": event.intent_id,
+                "provider_reference": event.provider_reference,
+                "minor_units": event.amount.minor_units,
+                "currency": event.amount.currency,
+                "state": event.state.as_str(),
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn apply(&self, event: &CoinEvent) -> Result<WebhookOutcome, Error> {
         let provider = self.provider.name();
         let mut tx = self.pool.begin().await?;
         let intent = sqlx::query("SELECT account_id,amount,currency,state,provider_reference FROM payment_intents WHERE id=$1 AND provider=$2 FOR UPDATE")
@@ -516,8 +689,8 @@ impl CoinPurchases {
             .bind(oteryn_core::new_id()).bind(provider).bind(&event.event_id).bind(event.intent_id).bind(event.state.as_str())
             .execute(&mut *tx).await?.rows_affected();
         // Every delivery, a replay included, must match the bound intent and order
-        // exactly; a replayed event ID with any other payload is refused and
-        // changes nothing (its audit record is phase B).
+        // exactly; a replayed event ID with any other payload is refused, changes
+        // nothing and is audited by the caller.
         let amount: i64 = intent.try_get("amount")?;
         let currency: String = intent.try_get("currency")?;
         if amount != event.amount.minor_units
@@ -539,24 +712,77 @@ impl CoinPurchases {
             tx.commit().await?;
             return Ok(WebhookOutcome::Replay);
         }
-        IntentState::parse(intent.try_get("state")?)?.transition(event.state)?;
-        let mut next = match event.state {
-            IntentState::Succeeded => OrderState::Paid,
-            IntentState::Failed => OrderState::Failed,
+        let current: String = intent.try_get("state")?;
+        // The order lock serializes every reversal of this order.
+        let reversal: Option<String> =
+            sqlx::query_scalar("SELECT outcome FROM coin_purchase_reversals WHERE order_id=$1")
+                .bind(order.order.order_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        match event.state {
+            EventState::Succeeded | EventState::Failed if reversal.is_some() => {
+                // Fenced: a reversal (even one that arrived first) wins; the late
+                // settlement is retained and changes nothing.
+                audit(
+                    &mut tx,
+                    None,
+                    "coin_purchase.settlement_fenced",
+                    &order.order.order_id.to_string(),
+                    event.intent_id,
+                    Value::Null,
+                    json!({"event_id": event.event_id, "state": event.state.as_str()}),
+                )
+                .await?;
+            }
+            EventState::Succeeded | EventState::Failed => {
+                self.settle(&mut tx, event, &order, &current).await?;
+            }
+            EventState::Refunded | EventState::Chargeback => {
+                self.reverse(&mut tx, event, &order, &current, reversal)
+                    .await?;
+            }
+            EventState::Pending => return Err(Error::IllegalTransition),
+        }
+        tx.commit().await?;
+        Ok(WebhookOutcome::Applied)
+    }
+
+    /// `paid` or `failed`. A payer no longer eligible (restricted, closed,
+    /// unverified, held) when the payment arrives gets no coins: the order is
+    /// held for manual handling.
+    async fn settle(
+        &self,
+        tx: &mut Transaction<'static, Postgres>,
+        event: &CoinEvent,
+        order: &OrderRow,
+        current: &str,
+    ) -> Result<(), Error> {
+        let (state, mut next) = match event.state {
+            EventState::Succeeded => (IntentState::Succeeded, OrderState::Paid),
+            EventState::Failed => (IntentState::Failed, OrderState::Failed),
             _ => return Err(Error::IllegalTransition),
         };
-        // A payer no longer eligible (restricted, closed, unverified) when the
-        // payment arrives gets no coins: the order is held for manual handling.
+        IntentState::parse(current)?.transition(state)?;
         let mut review = false;
-        if next == OrderState::Paid
-            && !self
-                .host
-                .eligible_in(&mut tx, order.payer)
+        if next == OrderState::Paid {
+            let restriction = self
+                .restriction(tx, order.payer)
                 .await
-                .map_err(|_| Error::AccountDenied)?
-        {
-            next = OrderState::Processing;
-            review = true;
+                .map_err(|_| Error::AccountDenied)?;
+            if let Some(reason) = restriction {
+                next = OrderState::Processing;
+                review = true;
+                audit(
+                    tx,
+                    None,
+                    "coin_purchase.payment_held",
+                    &order.payer.to_string(),
+                    event.intent_id,
+                    Value::Null,
+                    json!({"order_id": order.order.order_id, "reason": reason}),
+                )
+                .await?;
+            }
         }
         if !order.order.state.may_become(next) {
             return Err(Error::IllegalTransition);
@@ -564,30 +790,153 @@ impl CoinPurchases {
         sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1")
             .bind(event.intent_id)
             .bind(event.state.as_str())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         let receipt = if next == OrderState::Paid {
             let receipt = oteryn_core::new_id();
             sqlx::query("INSERT INTO invoices (id,intent_id,account_id,amount,currency) VALUES ($1,$2,$3,$4,$5)")
-                .bind(receipt).bind(event.intent_id).bind(order.payer).bind(amount).bind(&currency)
-                .execute(&mut *tx).await?;
+                .bind(receipt).bind(event.intent_id).bind(order.payer)
+                .bind(order.order.price.minor_units).bind(&order.order.price.currency)
+                .execute(&mut **tx).await?;
             self.host
-                .credit_in(&mut tx, event.intent_id, order.payer, order.order.coins)
+                .credit_in(tx, event.intent_id, order.payer, order.order.coins)
                 .await
                 .map_err(|_| Error::AccountDenied)?;
             Some(receipt)
         } else {
             None
         };
-        let code = if review {
-            "COIN_ORDER_REVIEW_REQUIRED"
-        } else {
-            next.code()
-        };
+        let code = if review { REVIEW_CODE } else { next.code() };
         sqlx::query("UPDATE coin_purchase_orders SET state=$2, revision=revision+1, checkout_url=NULL, receipt_id=$3, code=$4, review_required=review_required OR $5, updated_at=now() WHERE id=$1")
             .bind(order.order.order_id).bind(next.as_str()).bind(receipt).bind(code).bind(review)
-            .execute(&mut *tx).await?;
-        tx.commit().await?;
-        Ok(WebhookOutcome::Applied)
+            .execute(&mut **tx).await?;
+        Ok(())
+    }
+
+    /// `refunded` or `chargeback`: reverse the credited coins once.
+    ///
+    /// - Credited order: debit the whole credit from unreserved transferable
+    ///   coins under the wallet lock. When they no longer cover it nothing is
+    ///   debited (never partially, never below zero): the order is flagged for
+    ///   review and the payer's new purchasing is frozen. A chargeback after a
+    ///   refund changes the state only.
+    /// - Not yet credited: the reversal is recorded, the order is held in
+    ///   `processing` for review and a later settlement is fenced.
+    async fn reverse(
+        &self,
+        tx: &mut Transaction<'static, Postgres>,
+        event: &CoinEvent,
+        order: &OrderRow,
+        current: &str,
+        reversal: Option<String>,
+    ) -> Result<(), Error> {
+        let (kind, target) = match event.state {
+            EventState::Refunded => ("refund", OrderState::Refunded),
+            EventState::Chargeback => ("chargeback", OrderState::Chargeback),
+            _ => return Err(Error::IllegalTransition),
+        };
+        let key = oteryn_core::new_id();
+        if order.order.receipt_id.is_none() {
+            // Failed is terminal: nothing was paid, so nothing can be reversed.
+            if order.order.state == OrderState::Failed {
+                return Err(Error::IllegalTransition);
+            }
+            if reversal.is_none() {
+                self.record_reversal(tx, key, event, order, kind, "fenced")
+                    .await?;
+                sqlx::query("UPDATE coin_purchase_orders SET state='processing', revision=revision+1, checkout_url=NULL, code=$2, review_required=true, updated_at=now() WHERE id=$1")
+                    .bind(order.order.order_id).bind(REVERSAL_REVIEW_CODE)
+                    .execute(&mut **tx).await?;
+            }
+            return Ok(());
+        }
+        // Intent: succeeded -> refunded | chargeback, refunded -> chargeback.
+        let legal = matches!(
+            (current, event.state),
+            ("succeeded", EventState::Refunded | EventState::Chargeback)
+                | ("refunded", EventState::Chargeback)
+        );
+        if !legal || !order.order.state.may_become(target) {
+            return Err(Error::IllegalTransition);
+        }
+        sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1")
+            .bind(event.intent_id)
+            .bind(event.state.as_str())
+            .execute(&mut **tx)
+            .await?;
+        let outcome = match reversal {
+            // Refund then chargeback: the credit was reversed (or held) once.
+            Some(outcome) => outcome,
+            None => {
+                let debit = self
+                    .host
+                    .reverse_in(tx, key, order.payer, order.order.coins)
+                    .await
+                    .map_err(|_| Error::AccountDenied)?;
+                let outcome = match debit {
+                    Debit::Debited => "debited",
+                    Debit::Insufficient => {
+                        sqlx::query("INSERT INTO coin_purchase_holds (account_id,order_id,reason) VALUES ($1,$2,'reversal_insufficient_balance') ON CONFLICT (account_id) DO NOTHING")
+                            .bind(order.payer).bind(order.order.order_id)
+                            .execute(&mut **tx).await?;
+                        "held"
+                    }
+                };
+                self.record_reversal(tx, key, event, order, kind, outcome)
+                    .await?;
+                outcome.to_owned()
+            }
+        };
+        let review = outcome != "debited";
+        let code = if review {
+            REVERSAL_REVIEW_CODE
+        } else {
+            target.code()
+        };
+        sqlx::query("UPDATE coin_purchase_orders SET state=$2, revision=revision+1, code=$3, review_required=review_required OR $4, updated_at=now() WHERE id=$1")
+            .bind(order.order.order_id).bind(target.as_str()).bind(code).bind(review)
+            .execute(&mut **tx).await?;
+        Ok(())
+    }
+
+    /// The immutable reversal row (its id is the wallet debit key) and its
+    /// audit entry, in the reversal's transaction.
+    async fn record_reversal(
+        &self,
+        tx: &mut Transaction<'static, Postgres>,
+        key: Uuid,
+        event: &CoinEvent,
+        order: &OrderRow,
+        kind: &str,
+        outcome: &str,
+    ) -> Result<(), Error> {
+        let debited = if outcome == "debited" {
+            order.order.coins
+        } else {
+            0
+        };
+        sqlx::query("INSERT INTO coin_purchase_reversals (id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+            .bind(key).bind(order.order.order_id).bind(order.payer).bind(kind)
+            .bind(self.provider.name()).bind(&event.event_id).bind(order.order.coins)
+            .bind(debited).bind(outcome)
+            .execute(&mut **tx).await?;
+        audit(
+            tx,
+            None,
+            "coin_purchase.reversal_recorded",
+            &order.order.order_id.to_string(),
+            key,
+            json!({"state": order.order.state.as_str()}),
+            json!({
+                "kind": kind,
+                "outcome": outcome,
+                "coins": order.order.coins,
+                "debited": debited,
+                "event_id": event.event_id,
+                "payer_account_id": order.payer,
+            }),
+        )
+        .await?;
+        Ok(())
     }
 }
