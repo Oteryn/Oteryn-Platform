@@ -16,6 +16,7 @@
 //! | `account-mfa` | `account_mfa_totp` (via `oteryn_identity::mfa`) | `accountId`, `totpSecret`, `algorithm`, `digits`, `period`, `recoveryCodes` |
 //! | `channel` | `game_channels` (no route, login disabled) | the channel's current record |
 //! | `route` | `game_channels` route record (gateway contract §7.3, mode 34a) | `worldId`, `channelId`, `host`, `port`, `tlsServerName`, `version`, `routeRevision`, `nativeLoginEnabled` |
+//! | `signing-custody` | encrypted key custody files + `native_game_signing_trust_*` + retained witness | `issuer`, `profile`, `purpose`, `keyId`, `publicKey`, the file paths and the issuer's `env` |
 //!
 //! `account-mfa` needs the portal's `OTERYN_MFA_KEY`. The secret exists only at
 //! enrolment, so a second run for an enrolled account is a conflict.
@@ -24,13 +25,18 @@
 //! by `oteryn_gameauth::admission::route_revision`, never taken from input. A
 //! higher `version` replaces the record (rotation); the same version with other
 //! values, or a lower version, is a conflict.
+//! `signing-custody` provisions T19c grant issuance (gateway contract §9): an
+//! owner-only wrapping key, the encrypted custody snapshot with one Active
+//! Ed25519 key and its §9.2 trust publication. It also runs with
+//! `OTERYN_ENV=preprod`, where issuance is permitted; a rerun reuses the key and
+//! never rotates it. Private and wrapping key bytes are never printed.
 //! `native-evidence` answers `not_applicable`: portal-rs observes evidence live
 //! and its first observation bootstraps the retained witness, so no reconcile
 //! step exists.
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use oteryn_characters::bootstrap::issue;
 use oteryn_gameauth::{
-    admission::{route_names_valid, route_revision},
+    admission::{self, route_names_valid, route_revision},
     evidence::{Witness, trust_state_namespace},
     keys::{self, PublicTrustRegistry},
 };
@@ -94,6 +100,8 @@ fn bad(reason: impl Into<String>) -> SeedError {
 #[derive(Debug, Clone, Default)]
 pub struct Settings {
     pub witness_directory: Option<PathBuf>,
+    /// The issuer's trust scope purpose (`GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE`).
+    pub key_purpose: Option<String>,
     /// The portal's MFA cipher (`OTERYN_MFA_KEY`); its Debug output is redacted.
     pub mfa: Option<Mfa>,
 }
@@ -117,9 +125,16 @@ async fn run(args: &[String]) -> Result<Value, SeedError> {
     run_in(std::env::var("OTERYN_ENV").ok().as_deref(), args).await
 }
 
-/// Every seed action, `account-mfa` included, refuses unless `OTERYN_ENV=testing`.
+/// Every seed action, `account-mfa` included, refuses unless `OTERYN_ENV=testing`;
+/// `signing-custody` also runs in `preprod`, the other environment that issues grants.
 async fn run_in(environment: Option<&str>, args: &[String]) -> Result<Value, SeedError> {
-    if environment != Some("testing") {
+    if args.first().map(String::as_str) == Some("signing-custody") {
+        if !matches!(environment, Some("testing" | "preprod")) {
+            return Err(SeedError::Unavailable(
+                "signing-custody runs only with OTERYN_ENV=testing or preprod",
+            ));
+        }
+    } else if environment != Some("testing") {
         return Err(SeedError::Unavailable(
             "seed runs only with OTERYN_ENV=testing",
         ));
@@ -140,6 +155,7 @@ async fn run_in(environment: Option<&str>, args: &[String]) -> Result<Value, See
         .map_err(|_| SeedError::Unavailable("database"))?;
     let settings = Settings {
         witness_directory: std::env::var_os(WITNESS_DIRECTORY).map(PathBuf::from),
+        key_purpose: std::env::var(admission::KEY_PURPOSE).ok(),
         mfa: Mfa::configured(pool.clone()).ok(),
     };
     let result = execute(&pool, &settings, entity, &input).await;
@@ -160,6 +176,7 @@ pub async fn execute(
         "world" => world(pool, &args).await,
         "oauth-native-client" => oauth_native_client(pool, &args).await,
         "signing-trust" => signing_trust(pool, settings, &args).await,
+        "signing-custody" => signing_custody(pool, settings, &args).await,
         "bootstrap-intent" => bootstrap_intent(pool, &args).await,
         "account-mfa" => account_mfa(settings, &args).await,
         "channel" => channel(pool, &args).await,
@@ -532,13 +549,7 @@ async fn signing_trust(
     });
     let purpose = args.required("purpose")?;
     let key_id = args.required("keyId")?;
-    if !(1..=64).contains(&key_id.len())
-        || !key_id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-    {
-        return Err(bad("keyId must match [A-Za-z0-9._-]{1,64}"));
-    }
+    check_key_id(key_id)?;
     let key = hex32(args.required("publicKeyHex")?)?;
     let public_key = URL_SAFE_NO_PAD.encode(key);
     let directory = settings
@@ -593,6 +604,222 @@ async fn signing_trust(
         "publicKey": public_key,
         "issuerRevision": revision,
     }))
+}
+
+/// Files of the `signing-custody` directory.
+const CUSTODY_FILE: &str = "admission-custody.bin";
+const WRAPPING_KEY_FILE: &str = "admission-wrapping.key";
+/// Activation waits the §9 overlap at the largest permitted clock uncertainty,
+/// so the key is safe for any `PORTAL_NATIVE_ADMISSION_CLOCK_UNCERTAINTY_SECONDS`.
+const CUSTODY_CLOCK_UNCERTAINTY: u8 = 5;
+/// Bound on the activation wait (the overlap is at most 10 s plus rounding).
+const ACTIVATION_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn check_key_id(key_id: &str) -> Result<(), SeedError> {
+    if !(1..=64).contains(&key_id.len())
+        || !key_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    {
+        return Err(bad("keyId must match [A-Za-z0-9._-]{1,64}"));
+    }
+    Ok(())
+}
+
+/// Ensures T19c issuer custody in `directory` through the `keys` APIs: the
+/// wrapping key, the encrypted snapshot with one Active key, and that key's
+/// publication in the fresh-admission trust scope. An Active key is reused,
+/// never rotated; an interrupted run resumes its Next key.
+#[cfg(unix)]
+async fn signing_custody(
+    pool: &PgPool,
+    settings: &Settings,
+    args: &Args<'_>,
+) -> Result<Value, SeedError> {
+    use keys::{EncryptedFileStorage, KeyState, Keyring, SigningTrust};
+    use std::path::Path;
+    args.only(&["directory", "purpose", "keyId"])?;
+    let directory = PathBuf::from(args.required("directory")?);
+    if !directory.is_absolute() {
+        return Err(bad("directory must be an absolute path"));
+    }
+    let purpose = match (args.text("purpose")?, settings.key_purpose.as_deref()) {
+        (Some(given), Some(configured)) if given != configured => {
+            return Err(bad(
+                "purpose differs from GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE",
+            ));
+        }
+        (Some(purpose), _) | (None, Some(purpose)) => purpose.to_owned(),
+        (None, None) => return Err(bad("purpose is required")),
+    };
+    let requested = args.text("keyId")?;
+    if let Some(key_id) = requested {
+        check_key_id(key_id)?;
+    }
+    private_directory(&directory)?;
+    let witness = match &settings.witness_directory {
+        Some(dir) if dir.is_absolute() => dir.clone(),
+        Some(_) => {
+            return Err(SeedError::Unavailable(
+                "GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY must be an absolute directory",
+            ));
+        }
+        None => {
+            let dir = directory.join("witness");
+            private_directory(&dir)?;
+            dir
+        }
+    };
+    let custody = directory.join(CUSTODY_FILE);
+    let wrapping = directory.join(WRAPPING_KEY_FILE);
+    let exists = |path: &Path| std::fs::symlink_metadata(path).is_ok();
+    if !exists(&wrapping) {
+        if exists(&custody) {
+            return Err(SeedError::Conflict(
+                "custody exists without its wrapping key".into(),
+            ));
+        }
+        EncryptedFileStorage::create_key_file(&wrapping).map_err(custody_error)?;
+    }
+    let key_settings = keys::Settings {
+        enabled: true,
+        key_purpose: purpose.clone(),
+        clock_uncertainty_seconds: CUSTODY_CLOCK_UNCERTAINTY,
+    };
+    let registry = PublicTrustRegistry::new(pool.clone(), key_settings.clone(), witness.clone())
+        .map_err(trust_error)?;
+    // The storage holds the custody lock from here on: one writer at a time.
+    let storage =
+        EncryptedFileStorage::from_key_file(&custody, &wrapping).map_err(custody_error)?;
+    let mut ring = if exists(&custody) {
+        Keyring::open(key_settings, storage)
+    } else {
+        Keyring::create(key_settings, storage)
+    }
+    .map_err(custody_error)?;
+    let published = ring.publication_keys().map_err(custody_error)?;
+    let current = match ring.active_key_id() {
+        Some(active) => published.iter().find(|k| k.key_id == active),
+        None => published
+            .iter()
+            .find(|k| ring.state(&k.key_id) == Some(KeyState::Next)),
+    };
+    let key = match current {
+        Some(key) if requested.is_some_and(|kid| kid != key.key_id) => {
+            return Err(SeedError::Conflict(
+                "custody already holds another key id".into(),
+            ));
+        }
+        Some(key) => key.clone(),
+        None => {
+            let kid = requested.map_or_else(
+                || format!("fresh-{}", Uuid::now_v7().simple()),
+                str::to_owned,
+            );
+            ring.generate_next(&kid).map_err(custody_error)?
+        }
+    };
+    registry.publish(&key).await.map_err(trust_error)?;
+    if ring.state(&key.key_id) != Some(KeyState::Active) {
+        let deadline = std::time::Instant::now() + ACTIVATION_DEADLINE;
+        loop {
+            let snapshot = registry.snapshot().await.map_err(trust_error)?;
+            match ring.activate(&key.key_id, database_now(pool).await?, &snapshot) {
+                Ok(()) => break,
+                // Untrusted until the clock passes the (rounded-up) publication
+                // second, then too early until the overlap has elapsed.
+                Err(keys::KeyError::TooEarly | keys::KeyError::Untrusted)
+                    if std::time::Instant::now() < deadline =>
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                Err(error) => return Err(custody_error(error)),
+            }
+        }
+    }
+    // The §9.2 self-check the issuer runs before signing.
+    let snapshot = registry.snapshot().await.map_err(trust_error)?;
+    let trusted = snapshot
+        .trusted_key(
+            keys::ISSUER,
+            keys::PROFILE,
+            &purpose,
+            &key.key_id,
+            database_now(pool).await?,
+        )
+        .map_err(trust_error)?;
+    let expected = URL_SAFE_NO_PAD
+        .decode(&key.public_key)
+        .map_err(|_| SeedError::Unavailable("signing custody"))?;
+    if trusted.is_none_or(|t| t.public_key[..] != expected[..]) {
+        return Err(SeedError::Conflict(
+            "the trust registry does not trust the custody key".into(),
+        ));
+    }
+    let path = |p: &Path| Value::String(p.to_string_lossy().into_owned());
+    let env: Map<String, Value> = [
+        (admission::KEY_CUSTODY_FILE, path(&custody)),
+        (admission::KEY_WRAPPING_FILE, path(&wrapping)),
+        (admission::KEY_PURPOSE, Value::String(purpose.clone())),
+        (admission::WITNESS_DIRECTORY, path(&witness)),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v))
+    .collect();
+    Ok(json!({
+        "entity": "signing-custody",
+        "issuer": keys::ISSUER,
+        "profile": keys::PROFILE,
+        "purpose": purpose,
+        "keyId": key.key_id,
+        "publicKey": key.public_key,
+        "state": "active",
+        "custodyFile": path(&custody),
+        "wrappingKeyFile": path(&wrapping),
+        "witnessDirectory": path(&witness),
+        "env": env,
+    }))
+}
+#[cfg(not(unix))]
+async fn signing_custody(_: &PgPool, _: &Settings, _: &Args<'_>) -> Result<Value, SeedError> {
+    Err(SeedError::Unavailable("signing custody needs a Unix host"))
+}
+
+/// Creates `dir` (mode 0700) when absent; an existing one must be a real
+/// owner-only directory. Ownership is checked again by the custody storage.
+#[cfg(unix)]
+fn private_directory(dir: &std::path::Path) -> Result<(), SeedError> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    let refused = || bad("directory must be an owner-only (0700) directory whose parent exists");
+    match std::fs::symlink_metadata(dir) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(dir)
+            .map_err(|_| refused()),
+        Ok(meta) if meta.is_dir() && meta.mode() & 0o077 == 0 => Ok(()),
+        _ => Err(refused()),
+    }
+}
+
+async fn database_now(pool: &PgPool) -> Result<u64, SeedError> {
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(pool)
+            .await?;
+    u64::try_from(now).map_err(|_| SeedError::Unavailable("database clock"))
+}
+
+fn custody_error(error: keys::KeyError) -> SeedError {
+    match error {
+        keys::KeyError::BadInput => bad("signing custody input refused"),
+        keys::KeyError::InvalidState => SeedError::Conflict(
+            "custody does not open with this wrapping key and purpose, or holds another state"
+                .into(),
+        ),
+        _ => SeedError::Unavailable(
+            "signing custody: files not owner-only, locked by a running issuer, or I/O failed",
+        ),
+    }
 }
 
 fn trust_error(error: keys::KeyError) -> SeedError {

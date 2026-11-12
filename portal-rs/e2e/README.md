@@ -146,11 +146,57 @@ an existing key is a `conflict`. A seed plan is `{"steps":[{"name","entity","arg
 | `channel` | `worldId` (a seeded world), `channelId` (UUIDv7, not the world id) | the channel's record: `worldId`, `channelId`, route fields (`null` until a `route`), `nativeLoginEnabled` (`false`) |
 | `route` | `worldId`, `channelId`, `host` (IP literal or DNS name), `port` (1..=65535), `tlsServerName` (DNS name), `version` (positive), optional `nativeLoginEnabled` (default `true`) | `worldId`, `channelId`, `host`, `port`, `tlsServerName`, `version`, `routeRevision` (computed, gateway contract §7.3), `nativeLoginEnabled`; a higher `version` rotates the record, the same version with other values or a lower one is a `conflict` |
 | `native-evidence` | - | `not_applicable`: evidence is observed live; the first observation bootstraps the retained witness |
+| `signing-custody` | `directory` (absolute; created mode 0700 when absent, its parent must exist; an existing one must be owner-only), optional `purpose` (default and required match: `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE`), optional `keyId` (`[A-Za-z0-9._-]{1,64}`, generated `fresh-<hex>` otherwise) | `issuer`, `profile`, `purpose`, `keyId`, `publicKey` (base64url), `state` (`active`), `custodyFile`, `wrappingKeyFile`, `witnessDirectory` and `env` (the four issuer variables below); also runs with `OTERYN_ENV=preprod` |
 
 `signing-trust` writes the retained witness in
 `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`, so run it with the harness
 environment (`<out>/secrets/env.json`). A bootstrap intent expires
 `ttlSeconds` after issue, as the read contract bounds it.
+
+### Signing custody for admission grants
+
+T19c grant issuance (`PORTAL_NATIVE_ADMISSION_GRANTS_ENABLED=true`, testing or
+preprod only) signs with a key from encrypted custody that the issuer only
+opens, never creates. `seed signing-custody` creates it through the
+`oteryn_gameauth::keys` APIs (gateway contract §9):
+
+- `<directory>/admission-wrapping.key`: 32 random bytes, mode 0600;
+- `<directory>/admission-custody.bin`: the AES-256-GCM custody snapshot
+  (`keys::EncryptedFileStorage`) holding one **Active** Ed25519 key;
+- that public key published in the fresh-admission trust scope
+  (`urn:oteryn:platform:game-admission`, `oteryn-pre-admission-v1`, the
+  purpose) with its retained witness in `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`,
+  or `<directory>/witness` when that variable is unset. Game reads this trust
+  over `ReadFreshSigningTrustV1` on the internal listener; it needs no file.
+
+The key is activated only after the §9 overlap at the largest clock
+uncertainty (5 s), so the command waits about 11 seconds on a fresh run. A
+rerun reuses the Active key and prints the same object; it never rotates, a
+different `keyId` is a `conflict`, and so is custody whose wrapping key is
+missing. Output carries paths, the key id and the public key only; the private
+seed and the wrapping key never leave the files.
+
+```sh
+set +x
+# With OTERYN_DATABASE_URL, OTERYN_ENV and the witness/purpose variables of the
+# portal that will issue grants (for the harness: <out>/secrets/env.json).
+oteryn-portal seed signing-custody '{"directory":"/abs/private/custody"}'
+export PORTAL_NATIVE_ADMISSION_GRANTS_ENABLED=true
+export PORTAL_NATIVE_ADMISSION_KEY_CUSTODY_FILE=/abs/private/custody/admission-custody.bin
+export PORTAL_NATIVE_ADMISSION_KEY_WRAPPING_KEY_FILE=/abs/private/custody/admission-wrapping.key
+# GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE and ..._HIGH_WATER_DIRECTORY as printed in "env".
+oteryn-portal serve
+```
+
+`serve` loads custody once at startup and then holds its lock: create custody
+**before** `serve` starts (a rerun while it runs answers `unavailable`).
+`harness.mjs` runs a seed plan only after the services are up, and forwards
+only `test.env` names, so a seed-plan step alone does not enable issuance. A
+caller such as Game's GPE2E-2 exec launcher runs the command and exports the
+grant flag and the two custody paths before it execs `serve`; the purpose
+(`fresh_admission`) and witness directory already come from the harness
+environment. The fresh scope trusts at most two keys: Game's own
+`signing-trust` key plus this one fit; a third is a `conflict`.
 
 ## Native world source and expected refusals
 
