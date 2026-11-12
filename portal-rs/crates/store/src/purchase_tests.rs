@@ -103,8 +103,10 @@ fn wire_requests_are_closed_canonical_and_bounded() {
     }
     let raw = request(&"a".repeat(64));
     assert!(PurchaseRequest::decode(&raw).is_ok());
-    // The obsolete proposed numeric fixture is deliberately refused.
-    assert!(PurchaseRequest::decode(&fixture("purchase-request.valid.json")).is_err());
+    // The shared fixture carries the hex64 revision (contract §15 Q2); the
+    // obsolete numeric form is deliberately refused.
+    assert!(PurchaseRequest::decode(&fixture("purchase-request.valid.json")).is_ok());
+    assert!(PurchaseRequest::decode(&request("37")).is_err());
     for (key, new) in [
         ("contract_version", number(2)),
         ("operation", text("Other")),
