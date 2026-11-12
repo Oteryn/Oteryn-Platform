@@ -284,6 +284,7 @@ async fn pg_protocol3_recovery_handles_bind_fence_and_revoke() -> TestResult {
         admission::Handles::On {
             lifetime_seconds: 43200,
             require_device_binding: false,
+            devices_enabled: true,
         },
     )?;
     let generation = |db: &Database| {
@@ -353,6 +354,7 @@ async fn pg_protocol3_recovery_handles_bind_fence_and_revoke() -> TestResult {
         admission::Handles::On {
             lifetime_seconds: 3600,
             require_device_binding: true,
+            devices_enabled: true,
         },
     )?;
     let native = db.native_ticket(account).await?;

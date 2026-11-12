@@ -16,7 +16,7 @@ fn fixture(name: &str) -> Vec<u8> {
 #[test]
 fn request_fixture_decodes_and_binds_character_and_offer() {
     let raw = fixture("recover-request.json");
-    let request = RecoveryRequest::decode(&raw).unwrap();
+    let request = RecoveryRequest::decode(&raw, false).unwrap();
     assert_eq!(request.attempt_ref.to_string(), ATTEMPT);
     // The digest binds the offer: reordering members keeps it, a change does not.
     let text = String::from_utf8(raw).unwrap();
@@ -25,7 +25,7 @@ fn request_fixture_decodes_and_binds_character_and_offer() {
         "\"client_build\":\"0.1.1+abc123\"",
     );
     assert_ne!(changed, text);
-    match RecoveryRequest::decode(changed.as_bytes()) {
+    match RecoveryRequest::decode(changed.as_bytes(), false) {
         Ok(other) => assert_ne!(other.digest, request.digest),
         Err(error) => assert_eq!(error, RecoveryError::OfferUnsupported),
     }
@@ -57,9 +57,76 @@ fn bad_requests_are_refused() {
     ];
     for (raw, expected) in cases {
         assert_eq!(
-            RecoveryRequest::decode(raw.as_bytes()).unwrap_err(),
+            RecoveryRequest::decode(raw.as_bytes(), false).unwrap_err(),
             expected,
             "{raw}"
+        );
+    }
+}
+
+/// §19.15.2: the proof input is the JCS of the fixture's five members, and the
+/// fixture signature verifies under the synthetic key (seed [7; 32]).
+#[test]
+fn device_proof_fixture_decodes_and_signs_the_contract_input() {
+    let raw = fixture("recover-request-device-proof.json");
+    let request = RecoveryRequest::decode(&raw, true).unwrap();
+    let plain = RecoveryRequest::decode(&fixture("recover-request.json"), false).unwrap();
+    // The proof is outside the request digest; the rest is the same request.
+    assert_eq!(request.digest, plain.digest);
+    assert_eq!(request.handle_hash, plain.handle_hash);
+    let proof = request.proof.as_ref().unwrap();
+    let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]).verifying_key();
+    let thumbprint = URL_SAFE_NO_PAD.encode(Sha256::digest(key.as_bytes()));
+    assert_eq!(proof.kid, thumbprint);
+    let input = proof_input(&request, &thumbprint);
+    assert_eq!(
+        input.as_bytes(),
+        fixture("recover-proof-input.json").as_slice()
+    );
+    key.verify_strict(input.as_bytes(), &Signature::from_bytes(&proof.sig))
+        .unwrap();
+    // Binding on requires the member; binding off refuses it.
+    assert_eq!(
+        RecoveryRequest::decode(&fixture("recover-request.json"), true).unwrap_err(),
+        RecoveryError::Malformed
+    );
+    assert_eq!(
+        RecoveryRequest::decode(&raw, false).unwrap_err(),
+        RecoveryError::Malformed
+    );
+    let text = String::from_utf8(raw).unwrap();
+    let kid = format!("\"kid\":\"{thumbprint}\"");
+    let sig = text
+        .split("\"sig\":\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap()
+        .to_owned();
+    let mut padded = thumbprint.clone();
+    padded.push('=');
+    let mut noncanonical = sig.clone();
+    noncanonical.pop();
+    // The last of 86 characters carries 2 bits; 'B' sets a trailing bit.
+    noncanonical.push(if sig.ends_with('B') { 'C' } else { 'B' });
+    for bad in [
+        text.replace(&kid, &kid.replace(&thumbprint, &thumbprint[..42])),
+        text.replace(&kid, &kid.replace(&thumbprint, &padded)),
+        text.replace(&kid, "\"kid\":43"),
+        text.replace(&sig, &sig[..85]),
+        text.replace(&sig, &noncanonical),
+        text.replace(&sig, &sig.replace('-', "+").replace('_', "/")),
+        text.replace(&kid, &format!("{kid},\"alg\":\"EdDSA\"")),
+        text.replace(&format!("{kid},"), ""),
+        text.replace(
+            &format!("\"device_proof\":{{{kid},\"sig\":\"{sig}\"}}"),
+            "\"device_proof\":null",
+        ),
+    ] {
+        assert_ne!(bad, text);
+        assert_eq!(
+            RecoveryRequest::decode(bad.as_bytes(), true).unwrap_err(),
+            RecoveryError::Malformed,
+            "{bad}"
         );
     }
 }
@@ -194,7 +261,7 @@ fn errors_match_fixtures() {
 #[test]
 fn revoke_fixtures() {
     let hash = decode_revoke(&fixture("recover-revoke-request.json")).unwrap();
-    let request = RecoveryRequest::decode(&fixture("recover-request.json")).unwrap();
+    let request = RecoveryRequest::decode(&fixture("recover-request.json"), false).unwrap();
     assert_eq!(hash, request.handle_hash);
     assert_eq!(REVOKED, fixture("recover-revoke-success.json").as_slice());
     assert_eq!(

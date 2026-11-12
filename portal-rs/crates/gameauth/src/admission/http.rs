@@ -273,28 +273,33 @@ async fn recovery_front(
     }
     Ok((raw, settings, attempt))
 }
-/// §19.4. Recovery is served only while handles are on and §19.15 device
-/// binding is off; with binding on there is no device proof verifier yet, so
-/// the route stays `NATIVE_LOGIN_UNAVAILABLE` (§19.8) rather than skipping it.
+/// §19.4. Recovery is served only while handles are on. With §19.15 device
+/// binding on the request must carry a `device_proof`; with it off (testing
+/// only) the member must be absent. With binding on and the device-session
+/// switch off, every well-formed request is refused as for an unknown handle.
 async fn recover(State(app): State<App>, request: Request) -> Response {
     let (raw, settings, attempt) = match recovery_front(&app, request, wire::attempt).await {
         Ok(front) => front,
         Err(refused) => return *refused,
     };
-    let issuer = match (&app.config.recovery, settings.handles) {
+    let (issuer, binding, devices) = match (&app.config.recovery, settings.handles) {
         (
             Some(issuer),
             Handles::On {
-                require_device_binding: false,
+                require_device_binding,
+                devices_enabled,
                 ..
             },
-        ) => issuer,
+        ) => (issuer, require_device_binding, devices_enabled),
         _ => return recovery_refusal(RecoveryError::Unavailable, attempt.as_deref(), 3, None),
     };
-    let decoded = match RecoveryRequest::decode(&raw) {
+    let decoded = match RecoveryRequest::decode(&raw, binding) {
         Ok(decoded) => decoded,
         Err(error) => return recovery_refusal(error, attempt.as_deref(), 3, None),
     };
+    if binding && !devices {
+        return recovery_refusal(RecoveryError::HandleRejected, attempt.as_deref(), 3, None);
+    }
     match recovery::recover(
         &app.db,
         &decoded,

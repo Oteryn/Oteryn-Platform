@@ -177,38 +177,78 @@ fn protocol3_and_recovery_configuration_fail_closed() {
         pairs.extend_from_slice(extra);
         config(&pairs).map(|c| c.handles)
     };
+    let devices = (protocol3::DEVICES_ENABLED, "true");
     assert_eq!(
-        recovery(&[], "testing"),
+        recovery(&[devices], "testing"),
         Some(Handles::On {
             lifetime_seconds: 43200,
-            require_device_binding: true
+            require_device_binding: true,
+            devices_enabled: true
         })
     );
+    // §19.15.1: binding on with the device-session switch off keeps protocol 3
+    // logins working; only handles and recovery are refused (fail closed).
+    let unbound = Some(Handles::On {
+        lifetime_seconds: 43200,
+        require_device_binding: true,
+        devices_enabled: false,
+    });
+    assert_eq!(recovery(&[], "testing"), unbound);
+    for off in ["false", "TRUE", "1"] {
+        assert_eq!(
+            recovery(&[(protocol3::DEVICES_ENABLED, off)], "testing"),
+            unbound,
+            "{off}"
+        );
+        assert_eq!(
+            recovery(
+                &[
+                    (protocol3::DEVICES_ENABLED, off),
+                    (protocol3::REQUIRE_DEVICE_BINDING, "true")
+                ],
+                "testing"
+            ),
+            unbound,
+            "{off}"
+        );
+    }
     // U21: never beyond testing.
+    assert_eq!(recovery(&[devices], "preprod"), Some(Handles::Off));
     assert_eq!(recovery(&[], "preprod"), Some(Handles::Off));
     assert_eq!(
         recovery(&[(protocol3::REQUIRE_DEVICE_BINDING, "false")], "testing"),
         Some(Handles::On {
             lifetime_seconds: 43200,
-            require_device_binding: false
+            require_device_binding: false,
+            devices_enabled: false
         })
     );
     assert_eq!(
-        recovery(&[(protocol3::HANDLE_LIFETIME_SECONDS, "3600")], "testing"),
+        recovery(
+            &[devices, (protocol3::HANDLE_LIFETIME_SECONDS, "3600")],
+            "testing"
+        ),
         Some(Handles::On {
             lifetime_seconds: 3600,
-            require_device_binding: true
+            require_device_binding: true,
+            devices_enabled: true
         })
     );
     for bad in ["3599", "43201", "0", "+3600", "x"] {
         assert_eq!(
-            recovery(&[(protocol3::HANDLE_LIFETIME_SECONDS, bad)], "testing"),
+            recovery(
+                &[devices, (protocol3::HANDLE_LIFETIME_SECONDS, bad)],
+                "testing"
+            ),
             Some(Handles::Invalid),
             "{bad}"
         );
     }
     assert_eq!(
-        recovery(&[(protocol3::REQUIRE_DEVICE_BINDING, "no")], "testing"),
+        recovery(
+            &[devices, (protocol3::REQUIRE_DEVICE_BINDING, "no")],
+            "testing"
+        ),
         Some(Handles::Invalid)
     );
 }
