@@ -6,6 +6,7 @@ use uuid::Uuid;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const ACCOUNT: &str = "019a0000-0000-7000-8000-00000000a001";
 const SUSPENDED: &str = "019a0000-0000-7000-8000-00000000a002";
+const STAFF: &str = "019a0000-0000-7000-8000-00000000a0f1";
 const ON: Settings = Settings {
     enabled: true,
     ttl_seconds: Some(120),
@@ -61,6 +62,7 @@ impl Database {
         for (id, email, status) in [
             (ACCOUNT, "operator-cli@example.invalid", "active"),
             (SUSPENDED, "suspended-cli@example.invalid", "suspended"),
+            (STAFF, "staff-cli@example.invalid", "active"),
         ] {
             sqlx::query("INSERT INTO accounts (id, email, email_verified_at, password_hash, status, locale) VALUES ($1::uuid, $2, now(), 'x', $3, 'en')")
                 .bind(id)
@@ -69,11 +71,21 @@ impl Database {
                 .execute(&pool)
                 .await?;
         }
+        // The built-in senior game master role holds game.player.manage.
+        sqlx::query("INSERT INTO account_roles (account_id, role_id) SELECT $1::uuid, id FROM roles WHERE key='game_master_senior'")
+            .bind(STAFF)
+            .execute(&pool)
+            .await?;
         Ok(Some(Self {
             pool,
             admin,
             schema,
         }))
+    }
+    async fn counts(&self) -> Result<(i64, i64), sqlx::Error> {
+        sqlx::query_as("SELECT (SELECT count(*) FROM character_bootstrap_intents), (SELECT count(*) FROM audit_log WHERE action='character.bootstrap_intent.issued')")
+            .fetch_one(&self.pool)
+            .await
     }
     async fn close(self) -> TestResult {
         self.pool.close().await;
@@ -91,11 +103,29 @@ impl Database {
 #[test]
 fn arguments_and_exit_codes_are_distinct() {
     let words = |list: &[&str]| list.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
-    assert_eq!(parse_args(&words(&["issue"])), Ok(Source::Stdin));
+    let command = |source, actor: Option<&str>| Command {
+        source,
+        actor: actor.map(str::to_owned),
+    };
+    assert_eq!(
+        parse_args(&words(&["issue"])),
+        Ok(command(Source::Stdin, None))
+    );
+    assert_eq!(
+        parse_args(&words(&["issue", "--actor", STAFF])),
+        Ok(command(Source::Stdin, Some(STAFF)))
+    );
+    let file = || Source::File(PathBuf::from("req.json"));
     assert_eq!(
         parse_args(&words(&["issue", "--input", "req.json"])),
-        Ok(Source::File(PathBuf::from("req.json")))
+        Ok(command(file(), None))
     );
+    for order in [
+        words(&["issue", "--actor", STAFF, "--input", "req.json"]),
+        words(&["issue", "--input", "req.json", "--actor", STAFF]),
+    ] {
+        assert_eq!(parse_args(&order), Ok(command(file(), Some(STAFF))));
+    }
     for bad_args in [
         words(&[]),
         words(&["read"]),
@@ -103,6 +133,10 @@ fn arguments_and_exit_codes_are_distinct() {
         words(&["issue", "--input", ""]),
         words(&["issue", "--file", "x"]),
         words(&["issue", "--input", "a", "b"]),
+        words(&["issue", "--actor"]),
+        words(&["issue", "--actor", STAFF, "--actor", STAFF]),
+        words(&["issue", "--input", "a", "--input", "b"]),
+        words(&["issue", "--actor", STAFF, "extra"]),
     ] {
         assert_eq!(parse_args(&bad_args).map_err(|e| e.code()), Err(2));
     }
@@ -116,6 +150,18 @@ fn arguments_and_exit_codes_are_distinct() {
         CliError::from(IssueError::Db),
         CliError::Unavailable("database")
     );
+    // The actor is a lower-case UUIDv7 and is required.
+    assert!(actor(Some(STAFF)).is_ok());
+    for refused in [
+        None,
+        Some(""),
+        Some("staff"),
+        Some("019A0000-0000-7000-8000-00000000A0F1"),
+        Some("019a0000-0000-4000-8000-00000000a0f1"),
+        Some("{019a0000-0000-7000-8000-00000000a0f1}"),
+    ] {
+        assert_eq!(actor(refused).map_err(|e| e.code()), Err(2), "{refused:?}");
+    }
 }
 
 #[test]
@@ -200,14 +246,14 @@ async fn issues_replays_and_refuses_with_distinct_codes() -> TestResult {
         Settings::from_values(Some("true"), None),
     ] {
         assert_eq!(
-            execute(&db.pool, settings, raw.as_bytes())
+            execute(&db.pool, settings, Some(STAFF), raw.as_bytes())
                 .await
                 .map_err(|e| e.code()),
             Err(4)
         );
     }
 
-    let intent = execute(&db.pool, ON, raw.as_bytes()).await?;
+    let intent = execute(&db.pool, ON, Some(STAFF), raw.as_bytes()).await?;
     let wire = canonical::decode(intent.as_bytes(), 4096, 3)?;
     assert_eq!(
         wire.get("operation_id"),
@@ -221,12 +267,15 @@ async fn issues_replays_and_refuses_with_distinct_codes() -> TestResult {
     assert_eq!(canonical::encode(&wire)?, intent.as_bytes());
     // Exact retry: identical bytes, even with another configured TTL.
     let later = Settings::from_values(Some("true"), Some("5"));
-    assert_eq!(execute(&db.pool, later, raw.as_bytes()).await?, intent);
+    assert_eq!(
+        execute(&db.pool, later, Some(STAFF), raw.as_bytes()).await?,
+        intent
+    );
 
     // Same operation, different binding: conflict.
     let changed = raw.replace("Aldric Vale", "Other Name");
     assert_eq!(
-        execute(&db.pool, ON, changed.as_bytes()).await,
+        execute(&db.pool, ON, Some(STAFF), changed.as_bytes()).await,
         Err(CliError::Conflict)
     );
     // Inactive, unknown or malformed Identity and bad fields: bad input.
@@ -240,20 +289,73 @@ async fn issues_replays_and_refuses_with_distinct_codes() -> TestResult {
         raw.replace("profile:1", "-profile"),
     ] {
         assert_eq!(
-            execute(&db.pool, ON, refused.as_bytes())
+            execute(&db.pool, ON, Some(STAFF), refused.as_bytes())
                 .await
                 .map_err(|e| e.code()),
             Err(2),
             "{refused}"
         );
     }
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM character_bootstrap_intents")
-        .fetch_one(&db.pool)
-        .await?;
-    assert_eq!(count, 1);
+    // One intent and exactly one audit row: retries, conflicts and refusals add none.
+    assert_eq!(db.counts().await?, (1, 1));
+    let (actor_id, target, after): (Option<Uuid>, String, serde_json::Value) = sqlx::query_as(
+        "SELECT actor, target, after FROM audit_log WHERE action='character.bootstrap_intent.issued'",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(actor_id, Some(Uuid::parse_str(STAFF)?));
+    assert_eq!(target, operation);
+    assert_eq!(after["identityId"], json!(ACCOUNT));
+    assert_eq!(after["ttlSeconds"], json!(120));
+    let digest =
+        sqlx::query_scalar::<_, String>("SELECT intent_sha256 FROM character_bootstrap_intents")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(after["intentSha256"], json!(digest));
+    assert!(!after.to_string().contains("Aldric") && !after.to_string().contains(&intent));
 
     // Errors carry no intent binding or configuration.
     let body = CliError::Unavailable("database").body().to_string();
     assert!(!body.contains("postgres") && !body.contains(ACCOUNT));
+    db.close().await
+}
+
+#[tokio::test]
+async fn missing_malformed_or_unknown_actor_issues_and_audits_nothing() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let raw = request("019a0000-0000-7000-8000-0000000c0011", ACCOUNT);
+    for refused in [
+        None,
+        Some("not-a-uuid"),
+        Some("019A0000-0000-7000-8000-00000000A0F1"),
+        Some("019a0000-0000-4000-8000-00000000a0f1"),
+        // Unknown, not active, or active without the staff permission.
+        Some("019a0000-0000-7000-8000-00000000dead"),
+        Some(SUSPENDED),
+        Some(ACCOUNT),
+    ] {
+        assert_eq!(
+            execute(&db.pool, ON, refused, raw.as_bytes())
+                .await
+                .map_err(|e| e.code()),
+            Err(2),
+            "{refused:?}"
+        );
+    }
+    assert_eq!(db.counts().await?, (0, 0));
+    // Disabled issuance stays unavailable whatever the actor.
+    assert_eq!(
+        execute(
+            &db.pool,
+            Settings::from_values(None, Some("60")),
+            None,
+            raw.as_bytes()
+        )
+        .await
+        .map_err(|e| e.code()),
+        Err(4)
+    );
     db.close().await
 }

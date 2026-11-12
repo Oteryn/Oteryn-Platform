@@ -406,6 +406,12 @@ async fn bootstrap_intent_is_issued_once_and_readable() -> TestResult {
             .await?,
         2
     );
+    // The testing seed needs no actor and writes no operator audit row.
+    assert_eq!(
+        db.count("SELECT count(*) FROM audit_log WHERE action='character.bootstrap_intent.issued'")
+            .await?,
+        0
+    );
     db.close().await
 }
 
