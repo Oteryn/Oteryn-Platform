@@ -7,6 +7,13 @@ Forms support `note`, `logout`, `request-reset` and `approve-reset` actions.
 The `kick` action needs the dedicated `account.security.kick` permission and
 staff MFA; it only advances the native security generation (security revocation
 stream cause 4) and audits actor, target, time and reason in one transaction.
+The `release-coin-hold` action needs the dedicated `payments.coin_hold.release`
+permission (platform admin built-in), staff MFA, a reason and the coin-native
+flag (`PORTAL_COIN_PURCHASES_ENABLED` as read by `CoinSettings`). It moves the
+account's coin purchase hold to `coin_purchase_hold_releases` and audits actor,
+target, reason and the hold's order in the same transaction. It settles nothing:
+the held reversal and the order's review flag stay recorded. Releasing an absent
+hold is a no-op without an audit row (`?coin_hold=absent`).
 
 `OTERYN_ADMIN_PLAYERS=true` enables account features; the default is off.
 `OTERYN_ADMIN_PLAYER_CHARACTERS=true` separately enables character reads.

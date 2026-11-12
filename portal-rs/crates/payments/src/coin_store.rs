@@ -943,3 +943,47 @@ impl CoinPurchases {
         Ok(())
     }
 }
+
+/// One account's current coin purchase hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PurchaseHold {
+    pub order_id: Uuid,
+    pub reason: String,
+}
+
+/// The account's coin purchase hold, if any.
+pub async fn purchase_hold(
+    connection: &mut PgConnection,
+    account: Uuid,
+) -> Result<Option<PurchaseHold>, sqlx::Error> {
+    let row: Option<(Uuid, String)> =
+        sqlx::query_as("SELECT order_id,reason FROM coin_purchase_holds WHERE account_id=$1")
+            .bind(account)
+            .fetch_optional(connection)
+            .await?;
+    Ok(row.map(|(order_id, reason)| PurchaseHold { order_id, reason }))
+}
+
+/// Staff release of the account's coin purchase hold, in the caller's
+/// transaction (which also writes the audit record). The hold row moves to
+/// `coin_purchase_hold_releases`; the held reversal stays as the unsettled debt.
+/// `None` means there was no hold to release.
+pub async fn release_purchase_hold_in(
+    connection: &mut PgConnection,
+    account: Uuid,
+    staff: Uuid,
+    reason: &str,
+) -> Result<Option<PurchaseHold>, sqlx::Error> {
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        "WITH released AS (DELETE FROM coin_purchase_holds WHERE account_id=$1 RETURNING account_id,order_id,reason,created_at) \
+         INSERT INTO coin_purchase_hold_releases (id,account_id,order_id,reason,held_at,released_by,release_reason) \
+         SELECT $2,account_id,order_id,reason,created_at,$3,$4 FROM released RETURNING order_id,reason",
+    )
+    .bind(account)
+    .bind(Uuid::now_v7())
+    .bind(staff)
+    .bind(reason)
+    .fetch_optional(connection)
+    .await?;
+    Ok(row.map(|(order_id, reason)| PurchaseHold { order_id, reason }))
+}
