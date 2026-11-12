@@ -830,3 +830,57 @@ async fn pg_recovery_revoke_is_idempotent_and_scoped_to_one_handle() -> TestResu
     );
     r.close().await
 }
+
+#[tokio::test]
+async fn pg_recovery_account_limit_is_twenty_committed_attempts_per_hour() -> TestResult {
+    let Some(r) = Recovery::open().await? else {
+        return Ok(());
+    };
+    let app = r.app()?;
+    // §19.9: 20 committed attempts per AccountId per hour. The rows are
+    // retired, so the §19.4 step 3 window is closed; an older row is outside.
+    let record = |seconds: f64| {
+        let mut hash = [0u8; 32];
+        hash[..16].copy_from_slice(Uuid::now_v7().as_bytes());
+        hash[16..].copy_from_slice(Uuid::now_v7().as_bytes());
+        sqlx::query("INSERT INTO native_recoveries (attempt_ref, handle_hash, request_digest, account_id, response_body, expires_at_ms, retires_at_ms, created_at) VALUES ($1, $2, $2, $3, '\\x7b7d', 0, 0, clock_timestamp() - make_interval(secs => $4))")
+            .bind(Uuid::now_v7()).bind(hash.to_vec()).bind(r.account).bind(seconds)
+            .execute(&r.db.pool)
+    };
+    record(3660.0).await?;
+    for _ in 0..19 {
+        record(3540.0).await?;
+    }
+    // 19 in the window leave room for one more.
+    let reply = r.recover(app.clone(), Uuid::now_v7()).await?;
+    assert_eq!(
+        reply.status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
+    r.settle().await?;
+    let before = r.attempts().await?;
+    let attempt = Uuid::now_v7();
+    let reply = r.recover(app.clone(), attempt).await?;
+    assert_eq!(
+        (
+            reply.status,
+            String::from_utf8_lossy(&reply.body).into_owned(),
+            reply.retry_after.as_deref()
+        ),
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            refusal3(
+                "NATIVE_LOGIN_RATE_LIMITED",
+                "TEMPORARILY_UNAVAILABLE",
+                attempt,
+                &[]
+            ),
+            Some("60")
+        )
+    );
+    // Exhaustion changes no state (§10).
+    assert_eq!(r.attempts().await?, before);
+    r.close().await
+}

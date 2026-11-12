@@ -22,7 +22,7 @@ Gateway login contract §19 (N4P-4) runs only behind these default-off flags. Pr
 
 | Flag | Where | Default | Effect |
 |---|---|---|---|
-| `GATEWAY_NATIVE_PROTOCOL3_ENABLED` | gateway | `false` | `protocol_version: 3` on `POST /v1/login` (needs `GATEWAY_NATIVE_LOGIN_ENABLED`). Off: protocol 3 is `NATIVE_LOGIN_UNSUPPORTED_VERSION`. |
+| `GATEWAY_NATIVE_PROTOCOL3_ENABLED` | gateway | `false` | `protocol_version: 3` on `POST /v1/login`, and `POST /v1/recover` and `POST /v1/recover/revoke` relayed to the issuer (§19.4, §19.7; recovery also needs the issuer's `PORTAL_NATIVE_RECOVERY_ENABLED`). Needs `GATEWAY_NATIVE_LOGIN_ENABLED`, without which the recovery routes are `404`. Off: protocol 3 is `NATIVE_LOGIN_UNSUPPORTED_VERSION`. |
 | `PORTAL_NATIVE_PROTOCOL3_ENABLED` | issuer | `false` | Protocol 3 on `native-admissions`: per-channel candidates (`game_channels.channel_key`), selection, the channel refusal and Decision M1. Every committed fresh attempt advances the account's play generation, whether this is on or off. |
 | `PORTAL_NATIVE_RECOVERY_ENABLED` | issuer | `false` | Issues a recovery handle in protocol 3 login responses; otherwise `"recovery": null`. Also serves §19.4 `native-recoveries` (testing only, binding off; with binding on it answers `NATIVE_LOGIN_UNAVAILABLE`). §19.7 `native-recoveries/revoke` answers whenever protocol 3 is on. |
 | `PORTAL_NATIVE_RECOVERY_HANDLE_LIFETIME_SECONDS` | issuer | `43200` | Handle lifetime H, 3600..=43200. Any other value refuses protocol 3 issuance. |

@@ -151,23 +151,29 @@ pub(crate) fn parse_versioned(body: &[u8], expected: i64) -> Result<Request, Cod
         || !uuid_v7(&r.attempt_ref)
         || !uuid_v7(&r.character_id)
         || r.channel_id.as_deref().is_some_and(|s| !uuid_v7(s))
-        || !visible(&r.offer.client_build, 64)
-        || r.offer.client_platform != "windows"
-        || !(1..=4).contains(&r.offer.transports.len())
     {
         return Err(malformed);
     }
-    if r.offer.transports.iter().any(|t| {
-        !visible(&t.alpn, 255)
-            || !(0..=65535).contains(&t.protocol_major)
-            || !(0..=65535).contains(&t.transport_profile)
-    }) {
-        return Err(malformed);
+    check_offer(&r.offer)?;
+    Ok(r)
+}
+/// The §3.1 `offer` rules, shared with the §19.4 recovery request.
+pub(crate) fn check_offer(offer: &Offer) -> Result<(), Code> {
+    if !visible(&offer.client_build, 64)
+        || offer.client_platform != "windows"
+        || !(1..=4).contains(&offer.transports.len())
+        || offer.transports.iter().any(|t| {
+            !visible(&t.alpn, 255)
+                || !(0..=65535).contains(&t.protocol_major)
+                || !(0..=65535).contains(&t.transport_profile)
+        })
+    {
+        return Err(Code::RequestMalformed);
     }
-    if !r.offer.transports.iter().any(Transport::supported) {
+    if !offer.transports.iter().any(Transport::supported) {
         return Err(Code::OfferUnsupported);
     }
-    Ok(r)
+    Ok(())
 }
 
 /// Compact contract order, without HTML escaping or a trailing newline.
@@ -194,6 +200,12 @@ pub fn parse_success(body: &[u8], r: &Request) -> Option<Success> {
 }
 /// The §3.2 checks shared by protocol 2 and the protocol 3 core members.
 pub(crate) fn core_valid(s: &Success, r: &Request) -> bool {
+    r.channel_id.as_ref().is_none_or(|c| c == &s.channel_id)
+        && evidence_valid(s, &r.attempt_ref, "oteryn-pre-admission-v1")
+}
+/// §3.2 routing evidence and a grant of `profile`, also used for the §19.4
+/// recovery success.
+pub(crate) fn evidence_valid(s: &Success, attempt_ref: &str, profile: &str) -> bool {
     let e = &s.endpoint;
     let t = Transport {
         protocol_major: e.protocol_major,
@@ -201,10 +213,9 @@ pub(crate) fn core_valid(s: &Success, r: &Request) -> bool {
         alpn: e.alpn.clone(),
     };
     let token_parts: Vec<_> = s.grant.token.split('.').collect();
-    s.attempt_ref == r.attempt_ref
+    s.attempt_ref == attempt_ref
         && uuid_v7(&s.world_id)
         && uuid_v7(&s.channel_id)
-        && r.channel_id.as_ref().is_none_or(|c| c == &s.channel_id)
         && (e.host.parse::<IpAddr>().is_ok() || dns_name(&e.host))
         && (1..=65535).contains(&e.port)
         && dns_name(&e.tls_server_name)
@@ -214,7 +225,7 @@ pub(crate) fn core_valid(s: &Success, r: &Request) -> bool {
             .next()
             .is_none_or(|label| label.bytes().all(|b| b.is_ascii_digit()))
         && t.supported()
-        && s.grant.profile == "oteryn-pre-admission-v1"
+        && s.grant.profile == profile
         && s.grant.token.len() <= 4096
         && token_parts.len() == 3
         && token_parts.iter().all(|p| {
