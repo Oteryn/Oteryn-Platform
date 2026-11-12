@@ -36,9 +36,9 @@ Out of scope: game admission itself (Game FND-04A), reconnect/recovery grants (`
 ```text
 Rust client (native OAuth client, U1)
  1. OAuth Authorization Code + PKCE S256, scope game:ticket          (existing Platform OAuth)
- 2. GET  /v1/game-auth/native-characters   Bearer <access token>     (Platform, §5.3; Decision D2)
+ 2. GET  /api/v1/game-auth/native-characters Bearer <access token>     (Platform, §5.3; Decision D2)
       -> CharacterSummary[] from Platform's projection read model
- 3. POST /v1/game-auth/tickets             Bearer <access token>     (existing route, native ticket kind §4)
+ 3. POST /api/v1/game-auth/tickets         Bearer <access token>     (existing route, native ticket kind §4)
       -> one-time native Game Login Ticket; access + refresh token revoked (existing behaviour)
  4. POST Gateway /v1/login  {protocol_version: 2, ticket, attempt_ref, character_id, offer}
  5. Gateway -> Platform private issuer (§3.3), one call:
@@ -131,7 +131,7 @@ A native ticket is a Game Login Ticket with:
 - binding to the persisted Identity, its canonical `identities.account_id` (lowercase UUIDv7, non-null) and its `native_security_generation` at issuance;
 - the existing properties: at least 256 bits of CSPRNG entropy, hash-at-rest, single use, TTL at most 60 seconds (default 60), never logged.
 
-Issuance is the existing `POST /v1/game-auth/tickets` under the existing OAuth checks (valid bearer, allowed first-party client, scope `game:ticket`, current `game_auth_generation`, Identity enabled and not terminated), with these native differences:
+Issuance is the existing `POST /api/v1/game-auth/tickets` under the existing OAuth checks (valid bearer, allowed first-party client, scope `game:ticket`, current `game_auth_generation`, Identity enabled and not terminated), with these native differences:
 
 - the ticket kind is selected by the authenticated OAuth client, never by a request parameter: the native Rust client receives native tickets only (U1: whether this is a separate Passport client or the existing native public client);
 - native issuance requires a canonical non-null `account_id` and does **not** require an `IdentityCanaryAccount` binding;
@@ -175,7 +175,7 @@ Platform stores a read model of the Game-owned projection `ListCharactersForAcco
 
 ### 5.3 Character list read (Decision D2)
 
-`GET /v1/game-auth/native-characters` with the OAuth bearer from step 1 (scope `game:ticket`, same client and generation checks as ticket issuance, but it does **not** revoke the token). It returns the authenticated account's current read-model entries only:
+`GET /api/v1/game-auth/native-characters` with the OAuth bearer from step 1 (scope `game:ticket`, same client and generation checks as ticket issuance, but it does **not** revoke the token). It returns the authenticated account's current read-model entries only:
 
 ```json
 { "protocol_version": 2, "characters": [ { "character_id": "…", "world_id": "…", "name": "…", "availability": "AVAILABLE" } ] }
@@ -344,14 +344,14 @@ Emergency: `revokeKey` immediately (Game rejects within the 5 s bounded-stalenes
 
 ## 10. Rate limits and abuse controls
 
-Initial values, to be tuned from measurement (U10). Exhaustion returns `NATIVE_LOGIN_RATE_LIMITED` with `Retry-After`, and changes no state; limits never change the exactly-once behaviour of §6.
+Initial values, to be tuned from measurement (U10). Exhaustion changes no state. The gateway `POST /v1/login` returns `NATIVE_LOGIN_RATE_LIMITED` with `Retry-After`; the Platform routes `GET /api/v1/game-auth/native-characters` and `POST /api/v1/game-auth/tickets` return `429` with an empty body and `Retry-After` (clarified 2026-11-12 against Game client `platform-client` `native_login.rs`, which reads no body on a non-2xx answer); limits never change the exactly-once behaviour of §6.
 
 | Surface | Key | Limit |
 |---|---|---|
 | Gateway `POST /v1/login` (protocol 2) | source IP | 30 / minute |
 | Gateway `POST /v1/login` (protocol 2) | (`attempt_ref`, ticket hash) | 6 requests in total |
-| `GET /v1/game-auth/native-characters` | bearer | 10 / minute |
-| `POST /v1/game-auth/tickets` | bearer | 5 / minute (existing) |
+| `GET /api/v1/game-auth/native-characters` | bearer | 10 / minute |
+| `POST /api/v1/game-auth/tickets` | bearer | 5 / minute (existing) |
 | issuer `/internal/v1/game-auth/native-admissions` | Gateway identity | 120 / minute |
 | issuer | `AccountId` | 10 committed attempts / minute |
 | `native-runtime-status` ingestion | client identity | 600 / minute |
