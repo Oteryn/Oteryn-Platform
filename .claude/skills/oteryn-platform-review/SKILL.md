@@ -79,9 +79,19 @@ A second model or person reviews only where the governing task, the bound
 META policy or a contract's acceptance rule requires it (several contracts
 stay `PROPOSED` until an exact-head independent review). The coordinator
 starts it, once per frozen head, after the local checks pass, read-only,
-with the diff and step 3 as the checklist. Its output is findings to verify
-with step 3, not a verdict; a failed or empty run means "not reviewed".
-Acceptance belongs to the owner and the reviewer, never to the author.
+with the diff and step 3 as the checklist.
+
+- **Batch review.** One review is one round of parallel lens runs over the
+  same head. Each run is told to report every finding, with no cap on lines
+  or count, and every other instance of the same class in the diff.
+- **Read `references/batch-review.md` first.** It covers the lenses, chunking
+  of big diffs, the prompt, the merge, verify and sweep steps, the single
+  batch fix and the stop rule. Read it before you start a review or delegate
+  one.
+- **Limits.** At most 2 review rounds per PR. The review never edits code.
+- **The output.** It is findings to verify with step 3, not a verdict. A
+  failed or empty run means "not reviewed".
+- **Acceptance** belongs to the owner and the reviewer, never to the author.
 
 ## 6. Receiving findings
 
