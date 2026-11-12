@@ -361,6 +361,32 @@ async fn pg_protocol3_recovery_handles_bind_fence_and_revoke() -> TestResult {
     assert_eq!(status, StatusCode::OK);
     assert!(success3(&body, &raw)?.recovery.is_none());
 
+    // The original two-member remembered enrollment creates a live family with
+    // no device key: it never satisfies required binding ("recovery": null).
+    let unkeyed = Uuid::now_v7();
+    let now = db.now().await?;
+    sqlx::query("INSERT INTO device_sessions (id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at,persistence_class) SELECT $1,$2,$3,$4,game_auth_generation,native_security_generation,$5,$5,'remembered' FROM accounts WHERE id=$2")
+        .bind(unkeyed).bind(account).bind(Uuid::now_v7()).bind(unkeyed.to_string())
+        .bind(now + 600)
+        .execute(&db.pool).await?;
+    let native = db.native_ticket(account).await?;
+    sqlx::query("UPDATE game_login_tickets SET device_family_id=$1 WHERE ticket_hash=$2")
+        .bind(unkeyed)
+        .bind(&Sha256::digest(native.as_bytes())[..])
+        .execute(&db.pool)
+        .await?;
+    let raw = login3(&native, Uuid::now_v7(), None);
+    let (status, body) = admit(bound.clone(), SERVICE, raw.clone()).await?;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert!(success3(&body, &raw)?.recovery.is_none());
+    let handles: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM native_recovery_handles WHERE device_family_id=$1",
+    )
+    .bind(unkeyed)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(handles, 0);
+
     // A live keyed device family binds the handle and caps its expiry at the
     // family's absolute deadline; revoking the family revokes the handle (DB-6).
     let family = Uuid::now_v7();

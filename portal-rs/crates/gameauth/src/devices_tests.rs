@@ -141,18 +141,17 @@ async fn database_enroll_rotate_ticket_revoke()
         Err(Failure::Conflict)
     ));
     assert_eq!(
-        s.rotate_test(c.secret(), Uuid::now_v7(), Purpose::Ticket)
-            .await,
+        s.rotate(c.secret(), Uuid::now_v7(), Purpose::Ticket).await,
         Err(Failure::Denied)
     );
     let response = s
-        .rotate_test(c.secret(), a.client_id, Purpose::Characters)
+        .rotate(c.secret(), a.client_id, Purpose::Characters)
         .await
         .unwrap();
     assert_eq!(response["characters"][0]["availability"], "AVAILABLE");
     assert_eq!(response["absolute_expires_at"], c.absolute_expires_at);
     let ticket = s
-        .rotate_test(
+        .rotate(
             response["device_credential"].as_str().unwrap(),
             a.client_id,
             Purpose::Ticket,
@@ -163,7 +162,7 @@ async fn database_enroll_rotate_ticket_revoke()
     s.revoke(c.secret(), a.client_id).await.unwrap();
     s.revoke(c.secret(), a.client_id).await.unwrap();
     assert_eq!(
-        s.rotate_test(
+        s.rotate(
             ticket["device_credential"].as_str().unwrap(),
             a.client_id,
             Purpose::Ticket
@@ -181,27 +180,28 @@ async fn database_enroll_rotate_ticket_revoke()
     Ok(())
 }
 #[tokio::test]
-async fn database_concurrent_proof_replay_preserves_successor()
+async fn database_concurrent_reuse_allows_one_success_and_revokes_family()
 -> std::result::Result<(), Box<dyn std::error::Error>> {
     let Some((s, a)) = setup().await? else {
         return Ok(());
     };
     let c = s.enroll_test("valid", true).await.unwrap();
-    let proof = proof_for(&s, c.secret(), 7, 0).await;
     let (first, second) = tokio::join!(
-        s.rotate_with_proof(c.secret(), a.client_id, Purpose::Ticket, &proof),
-        s.rotate_with_proof(c.secret(), a.client_id, Purpose::Ticket, &proof)
+        s.rotate(c.secret(), a.client_id, Purpose::Ticket),
+        s.rotate(c.secret(), a.client_id, Purpose::Ticket)
     );
     assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
     let success = first.or(second).unwrap();
-    assert!(
-        s.rotate_test(
+    // The second use of the consumed predecessor revokes the whole family,
+    // including the newest successor (accepted contract, rotation).
+    assert_eq!(
+        s.rotate(
             success["device_credential"].as_str().unwrap(),
             a.client_id,
             Purpose::Ticket
         )
-        .await
-        .is_ok()
+        .await,
+        Err(Failure::Denied)
     );
     Ok(())
 }
@@ -222,8 +222,7 @@ async fn database_expiry_and_generation_denials_commit()
                 .await?;
         }
         assert_eq!(
-            s.rotate_test(c.secret(), a.client_id, Purpose::Characters)
-                .await,
+            s.rotate(c.secret(), a.client_id, Purpose::Characters).await,
             Err(Failure::Denied)
         );
         let revoked: Option<i64> =
@@ -249,13 +248,12 @@ async fn database_callback_failure_rolls_back()
         fail: true,
     });
     assert_eq!(
-        s.rotate_test(c.secret(), a.client_id, Purpose::Ticket)
-            .await,
+        s.rotate(c.secret(), a.client_id, Purpose::Ticket).await,
         Err(Failure::Unavailable)
     );
     s.authority = original;
     assert!(
-        s.rotate_test(c.secret(), a.client_id, Purpose::Characters)
+        s.rotate(c.secret(), a.client_id, Purpose::Characters)
             .await
             .is_ok()
     );
@@ -330,8 +328,7 @@ async fn database_owner_revocation_and_suspension()
     );
     s.revoke_for_owner(a.account_id, c.family_id).await.unwrap();
     assert_eq!(
-        s.rotate_test(c.secret(), a.client_id, Purpose::Ticket)
-            .await,
+        s.rotate(c.secret(), a.client_id, Purpose::Ticket).await,
         Err(Failure::Denied)
     );
     let Some((s, a)) = setup().await? else {
@@ -343,8 +340,7 @@ async fn database_owner_revocation_and_suspension()
         .execute(&s.pool)
         .await?;
     assert_eq!(
-        s.rotate_test(c.secret(), a.client_id, Purpose::Ticket)
-            .await,
+        s.rotate(c.secret(), a.client_id, Purpose::Ticket).await,
         Err(Failure::Denied)
     );
     s.revoke(c.secret(), a.client_id).await.unwrap();
@@ -368,6 +364,16 @@ fn protocol_one_fixture_bytes_and_proofs() {
     }
     let client = Uuid::parse_str(manifest["client_id"].as_str().unwrap()).unwrap();
     let bearer = manifest["synthetic_bearer"].as_str().unwrap();
+    let unbound = std::fs::read(root.join("enroll.json")).unwrap();
+    assert!(matches!(
+        http::decode_enrollment(&unbound, false),
+        Ok((true, None))
+    ));
+    let rotate = std::fs::read(root.join("rotate.json")).unwrap();
+    assert_eq!(
+        wire::decode_operation(&rotate, false).unwrap().client_id,
+        client
+    );
     for class in ["session", "remembered"] {
         let bytes = std::fs::read(root.join(format!("{class}-enroll.json"))).unwrap();
         let (remembered, key) = http::decode_enrollment(&bytes, false).unwrap();
@@ -488,7 +494,7 @@ async fn database_native_oauth_enrollment_and_existing_ticket_issuer()
         Err(Failure::Conflict)
     ));
     let result = s
-        .rotate_test(enrolled.secret(), client, Purpose::Ticket)
+        .rotate(enrolled.secret(), client, Purpose::Ticket)
         .await
         .unwrap();
     let ticket = result["ticket"].as_str().unwrap();
@@ -514,12 +520,11 @@ async fn database_native_oauth_enrollment_and_existing_ticket_issuer()
         .is_ok()
     );
     assert_eq!(
-        s.rotate_test(enrolled.secret(), client, Purpose::Ticket)
-            .await,
+        s.rotate(enrolled.secret(), client, Purpose::Ticket).await,
         Err(Failure::Denied)
     );
     assert_eq!(
-        s.rotate_test(
+        s.rotate(
             result["device_credential"].as_str().unwrap(),
             client,
             Purpose::Ticket
@@ -552,7 +557,7 @@ async fn database_native_session_class_proof_and_fixed_deadline()
     let row: (String,i64) = sqlx::query_as("SELECT persistence_class,octet_length(device_public_key)::bigint FROM device_sessions WHERE id=$1").bind(enrolled.family_id).fetch_one(&s.pool).await?;
     assert_eq!(row, ("session".into(), 32));
     let response = s
-        .rotate_test(enrolled.secret(), client, Purpose::Ticket)
+        .rotate(enrolled.secret(), client, Purpose::Ticket)
         .await
         .unwrap();
     assert_eq!(response["idle_expires_at"], enrolled.idle_expires_at);
@@ -645,8 +650,7 @@ async fn database_native_password_mfa_suspension_and_client_revocation()
             }
         }
         assert_eq!(
-            s.rotate_test(enrolled.secret(), client, Purpose::Ticket)
-                .await,
+            s.rotate(enrolled.secret(), client, Purpose::Ticket).await,
             Err(Failure::Denied),
             "{change}"
         );
@@ -677,7 +681,7 @@ async fn database_native_mfa_account_enrolls_and_issues_ticket()
     assert!(required);
     let enrolled = s.enroll_test(&bearer, true).await.unwrap();
     let ticket = s
-        .rotate_test(enrolled.secret(), client, Purpose::Ticket)
+        .rotate(enrolled.secret(), client, Purpose::Ticket)
         .await
         .unwrap();
     assert!(ticket["ticket"].is_string(), "{ticket}");
@@ -692,7 +696,7 @@ async fn database_native_character_projection_and_failure_rollback()
     };
     let enrolled = s.enroll_test(&bearer, true).await.unwrap();
     assert_eq!(
-        s.rotate_test(enrolled.secret(), client, Purpose::Characters)
+        s.rotate(enrolled.secret(), client, Purpose::Characters)
             .await,
         Err(Failure::Unavailable)
     );
@@ -701,7 +705,7 @@ async fn database_native_character_projection_and_failure_rollback()
     let character = Uuid::now_v7();
     sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Player','AVAILABLE')").bind(account).bind(character).bind(Uuid::now_v7()).execute(&s.pool).await?;
     let response = s
-        .rotate_test(enrolled.secret(), client, Purpose::Characters)
+        .rotate(enrolled.secret(), client, Purpose::Characters)
         .await
         .unwrap();
     assert_eq!(
@@ -713,7 +717,7 @@ async fn database_native_character_projection_and_failure_rollback()
         .execute(&s.pool)
         .await?;
     assert_eq!(
-        s.rotate_test(
+        s.rotate(
             response["device_credential"].as_str().unwrap(),
             client,
             Purpose::Characters
@@ -763,7 +767,7 @@ async fn database_native_normal_ticket_consumes_oauth_but_device_continues()
     let revoked: bool = sqlx::query_scalar("SELECT f.revoked_at IS NOT NULL FROM oauth_token_families f JOIN oauth_tokens t ON t.family_id=f.id WHERE t.access_hash=$1").bind(hash(&bearer)).fetch_one(&s.pool).await?;
     assert!(revoked);
     assert!(
-        s.rotate_test(enrollment.secret(), client, Purpose::Ticket)
+        s.rotate(enrollment.secret(), client, Purpose::Ticket)
             .await
             .is_ok()
     );
@@ -807,8 +811,7 @@ async fn database_client_configuration_and_shared_lock()
         projection_authority: String::new(),
     });
     assert_eq!(
-        s.rotate_test(credential.secret(), client, Purpose::Ticket)
-            .await,
+        s.rotate(credential.secret(), client, Purpose::Ticket).await,
         Err(Failure::Unavailable)
     );
     let revoked: bool =
@@ -907,236 +910,158 @@ impl Sessions {
         )
         .await
     }
-    async fn rotate_test(
-        &self,
-        secret: &str,
-        client: Uuid,
-        purpose: Purpose,
-    ) -> Result<serde_json::Value> {
-        let proof = proof_for(self, secret, 7, 0).await;
-        self.rotate_with_proof(secret, client, purpose, &proof)
-            .await
-    }
 }
 fn enrollment_body(bearer: &str, client: Uuid, remembered: bool) -> serde_json::Value {
     let key = signed_key(bearer, client, remembered);
     serde_json::to_value(wire::EnrollmentRequest {
         protocol_version: 1,
         remember_device: remembered,
-        device_public_key: URL_SAFE_NO_PAD.encode(key.public_key),
-        enrollment_proof: URL_SAFE_NO_PAD.encode(key.signature),
+        device_public_key: Some(URL_SAFE_NO_PAD.encode(key.public_key)),
+        enrollment_proof: Some(URL_SAFE_NO_PAD.encode(key.signature)),
     })
     .unwrap()
 }
-async fn proof_for(s: &Sessions, secret: &str, key_byte: u8, offset: i64) -> RotationProof {
-    use ed25519_dalek::{Signer, SigningKey};
-    let row: (Uuid,String,i64) = sqlx::query_as("SELECT f.id,f.rotation_nonce,floor(extract(epoch FROM clock_timestamp()))::bigint FROM device_sessions f JOIN device_session_credentials c ON c.family_id=f.id WHERE c.secret_hash=$1")
-        .bind(hash(secret)).fetch_one(&s.pool).await.unwrap();
-    let signing = SigningKey::from_bytes(&[key_byte; 32]);
-    let mut proof = RotationProof {
-        nonce: row.1,
-        session_id: row.0,
-        timestamp: row.2 + offset,
-        device_public_key: URL_SAFE_NO_PAD.encode(signing.verifying_key().to_bytes()),
-        signature: String::new(),
-    };
-    proof.signature = URL_SAFE_NO_PAD.encode(signing.sign(proof.message().as_bytes()).to_bytes());
-    proof
+/// Oteryn-Game `crates/platform-client/src/native_login/owner_characters/device_transport.rs`
+/// at this commit. Its serde_json has no `preserve_order`, so `json!` bodies are
+/// sent with members in lexical order.
+const GAME_MAIN_SHA: &str = "29eb08d392182a65da0304d8d29019588e1e7186";
+/// `enroll_device(remembered = true)`: `json!({"protocol_version":1,"remember_device":true})`.
+const GAME_UNBOUND_ENROLLMENT: &str = r#"{"protocol_version":1,"remember_device":true}"#;
+/// `rotate_device` and `revoke_device`:
+/// `json!({"protocol_version":1,"client_id":self.oauth_client_id})`.
+fn game_operation(client: Uuid) -> String {
+    format!(r#"{{"client_id":"{client}","protocol_version":1}}"#)
+}
+fn fixture(name: &str) -> Vec<u8> {
+    std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../docs/contracts/fixtures/remembered-device-v1")
+            .join(name),
+    )
+    .unwrap()
+}
+fn fixture_value(name: &str) -> serde_json::Value {
+    serde_json::from_slice(&fixture(name)).unwrap()
+}
+/// The Game client parser: exactly five credential members plus the
+/// operation's own members (`ResponseBody::parse`, `deny_unknown_fields`).
+fn assert_game_members(value: &serde_json::Value, extra: &[&str]) {
+    let object = value.as_object().unwrap();
+    let mut expected = vec![
+        "protocol_version",
+        "device_credential",
+        "family_id",
+        "absolute_expires_at",
+        "idle_expires_at",
+    ];
+    expected.extend_from_slice(extra);
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(keys, expected, "{value}");
 }
 
-async fn unrelated_family(s: &Sessions, auth: &Authorization) -> Credential {
-    use ed25519_dalek::{Signer, SigningKey};
-    let other = Sessions::new(
-        s.pool.clone(),
-        s.settings.clone(),
-        Arc::new(Authority {
-            auth: auth.clone(),
-            token: Uuid::now_v7().to_string(),
-            fail: false,
-        }),
-    );
-    let signing = SigningKey::from_bytes(&[8; 32]);
-    let public = signing.verifying_key().to_bytes();
-    let digest: String = hash("valid").iter().map(|b| format!("{b:02x}")).collect();
-    let message = format!(
-        "{{\"access_token_sha256\":\"{digest}\",\"client_id\":\"{}\",\"persistence\":\"remembered\",\"public_key\":\"{}\",\"purpose\":\"oteryn-native-device-enroll-v1\"}}",
-        auth.client_id,
-        URL_SAFE_NO_PAD.encode(public)
-    );
-    other
-        .enroll_class(
-            "valid",
-            true,
-            Some(DeviceKey {
-                public_key: public.to_vec(),
-                signature: signing.sign(message.as_bytes()).to_bytes().to_vec(),
-            }),
-        )
-        .await
-        .unwrap()
-}
-async fn assert_live(s: &Sessions, family: Uuid) {
-    let revoked: Option<i64> =
-        sqlx::query_scalar("SELECT revoked_at FROM device_sessions WHERE id=$1")
-            .bind(family)
-            .fetch_one(&s.pool)
-            .await
-            .unwrap();
-    assert!(revoked.is_none());
-}
-#[tokio::test]
-async fn devices_l3_rotation_requires_proof() -> std::result::Result<(), Box<dyn std::error::Error>>
-{
-    let Some((s, a)) = setup().await? else {
-        return Ok(());
-    };
-    assert!(matches!(
-        s.enroll("valid", true).await,
-        Err(Failure::Invalid)
-    ));
-    let c = s.enroll_test("valid", true).await.unwrap();
-    let other = unrelated_family(&s, &a).await;
-    assert_eq!(
-        s.rotate(c.secret(), a.client_id, Purpose::Characters).await,
-        Err(Failure::Denied)
-    );
-    let mut proof = proof_for(&s, c.secret(), 7, 0).await;
-    proof.signature = URL_SAFE_NO_PAD.encode([0_u8; 64]);
-    assert_eq!(
-        s.rotate_with_proof(c.secret(), a.client_id, Purpose::Characters, &proof)
-            .await,
-        Err(Failure::Denied)
-    );
-    assert_live(&s, c.family_id).await;
-    assert_live(&s, other.family_id).await;
-    assert!(
-        s.rotate_test(c.secret(), a.client_id, Purpose::Characters)
-            .await
-            .is_ok()
-    );
-    Ok(())
-}
-#[tokio::test]
-async fn devices_l3_replayed_proof_refused() -> std::result::Result<(), Box<dyn std::error::Error>>
-{
-    let Some((s, a)) = setup().await? else {
-        return Ok(());
-    };
-    let c = s.enroll_test("valid", true).await.unwrap();
-    let other = unrelated_family(&s, &a).await;
-    let proof = proof_for(&s, c.secret(), 7, 0).await;
-    let next = s
-        .rotate_with_proof(c.secret(), a.client_id, Purpose::Characters, &proof)
-        .await
-        .unwrap();
-    for secret in [c.secret(), next["device_credential"].as_str().unwrap()] {
-        assert_eq!(
-            s.rotate_with_proof(secret, a.client_id, Purpose::Ticket, &proof)
-                .await,
-            Err(Failure::Denied)
-        );
-    }
-    assert_live(&s, c.family_id).await;
-    assert_live(&s, other.family_id).await;
-    assert!(
-        s.rotate_test(
-            next["device_credential"].as_str().unwrap(),
-            a.client_id,
-            Purpose::Ticket
-        )
-        .await
-        .is_ok()
-    );
-    Ok(())
-}
-#[tokio::test]
-async fn devices_l3_wrong_key_revokes_family() -> std::result::Result<(), Box<dyn std::error::Error>>
-{
-    let Some((s, a)) = setup().await? else {
-        return Ok(());
-    };
-    let c = s.enroll_test("valid", true).await.unwrap();
-    let other = unrelated_family(&s, &a).await;
-    let proof = proof_for(&s, c.secret(), 8, 0).await;
-    assert_eq!(
-        s.rotate_with_proof(c.secret(), a.client_id, Purpose::Ticket, &proof)
-            .await,
-        Err(Failure::Denied)
-    );
-    let revoked: bool =
-        sqlx::query_scalar("SELECT revoked_at IS NOT NULL FROM device_sessions WHERE id=$1")
-            .bind(c.family_id)
-            .fetch_one(&s.pool)
-            .await?;
-    assert!(revoked);
-    assert_live(&s, other.family_id).await;
-    assert_eq!(
-        s.rotate_test(c.secret(), a.client_id, Purpose::Ticket)
-            .await,
-        Err(Failure::Denied)
-    );
-    Ok(())
-}
-#[tokio::test]
-async fn devices_l3_stale_proof_refused() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let Some((s, a)) = setup().await? else {
-        return Ok(());
-    };
-    let c = s.enroll_test("valid", true).await.unwrap();
-    let other = unrelated_family(&s, &a).await;
-    for offset in [-61, 120, i64::MIN / 2] {
-        let proof = proof_for(&s, c.secret(), 7, offset).await;
-        assert_eq!(
-            s.rotate_with_proof(c.secret(), a.client_id, Purpose::Characters, &proof)
-                .await,
-            Err(Failure::Denied)
-        );
-    }
-    assert_live(&s, c.family_id).await;
-    assert_live(&s, other.family_id).await;
-    assert!(
-        s.rotate_test(c.secret(), a.client_id, Purpose::Characters)
-            .await
-            .is_ok()
-    );
-    Ok(())
-}
 #[test]
 fn devices_rotation_bad_input_refused() {
+    let client = "018f1234-1234-7123-8123-123456789abc";
     for body in [
-        r#"{"protocol_version":1,"client_id":"invalid"}"#,
-        r#"{"protocol_version":1,"client_id":"018f1234-1234-7123-8123-123456789abc","rotation_proof":null}"#,
-        r#"{"protocol_version":1,"client_id":"018f1234-1234-7123-8123-123456789abc","owner":"x"}"#,
-        r#"{"protocol_version":1,"protocol_vers\u0069on":1,"client_id":"018f1234-1234-7123-8123-123456789abc"}"#,
+        r#"{"protocol_version":1,"client_id":"invalid"}"#.to_owned(),
+        format!(r#"{{"protocol_version":1,"client_id":"{client}","rotation_proof":null}}"#),
+        format!(
+            r#"{{"protocol_version":1,"client_id":"{client}","rotation_proof":{{"nonce":"ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"}}}}"#
+        ),
+        format!(r#"{{"protocol_version":1,"client_id":"{client}","owner":"x"}}"#),
+        format!(r#"{{"protocol_version":1,"protocol_version":1,"client_id":"{client}"}}"#),
+        format!(r#"{{"protocol_version":1,"client_id":"{client}","client_id":"{client}"}}"#),
+        format!(r#"{{"protocol_version":"1","client_id":"{client}"}}"#),
+        format!(r#"{{"protocol_version":2,"client_id":"{client}"}}"#),
+        format!(
+            r#"{{"protocol_version":1,"client_id":"{}"}}"#,
+            client.to_uppercase()
+        ),
+        format!(
+            r#"{{"protocol_version":1,"client_id":"{}"}}"#,
+            client.replace('-', "")
+        ),
+        r#"{"protocol_version":1}"#.to_owned(),
+        r#"[]"#.to_owned(),
     ] {
-        assert!(matches!(
-            wire::decode_operation(body.as_bytes(), false),
-            Err(Failure::Invalid)
-        ));
+        assert!(
+            matches!(
+                wire::decode_operation(body.as_bytes(), false),
+                Err(Failure::Invalid)
+            ),
+            "{body}"
+        );
     }
-    assert!(
-        http::decode_enrollment(br#"{"protocol_version":1,"remember_device":true}"#, false)
-            .is_err()
+    let valid = fixture("rotate.json");
+    assert!(wire::decode_operation(&valid, false).is_ok());
+    assert!(matches!(
+        wire::decode_operation(&valid, true),
+        Err(Failure::Invalid)
+    ));
+}
+
+#[test]
+fn devices_accepted_contract_fixtures_match_wire_types() {
+    fn same_bytes<T: serde::Serialize + serde::de::DeserializeOwned>(name: &str) {
+        let bytes = fixture(name);
+        let typed: T = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(serde_json::to_vec(&typed).unwrap(), bytes, "{name}");
+    }
+    same_bytes::<wire::EnrollmentRequest>("enroll.json");
+    same_bytes::<wire::EnrollmentRequest>("remembered-enroll.json");
+    same_bytes::<wire::EnrollmentRequest>("session-enroll.json");
+    same_bytes::<wire::OperationRequest>("rotate.json");
+    same_bytes::<wire::CredentialResponse>("enroll-response.json");
+    same_bytes::<wire::TicketResponse>("ticket-response.json");
+    same_bytes::<wire::RevokeResponse>("revoke-response.json");
+    same_bytes::<wire::ErrorResponse>("invalid.json");
+    same_bytes::<wire::ErrorResponse>("denied.json");
+    same_bytes::<wire::ErrorResponse>("throttled.json");
+    assert_game_members(&fixture_value("enroll-response.json"), &[]);
+    assert_game_members(
+        &fixture_value("ticket-response.json"),
+        &["ticket", "expires_in", "expires_at"],
     );
 }
-fn client_proof(value: &serde_json::Value) -> RotationProof {
-    use ed25519_dalek::{Signer, SigningKey};
-    let signing = SigningKey::from_bytes(&[7; 32]);
-    let mut proof = RotationProof {
-        nonce: value["rotation_nonce"].as_str().unwrap().into(),
-        session_id: serde_json::from_value(value["family_id"].clone()).unwrap(),
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64,
-        device_public_key: URL_SAFE_NO_PAD.encode(signing.verifying_key().to_bytes()),
-        signature: String::new(),
-    };
-    proof.signature = URL_SAFE_NO_PAD.encode(signing.sign(proof.message().as_bytes()).to_bytes());
-    proof
+
+#[test]
+fn devices_game_client_exact_bytes_decode() {
+    assert_eq!(GAME_MAIN_SHA.len(), 40);
+    let manifest = fixture_value("manifest.json");
+    let client = Uuid::parse_str(manifest["client_id"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        fixture("enroll.json"),
+        GAME_UNBOUND_ENROLLMENT.as_bytes(),
+        "Game's unbound enrollment is the accepted contract's original request"
+    );
+    assert!(matches!(
+        http::decode_enrollment(GAME_UNBOUND_ENROLLMENT.as_bytes(), false),
+        Ok((true, None))
+    ));
+    let operation = wire::decode_operation(game_operation(client).as_bytes(), false).unwrap();
+    assert_eq!(operation.client_id, client);
+    // `SessionKey::enrollment`: the same members as the fixture, lexical order.
+    let session = fixture_value("session-enroll.json");
+    let game_session = format!(
+        r#"{{"device_public_key":{},"enrollment_proof":{},"protocol_version":1,"remember_device":false}}"#,
+        session["device_public_key"], session["enrollment_proof"]
+    );
+    let (remembered, key) = http::decode_enrollment(game_session.as_bytes(), false).unwrap();
+    assert!(!remembered);
+    key.unwrap()
+        .verify(
+            manifest["synthetic_bearer"].as_str().unwrap(),
+            client,
+            false,
+        )
+        .unwrap();
 }
+
 #[tokio::test]
-async fn devices_e2e_full_lifecycle() -> std::result::Result<(), Box<dyn std::error::Error>> {
+async fn devices_e2e_unbound_lifecycle_with_game_client_bytes()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
     let Some((s, account, client, bearer)) = native_setup().await? else {
         return Ok(());
     };
@@ -1145,46 +1070,45 @@ async fn devices_e2e_full_lifecycle() -> std::result::Result<(), Box<dyn std::er
     let character = Uuid::now_v7();
     sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Player','AVAILABLE')").bind(account).bind(character).bind(Uuid::now_v7()).execute(&s.pool).await?;
     let server = tls::tests::Harness::new(router(s.clone())).await;
+    let bearer_header = format!("Bearer {bearer}");
     let (status, enrolled) = server
-        .post(
-            "",
-            &format!("Bearer {bearer}"),
-            &enrollment_body(&bearer, client, true),
-        )
+        .post_body("", &bearer_header, GAME_UNBOUND_ENROLLMENT)
         .await;
     assert_eq!(status, 200, "{enrolled}");
+    assert_game_members(&enrolled, &[]);
+    let family: Uuid = serde_json::from_value(enrolled["family_id"].clone())?;
+    // The original request creates an unbound remembered family.
+    let row: (String, Option<Vec<u8>>, Option<String>) = sqlx::query_as("SELECT persistence_class,device_public_key,device_key_thumbprint FROM device_sessions WHERE id=$1").bind(family).fetch_one(&s.pool).await?;
+    assert_eq!(row, ("remembered".into(), None, None));
+    let (status, conflict) = server
+        .post_body("", &bearer_header, GAME_UNBOUND_ENROLLMENT)
+        .await;
+    assert_eq!(status, 409, "{conflict}");
+    let operation = game_operation(client);
     let mut current = enrolled;
     for suffix in ["/native-characters", "/tickets", "/native-characters"] {
-        let body = serde_json::to_value(wire::OperationRequest {
-            protocol_version: 1,
-            client_id: client,
-            rotation_proof: Some(client_proof(&current)),
-        })
-        .unwrap();
-        let (status, next) = server
-            .post(
-                suffix,
-                &format!(
-                    "OterynDevice {}",
-                    current["device_credential"].as_str().unwrap()
-                ),
-                &body,
-            )
-            .await;
+        let authorization = format!(
+            "OterynDevice {}",
+            current["device_credential"].as_str().unwrap()
+        );
+        let (status, next) = server.post_body(suffix, &authorization, &operation).await;
         assert_eq!(status, 200, "{next}");
         assert_ne!(current["device_credential"], next["device_credential"]);
-        assert_ne!(current["rotation_nonce"], next["rotation_nonce"]);
         assert_eq!(current["family_id"], next["family_id"]);
+        assert_eq!(current["absolute_expires_at"], next["absolute_expires_at"]);
         if suffix == "/tickets" {
+            assert_game_members(&next, &["ticket", "expires_in", "expires_at"]);
+            // The ticket links the unbound family; the §19 issuer reads it and
+            // finds no device key, so required binding yields no handle.
             let row: (Uuid, Uuid) = sqlx::query_as(
                 "SELECT account_id,device_family_id FROM game_login_tickets WHERE ticket_hash=$1",
             )
             .bind(hash(next["ticket"].as_str().unwrap()))
             .fetch_one(&s.pool)
             .await?;
-            assert_eq!(row.0, account);
-            assert_eq!(row.1.to_string(), current["family_id"]);
+            assert_eq!(row, (account, family));
         } else {
+            assert_game_members(&next, &["characters"]);
             assert_eq!(next["characters"][0]["character_id"], character.to_string());
         }
         current = next;
@@ -1193,115 +1117,137 @@ async fn devices_e2e_full_lifecycle() -> std::result::Result<(), Box<dyn std::er
         "OterynDevice {}",
         current["device_credential"].as_str().unwrap()
     );
-    let revoke = serde_json::json!({"protocol_version":1,"client_id":client});
     for _ in 0..2 {
-        let (status, value) = server.post("/revoke", &authorization, &revoke).await;
+        let (status, value) = server
+            .post_body("/revoke", &authorization, &operation)
+            .await;
         assert_eq!(status, 200);
-        assert_eq!(
-            value,
-            serde_json::json!({"protocol_version":1,"revoked":true})
-        );
+        assert_eq!(value, fixture_value("revoke-response.json"));
     }
-    let proof = serde_json::to_value(wire::OperationRequest {
-        protocol_version: 1,
-        client_id: client,
-        rotation_proof: Some(client_proof(&current)),
-    })
-    .unwrap();
-    assert_eq!(server.post("/tickets", &authorization, &proof).await.0, 401);
+    let (status, value) = server
+        .post_body("/tickets", &authorization, &operation)
+        .await;
+    assert_eq!((status, value), (401, fixture_value("denied.json")));
     Ok(())
 }
 
-#[test]
-fn devices_contract_examples_match_types() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    use serde::{Serialize, de::DeserializeOwned};
-    fn roundtrip<T: Serialize + DeserializeOwned>(json: &str) {
-        let value: serde_json::Value = serde_json::from_str(json).unwrap();
-        let typed: T = serde_json::from_value(value.clone()).unwrap();
-        assert_eq!(serde_json::to_value(typed).unwrap(), value);
+#[tokio::test]
+async fn database_bound_enrollment_rotates_without_proof()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    for remembered in [false, true] {
+        let Some((s, _, client, bearer)) = native_setup().await? else {
+            return Ok(());
+        };
+        let server = tls::tests::Harness::new(router(s.clone())).await;
+        let (status, enrolled) = server
+            .post(
+                "",
+                &format!("Bearer {bearer}"),
+                &enrollment_body(&bearer, client, remembered),
+            )
+            .await;
+        assert_eq!(status, 200, "{enrolled}");
+        assert_game_members(&enrolled, &[]);
+        let family: Uuid = serde_json::from_value(enrolled["family_id"].clone())?;
+        let row: (String, bool) = sqlx::query_as("SELECT persistence_class,device_key_thumbprint IS NOT NULL FROM device_sessions WHERE id=$1").bind(family).fetch_one(&s.pool).await?;
+        let class = if remembered { "remembered" } else { "session" };
+        assert_eq!(row, (class.into(), true));
+        let (status, next) = server
+            .post_body(
+                "/tickets",
+                &format!(
+                    "OterynDevice {}",
+                    enrolled["device_credential"].as_str().unwrap()
+                ),
+                &game_operation(client),
+            )
+            .await;
+        assert_eq!(status, 200, "{next}");
+        assert_game_members(&next, &["ticket", "expires_in", "expires_at"]);
     }
-    let doc = include_str!(
-        "../../../../docs/contracts/OTERYN_V2_NATIVE_REMEMBERED_DEVICE_CLIENT_CONTRACT.md"
-    );
-    let mut count = 0;
-    let mut proof = None;
-    let mut message = None;
-    for section in doc.split("<!-- example:").skip(1) {
-        let (kind, rest) = section.split_once(" -->").unwrap();
-        let json = rest
-            .split_once("```json\n")
-            .unwrap()
-            .1
-            .split_once("\n```")
-            .unwrap()
-            .0;
-        count += 1;
-        match kind {
-            "EnrollmentRequest" => {
-                roundtrip::<wire::EnrollmentRequest>(json);
-                let (remembered, key) = http::decode_enrollment(json.as_bytes(), false).unwrap();
-                key.unwrap()
-                    .verify(
-                        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-                        Uuid::parse_str("019a5f4a-1000-7000-8000-000000000001").unwrap(),
-                        remembered,
-                    )
-                    .unwrap();
-            }
-            "OperationRequest" => {
-                roundtrip::<wire::OperationRequest>(json);
-                let operation = wire::decode_operation(json.as_bytes(), false).unwrap();
-                if let Some(p) = operation.rotation_proof {
-                    proof = Some(p);
-                }
-            }
-            "CredentialResponse" => roundtrip::<wire::CredentialResponse>(json),
-            "CharactersResponse" => roundtrip::<wire::CharactersResponse>(json),
-            "TicketResponse" => roundtrip::<wire::TicketResponse>(json),
-            "RevokeResponse" => roundtrip::<wire::RevokeResponse>(json),
-            "ErrorResponse" => roundtrip::<wire::ErrorResponse>(json),
-            "RotationMessage" => {
-                roundtrip::<wire::RotationMessage>(json);
-                message = Some(serde_json::from_str::<wire::RotationMessage>(json).unwrap());
-            }
-            _ => return Err(format!("undocumented example type: {kind}").into()),
-        }
-    }
-    assert_eq!(count, doc.matches("```json\n").count());
-    assert_eq!(count, 11);
-    let proof = proof.unwrap();
-    assert_eq!(proof.message(), message.unwrap().canonical());
-    proof
-        .check_fresh(proof.session_id, Some(&proof.nonce), proof.timestamp)
-        .unwrap();
-    proof
-        .verify(&key::decode_bytes(&proof.device_public_key, 32).unwrap())
-        .unwrap();
     Ok(())
 }
 
-#[test]
-fn devices_l3_clock_skew_boundary_and_session_binding() {
-    let family = Uuid::now_v7();
-    let mut proof = RotationProof {
-        nonce: URL_SAFE_NO_PAD.encode([9_u8; 32]),
-        session_id: family,
-        timestamp: 1000,
-        device_public_key: String::new(),
-        signature: String::new(),
+#[tokio::test]
+async fn database_http_refuses_proposed_and_malformed_bodies()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some((s, a)) = setup().await? else {
+        return Ok(());
     };
-    for now in [940, 1000, 1060] {
-        assert!(proof.check_fresh(family, Some(&proof.nonce), now).is_ok());
-    }
-    for now in [939, 1061, i64::MIN, i64::MAX] {
+    let server = tls::tests::Harness::new(router(s.clone())).await;
+    let invalid = (400, fixture_value("invalid.json"));
+    let too_large = (413, fixture_value("invalid.json"));
+    let oversized = format!(
+        r#"{{"protocol_version":1,"remember_device":true{}}}"#,
+        " ".repeat(1024)
+    );
+    let key = fixture_value("remembered-enroll.json")["device_public_key"].clone();
+    for (suffix, body, expected) in [
+        (
+            "",
+            format!(r#"{{"protocol_version":1,"remember_device":true,"device_public_key":{key}}}"#),
+            &invalid,
+        ),
+        (
+            "",
+            r#"{"protocol_version":1,"remember_device":false}"#.to_owned(),
+            &invalid,
+        ),
+        ("?a=1", GAME_UNBOUND_ENROLLMENT.to_owned(), &invalid),
+        ("", oversized, &too_large),
+    ] {
         assert_eq!(
-            proof.check_fresh(family, Some(&proof.nonce), now),
-            Err(Failure::Denied)
+            &server.post_body(suffix, "Bearer valid", &body).await,
+            expected,
+            "{suffix} {body}"
         );
     }
-    proof.session_id = Uuid::now_v7();
-    assert_eq!(
-        proof.check_fresh(family, Some(&proof.nonce), 1000),
-        Err(Failure::Denied)
+    let (status, enrolled) = server
+        .post_body("", "Bearer valid", GAME_UNBOUND_ENROLLMENT)
+        .await;
+    assert_eq!(status, 200, "{enrolled}");
+    let authorization = format!(
+        "OterynDevice {}",
+        enrolled["device_credential"].as_str().unwrap()
     );
+    let client = a.client_id;
+    // The PROPOSED client contract's `rotation_proof` is now an unknown member.
+    let proposed = format!(
+        r#"{{"protocol_version":1,"client_id":"{client}","rotation_proof":{{"nonce":"ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8","session_id":"{}","timestamp":1794405600,"device_public_key":{key},"signature":"wCFa-qSVXu2_OTha678f8AHjtd2-eJt-S6Vbf3Osiv8aVnItvXBPmZS3-lv6khs0002zAGppqbQj_vi9VhSRBw"}}}}"#,
+        enrolled["family_id"].as_str().unwrap()
+    );
+    let padded = format!("{}{}", game_operation(client), " ".repeat(1024));
+    for (suffix, body, expected) in [
+        ("/tickets", proposed.clone(), &invalid),
+        ("/native-characters", proposed.clone(), &invalid),
+        ("/revoke", proposed, &invalid),
+        (
+            "/tickets",
+            format!(r#"{{"protocol_version":1,"client_id":"{client}","owner":"x"}}"#),
+            &invalid,
+        ),
+        ("/tickets?a=1", game_operation(client), &invalid),
+        ("/revoke?a=1", game_operation(client), &invalid),
+        ("/tickets", padded, &too_large),
+    ] {
+        assert_eq!(
+            &server.post_body(suffix, &authorization, &body).await,
+            expected,
+            "{suffix} {body}"
+        );
+    }
+    // Refused bodies consumed nothing: the credential still rotates once.
+    let (status, next) = server
+        .post_body("/tickets", &authorization, &game_operation(client))
+        .await;
+    assert_eq!(status, 200, "{next}");
+    assert_game_members(&next, &["ticket", "expires_in", "expires_at"]);
+    let family: Uuid = serde_json::from_value(enrolled["family_id"].clone())?;
+    let revoked: Option<i64> =
+        sqlx::query_scalar("SELECT revoked_at FROM device_sessions WHERE id=$1")
+            .bind(family)
+            .fetch_one(&s.pool)
+            .await?;
+    assert!(revoked.is_none());
+    Ok(())
 }

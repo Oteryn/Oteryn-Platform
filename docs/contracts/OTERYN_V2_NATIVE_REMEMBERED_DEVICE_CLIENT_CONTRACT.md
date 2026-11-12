@@ -1,5 +1,7 @@
 # Native remembered-device client contract
 
+> Superseded for request and response bodies by the ACCEPTED `OTERYN_V2_NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT.md`: rotation and revocation carry no `rotation_proof` and responses carry no `rotation_nonce`.
+
 Status: **PROPOSED**. Default-off. This is the Rust client qualification proposal
 for N008, including the M2 transport and L3 rotation gates. It changes the historical
 protocol-1 keyless rotation behavior; clients must qualify against this proposal
