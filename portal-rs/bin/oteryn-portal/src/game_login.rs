@@ -19,6 +19,11 @@
 //! witness directory `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`; the TTL
 //! is `PORTAL_NATIVE_ADMISSION_GRANT_TTL_SECONDS` (5..=30, default 20) and the
 //! route is selected from the `GAME_AUTH_NATIVE_RUNTIME_STATUS_*` read model.
+//!
+//! Protocol 3 (contract §19) is a separate default-off switch,
+//! `PORTAL_NATIVE_PROTOCOL3_ENABLED`, in the same environments. Recovery
+//! handles additionally need `PORTAL_NATIVE_RECOVERY_ENABLED` and
+//! `OTERYN_ENV=testing` (owner decision U21).
 use axum::Router;
 use oteryn_characters::{lcfa, overview};
 use oteryn_gameauth::{admission, devices::PlatformAuthority, oauth, tickets};
@@ -82,6 +87,14 @@ pub fn issuance(pool: PgPool, lookup: impl Fn(&str) -> Option<String>) -> admiss
     issuance
 }
 
+/// The protocol 3 policy over the issuance's runtime read model (§19.1).
+pub fn protocol3(
+    issuance: &admission::Issuance,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Option<admission::Protocol3> {
+    admission::Protocol3::configured(lookup, issuance.runtime.clone())
+}
+
 pub fn admission_accounts() -> AdmissionAccounts {
     AdmissionAccounts(FEATURES)
 }
@@ -101,6 +114,7 @@ pub async fn start_admission_listener(
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let issuance = issuance(pool.clone(), |key| std::env::var(key).ok());
     let signer = issuance.signer.clone();
+    let protocol3 = protocol3(&issuance, |key| std::env::var(key).ok());
     admission::start_private_listener(
         pool,
         Arc::new(admission_accounts()),
@@ -109,6 +123,7 @@ pub async fn start_admission_listener(
             issuance,
         )),
         signer,
+        protocol3,
     )
     .await
 }

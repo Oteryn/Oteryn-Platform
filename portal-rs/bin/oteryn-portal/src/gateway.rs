@@ -8,11 +8,19 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         config.timeout,
         config.ready_timeout,
     )?;
-    let app = oteryn_gateway::router(issuer, config.enabled, config.version);
+    let app = oteryn_gateway::router_with(
+        issuer,
+        oteryn_gateway::Options {
+            enabled: config.enabled,
+            protocol3: config.protocol3,
+            version: config.version,
+        },
+    );
     let listener = tokio::net::TcpListener::bind(&config.listen).await?;
     tracing::info!(
         bind = config.listen,
         native_login_enabled = config.enabled,
+        native_protocol3_enabled = config.protocol3,
         "gateway serving"
     );
     axum::serve(

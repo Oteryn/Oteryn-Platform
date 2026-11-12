@@ -6,6 +6,8 @@ pub struct Config {
     pub base_url: String,
     pub token_file: PathBuf,
     pub enabled: bool,
+    /// `GATEWAY_NATIVE_PROTOCOL3_ENABLED` (contract §19.1), default off.
+    pub protocol3: bool,
     pub timeout: Duration,
     pub ready_timeout: Duration,
     pub version: String,
@@ -38,6 +40,11 @@ impl Config {
             "true" => true,
             _ => return Err("invalid GATEWAY_NATIVE_LOGIN_ENABLED".into()),
         };
+        let protocol3 = match value("GATEWAY_NATIVE_PROTOCOL3_ENABLED", "false").as_str() {
+            "false" => false,
+            "true" => true,
+            _ => return Err("invalid GATEWAY_NATIVE_PROTOCOL3_ENABLED".into()),
+        };
         let listen = value("GATEWAY_LISTEN_ADDR", "0.0.0.0:8080");
         if listen.trim().is_empty() {
             return Err("GATEWAY_LISTEN_ADDR is empty".into());
@@ -47,6 +54,7 @@ impl Config {
             base_url,
             token_file: token_file.into(),
             enabled,
+            protocol3,
             timeout: duration(&value("GATEWAY_NATIVE_ADMISSION_TIMEOUT", "5s"), 8)?,
             ready_timeout: duration(&value("GATEWAY_REQUEST_TIMEOUT", "5s"), 30)?,
             version: value("GATEWAY_VERSION", "dev"),
