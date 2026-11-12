@@ -182,15 +182,22 @@ fn protocol3_and_recovery_configuration_fail_closed() {
         recovery(&[devices], "testing"),
         Some(Handles::On {
             lifetime_seconds: 43200,
-            require_device_binding: true
+            require_device_binding: true,
+            devices_enabled: true
         })
     );
-    // §19.15.1: binding on needs the device-session switch on.
-    assert_eq!(recovery(&[], "testing"), Some(Handles::Invalid));
+    // §19.15.1: binding on with the device-session switch off keeps protocol 3
+    // logins working; only handles and recovery are refused (fail closed).
+    let unbound = Some(Handles::On {
+        lifetime_seconds: 43200,
+        require_device_binding: true,
+        devices_enabled: false,
+    });
+    assert_eq!(recovery(&[], "testing"), unbound);
     for off in ["false", "TRUE", "1"] {
         assert_eq!(
             recovery(&[(protocol3::DEVICES_ENABLED, off)], "testing"),
-            Some(Handles::Invalid),
+            unbound,
             "{off}"
         );
         assert_eq!(
@@ -201,7 +208,7 @@ fn protocol3_and_recovery_configuration_fail_closed() {
                 ],
                 "testing"
             ),
-            Some(Handles::Invalid),
+            unbound,
             "{off}"
         );
     }
@@ -212,7 +219,8 @@ fn protocol3_and_recovery_configuration_fail_closed() {
         recovery(&[(protocol3::REQUIRE_DEVICE_BINDING, "false")], "testing"),
         Some(Handles::On {
             lifetime_seconds: 43200,
-            require_device_binding: false
+            require_device_binding: false,
+            devices_enabled: false
         })
     );
     assert_eq!(
@@ -222,7 +230,8 @@ fn protocol3_and_recovery_configuration_fail_closed() {
         ),
         Some(Handles::On {
             lifetime_seconds: 3600,
-            require_device_binding: true
+            require_device_binding: true,
+            devices_enabled: true
         })
     );
     for bad in ["3599", "43201", "0", "+3600", "x"] {

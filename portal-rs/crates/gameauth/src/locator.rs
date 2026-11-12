@@ -28,6 +28,9 @@ pub const PATH: &str = "/internal/v1/game-auth/native-recovery-locators";
 /// Locator identities and their scopes, the runtime-status JSON shape (§19.6.1).
 pub const IDENTITIES: &str = "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES";
 pub(crate) const GROUP: &str = "native-recovery-locator";
+/// §19.6.3 rule 1: a JSON object mapping each locator certificate SAN to the
+/// `node_identity` its assignments name, strictly one to one.
+pub const NODES: &str = "PORTAL_NATIVE_RECOVERY_LOCATOR_IDENTITIES";
 /// Largest report (§19.6.2).
 pub const MAX_REPORT_BYTES: usize = 1024;
 const OPERATION: &str = "ReportRecoveryLocatorV1";
@@ -50,6 +53,9 @@ const FIELDS: [&str; 12] = [
 pub struct Settings {
     pub enabled: bool,
     pub peers: Vec<Peer>,
+    /// Locator SAN to assignment `node_identity` (`NODES`); a SAN without an
+    /// entry is refused with 401.
+    pub nodes: Vec<(String, String)>,
     /// `source_authority` of the §5 read model; empty while it is disabled, which
     /// refuses every report (§19.6.3 rule 5).
     pub projection_authority: String,
@@ -188,11 +194,12 @@ impl Report {
 }
 
 /// §19.6.3 under the epoch fence, then the per-Character ordering. Lock order:
-/// epoch, assignment, read model, Character entry.
+/// epoch, assignment, read model, Character entry. `node_identity` is the one
+/// the caller's locator SAN maps to (rule 1).
 pub async fn ingest(
     pool: &PgPool,
     projection_authority: &str,
-    peer: &str,
+    node_identity: &str,
     report: &Report,
 ) -> Result<&'static str, Failure> {
     let mut tx = pool.begin().await.map_err(|_| unavailable())?;
@@ -215,7 +222,7 @@ pub async fn ingest(
     let node: Option<String> = assignment
         .try_get("node_identity")
         .map_err(|_| unavailable())?;
-    if node.as_deref() != Some(peer) {
+    if node.as_deref() != Some(node_identity) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     // Rule 2: the latest accepted assignment, in the highest epoch.
@@ -390,6 +397,14 @@ async fn handle(
     Extension(value): Extension<Value>,
 ) -> Response {
     let result = async {
+        // Rule 1: the SAN's mapped node identity; an unmapped SAN is refused.
+        let node = state
+            .settings
+            .nodes
+            .iter()
+            .find(|(san, _)| *san == peer.name)
+            .map(|(_, node)| node.as_str())
+            .ok_or(StatusCode::UNAUTHORIZED)?;
         let report = Report::decode(&value)?;
         if !peer.scopes.contains(&(report.world_id, report.channel_id)) {
             return Err(StatusCode::UNAUTHORIZED);
@@ -403,7 +418,7 @@ async fn handle(
         ingest(
             &state.pool,
             &state.settings.projection_authority,
-            &peer.name,
+            node,
             &report,
         )
         .await

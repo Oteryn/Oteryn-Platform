@@ -15,6 +15,8 @@ const WORLD: &str = "0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a70";
 const CHANNEL: &str = "0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a71";
 const ACCOUNT: &str = "0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a7d";
 const CHARACTER: &str = "0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a7c";
+/// The assignment `node_identity` the locator SAN `node` maps to (rule 1).
+const NODE: &str = "game-node-1";
 
 fn fixture(name: &str) -> String {
     std::fs::read_to_string(format!("{FIXTURES}{name}")).unwrap()
@@ -34,6 +36,7 @@ fn settings() -> Settings {
             identity: Identity::san("node").unwrap(),
             scopes: vec![(WORLD.parse().unwrap(), CHANNEL.parse().unwrap())],
         }],
+        nodes: vec![("node".into(), NODE.into())],
         projection_authority: "test-source".into(),
         clock_uncertainty_seconds: 0,
         requests_per_minute: 600,
@@ -158,7 +161,9 @@ async fn route_is_off_by_default_and_keeps_identities_apart() {
         send(&off, "node", &report()).await,
         (StatusCode::SERVICE_UNAVAILABLE, String::new())
     );
-    let scope = format!("{{\"node\":[\"{WORLD}/{CHANNEL}\"]}}");
+    let scope =
+        format!("{{\"node\":[\"{WORLD}/{CHANNEL}\"],\"unmapped\":[\"{WORLD}/{CHANNEL}\"]}}");
+    let nodes = format!("{{\"node\":\"{NODE}\"}}");
     let runtime_scope = format!("{{\"runtime\":[\"{WORLD}/{CHANNEL}\"]}}");
     let lookup = |key: &str| match key {
         "OTERYN_ENV" => Some("testing".into()),
@@ -168,11 +173,13 @@ async fn route_is_off_by_default_and_keeps_identities_apart() {
         | "OTERYN_LCFA_ENABLED" => Some("true".into()),
         "OTERYN_LCFA_SOURCE_AUTHORITY" => Some("test-source".into()),
         IDENTITIES => Some(scope.clone()),
+        NODES => Some(nodes.clone()),
         "GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES" => Some(runtime_scope.clone()),
         _ => None,
     };
     let (_, _, locator, _) = runtime::configuration(lookup).unwrap();
     assert!(locator.enabled && locator.valid());
+    assert_eq!(locator.nodes, vec![("node".to_owned(), NODE.to_owned())]);
     assert_eq!(locator.projection_authority, "test-source");
     let app: Router = runtime::configured_routes(pool.clone(), lookup);
     // Another purpose's identity is refused here, a locator identity elsewhere.
@@ -183,6 +190,12 @@ async fn route_is_off_by_default_and_keeps_identities_apart() {
     assert_eq!(
         send(&app, "stranger", &report()).await.0,
         StatusCode::UNAUTHORIZED
+    );
+    // Rule 1: a locator SAN in scope but without a node mapping is refused
+    // before any database read, with an empty body.
+    assert_eq!(
+        send(&app, "unmapped", &report()).await,
+        (StatusCode::UNAUTHORIZED, String::new())
     );
     let runtime_route = app
         .clone()
@@ -253,10 +266,31 @@ async fn route_is_off_by_default_and_keeps_identities_apart() {
         })
         .is_none()
     );
+    // The node map is strictly one to one: a duplicate SAN, a duplicate
+    // node_identity or anything but a flat object of SAN strings refuses.
+    for bad in [
+        format!("{{\"node\":\"{NODE}\",\"node\":\"game-node-2\"}}"),
+        format!("{{\"node\":\"{NODE}\",\"unmapped\":\"{NODE}\"}}"),
+        "{\"node\":".to_owned(),
+        "[]".to_owned(),
+        "{\"node\":1}".to_owned(),
+        "{\"node\":\"\"}".to_owned(),
+        format!("{{\"\":\"{NODE}\"}}"),
+        format!("{{\"node\":[\"{NODE}\"]}}"),
+    ] {
+        assert!(
+            runtime::configuration(|k| match k {
+                NODES => Some(bad.clone()),
+                _ => lookup(k),
+            })
+            .is_none(),
+            "{bad}"
+        );
+    }
 }
 
 async fn seed(db: &Database) -> TestResult {
-    sqlx::query("INSERT INTO native_scope_assignments (world_id,channel_id,assignment_epoch,ownership_generation,node_identity,assigned_at) VALUES ($1,$2,1,1,'node',0)")
+    sqlx::query("INSERT INTO native_scope_assignments (world_id,channel_id,assignment_epoch,ownership_generation,node_identity,assigned_at) VALUES ($1,$2,1,1,'game-node-1',0)")
         .bind(WORLD.parse::<Uuid>()?).bind(CHANNEL.parse::<Uuid>()?)
         .execute(&db.pool).await?;
     sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test-source',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1").execute(&db.pool).await?;
@@ -343,12 +377,39 @@ async fn db_locator_acceptance_ordering_and_refusals() -> TestResult {
         "\"scope_ownership_generation\":2",
     );
     assert_eq!(send(&app, "node", &stale).await.0, StatusCode::CONFLICT);
+    // Rule 1: the SAN maps to another node_identity than the assignment's,
+    // or has no mapping: refused with an empty body, nothing stored.
+    let elsewhere: Router = router(
+        db.pool.clone(),
+        Settings {
+            nodes: vec![("node".into(), "game-node-2".into())],
+            ..settings()
+        },
+        identities(),
+    );
+    assert_eq!(
+        send(&elsewhere, "node", &good).await,
+        (StatusCode::UNAUTHORIZED, String::new())
+    );
+    let unmapped: Router = router(
+        db.pool.clone(),
+        Settings {
+            nodes: Vec::new(),
+            ..settings()
+        },
+        identities(),
+    );
+    assert_eq!(
+        send(&unmapped, "node", &good).await,
+        (StatusCode::UNAUTHORIZED, String::new())
+    );
+    assert_eq!(entry(&db).await, None);
     // Rule 1: a deposed owner in scope is refused.
     sqlx::query("UPDATE native_scope_assignments SET node_identity='successor'")
         .execute(&db.pool)
         .await?;
     assert_eq!(send(&app, "node", &good).await.0, StatusCode::UNAUTHORIZED);
-    sqlx::query("UPDATE native_scope_assignments SET node_identity='node'")
+    sqlx::query("UPDATE native_scope_assignments SET node_identity='game-node-1'")
         .execute(&db.pool)
         .await?;
     assert_eq!(entry(&db).await, None);
@@ -425,7 +486,7 @@ async fn futures_join(pool: &PgPool, reports: Vec<Report>) -> Vec<Result<&'stati
     let mut tasks = tokio::task::JoinSet::new();
     for report in reports {
         let pool = pool.clone();
-        tasks.spawn(async move { ingest(&pool, "test-source", "node", &report).await });
+        tasks.spawn(async move { ingest(&pool, "test-source", NODE, &report).await });
     }
     let mut results = Vec::new();
     while let Some(result) = tasks.join_next().await {

@@ -194,6 +194,7 @@ impl Recovery {
             handles: admission::Handles::On {
                 lifetime_seconds: 43200,
                 require_device_binding: false,
+                devices_enabled: true,
             },
         };
         let (dir, issuer) = db.recovery_custody(&grants, &protocol3).await?;
@@ -555,6 +556,7 @@ async fn pg_recovery_refusals_fail_closed_without_recording_an_attempt() -> Test
         handles: admission::Handles::On {
             lifetime_seconds: 43200,
             require_device_binding: true,
+            devices_enabled: true,
         },
         ..r.protocol3.clone()
     };
@@ -944,6 +946,32 @@ fn device_proof(key: &ed25519_dalek::SigningKey, kid: &str, handle: &str, attemp
     let sig = URL_SAFE_NO_PAD.encode(key.sign(input.as_bytes()).to_bytes());
     format!(r#","device_proof":{{"kid":"{kid}","sig":"{sig}"}}}}"#)
 }
+/// A live session-class family with the synthetic device key (seed [7; 32]):
+/// the key, its thumbprint, the family and the database time.
+async fn keyed_family(
+    r: &Recovery,
+) -> Result<(ed25519_dalek::SigningKey, String, Uuid, i64), Box<dyn std::error::Error>> {
+    let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+    let public = key.verifying_key().to_bytes();
+    let kid = URL_SAFE_NO_PAD.encode(Sha256::digest(public));
+    let family = Uuid::now_v7();
+    let now = r.db.now().await?;
+    sqlx::query("INSERT INTO device_sessions (id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at,persistence_class,device_public_key,device_key_thumbprint) SELECT $1,$2,$3,$4,game_auth_generation,native_security_generation,$5,$5,'session',$6,$7 FROM accounts WHERE id=$2")
+        .bind(family).bind(r.account).bind(Uuid::now_v7()).bind(family.to_string())
+        .bind(now + 600).bind(&public[..]).bind(&kid)
+        .execute(&r.db.pool).await?;
+    Ok((key, kid, family, now))
+}
+/// A native ticket issued by `family`.
+async fn bound_ticket(r: &Recovery, family: Uuid) -> Result<String, Box<dyn std::error::Error>> {
+    let native = r.db.native_ticket(r.account).await?;
+    sqlx::query("UPDATE game_login_tickets SET device_family_id=$1 WHERE ticket_hash=$2")
+        .bind(family)
+        .bind(&Sha256::digest(native.as_bytes())[..])
+        .execute(&r.db.pool)
+        .await?;
+    Ok(native)
+}
 fn with_proof(body: &str, proof: &str) -> String {
     let body = body.strip_suffix('}').expect("object");
     format!("{body}{proof}")
@@ -958,26 +986,13 @@ async fn pg_recovery_with_device_binding_requires_a_proof_of_the_bound_family() 
         handles: admission::Handles::On {
             lifetime_seconds: 43200,
             require_device_binding: true,
+            devices_enabled: true,
         },
         ..r.protocol3.clone()
     };
     let app = r.app_with(Some(bound), Some(r.issuer.clone()))?;
-    // A live session-class family with the synthetic device key (seed [7; 32]).
-    let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
-    let public = key.verifying_key().to_bytes();
-    let kid = URL_SAFE_NO_PAD.encode(Sha256::digest(public));
-    let family = Uuid::now_v7();
-    let now = r.db.now().await?;
-    sqlx::query("INSERT INTO device_sessions (id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at,persistence_class,device_public_key,device_key_thumbprint) SELECT $1,$2,$3,$4,game_auth_generation,native_security_generation,$5,$5,'session',$6,$7 FROM accounts WHERE id=$2")
-        .bind(family).bind(r.account).bind(Uuid::now_v7()).bind(family.to_string())
-        .bind(now + 600).bind(&public[..]).bind(&kid)
-        .execute(&r.db.pool).await?;
-    let native = r.db.native_ticket(r.account).await?;
-    sqlx::query("UPDATE game_login_tickets SET device_family_id=$1 WHERE ticket_hash=$2")
-        .bind(family)
-        .bind(&Sha256::digest(native.as_bytes())[..])
-        .execute(&r.db.pool)
-        .await?;
+    let (key, kid, family, now) = keyed_family(&r).await?;
+    let native = bound_ticket(&r, family).await?;
     let raw = login3(&native, Uuid::now_v7(), None);
     let (status, body) = admit(app.clone(), SERVICE, raw.clone()).await?;
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
@@ -1082,5 +1097,82 @@ async fn pg_recovery_with_device_binding_requires_a_proof_of_the_bound_family() 
         .execute(&r.db.pool)
         .await?;
     assert_authentication(&r.send(app.clone(), good).await?, attempt);
+    r.close().await
+}
+
+/// §19.15.1 with binding required and the device-session switch off: protocol
+/// 3 logins work with `"recovery": null` and no handle, and recovery refuses
+/// even a valid proof of a live family exactly as for an unknown handle.
+#[tokio::test]
+async fn pg_recovery_binding_without_devices_keeps_logins_and_refuses_recovery() -> TestResult {
+    let Some(r) = Recovery::open().await? else {
+        return Ok(());
+    };
+    let handles = |devices_enabled| admission::Handles::On {
+        lifetime_seconds: 43200,
+        require_device_binding: true,
+        devices_enabled,
+    };
+    let on = r.app_with(
+        Some(admission::Protocol3 {
+            handles: handles(true),
+            ..r.protocol3.clone()
+        }),
+        Some(r.issuer.clone()),
+    )?;
+    let off = r.app_with(
+        Some(admission::Protocol3 {
+            handles: handles(false),
+            ..r.protocol3.clone()
+        }),
+        Some(r.issuer.clone()),
+    )?;
+    let (key, kid, family, _) = keyed_family(&r).await?;
+    let native = bound_ticket(&r, family).await?;
+    let raw = login3(&native, Uuid::now_v7(), None);
+    let (status, body) = admit(on.clone(), SERVICE, raw.clone()).await?;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let handle = success3(&body, &raw)?
+        .recovery
+        .expect("bound handle")
+        .handle;
+    let attempt = Uuid::now_v7();
+    let good = with_proof(
+        &recover_body(&handle, attempt, CHARACTER),
+        &device_proof(&key, &kid, &handle, attempt),
+    );
+    // Devices off: the valid proof is refused as an unknown handle is.
+    assert_authentication(&r.send(off.clone(), good.clone()).await?, attempt);
+    let unknown = with_proof(
+        &recover_body(UNKNOWN, attempt, CHARACTER),
+        &device_proof(&key, &kid, UNKNOWN, attempt),
+    );
+    assert_authentication(&r.send(on.clone(), unknown).await?, attempt);
+    assert_eq!(r.attempts().await?, 0, "refusals record no attempt");
+    // The same request recovers with devices on.
+    let reply = r.send(on, good).await?;
+    assert_eq!(
+        reply.status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
+    // A protocol 3 login through the same family still succeeds, with
+    // "recovery": null and no new handle.
+    let handles_of = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM native_recovery_handles WHERE device_family_id=$1",
+        )
+        .bind(family)
+        .fetch_one(&r.db.pool)
+        .await
+    };
+    let before = handles_of().await?;
+    let native = bound_ticket(&r, family).await?;
+    let raw = login3(&native, Uuid::now_v7(), None);
+    let (status, body) = admit(off, SERVICE, raw.clone()).await?;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert!(success3(&body, &raw)?.recovery.is_none());
+    assert_eq!(handles_of().await?, before);
     r.close().await
 }

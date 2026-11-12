@@ -18,8 +18,8 @@ pub const RECOVERY_ENABLED: &str = "PORTAL_NATIVE_RECOVERY_ENABLED";
 pub const HANDLE_LIFETIME_SECONDS: &str = "PORTAL_NATIVE_RECOVERY_HANDLE_LIFETIME_SECONDS";
 /// Device binding (§19.15), default on; `false` is accepted only in `testing`.
 pub const REQUIRE_DEVICE_BINDING: &str = "PORTAL_NATIVE_RECOVERY_REQUIRE_DEVICE_BINDING";
-/// The native device-session switch. §19.15.1: with binding on it must be on,
-/// otherwise handle issuance and recovery refuse.
+/// The native device-session switch. §19.15.1: with binding on and this off,
+/// protocol 3 logins carry `"recovery": null` and recovery refuses.
 pub const DEVICES_ENABLED: &str = "OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED";
 
 pub const MAX_HANDLE_LIFETIME_SECONDS: u32 = 43_200;
@@ -33,6 +33,10 @@ pub enum Handles {
     On {
         lifetime_seconds: u32,
         require_device_binding: bool,
+        /// `OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED`. With binding required
+        /// and devices off, protocol 3 logins carry `"recovery": null` and
+        /// recovery refuses as for an unknown handle (§19.15.1).
+        devices_enabled: bool,
     },
     /// A lifetime or binding setting outside the contract: protocol 3 issuance
     /// is refused rather than falling back (§19.3).
@@ -65,7 +69,7 @@ impl Protocol3 {
                 });
             let devices = lookup(DEVICES_ENABLED).as_deref() == Some("true");
             let binding = match lookup(REQUIRE_DEVICE_BINDING).as_deref() {
-                None | Some("true") if devices => Some(true),
+                None | Some("true") => Some(true),
                 Some("false") if environment == "testing" => Some(false),
                 _ => None,
             };
@@ -75,6 +79,7 @@ impl Protocol3 {
                 (Some(lifetime_seconds), Some(require_device_binding)) => Handles::On {
                     lifetime_seconds,
                     require_device_binding,
+                    devices_enabled: devices,
                 },
                 _ => Handles::Invalid,
             }
@@ -137,8 +142,14 @@ pub(super) async fn issue(
         Handles::Off => return Ok(None),
         Handles::Invalid => return Err(Error::Unavailable),
         Handles::On {
+            require_device_binding: true,
+            devices_enabled: false,
+            ..
+        } => return Ok(None),
+        Handles::On {
             lifetime_seconds,
             require_device_binding,
+            ..
         } => (i64::from(lifetime_seconds), require_device_binding),
     };
     let now = seconds(db).await?;

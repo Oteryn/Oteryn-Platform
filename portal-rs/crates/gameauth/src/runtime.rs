@@ -654,6 +654,27 @@ fn scoped_identities(raw: &str) -> Option<Vec<Peer>> {
     }
     Some(parsed)
 }
+/// §19.6.3 rule 1: `{"<locator SAN>":"<node_identity>",...}`, strictly one to
+/// one. Duplicate SANs are refused by the decoder, duplicate node identities
+/// here; either refuses the whole configuration.
+fn node_identities(raw: &str) -> Option<Vec<(String, String)>> {
+    let Value::Object(entries) = canonical::decode(raw.as_bytes(), 131072, 2).ok()? else {
+        return None;
+    };
+    let mut nodes: Vec<(String, String)> = Vec::new();
+    for (san, node) in entries {
+        let Value::String(node) = node else {
+            return None;
+        };
+        Identity::san(&san).ok()?;
+        Identity::san(&node).ok()?;
+        if nodes.iter().any(|(_, other)| *other == node) {
+            return None;
+        }
+        nodes.push((san, node));
+    }
+    Some(nodes)
+}
 pub(crate) type Configuration = (
     Settings,
     crate::evidence::Settings,
@@ -722,6 +743,9 @@ pub(crate) fn configuration(lookup: impl Fn(&str) -> Option<String>) -> Option<C
             });
             locator.peers.push(peer);
         }
+    }
+    if let Some(raw) = lookup(crate::locator::NODES) {
+        locator.nodes = node_identities(&raw)?;
     }
     let peer_identity = lookup("GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY")
         .map(|s| Identity::san(&s))
