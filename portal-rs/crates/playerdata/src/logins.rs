@@ -105,9 +105,6 @@ pub struct Cut {
     pub time_uncertainty_ms: u32,
     pub baseline_complete: bool,
     pub visibility_floor_ms: i64,
-    /// A former owner's period ends at the transfer cut; rows from then on are
-    /// not its history. `None` for the current owner and account-level cuts.
-    pub visibility_ceiling_ms: Option<i64>,
     pub projection_revision: Option<u64>,
     pub ownership_character_revision: Option<u64>,
     pub world_id: Option<Uuid>,
@@ -197,9 +194,6 @@ fn check_cut(cut: &Cut, character: Option<Uuid>, now: i64) -> Result<()> {
         || cut.observed_at_ms > now
         || now - cut.observed_at_ms > 86_400_000
         || cut.visibility_floor_ms < 0
-        || cut
-            .visibility_ceiling_ms
-            .is_some_and(|ceiling| character.is_none() || ceiling < cut.visibility_floor_ms)
         || character.is_some() != cut.projection_revision.is_some()
         || character.is_some() != cut.ownership_character_revision.is_some()
         || character.is_some() != cut.world_id.is_some()
@@ -248,10 +242,7 @@ impl Logins {
             return Err(Error::Conflict);
         }
         let entered = time(&record.login.entered_at)?;
-        if entered > now
-            || entered < current.visibility_floor_ms
-            || current.visibility_ceiling_ms.is_some_and(|c| entered >= c)
-        {
+        if entered > now || entered < current.visibility_floor_ms {
             return Err(Error::Denied);
         }
         let left = record.login.left_at.as_deref().map(time).transpose()?;
@@ -346,13 +337,6 @@ impl Logins {
             {
                 return Err(Error::Unavailable);
             }
-            // A former owner's period ends at the transfer cut.
-            if cut
-                .visibility_ceiling_ms
-                .is_some_and(|ceiling| row.entered_at >= ceiling)
-            {
-                continue;
-            }
             entries.push(Entry {
                 login_event_id: row.login_event_id,
                 character: row.character_id,
@@ -366,8 +350,9 @@ impl Logins {
         Ok(entries)
     }
     /// The proven cut of one history subject. An account-level cut that fails
-    /// fails the read; a character whose period cannot be proven (not owned, a
-    /// deleted scope, an ambiguous or broken chain) is hidden, never guessed.
+    /// fails the read; a character the account does not own now (sold at a
+    /// transfer cut, never owned, a deleted scope) or whose ownership cannot be
+    /// proven (an ambiguous or broken chain) is hidden, never guessed.
     /// A database failure is never read as a hidden character.
     async fn period(
         &self,

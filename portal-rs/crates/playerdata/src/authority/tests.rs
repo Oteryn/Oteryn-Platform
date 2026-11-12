@@ -808,10 +808,7 @@ async fn postgres_transfers_chain_from_the_create_receipt() {
     );
     assert_eq!(
         proof(&db, SELLER, CHARACTER).await.unwrap(),
-        Ownership::Former(Period {
-            cut: created(9, 1789990000),
-            until: 1789999000,
-        })
+        Ownership::Former
     );
     assert_eq!(
         proof(&db, OTHER, CHARACTER).await.unwrap(),
@@ -903,7 +900,7 @@ async fn history(db: &Db, account: &str) -> Vec<Uuid> {
 }
 
 #[tokio::test]
-async fn postgres_sold_character_history_is_the_sellers_period_only() {
+async fn postgres_sold_character_history_is_hidden_from_both_sides_of_the_cut() {
     let Some(db) = Db::open().await else {
         return;
     };
@@ -918,12 +915,20 @@ async fn postgres_sold_character_history_is_the_sellers_period_only() {
         .await;
     db.create(SELLER, KEPT, WORLD, ["5", "12", &born]).await;
     let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
-    // Two sessions on the sold character around the transfer cut, one on the kept.
-    let (early, late, kept) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    // Sessions on the sold character before and after the transfer cut, one on
+    // the kept character, and one more on the sold character that is stored
+    // before the sale but published only after it.
+    let (early, late, kept, unpublished) = (
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+    );
     for body in [
         login_record(SELLER, CHARACTER, ["12", "9"], 1, early, now - 60_000),
         login_record(SELLER, CHARACTER, ["12", "9"], 2, late, now - 10_000),
         login_record(SELLER, KEPT, ["12", "5"], 3, kept, now - 30_000),
+        login_record(SELLER, CHARACTER, ["12", "9"], 4, unpublished, now - 40_000),
     ] {
         let (status, body) = record(&app, &body).await;
         assert_eq!(status, StatusCode::OK, "{body}");
@@ -940,9 +945,13 @@ async fn postgres_sold_character_history_is_the_sellers_period_only() {
         ["10", "12", "13", &(secs - 30).to_string()],
     )
     .await;
-    // The seller keeps the rows of its own period only; the kept character is
-    // unaffected.
-    assert_eq!(history(&db, SELLER).await, vec![kept, early]);
+    // The seller sees no row of the sold character, before or after the cut;
+    // the kept character is unaffected and the page does not fail.
+    assert_eq!(history(&db, SELLER).await, vec![kept]);
+    // A seller record published after the sale is never promoted.
+    login_watermark(&app, &db, SELLER, 4).await;
+    assert_eq!(db.count("SELECT count(*) FROM pd_game_logins").await, 3);
+    assert_eq!(history(&db, SELLER).await, vec![kept]);
 
     // The buyer's sessions from before its cut never project; after it they do.
     let (before, after) = (Uuid::now_v7(), Uuid::now_v7());
@@ -956,13 +965,13 @@ async fn postgres_sold_character_history_is_the_sellers_period_only() {
     login_watermark(&app, &db, BUYER, 2).await;
     let buyer = history(&db, BUYER).await;
     assert_eq!(buyer, vec![after]);
-    for pre_cut in [early, before] {
+    for pre_cut in [early, unpublished, before] {
         assert!(!buyer.contains(&pre_cut), "buyer saw pre-cut row {pre_cut}");
     }
-    assert_eq!(history(&db, SELLER).await, vec![kept, early]);
+    assert_eq!(history(&db, SELLER).await, vec![kept]);
 
-    // A pending transfer leaves the period boundary undeterminable: that
-    // character is hidden, the rest of the history stays readable.
+    // A pending transfer leaves ownership unprovable: that character is
+    // hidden, the rest of each history stays readable.
     db.pending_transfer(CHARACTER).await;
     assert_eq!(history(&db, SELLER).await, vec![kept]);
     assert!(history(&db, BUYER).await.is_empty());

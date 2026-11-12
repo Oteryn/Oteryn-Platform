@@ -55,22 +55,13 @@ pub struct OwnershipCut {
     pub decided_at: u64,
 }
 
-/// One proven ownership period: the cut that began it and the decision time
-/// (unix seconds) of the transfer that ended it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Period {
-    pub cut: OwnershipCut,
-    pub until: u64,
-}
-
 /// The result of proving one character inside a transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ownership {
     /// The account owns the character at this cut.
     Owner(OwnershipCut),
-    /// The account owned the character before a committed transfer: its last
-    /// period, which that transfer ended.
-    Former(Period),
+    /// The account owned the character before a committed transfer.
+    Former,
     /// The account never owned the character.
     Stranger,
 }
@@ -287,13 +278,10 @@ pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) ->
     if current.account == account {
         return Ok(Ownership::Owner(current.clone()));
     }
-    // The account's last period ends at the next cut of the chain.
-    Ok(match chain.iter().rposition(|c| c.account == account) {
-        Some(i) => Ownership::Former(Period {
-            cut: chain[i].clone(),
-            until: chain.get(i + 1).ok_or(Error::Unavailable)?.decided_at,
-        }),
-        None => Ownership::Stranger,
+    Ok(if chain.iter().any(|c| c.account == account) {
+        Ownership::Former
+    } else {
+        Ownership::Stranger
     })
 }
 
@@ -329,7 +317,7 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
     let cut = match proof {
         Ok(Ownership::Owner(_)) | Err(_) if deleted => return Ok(Admission::Deleted),
         Ok(Ownership::Owner(cut)) => cut,
-        Ok(Ownership::Former(_)) => return Ok(Admission::Transferred),
+        Ok(Ownership::Former) => return Ok(Admission::Transferred),
         Ok(Ownership::Stranger) => return Err(Error::Conflict),
         Err(e) => return Err(e),
     };
