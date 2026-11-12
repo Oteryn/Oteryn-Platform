@@ -1,4 +1,6 @@
-use super::{AccountStateLookup, AdmissionAuthority, AdmissionRequest, Error, store, wire};
+use super::{
+    AccountStateLookup, AdmissionAuthority, AdmissionRequest, Error, GrantSigner, store, wire,
+};
 use axum::{
     Router,
     body::to_bytes,
@@ -57,6 +59,9 @@ pub struct AdmissionConfig {
     pub tokens: Option<ServiceTokens>,
     /// Authenticated service requests per minute, bounded to 1..=600.
     pub requests_per_minute: u32,
+    /// The grant signer the authority signs with, for replay re-signing (§6.2).
+    /// When set, attempt records keep the signing input, never the token.
+    pub signer: Option<Arc<dyn GrantSigner>>,
 }
 impl Default for AdmissionConfig {
     fn default() -> Self {
@@ -64,6 +69,7 @@ impl Default for AdmissionConfig {
             enabled: false,
             tokens: None,
             requests_per_minute: 120,
+            signer: None,
         }
     }
 }
@@ -158,6 +164,7 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
         &decoded,
         app.accounts.as_ref(),
         app.authority.as_ref(),
+        app.config.signer.as_deref(),
     )
     .await
     {
@@ -167,12 +174,14 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
 }
 /// Separate loopback listener; never merges service-only routes into the public
 /// web router. The caller supplies the account-state lookup and the admission
-/// authority (the binary composes the suspension-aware ones). The feature
-/// defaults off even when hashes are configured.
+/// authority (the binary composes the suspension-aware ones) and the grant
+/// signer that authority signs with. The feature defaults off even when hashes
+/// are configured.
 pub async fn start_private_listener(
     db: PgPool,
     accounts: Arc<dyn AccountStateLookup>,
     authority: Arc<dyn AdmissionAuthority>,
+    signer: Option<Arc<dyn GrantSigner>>,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let enabled = std::env::var("PORTAL_NATIVE_ADMISSIONS_ENABLED").is_ok_and(|v| v == "true");
     let current = std::env::var_os("PORTAL_GATEWAY_TOKEN_SHA256_FILE");
@@ -187,6 +196,7 @@ pub async fn start_private_listener(
             tokens,
             requests_per_minute: std::env::var("PORTAL_NATIVE_ADMISSION_REQUESTS_PER_MINUTE")
                 .map_or(120, |v| v.parse().unwrap_or(0)),
+            signer,
         },
         accounts,
         authority,

@@ -522,3 +522,46 @@ async fn db_runtime_http_success_replay_and_global_epoch_reset() -> TestResult {
     );
     db.close().await
 }
+#[tokio::test]
+async fn db_runtime_readers_in_open_transactions_share_the_assignment_lock() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    db.assignments().await?;
+    let report = Report::decode(&value("1", 20)?)?;
+    assert_eq!(ingest(&db.pool, "node", &report).await?, "accepted");
+    let options = settings()?;
+    let (world, channel) = (report.world_id, report.channel_id);
+    // An issuer holds its read open until commit; a second reader must not queue.
+    let mut first = db.pool.begin().await?;
+    assert_eq!(
+        read_in(&mut first, &options, world, channel, 30)
+            .await?
+            .state,
+        EvidenceState::Fresh
+    );
+    let mut second = db.pool.begin().await?;
+    sqlx::query("SET LOCAL lock_timeout='200ms'")
+        .execute(&mut *second)
+        .await?;
+    assert_eq!(
+        read_in(&mut second, &options, world, channel, 30)
+            .await?
+            .state,
+        EvidenceState::Fresh
+    );
+    second.rollback().await?;
+    // Ingestion still excludes readers: its writer lock waits for them.
+    let mut writer = db.pool.begin().await?;
+    sqlx::query("SET LOCAL lock_timeout='200ms'")
+        .execute(&mut *writer)
+        .await?;
+    assert!(
+        assignment_matches(&mut writer, "node", &report, true)
+            .await
+            .is_err()
+    );
+    writer.rollback().await?;
+    first.rollback().await?;
+    db.close().await
+}
