@@ -1,0 +1,1 @@
+{"death_occurrence_id":"01934f10-7c04-7001-805b-3b1122334412","level_before":20,"level_after":19,"experience_lost":"1000","blessings_before":["blessing/example"],"blessings_after":[],"lost_items":[{"loss_index":0,"item_key":"item/example","quantity":1}],"recap_state":"UNAVAILABLE","window_ms":0,"actions":[]}

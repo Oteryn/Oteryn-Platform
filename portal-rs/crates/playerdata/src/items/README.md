@@ -28,10 +28,12 @@ The configured adapter is `UnavailableEvidence`: even explicitly enabled reads
 return unavailable until a trusted adapter exists. No ownership counters,
 accepted baselines, clock evidence or catalogue facts are guessed.
 
-`ingest::router` is for T72's existing dedicated journal listener only. It is
-**not mounted on the public listener**. The trusted listener must verify the
-journal-specific TLS 1.3 mTLS purpose, configured DN, environment and authority
-before inserting `JournalPeer`; forwarding headers cannot create this extension.
+G-10 records reach the platform only through T72's journal listener
+(`crate::journal`, `journal/{records,cursor}` on the internal mTLS listener);
+this module has no HTTP ingest of its own. With `PORTAL_PLAYERDATA_G10_SOURCE_AUTHORITY`
+set, reads use T72's ownership evidence (`crate::authority::JournalEvidence`),
+which proves the current owner and cut and still answers 503 until a G-10
+baseline is verified and the catalogue mapping is accepted.
 The ingest flag defaults to false. No gameplay command or synchronous Game query
 exists. Cursor responses acknowledge durable storage, not snapshot visibility.
 

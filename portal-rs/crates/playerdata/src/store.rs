@@ -3,14 +3,15 @@
 //! The private authority adapter supplies a current, purpose/account-partition-bound lease.
 //! The lease must serialize with transfer, erasure and restore cutoffs until drop,
 //! validate catalog/custody mappings, and deny pending or ambiguous transitions.
-//! Journal rows and cached recipients are never ownership evidence. No adapter is
-//! enabled by environment variables until those contracts have been accepted.
+//! Journal rows and cached recipients are never ownership evidence. The
+//! PostgreSQL adapter is [`crate::authority`]; it is composed only behind the
+//! default-off ingest flags of [`crate::journal`].
 use oteryn_internal_api::{
     canonical::{self, Value},
     playerdata::{self, Record, Scope, Watermark},
 };
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     fmt::Debug,
@@ -51,6 +52,21 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 type Result<T> = std::result::Result<T, Error>;
 pub type LeaseFuture<'a> = Pin<Box<dyn Future<Output = Result<Box<dyn Lease>>> + Send + 'a>>;
+pub type FenceFuture<'a> = Pin<Box<dyn Future<Output = Result<Admission>> + Send + 'a>>;
+pub type ConsumerFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
+/// What the authority fence proved about the scope of one request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Admission {
+    /// The scope's account is the current authoritative owner at the scope's cut.
+    Owner,
+    /// The record's character scope carries a deletion tombstone of its account;
+    /// the store answers it (revision 4: a lease is not refused for deletion).
+    Deleted,
+    /// The record's character was transferred away from its account by a
+    /// committed receipt: a fence. A replay gets the fence's 409; a first G-11
+    /// delivery is the `CHARACTER_SCOPE_DELETED` terminal refusal (transfer cut).
+    Transferred,
+}
 /// Implementations must hold a fence shared with the authoritative cutoff writer.
 /// A browser or an internal request must never construct an implementation.
 /// It must not refuse a lease only because the record's character scope is
@@ -61,6 +77,10 @@ pub trait Authority: Debug + Send + Sync {
     fn acquire<'a>(&'a self, scope: &'a Scope) -> LeaseFuture<'a>;
 }
 pub trait Lease: Debug + Send + Sync {
+    /// Re-proves the scope inside the store transaction, after the store's
+    /// account and authority locks, holding row locks shared with the transfer,
+    /// erasure and restore writers until that transaction ends.
+    fn fence<'a>(&'a self, tx: &'a mut PgConnection, scope: &'a Scope) -> FenceFuture<'a>;
     /// Proves all catalog references, source-specific ordering, source coverage,
     /// house custody and initial ownership cut under the held authority fence.
     fn validate(&self, record: &Record) -> Result<()>;
@@ -98,10 +118,31 @@ impl TrustedTime {
             .ok_or(Error::Unavailable)
     }
 }
+/// A read model assembled from accepted journal records inside the ingest
+/// transaction, so the projection and the T72 acknowledgement commit together.
+pub trait Consumer: Debug + Send + Sync {
+    /// After a new G-10 record is stored, before commit.
+    fn record<'a>(
+        &'a self,
+        tx: &'a mut Transaction<'static, Postgres>,
+        record: &'a Record,
+    ) -> ConsumerFuture<'a>;
+    /// After a G-11 watermark with a proven baseline moved `published_through`
+    /// from `after` to `through` (revisions `after+1..=through` become visible).
+    fn promote<'a>(
+        &'a self,
+        tx: &'a mut Transaction<'static, Postgres>,
+        stream_key: &'a str,
+        scope: &'a Scope,
+        after: u64,
+        through: u64,
+    ) -> ConsumerFuture<'a>;
+}
 #[derive(Debug, Clone)]
 pub struct Store {
     pool: PgPool,
     authority: Arc<dyn Authority>,
+    consumers: Vec<Arc<dyn Consumer>>,
     pub flags: Flags,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,6 +260,19 @@ async fn tombstone(
         .await?;
     Ok(())
 }
+/// Whether this account's character scope carries a deletion tombstone.
+pub(crate) async fn character_deleted(
+    conn: &mut PgConnection,
+    account: &str,
+    character: &str,
+) -> Result<bool> {
+    Ok(
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1)")
+            .bind(scope_digest(account, Some(character)))
+            .fetch_one(conn)
+            .await?,
+    )
+}
 /// The deleted scope covering a record, if any; the account wins over its character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Deleted {
@@ -307,8 +361,13 @@ impl Store {
         Self {
             pool,
             authority,
+            consumers: Vec::new(),
             flags,
         }
+    }
+    pub fn with_consumer(mut self, consumer: Arc<dyn Consumer>) -> Self {
+        self.consumers.push(consumer);
+        self
     }
     pub async fn ingest(&self, r: Record, time: TrustedTime) -> Result<Vec<u8>> {
         let r = if r.progress {
@@ -327,16 +386,23 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &r.scope.account).await?;
         lock(&mut tx, &r.scope.authority).await?;
+        let admission = lease.fence(&mut tx, &r.scope).await?;
         lease.validate(&r)?;
         // A G-11 stream is account-wide, so a record of a deleted character is a
         // terminal refusal that consumes its revision. A deleted account closes
         // the stream, and a G-10 stream with a character closes with it: both
-        // fail closed without advance.
+        // fail closed without advance. A transfer cut is a fence first: G-10
+        // and every replay answer 409; a first G-11 delivery is refused.
         let terminal = match deleted(&mut tx, &r.scope).await? {
+            Deleted::No if admission == Admission::Deleted => return Err(Error::Conflict),
             Deleted::No => None,
             Deleted::Character if r.progress => Some(CHARACTER_SCOPE_DELETED),
             Deleted::Character | Deleted::Account => return Err(Error::Conflict),
         };
+        let transferred = admission == Admission::Transferred;
+        if transferred && (!r.progress || r.scope.character.is_none()) {
+            return Err(Error::Conflict);
+        }
         let key = stream_key(&r.scope);
         let c = stream(&mut tx, &r.scope, r.progress).await?;
         let digest = hash(&r.bytes);
@@ -352,6 +418,9 @@ impl Store {
                 tx.commit().await?;
                 return Err(Error::Conflict);
             };
+            if transferred {
+                return Err(Error::Conflict);
+            }
             let kind = existing[0].try_get::<String, _>("kind")?;
             tx.commit().await?;
             if let Some(reason) = TERMINAL_REFUSALS.iter().find(|reason| **reason == kind) {
@@ -365,6 +434,15 @@ impl Store {
         // bounds staging and keeps a poisoned or absent revision from being skipped.
         if c.stored.checked_add(1) != Some(r.revision) {
             return Err(Error::Conflict);
+        };
+        let terminal = if transferred {
+            // The seller's character scope closes at the transfer cut (G-11 §8.2).
+            if let Some(character) = r.scope.character.as_deref() {
+                tombstone(&mut tx, &r.scope.account, Some(character), now).await?;
+            }
+            Some(CHARACTER_SCOPE_DELETED)
+        } else {
+            terminal
         };
         if let Some(reason) = terminal {
             // Content-free refusal row: record id, revision, digest and reason code
@@ -405,6 +483,11 @@ impl Store {
         if r.scope.family == "ITEMS" && r.kind == "ITEMS_END" {
             self.finish_snapshot(&mut tx, &r, &key, now).await?;
         }
+        if !r.progress {
+            for consumer in &self.consumers {
+                consumer.record(&mut tx, &r).await?;
+            }
+        }
         // Superseded current-state payloads expire within seven days; occurrence
         // families retain their contract-bound history. REMOVE never revives a value.
         if r.progress
@@ -428,10 +511,13 @@ impl Store {
         if !enabled(&self.flags, s, true) {
             return Err(Error::Unavailable);
         };
-        let _lease = self.authority.acquire(s).await?;
+        let lease = self.authority.acquire(s).await?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &s.account).await?;
         lock(&mut tx, &s.authority).await?;
+        if lease.fence(&mut tx, s).await? != Admission::Owner {
+            return Err(Error::Conflict);
+        }
         // A G-11 stream is account-wide (its key has no character), so only an
         // account deletion closes it; a G-10 stream also closes with its character.
         let mut covered = s.clone();
@@ -480,10 +566,13 @@ impl Store {
         if w.observed_ms > now {
             return Err(Error::Invalid);
         };
-        let _lease = self.authority.acquire(&scope).await?;
+        let lease = self.authority.acquire(&scope).await?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &scope.account).await?;
         lock(&mut tx, &scope.authority).await?;
+        if lease.fence(&mut tx, &scope).await? != Admission::Owner {
+            return Err(Error::Conflict);
+        }
         // Checked before `stream` so a deleted account never gets a new stream row.
         if deleted(&mut tx, &scope).await? != Deleted::No {
             return Err(Error::Conflict);
@@ -504,7 +593,21 @@ impl Store {
             return Err(Error::Conflict);
         };
         if previous_bytes.as_ref() != Some(&digest) {
-            sqlx::query("UPDATE pd_streams SET observed_ms=$2,baseline_complete=$3,watermark_digest=$4,published_through=$5::numeric WHERE stream_key=$1").bind(&key).bind(w.observed_ms as i64).bind(w.baseline).bind(digest).bind(w.through.to_string()).execute(&mut *tx).await?;
+            sqlx::query("UPDATE pd_streams SET observed_ms=$2,baseline_complete=$3,watermark_digest=$4,published_through=$5::numeric,watermark_recovery=$6::numeric WHERE stream_key=$1").bind(&key).bind(w.observed_ms as i64).bind(w.baseline).bind(digest).bind(w.through.to_string()).bind(&w.recovery).execute(&mut *tx).await?;
+            // Records become visible only under a proven baseline: before it
+            // nothing was promoted, so the first baseline promotes from zero.
+            if w.baseline {
+                let after = if previous_baseline {
+                    decimal_row(&row, "published_through")?
+                } else {
+                    0
+                };
+                for consumer in &self.consumers {
+                    consumer
+                        .promote(&mut tx, &key, &scope, after, w.through)
+                        .await?;
+                }
+            }
         }
         tx.commit().await?;
         Ok(format!(
@@ -524,9 +627,12 @@ impl Store {
             .split_whitespace()
             .any(|x| x == s.family);
         let now = time.now(progress)?;
-        let _lease = self.authority.acquire(s).await?;
+        let lease = self.authority.acquire(s).await?;
         let mut tx = self.pool.begin().await?;
         lock(&mut tx, &s.authority).await?;
+        if lease.fence(&mut tx, s).await? != Admission::Owner {
+            return Err(Error::Unavailable);
+        }
         let key = stream_key(s);
         let row=sqlx::query("SELECT stored_through::text,published_through::text,observed_ms,baseline_complete,erased FROM pd_streams WHERE stream_key=$1").bind(&key).fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
         if row.try_get::<bool, _>("erased")? {
