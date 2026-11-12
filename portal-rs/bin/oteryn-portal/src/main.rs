@@ -28,6 +28,10 @@ async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("seed") {
         return seed::main().await;
     }
+    // Operator issuance prints only the intent on stdout, so it also runs before logging.
+    if std::env::args().nth(1).as_deref() == Some("bootstrap-intent") {
+        return bootstrap_intent::main().await;
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -456,6 +460,7 @@ mod tests {
     }
 }
 
+mod bootstrap_intent;
 mod game_login;
 mod game_routes;
 mod gateway;

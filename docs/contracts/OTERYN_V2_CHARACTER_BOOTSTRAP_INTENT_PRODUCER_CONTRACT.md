@@ -22,6 +22,10 @@ The additive intent row persists the complete binding and exact encoded decision
 
 Database rollback that removes the authority row, lowers it beneath a retained row, or conflicts at the equal revision is explicitly detected and fails closed. Simultaneous rollback of all Platform database copies below all retained history is not recoverable by this database-owned mechanism and must not be represented as accepted recovery; restored service requires reconciliation against an independently retained consumer high water. No generic witness framework or NativeEvidence witness namespace is introduced.
 
+## Operator command
+
+`oteryn-portal bootstrap-intent issue [--input <file>]` is the portal-rs invocation of `game-auth:character-bootstrap-intent:issue`. It reads one flat JSON object (at most 16 KiB, duplicate or unknown members rejected) from the file or stdin with exactly these string members: `identityId` (the persisted Identity primary key, a lower-case UUIDv7), `operationId`, `targetWorldId`, `requestedName`, `requestedSex`, `profileRevision`, `rulesetRevision`, `contentRevision` and `starterTemplateRevision`. It runs only with `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_ENABLED=true` (default off) and the TTL below. On success it prints the stored canonical intent on stdout; an exact retry prints the same bytes. Failures print one JSON error object on stderr without configuration values or intent binding and exit `2` (bad input, including an Identity that is not active), `3` (operation conflict) or `4` (disabled, misconfigured, database or authority unavailable).
+
 ## Technical expiry configuration
 
 `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS` is required for issuance and has no default. It is a technical transport/reconciliation interval from 1 through 300 seconds, not product policy. Missing, malformed, zero, negative or larger values fail closed. Source times are non-negative Unix seconds encoded as canonical decimal strings.

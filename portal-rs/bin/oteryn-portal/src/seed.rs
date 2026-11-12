@@ -13,6 +13,10 @@
 //! | `oauth-native-client` | `oauth_native_clients` | `clientId` and its four flags |
 //! | `signing-trust` | `native_game_signing_trust_*` + retained witness | `issuer`, `profile`, `purpose`, `keyId`, `publicKey`, `issuerRevision` |
 //! | `bootstrap-intent` | `character_bootstrap_intents` | `operationId`, `issuerDecisionId`, `sourceRevision`, `issuedAtSource`, `expiresAtSource`, `intentSha256` |
+//! | `account-mfa` | `account_mfa_totp` (via `oteryn_identity::mfa`) | `accountId`, `totpSecret`, `algorithm`, `digits`, `period`, `recoveryCodes` |
+//!
+//! `account-mfa` needs the portal's `OTERYN_MFA_KEY`. The secret exists only at
+//! enrolment, so a second run for an enrolled account is a conflict.
 //!
 //! `channel` and `route` need the T19c `game_channels` registry (gateway
 //! contract §7.3, mode 34a), which is not on this tree; they answer `pending`.
@@ -20,13 +24,13 @@
 //! and its first observation bootstraps the retained witness, so no reconcile
 //! step exists.
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use oteryn_characters::bootstrap::issue;
 use oteryn_gameauth::{
     evidence::{Witness, trust_state_namespace},
     keys::{self, PublicTrustRegistry},
 };
-use oteryn_internal_api::canonical::{self, Value as Wire};
+use oteryn_identity::mfa::Mfa;
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::{fmt, path::PathBuf, process::ExitCode};
 use uuid::Uuid;
@@ -86,6 +90,8 @@ fn bad(reason: impl Into<String>) -> SeedError {
 #[derive(Debug, Clone, Default)]
 pub struct Settings {
     pub witness_directory: Option<PathBuf>,
+    /// The portal's MFA cipher (`OTERYN_MFA_KEY`); its Debug output is redacted.
+    pub mfa: Option<Mfa>,
 }
 
 /// Entry point for `oteryn-portal seed`; prints exactly one JSON object.
@@ -104,7 +110,12 @@ pub async fn main() -> ExitCode {
 }
 
 async fn run(args: &[String]) -> Result<Value, SeedError> {
-    if std::env::var("OTERYN_ENV").as_deref() != Ok("testing") {
+    run_in(std::env::var("OTERYN_ENV").ok().as_deref(), args).await
+}
+
+/// Every seed action, `account-mfa` included, refuses unless `OTERYN_ENV=testing`.
+async fn run_in(environment: Option<&str>, args: &[String]) -> Result<Value, SeedError> {
+    if environment != Some("testing") {
         return Err(SeedError::Unavailable(
             "seed runs only with OTERYN_ENV=testing",
         ));
@@ -125,6 +136,7 @@ async fn run(args: &[String]) -> Result<Value, SeedError> {
         .map_err(|_| SeedError::Unavailable("database"))?;
     let settings = Settings {
         witness_directory: std::env::var_os(WITNESS_DIRECTORY).map(PathBuf::from),
+        mfa: Mfa::configured(pool.clone()).ok(),
     };
     let result = execute(&pool, &settings, entity, &input).await;
     pool.close().await;
@@ -145,6 +157,7 @@ pub async fn execute(
         "oauth-native-client" => oauth_native_client(pool, &args).await,
         "signing-trust" => signing_trust(pool, settings, &args).await,
         "bootstrap-intent" => bootstrap_intent(pool, &args).await,
+        "account-mfa" => account_mfa(settings, &args).await,
         "channel" | "route" => Err(SeedError::Pending(PENDING_T19C)),
         "native-evidence" => Err(SeedError::NotApplicable(
             "evidence is observed live; the first observation bootstraps the retained witness",
@@ -521,30 +534,65 @@ async fn publish_recovery(
     Ok(())
 }
 
-const CONTEXT: [(&str, &str); 4] = [
-    ("profileRevision", "profile_revision"),
-    ("rulesetRevision", "ruleset_revision"),
-    ("contentRevision", "content_revision"),
-    ("starterTemplateRevision", "starter_template_revision"),
-];
-
-fn revision(key: &str, value: &str) -> Result<(), SeedError> {
-    if value.is_empty()
-        || value.len() > 128
-        || !value.as_bytes()[0].is_ascii_alphanumeric()
-        || !value
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
-    {
-        return Err(bad(format!(
-            "{key} must match [A-Za-z0-9][A-Za-z0-9._:-]{{0,127}}"
-        )));
+/// Enrols and confirms TOTP MFA for a seeded account through the identity MFA
+/// service, so tests can log in with a second factor. Testing only (see `run_in`).
+async fn account_mfa(settings: &Settings, args: &Args<'_>) -> Result<Value, SeedError> {
+    use totp_rs::{Algorithm, Secret, TOTP};
+    args.only(&["accountId", "password"])?;
+    let id = args
+        .uuid("accountId", true)?
+        .ok_or_else(|| bad("accountId is required"))?;
+    let password = args.required("password")?;
+    let mfa = settings
+        .mfa
+        .as_ref()
+        .ok_or(SeedError::Unavailable("OTERYN_MFA_KEY is not configured"))?;
+    if mfa.enrolled(id).await? {
+        return Err(SeedError::Conflict(
+            "MFA is already enrolled; its secret is shown only at enrolment".into(),
+        ));
     }
-    Ok(())
+    let enrollment = mfa
+        .enroll(id, password)
+        .await?
+        .ok_or_else(|| bad("accountId is not an active verified account with this password"))?;
+    let secret = Secret::Encoded(enrollment.secret.clone())
+        .to_bytes()
+        .map_err(|_| SeedError::Unavailable("TOTP secret"))?;
+    let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)
+        .map_err(|_| SeedError::Unavailable("TOTP secret"))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| SeedError::Unavailable("clock"))?
+        .as_secs();
+    // Confirm with the previous step so the current step's code still logs in.
+    let recovery_codes = mfa
+        .confirm(id, password, &totp.generate(now.saturating_sub(30)))
+        .await?
+        .ok_or(SeedError::Unavailable(
+            "MFA confirmation was refused; retry",
+        ))?;
+    Ok(json!({
+        "entity": "account-mfa",
+        "accountId": id.to_string(),
+        "totpSecret": enrollment.secret,
+        "algorithm": "SHA1",
+        "digits": 6,
+        "period": 30,
+        "recoveryCodes": recovery_codes,
+    }))
 }
 
-/// Issues the v3 intent that `character-bootstrap-intents/read` serves, in the
-/// exact stored form its reader verifies (`oteryn_characters::bootstrap`).
+/// Seed argument names of the four interpretation revisions, in wire order.
+const CONTEXT: [&str; 4] = [
+    "profileRevision",
+    "rulesetRevision",
+    "contentRevision",
+    "starterTemplateRevision",
+];
+
+/// Issues the v3 intent that `character-bootstrap-intents/read` serves, through
+/// the operator issuer (`oteryn_characters::bootstrap::issue`).
 async fn bootstrap_intent(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
     let mut allowed = vec![
         "accountId",
@@ -554,160 +602,53 @@ async fn bootstrap_intent(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedE
         "requestedSex",
         "ttlSeconds",
     ];
-    allowed.extend(CONTEXT.iter().map(|(key, _)| *key));
+    allowed.extend(CONTEXT);
     args.only(&allowed)?;
     let account = args
         .uuid("accountId", true)?
         .ok_or_else(|| bad("accountId is required"))?
         .to_string();
-    let operation = args
-        .uuid("operationId", false)?
-        .ok_or_else(|| bad("operationId is required"))?
-        .to_string();
-    let world = args
-        .uuid("targetWorldId", false)?
-        .ok_or_else(|| bad("targetWorldId is required"))?
-        .to_string();
-    let name = args.required("requestedName")?;
-    if !(2..=29).contains(&name.len())
-        || !name
-            .split(' ')
-            .all(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_alphabetic()))
-    {
-        return Err(bad(
-            "requestedName must be 2..=29 letters in single-spaced words",
-        ));
-    }
-    let sex = args.required("requestedSex")?;
-    if !matches!(sex, "Female" | "Male") {
-        return Err(bad("requestedSex must be Female or Male"));
-    }
-    let mut context = Vec::with_capacity(CONTEXT.len());
-    for (key, column) in CONTEXT {
-        let value = args.required(key)?;
-        revision(key, value)?;
-        context.push((column, value));
-    }
-    let ttl = match args.0.get("ttlSeconds") {
-        None => 300,
+    let text = |key: &str| args.required(key).map(str::to_owned);
+    let ttl_seconds = match args.0.get("ttlSeconds") {
+        None => issue::MAX_TTL_SECONDS,
         Some(value) => value
             .as_i64()
-            .filter(|ttl| (1..=300).contains(ttl))
             .ok_or_else(|| bad("ttlSeconds must be an integer in 1..=300"))?,
     };
-
-    let mut tx = pool.begin().await?;
-    let active: Option<String> = sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1")
-        .bind(Uuid::parse_str(&account).map_err(|_| bad("accountId"))?)
-        .fetch_optional(&mut *tx)
-        .await?;
-    if active.as_deref() != Some("active") {
-        return Err(bad("accountId is not an active account"));
-    }
-    sqlx::query("INSERT INTO character_bootstrap_intent_authority (id, last_source_revision) VALUES (1, '0') ON CONFLICT (id) DO NOTHING")
-        .execute(&mut *tx)
-        .await?;
-    let last: String = sqlx::query_scalar(
-        "SELECT last_source_revision FROM character_bootstrap_intent_authority WHERE id=1 FOR UPDATE",
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    if let Some(row) =
-        sqlx::query("SELECT * FROM character_bootstrap_intents WHERE operation_id=$1")
-            .bind(&operation)
-            .fetch_optional(&mut *tx)
-            .await?
-    {
-        let mut same = row.try_get::<String, _>("account_id")? == account
-            && row.try_get::<String, _>("target_world_id")? == world
-            && row.try_get::<String, _>("requested_name")? == name
-            && row
-                .try_get::<Option<String>, _>("requested_sex")?
-                .as_deref()
-                == Some(sex);
-        for (column, value) in &context {
-            same &= row.try_get::<String, _>(*column)? == *value;
-        }
-        if !same {
-            return Err(SeedError::Conflict(
-                "operationId was issued with different input".into(),
-            ));
-        }
-        tx.commit().await?;
-        return intent_output(&row);
-    }
-    let next = last
-        .parse::<i64>()
-        .ok()
-        .and_then(|n| n.checked_add(1))
-        .ok_or(SeedError::Unavailable("bootstrap authority revision"))?
-        .to_string();
-    let decision = Uuid::now_v7().to_string();
-    let issued: i64 =
-        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
-            .fetch_one(&mut *tx)
-            .await?;
-    let expires = (issued + ttl).to_string();
-    let issued = issued.to_string();
-    let s = |value: &str| Wire::String(value.to_owned());
-    let intent = Wire::Object(vec![
-        ("contract_version".into(), Wire::Unsigned(3)),
-        ("variant".into(), s("OPERATOR_CONTROL_PLANE_BOOTSTRAP")),
-        (
-            "issuer_authority".into(),
-            s("OTERYN_PLATFORM_CHARACTER_AUTHORITY"),
-        ),
-        ("issuer_decision_id".into(), s(&decision)),
-        ("source_revision".into(), s(&next)),
-        ("operation_id".into(), s(&operation)),
-        ("operation".into(), s("INITIAL_CHARACTER_BOOTSTRAP")),
-        ("account_id".into(), s(&account)),
-        ("target_world_id".into(), s(&world)),
-        ("requested_name".into(), s(name)),
-        ("requested_sex".into(), s(sex)),
-        (
-            "interpretation_context".into(),
-            Wire::Object(
-                context
-                    .iter()
-                    .map(|(column, value)| ((*column).to_owned(), s(value)))
-                    .collect(),
-            ),
-        ),
-        ("issued_at_source".into(), s(&issued)),
-        ("expires_at_source".into(), s(&expires)),
-        ("audience".into(), s("OTERYN_GAME_CHARACTER_AUTHORITY")),
-    ]);
-    let raw = canonical::encode(&intent).map_err(|_| SeedError::Unavailable("encoding"))?;
-    if raw.len() > 4096 {
-        return Err(bad("intent exceeds 4096 bytes"));
-    }
-    let digest = format!("{:x}", Sha256::digest(&raw));
-    let raw = String::from_utf8(raw).map_err(|_| SeedError::Unavailable("encoding"))?;
-    let row = sqlx::query("INSERT INTO character_bootstrap_intents (operation_id, issuer_decision_id, source_revision, account_id, target_world_id, requested_name, requested_sex, profile_revision, ruleset_revision, content_revision, starter_template_revision, issued_at_source, expires_at_source, intent_json, intent_sha256) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *")
-        .bind(&operation).bind(&decision).bind(&next).bind(&account).bind(&world)
-        .bind(name).bind(sex)
-        .bind(context[0].1).bind(context[1].1).bind(context[2].1).bind(context[3].1)
-        .bind(&issued).bind(&expires).bind(&raw).bind(&digest)
-        .fetch_one(&mut *tx).await?;
-    sqlx::query("UPDATE character_bootstrap_intent_authority SET last_source_revision=$1, last_issuer_decision_id=$2 WHERE id=1")
-        .bind(&next).bind(&decision).execute(&mut *tx).await?;
-    tx.commit().await?;
-    intent_output(&row)
-}
-
-fn intent_output(row: &sqlx::postgres::PgRow) -> Result<Value, SeedError> {
-    let get = |key: &str| row.try_get::<String, _>(key).map_err(SeedError::from);
+    let input = issue::IssueInput {
+        identity_id: account,
+        operation_id: text("operationId")?,
+        target_world_id: text("targetWorldId")?,
+        requested_name: text("requestedName")?,
+        requested_sex: text("requestedSex")?,
+        context: issue::Context {
+            profile_revision: text(CONTEXT[0])?,
+            ruleset_revision: text(CONTEXT[1])?,
+            content_revision: text(CONTEXT[2])?,
+            starter_template_revision: text(CONTEXT[3])?,
+        },
+        ttl_seconds,
+    };
+    let issued = issue::issue(pool, input)
+        .await
+        .map_err(|error| match error {
+            issue::IssueError::BadInput(reason) => SeedError::BadInput(reason),
+            issue::IssueError::Conflict => {
+                SeedError::Conflict("operationId was issued with different input".into())
+            }
+            issue::IssueError::Unavailable(reason) => SeedError::Unavailable(reason),
+            issue::IssueError::Db => SeedError::Unavailable("database"),
+        })?;
     Ok(json!({
         "entity": "bootstrap-intent",
-        "operationId": get("operation_id")?,
-        "issuerDecisionId": get("issuer_decision_id")?,
-        "sourceRevision": get("source_revision")?,
-        "accountId": get("account_id")?,
-        "targetWorldId": get("target_world_id")?,
-        "issuedAtSource": get("issued_at_source")?,
-        "expiresAtSource": get("expires_at_source")?,
-        "intentSha256": get("intent_sha256")?,
+        "operationId": issued.operation_id,
+        "issuerDecisionId": issued.issuer_decision_id,
+        "sourceRevision": issued.source_revision,
+        "accountId": issued.account_id,
+        "targetWorldId": issued.target_world_id,
+        "issuedAtSource": issued.issued_at_source,
+        "expiresAtSource": issued.expires_at_source,
+        "intentSha256": issued.intent_sha256,
     }))
 }
 

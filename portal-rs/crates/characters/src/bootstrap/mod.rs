@@ -1,5 +1,7 @@
-//! Private v3 reconciliation reads. This interface never issues or changes an intent.
+//! Private v3 reconciliation reads. The read interface never issues or changes an
+//! intent; operator issuance is the separate [`issue`] module.
 mod http;
+pub mod issue;
 mod wire;
 
 use crate::lcfa::{AccountId, AccountState, AccountStateLookup};
