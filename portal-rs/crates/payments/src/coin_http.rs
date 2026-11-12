@@ -12,15 +12,19 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::{any, get, post},
 };
-use oteryn_web::session::{BrowserSession, SessionLayer};
+use oteryn_web::session::{BrowserSession, SessionKey, SessionLayer};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::coin::{CHECKOUT_PATH, CoinOrderRequest, MAX_REQUEST_BYTES, OrderState, canonical_id};
+use crate::coin::{
+    CHECKOUT_PATH, CoinOrderRequest, MAX_REQUEST_BYTES, OrderState, canonical_id, checkout_path,
+};
 use crate::coin_store::{CoinError, CoinPurchases};
 
 const API: &str = "/api/v1/native-account/coin-purchases";
+/// The session's post-login return target, shared with the OAuth authorize flow.
+const RETURN_KEY: SessionKey<Option<String>> = SessionKey::new("oauth_return");
 type Service = Option<Arc<CoinPurchases>>;
 
 pub fn router(pool: PgPool, service: Service) -> Router {
@@ -200,11 +204,17 @@ async fn page(
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
 ) -> Response {
-    let Some(account) = session.account_id().await else {
-        return Redirect::to("/pl/login").into_response();
-    };
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();
+    };
+    let Some(account) = session.account_id().await else {
+        // Return here after login. The stored target is a same-origin path built
+        // from the canonical order ID only; the login hook accepts nothing else.
+        let target = Some(checkout_path(order));
+        if session.set(RETURN_KEY, &target).await.is_err() {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+        return Redirect::to("/pl/login").into_response();
     };
     let order = match service.checkout(account, order).await {
         Ok(order) => order,

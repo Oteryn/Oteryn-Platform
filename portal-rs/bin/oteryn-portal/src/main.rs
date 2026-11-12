@@ -241,8 +241,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                                 .get(axum::http::header::LOCATION)
                                 .and_then(|v| v.to_str().ok())
                                 .is_some_and(|v| matches!(v, "/pl/" | "/en/"))
-                            && let Some(target) = pending
-                                .filter(|p| p.starts_with("/oauth/authorize?") && p.len() <= 8192)
+                            && let Some(target) = pending.filter(|p| {
+                                (p.starts_with("/oauth/authorize?")
+                                    || oteryn_payments::coin::is_checkout_return(p))
+                                    && p.len() <= 8192
+                            })
                             && let Ok(value) = axum::http::HeaderValue::from_str(&target)
                         {
                             response

@@ -515,16 +515,9 @@ impl CoinPurchases {
         let inserted = sqlx::query("INSERT INTO payment_events (id, provider, provider_event_id, intent_id, state) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (provider,provider_event_id) DO NOTHING")
             .bind(oteryn_core::new_id()).bind(provider).bind(&event.event_id).bind(event.intent_id).bind(event.state.as_str())
             .execute(&mut *tx).await?.rows_affected();
-        if inserted == 0 {
-            let same: bool = sqlx::query_scalar("SELECT intent_id=$3 AND state=$4 FROM payment_events WHERE provider=$1 AND provider_event_id=$2")
-                .bind(provider).bind(&event.event_id).bind(event.intent_id).bind(event.state.as_str())
-                .fetch_one(&mut *tx).await?;
-            if !same {
-                return Err(Error::InvalidInput);
-            }
-            tx.commit().await?;
-            return Ok(WebhookOutcome::Replay);
-        }
+        // Every delivery, a replay included, must match the bound intent and order
+        // exactly; a replayed event ID with any other payload is refused and
+        // changes nothing (its audit record is phase B).
         let amount: i64 = intent.try_get("amount")?;
         let currency: String = intent.try_get("currency")?;
         if amount != event.amount.minor_units
@@ -536,12 +529,35 @@ impl CoinPurchases {
         {
             return Err(Error::InvalidInput);
         }
+        if inserted == 0 {
+            let same: bool = sqlx::query_scalar("SELECT intent_id=$3 AND state=$4 FROM payment_events WHERE provider=$1 AND provider_event_id=$2")
+                .bind(provider).bind(&event.event_id).bind(event.intent_id).bind(event.state.as_str())
+                .fetch_one(&mut *tx).await?;
+            if !same {
+                return Err(Error::InvalidInput);
+            }
+            tx.commit().await?;
+            return Ok(WebhookOutcome::Replay);
+        }
         IntentState::parse(intent.try_get("state")?)?.transition(event.state)?;
-        let next = match event.state {
+        let mut next = match event.state {
             IntentState::Succeeded => OrderState::Paid,
             IntentState::Failed => OrderState::Failed,
             _ => return Err(Error::IllegalTransition),
         };
+        // A payer no longer eligible (restricted, closed, unverified) when the
+        // payment arrives gets no coins: the order is held for manual handling.
+        let mut review = false;
+        if next == OrderState::Paid
+            && !self
+                .host
+                .eligible_in(&mut tx, order.payer)
+                .await
+                .map_err(|_| Error::AccountDenied)?
+        {
+            next = OrderState::Processing;
+            review = true;
+        }
         if !order.order.state.may_become(next) {
             return Err(Error::IllegalTransition);
         }
@@ -563,8 +579,13 @@ impl CoinPurchases {
         } else {
             None
         };
-        sqlx::query("UPDATE coin_purchase_orders SET state=$2, revision=revision+1, checkout_url=NULL, receipt_id=$3, code=$4, updated_at=now() WHERE id=$1")
-            .bind(order.order.order_id).bind(next.as_str()).bind(receipt).bind(next.code())
+        let code = if review {
+            "COIN_ORDER_REVIEW_REQUIRED"
+        } else {
+            next.code()
+        };
+        sqlx::query("UPDATE coin_purchase_orders SET state=$2, revision=revision+1, checkout_url=NULL, receipt_id=$3, code=$4, review_required=review_required OR $5, updated_at=now() WHERE id=$1")
+            .bind(order.order.order_id).bind(next.as_str()).bind(receipt).bind(code).bind(review)
             .execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(WebhookOutcome::Applied)

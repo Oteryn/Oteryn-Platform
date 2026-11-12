@@ -929,3 +929,137 @@ async fn concurrent_creates_have_one_winner() -> TestResult {
     assert_eq!(top_ups(&db, payer).await, 1);
     db.close().await
 }
+
+async fn awaiting_order(
+    db: &Database,
+    service: &Arc<CoinPurchases>,
+    payer: Uuid,
+    token: &str,
+) -> Result<(Uuid, Uuid, Uuid), Box<dyn std::error::Error>> {
+    let quote = quote(db.app(service), token).await;
+    let request_id = Uuid::now_v7();
+    let request = CoinOrderRequest::decode(order_body(request_id, &quote, None).as_bytes())
+        .ok_or("order body")?;
+    let order = service.create_order(payer, &request).await?;
+    let intent: Uuid =
+        sqlx::query_scalar("SELECT payment_intent_id FROM coin_purchase_orders WHERE id=$1")
+            .bind(order.order_id)
+            .fetch_one(&db.pool)
+            .await?;
+    Ok((order.order_id, intent, request_id))
+}
+
+#[tokio::test]
+async fn ineligible_payer_at_payment_is_held_without_coins() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let service = db.service(vec![]);
+    let (order, intent, request) = awaiting_order(&db, &service, payer, &token).await?;
+    // The provider checkout exists while the payer is still eligible.
+    service.checkout(payer, order).await?;
+    // The account loses eligibility after ordering; then the provider's verified
+    // payment event arrives.
+    sqlx::query("UPDATE accounts SET email_verified_at=NULL WHERE id=$1")
+        .bind(payer)
+        .execute(&db.pool)
+        .await?;
+    let event = PaymentEvent {
+        event_id: format!("provider:{intent}:paid"),
+        intent_id: intent,
+        provider_reference: format!("test:{intent}"),
+        amount: oteryn_payments::Amount {
+            minor_units: 499,
+            currency: "EUR".into(),
+        },
+        state: IntentState::Succeeded,
+    };
+    let raw = serde_json::to_vec(&event)?;
+    assert_eq!(
+        service.webhook(&raw, &provider().sign(&raw)?).await?,
+        WebhookOutcome::Applied
+    );
+    let held = service.order(payer, request).await?;
+    assert_eq!(held.state, OrderState::Processing);
+    assert!(held.review_required);
+    assert_eq!(held.code, "COIN_ORDER_REVIEW_REQUIRED");
+    assert_eq!((held.checkout_url, held.receipt_id), (None, None));
+    assert_eq!(top_ups(&db, payer).await, 0);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM invoices WHERE account_id=$1")
+            .bind(payer)
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    // A redelivery and the page stay held; nothing is ever credited.
+    assert_eq!(
+        service.webhook(&raw, &provider().sign(&raw)?).await?,
+        WebhookOutcome::Replay
+    );
+    assert_eq!(
+        service.sandbox_complete(payer, order, true).await?.state,
+        OrderState::Processing
+    );
+    assert_eq!(
+        service.order(payer, request).await?.state,
+        OrderState::Processing
+    );
+    assert_eq!(top_ups(&db, payer).await, 0);
+    db.close().await
+}
+
+#[tokio::test]
+async fn replayed_event_id_with_another_payload_is_refused() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let service = db.service(vec![]);
+    let (order, intent, _) = awaiting_order(&db, &service, payer, &token).await?;
+    assert_eq!(
+        service.sandbox_complete(payer, order, true).await?.state,
+        OrderState::Paid
+    );
+    let exact = PaymentEvent {
+        event_id: format!("coin-checkout:{intent}:paid"),
+        intent_id: intent,
+        provider_reference: format!("test:{intent}"),
+        amount: oteryn_payments::Amount {
+            minor_units: 499,
+            currency: "EUR".into(),
+        },
+        state: IntentState::Succeeded,
+    };
+    let mut amount = exact.clone();
+    amount.amount.minor_units = 1;
+    let mut currency = exact.clone();
+    currency.amount.currency = "USD".into();
+    let mut reference = exact.clone();
+    reference.provider_reference = "test:other".into();
+    for changed in [amount, currency, reference] {
+        let raw = serde_json::to_vec(&changed)?;
+        assert!(
+            service
+                .webhook(&raw, &provider().sign(&raw)?)
+                .await
+                .is_err(),
+            "{changed:?}"
+        );
+    }
+    // The exact replay is still recognised; one credit in total.
+    let raw = serde_json::to_vec(&exact)?;
+    assert_eq!(
+        service.webhook(&raw, &provider().sign(&raw)?).await?,
+        WebhookOutcome::Replay
+    );
+    assert_eq!(top_ups(&db, payer).await, 1);
+    assert_eq!(
+        service.checkout(payer, order).await?.state,
+        OrderState::Paid
+    );
+    db.close().await
+}

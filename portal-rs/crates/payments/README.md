@@ -61,6 +61,14 @@ order; a changed body for an existing `request_id` is 409. Only a verified
 paid; in one transaction it writes the invoice receipt, credits transferable
 coins through the host's wallet ledger keyed by the intent ID (once), and bumps
 the order revision. States never move backwards and `sandbox` is always true.
+A payer no longer eligible when the verified payment arrives gets no coins:
+the order is held in `processing` with `review_required` and code
+`COIN_ORDER_REVIEW_REQUIRED` for manual handling. Every delivery, replays
+included, must match the bound intent's amount, currency, provider reference
+and payer; a replayed event ID with another payload is refused and changes
+nothing. A wrong-scope token is 401, as on the existing game OAuth routes. A
+signed-out checkout visit stores the exact checkout path as the post-login
+return target (`oauth_return`), which the login hook accepts only in that form.
 The generic `Payments::webhook` refuses coin intents. Refunds and chargebacks
 are representable states only: no refund, chargeback or wallet reversal handler
 exists in this phase.

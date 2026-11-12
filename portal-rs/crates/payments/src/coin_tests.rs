@@ -170,3 +170,22 @@ fn origins_and_packages_are_validated() {
     assert_eq!(price(1234, 0).display(), "1234 PLN");
     assert_eq!(price(1000, 3).display(), "1.000 PLN");
 }
+
+#[test]
+fn only_an_exact_checkout_path_is_a_return_target() {
+    let order = Uuid::parse_str(REQUEST).unwrap();
+    assert!(is_checkout_return(&checkout_path(order)));
+    for refused in [
+        format!("{CHECKOUT_PATH}{REQUEST}?x=1"),
+        format!("{CHECKOUT_PATH}{REQUEST}#f"),
+        format!("{CHECKOUT_PATH}{REQUEST}/"),
+        format!("{CHECKOUT_PATH}{}", REQUEST.to_uppercase()),
+        format!("//evil.example{CHECKOUT_PATH}{REQUEST}"),
+        format!("https://evil.example{CHECKOUT_PATH}{REQUEST}"),
+        format!("{CHECKOUT_PATH}01934f10-7c02-4001-805b-3b1122334401"),
+        CHECKOUT_PATH.to_owned(),
+        "/pl/".to_owned(),
+    ] {
+        assert!(!is_checkout_return(&refused), "{refused}");
+    }
+}

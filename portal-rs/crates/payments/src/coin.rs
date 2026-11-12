@@ -20,6 +20,21 @@ pub const MAX_RECENT_ORDERS: i64 = 20;
 /// Path prefix of the hosted sandbox checkout page.
 pub const CHECKOUT_PATH: &str = "/native-account/coin-checkout/";
 
+/// Same-origin checkout path of one order: the only post-login return target
+/// the checkout page stores.
+pub fn checkout_path(order: Uuid) -> String {
+    format!("{CHECKOUT_PATH}{order}")
+}
+
+/// Whether a stored post-login target is exactly a checkout path with a
+/// canonical order ID (no query, fragment, host or extra segment).
+pub fn is_checkout_return(target: &str) -> bool {
+    target
+        .strip_prefix(CHECKOUT_PATH)
+        .and_then(canonical_id)
+        .is_some_and(|order| checkout_path(order) == target)
+}
+
 /// Canonical lower-case UUIDv7 text only; anything else is refused.
 pub fn canonical_id(raw: &str) -> Option<Uuid> {
     let id = Uuid::parse_str(raw).ok()?;
