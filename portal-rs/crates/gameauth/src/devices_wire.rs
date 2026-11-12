@@ -2,21 +2,24 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+/// Protocol 1 enrollment: the original unbound two-member remembered request,
+/// or the four-member bound extension (accepted contract, HTTP protocol 1).
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EnrollmentRequest {
     pub protocol_version: u8,
     pub remember_device: bool,
-    pub device_public_key: String,
-    pub enrollment_proof: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_public_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enrollment_proof: Option<String>,
 }
+/// Rotation and revocation carry exactly these two members and no proof.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OperationRequest {
     pub protocol_version: u8,
     pub client_id: Uuid,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rotation_proof: Option<RotationProof>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -26,7 +29,6 @@ pub struct CredentialResponse {
     pub family_id: Uuid,
     pub absolute_expires_at: i64,
     pub idle_expires_at: i64,
-    pub rotation_nonce: String,
 }
 #[derive(Serialize, Deserialize)]
 pub struct CharactersResponse {
@@ -58,26 +60,15 @@ pub(super) fn decode_operation(body: &[u8], query: bool) -> Result<OperationRequ
     if query {
         return Err(Failure::Invalid);
     }
-    oteryn_internal_api::canonical::decode(body, 1024, 3).map_err(|_| Failure::Invalid)?;
+    oteryn_internal_api::canonical::decode(body, 1024, 2).map_err(|_| Failure::Invalid)?;
     let request: OperationRequest = serde_json::from_slice(body).map_err(|_| Failure::Invalid)?;
     let raw: serde_json::Value = serde_json::from_slice(body).map_err(|_| Failure::Invalid)?;
     if request.protocol_version != 1
         || raw["client_id"] != request.client_id.to_string()
         || !(1..=8).contains(&request.client_id.get_version_num())
         || request.client_id.get_variant() != uuid::Variant::RFC4122
-        || raw
-            .get("rotation_proof")
-            .is_some_and(serde_json::Value::is_null)
     {
         return Err(Failure::Invalid);
-    }
-    if let Some(proof) = &request.rotation_proof {
-        key::decode_bytes(&proof.nonce, 32)?;
-        key::decode_bytes(&proof.device_public_key, 32)?;
-        key::decode_bytes(&proof.signature, 64)?;
-        if raw["rotation_proof"]["session_id"] != proof.session_id.to_string() {
-            return Err(Failure::Invalid);
-        }
     }
     Ok(request)
 }
@@ -129,22 +120,5 @@ impl std::fmt::Debug for RevokeResponse {
 impl std::fmt::Debug for ErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ErrorResponse([redacted])")
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RotationMessage {
-    pub nonce: String,
-    pub purpose: String,
-    pub session_id: Uuid,
-    pub timestamp: i64,
-}
-impl RotationMessage {
-    pub(super) fn canonical(&self) -> String {
-        format!(
-            "{{\"nonce\":\"{}\",\"purpose\":\"{}\",\"session_id\":\"{}\",\"timestamp\":{}}}",
-            self.nonce, self.purpose, self.session_id, self.timestamp
-        )
     }
 }

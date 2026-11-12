@@ -176,9 +176,6 @@ async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Va
     let operation = wire::decode_operation(&body, parts.uri.query().is_some())?;
     let client = operation.client_id;
     if path == format!("{BASE}/revoke") {
-        if operation.rotation_proof.is_some() {
-            return Err(Failure::Invalid);
-        }
         sessions.revoke(secret, client).await?;
         return serde_json::to_value(wire::RevokeResponse {
             protocol_version: 1,
@@ -191,14 +188,7 @@ async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Va
     } else {
         Purpose::Characters
     };
-    sessions
-        .rotate_with_proof(
-            secret,
-            client,
-            purpose,
-            operation.rotation_proof.as_ref().ok_or(Failure::Denied)?,
-        )
-        .await
+    sessions.rotate(secret, client, purpose).await
 }
 pub(super) async fn throttle(sessions: &Sessions, source: &str) -> Result<()> {
     sqlx::query("DELETE FROM device_session_source_limits WHERE source_hash IN (SELECT source_hash FROM device_session_source_limits WHERE window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1 LIMIT 128)")
@@ -211,7 +201,8 @@ pub(super) async fn throttle(sessions: &Sessions, source: &str) -> Result<()> {
         Ok(())
     }
 }
-// Both persistence classes require the exact four-member key enrollment.
+// Exactly the original unbound remembered request or the four-member bound
+// extension. The unbound form is remembered only; false requires a proof.
 pub(super) fn decode_enrollment(body: &[u8], query: bool) -> Result<(bool, Option<DeviceKey>)> {
     if query {
         return Err(Failure::Invalid);
@@ -221,12 +212,17 @@ pub(super) fn decode_enrollment(body: &[u8], query: bool) -> Result<(bool, Optio
     let Value::Object(fields) = &value else {
         return Err(Failure::Invalid);
     };
-    if fields.len() != 4 || value.get("protocol_version") != Some(&Value::Unsigned(1)) {
+    if value.get("protocol_version") != Some(&Value::Unsigned(1)) {
         return Err(Failure::Invalid);
     }
     let Some(Value::Bool(remembered)) = value.get("remember_device") else {
         return Err(Failure::Invalid);
     };
+    match fields.len() {
+        2 if *remembered => return Ok((true, None)),
+        4 => {}
+        _ => return Err(Failure::Invalid),
+    }
     let decode_bytes = |name: &str, length: usize| -> Result<Vec<u8>> {
         let Some(Value::String(raw)) = value.get(name) else {
             return Err(Failure::Invalid);
@@ -251,26 +247,46 @@ mod tests {
     use super::*;
     #[test]
     fn exact_requests() {
-        let valid = include_bytes!(
+        let bound = include_bytes!(
             "../../../../docs/contracts/fixtures/remembered-device-v1/remembered-enroll.json"
         );
-        assert!(decode_enrollment(valid, false).is_ok());
         assert!(matches!(
-            decode_enrollment(valid, true),
-            Err(Failure::Invalid)
+            decode_enrollment(bound, false),
+            Ok((true, Some(_)))
         ));
-        for body in [
-            r#"{"protocol_version":1,"remember_device":true}"#,
-            r#"{"protocol_version":1,"remember_device":false}"#,
-            r#"{"protocol_version":"1","remember_device":true}"#,
-            r#"{"protocol_version":1,"remember_device":true,"account_id":"x"}"#,
-            r#"{"protocol_version":1,"protocol_vers\u0069on":1}"#,
-            r#"[]"#,
-        ] {
+        let unbound =
+            include_bytes!("../../../../docs/contracts/fixtures/remembered-device-v1/enroll.json");
+        assert!(matches!(
+            decode_enrollment(unbound, false),
+            Ok((true, None))
+        ));
+        for body in [&bound[..], &unbound[..]] {
             assert!(matches!(
-                decode_enrollment(body.as_bytes(), false),
+                decode_enrollment(body, true),
                 Err(Failure::Invalid)
             ));
+        }
+        for body in [
+            r#"{"protocol_version":1,"remember_device":false}"#,
+            r#"{"protocol_version":1,"remember_device":true,"device_public_key":"6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"}"#,
+            r#"{"protocol_version":1,"remember_device":true,"device_public_key":null,"enrollment_proof":null}"#,
+            r#"{"protocol_version":"1","remember_device":true}"#,
+            r#"{"protocol_version":1,"remember_device":"true"}"#,
+            r#"{"protocol_version":2,"remember_device":true}"#,
+            r#"{"protocol_version":1,"remember_device":true,"account_id":"x"}"#,
+            r#"{"protocol_version":1,"account_id":"x"}"#,
+            r#"{"protocol_version":1,"remember_device":true,"remember_device":true}"#,
+            r#"{"protocol_version":1,"protocol_vers\u0069on":1}"#,
+            r#"{"protocol_version":1}"#,
+            r#"[]"#,
+        ] {
+            assert!(
+                matches!(
+                    decode_enrollment(body.as_bytes(), false),
+                    Err(Failure::Invalid)
+                ),
+                "{body}"
+            );
         }
     }
 }
