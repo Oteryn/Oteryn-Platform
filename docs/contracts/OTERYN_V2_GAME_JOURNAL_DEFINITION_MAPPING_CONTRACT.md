@@ -1,4 +1,4 @@
-Status: CANDIDATE revision 1, proposed by Platform on 2026-11-12. Not accepted. The coordinator decided that Game content IDs are the source of truth; the Game side verifies every row below before acceptance. Until then this document authorizes no implementation: the T72 consumer keeps every family listed here unavailable (503).
+Status: CANDIDATE revision 2, proposed by Platform on 2026-11-12; revision 2 records the coordinator's Game-side verification and answers (§7.1). Not accepted while Q1, Q10 and Q11 are re-verified on the Game side. The coordinator decided that Game content IDs are the source of truth; the Game side verifies every row below before acceptance. Until then this document authorizes no implementation: the T72 consumer keeps every family listed here unavailable (503).
 
 # T72 journal definition mapping: `TypedDefinitionRef` to the Platform catalogue
 
@@ -35,7 +35,7 @@ When a row of §5 is accepted and a supported catalogue capability carries it, t
 
 ### 4.1 Identity form
 
-A Game `TypedDefinitionRef` is `(family, production_key, revision_ref)` (`crates/gameplay/domain/src/domain/item_definition.rs`). Content records carry it as `identity: {family, key, revision}`; some records omit `family` and take it from the shard's top-level `family`. Item instances persist it as `definition_family`, `definition_production_key` and `definition_revision_ref` (`apps/game-server/migrations/0010_item_mint_ground.sql`, each 1–512 bytes).
+A Game `TypedDefinitionRef` is `(family, production_key, revision_ref)`. The domain type (`crates/gameplay/domain/src/domain/item_definition.rs:14`) holds `family` as a string; the content type (`reference_playable.rs:45`) holds it as the `DefinitionFamily` enum, whose wire name is the string compared here (for items `Item`, never `ITEM`). Content records carry it as `identity: {family, key, revision}`; some records omit `family` and take it from the shard's top-level `family`. Item instances persist it as `definition_family`, `definition_production_key` and `definition_revision_ref` (`apps/game-server/migrations/0010_item_mint_ground.sql`, each 1–512 bytes).
 
 Resolution compares bytes exactly. Matching on a key alone is allowed only where §5 says the wire carries no revision.
 
@@ -67,7 +67,7 @@ The proposed target for a resolved reference is `world_catalog_records` with `re
 | Owner read | A stored record whose reference no longer resolves (pin moved, capability became partial) | That entity or snapshot is shown as unavailable with its last update time; no name, value or estimate is invented (G-10 *ItemRow*; G-11 §9 "Unknown catalog revisions suspend the affected entity/family") |
 | Valuation (T74) | Item reference does not resolve | No estimate; never zero |
 
-The ingest 503 is a proposal. It holds a whole stream behind one unknown reference until Platform's pin catches up. The alternative, storing the record and keeping only the entity unavailable, is Q7 in §7.
+The ingest 503 holds a whole stream behind one unknown reference until Platform's pin catches up; the coordinator chose this over storing the record with the entity unavailable (§7.1, answer 7).
 
 ### 4.5 Versioning
 
@@ -190,6 +190,20 @@ Each subsection gives: the reference kind, the Game source (all at `29eb08d3`), 
 9. A granted secret achievement is absent from the public catalogue. Should Platform show it as "secret, granted" without a name, keep it unavailable, or should Game supply a separate owner-only definition?
 10. Is `death_recap.lost_items[].item_key` the lost instance's `definition_production_key`, and is a revision-free lookup intended?
 11. What is the source of depot `town_id` values and their names?
+
+### 7.1 Answers (coordinator, 2026-11-12, all fail-closed)
+
+Verified against Game `29eb08d3` with no drift: the item family is `Item` (the G-10 goldens are corrected in this revision), all 34111 item keys are `oteryn:item.tibia.i<id>` at `definition-r1`, blessings are stored under `oteryn:blessing.<stem>` and every catalogue capability is `unsupported`/`unknown`. The fixture's boss revision member is `definition_revision`, as in G-11 §5.2.
+
+1. `content_key` is the full Game key byte for byte, with a separate revision member; both must match exactly. (Re-verified on the Game side.)
+2. A non-materializable definition is unresolved.
+3. Tradeable means `marketable`, and only while its state is `KNOWN`; any other state is unresolved.
+4. to 6. Houses, `bestiary`/`boss_cooldown` and `quest` stay 503 until Game exports their revision source.
+7. 503, and the stream is held until the pin catches up; never a silent store with the entity marked unavailable.
+8. A release that changes or removes a referenced definition opens a new projection epoch with a new baseline; earlier rows are never rewritten.
+9. A secret achievement stays unavailable and unnamed.
+10. `death_recap` losses require a revision; without one the reference fails closed. (The `lost_item_ids` binding is re-verified on the Game side.)
+11. Depot `town_id` is unresolved until Game exports a town table. (Re-verified on the Game side.)
 
 ## 8. Fixture
 
