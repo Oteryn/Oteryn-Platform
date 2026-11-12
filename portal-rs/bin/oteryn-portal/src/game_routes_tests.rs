@@ -530,6 +530,26 @@ async fn journal_ingest_binds_its_purpose_source_and_environment() -> TestResult
             "{key}={value:?}"
         );
     }
+    for (key, value) in [
+        ("OTERYN_ENV", Some("production")),
+        ("OTERYN_ENV", None),
+        ("PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY", None),
+        ("PORTAL_PLAYERDATA_JOURNAL_PROGRESS_SAN", None),
+    ] {
+        let mut values = enabled();
+        match value {
+            Some(value) => values.insert(key.into(), value.into()),
+            None => values.remove(key),
+        };
+        let off = app_without_lcfa(&values).await?;
+        for path in JOURNAL_PROGRESS_PATHS {
+            assert_eq!(
+                status(&off, JOURNAL_PROGRESS, path).await?,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{path} {key}={value:?}"
+            );
+        }
+    }
     // A journal identity reused by another purpose disables every route.
     let mut values = enabled();
     values.insert(PREMIUM_IDENTITY.into(), JOURNAL_PROGRESS.into());

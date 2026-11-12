@@ -698,17 +698,41 @@ async fn postgres_progress_goldens_ack_watermark_replay_and_conflicts() {
     // The invalid full request and the invalid family payload goldens: 400.
     let mut invalid = vec![progress(&["\"source_revision\":1,"]).to_owned()];
     let head = &stamina[..stamina.find("\"payload\":").unwrap()];
-    for (family, entity, needle) in [
-        ("stamina", "stamina", "\"stamina_minutes\":2521"),
-        ("skull", "skull", "\"skull\":\"BLACK\""),
+    // Each family gets an envelope of its own scope (game_login: the account),
+    // proven valid with that family's valid golden payload, so only the
+    // payload makes the request invalid.
+    let stamina_payload = &stamina[stamina.find("\"payload\":").unwrap() + 10..stamina.len() - 1];
+    for (family, entity, valid, needle, account) in [
+        (
+            "stamina",
+            "stamina",
+            stamina_payload,
+            "\"stamina_minutes\":2521",
+            false,
+        ),
+        (
+            "skull",
+            "skull",
+            progress(&["\"skull\":\"RED\""]),
+            "\"skull\":\"BLACK\"",
+            false,
+        ),
         (
             "game_login",
             "01934f10-7c04-7001-805b-3b1122334413",
+            progress(&["\"end_reason\":null}"]),
             "\"ip_address\"",
+            true,
         ),
-        ("quest", "quest/example", "\"value\":\"02\""),
+        (
+            "quest",
+            "quest/example",
+            progress(&["\"value\":\"2\"}"]),
+            "\"value\":\"02\"",
+            false,
+        ),
     ] {
-        let head = head
+        let mut head = head
             .replace(
                 "\"family\":\"stamina\"",
                 &format!("\"family\":\"{family}\""),
@@ -717,6 +741,23 @@ async fn postgres_progress_goldens_ack_watermark_replay_and_conflicts() {
                 "\"entity_key\":\"stamina\"",
                 &format!("\"entity_key\":\"{entity}\""),
             );
+        if account {
+            for member in [
+                "\"character_id\":\"01934f10-7c04-7001-805b-3b1122334401\"",
+                "\"world_id\":\"01934f10-7c04-7001-805b-3b1122334402\"",
+                "\"projection_revision\":\"12\"",
+                "\"character_revision\":\"9\"",
+            ] {
+                let name = &member[..member.find(':').unwrap()];
+                assert_eq!(head.matches(member).count(), 1, "{member}");
+                head = head.replace(member, &format!("{name}:null"));
+            }
+        }
+        let accepted = format!("{head}\"payload\":{valid}}}");
+        assert!(
+            playerdata::progress(accepted.as_bytes()).is_ok(),
+            "{accepted}"
+        );
         invalid.push(format!("{head}\"payload\":{}}}", progress(&[needle])));
     }
     for body in &invalid {
@@ -732,4 +773,303 @@ async fn postgres_progress_goldens_ack_watermark_replay_and_conflicts() {
     }
     assert_eq!(db.records().await, 1);
     db.close().await;
+}
+
+/// Retry-After and an empty no-store body: the 429 shape of both purposes.
+fn assert_too_many(a: &Answer, retry_after: &str) {
+    assert_eq!(a.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(a.retry_after.as_deref(), Some(retry_after));
+    assert_eq!(a.cache.as_deref(), Some("no-store"));
+    assert!(a.body.is_empty());
+}
+
+/// G-11 §3: 600 requests per minute per peer across both progress routes,
+/// separate from the G-10 budget; G-10/G-11 §3 order 503, 401, 429, then
+/// transport, so an over-budget peer gets 429 even for an oversized body.
+#[tokio::test]
+async fn progress_budget_is_600_shared_by_its_routes_and_precedes_transport() {
+    let app = configured_router(lazy_pool(), &settings(), identities());
+    for i in 0..600 {
+        let path = if i % 2 == 0 {
+            http::PROGRESS_RECORD_PATH
+        } else {
+            http::PROGRESS_WATERMARK_PATH
+        };
+        assert_eq!(
+            post(&app, PROGRESS_SAN, path, b"{}").await.status,
+            StatusCode::BAD_REQUEST,
+            "{i}"
+        );
+    }
+    assert_too_many(
+        &post(&app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, b"{}").await,
+        "60",
+    );
+    let big = vec![b' '; 262145];
+    assert_too_many(
+        &post(&app, PROGRESS_SAN, http::PROGRESS_RECORD_PATH, &big).await,
+        "60",
+    );
+    // Peer identity still comes first, and G-10 keeps its own budget.
+    assert_eq!(
+        post(&app, STRANGER_SAN, http::PROGRESS_RECORD_PATH, &big)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, b"{}")
+            .await
+            .status,
+        StatusCode::BAD_REQUEST
+    );
+    // Flag and configuration still come before the budget.
+    let mut off = settings();
+    off.progress_ingest = false;
+    let off = configured_router(lazy_pool(), &off, identities());
+    assert_eq!(
+        post(&off, PROGRESS_SAN, http::PROGRESS_RECORD_PATH, &big)
+            .await
+            .status,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
+#[tokio::test]
+async fn items_over_budget_peer_gets_429_before_size_checks() {
+    let app = configured_router(lazy_pool(), &settings(), identities());
+    for _ in 0..120 {
+        assert_eq!(
+            post(&app, ITEMS_SAN, http::RECORDS_PATH, b"{}")
+                .await
+                .status,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let big = vec![b' '; 65537];
+    assert_too_many(&post(&app, ITEMS_SAN, http::RECORDS_PATH, &big).await, "60");
+    assert_eq!(
+        post(&app, STRANGER_SAN, http::RECORDS_PATH, &big)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+/// Ownership adapter that holds every caller until the test opens it.
+#[derive(Debug)]
+struct Gate {
+    entered: std::sync::atomic::AtomicUsize,
+    arrived: tokio::sync::Notify,
+    open: tokio::sync::Semaphore,
+}
+impl Authority for Gate {
+    fn acquire<'a>(&'a self, _: &'a Scope) -> LeaseFuture<'a> {
+        Box::pin(async move {
+            self.entered
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.arrived.notify_one();
+            let _permit = self.open.acquire().await;
+            Err(Error::Unavailable)
+        })
+    }
+}
+
+/// G-11 §3: 32 in-flight exchanges per peer; the 33rd is 429 with Retry-After 1.
+#[tokio::test]
+async fn progress_allows_32_exchanges_in_flight() {
+    let gate = Arc::new(Gate {
+        entered: std::sync::atomic::AtomicUsize::new(0),
+        arrived: tokio::sync::Notify::new(),
+        open: tokio::sync::Semaphore::new(0),
+    });
+    let app = router(
+        lazy_pool(),
+        gate.clone(),
+        Arc::new(FixedClock(PROGRESS_NOW)),
+        &settings(),
+        identities(),
+    );
+    let stamina =
+        progress(&["PublishGameJournalProgressV1", "\"source_revision\":\"1\""]).as_bytes();
+    let held: Vec<_> = (0..32)
+        .map(|_| {
+            let app = app.clone();
+            let mut request = Request::post(http::PROGRESS_RECORD_PATH)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::CONTENT_LENGTH, stamina.len())
+                .body(Body::from(stamina))
+                .unwrap();
+            request
+                .extensions_mut()
+                .insert(VerifiedClient::from_verified_tls13_http11(
+                    Identity::san(PROGRESS_SAN).unwrap(),
+                ));
+            tokio::spawn(async move { app.oneshot(request).await.unwrap().status() })
+        })
+        .collect();
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while gate.entered.load(std::sync::atomic::Ordering::SeqCst) < 32 {
+            gate.arrived.notified().await;
+        }
+    })
+    .await
+    .expect("32 exchanges reach the authority");
+    assert_too_many(
+        &post(&app, PROGRESS_SAN, http::PROGRESS_RECORD_PATH, stamina).await,
+        "1",
+    );
+    assert_eq!(gate.entered.load(std::sync::atomic::Ordering::SeqCst), 32);
+    gate.open.add_permits(1);
+    for task in held {
+        assert_eq!(task.await.unwrap(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+}
+
+/// G-11 §3: 60 progress records per minute per account; another account keeps
+/// its own window and the refused record changes nothing.
+#[tokio::test]
+async fn postgres_progress_records_are_limited_per_account() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let stamina = progress(&["PublishGameJournalProgressV1", "\"source_revision\":\"1\""]);
+    let other = stamina
+        .replace(
+            "0190f2a1-3b4c-7d5e-8f60-718293a4b5c6",
+            "0190f2a1-3b4c-7d5e-8f60-718293a4b5c7",
+        )
+        .replace(
+            "01934f10-7c04-7001-805b-3b1122334403",
+            "01934f10-7c04-7001-805b-3b11223344a3",
+        );
+    let allowed = Allowed::default();
+    for body in [stamina, other.as_str()] {
+        allowed
+            .allow(playerdata::progress(body.as_bytes()).unwrap().scope)
+            .await;
+    }
+    let app = router(
+        db.pool.clone(),
+        Arc::new(allowed),
+        Arc::new(FixedClock(PROGRESS_NOW)),
+        &settings(),
+        identities(),
+    );
+    for i in 0..60 {
+        let a = post(
+            &app,
+            PROGRESS_SAN,
+            http::PROGRESS_RECORD_PATH,
+            stamina.as_bytes(),
+        )
+        .await;
+        assert_eq!(a.status, StatusCode::OK, "{i}");
+    }
+    assert_too_many(
+        &post(
+            &app,
+            PROGRESS_SAN,
+            http::PROGRESS_RECORD_PATH,
+            stamina.as_bytes(),
+        )
+        .await,
+        "60",
+    );
+    let a = post(
+        &app,
+        PROGRESS_SAN,
+        http::PROGRESS_RECORD_PATH,
+        other.as_bytes(),
+    )
+    .await;
+    assert_eq!(a.status, StatusCode::OK);
+    assert_eq!(db.records().await, 2);
+    db.close().await;
+}
+
+/// G-10 §3 / G-11 §3: one `source_authority` configured for both purposes is an
+/// overlapping binding, so both purposes stay unavailable.
+#[tokio::test]
+async fn shared_source_authority_disables_both_purposes() {
+    let mut shared = settings();
+    shared.sources.progress = shared.sources.items.clone();
+    let app = configured_router(lazy_pool(), &shared, identities());
+    for (san, path) in [
+        (ITEMS_SAN, http::RECORDS_PATH),
+        (ITEMS_SAN, http::CURSOR_PATH),
+        (PROGRESS_SAN, http::PROGRESS_RECORD_PATH),
+        (PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH),
+    ] {
+        assert_eq!(
+            post(&app, san, path, b"{}").await.status,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{path}"
+        );
+    }
+}
+
+/// The progress purpose stays off without a valid source authority (a contract
+/// `key`: 1-128 bytes, no space), like the items purpose.
+#[tokio::test]
+async fn unbound_or_invalid_source_authority_keeps_its_purpose_off() {
+    let long = "a".repeat(129);
+    let edge = "a".repeat(128);
+    for (progress_side, value, on) in [
+        (true, "", false),
+        (true, "oteryn journal", false),
+        (true, long.as_str(), false),
+        (true, edge.as_str(), true),
+        (false, "OTERYN GAME", false),
+        (false, long.as_str(), false),
+        (false, edge.as_str(), true),
+    ] {
+        let mut s = settings();
+        let (san, paths) = if progress_side {
+            s.sources.progress = value.to_owned();
+            (
+                PROGRESS_SAN,
+                [http::PROGRESS_RECORD_PATH, http::PROGRESS_WATERMARK_PATH],
+            )
+        } else {
+            s.sources.items = value.to_owned();
+            (ITEMS_SAN, [http::RECORDS_PATH, http::CURSOR_PATH])
+        };
+        let app = configured_router(lazy_pool(), &s, identities());
+        for path in paths {
+            assert_eq!(
+                post(&app, san, path, b"{}").await.status,
+                if on {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                },
+                "{path} {value:?}"
+            );
+        }
+    }
+}
+
+/// Each route's byte limit: the limit itself reaches the codec (400), one byte
+/// more is 413.
+#[tokio::test]
+async fn each_route_answers_413_one_byte_past_its_limit() {
+    for (san, path, max) in [
+        (ITEMS_SAN, http::RECORDS_PATH, 65536),
+        (ITEMS_SAN, http::CURSOR_PATH, 1024),
+        (PROGRESS_SAN, http::PROGRESS_RECORD_PATH, 262144),
+        (PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, 1024),
+    ] {
+        let app = configured_router(lazy_pool(), &settings(), identities());
+        assert_eq!(
+            post(&app, san, path, &vec![b' '; max]).await.status,
+            StatusCode::BAD_REQUEST,
+            "{path} at {max}"
+        );
+        assert_eq!(
+            post(&app, san, path, &vec![b' '; max + 1]).await.status,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "{path} past {max}"
+        );
+    }
 }

@@ -233,6 +233,17 @@ fn decimal_row(row: &sqlx::postgres::PgRow, name: &str) -> Result<u64> {
         .parse()
         .map_err(|_| Error::Unavailable)
 }
+/// Serializes erasure with every delivery into one account, including the first
+/// delivery of an authority the account has no stream for yet. Lock order is
+/// global: this account lock first, then authority locks in ascending order, so
+/// erasure and delivery cannot deadlock.
+async fn lock_account(tx: &mut Transaction<'_, Postgres>, account: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,73))")
+        .bind(account)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
 async fn lock(tx: &mut Transaction<'_, Postgres>, authority: &str) -> Result<()> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,72))")
         .bind(authority)
@@ -288,6 +299,7 @@ impl Store {
         };
         let lease = self.authority.acquire(&r.scope).await?;
         let mut tx = self.pool.begin().await?;
+        lock_account(&mut tx, &r.scope.account).await?;
         lock(&mut tx, &r.scope.authority).await?;
         lease.validate(&r)?;
         if deleted(&mut tx, &r.scope).await? {
@@ -370,7 +382,20 @@ impl Store {
         };
         let _lease = self.authority.acquire(s).await?;
         let mut tx = self.pool.begin().await?;
+        lock_account(&mut tx, &s.account).await?;
         lock(&mut tx, &s.authority).await?;
+        // A G-11 stream is account-wide (its key has no character), so only an
+        // account deletion closes it; a G-10 stream also closes with its character.
+        let mut covered = s.clone();
+        if playerdata::PROGRESS_FAMILIES
+            .split_whitespace()
+            .any(|x| x == s.family)
+        {
+            covered.character = None;
+        }
+        if deleted(&mut tx, &covered).await? {
+            return Err(Error::Conflict);
+        };
         let key = stream_key(s);
         // Unknown streams cannot be bootstrapped by a cursor request.
         let row=sqlx::query("SELECT highest_seen::text,stored_through::text,applied_through::text,erased,last_record_id FROM pd_streams WHERE stream_key=$1").bind(&key).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
@@ -409,7 +434,12 @@ impl Store {
         };
         let _lease = self.authority.acquire(&scope).await?;
         let mut tx = self.pool.begin().await?;
+        lock_account(&mut tx, &scope.account).await?;
         lock(&mut tx, &scope.authority).await?;
+        // Checked before `stream` so a deleted account never gets a new stream row.
+        if deleted(&mut tx, &scope).await? {
+            return Err(Error::Conflict);
+        };
         let c = stream(&mut tx, &scope, true).await?;
         let key = stream_key(&scope);
         let row=sqlx::query("SELECT observed_ms,published_through::text,baseline_complete,watermark_digest FROM pd_streams WHERE stream_key=$1").bind(&key).fetch_one(&mut *tx).await?;
@@ -537,6 +567,7 @@ impl Store {
     ) -> Result<()> {
         let now = time.now(true)?;
         let mut tx = self.pool.begin().await?;
+        lock_account(&mut tx, account).await?;
         let authorities = sqlx::query_scalar::<_, String>(
             "SELECT DISTINCT authority FROM pd_streams WHERE account_id=$1 ORDER BY authority",
         )
@@ -557,6 +588,7 @@ impl Store {
     pub async fn erase_account(&self, account: &str, time: TrustedTime) -> Result<()> {
         let now = time.now(true)?;
         let mut tx = self.pool.begin().await?;
+        lock_account(&mut tx, account).await?;
         // Lock every authority before updating streams in the same order as ingest.
         let authorities = sqlx::query_scalar::<_, String>(
             "SELECT DISTINCT authority FROM pd_streams WHERE account_id=$1 ORDER BY authority",
