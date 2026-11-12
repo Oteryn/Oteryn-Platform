@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::catalog::{
-    AccountState as CatalogAccountState, Action, Catalog, CatalogAccess, CatalogFlags, CatalogStore,
+    AccountState as CatalogAccountState, Action, Catalog, CatalogAccess, CatalogFlags,
+    CatalogStore, Error as CatalogError,
 };
 use ::http::{Request, StatusCode};
 use axum::{
@@ -1318,6 +1319,17 @@ async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
     db.fund(ACCOUNT, 10000).await;
     let catalog = CatalogStore::new(db.pool.clone(), CatalogFlags { enabled: true });
     let actor = uuid(ACCOUNT).unwrap();
+    // Owner D1: an offer quoted in another currency never reaches the active catalog.
+    assert!(matches!(
+        catalog
+            .import(
+                PRICE_LIST.replace("COINS", "TRANSFERABLE_COINS").as_bytes(),
+                actor,
+                &TestAccounts
+            )
+            .await,
+        Err(CatalogError::InvalidDocument)
+    ));
     for (document, price, quantity, expected, kinds) in [
         (
             PRICE_LIST.replace("\"purchasable\":true", "\"purchasable\":false"),
@@ -1339,13 +1351,6 @@ async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
             1,
             "PURCHASE_DISABLED",
             vec![],
-        ),
-        (
-            PRICE_LIST.replace("COINS", "TRANSFERABLE_COINS"),
-            "250",
-            1,
-            "STALE_QUOTE",
-            vec!["PREMIUM_TIME"],
         ),
         (
             PRICE_LIST.replace("\"250\"", "\"9223372036854775807\""),
@@ -1400,6 +1405,44 @@ async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
             .await
             .unwrap();
     assert_eq!(quantities, vec![30, 60]);
+    db.finish().await;
+}
+/// Regression (owner D1): an imported Game offer key with `:` is purchasable;
+/// the import used to refuse it, leaving only `OFFER_UNAVAILABLE`.
+#[tokio::test]
+async fn db_game_colon_offer_key_is_purchasable() {
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    db.fund(ACCOUNT, 1000).await;
+    let catalog = CatalogStore::new(db.pool.clone(), CatalogFlags { enabled: true });
+    let actor = uuid(ACCOUNT).unwrap();
+    let revision = catalog
+        .import(
+            PRICE_LIST
+                .replace("premium-30d", "store:exercise-sword")
+                .as_bytes(),
+            actor,
+            &TestAccounts,
+        )
+        .await
+        .unwrap();
+    catalog
+        .activate(&revision, actor, &TestAccounts)
+        .await
+        .unwrap();
+    let raw = change(
+        &unique(&request(&revision)),
+        "offer_key",
+        text("store:exercise-sword"),
+    );
+    let bytes = db.service(settings()).purchase(&raw).await.unwrap();
+    assert_eq!(string(&value(&bytes), "result"), "ACCEPTED");
+    let key: String = sqlx::query_scalar("SELECT offer_key FROM store_order_lines")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(key, "store:exercise-sword");
     db.finish().await;
 }
 #[tokio::test]

@@ -102,9 +102,10 @@ impl Catalog {
         }
         let mut seen = HashSet::new();
         for offer in &document.offers {
-            if !key(&offer.offer_key, false)
+            if !crate::purchase::offer_key(&offer.offer_key)
                 || !seen.insert(&offer.offer_key)
-                || !matches!(offer.currency.as_str(), "COINS" | "TRANSFERABLE_COINS")
+                // S-5 follows the Store wire: `COINS` only (owner D1, 2026-11-02).
+                || offer.currency != "COINS"
                 || positive(&offer.unit_price).is_none_or(|v| v > i64::MAX as u64)
                 || !(1..=100).contains(&offer.max_quantity)
                 || !(1..=8).contains(&offer.units.len())
@@ -127,7 +128,7 @@ impl Catalog {
                         unit.unit_kind.as_str(),
                         "PREMIUM_TIME" | "COSMETIC" | "ITEM"
                     )
-                    || !key(&unit.grant_key, true)
+                    || !grant_key(&unit.grant_key)
                     || unit.quantity == 0
                 {
                     return Err(Error::InvalidDocument);
@@ -157,15 +158,12 @@ fn positive(s: &str) -> Option<u64> {
         s.parse().ok()
     }
 }
-fn key(s: &str, colon: bool) -> bool {
+/// `^[a-z0-9][a-z0-9._:-]{0,63}$`.
+fn grant_key(s: &str) -> bool {
     (1..=64).contains(&s.len())
         && s.as_bytes()[0].is_ascii_alphanumeric()
-        && s.bytes().all(|b| {
-            b.is_ascii_lowercase()
-                || b.is_ascii_digit()
-                || b"._-".contains(&b)
-                || (colon && b == b':')
-        })
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._:-".contains(&b))
 }
 fn revision_valid(s: &str) -> bool {
     s.len() == 64
