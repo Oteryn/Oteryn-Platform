@@ -386,7 +386,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             context,
             "players.coin_hold.released",
             id,
-            json!({"reason":reason.trim(),"order_id":hold.order_id,"hold_reason":hold.reason}),
+            json!({"reason":reason.trim(),"order_id":hold.order_id,"hold_reason":hold.reason,"debt_coins":hold.debt_coins}),
         )
         .await?;
         tx.commit().await?;
