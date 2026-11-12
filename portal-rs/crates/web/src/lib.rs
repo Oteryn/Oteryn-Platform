@@ -100,53 +100,70 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
     let session_layer =
         public_sessions(state.db.clone(), std::env::var("OTERYN_PUBLIC_ORIGIN").ok());
     let oauth_sessions = session_layer.clone();
+    // Web MFA proof for OAuth authorize: absent when MFA is not configured.
+    let oauth_mfa = oteryn_identity::mfa::Mfa::configured(state.db.clone()).ok();
     let oauth_routes = oteryn_gameauth::oauth::browser_routes(
         state.db.clone(),
         oteryn_gameauth::oauth::Config::from_env(),
     )
     .route_layer(axum::middleware::from_fn(
-        |mut request: axum::extract::Request, next: axum::middleware::Next| async move {
-            use axum::response::IntoResponse;
-            let Some(session) = request
-                .extensions()
-                .get::<session::BrowserSession>()
-                .cloned()
-            else {
-                return StatusCode::SERVICE_UNAVAILABLE.into_response();
-            };
-            let language = request
-                .headers()
-                .get(axum::http::header::ACCEPT_LANGUAGE)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.split(',').next())
-                .filter(|v| v.trim().split(['-', ';']).next() == Some("en"))
-                .map_or("pl", |_| "en")
-                .to_owned();
-            let pending = session::SessionKey::<Option<String>>::new("oauth_return");
-            if request.method() == axum::http::Method::GET
-                && request.uri().to_string().len() <= 8192
-            {
-                let target = if session.account_id().await.is_none() {
-                    Some(request.uri().to_string())
-                } else {
-                    None
-                };
-                if session.set(pending, &target).await.is_err() {
+        move |mut request: axum::extract::Request, next: axum::middleware::Next| {
+            let oauth_mfa = oauth_mfa.clone();
+            async move {
+                use axum::response::IntoResponse;
+                let Some(session) = request
+                    .extensions()
+                    .get::<session::BrowserSession>()
+                    .cloned()
+                else {
                     return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                };
+                let language = request
+                    .headers()
+                    .get(axum::http::header::ACCEPT_LANGUAGE)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.split(',').next())
+                    .filter(|v| v.trim().split(['-', ';']).next() == Some("en"))
+                    .map_or("pl", |_| "en")
+                    .to_owned();
+                let pending = session::SessionKey::<Option<String>>::new("oauth_return");
+                if request.method() == axum::http::Method::GET
+                    && request.uri().to_string().len() <= 8192
+                {
+                    let target = if session.account_id().await.is_none() {
+                        Some(request.uri().to_string())
+                    } else {
+                        None
+                    };
+                    if session.set(pending, &target).await.is_err() {
+                        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                    }
                 }
+                let csrf = match session.csrf_token().await {
+                    Ok(v) => v,
+                    Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+                };
+                let account = session.account_id().await;
+                if let (Some(account), Some(mfa)) = (account, &oauth_mfa) {
+                    let key =
+                        session::SessionKey::<String>::new(oteryn_identity::mfa::SESSION_GRANT_KEY);
+                    if let Ok(Some(grant)) = session.get(key).await
+                        && mfa.satisfied(account, &grant).await.unwrap_or(false)
+                    {
+                        request
+                            .extensions_mut()
+                            .insert(oteryn_gameauth::oauth::MfaSession { account });
+                    }
+                }
+                request
+                    .extensions_mut()
+                    .insert(oteryn_gameauth::oauth::Browser {
+                        account,
+                        csrf,
+                        language,
+                    });
+                next.run(request).await
             }
-            let csrf = match session.csrf_token().await {
-                Ok(v) => v,
-                Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-            };
-            request
-                .extensions_mut()
-                .insert(oteryn_gameauth::oauth::Browser {
-                    account: session.account_id().await,
-                    csrf,
-                    language,
-                });
-            next.run(request).await
         },
     ))
     .route_layer(axum::middleware::from_fn_with_state(
