@@ -1,4 +1,6 @@
 //! Root OAuth endpoints and opaque, account-bound PKCE grants.
+#[cfg(test)]
+mod oauth_fixture_tests;
 mod oauth_http;
 #[cfg(test)]
 mod oauth_tests;
