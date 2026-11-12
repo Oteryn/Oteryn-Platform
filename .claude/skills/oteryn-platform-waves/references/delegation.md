@@ -36,6 +36,16 @@ order:
    counts and any `SKIPPED` tests, open questions with options and a
    recommendation, what is not done.
 
+A packet that delegates a review, or the fix of review findings, follows
+`oteryn-platform-review/references/batch-review.md` §6 instead of items 6
+and 7:
+- base and head SHA, the lenses and chunks;
+- every finding, with no cap, and a sweep of each class across the diff;
+- the failing CI log lines;
+- no code edits in the review run.
+
+The report is the merged, verified finding list, whatever its length.
+
 Keep the packet short and decided: name the files, types, functions,
 values from the contract and the test for each step, and leave open only
 what any competent engineer would choose the same way. Point at repository
