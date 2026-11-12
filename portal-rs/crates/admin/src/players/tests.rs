@@ -872,6 +872,8 @@ async fn coin_hold_fixture(db: &Db) -> Uuid {
         .bind(quote).bind(db.target).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
     sqlx::query("INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,review_required,code) VALUES($1,$2,$3,$4,$5,500,499,'EUR',2,'testing',$6,'processing',true,'COIN_ORDER_REVERSAL_REVIEW_REQUIRED')")
         .bind(order).bind(db.target).bind(Uuid::now_v7()).bind(quote).bind(Uuid::now_v7()).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES($1,$2,$3,'chargeback','testing','evt-hold',500,0,'held')")
+        .bind(Uuid::now_v7()).bind(order).bind(db.target).execute(&db.pool).await.unwrap();
     sqlx::query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance')")
         .bind(db.target).bind(order).execute(&db.pool).await.unwrap();
     order
@@ -1000,7 +1002,7 @@ async fn postgres_coin_hold_release_permission_reason_audit_and_idempotent() {
         (
             Some(db.approver),
             db.target.to_string(),
-            json!({"reason":"Debt reviewed","order_id":order,"hold_reason":"reversal_insufficient_balance"})
+            json!({"reason":"Debt reviewed","order_id":order,"hold_reason":"reversal_insufficient_balance","debt_coins":500})
         )
     );
     // The order keeps its review flag: releasing settles nothing.
@@ -1011,6 +1013,14 @@ async fn postgres_coin_hold_release_permission_reason_audit_and_idempotent() {
             .await
             .unwrap();
     assert!(review);
+    // The debt is recorded in the history and never cleared or zeroed.
+    let debt: (i64, i64, i64, String) = sqlx::query_as(
+        "SELECT h.debt_coins,r.coins,r.debited,r.outcome FROM coin_purchase_hold_releases h JOIN coin_purchase_reversals r USING (order_id)",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(debt, (500, 500, 0, "held".into()));
     // Releasing again is a no-op: no second history or audit row.
     assert_eq!(
         s.release_coin_hold(context(db.approver), db.target, "Debt reviewed")
