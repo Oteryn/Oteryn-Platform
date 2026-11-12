@@ -613,7 +613,7 @@ Based on §9 and D1006, and consistent with the key custody in `portal-rs/crates
 
 ## 19. Amendment N4P-4 (candidate): protocol 3, multiple channels per World and reauthenticated recovery
 
-Status: `CANDIDATE — OWNER DECISIONS RECORDED 2026-10-12; GAME ARCHITECT ACCEPTANCE REQUIRED; IMPLEMENTATION NOT AUTHORIZED`. Decision record: ADR 0045 (Proposed). Governing Issue: Oteryn/Oteryn-Platform#1559 (parent workstream #1419). §18 applies to this section unchanged.
+Status: `CANDIDATE — OWNER DECISIONS RECORDED 2026-10-12; GAME ARCHITECT ACCEPTANCE REQUIRED; IMPLEMENTATION AUTHORIZED (owner 2026-11-12)`. Platform implementation: Oteryn/Oteryn-Platform#1838 (§19.1–19.3). Decision record: ADR 0045 (Proposed). Governing Issue: Oteryn/Oteryn-Platform#1559 (parent workstream #1419). §18 applies to this section unchanged.
 
 Owner decisions of 2026-10-12:
 
