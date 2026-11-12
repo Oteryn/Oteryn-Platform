@@ -283,10 +283,12 @@ impl Report {
 
 /// T20 owns these tables and mutations. Missing schema/lock rows fail closed.
 /// All readers and writers use epoch -> assignment -> report lock order.
+/// Ingestion locks the assignment row exclusively; readers only share it.
 async fn assignment_matches(
     tx: &mut sqlx::PgConnection,
     peer: &str,
     report: &Report,
+    exclusive: bool,
 ) -> Result<bool, Failure> {
     let lock: Option<i16> =
         sqlx::query_scalar("SELECT id FROM native_assignment_epoch_locks WHERE id = 1 FOR SHARE")
@@ -297,8 +299,17 @@ async fn assignment_matches(
         return Err(unavailable());
     }
     let highest: Option<String> = sqlx::query_scalar("SELECT assignment_epoch::numeric::text FROM native_scope_assignments ORDER BY assignment_epoch::numeric DESC LIMIT 1").fetch_optional(&mut *tx).await.map_err(|_| unavailable())?;
-    let assignment: Option<(String,String,String)> = sqlx::query_as("SELECT assignment_epoch::text, ownership_generation::text, node_identity FROM native_scope_assignments WHERE world_id = $1 AND channel_id = $2 FOR UPDATE")
-        .bind(report.world_id).bind(report.channel_id).fetch_optional(&mut *tx).await.map_err(|_| unavailable())?;
+    let query = if exclusive {
+        "SELECT assignment_epoch::text, ownership_generation::text, node_identity FROM native_scope_assignments WHERE world_id = $1 AND channel_id = $2 FOR UPDATE"
+    } else {
+        "SELECT assignment_epoch::text, ownership_generation::text, node_identity FROM native_scope_assignments WHERE world_id = $1 AND channel_id = $2 FOR SHARE"
+    };
+    let assignment: Option<(String, String, String)> = sqlx::query_as(query)
+        .bind(report.world_id)
+        .bind(report.channel_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| unavailable())?;
     Ok(assignment.is_some_and(|(epoch, generation, identity)| {
         highest.as_deref() == Some(epoch.as_str())
             && epoch == report.assignment_epoch.to_string()
@@ -309,7 +320,7 @@ async fn assignment_matches(
 
 pub async fn ingest(pool: &PgPool, peer: &str, report: &Report) -> Result<&'static str, Failure> {
     let mut tx = pool.begin().await.map_err(|_| unavailable())?;
-    if !assignment_matches(&mut tx, peer, report).await? {
+    if !assignment_matches(&mut tx, peer, report, true).await? {
         return Err(StatusCode::CONFLICT);
     }
     let row = sqlx::query("SELECT assignment_epoch::text AS epoch, scope_ownership_generation::text AS generation, source_revision::text AS revision, content_json, observed_at, invalid FROM native_runtime_status_reports WHERE world_id=$1 AND channel_id=$2 FOR UPDATE")
@@ -424,7 +435,7 @@ pub async fn read_in(
         .any(|p| p.name == identity && p.scopes.contains(&(world, channel)));
     result.state = if invalid
         || !authorized
-        || !assignment_matches(tx, &identity, &report).await?
+        || !assignment_matches(tx, &identity, &report, false).await?
         || observed > at.saturating_add(i64::from(settings.clock_uncertainty_seconds))
     {
         EvidenceState::Invalid

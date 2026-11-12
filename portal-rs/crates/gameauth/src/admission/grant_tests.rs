@@ -176,14 +176,13 @@ fn issuance_is_default_off_bounded_and_never_production() {
     assert_eq!(on.ttl_seconds, DEFAULT_TTL_SECONDS);
     // Permitted but without a composed signer still refuses.
     assert!(matches!(on.signer(), Err(Error::Unavailable)));
-    for env in ["preprod", "preproduction"] {
-        let issuance = Issuance {
-            environment: env.into(),
-            ..on.clone()
-        };
-        assert!(issuance.permitted());
-    }
-    for env in ["production", "local", "", "Testing"] {
+    let preprod = Issuance {
+        environment: "preprod".into(),
+        ..on.clone()
+    };
+    assert!(preprod.permitted());
+    // `oteryn_core::Environment` names preproduction `preprod` only.
+    for env in ["production", "preproduction", "local", "", "Testing"] {
         let issuance = Issuance {
             environment: env.into(),
             ..on.clone()

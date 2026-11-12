@@ -1,4 +1,4 @@
-use super::{AdmissionRequest, Error, GrantSigner, Material, wire};
+use super::{AdmissionRequest, Error, GrantSigner, Material, grant, wire};
 use sqlx::{PgConnection, PgPool, Row};
 use std::{future::Future as StdFuture, pin::Pin};
 use subtle::ConstantTimeEq;
@@ -181,12 +181,17 @@ pub(super) async fn admit(
     }
     let material = authority.issue(&mut tx, request, account).await?;
     let body = material.encode(request, now(&mut tx).await?)?;
-    let stored = match signer {
-        Some(_) => match material.token.rsplit_once('.') {
-            Some((input, _)) if input.matches('.').count() == 1 => wire::with_token(&body, input)?,
-            _ => return Err(Error::Unavailable),
-        },
-        None => body.clone(),
+    // A §8.1 grant is stored as its signing input only (§6.1), and only when the
+    // signer that re-signs a retry is composed; any other pairing fails closed.
+    let input = material
+        .token
+        .rsplit_once('.')
+        .map(|(input, _)| input)
+        .filter(|input| input.matches('.').count() == 1 && grant::header_key_id(input).is_some());
+    let stored = match (signer, input) {
+        (Some(_), Some(input)) => wire::with_token(&body, input)?,
+        (None, None) => body.clone(),
+        _ => return Err(Error::Unavailable),
     };
     sqlx::query("INSERT INTO native_admissions (attempt_ref, ticket_hash, request_digest, account_id, response_body, expires_at_ms) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(request.attempt_ref).bind(request.ticket_hash()).bind(request.digest()).bind(account.id).bind(&stored).bind(material.expires_at_ms)

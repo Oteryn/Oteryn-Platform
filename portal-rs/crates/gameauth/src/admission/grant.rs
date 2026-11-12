@@ -85,10 +85,7 @@ impl Issuance {
     /// Contract §17 (N4P-3) allows issuance only in testing and preproduction.
     pub fn permitted(&self) -> bool {
         self.enabled
-            && matches!(
-                self.environment.as_str(),
-                "testing" | "preprod" | "preproduction"
-            )
+            && matches!(self.environment.as_str(), "testing" | "preprod")
             && (5..=30).contains(&self.ttl_seconds)
     }
     pub(super) fn signer(&self) -> Result<&dyn GrantSigner, Error> {
@@ -264,7 +261,7 @@ fn signing_input(kid: &str, payload: &[u8]) -> Result<String, Error> {
     ))
 }
 /// The `kid` of a stored signing input whose header is exactly §8.1.
-fn header_key_id(input: &str) -> Option<String> {
+pub(super) fn header_key_id(input: &str) -> Option<String> {
     let (encoded, _) = input.split_once('.')?;
     let raw = URL_SAFE_NO_PAD.decode(encoded).ok()?;
     let value = canonical::decode(&raw, 512, 2).ok()?;
@@ -381,8 +378,9 @@ fn record(world: Uuid, row: &sqlx::postgres::PgRow) -> Result<Option<Route>, Err
     }))
 }
 
-/// §7.4 candidate set and selection. The route rows stay share-locked until
-/// commit so the bound record cannot change under the grant.
+/// §7.4 candidate set and selection. The requested channel is filtered before
+/// the bound; only the selected route record is share-locked, re-read and kept
+/// locked until commit so it cannot change under the grant.
 pub(super) async fn select(
     db: &mut PgConnection,
     runtime: &runtime::Settings,
@@ -390,16 +388,13 @@ pub(super) async fn select(
     requested: Option<Uuid>,
     now: i64,
 ) -> Result<(Route, Value), Error> {
-    let rows = sqlx::query("SELECT channel_id, native_route_host, native_route_port, native_route_tls_server_name, native_route_version, native_route_revision FROM game_channels WHERE world_id=$1 AND native_login_enabled AND native_route_revision IS NOT NULL ORDER BY channel_id LIMIT $2 FOR SHARE")
-        .bind(world).bind(MAX_CHANNELS)
+    let rows = sqlx::query("SELECT channel_id, native_route_host, native_route_port, native_route_tls_server_name, native_route_version, native_route_revision FROM game_channels WHERE world_id=$1 AND native_login_enabled AND native_route_revision IS NOT NULL AND ($2::uuid IS NULL OR channel_id=$2) ORDER BY channel_id LIMIT $3")
+        .bind(world).bind(requested).bind(MAX_CHANNELS)
         .fetch_all(&mut *db).await.map_err(|_| Error::Unavailable)?;
     for row in &rows {
         let Some(route) = record(world, row)? else {
             continue;
         };
-        if requested.is_some_and(|channel| channel != route.channel) {
-            continue;
-        }
         let observation = runtime::read_in(db, runtime, world, route.channel, now)
             .await
             .map_err(|_| Error::Unavailable)?;
@@ -412,7 +407,11 @@ pub(super) async fn select(
             && matches!(report.get("protocol_major"), Some(Value::Unsigned(1)))
             && matches!(report.get("transport_profile"), Some(Value::Unsigned(1)))
         {
-            return Ok((route, report));
+            match current(db, world, route.channel, &route.endpoint, &route.revision).await {
+                Ok(()) => return Ok((route, report)),
+                Err(Error::RouteUnavailable) => continue,
+                Err(error) => return Err(error),
+            }
         }
     }
     Err(Error::RouteUnavailable)

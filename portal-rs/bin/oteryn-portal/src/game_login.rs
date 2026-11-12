@@ -12,7 +12,7 @@
 //!
 //! Admission grants (T19c) are issued only with
 //! `PORTAL_NATIVE_ADMISSION_GRANTS_ENABLED=true` and `OTERYN_ENV` `testing` or
-//! `preprod`/`preproduction`; production never loads the signing key. The key
+//! `preprod`; production never loads the signing key. The key
 //! comes from the encrypted custody file `PORTAL_NATIVE_ADMISSION_KEY_CUSTODY_FILE`
 //! wrapped by `PORTAL_NATIVE_ADMISSION_KEY_WRAPPING_KEY_FILE`, trusted in the
 //! registry scope of `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE` with the

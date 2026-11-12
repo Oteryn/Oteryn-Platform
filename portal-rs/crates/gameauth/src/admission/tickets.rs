@@ -122,7 +122,10 @@ impl AdmissionAuthority for NativeTickets {
         body: &'a [u8],
     ) -> Future<'a, ()> {
         Box::pin(async move {
-            self.issuance.signer()?;
+            // A retry whose stored kid cannot be re-signed (§6.2 step 5, §6.3).
+            self.issuance
+                .signer()
+                .map_err(|_| Error::ReconciliationRequired)?;
             let (world, channel, endpoint) = wire::scope(body)?;
             let revision = grant::claim(&wire::token(body)?, "route_revision")
                 .ok_or(Error::ReconciliationRequired)?;
