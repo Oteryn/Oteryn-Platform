@@ -63,6 +63,24 @@ pub(super) fn decimal(raw: &str, min: i64) -> Result<i64, Error> {
     }
     Ok(value)
 }
+/// Game naming policy revision 1: 2..29 ASCII letters in single-spaced words.
+pub(super) fn name(value: &str) -> bool {
+    (2..=29).contains(&value.len())
+        && value
+            .split(' ')
+            .all(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_alphabetic()))
+}
+/// Interpretation revision: 1-128 bytes of `[A-Za-z0-9][A-Za-z0-9._:-]*`.
+pub(super) fn revision(value: &str) -> bool {
+    value.len() <= 128
+        && value
+            .as_bytes()
+            .first()
+            .is_some_and(|b| b.is_ascii_alphanumeric())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
+}
 pub(super) fn request(value: &Value) -> Result<&str, Error> {
     let parse = || {
         keys(value, &["contract_version", "operation_id"])?;
@@ -100,12 +118,7 @@ pub(super) fn stored(row: &PgRow, raw: &[u8]) -> Result<Value, Error> {
         uuid(string(&value, key)?)?;
     }
     crate::lcfa::AccountId::parse(string(&value, "account_id")?).map_err(|_| Error::Unavailable)?;
-    let name = string(&value, "requested_name")?;
-    if !(2..=29).contains(&name.len())
-        || !name
-            .split(' ')
-            .all(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_alphabetic()))
-    {
+    if !name(string(&value, "requested_name")?) {
         return Err(Error::Unavailable);
     }
     if !matches!(string(&value, "requested_sex")?, "Female" | "Male") {
@@ -131,15 +144,8 @@ pub(super) fn stored(row: &PgRow, raw: &[u8]) -> Result<Value, Error> {
         .ok_or(Error::Unavailable)?;
     keys(context, CONTEXT)?;
     for key in CONTEXT {
-        let revision = string(context, key)?;
-        if revision.is_empty()
-            || revision.len() > 128
-            || !revision.as_bytes()[0].is_ascii_alphanumeric()
-            || !revision
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
-            || row.try_get::<String, _>(*key)? != revision
-        {
+        let given = string(context, key)?;
+        if !revision(given) || row.try_get::<String, _>(*key)? != given {
             return Err(Error::Unavailable);
         }
     }

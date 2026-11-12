@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
+use oteryn_internal_api::canonical::{self, Value as Wire};
+use sha2::{Digest, Sha256};
 use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -51,6 +53,7 @@ impl Database {
     fn settings(&self) -> Settings {
         Settings {
             witness_directory: Some(self.witness.path().to_path_buf()),
+            mfa: Some(Mfa::new(self.pool.clone(), [7; 32])),
         }
     }
     async fn seed(&self, entity: &str, input: Value) -> Result<Value, SeedError> {
@@ -404,6 +407,71 @@ async fn bootstrap_intent_is_issued_once_and_readable() -> TestResult {
         2
     );
     db.close().await
+}
+
+#[tokio::test]
+async fn account_mfa_enrols_once_and_the_secret_logs_in() -> TestResult {
+    use totp_rs::{Algorithm, Secret, TOTP};
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = account(&db, "mfa@example.invalid").await?;
+    let id = Uuid::parse_str(&account)?;
+    let input = json!({"accountId": account, "password": PASSWORD});
+
+    for (key, value) in [
+        ("password", json!("wrong horse battery")),
+        ("accountId", json!("019a0000-0000-7000-8000-00000000dead")),
+        ("accountId", json!("not-a-uuid")),
+        ("extra", json!(1)),
+    ] {
+        let mut bad_input = input.clone();
+        bad_input[key] = value;
+        assert!(is_bad(db.seed("account-mfa", bad_input).await), "{key}");
+    }
+    let unconfigured = execute(&db.pool, &Settings::default(), "account-mfa", &input).await;
+    assert!(matches!(unconfigured, Err(SeedError::Unavailable(_))));
+
+    let out = db.seed("account-mfa", input.clone()).await?;
+    assert_eq!(out["accountId"], account);
+    assert_eq!(out["recoveryCodes"].as_array().unwrap().len(), 8);
+    let mfa = db.settings().mfa.unwrap();
+    assert!(mfa.enrolled(id).await?);
+    let required: bool = sqlx::query_scalar("SELECT login_mfa_required FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(required);
+    // The returned secret produces a code the portal accepts at the current step.
+    let secret = Secret::Encoded(out["totpSecret"].as_str().unwrap().to_owned()).to_bytes()?;
+    let code = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)?.generate_current()?;
+    assert!(mfa.verify_totp(id, &code).await?);
+
+    // The secret exists only at enrolment: a rerun is a conflict, never a re-key.
+    assert!(is_conflict(db.seed("account-mfa", input).await));
+    db.close().await
+}
+
+#[tokio::test]
+async fn every_seed_action_refuses_outside_testing() -> TestResult {
+    let args = [
+        "account-mfa".to_owned(),
+        r#"{"accountId":"019a0000-0000-7000-8000-00000000a001","password":"x"}"#.to_owned(),
+    ];
+    for environment in [
+        None,
+        Some("production"),
+        Some("preproduction"),
+        Some("Testing"),
+    ] {
+        assert_eq!(
+            run_in(environment, &args).await,
+            Err(SeedError::Unavailable(
+                "seed runs only with OTERYN_ENV=testing"
+            ))
+        );
+    }
+    Ok(())
 }
 
 #[tokio::test]
