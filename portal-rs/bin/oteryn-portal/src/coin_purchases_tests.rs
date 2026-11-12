@@ -10,7 +10,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use oteryn_payments::{
     AccountReader, AccountState, Error as PaymentError, IntentState, PaymentEvent, PaymentFlags,
     Payments, WebhookOutcome,
-    coin::{CoinOrderRequest, OrderState, parse_packages},
+    coin::{CoinBalance, CoinEvent, CoinOrderRequest, EventState, OrderState, parse_packages},
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -50,12 +50,21 @@ impl CoinHost for TestHost {
             }
         })
     }
-    fn eligible_in<'a>(
+    fn restriction_in<'a>(
         &'a self,
         connection: &'a mut PgConnection,
         payer: Uuid,
-    ) -> HostFuture<'a, Result<bool, CoinError>> {
-        self.host.eligible_in(connection, payer)
+    ) -> HostFuture<'a, Result<Option<String>, CoinError>> {
+        self.host.restriction_in(connection, payer)
+    }
+    fn reverse_in<'a>(
+        &'a self,
+        tx: &'a mut Transaction<'static, Postgres>,
+        key: Uuid,
+        payer: Uuid,
+        coins: i64,
+    ) -> HostFuture<'a, Result<Debit, CoinError>> {
+        self.host.reverse_in(tx, key, payer, coins)
     }
     fn credit_in<'a>(
         &'a self,
@@ -528,7 +537,7 @@ async fn paid_never_follows_failed() -> TestResult {
         generic.webhook(&raw, &provider().sign(&raw)?).await,
         Err(PaymentError::NotFound)
     ));
-    // Refund events have no handler in phase A.
+    // A failed order was never paid: a refund has nothing to reverse.
     let mut refund = paid.clone();
     refund.event_id = format!("refund:{intent}");
     refund.state = IntentState::Refunded;
@@ -1059,6 +1068,690 @@ async fn replayed_event_id_with_another_payload_is_refused() -> TestResult {
     assert_eq!(top_ups(&db, payer).await, 1);
     assert_eq!(
         service.checkout(payer, order).await?.state,
+        OrderState::Paid
+    );
+    db.close().await
+}
+
+// ---- Phase B: reversals, changed-payload replays, restricted payers. ----
+
+fn coin_event(intent: Uuid, event_id: &str, state: EventState) -> CoinEvent {
+    CoinEvent {
+        event_id: event_id.to_owned(),
+        intent_id: intent,
+        provider_reference: format!("test:{intent}"),
+        amount: oteryn_payments::Amount {
+            minor_units: 499,
+            currency: "EUR".into(),
+        },
+        state,
+    }
+}
+async fn deliver(
+    service: &CoinPurchases,
+    event: &CoinEvent,
+) -> Result<WebhookOutcome, PaymentError> {
+    let raw = serde_json::to_vec(event).unwrap();
+    service.webhook(&raw, &provider().sign(&raw).unwrap()).await
+}
+async fn paid_order(
+    db: &Database,
+    service: &Arc<CoinPurchases>,
+    payer: Uuid,
+) -> Result<(Uuid, Uuid, Uuid), Box<dyn std::error::Error>> {
+    let token = db.token(payer).await?;
+    let (order, intent, request) = awaiting_order(db, service, payer, &token).await?;
+    assert_eq!(
+        service.sandbox_complete(payer, order, true).await?.state,
+        OrderState::Paid
+    );
+    Ok((order, intent, request))
+}
+async fn wallet_of(service: &CoinPurchases, payer: Uuid) -> CoinBalance {
+    service.balance(payer).await.unwrap()
+}
+async fn audits(db: &Database, action: &str) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action=$1")
+        .bind(action)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap()
+}
+async fn reversal_debits(db: &Database, payer: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM wallet_operations WHERE account_id=$1 AND kind='adjustment' AND reason LIKE 'coin-purchase-reversal:%'")
+        .bind(payer)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn refund_then_chargeback_reverses_the_credit_once() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let service = db.service(vec![]);
+    let (order, intent, request) = paid_order(&db, &service, payer).await?;
+    assert_eq!(wallet_of(&service, payer).await.total_coins, 500);
+
+    let refund = coin_event(
+        intent,
+        &format!("provider:{intent}:refund"),
+        EventState::Refunded,
+    );
+    assert_eq!(deliver(&service, &refund).await?, WebhookOutcome::Applied);
+    let (status, body) = get(
+        db.app(&service),
+        &format!("{API}/requests/{request}"),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let receipt = json(&body)["receipt_id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        body,
+        format!(
+            r#"{{"version":1,"order_id":"{order}","request_id":"{request}","revision":3,"package_id":"{PACKAGE}","quote_id":"{}","character_id":null,"coins":500,"price":{{"minor_units":499,"currency":"EUR","exponent":2}},"sandbox":true,"state":"refunded","checkout_url":null,"receipt_id":"{receipt}","review_required":false,"code":"COIN_ORDER_REFUNDED"}}"#,
+            json(&body)["quote_id"].as_str().unwrap()
+        )
+        .into_bytes()
+    );
+    let balance = wallet_of(&service, payer).await;
+    assert_eq!(
+        (
+            balance.total_coins,
+            balance.available_coins,
+            balance.review_required
+        ),
+        (0, 0, false)
+    );
+    assert_eq!(reversal_debits(&db, payer).await, 1);
+    assert_eq!(audits(&db, "coin_purchase.reversal_recorded").await, 1);
+    assert_eq!(
+        audits(&db, "wallet.coin_purchase_reversal.debited").await,
+        1
+    );
+
+    // The same provider event again (a redelivery or a restart) is a replay.
+    assert_eq!(deliver(&service, &refund).await?, WebhookOutcome::Replay);
+    // A chargeback after the refund changes the state, never debits again.
+    let chargeback = coin_event(
+        intent,
+        &format!("provider:{intent}:chargeback"),
+        EventState::Chargeback,
+    );
+    assert_eq!(
+        deliver(&service, &chargeback).await?,
+        WebhookOutcome::Applied
+    );
+    let current = service.order(payer, request).await?;
+    assert_eq!(
+        (current.state, current.revision, current.code.as_str()),
+        (OrderState::Chargeback, 4, "COIN_ORDER_CHARGEBACK")
+    );
+    assert_eq!(current.receipt_id.map(|r| r.to_string()), Some(receipt));
+    // Chargeback is terminal; a late paid event cannot resurrect the order or
+    // credit again, and another refund is refused.
+    let late = coin_event(
+        intent,
+        &format!("provider:{intent}:late"),
+        EventState::Succeeded,
+    );
+    assert_eq!(deliver(&service, &late).await?, WebhookOutcome::Applied);
+    assert_eq!(audits(&db, "coin_purchase.settlement_fenced").await, 1);
+    let again = coin_event(
+        intent,
+        &format!("provider:{intent}:again"),
+        EventState::Refunded,
+    );
+    assert!(matches!(
+        deliver(&service, &again).await,
+        Err(PaymentError::IllegalTransition)
+    ));
+    assert_eq!(
+        service.order(payer, request).await?.state,
+        OrderState::Chargeback
+    );
+    assert_eq!(top_ups(&db, payer).await, 1);
+    assert_eq!(reversal_debits(&db, payer).await, 1);
+    assert_eq!(wallet_of(&service, payer).await.total_coins, 0);
+    assert_eq!(
+        db.count(
+            "SELECT count(*) FROM coin_purchase_reversals WHERE outcome='debited' AND debited=500"
+        )
+        .await?,
+        1
+    );
+    let intent_state: String = sqlx::query_scalar("SELECT state FROM payment_intents WHERE id=$1")
+        .bind(intent)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(intent_state, "chargeback");
+    db.close().await
+}
+
+#[tokio::test]
+async fn concurrent_reversals_debit_once_even_for_a_banned_payer() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let service = db.service(vec![]);
+    let (_, intent, request) = paid_order(&db, &service, payer).await?;
+    // A banned account still owes the reversed coins.
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(payer)
+        .execute(&db.pool)
+        .await?;
+    let refund = coin_event(
+        intent,
+        &format!("provider:{intent}:refund"),
+        EventState::Refunded,
+    );
+    let chargeback = coin_event(
+        intent,
+        &format!("provider:{intent}:cb"),
+        EventState::Chargeback,
+    );
+    let (a, b, c, d) = tokio::join!(
+        deliver(&service, &refund),
+        deliver(&service, &refund),
+        deliver(&service, &chargeback),
+        deliver(&service, &chargeback),
+    );
+    let outcomes = [a, b, c, d];
+    assert!(
+        outcomes
+            .iter()
+            .any(|o| matches!(o, Ok(WebhookOutcome::Applied))),
+        "{outcomes:?}"
+    );
+    assert_eq!(reversal_debits(&db, payer).await, 1);
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_reversals")
+            .await?,
+        1
+    );
+    let state = service.order(payer, request).await?.state;
+    assert!(matches!(
+        state,
+        OrderState::Refunded | OrderState::Chargeback
+    ));
+    sqlx::query("UPDATE accounts SET status='active' WHERE id=$1")
+        .bind(payer)
+        .execute(&db.pool)
+        .await?;
+    let balance = wallet_of(&service, payer).await;
+    assert_eq!((balance.total_coins, balance.available_coins), (0, 0));
+    db.close().await
+}
+
+#[tokio::test]
+async fn reversal_of_unavailable_coins_holds_and_freezes_purchasing() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let service = db.service(vec![]);
+    // An order awaiting payment before the hold exists.
+    let (pending, _, _) = awaiting_order(&db, &service, payer, &token).await?;
+    let (order, intent, request) = paid_order(&db, &service, payer).await?;
+    // 100 of the 500 purchased coins are reserved (e.g. a Bazaar bid).
+    let host = Host {
+        pool: db.pool.clone(),
+        oauth: db.config.clone(),
+        projection: lcfa::Projection::new(
+            db.pool.clone(),
+            lcfa::Settings::default(),
+            Arc::new(lcfa::DenyAccounts),
+        ),
+    };
+    host.ledger().reserve(Uuid::now_v7(), payer, 100).await?;
+    let before = wallet_of(&service, payer).await;
+    assert_eq!((before.total_coins, before.available_coins), (500, 400));
+
+    let refund = coin_event(
+        intent,
+        &format!("provider:{intent}:refund"),
+        EventState::Refunded,
+    );
+    assert_eq!(deliver(&service, &refund).await?, WebhookOutcome::Applied);
+    let held = service.order(payer, request).await?;
+    assert_eq!(
+        (held.state, held.review_required, held.code.as_str()),
+        (
+            OrderState::Refunded,
+            true,
+            "COIN_ORDER_REVERSAL_REVIEW_REQUIRED"
+        )
+    );
+    // Nothing was debited: no underflow, no partial erase, no mint.
+    let after = wallet_of(&service, payer).await;
+    assert_eq!(
+        (
+            after.total_coins,
+            after.available_coins,
+            after.review_required
+        ),
+        (500, 400, true)
+    );
+    assert_eq!(reversal_debits(&db, payer).await, 0);
+    assert_eq!(
+        db.count(
+            "SELECT count(*) FROM wallet_operations WHERE reason LIKE 'coin-purchase-reversal:%'"
+        )
+        .await?,
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>("SELECT order_id FROM coin_purchase_holds WHERE account_id=$1 AND reason='reversal_insufficient_balance'")
+            .bind(payer)
+            .fetch_one(&db.pool)
+            .await?,
+        order
+    );
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_reversals WHERE outcome='held' AND debited=0")
+            .await?,
+        1
+    );
+
+    // New purchasing is frozen, before any provider call, and audited.
+    let quote = quote(db.app(&service), &token).await;
+    let (status, _) = post(
+        db.app(&service),
+        &token,
+        order_body(Uuid::now_v7(), &quote, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let intents_before = db.count("SELECT count(*) FROM payment_intents").await?;
+    assert_eq!(
+        service.checkout(payer, pending).await,
+        Err(CoinError::Conflict)
+    );
+    assert_eq!(
+        service.sandbox_complete(payer, pending, true).await,
+        Err(CoinError::Conflict)
+    );
+    assert_eq!(
+        db.count("SELECT count(*) FROM payment_intents").await?,
+        intents_before
+    );
+    assert_eq!(
+        db.count("SELECT count(*) FROM audit_log WHERE action='coin_purchase.payment_refused' AND after->>'reason'='coin_purchase_hold'")
+            .await?,
+        3
+    );
+    // A chargeback afterwards keeps the single held reversal and the hold.
+    let chargeback = coin_event(
+        intent,
+        &format!("provider:{intent}:cb"),
+        EventState::Chargeback,
+    );
+    assert_eq!(
+        deliver(&service, &chargeback).await?,
+        WebhookOutcome::Applied
+    );
+    let charged = service.order(payer, request).await?;
+    assert_eq!(
+        (charged.state, charged.code.as_str()),
+        (
+            OrderState::Chargeback,
+            "COIN_ORDER_REVERSAL_REVIEW_REQUIRED"
+        )
+    );
+    assert_eq!(wallet_of(&service, payer).await.total_coins, 500);
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_reversals")
+            .await?,
+        1
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn reversal_before_credit_fences_the_payment() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let service = db.service(vec![]);
+    let (order, intent, request) = awaiting_order(&db, &service, payer, &token).await?;
+    service.checkout(payer, order).await?;
+    // The provider reports a refund before the payment (out of order).
+    let refund = coin_event(
+        intent,
+        &format!("provider:{intent}:refund"),
+        EventState::Refunded,
+    );
+    assert_eq!(deliver(&service, &refund).await?, WebhookOutcome::Applied);
+    let fenced = service.order(payer, request).await?;
+    assert_eq!(
+        (
+            fenced.state,
+            fenced.review_required,
+            fenced.code.as_str(),
+            fenced.checkout_url,
+            fenced.receipt_id
+        ),
+        (
+            OrderState::Processing,
+            true,
+            "COIN_ORDER_REVERSAL_REVIEW_REQUIRED",
+            None,
+            None
+        )
+    );
+    // The later payment is retained and credits nothing.
+    let paid = coin_event(
+        intent,
+        &format!("provider:{intent}:paid"),
+        EventState::Succeeded,
+    );
+    assert_eq!(deliver(&service, &paid).await?, WebhookOutcome::Applied);
+    assert_eq!(deliver(&service, &paid).await?, WebhookOutcome::Replay);
+    assert_eq!(
+        service.sandbox_complete(payer, order, true).await?.state,
+        OrderState::Processing
+    );
+    assert_eq!(top_ups(&db, payer).await, 0);
+    assert_eq!(wallet_of(&service, payer).await.total_coins, 0);
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_reversals WHERE outcome='fenced'")
+            .await?,
+        1
+    );
+    // No hold: no coins were ever at risk.
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_holds").await?,
+        0
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn bad_reversal_events_are_refused() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let service = db.service(vec![]);
+    let (_, intent, request) = paid_order(&db, &service, payer).await?;
+    let good = coin_event(
+        intent,
+        &format!("provider:{intent}:refund"),
+        EventState::Refunded,
+    );
+    // Wrong amount, currency, reference: refused and audited, nothing reversed.
+    let mut amount = good.clone();
+    amount.amount.minor_units = 498;
+    let mut currency = good.clone();
+    currency.amount.currency = "USD".into();
+    let mut reference = good.clone();
+    reference.provider_reference = "test:other".into();
+    for bad in [&amount, &currency, &reference] {
+        assert!(matches!(
+            deliver(&service, bad).await,
+            Err(PaymentError::InvalidInput)
+        ));
+    }
+    assert_eq!(audits(&db, "coin_purchase.event_refused").await, 3);
+    // Unsigned, unknown state, unknown member, oversized, unknown intent.
+    let raw = serde_json::to_vec(&good)?;
+    assert!(matches!(
+        service.webhook(&raw, &[0; 32]).await,
+        Err(PaymentError::BadSignature)
+    ));
+    for body in [
+        String::from_utf8(raw.clone())?.replace("refunded", "partially_refunded"),
+        String::from_utf8(raw.clone())?.replace('}', r#","coins":1}"#),
+        format!("{}{}", String::from_utf8(raw.clone())?, " ".repeat(65536)),
+    ] {
+        let raw = body.into_bytes();
+        assert!(matches!(
+            service.webhook(&raw, &provider().sign(&raw)?).await,
+            Err(PaymentError::InvalidInput)
+        ));
+    }
+    let stranger = coin_event(Uuid::now_v7(), "provider:unknown", EventState::Refunded);
+    assert!(matches!(
+        deliver(&service, &stranger).await,
+        Err(PaymentError::NotFound)
+    ));
+    let pending = coin_event(intent, "provider:pending", EventState::Pending);
+    assert!(matches!(
+        deliver(&service, &pending).await,
+        Err(PaymentError::IllegalTransition)
+    ));
+    // Flag off: refused before verification.
+    let off = CoinPurchases::new(
+        db.pool.clone(),
+        CoinSettings::default(),
+        provider(),
+        Arc::new(TestHost {
+            host: Host {
+                pool: db.pool.clone(),
+                oauth: db.config.clone(),
+                projection: lcfa::Projection::new(
+                    db.pool.clone(),
+                    lcfa::Settings::default(),
+                    Arc::new(lcfa::DenyAccounts),
+                ),
+            },
+            owned: vec![],
+        }),
+    );
+    assert!(matches!(
+        deliver(&off, &good).await,
+        Err(PaymentError::Disabled)
+    ));
+    assert_eq!(service.order(payer, request).await?.state, OrderState::Paid);
+    assert_eq!(reversal_debits(&db, payer).await, 0);
+    assert_eq!(wallet_of(&service, payer).await.total_coins, 500);
+    // The good event still applies afterwards.
+    assert_eq!(deliver(&service, &good).await?, WebhookOutcome::Applied);
+    assert_eq!(wallet_of(&service, payer).await.total_coins, 0);
+    db.close().await
+}
+
+#[tokio::test]
+async fn changed_payload_replays_are_refused_and_audited() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let service = db.service(vec![]);
+    let consumed = quote(db.app(&service), &token).await;
+    let first = Uuid::now_v7();
+    let (status, created) =
+        post(db.app(&service), &token, order_body(first, &consumed, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    // The identical replay is not audited.
+    let (status, replayed) =
+        post(db.app(&service), &token, order_body(first, &consumed, None)).await;
+    assert_eq!((status, &replayed), (StatusCode::OK, &created));
+    assert_eq!(audits(&db, "coin_purchase.request_replay_refused").await, 0);
+    let unused = quote(db.app(&service), &token).await;
+    let (status, _) = post(db.app(&service), &token, order_body(first, &unused, None)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let row: (Option<Uuid>, String, String, String) = sqlx::query_as("SELECT actor,target,before->>'quote_id',after->>'quote_id' FROM audit_log WHERE action='coin_purchase.request_replay_refused'")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(
+        row,
+        (
+            Some(payer),
+            first.to_string(),
+            consumed.clone(),
+            unused.clone()
+        )
+    );
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_orders")
+            .await?,
+        1
+    );
+
+    // A provider event ID replayed with another state is refused, changes
+    // nothing and is retained for audit with both payloads.
+    let order: Uuid = json(&created)["order_id"].as_str().unwrap().parse()?;
+    let intent: Uuid =
+        sqlx::query_scalar("SELECT payment_intent_id FROM coin_purchase_orders WHERE id=$1")
+            .bind(order)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(
+        service.sandbox_complete(payer, order, true).await?.state,
+        OrderState::Paid
+    );
+    let reused = coin_event(
+        intent,
+        &format!("coin-checkout:{intent}:paid"),
+        EventState::Refunded,
+    );
+    assert!(matches!(
+        deliver(&service, &reused).await,
+        Err(PaymentError::InvalidInput)
+    ));
+    let audit: (String, String) = sqlx::query_as("SELECT before->>'state',after->>'state' FROM audit_log WHERE action='coin_purchase.event_replay_refused'")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(audit, ("succeeded".to_owned(), "refunded".to_owned()));
+    assert_eq!(
+        service.checkout(payer, order).await?.state,
+        OrderState::Paid
+    );
+    assert_eq!(wallet_of(&service, payer).await.total_coins, 500);
+    assert_eq!(reversal_debits(&db, payer).await, 0);
+    db.close().await
+}
+
+#[tokio::test]
+async fn restricted_payers_are_refused_before_any_provider_call() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let staff = db.account().await?;
+    let service = db.service(vec![]);
+    let restrictions: [(&str, &str); 8] = [
+        (
+            "UPDATE accounts SET status='suspended' WHERE id=$1",
+            "account_suspended",
+        ),
+        (
+            "UPDATE accounts SET status='closed' WHERE id=$1",
+            "account_closed",
+        ),
+        (
+            "UPDATE accounts SET status='pending_verification' WHERE id=$1",
+            "account_pending_verification",
+        ),
+        (
+            "UPDATE accounts SET email_verified_at=NULL WHERE id=$1",
+            "email_unverified",
+        ),
+        (
+            "UPDATE accounts SET email_change_blocked_until=now()+interval '1 day' WHERE id=$1",
+            "email_change_lock",
+        ),
+        (
+            "INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '30 days')",
+            "termination_pending",
+        ),
+        (
+            "INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'suspension','active','test',now()-interval '1 minute',now()+interval '1 day',$2)",
+            "sanction",
+        ),
+        (
+            "INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','test',now()-interval '1 minute',now()+interval '1 day',$2)",
+            "sanction",
+        ),
+    ];
+    for (restrict, reason) in restrictions {
+        let payer = db.account().await?;
+        let token = db.token(payer).await?;
+        let quote = quote(db.app(&service), &token).await;
+        let (pending, _, _) = awaiting_order(&db, &service, payer, &token).await?;
+        sqlx::query(restrict)
+            .bind(payer)
+            .bind(staff)
+            .execute(&db.pool)
+            .await?;
+        let request =
+            CoinOrderRequest::decode(order_body(Uuid::now_v7(), &quote, None).as_bytes()).unwrap();
+        let intents = db.count("SELECT count(*) FROM payment_intents").await?;
+        assert_eq!(
+            service.create_order(payer, &request).await,
+            Err(CoinError::Conflict),
+            "{reason}"
+        );
+        assert_eq!(
+            service.checkout(payer, pending).await,
+            Err(CoinError::Conflict),
+            "{reason}"
+        );
+        assert_eq!(
+            service.sandbox_complete(payer, pending, true).await,
+            Err(CoinError::Conflict),
+            "{reason}"
+        );
+        // No order, no consumed quote, no provider intent, no coins.
+        assert_eq!(
+            db.count("SELECT count(*) FROM payment_intents").await?,
+            intents,
+            "{reason}"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM coin_purchase_orders WHERE payer_account_id=$1"
+            )
+            .bind(payer)
+            .fetch_one(&db.pool)
+            .await?,
+            1
+        );
+        assert!(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT consumed_at IS NULL FROM coin_purchase_quotes WHERE id=$1::uuid"
+            )
+            .bind(&quote)
+            .fetch_one(&db.pool)
+            .await?,
+            "{reason}"
+        );
+        assert_eq!(top_ups(&db, payer).await, 0);
+        let audited: Vec<(Option<Uuid>, String)> = sqlx::query_as("SELECT actor,after->>'stage' FROM audit_log WHERE action='coin_purchase.payment_refused' AND target=$1 AND after->>'reason'=$2 ORDER BY id")
+            .bind(payer.to_string())
+            .bind(reason)
+            .fetch_all(&db.pool)
+            .await?;
+        assert_eq!(
+            audited,
+            vec![
+                (Some(payer), "order".to_owned()),
+                (Some(payer), "checkout".to_owned()),
+                (Some(payer), "sandbox_payment".to_owned()),
+            ],
+            "{reason}"
+        );
+    }
+    // A warning or an expired sanction does not restrict.
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'warning','active','test',now()-interval '1 minute',now()+interval '1 day',$2),($1,'suspension','expired','test',now()-interval '2 days',now()-interval '1 day',$2)")
+        .bind(payer)
+        .bind(staff)
+        .execute(&db.pool)
+        .await?;
+    let (order, _, _) = awaiting_order(&db, &service, payer, &token).await?;
+    assert_eq!(
+        service.sandbox_complete(payer, order, true).await?.state,
         OrderState::Paid
     );
     db.close().await

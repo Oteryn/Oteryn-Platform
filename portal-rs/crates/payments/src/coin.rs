@@ -2,7 +2,7 @@
 //!
 //! Wire types, validation, the order state machine and deployment settings are
 //! free of I/O here; `coin_store` holds the durable service and `coin_http` the
-//! routes. Refunds and chargebacks are representable states only (phase A).
+//! routes. Refunds and chargebacks reverse the credit once (phase B).
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
@@ -17,6 +17,11 @@ pub const MAX_REQUEST_BYTES: usize = 8192;
 /// Bounded catalogue views.
 pub const MAX_PACKAGES: usize = 20;
 pub const MAX_RECENT_ORDERS: i64 = 20;
+/// A verified payment arrived for a payer who may no longer buy: no coins.
+pub const REVIEW_CODE: &str = "COIN_ORDER_REVIEW_REQUIRED";
+/// A reversal could not debit the credit (spent or reserved coins) or arrived
+/// before any credit; the order and payer are held for review.
+pub const REVERSAL_REVIEW_CODE: &str = "COIN_ORDER_REVERSAL_REVIEW_REQUIRED";
 /// Path prefix of the hosted sandbox checkout page.
 pub const CHECKOUT_PATH: &str = "/native-account/coin-checkout/";
 
@@ -218,6 +223,55 @@ impl OrderState {
             Self::Refunded => "COIN_ORDER_REFUNDED",
             Self::Chargeback => "COIN_ORDER_CHARGEBACK",
         }
+    }
+}
+
+/// State of a verified provider event for a coin order. The generic
+/// `IntentState` has no chargeback; coin intents also record `chargeback`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventState {
+    Pending,
+    Succeeded,
+    Failed,
+    Refunded,
+    Chargeback,
+}
+impl EventState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Refunded => "refunded",
+            Self::Chargeback => "chargeback",
+        }
+    }
+}
+
+/// A provider event for a coin order: the `PaymentEvent` wire shape, whose
+/// state may also be `chargeback`. Decoded only after signature verification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoinEvent {
+    pub event_id: String,
+    pub intent_id: Uuid,
+    pub provider_reference: String,
+    pub amount: crate::Amount,
+    pub state: EventState,
+}
+impl CoinEvent {
+    /// Same limits as `PaymentEvent`: identifiers 1..128 bytes without control
+    /// characters, a positive amount in an uppercase currency, a non-nil intent.
+    pub fn decode(body: &[u8]) -> Option<Self> {
+        let event: Self = serde_json::from_slice(body).ok()?;
+        let identifier =
+            |value: &str| (1..=128).contains(&value.len()) && !value.chars().any(char::is_control);
+        (identifier(&event.event_id)
+            && identifier(&event.provider_reference)
+            && event.amount.validate().is_ok()
+            && !event.intent_id.is_nil())
+        .then_some(event)
     }
 }
 

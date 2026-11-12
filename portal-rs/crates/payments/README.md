@@ -69,6 +69,34 @@ and payer; a replayed event ID with another payload is refused and changes
 nothing. A wrong-scope token is 401, as on the existing game OAuth routes. A
 signed-out checkout visit stores the exact checkout path as the post-login
 return target (`oauth_return`), which the login hook accepts only in that form.
-The generic `Payments::webhook` refuses coin intents. Refunds and chargebacks
-are representable states only: no refund, chargeback or wallet reversal handler
-exists in this phase.
+The generic `Payments::webhook` refuses coin intents.
+
+## Native coin purchases: reversals and restrictions (phase B)
+
+Under the same flag, a verified `refunded` or `chargeback` event (`CoinEvent`:
+the `PaymentEvent` shape whose state may also be `chargeback`) reverses a
+credited order once. In the event's transaction, with the intent, order and
+wallet rows locked, the whole credit is debited from unreserved transferable
+coins by a wallet adjustment keyed by the reversal ID (reason
+`coin-purchase-reversal:<id>`), whatever the payer's restrictions. One
+`coin_purchase_reversals` row per order (unique) and the unique provider event
+ID make redeliveries, restarts and concurrent deliveries debit at most once; a
+chargeback after a refund changes only the state. When the unreserved
+transferable coins no longer cover the credit (spent or reserved), nothing is
+debited (never partially, never below zero): the order is flagged
+`review_required` with code `COIN_ORDER_REVERSAL_REVIEW_REQUIRED` and the payer
+gets a `coin_purchase_holds` row that freezes new purchasing until staff
+resolve it (no release path exists yet). A reversal before any credit holds the
+order in `processing` for review and fences a later payment, which is retained
+and credits nothing; a failed order cannot be reversed.
+
+A payer is refused (409, audited as `coin_purchase.payment_refused`) at order
+creation, checkout and sandbox payment, before any provider call or credit,
+when the account is not active, unverified, under the email-change lock, has a
+pending termination, an effective restriction or suspension sanction, or a coin
+purchase hold. A verified payment for such a payer is held without coins
+(`coin_purchase.payment_held`). A changed body for an existing `request_id` is
+409 and audited (`coin_purchase.request_replay_refused`); a refused provider
+event (changed payload for a known event ID, or a binding mismatch) is audited
+after rollback (`coin_purchase.event_replay_refused` / `coin_purchase.event_refused`).
+Partial refunds need a new contract. No HTTP route delivers provider events.
