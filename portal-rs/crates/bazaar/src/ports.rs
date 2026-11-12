@@ -68,7 +68,7 @@ pub struct Reservation {
 }
 
 /// Production adapters MUST make all effects through `db`, without committing it or doing I/O.
-/// Lock wallet rows in deterministic order; forbid negative balances and non-transferable coins.
+/// Lock wallet rows in deterministic order; forbid negative balances. There is one coin class.
 /// Reserve sets the absolute hold, including when the current winner raises their maximum.
 /// Every method must support replay. A SQL error must propagate, rolling back the whole action.
 pub trait Reservations: Send + Sync {

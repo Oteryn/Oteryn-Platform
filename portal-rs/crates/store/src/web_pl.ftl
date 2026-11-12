@@ -5,7 +5,6 @@ transfer = Przekaż coiny
 skip = Przejdź do treści
 available = Dostępne coiny
 reserved = Zarezerwowane coiny
-transferable = Coiny do przekazania
 price = Cena w coinach
 quantity = Liczba
 character = Identyfikator twojej postaci

@@ -216,8 +216,10 @@ fn receipt(r: Receipt) -> Response {
                         r.counterparty_account_id.map_or(Value::Null, text),
                     ),
                     ("amount", text(r.amount)),
-                    ("transferable_after", text(r.transferable_after)),
-                    ("non_transferable_after", text(r.non_transferable_after)),
+                    // One coin class (owner decision 2026-11-12): the coin-wire-v1
+                    // members stay; transferable is the whole balance.
+                    ("transferable_after", text(r.available_after)),
+                    ("non_transferable_after", text(0)),
                     ("reserved_after", text(r.reserved_after)),
                     ("occurred_at", text(timestamp(r.occurred_at))),
                 ]),
@@ -292,8 +294,9 @@ async fn execute<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook>(
                 obj(vec![
                     ("result", text("ok")),
                     ("account_id", text(account)),
-                    ("transferable", text(b.transferable)),
-                    ("non_transferable", text(b.non_transferable)),
+                    // One coin class: the whole balance is transferable.
+                    ("transferable", text(b.available)),
+                    ("non_transferable", text(0)),
                     ("reserved", text(b.reserved)),
                 ]),
             ));
@@ -333,7 +336,8 @@ async fn execute<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook>(
                     ("entry_id", text(e.id)),
                     ("operation_id", text(e.operation_id)),
                     ("kind", text(e.kind)),
-                    ("coin_class", text(e.coin_class)),
+                    // One coin class: every entry, old or new, is transferable.
+                    ("coin_class", text("transferable")),
                     (
                         "counterparty_account_id",
                         e.counterparty_account_id.map_or(Value::Null, text),

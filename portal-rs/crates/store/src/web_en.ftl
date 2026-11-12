@@ -5,7 +5,6 @@ transfer = Transfer coins
 skip = Skip to content
 available = Available coins
 reserved = Reserved coins
-transferable = Transferable coins
 price = Price in coins
 quantity = Quantity
 character = Your character ID

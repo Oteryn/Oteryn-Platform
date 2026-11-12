@@ -1,7 +1,7 @@
 //! Composition of native coin purchases (sandbox, OTERYN_COIN_PURCHASE_V1):
 //! `game:account-services` OAuth tokens name the payer, the LCFA projection
 //! checks character ownership (as `GET /api/v1/game-auth/native-characters`
-//! does) and the wallet ledger credits transferable coins through the top-up
+//! does) and the wallet ledger credits the one coin balance through the top-up
 //! adjustment; a refund or chargeback debits it back through a keyed reversal
 //! adjustment that never goes below zero. Off unless
 //! `PORTAL_COIN_PURCHASES_ENABLED=true` with `OTERYN_ENV` testing or preprod;
@@ -228,7 +228,6 @@ impl CoinHost for Host {
                     .checked_add(balance.reserved)
                     .ok_or(CoinError::Unavailable)?,
                 available: balance.available,
-                transferable: balance.transferable,
             })
         })
     }
@@ -267,8 +266,8 @@ impl wallet::AuditHook for Reversal {
         }
         sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'wallet.coin_purchase_reversal.debited',$1,$2,$3,$4)")
             .bind(event.account_id.to_string())
-            .bind(json!({"available":event.before.available,"transferable":event.before.transferable,"reserved":event.before.reserved}))
-            .bind(json!({"available":event.after.available,"transferable":event.after.transferable,"reserved":event.after.reserved,"coins":event.amount}))
+            .bind(json!({"available":event.before.available,"reserved":event.before.reserved}))
+            .bind(json!({"available":event.after.available,"reserved":event.after.reserved,"coins":event.amount}))
             .bind(event.operation_id).execute(conn).await.is_ok()
     }
 }

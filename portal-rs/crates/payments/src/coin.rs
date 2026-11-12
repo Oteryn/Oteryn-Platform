@@ -101,6 +101,7 @@ pub struct CoinBalance {
     pub revision: i64,
     pub total_coins: i64,
     pub available_coins: i64,
+    /// One coin class (owner decision 2026-11-12): equals `available_coins`.
     pub transferable_coins: i64,
     pub review_required: bool,
 }

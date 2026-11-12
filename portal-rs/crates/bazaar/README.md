@@ -13,7 +13,7 @@ Every mutation uses one SQL transaction. Existing listings and pending offers ar
 `FOR UPDATE`; bid and settlement retries serialize on the listing. Reservation adapters receive that
 transaction's connection and must never commit it, use another connection or make network calls.
 All relevant wallet accounts are locked in UUID order before holds change. Adapters must reserve
-only transferable coins, enforce available balance including other holds, and implement immutable,
+from the one coin balance, enforce available balance including other holds, and implement immutable,
 replay-safe ledger effects. Gold requires the additional flag and an adapter for durable verified
 game escrow; no game call is allowed inside the transaction. Account-state adapters must use their
 own account-state locks consistently before wallet locks. The core reads participating accounts in

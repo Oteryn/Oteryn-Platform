@@ -1413,6 +1413,98 @@ async fn reversal_of_unavailable_coins_holds_and_freezes_purchasing() -> TestRes
     db.close().await
 }
 
+/// Test-only audit for a reward grant: accepts it and records the event.
+#[derive(Debug, Clone, Copy)]
+struct RewardAudit;
+impl wallet::AuditHook for RewardAudit {
+    async fn adjustment(&self, conn: &mut PgConnection, event: &wallet::AdjustmentAudit) -> bool {
+        sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES($1,'test.wallet.reward',$2,'{}','{}',$3)")
+            .bind(event.actor_id).bind(event.account_id.to_string()).bind(event.operation_id)
+            .execute(conn).await.is_ok()
+    }
+}
+
+/// One coin class (owner decision 2026-11-12): a reversal debits the one
+/// balance, so coins of reward origin cover a purchase whose own coins are
+/// reserved; the balance never goes negative and no hold is needed.
+#[tokio::test]
+async fn reversal_debits_reward_origin_coins() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let service = db.service(vec![]);
+    let (_, intent, request) = paid_order(&db, &service, payer).await?;
+    // 300 of the 500 purchased coins are reserved (e.g. a Bazaar bid), then a
+    // 300-coin reward arrives: 500 unreserved coins, 200 of purchase origin.
+    let ledger = Ledger::new(
+        db.pool.clone(),
+        WalletFlags { enabled: true },
+        Policy,
+        Policy,
+        RewardAudit,
+    );
+    ledger.reserve(Uuid::now_v7(), payer, 300).await?;
+    ledger
+        .grant(
+            Uuid::now_v7(),
+            payer,
+            300,
+            Uuid::now_v7(),
+            "Reward",
+            wallet::GrantKind::Reward,
+        )
+        .await?;
+    let before = wallet_of(&service, payer).await;
+    assert_eq!(
+        (
+            before.total_coins,
+            before.available_coins,
+            before.transferable_coins
+        ),
+        (800, 500, 500)
+    );
+
+    let refund = coin_event(
+        intent,
+        &format!("provider:{intent}:refund"),
+        EventState::Refunded,
+    );
+    assert_eq!(deliver(&service, &refund).await?, WebhookOutcome::Applied);
+    let current = service.order(payer, request).await?;
+    assert_eq!(
+        (
+            current.state,
+            current.review_required,
+            current.code.as_str()
+        ),
+        (OrderState::Refunded, false, "COIN_ORDER_REFUNDED")
+    );
+    let after = wallet_of(&service, payer).await;
+    assert_eq!(
+        (
+            after.total_coins,
+            after.available_coins,
+            after.transferable_coins,
+            after.review_required
+        ),
+        (300, 0, 0, false)
+    );
+    assert_eq!(reversal_debits(&db, payer).await, 1);
+    assert_eq!(
+        db.count(
+            "SELECT count(*) FROM coin_purchase_reversals WHERE outcome='debited' AND debited=500"
+        )
+        .await?,
+        1
+    );
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_holds").await?,
+        0
+    );
+    db.close().await
+}
+
 #[tokio::test]
 async fn reversal_before_credit_fences_the_payment() -> TestResult {
     let Some(db) = Database::open().await? else {

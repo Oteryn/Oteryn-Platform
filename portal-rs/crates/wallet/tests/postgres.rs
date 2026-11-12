@@ -257,8 +257,6 @@ async fn reservation_capture_release_and_replay() {
         ledger.balance(a).await.unwrap(),
         Balance {
             available: 40,
-            transferable: 40,
-            non_transferable: 0,
             reserved: 60
         }
     );
@@ -310,8 +308,6 @@ async fn reservation_capture_release_and_replay() {
         ledger.balance(a).await.unwrap(),
         Balance {
             available: 40,
-            transferable: 40,
-            non_transferable: 0,
             reserved: 0
         }
     );
@@ -608,7 +604,7 @@ async fn invalid_input_overflow_and_recipient_failure_roll_back() {
 }
 
 #[tokio::test]
-async fn coin_classes_store_order_and_audited_grants() {
+async fn one_coin_balance_store_debit_and_audited_grants() {
     let Some(db) = Database::open().await else {
         return;
     };
@@ -617,29 +613,32 @@ async fn coin_classes_store_order_and_audited_grants() {
     fund(&ledger, a, 40).await;
     let grant = id();
     let first = ledger
-        .credit_non_transferable(grant, a, 60, actor, "Reward", GrantKind::Reward)
+        .grant(grant, a, 60, actor, "Reward", GrantKind::Reward)
         .await
         .unwrap();
-    assert_eq!(first.non_transferable_after, 60);
+    assert_eq!(
+        (first.kind.as_str(), first.available_after),
+        ("reward", 100)
+    );
     assert!(
         ledger
-            .credit_non_transferable(grant, a, 60, actor, "Reward", GrantKind::Reward)
+            .grant(grant, a, 60, actor, "Reward", GrantKind::Reward)
             .await
             .unwrap()
             .replayed
     );
     refused(
         ledger
-            .credit_non_transferable(grant, a, 61, actor, "Reward", GrantKind::Reward)
+            .grant(grant, a, 61, actor, "Reward", GrantKind::Reward)
             .await,
         Refusal::IdempotencyConflict,
     );
     refused(
-        ledger.transfer(id(), a, b, 41).await,
+        ledger.transfer(id(), a, b, 101).await,
         Refusal::InsufficientFunds,
     );
     refused(
-        ledger.reserve_offer(id(), a, 41, 100).await,
+        ledger.reserve_offer(id(), a, 101, 100).await,
         Refusal::InsufficientFunds,
     );
     let store = db
@@ -652,35 +651,159 @@ async fn coin_classes_store_order_and_audited_grants() {
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    let after = ledger.balance(a).await.unwrap();
     assert_eq!(
-        (after.available, after.transferable, after.non_transferable),
-        (30, 30, 0)
+        ledger.balance(a).await.unwrap(),
+        Balance {
+            available: 30,
+            reserved: 0
+        }
     );
+    // A store purchase is one debit of the one balance: one entry.
     let history = ledger.history(a, HistoryPage::default()).await.unwrap();
-    assert_eq!(history.iter().filter(|e| e.operation_id == key).count(), 2);
+    assert_eq!(history.iter().filter(|e| e.operation_id == key).count(), 1);
+    let key = id();
+    let mut tx = db.pool.begin().await.unwrap();
+    refused(
+        store
+            .adjust_in(&mut tx, key, a, -31, a, &format!("store-purchase:{key}"))
+            .await,
+        Refusal::InsufficientFunds,
+    );
+    tx.rollback().await.unwrap();
     assert_eq!(
         ledger
             .operation(grant)
             .await
             .unwrap()
             .unwrap()
-            .non_transferable_after,
-        60
+            .available_after,
+        100
     );
     refused(
         ledger
-            .credit_non_transferable(id(), a, 0, actor, "Bad", GrantKind::StaffGrant)
+            .grant(id(), a, 0, actor, "Bad", GrantKind::StaffGrant)
             .await,
         Refusal::InvalidAmount,
+    );
+    refused(
+        ledger
+            .grant(id(), a, 1, actor, " ", GrantKind::StaffGrant)
+            .await,
+        Refusal::InvalidReason,
+    );
+    let denied = Ledger::new(
+        db.pool.clone(),
+        WalletFlags { enabled: true },
+        Accounts(vec![a, b]),
+        Blocks {
+            blocked: None,
+            unknown: false,
+        },
+        Audit(false),
+    );
+    refused(
+        denied
+            .grant(id(), a, 1, actor, "Denied", GrantKind::StaffGrant)
+            .await,
+        Refusal::AuditDenied,
     );
     fund(&ledger, b, i64::MAX).await;
     refused(
         ledger
-            .credit_non_transferable(id(), b, 1, actor, "Overflow", GrantKind::StaffGrant)
+            .grant(id(), b, 1, actor, "Overflow", GrantKind::StaffGrant)
             .await,
         Refusal::Overflow,
     );
+    db.close().await;
+}
+
+/// Owner decision 2026-11-12: one coin class. A reward or staff grant is
+/// spendable, reservable and transferable exactly like a paid top-up.
+#[tokio::test]
+async fn reward_credit_is_spendable_and_transferable_like_a_top_up() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let (a, b, c, actor) = (id(), id(), id(), id());
+    let ledger = db.ledger(&[a, b, c]);
+    ledger
+        .grant(id(), a, 50, actor, "Reward", GrantKind::Reward)
+        .await
+        .unwrap();
+    ledger
+        .grant(id(), a, 50, actor, "Staff", GrantKind::StaffGrant)
+        .await
+        .unwrap();
+    let sent = ledger.transfer(id(), a, b, 60).await.unwrap();
+    assert_eq!((sent.available_after, sent.reserved_after), (40, 0));
+    let offer = id();
+    let reserved = ledger.reserve_offer(offer, a, 30, 100).await.unwrap();
+    assert_eq!(
+        (reserved.available_after, reserved.reserved_after),
+        (10, 30)
+    );
+    ledger.settle(id(), offer, c, 30).await.unwrap();
+    let store = db
+        .ledger(&[a, b, c])
+        .with_adjustment_kind(AdjustmentKind::StorePurchase);
+    let key = id();
+    let mut tx = db.pool.begin().await.unwrap();
+    store
+        .adjust_in(&mut tx, key, a, -10, a, &format!("store-purchase:{key}"))
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(ledger.balance(a).await.unwrap(), Balance::default());
+    // Coins received from reward coins are ordinary coins for the recipient.
+    ledger.transfer(id(), b, c, 60).await.unwrap();
+    assert_eq!(
+        ledger.balance(c).await.unwrap(),
+        Balance {
+            available: 90,
+            reserved: 0
+        }
+    );
+    db.close().await;
+}
+
+/// Entries written as `non_transferable` before 2026-11-12 stay in history and
+/// count toward the one balance, which spends them like any other coin.
+#[tokio::test]
+async fn historical_non_transferable_entries_count_toward_the_one_balance() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let (a, b, actor, old) = (id(), id(), id(), id());
+    let ledger = db.ledger(&[a, b]);
+    fund(&ledger, a, 10).await;
+    sqlx::query("INSERT INTO wallet_operations (id,kind,account_id,amount,reference_id,reason) VALUES ($1,'reward',$2,40,$3,'Reward')")
+        .bind(old).bind(a).bind(actor).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO wallet_entries (id,operation_id,account_id,available_delta,reserved_delta,coin_class) VALUES ($1,$2,$3,40,0,'non_transferable')")
+        .bind(id()).bind(old).bind(a).execute(&db.pool).await.unwrap();
+    assert_eq!(
+        ledger.balance(a).await.unwrap(),
+        Balance {
+            available: 50,
+            reserved: 0
+        }
+    );
+    assert_eq!(
+        ledger
+            .operation(old)
+            .await
+            .unwrap()
+            .unwrap()
+            .available_after,
+        50
+    );
+    let sent = ledger.transfer(id(), a, b, 50).await.unwrap();
+    assert_eq!(sent.available_after, 0);
+    refused(
+        ledger.transfer(id(), a, b, 1).await,
+        Refusal::InsufficientFunds,
+    );
+    let history = ledger.history(a, HistoryPage::default()).await.unwrap();
+    assert_eq!(history.iter().filter(|e| e.operation_id == old).count(), 1);
     db.close().await;
 }
 
@@ -700,7 +823,7 @@ async fn market_partial_fills_replays_release_and_exhaustion() {
     );
     let trade = id();
     let first = ledger.settle(trade, offer, b, 30).await.unwrap();
-    assert_eq!((first.transferable_after, first.reserved_after), (20, 50));
+    assert_eq!((first.available_after, first.reserved_after), (20, 50));
     ledger.settle(id(), offer, c, 20).await.unwrap();
     let replay = ledger.settle(trade, offer, b, 30).await.unwrap();
     assert!(replay.replayed);
@@ -716,7 +839,7 @@ async fn market_partial_fills_replays_release_and_exhaustion() {
     let release = id();
     let released = ledger.release(release, a, offer).await.unwrap();
     assert_eq!(released.amount, 30);
-    assert_eq!(released.transferable_after, 50);
+    assert_eq!(released.available_after, 50);
     assert!(ledger.release(release, a, offer).await.unwrap().replayed);
     refused(
         ledger.settle(id(), offer, b, 1).await,
@@ -731,8 +854,8 @@ async fn market_partial_fills_replays_release_and_exhaustion() {
         Refusal::InsufficientFunds,
     );
     assert_eq!(ledger.balance(a).await.unwrap().reserved, 0);
-    assert_eq!(ledger.balance(b).await.unwrap().transferable, 80);
-    assert_eq!(ledger.balance(c).await.unwrap().transferable, 20);
+    assert_eq!(ledger.balance(b).await.unwrap().available, 80);
+    assert_eq!(ledger.balance(c).await.unwrap().available, 20);
     assert_eq!(
         ledger.history(b, HistoryPage::default()).await.unwrap()[0].counterparty_account_id,
         Some(a)
@@ -770,7 +893,7 @@ async fn concurrent_market_fills_never_over_capture() {
     }
     assert_eq!(successes, 10);
     assert_eq!(ledger.balance(a).await.unwrap().reserved, 0);
-    assert_eq!(ledger.balance(b).await.unwrap().transferable, 100);
+    assert_eq!(ledger.balance(b).await.unwrap().available, 100);
     db.close().await;
 }
 

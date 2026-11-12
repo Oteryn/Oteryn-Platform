@@ -15,7 +15,7 @@ pub enum Error {
     NotFound,
     #[error("idempotency key has different input")]
     IdempotencyConflict,
-    #[error("insufficient transferable funds")]
+    #[error("insufficient funds")]
     InsufficientFunds,
     #[error("amount overflow")]
     Overflow,

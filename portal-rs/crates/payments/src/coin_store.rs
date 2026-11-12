@@ -49,21 +49,21 @@ pub enum Ownership {
     Unavailable,
 }
 
-/// One consistent wallet read for the payer.
+/// One consistent wallet read for the payer. There is one coin class:
+/// `available` is the whole unreserved balance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WalletSnapshot {
     pub revision: i64,
     pub total: i64,
     pub available: i64,
-    pub transferable: i64,
 }
 
 /// Outcome of reversing one purchase credit in the caller's transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Debit {
-    /// The whole credit was debited from unreserved transferable coins.
+    /// The whole credit was debited from the unreserved coin balance.
     Debited,
-    /// Unreserved transferable coins no longer cover it; nothing was debited.
+    /// The unreserved coin balance no longer covers it; nothing was debited.
     Insufficient,
 }
 
@@ -80,7 +80,7 @@ pub trait CoinHost: Send + Sync {
         connection: &'a mut PgConnection,
         payer: Uuid,
     ) -> HostFuture<'a, Result<Option<String>, CoinError>>;
-    /// Credit transferable coins once, keyed by `key`, in the caller's transaction.
+    /// Credit the payer's coin balance once, keyed by `key`, in the caller's transaction.
     fn credit_in<'a>(
         &'a self,
         tx: &'a mut Transaction<'static, Postgres>,
@@ -88,9 +88,10 @@ pub trait CoinHost: Send + Sync {
         payer: Uuid,
         coins: i64,
     ) -> HostFuture<'a, Result<(), CoinError>>;
-    /// Debit the whole credit once, keyed by `key`, from unreserved
-    /// transferable coins in the caller's transaction, whatever the payer's
-    /// restrictions; never partially and never below zero.
+    /// Debit the whole credit once, keyed by `key`, from the unreserved coin
+    /// balance (coins of any origin: top-up, reward, grant, referral) in the
+    /// caller's transaction, whatever the payer's restrictions; never
+    /// partially and never below zero.
     fn reverse_in<'a>(
         &'a self,
         tx: &'a mut Transaction<'static, Postgres>,
@@ -397,8 +398,7 @@ impl CoinPurchases {
             .bind(payer).fetch_one(&self.pool).await?;
         let consistent = wallet.revision > 0
             && (0..=MAX_COINS).contains(&wallet.total)
-            && (0..=wallet.total).contains(&wallet.available)
-            && (0..=wallet.available).contains(&wallet.transferable);
+            && (0..=wallet.total).contains(&wallet.available);
         if !consistent {
             return Err(CoinError::Unavailable);
         }
@@ -407,7 +407,9 @@ impl CoinPurchases {
             revision: wallet.revision,
             total_coins: wallet.total,
             available_coins: wallet.available,
-            transferable_coins: wallet.transferable,
+            // One coin class: OTERYN_COIN_PURCHASE_V1 keeps the member and
+            // every available coin is transferable.
+            transferable_coins: wallet.available,
             review_required,
         })
     }
@@ -609,7 +611,7 @@ impl CoinPurchases {
 
     /// Verified provider events only. In one transaction: lock intent and order,
     /// record the event once, transition both; `paid` writes the receipt and the
-    /// single transferable credit keyed by the intent ID, `refunded` and
+    /// single coin credit keyed by the intent ID, `refunded` and
     /// `chargeback` reverse that credit once. A refused delivery whose payload
     /// differs from its event ID's record or from the order's binding is audited.
     pub async fn webhook(&self, body: &[u8], signature: &[u8]) -> Result<WebhookOutcome, Error> {
@@ -815,11 +817,12 @@ impl CoinPurchases {
 
     /// `refunded` or `chargeback`: reverse the credited coins once.
     ///
-    /// - Credited order: debit the whole credit from unreserved transferable
-    ///   coins under the wallet lock. When they no longer cover it nothing is
-    ///   debited (never partially, never below zero): the order is flagged for
-    ///   review and the payer's new purchasing is frozen. A chargeback after a
-    ///   refund changes the state only.
+    /// - Credited order: debit the whole credit from the unreserved coin
+    ///   balance (coins of any origin) under the wallet lock. When it no
+    ///   longer covers it nothing is debited (never partially, never below
+    ///   zero): the order is flagged for review and the payer's new
+    ///   purchasing is frozen. A chargeback after a refund changes the state
+    ///   only.
     /// - Not yet credited: the reversal is recorded, the order is held in
     ///   `processing` for review and a later settlement is fenced.
     async fn reverse(

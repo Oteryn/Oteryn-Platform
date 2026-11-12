@@ -5,12 +5,12 @@
 `WalletFlags::default()` disables every API, including reads. The Game wire is
 mounted on the shared mTLS-protected router and defaults off independently.
 
-There are transferable and non-transferable coin classes; all values are `i64` in the smallest unit.
-Available and reserved balances are sums of immutable entry deltas, read under
-`SELECT ... FOR UPDATE` on the account row. Available is the sum of spendable
-transferable and non-transferable coins. Only transferable coins can be reserved
-or transferred; store purchases spend non-transferable first.
-Each class, reserved and their total cannot be negative or exceed `i64::MAX`.
+There is one coin class (owner decision 2026-11-12); all values are `i64` in the
+smallest unit. Available and reserved balances are sums of immutable entry deltas,
+read under `SELECT ... FOR UPDATE` on the account row. Every credit (top-up,
+reward, staff grant, referral, settlement) adds to available, and every spend,
+reserve and transfer takes from it. Available, reserved and their total cannot be
+negative or exceed `i64::MAX`.
 Transfers create and lock both wallet rows in ascending UUID order before reading
 balances. Account UUIDs have no foreign key to the future identity schema.
 
@@ -24,7 +24,7 @@ replay reports a prior committed result even if a transfer block was added later
 `reserve` moves available coins to reserved and uses the operation ID as the
 reservation ID. `release` restores all reserved coins; `capture` consumes them in
 full. The legacy capture consumes the remaining reserve once, with exact operation replay allowed.
-`settle` atomically captures a partial amount and credits a buyer as transferable;
+`settle` atomically captures a partial amount and credits the buyer's balance;
 concurrent fills and release serialize on account and reservation locks. It does
 not implement gold movement or Bazaar fees. `reserve_offer` binds gold price into
 idempotency without moving gold.
@@ -70,15 +70,21 @@ operation key, independent of outbox delivery ID. Existing APIs keep their kinds
 Migration `20261107180001_wallet_topup` extends only the kind constraint; its
 inverse refuses while any immutable `top_up` operation exists.
 
-Coin-class migration preserves all existing entries as transferable. Non-transferable
-credits require `credit_non_transferable`, an explicit reward/staff kind, actor,
-reason and the transactional audit adapter. Top-ups remain transferable. Every
+Audited reward and staff credits use `grant`, an explicit reward/staff kind, actor,
+reason and the transactional audit adapter; they credit the one balance like a
+top-up. The historical `wallet_entries.coin_class` column (migration
+`20261109071943_t125_coin_classes`) is retired by
+`20261112100012_wallet_single_coin`: new entries take its default and balances,
+receipts and history ignore it, so rows of either class count. Every
 mutation now returns a complete original receipt; `operation` reconstructs that
 receipt from immutable entries through the operation's entry sequence, so later
 activity cannot change a replay. UUID ordering is used only for compatibility with
 the original pre-sequence schema in the existing additive-upgrade harness.
-History includes each class and direction-aware counterparty. Rollback disables
-flags and preserves financial history; do not discard coin classes or partial fills.
+History includes the direction-aware counterparty. The coin wire keeps its
+`coin-wire-v1` members: `transferable` and `transferable_after` carry the whole
+available balance, `non_transferable` and `non_transferable_after` are `0` and
+`coin_class` is `transferable`. Rollback disables flags and preserves financial
+history; do not discard ledger rows or partial fills.
 
 `wire::configured_router` reads `PORTAL_COIN_TRANSFERS_ENABLED`,
 `PORTAL_COIN_MARKET_ENABLED` and `PORTAL_GAME_COINS_IDENTITIES`. Both flags default
