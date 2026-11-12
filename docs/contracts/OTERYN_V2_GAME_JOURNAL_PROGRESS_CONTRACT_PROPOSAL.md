@@ -12,6 +12,13 @@ Coordinator verdict on 2026-11-07: **ACCEPT**, with three clarifications:
 
 Open questions are resolved in the Game producer lanes and do not block this acceptance. Acceptance does not start Game producers.
 
+## Amendment: terminal subject refusals (coordinator decision, 2026-11-12)
+
+The coordinator decided this for the account-wide contiguous G-11 stream after the T72 ingest (Oteryn/Oteryn-Platform#1822). It adds one answer and a closed list of terminal reasons; every other rule of revision 3 is unchanged.
+
+- **Terminal refusal (Option A):** only a deterministic refusal tied to the state of the record's subject, listed in §8.2 *Terminal refusals*, consumes its `source_revision`. Platform records the refusal durably and content-free (record_id, source_revision, digest and reason code, no payload), advances the stream past it and answers 200 with the refusal answer of §4. An exact replay returns identical answer bytes and writes nothing; other bytes at that revision or under that record_id remain a `409` conflict.
+- **Everything else (Option B):** canonical/schema/digest violations, gaps and ordering faults, a revision outside the contiguous window, binding conflicts, account deletion, ownership or fence failures and transient storage errors keep their §7 status, write nothing and never advance the stream.
+
 ## Revision 3 changes
 
 Game-owner decisions relayed by the coordinator on 2026-11-07, common to G-9, G-10 and G-11. Every other revision 2 decision is unchanged; open questions in §11 stay open.
@@ -205,6 +212,13 @@ Record 200 answer has exactly `contract_version` (1), `result` (`accepted`),
 exactly `contract_version` (1), `result` (`accepted`), `complete_through` (echo n64).
 A durable acceptance does not promise the stream is complete or user-visible yet.
 Exact duplicate record bytes return identical answer bytes and write nothing.
+
+A record refused for a terminal reason (§8.2 *Terminal refusals*) is answered 200
+with exactly `contract_version` (1), `result` (`refused`), `record_id` (echo id),
+`consumed_source_revision` (echo u64) and `reason` (the terminal reason code). Its
+revision is consumed: the stream continues at the next revision and a later
+watermark may cover it. Game acknowledges the matching outbox row as refused and
+does not resend it; an exact resend returns the identical refusal bytes.
 
 ## 5. Closed family payload schemas
 
@@ -477,6 +491,7 @@ UI time is informational; this is not a gameplay or entitlement authority lease.
 | Response / condition | Required behavior |
 |---|---|
 | `200` exact acknowledgement | Durable ingest only; acknowledge matching outbox bytes |
+| `200` terminal refusal (§4, §8.2) | Revision consumed, nothing of the record stored; acknowledge the outbox row as refused, never resend or replace it |
 | `400` | Closed-schema/version/unit/cross-field/canonical violation; no write, quarantine and fix producer |
 | `401` | Wrong TLS/source/purpose/account-partition binding; no write, stop peer and alarm |
 | `409` | Binding conflict, unsupported epoch, stale fence, ownership mismatch or incomplete watermark; no write, reconcile source/cut; never overwrite |
@@ -583,6 +598,20 @@ Backups expire on their own schedule (the 35-day bound above, shorter than the
 tombstone lifetime). Tombstones are preserved outside the state a restore or PITR
 rolls back and are re-applied before serving or ingest resumes; if they cannot be
 proven, the affected data stays unavailable.
+
+**Terminal refusals.** The G-11 stream is account-wide, so a refusal tied to one
+character's deleted scope would otherwise block the rest of the account. The closed
+list of terminal reasons, each a deterministic refusal tied to subject state:
+
+| Reason code | Condition |
+|---|---|
+| `CHARACTER_SCOPE_DELETED` | The record's `character_id` lies in a deleted character scope of its account (character deletion, opt-out or the transfer cut); a first delivery never reinserts content |
+
+Such a record is answered with the §4 refusal answer and consumes its revision. A
+record whose account is deleted is not a terminal refusal: account deletion closes
+the stream itself, which stays closed and answers `409` (above). An exact replay of
+a record accepted before its character scope was deleted stays `409`. No other
+condition is terminal; a new reason requires a contract amendment.
 
 ### 8.3 Legal hold
 
@@ -723,6 +752,14 @@ missing, so 409 and no freshness advancement.
 
 ```json
 {"contract_version":1,"operation":"PublishGameJournalProgressWatermarkV1","source_authority":"oteryn:journal:primary","account_id":"0190f2a1-3b4c-7d5e-8f60-718293a4b5c6","projection_epoch":"1","recovery_generation":"3","family":"stamina","complete_through":"2","observed_at_unix_ms":"1790000000000","baseline_complete":true}
+```
+
+Terminal refusal answer for that valid stamina record when character
+`01934f10-7c04-7001-805b-3b1122334401` was deleted before delivery (§8.2); an exact
+replay returns these bytes again:
+
+```json
+{"contract_version":1,"result":"refused","record_id":"01934f10-7c04-7001-805b-3b1122334403","consumed_source_revision":"1","reason":"CHARACTER_SCOPE_DELETED"}
 ```
 
 Additional golden rule cases: replay the valid record unchanged → identical 200;

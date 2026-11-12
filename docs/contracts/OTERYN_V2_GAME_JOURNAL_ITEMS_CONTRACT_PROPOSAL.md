@@ -453,6 +453,13 @@ exchange and generation admission are acceptance prerequisites, not a license to
 hand-edit cursors. Preserve fences/dedup evidence for the whole replay lifetime;
 after payload erasure, reject expired replays without restoring private content.
 
+Terminal refusals (coordinator decision, 2026-11-12): G-10 has none. Every G-10
+stream that carries a character is keyed by that character and its receipt cut, so
+deleting the character closes the whole stream; BANK streams carry no character and
+close only with their account. A record inside a deleted scope therefore stays
+`409` and never advances the cursor. The consuming terminal refusal applies only to
+the account-wide G-11 stream (G-11 §8.2 *Terminal refusals*).
+
 ## Owner-only access, transfer and retention
 
 No public feed, sharing link, guild/team/staff dashboard, public search index, CDN,
