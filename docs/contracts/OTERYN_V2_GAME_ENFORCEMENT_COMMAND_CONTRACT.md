@@ -4,7 +4,7 @@
 
 `ACCEPTED PLATFORM CONSUMER / ORCHESTRATION ARCHITECTURE CONTRACT — OTERYN-V2 TRANSPORT AND RUNTIME IMPLEMENTATION DEFERRED`
 
-PROPOSED wire draft (not accepted, authorizes nothing): `OTERYN_V2_ENFORCEMENT_AND_ENTITLEMENT_WIRE_CONTRACT_PROPOSAL.md`.
+Wire: `OTERYN_V2_ENFORCEMENT_AND_ENTITLEMENT_WIRE_CONTRACT_PROPOSAL.md`, ACCEPTED revision 2 (owner, 2026-11-13). Its v1 profiles are MUTE and JAIL.
 
 This contract defines the semantic boundary used when Oteryn Platform support or moderation workflows request an authoritative native game sanction or runtime enforcement action from Oteryn-v2.
 
@@ -72,8 +72,7 @@ Canonical native `AccountId` and game-owned `CharacterId` are used where applica
 
 The common envelope may support separately versioned profiles such as:
 
-- deny new game admission for an account;
-- disconnect or restrict an active account/character session;
+- restrict an active account or character session without ending it, for example a mute or a jail;
 - character-scoped or world/channel-scoped game restriction;
 - revoke, replace or expire a prior game sanction;
 - reconcile an earlier operation or authoritative sanction state.
@@ -167,7 +166,7 @@ Dependency unavailable, retryable internal failure and any failure after possibl
 
 For profiles promising immediate runtime effect, successful application is not proven until the authoritative result states the required active-session action reached its terminal policy outcome. A database row, queued disconnect or admission-policy update alone is insufficient.
 
-New-admission denial and active-session termination are distinct capabilities. If only new-admission denial is supported, Platform must not claim that an already-online session was disconnected. Game Login Ticket, pre-admission and final game admission contracts continue to own their respective authorization stages.
+Denying new admission and ending a session are not command families of this contract. Owner decision 1 (2026-11-11) delivers every session-ending cause, bans included, through the account security revocation stream (`OTERYN_V2_ACCOUNT_SECURITY_REVOCATION_STREAM_CONTRACT_PROPOSAL.md`). The rest of this paragraph applies to that stream. New-admission denial and active-session termination are distinct capabilities. If only new-admission denial is supported, Platform must not claim that an already-online session was disconnected. Game Login Ticket, pre-admission and final game admission contracts continue to own their respective authorization stages.
 
 ## Reconciliation and projections
 
