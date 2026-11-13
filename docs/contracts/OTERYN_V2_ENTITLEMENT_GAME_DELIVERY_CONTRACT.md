@@ -4,6 +4,8 @@
 
 `ACCEPTED PLATFORM CONSUMER / COMMERCIAL-ORCHESTRATION ARCHITECTURE CONTRACT — PAYMENT, GAME TRANSPORT AND RUNTIME IMPLEMENTATION DEFERRED`
 
+PROPOSED wire draft (not accepted, authorizes nothing): `OTERYN_V2_ENFORCEMENT_AND_ENTITLEMENT_WIRE_CONTRACT_PROPOSAL.md`.
+
 This contract defines how Oteryn Platform may turn a Platform-owned product/entitlement decision into a gameplay-affecting outcome without transferring gameplay authority to Platform, treating payment as delivery proof, or writing native game persistence directly.
 
 It is subordinate to ADR 0031 and to the owning Wallet, Payments, Character Authority and public-projection contracts.
