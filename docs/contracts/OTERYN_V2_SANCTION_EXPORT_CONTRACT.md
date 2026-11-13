@@ -2,6 +2,10 @@
 
 Owner decision: 2026-11-11, N009. Platform owns decisions. Game pulls a
 player-visible record projection; it does not enforce decisions from this feed.
+Ending a Game session on a ban, kick or credential change is delivered only by
+the account security revocation stream (owner decision 1, 2026-11-11,
+`OTERYN_V2_ACCOUNT_SECURITY_REVOCATION_STREAM_CONTRACT_PROPOSAL.md`); this feed
+never makes a session terminal.
 There is no shared database, outbound game call, game credential or SQL projection
 writer in this implementation. The transport described in the read-only Game
 reference `PLATFORM_SANCTION_LOYALTY_EXPORT_V1.md` is superseded for this producer
