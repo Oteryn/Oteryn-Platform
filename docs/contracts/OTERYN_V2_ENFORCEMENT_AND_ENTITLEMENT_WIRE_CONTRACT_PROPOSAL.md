@@ -1,22 +1,32 @@
-# Oteryn-v2 enforcement command and Profile-B entitlement wire (proposal)
+# Oteryn-v2 enforcement command and Profile-B entitlement wire
 
 ## Status
 
-`PROPOSED — oteryn-v2-game-enforcement-wire-v1 AND oteryn-v2-profile-b-authority-wire-v1 — AUTHORIZES NO IMPLEMENTATION — OWNER ACCEPTANCE PENDING — DEFAULT-OFF`
+`ACCEPTED (revision 2, owner 2026-11-13) — oteryn-v2-game-enforcement-wire-v1 AND oteryn-v2-profile-b-authority-wire-v1 — IDL AND FIXTURES FROZEN — DEFAULT-OFF`
 
-- `IMPLEMENTATION_AUTHORITY: NONE` (Platform and Game). `PRODUCTION_AUTHORITY: NONE`.
-- Requested by the programme coordinator on 2026-11-13. The owner must accept this text before Game or Platform writes code against it.
-- It proposes the transport and IDL that two accepted architecture contracts defer:
+- `IMPLEMENTATION_AUTHORITY:` the Platform producer and the Game consumer, each behind flags that are off by default. `PRODUCTION_AUTHORITY: NONE`: enabling a profile or a product in production is a separate gate (§12).
+- The owner accepted this wire on 2026-11-13, with every recommendation E1–E8 and P1–P8 and the three changes listed under *Revision 2 changes*. The file name keeps its historical `_PROPOSAL` suffix so links stay stable.
+- It fixes the transport and IDL that two accepted architecture contracts defer:
   - Part A: `OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md`, *Explicitly deferred* ("exact transport, endpoint, schema/IDL bytes").
   - Part B: `OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md`, *Profile B finite authority lease* and *Deferred details* ("event/query/command transport", "numeric per-product Profile-B lease/refresh/skew values").
-- It is subordinate to both. Where this draft and an accepted contract disagree, the accepted contract wins and this draft is wrong.
-- Every number, name and enum value below is a **proposal** with its reason. Nothing here activates a profile, a product, a flag, a certificate or a route.
+- It is subordinate to both. Where this wire and an accepted architecture contract disagree, the architecture contract wins and this wire is wrong.
+- Every number, name and enum value below is accepted with its reason. Nothing here activates a profile, a product, a flag, a certificate or a route.
 
-This proposal authorizes no payment, entitlement issuance, sanction, Game runtime or schema change, certificate or secret operation, deployment or production mutation.
+This contract authorizes no payment, product approval, production entitlement issuance or sanction, certificate or secret operation, deployment or production mutation.
+
+### Revision 2 changes (owner acceptance, 2026-11-13)
+
+1. **E7.** The overdue-result alarm fires after **5 minutes**, not 15 (§6.3, §6.8).
+2. **§13.5, lease values.** The §9.1 values are contract **maximums**. Deployment configuration may only shorten them, never extend them (§9.1).
+3. **P7, repeat purchases.** A repeat purchase of the same product/version **merges** into the existing entitlement, for example by extending its `effective_until`. Platform never creates a parallel entitlement for the same (`account_id`, `product_id`, `product_version`) (§7, §10.5).
+4. **§13 resolved.** The owner accepted the reading of every §13 item. Item 1 is applied to `OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md`: the admission-deny and disconnect families are struck there and point to the revocation stream (owner decision 1).
+5. **Frozen.** The IDL and the fixtures of §11 are frozen. A change to either is a contract change that needs a new revision.
+
+No wire member, route, enum or fixture byte changes in revision 2.
 
 ## 1. Shared conventions
 
-Both parts reuse the conventions that the Platform's current `/internal/v1` routes already follow (`OTERYN_V2_SANCTION_EXPORT_CONTRACT.md` (N009), `OTERYN_V2_LOYALTY_SNAPSHOT_CONTRACT.md` stream, `OTERYN_V2_ACCOUNT_SECURITY_REVOCATION_STREAM_CONTRACT_PROPOSAL.md`, `OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md`, `OTERYN_V2_COIN_TRANSFER_AND_MARKET_CONTRACT.md`). This proposal invents no new mechanism.
+Both parts reuse the conventions that the Platform's current `/internal/v1` routes already follow (`OTERYN_V2_SANCTION_EXPORT_CONTRACT.md` (N009), `OTERYN_V2_LOYALTY_SNAPSHOT_CONTRACT.md` stream, `OTERYN_V2_ACCOUNT_SECURITY_REVOCATION_STREAM_CONTRACT_PROPOSAL.md`, `OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md`, `OTERYN_V2_COIN_TRANSFER_AND_MARKET_CONTRACT.md`). This contract invents no new mechanism.
 
 ### 1.1 Direction
 
@@ -105,7 +115,7 @@ The architecture's families "deny new game admission" and "disconnect or restric
 
 ### 2.2 Relation to the N009 sanction export
 
-N009 exports a player-visible record of kinds `1 mute` and `2 jail`. Game "does not enforce decisions from this feed", and N009 has no producer for those kinds today. This wire is the enforcement-bearing path for the same decisions. Proposal E2:
+N009 exports a player-visible record of kinds `1 mute` and `2 jail`. Game "does not enforce decisions from this feed", and N009 has no producer for those kinds today. This wire is the enforcement-bearing path for the same decisions. Decision E2:
 
 - the command's `sanction_stream_id` is the N009 `sanction_stream_id` of the same typed sanction;
 - the command's `decision_revision` is the N009 `decision_revision` of the decision it enacts;
@@ -311,7 +321,7 @@ Game compares each item with its own receipt store. Drift raises an operator ala
 
 - A timeout or lost response on A3 is neither success nor failure. Game republishes the identical bytes until it gets `200`, `404` or `409`.
 - A Platform operation without a terminal result stays `PENDING`. This is the architecture's Platform-local `AMBIGUOUS`. Platform never mints a replacement operation for it.
-- Platform raises the operator alarm `support.enforcement_result_overdue` when an operation has no result 15 minutes after publication (proposal E7). The alarm changes no state.
+- Platform raises the operator alarm `support.enforcement_result_overdue` when an operation has no result 5 minutes after publication (decision E7). The alarm changes no state.
 - `UNKNOWN_TO_GAME` is never published in v1. Game never proves non-acceptance on this wire, so Platform treats a missing result as pending, not as safe to replace.
 
 ### 6.4 Restore
@@ -353,7 +363,7 @@ The two identities follow the one-identity-per-purpose rule. A reader certificat
 | A3 timeout or lost response | — | stored or not | republish identical bytes |
 | A3 result with different bytes for a stored key | `409` | unchanged | alarm both sides |
 | A3 for an unknown operation (Platform restore) | `404` | unchanged | stop republishing; alarm; operator reconciles |
-| no result after 15 min | — | `PENDING` + alarm | — |
+| no result after 5 min | — | `PENDING` + alarm | — |
 | Game restore | per §6.4 | reopened | republish new results |
 
 ### 6.8 Owner decisions needed (Part A)
@@ -366,7 +376,7 @@ The two identities follow the one-identity-per-purpose rule. A reader certificat
 | E4 | capability negotiation | (a) static Platform flag list plus Game's `UNSUPPORTED` rejection; (b) a Game-posted capability route | **(a)** for v1: no new route, fails closed both ways. |
 | E5 | evidence across the boundary | (a) `audit_ref` only; (b) opaque evidence handles | **(a).** Game does not need evidence to execute a mute or jail. |
 | E6 | Game restore | amend the restore notice before enabling | **Yes**, as a precondition, mirroring Store wire §7. |
-| E7 | overdue-result alarm | 15 min | **15 min.** Mute and jail are short; a quarter hour without a result is an incident, not noise. |
+| E7 | overdue-result alarm | 5 min (owner, rev 2; draft said 15 min) | **5 min.** Mute and jail are short; five minutes without a result is an incident, not noise. |
 | E8 | decisions while a profile is off | (a) Platform-local only, no backfill; (b) backfill on enable | **(a).** A backfill would enact stale decisions without a fresh moderator decision. |
 
 ## Part B — Profile-B entitlement authority wire (`oteryn-v2-profile-b-authority-wire-v1`)
@@ -376,7 +386,7 @@ The two identities follow the one-identity-per-purpose rule. A reader certificat
 - **What it covers.** Part B gives every Profile-B product/version **other than** `oteryn.premium_time` v1 one generic authority read, B1. It also gives every Profile-B product, Premium included, one change feed, B2.
 - **Premium time.** `oteryn.premium_time` v1 keeps its existing route and wire (`OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md`) unchanged (owner decision P3).
 - **Other profiles.** Profile C item delivery is proposed in the Store wire (`OTERYN_V2_STORE_WIRE_CONTRACT.md`). Profile D goes through `OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md`. Profile E is the Platform Wallet. Part B adds no delivery route for C, D or E.
-- **Products.** Part B approves no product. A product/version may use B1 only after its own product contract names it, declares Profile B, declares the lease policy of §9, and has at most one entitlement per (`account_id`, `product_id`, `product_version`), as Premium v1 does (§2.1 of that contract).
+- **Products.** Part B approves no product. A product/version may use B1 only after its own product contract names it, declares Profile B, declares the lease policy of §9, and has at most one entitlement per (`account_id`, `product_id`, `product_version`), as Premium v1 does (§2.1 of that contract). A repeat purchase of the same product/version merges into that entitlement (for example, it extends `effective_until`) and advances `authority_revision`; it never creates a parallel entitlement (owner decision P7, rev 2).
 
 ## 8. Routes
 
@@ -478,15 +488,18 @@ Worst case: 206 bytes per item, and 103596 bytes for a 500-item page.
 | `PRODUCTS_ENTITLEMENTS_PROFILE_B_CHANGES_REQUESTS_PER_MINUTE` | `1200` (1..6000) | B2 budget |
 | `PLATFORM_BUILD_REVISION` | none | required by B1; missing or malformed answers `503` |
 
-Lease numbers are **not** configuration (§9.1).
+Configuration may only shorten lease numbers, never extend them (§9.1).
 
-## 9. Profile-B lease values (PROPOSED)
+## 9. Profile-B lease values
 
 ### 9.1 Policy `oteryn.profile_b.lease.v1`
 
-These values are proposed as **fixed contract values**, not deployment configuration. The generic contract says that widening a lease is an authorization-policy change. Premium v1 already reads it that way (§3 of that contract). A product needing other values needs a new `lease_policy` id in an amended contract.
+These values are contract **maximums** (owner, rev 2). Deployment configuration may only shorten them: a smaller `max_authority_lease`, a smaller `max_clock_skew`, or a shorter B2 poll interval. It never extends them. The generic contract says that widening a lease is an authorization-policy change. Premium v1 already reads it that way (§3 of that contract). A product needing larger values needs a new `lease_policy` id in an amended contract.
 
-| Policy (generic contract name) | Proposed value | Reason |
+- With a shortened lease `L' < 3600 s`, the §9.2 formulas use `L'` in place of `L`. `refresh_after` stays at two thirds of the lease.
+- Game accepts an answer only when `authority_valid_until − authority_issued_at ≤ 3600 s`. An answer above the maximum is refused as malformed, whatever the configuration says.
+
+| Policy (generic contract name) | Maximum value | Reason |
 |---|---|---|
 | `max_authority_lease` (L) | **3600 s** | Same as accepted Premium v1. It bounds the life of any accepted active evidence to one hour, even across a Platform outage or a lost change feed. One policy for every Profile-B product keeps Game's evaluator single. |
 | `refresh_before`, on the wire `refresh_after` | **issued + floor(2 × (authority_valid_until − issued) / 3)**: 2400 s for a full lease | Same rule as Premium v1. It always precedes a cutoff that the commercial end has clipped, as the generic contract requires. |
@@ -588,7 +601,7 @@ Platform database rollback has the effect of Premium §6.5: the fence rejects re
 | P4 | B2 covers Premium | (a) yes, as hints; (b) B2 for B1 products only | **(a).** It closes Premium's 40-minute revocation window with no change to the Premium wire. |
 | P5 | authority-time anchor for recovery | (a) none; (b) use `authority_issued_at` as a bounded anchor | **(a).** Simpler, and the generic contract forbids a weaker anchor. |
 | P6 | B2 poll cadence | 10 s | **10 s.** |
-| P7 | multiplicity | (a) at most one entitlement per account and product/version on B1 v1; (b) several | **(a)**, as Premium. A product needing several needs B1 v2. |
+| P7 | multiplicity | (a) at most one entitlement per account and product/version on B1 v1; (b) several | **(a)**, as Premium. A repeat purchase merges into the existing entitlement, for example by adding time, and never creates a parallel one (owner, rev 2). |
 | P8 | identities | (a) separate B1 and B2 identities; (b) one | **(a)**, as the loyalty snapshot and loyalty stream are split. |
 
 ## 11. Fixtures
@@ -607,7 +620,7 @@ These are synthetic, byte-exact, compact canonical vectors with no terminal newl
   - `authority.json`, with an `ACTIVE` item on a full lease and a `NONE` item, issued at `2023-11-14T22:13:20Z`;
   - `changes-request.json`, `changes-page.json` and `changes-empty.json`.
 
-The product ids `oteryn.example_active` and `oteryn.example_none` are placeholders, not products. These fixtures change with this proposal until it is accepted. After acceptance, a fixture change is a contract change.
+The product ids `oteryn.example_active` and `oteryn.example_none` are placeholders, not products. The fixtures are frozen at revision 2. A fixture change is a contract change.
 
 ## 12. Validation required before any activation
 
@@ -634,15 +647,15 @@ Platform and Game prove their own sides, then a joint run on the shared fixtures
 
 ## 13. Ambiguities found in the accepted architecture
 
-These are recorded for the owner. This draft does not resolve them by changing accepted text.
+The owner accepted the readings below on 2026-11-13 (rev 2). Item 1 is applied to the enforcement contract. Item 5 is tightened: the values are maximums that configuration may only shorten.
 
-1. **Enforcement families vs owner decision 1.** The enforcement contract still lists "deny new game admission" and "disconnect … an active session" as families. Owner decision 1 sends every session-ending cause to the revocation stream. This draft follows the decision and excludes those families. The enforcement contract may want a one-line note.
-2. **`expire` origin and revision.** The enforcement contract lists `expire` as a command intent, and also says expiry is evaluated on game time and "not inferred solely from a Platform clock". It also says a new decision needs a strictly newer revision, but `expire` is not a decision. This draft makes `EXPIRE` a Platform reconcile request that carries the existing revision, and lets Game decide.
-3. **`UNKNOWN_TO_GAME` in a pull model.** With no Platform→Game query, Game never proves non-acceptance. This draft never publishes `UNKNOWN_TO_GAME`, and keeps a missing result pending.
-4. **N009 mute and jail.** N009 defines kinds 1 and 2 as display-only and has no producer for them. The relationship to the enforcement command is unstated. Proposal E2 links them.
-5. **Lease values: configuration or contract.** The generic entitlement contract says numeric lease values "remain product/runtime configuration". Premium v1 fixes them as contract values that are "not deployment configuration". This draft follows Premium: runtime configuration can never widen a lease.
-6. **`refresh_before` vs `refresh_after`.** The generic contract names a `refresh_before` value. Premium v1 puts `refresh_after` on the wire, and starts `STALE_WITHIN_BOUND` there. This draft follows Premium.
-7. **Open-ended commercial interval.** The generic contract allows an open-ended `effective_until`. Premium v1 never emits one for an active state. This draft allows `null` on B1 and clips the lease to `issued + L`.
+1. **Enforcement families vs owner decision 1.** The enforcement contract still lists "deny new game admission" and "disconnect … an active session" as families. Owner decision 1 sends every session-ending cause to the revocation stream. This wire follows the decision and excludes those families. Revision 2 strikes them from the enforcement contract and points there to the revocation stream.
+2. **`expire` origin and revision.** The enforcement contract lists `expire` as a command intent, and also says expiry is evaluated on game time and "not inferred solely from a Platform clock". It also says a new decision needs a strictly newer revision, but `expire` is not a decision. This wire makes `EXPIRE` a Platform reconcile request that carries the existing revision, and lets Game decide.
+3. **`UNKNOWN_TO_GAME` in a pull model.** With no Platform→Game query, Game never proves non-acceptance. This wire never publishes `UNKNOWN_TO_GAME`, and keeps a missing result pending.
+4. **N009 mute and jail.** N009 defines kinds 1 and 2 as display-only and has no producer for them. The relationship to the enforcement command is unstated. Decision E2 links them.
+5. **Lease values: configuration or contract.** The generic entitlement contract says numeric lease values "remain product/runtime configuration". Premium v1 fixes them as contract values that are "not deployment configuration". This wire follows Premium: runtime configuration can never widen a lease.
+6. **`refresh_before` vs `refresh_after`.** The generic contract names a `refresh_before` value. Premium v1 puts `refresh_after` on the wire, and starts `STALE_WITHIN_BOUND` there. This wire follows Premium.
+7. **Open-ended commercial interval.** The generic contract allows an open-ended `effective_until`. Premium v1 never emits one for an active state. This wire allows `null` on B1 and clips the lease to `issued + L`.
 
 ## References
 

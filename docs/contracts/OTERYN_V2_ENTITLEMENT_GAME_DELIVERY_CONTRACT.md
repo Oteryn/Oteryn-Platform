@@ -4,7 +4,7 @@
 
 `ACCEPTED PLATFORM CONSUMER / COMMERCIAL-ORCHESTRATION ARCHITECTURE CONTRACT — PAYMENT, GAME TRANSPORT AND RUNTIME IMPLEMENTATION DEFERRED`
 
-PROPOSED wire draft (not accepted, authorizes nothing): `OTERYN_V2_ENFORCEMENT_AND_ENTITLEMENT_WIRE_CONTRACT_PROPOSAL.md`.
+Profile-B wire: `OTERYN_V2_ENFORCEMENT_AND_ENTITLEMENT_WIRE_CONTRACT_PROPOSAL.md`, ACCEPTED revision 2 (owner, 2026-11-13). Its lease values are maximums that configuration may only shorten.
 
 This contract defines how Oteryn Platform may turn a Platform-owned product/entitlement decision into a gameplay-affecting outcome without transferring gameplay authority to Platform, treating payment as delivery proof, or writing native game persistence directly.
 
