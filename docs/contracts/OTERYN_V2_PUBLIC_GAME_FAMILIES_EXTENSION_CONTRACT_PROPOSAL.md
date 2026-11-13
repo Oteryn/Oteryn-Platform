@@ -1,6 +1,17 @@
-Status: PROPOSED revision 2 by Platform, pending acceptance by the game owner (coordinator).
+Status: ACCEPTED revision 3 by the game owner, 2026-11-13, relayed by the programme coordinator. Revision 2 was proposed by Platform; the owner's review verdict was ACCEPT-WITH-NOTES, and revision 3 applies those notes (see *Revision 3 changes*). Acceptance covers the wire and semantics and authorizes implementation of the Game producer and the Platform consumer behind default-off flags; it authorizes no production activation. Consumer qualification, the activation qualification in Q7 and production activation remain separate gates.
 
-# Public game projection families — G-4 extension proposal
+The `_PROPOSAL` suffix in this file's name is historical and kept so that existing links stay stable; it does not describe the current status.
+
+# Public game projection families — G-4 extension
+
+## Revision 3 changes
+
+Owner acceptance on 2026-11-13, relayed by the programme coordinator, of the revision 2 text with the owner's ACCEPT-WITH-NOTES notes folded in. This revision changes no wire member, bound, path, operation, enum or encoding rule; it makes exposure explicit for implementers:
+
+- **Public families:** `character_deaths`, `guild`, `house` and `character_skills` may be served publicly, subject to the existing profile eligibility rules and the Platform privacy floor (*Privacy, owner access and retention*).
+- **Owner-only families:** `character_equipment`, `character_outfit` and `character_achievements` are ingested on the same `/internal/v2/game-public/` mTLS paths as the public families. Platform serves them only to the current owner of the character, gated by the Character Authority ownership-transition revision floor (*Earned achievements*); there is no public view of these families, whatever the profile or visibility preferences say.
+- **Naming:** `game-public` in the path prefix and in the contract profile name names the ingest family set and its shared transport, envelope, fence and watermark; it does not mean the data is publicly exposed.
+- Wording that described this document as proposed now describes it as accepted. Q7 stays open: it governs activation qualification, not implementation.
 
 ## Revision 2 changes
 
@@ -13,13 +24,13 @@ Owner review verdict: **ACCEPT-WITH-NOTES**, relayed by the programme coordinato
 
 ## Purpose, authority and consumers
 
-This is a proposed extension of [the public projection contract](OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md), not its replacement. It supplies a concrete producer/consumer proposal for G-4 in [the Rust portal plan](../architecture/OTERYN_PORTAL_RUST_PLAN.md), gate table and §10, including D11. No gate is closed by this document. Acceptance, producer allocation and activation remain separate decisions.
+This is an accepted extension of [the public projection contract](OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md), not its replacement. It supplies the concrete producer/consumer contract for G-4 in [the Rust portal plan](../architecture/OTERYN_PORTAL_RUST_PLAN.md), gate table and §10, including D11. No gate is closed by this document. Producer allocation, qualification and activation remain separate decisions.
 
 Game owns committed gameplay facts, canonical CharacterId and GuildId, source revisions, the transactional outbox and replay. Platform owns AccountId, WorldId, portal authorization, profile preferences, projection storage, indexing, notifications and privacy enforcement. The game owner/coordinator accepts or revises the producer obligations; the Platform owner accepts the consumer obligations. Neither side can accept for the other.
 
 | Module | Required evidence from this extension | Limit of coverage |
 |---|---|---|
-| T24b | Skills/progression, owner-only earned achievements/equipment/outfit and houses | Profile visibility and owner authorization remain Platform policy |
+| T24b | Skills/progression and houses (public); earned achievements, equipment and outfit (owner-only: served only to the current owner, never publicly) | Profile visibility and owner authorization remain Platform policy |
 | T24d | Deaths and recorded killers | No inferred creature cause or complete PvP kill history |
 | T24e | Guilds, ranks and stable member references | No private guild functions |
 | T24f | House catalogue/public occupancy | No bids, ACL or housing mutation |
@@ -28,7 +39,7 @@ Game owns committed gameplay facts, canonical CharacterId and GuildId, source re
 | T68 | Guild roster and joined profile/progression facts | Current snapshots alone do not prove complete membership history, wars or rankings |
 | T70 | Accepted transitions for opted-in watches | Baseline/replay never emits duplicate alerts; presence still uses its existing family |
 
-This contract does not deliver all of T66/T68/T70. Missing history must be unavailable, not reconstructed as if complete. It authorizes no code, workflows, database changes, runtime work, deployment or production enablement.
+This contract does not deliver all of T66/T68/T70. Missing history must be unavailable, not reconstructed as if complete. Its acceptance authorizes implementation of the Game producer and the Platform consumer behind default-off flags (*Default-off rollout and compatibility*); it authorizes no deployment or production enablement.
 
 ## References and status of existing conventions
 
@@ -55,7 +66,7 @@ Pinned Game reference: [Oteryn/Oteryn-Game at 857f15f376907c592bb28d854fccff18a1
 | `crates/gameplay/domain/src/domain/appearance.rs`, `apps/game-server/migrations/0093_character_appearance.sql` | `AppearanceSelection`, `DisplayedLook`, `outfit_key`, four `colours`, `addons`, optional `mount_key`; selected and displayed appearance differ |
 | `docs/architecture/OTERYN_ACHIEVEMENT_OWNER_CONTRACT_V1.md`, `OTERYN_ACHIEVEMENT_DISPLAY_CONTRACT_V1.md`, `crates/gameplay/durability/src/durability/account_achievement.rs` | Account-scoped earned facts, stable achievement keys, secret-unearned suppression; website export is not already authorized |
 
-Existing Platform `legacy/app/GameProjections/{PublicProjectionFamily,PublicProjectionWire,PublicProjectionSnapshot,PublicProjectionWatermark,PublicProjectionIngestion}.php` corroborate the ingest boundary. Game and Platform both accept canonical decimal-string Unix times; Platform's `NativeAccountCharactersWire::unixTime` validates that string before converting to an internal integer. This proposal keeps that wire encoding and requires shared byte fixtures, without permissive coercion.
+Existing Platform `legacy/app/GameProjections/{PublicProjectionFamily,PublicProjectionWire,PublicProjectionSnapshot,PublicProjectionWatermark,PublicProjectionIngestion}.php` corroborate the ingest boundary. Game and Platform both accept canonical decimal-string Unix times; Platform's `NativeAccountCharactersWire::unixTime` validates that string before converting to an internal integer. This contract keeps that wire encoding and requires shared byte fixtures, without permissive coercion.
 
 ## Flow direction and transport
 
@@ -72,7 +83,7 @@ Reuse connect 1 s, handshake 2 s, exchange 5 s bounds and the existing publisher
 
 ## Version and routes
 
-Proposed extension profile: `oteryn-game-public-projections-v2`, `contract_version: 2`. V2 replaces the v1 deaths/guild/house candidates; it does not create parallel serving authority for those candidates. Existing accepted v1 paths, schemas, statuses, clients and the closed v1 watermark family enum remain unchanged. A new version is necessary because v1 has closed exact member sets. These are proposed compiled POST paths, not deployed routes:
+Accepted extension profile: `oteryn-game-public-projections-v2`, `contract_version: 2`. V2 replaces the v1 deaths/guild/house candidates; it does not create parallel serving authority for those candidates. Existing accepted v1 paths, schemas, statuses, clients and the closed v1 watermark family enum remain unchanged. A new version is necessary because v1 has closed exact member sets. These are the accepted compiled POST paths, not deployed routes:
 
 | Family | Operation | Path under `/internal/v2/game-public/` | Maximum request bytes |
 |---|---|---|---:|
@@ -85,7 +96,9 @@ Proposed extension profile: `oteryn-game-public-projections-v2`, `contract_versi
 | `character_outfit` | `PublishCharacterOutfitV2` | `character-outfit` | 2048 |
 | watermark | `PublishPublicProjectionWatermarkV2` | `watermark` | 512 |
 
-Guild bound increases to cover stable UUID member references. Achievement capacity is deliberately bounded; overflow refuses the whole snapshot, never truncates it. Do not redirect v1 callers to v2. Capability/version agreement is explicit per family and environment. Unknown version, operation, field or enum is rejected. Any change to a member, bound, response or meaning needs a new version after acceptance. This document proposes no permissive unknown-field parsing or version negotiation endpoint.
+The `game-public` prefix names the ingest family set, not public exposure: `character_achievements`, `character_equipment` and `character_outfit` are owner-only (*Revision 3 changes*).
+
+Guild bound increases to cover stable UUID member references. Achievement capacity is deliberately bounded; overflow refuses the whole snapshot, never truncates it. Do not redirect v1 callers to v2. Capability/version agreement is explicit per family and environment. Unknown version, operation, field or enum is rejected. Any change to a member, bound, response or meaning needs a new version after acceptance. This contract defines no permissive unknown-field parsing or version negotiation endpoint.
 
 ## Exact encoding and shared types
 
@@ -170,19 +183,23 @@ Body `achievements`: 0..1 record, ordered:
 
 Each earned row: `key: achievement_key, earned_at: time+`, strictly ascending unique key. Only earned facts; no secret-unearned keys, hidden progress, grant provenance, granting character or account identifiers. Names, grade and points resolve from the exact compatible catalogue revision, not copied client text. Missing catalogue compatibility suppresses display rather than inventing points. A record over 1024 earned facts requires a new bounded paging/version proposal, not truncation.
 
-**Owner-only.** The underlying Game facts are account-scoped; this envelope is a proposed character-scoped delivery view, not a claim that the character earned each fact. Current owner authorization is required for the earned list. No public exposure of achievement keys, earned times or totals is permitted; highlighting, account groupings and cross-character inference are prohibited. Export remains subject to qualification of the attribution/ownership safeguards below. Account transfer invalidates the delivery view before the new owner can see it; do not carry a previous owner's account facts with a sold character. Game binds `character_revision` to the current ownership relation read in the same committed cut. Platform must prove that relation still applies and that this revision meets the durable ownership-transition revision floor from Character Authority, independently of projection ordering. Until that floor and its binding can be established, deny the earned-list view even to a currently authenticated owner; a fresh family watermark alone cannot validate an older owner's snapshot.
+**Owner-only.** The underlying Game facts are account-scoped; this envelope is a character-scoped delivery view, not a claim that the character earned each fact. Current owner authorization is required for the earned list. No public exposure of achievement keys, earned times or totals is permitted; highlighting, account groupings and cross-character inference are prohibited. Export remains subject to qualification of the attribution/ownership safeguards below. Account transfer invalidates the delivery view before the new owner can see it; do not carry a previous owner's account facts with a sold character. Game binds `character_revision` to the current ownership relation read in the same committed cut. Platform must prove that relation still applies and that this revision meets the durable ownership-transition revision floor from Character Authority, independently of projection ordering. Until that floor and its binding can be established, deny the earned-list view even to a currently authenticated owner; a fresh family watermark alone cannot validate an older owner's snapshot.
 
 ### Equipment
 
 Body `equipment`: 0..1 record: `world_id: id, character_revision: u64, slots: array[0..10]`.
 
-Each slot record: `slot: enum, item_key: key, item_revision: revision_key`. Enum/order follows Game `EquipmentSlot`: `Head`, `Necklace`, `Container`, `Armor`, `RightHand`, `LeftHand`, `Legs`, `Feet`, `Ring`, `Ammo`; each appears at most once and records follow that order. Include occupied primary slots only, never duplicate a two-handed item into its reserved slot. An empty slots list means known unequipped. Resolve `item_key/item_revision` from `TypedDefinitionRef` and catalogue evidence; never infer from an instance ID. No instance ID, quantity, contents, charges, inscriptions, imbuements, valuation, durability, custody state or hidden modifiers. Read only committed equipment custody, never pending move intent. Unknown custody suppresses the record. Owner-only; no public equipment view is permitted.
+Each slot record: `slot: enum, item_key: key, item_revision: revision_key`. Enum/order follows Game `EquipmentSlot`: `Head`, `Necklace`, `Container`, `Armor`, `RightHand`, `LeftHand`, `Legs`, `Feet`, `Ring`, `Ammo`; each appears at most once and records follow that order. Include occupied primary slots only, never duplicate a two-handed item into its reserved slot. An empty slots list means known unequipped. Resolve `item_key/item_revision` from `TypedDefinitionRef` and catalogue evidence; never infer from an instance ID. No instance ID, quantity, contents, charges, inscriptions, imbuements, valuation, durability, custody state or hidden modifiers. Read only committed equipment custody, never pending move intent. Unknown custody suppresses the record.
+
+**Owner-only.** Platform serves equipment only to the current owner, under the same Character Authority ownership-transition revision floor as *Earned achievements*: `character_revision` must meet that floor, and until the floor and its binding are established the view is denied even to a currently authenticated owner. No public equipment view is permitted.
 
 ### Outfit
 
 Body `outfit`: 0..1 record: `world_id: id, character_revision: u64, content_revision: revision_key, outfit_key: key, colours: array[4] of int[0,65535], addons: int[0,255], mount: array[0..1]`.
 
-Colours are head, body, legs, feet palette indices in that order, matching `AppearanceSelection`. Each mount entry has only `mount_key: key`. Export Game's public `DisplayedLook`, not unlock inventory or an uncommitted selection. While mount display is deferred, `mount` is empty even if selection stores a mount. Unsupported outfit/content, palette or addon combination suppresses the record; bounds alone do not prove content compatibility. Owner-only; no public outfit view is permitted.
+Colours are head, body, legs, feet palette indices in that order, matching `AppearanceSelection`. Each mount entry has only `mount_key: key`. Export Game's public `DisplayedLook`, not unlock inventory or an uncommitted selection. While mount display is deferred, `mount` is empty even if selection stores a mount. Unsupported outfit/content, palette or addon combination suppresses the record; bounds alone do not prove content compatibility.
+
+**Owner-only.** Platform serves the outfit only to the current owner, under the same Character Authority ownership-transition revision floor as *Earned achievements*: `character_revision` must meet that floor, and until the floor and its binding are established the view is denied even to a currently authenticated owner. No public outfit view is permitted.
 
 ### Online time boundary (G-8)
 
@@ -206,7 +223,7 @@ Exact ordered members:
 
 `contract_version: 2, operation: PublishPublicProjectionWatermarkV2, source_authority: authority, family: V2Family, projection_epoch: u64, complete_through: time, observed_at: time`.
 
-This contract defines the closed shared `V2Family` enum: `character_deaths`, `guild`, `house`, `character_skills`, `character_achievements`, `character_equipment`, `character_outfit`, `character_online_sessions`, `world_daily_kills`, `world_daily`. The first seven are defined here; `character_online_sessions` (the online-interval family) and `world_daily_kills` belong to [G-8](OTERYN_V2_STATISTICS_FAMILIES_CONTRACT_PROPOSAL.md), and `world_daily` belongs to [G-12](OTERYN_V2_WORLD_DAILY_FAMILY_CONTRACT_PROPOSAL.md). All new public families use `/internal/v2/game-public/*`, `contract_version: 2` and the V2 watermark route/operation above. Those contracts own their payloads, bounds and subject scopes; this enum grants no acceptance or activation of them. The v1 watermark enum remains closed and unchanged; never send these extensions to v1. Unknown V2 enum values return `400`.
+This contract defines the closed shared `V2Family` enum: `character_deaths`, `guild`, `house`, `character_skills`, `character_achievements`, `character_equipment`, `character_outfit`, `character_online_sessions`, `world_daily_kills`, `world_daily`. The first seven are defined here; `character_online_sessions` (the online-interval family) and `world_daily_kills` belong to [G-8](OTERYN_V2_STATISTICS_FAMILIES_CONTRACT_PROPOSAL.md), and `world_daily` belongs to [G-12](OTERYN_V2_WORLD_DAILY_FAMILY_CONTRACT_PROPOSAL.md). All new families, public and owner-only, use `/internal/v2/game-public/*`, `contract_version: 2` and the V2 watermark route/operation above. Those contracts own their payloads, bounds and subject scopes; this enum grants no acceptance or activation of them. The v1 watermark enum remains closed and unchanged; never send these extensions to v1. Unknown V2 enum values return `400`.
 
 Same meaning as Game v1: no committed change at/before complete_through remains undelivered; never advance past a poison row, failed delivery, incomplete resync or failed accounting scan. `complete_through ≤ observed_at`; neither may exceed Platform now+1 s. Emit at least every 10 s while healthy. Observation time is not completeness. A same/lower complete_through in the same epoch is superseded, never refreshes freshness.
 
@@ -252,13 +269,13 @@ Never send AccountId, Identity ID, other-character links, account achievements' 
 
 ## Default-off rollout and compatibility
 
-Reuse Game `[platform.public_projections] enabled = false` and Platform `game-projections.public.enabled = false` as prerequisites, never changing existing defaults. Proposed additional per-family v2 producer, ingest and serving flags all default false; a missing flag is false. Equipment, outfit and achievement export each have independent owner-only activation. Visibility/owner preferences are additional gates. This proposal does not name new environment variables or authorize configuration changes.
+Reuse Game `[platform.public_projections] enabled = false` and Platform `game-projections.public.enabled = false` as prerequisites, never changing existing defaults. Additional per-family v2 producer, ingest and serving flags all default false; a missing flag is false. Equipment, outfit and achievement export each have independent owner-only activation. Visibility/owner preferences are additional gates. This contract does not name new environment variables or authorize production configuration changes.
 
 Enable only on exact compatible revisions after both owners accept that family, its source semantics and shared fixtures. Shadow mode stores isolated evidence with no public output or alerts. v1 and v2 may coexist in shadow but only one family/version is serving authority per scope/generation. Do not merge v1 names with v2 IDs as partial authority. Rollback disables affected serving or uses an accepted compatible generation under current epoch/privacy floors, never lowers fences or silently falls back to shared tables/live queries. Acceptance of one family does not activate the rest or close all of G-4.
 
 ## Golden payloads
 
-Each fenced line is one complete wire body (the fence newline is not part of transmitted bytes). Synthetic IDs and names only. These are proposed fixtures, not evidence that current encoders accept v2.
+Each fenced line is one complete wire body (the fence newline is not part of transmitted bytes). Synthetic IDs and names only. These are contract examples, not evidence that current encoders accept v2.
 
 Valid death with recorded final-blow killer:
 
@@ -362,7 +379,7 @@ Platform owner, per family:
 - [ ] Prove T70 replay/baseline alert suppression and T66/T68 history coverage limitations; do not close unrelated G-8 or module criteria.
 - [ ] Accept retention/purge/backup fences and payload-free diagnostics; record producer/consumer exact SHAs, per-family default-off rollout and reversible serving switch.
 
-Neither checklist is satisfied by this draft or by unit tests alone; real composed peer/producer/consumer evidence and both owners' acceptance precede activation.
+Neither checklist is satisfied by this text or by unit tests alone; real composed peer/producer/consumer evidence and both owners' acceptance precede activation.
 
 ## Open questions for the game owner
 
