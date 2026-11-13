@@ -7,7 +7,7 @@ Status: PROPOSED revision 2 by Platform, pending acceptance by the game owner (c
 Owner review via the programme coordinator: **ACCEPT-WITH-NOTES**. This revision records the answers without changing the pending-acceptance status.
 
 - Game chooses deletion effective time; 60 days is Game policy, with offline cancellation strictly before that time. Released names remain locked for 30 days (D183).
-- The v2 owner-only service projection has independent revisions under the shared epoch fence; service changes do not bump LCFA v1 revisions.
+- The v2 owner-only service projection has independent revisions under the shared epoch fence. A change to service-state facts only does not bump LCFA v1 revisions. Service-state facts are the deletion operation id and times, sex, and `character_revision`. A mutation that also changes an LCFA-listed field (a rename changes `name`; a lifecycle change that LCFA lists) still advances LCFA under LCFA v1 §5, together with the services revision, in one Character Authority transaction (clarified 2026-11-13).
 - Reservation precedes the command; settlement follows its receipt. Restore loss earns a free replacement service, with no game reversal on chargeback.
 - Sex change remains unsupported with its flag off; world transfer is outside this slice. Game commits to a new repeatable-service table; restore horizon equals backup retention.
 - Oversize requests return 400; public-family and online-time boundaries follow G-4 and G-8. Owner answers are recorded in §11.
@@ -177,7 +177,7 @@ Snapshot field order:
 |---|---|
 | Common request head | version 2, `PublishCharacterServiceStateV2`, configured projection authority |
 | `account_id`, `character_id` | `uuid7`, owner-scoped subject |
-| `projection_epoch`, `projection_revision` | `u64`, shared non-rollback epoch fence with LCFA, but an independent per-account services revision namespace; service changes must not advance LCFA v1 revisions |
+| `projection_epoch`, `projection_revision` | `u64`, shared non-rollback epoch fence with LCFA, but an independent per-account services revision namespace. A change to service-state facts only (deletion operation id and times, sex, `character_revision`) must not advance LCFA v1 revisions. A mutation that changes an LCFA-listed field (a rename, or a lifecycle change LCFA lists) advances both under LCFA v1 §5, in one transaction |
 | `source_observed_at` | `time`, source revision assignment time, not retry time |
 | `character_revision` | `u64`, current game revision |
 | `world_id` | `uuid7`, current or last world for tombstone |
@@ -326,7 +326,7 @@ Game owner/coordinator and producer:
 
 The owner supplied these answers via the programme coordinator (ACCEPT-WITH-NOTES). Closed questions are replaced by their answers:
 
-1. **Q1 — ANSWERED:** use v2 with an independent services revision and delivery acknowledgement under the shared LCFA epoch fence. Do not bump LCFA v1 revisions for services.
+1. **Q1 — ANSWERED:** use v2 with an independent services revision and delivery acknowledgement under the shared LCFA epoch fence. Do not bump LCFA v1 revisions for changes to service-state facts only. A mutation that changes an LCFA-listed field still advances LCFA under LCFA v1 §5.
 2. **Q2 — ANSWERED:** 60 days is Game policy, not wire. Game chooses the effective time; Platform requires effective > scheduled. Cancellation requires trusted time strictly before effective and a character out of session. Name locks last 30 days under D183, after rename or terminal deletion.
 3. **Q3 — ANSWERED:** sex change is disabled and unsupported; its flag stays off. Existing v1 is unchanged and gains no sex-change support.
 4. **Q4 — ANSWERED:** world transfer is outside this slice; reserved shapes grant no implementation or activation authority.
