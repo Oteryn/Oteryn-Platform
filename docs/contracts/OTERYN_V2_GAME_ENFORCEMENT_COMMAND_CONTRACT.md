@@ -4,6 +4,8 @@
 
 `ACCEPTED PLATFORM CONSUMER / ORCHESTRATION ARCHITECTURE CONTRACT — OTERYN-V2 TRANSPORT AND RUNTIME IMPLEMENTATION DEFERRED`
 
+PROPOSED wire draft (not accepted, authorizes nothing): `OTERYN_V2_ENFORCEMENT_AND_ENTITLEMENT_WIRE_CONTRACT_PROPOSAL.md`.
+
 This contract defines the semantic boundary used when Oteryn Platform support or moderation workflows request an authoritative native game sanction or runtime enforcement action from Oteryn-v2.
 
 It does **not** define or authorize transport, endpoints, IDL bytes, game persistence, runtime enforcement algorithms, anti-cheat policy, deployment, production activation or direct/shared SQL. It does not enable any sanction profile by itself.
