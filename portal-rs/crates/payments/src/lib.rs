@@ -15,3 +15,5 @@ pub mod navigation;
 pub mod coin;
 pub mod coin_http;
 pub mod coin_store;
+/// Generic signed provider webhook for refunds and chargebacks.
+pub mod provider_webhook;
