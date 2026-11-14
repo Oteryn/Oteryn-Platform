@@ -129,12 +129,15 @@ struct Page {
     result: String,
     coin_hold_label: String,
     release_coin_hold: String,
+    coin_debt_label: String,
     /// `Some` when the viewer may release coin purchase holds.
     coin_hold: Option<CoinHold>,
 }
 struct CoinHold {
     order: String,
     status: String,
+    /// Coins still owed on held reversals; credits pay it first.
+    debt: i64,
 }
 fn language(headers: &HeaderMap) -> &'static str {
     if headers
@@ -205,6 +208,7 @@ impl Page {
             result: String::new(),
             coin_hold_label: text(lang, "coin-hold"),
             release_coin_hold: text(lang, "coin-hold-release"),
+            coin_debt_label: text(lang, "coin-debt"),
             coin_hold: None,
         }
     }
@@ -259,9 +263,11 @@ async fn detail<A: AccountStateReader, I: Accounts>(
                 _ if hold.is_none() => text(page.lang, "coin-hold-none"),
                 _ => String::new(),
             };
+            let debt = s.coin_debt(context, id).await?;
             page.coin_hold = Some(CoinHold {
                 order: hold.map(|h| h.order_id.to_string()).unwrap_or_default(),
                 status,
+                debt,
             });
         }
         Err(Error::NotFound | Error::Authorization(crate::rbac::Error::Denied)) => (),
