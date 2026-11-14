@@ -81,14 +81,19 @@ fn authorization() -> Authorization {
         code_challenge_method: "S256".into(),
     }
 }
-async fn code(db: &Database, account: Uuid) -> Result<TokenRequest, Error> {
-    Ok(TokenRequest {
+fn code_request() -> TokenRequest {
+    TokenRequest {
         grant_type: "authorization_code".into(),
         client_id: "native-test".into(),
         redirect_uri: authorization().redirect_uri,
-        code: authorize(&db.pool, &config(), account, &authorization()).await?,
         code_verifier: VERIFIER.into(),
         ..Default::default()
+    }
+}
+async fn code(db: &Database, account: Uuid) -> Result<TokenRequest, Error> {
+    Ok(TokenRequest {
+        code: authorize(&db.pool, &config(), account, &authorization()).await?,
+        ..code_request()
     })
 }
 fn refresh_input(token: &str) -> TokenRequest {
@@ -768,25 +773,88 @@ async fn postgres_mfa_account_without_mfa_session_steps_up_without_a_code() -> T
     db.close().await
 }
 
+async fn stale_events(db: &Database, account: Uuid) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM oauth_security_events WHERE account_id=$1 AND event='family_generation_stale'",
+    )
+    .bind(account)
+    .fetch_one(&db.pool)
+    .await
+}
+/// Turning MFA on rotates `game_auth_generation`: every family issued before it
+/// is revoked on its next refresh or access check, and a family issued after
+/// it (with the MFA proof) works.
 #[tokio::test]
-async fn postgres_mfa_enabled_after_issue_keeps_valid_tokens_working() -> TestResult {
+async fn postgres_mfa_enabled_after_issue_revokes_older_families() -> TestResult {
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
     let account = db.account().await?;
-    let pending = code(&db, account).await?;
-    let tokens = exchange(&db.pool, &config(), &code(&db, account).await?).await?;
+    let refreshed = exchange(&db.pool, &config(), &code(&db, account).await?).await?;
+    let verified = exchange(&db.pool, &config(), &code(&db, account).await?).await?;
+    // A change that rotates no generation keeps the families working.
+    sqlx::query("UPDATE accounts SET locale='pl' WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
+        verify_access(&db.pool, &config(), &verified.access_token).await?,
+        account
+    );
+    let refreshed = exchange(
+        &db.pool,
+        &config(),
+        &refresh_input(&refreshed.refresh_token),
+    )
+    .await?;
     sqlx::query("UPDATE accounts SET login_mfa_required=true WHERE id=$1")
         .bind(account)
         .execute(&db.pool)
         .await?;
-    // The credential stamp ignores the MFA flag: password, email and
-    // verification still fence; MFA itself is enforced at authorize.
-    let exchanged = exchange(&db.pool, &config(), &pending).await?;
     assert_eq!(
-        verify_access(&db.pool, &config(), &exchanged.access_token).await?,
-        account
+        exchange(
+            &db.pool,
+            &config(),
+            &refresh_input(&refreshed.refresh_token)
+        )
+        .await
+        .err(),
+        Some(Error::InvalidGrant)
     );
+    assert_eq!(
+        verify_access(&db.pool, &config(), &refreshed.access_token)
+            .await
+            .err(),
+        Some(Error::InvalidGrant)
+    );
+    assert_eq!(
+        verify_access(&db.pool, &config(), &verified.access_token)
+            .await
+            .err(),
+        Some(Error::InvalidGrant)
+    );
+    assert_eq!(
+        exchange(&db.pool, &config(), &refresh_input(&verified.refresh_token))
+            .await
+            .err(),
+        Some(Error::InvalidGrant)
+    );
+    let live: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM oauth_token_families WHERE account_id=$1 AND revoked_at IS NULL",
+    )
+    .bind(account)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(live, 0);
+    assert_eq!(stale_events(&db, account).await?, 2);
+    let fresh = approve(&db.pool, &config(), account, true, &authorization())
+        .await?
+        .ok_or("step up")?;
+    let input = TokenRequest {
+        code: fresh,
+        ..code_request()
+    };
+    let tokens = exchange(&db.pool, &config(), &input).await?;
     assert_eq!(
         verify_access(&db.pool, &config(), &tokens.access_token).await?,
         account
@@ -796,5 +864,43 @@ async fn postgres_mfa_enabled_after_issue_keeps_valid_tokens_working() -> TestRe
         verify_access(&db.pool, &config(), &rotated.access_token).await?,
         account
     );
+    db.close().await
+}
+/// A family without a stored generation (issued before generations existed)
+/// or with another one fails closed on both paths and is revoked.
+#[tokio::test]
+async fn postgres_family_without_current_generation_fails_closed() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let account = db.account().await?;
+    for generation in ["NULL", "game_generation+1"] {
+        let tokens = exchange(&db.pool, &config(), &code(&db, account).await?).await?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE oauth_token_families SET game_generation={generation} WHERE account_id=$1 AND revoked_at IS NULL"
+        )))
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+        assert_eq!(
+            verify_account_services(&db.pool, &config(), &tokens.access_token)
+                .await
+                .err(),
+            Some(Error::InvalidGrant)
+        );
+        assert_eq!(
+            verify_access(&db.pool, &config(), &tokens.access_token)
+                .await
+                .err(),
+            Some(Error::InvalidGrant)
+        );
+        assert_eq!(
+            exchange(&db.pool, &config(), &refresh_input(&tokens.refresh_token))
+                .await
+                .err(),
+            Some(Error::InvalidGrant)
+        );
+    }
+    assert_eq!(stale_events(&db, account).await?, 2);
     db.close().await
 }

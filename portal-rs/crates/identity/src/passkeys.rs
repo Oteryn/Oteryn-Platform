@@ -296,6 +296,12 @@ async fn revoke(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(),
         .bind(account)
         .execute(&mut **tx)
         .await?;
+    // A passkey change advances no generation, so it ends the account's native
+    // recovery handles itself (gateway login contract §19.3).
+    sqlx::query("UPDATE native_recovery_handles SET revoked_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE account_id=$1 AND revoked_at IS NULL")
+        .bind(account)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 async fn audit_tx(

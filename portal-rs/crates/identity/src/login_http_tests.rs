@@ -279,3 +279,91 @@ async fn postgres_source_limit_bad_input_and_missing_transport() -> TestResult {
     database.close().await?;
     Ok(())
 }
+#[tokio::test]
+async fn postgres_login_returns_to_stored_authorize_target_once() -> TestResult {
+    let Some(database) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let pool = database.pool.clone();
+    let email = format!("return-{}@example.test", uuid::Uuid::now_v7());
+    let hash = oteryn_identity::password::hash("test password")?;
+    let id: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'active','en',now()) RETURNING id").bind(&email).bind(hash).fetch_one(&pool).await?;
+    let app = router(pool.clone(), true, SessionLayer::new(pool.clone()));
+    let target = "/oauth/authorize?response_type=code&client_id=c&state=s";
+    let store = "UPDATE web_sessions SET data=data||jsonb_build_object('oauth_return',$1::text) WHERE account_id IS NULL";
+    let stored = "SELECT data->>'oauth_return' FROM web_sessions WHERE account_id=$1";
+    // An unacceptable target is consumed and ignored: home, never elsewhere.
+    for bad in ["//evil.example/oauth/authorize?a=1", "/oauth/authorize?"] {
+        let response = app
+            .clone()
+            .oneshot(request("GET", "/en/login", "", "")?)
+            .await?;
+        let guest = cookie(&response)?;
+        let token = csrf(&body(response).await?)?.to_owned();
+        sqlx::query(store).bind(bad).execute(&pool).await?;
+        let response = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                "/en/login",
+                &guest,
+                &format!("_csrf={token}&email={email}&password=test+password"),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(response.headers()[header::LOCATION], "/en/");
+        let left: Option<String> = sqlx::query_scalar(stored).bind(id).fetch_one(&pool).await?;
+        assert_eq!(left, None);
+        sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
+            .bind(id)
+            .execute(&pool)
+            .await?;
+    }
+    let response = app
+        .clone()
+        .oneshot(request("GET", "/en/login", "", "")?)
+        .await?;
+    let guest = cookie(&response)?;
+    let token = csrf(&body(response).await?)?.to_owned();
+    sqlx::query(store).bind(target).execute(&pool).await?;
+    // A refused login keeps the target for the next attempt.
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/en/login",
+            &guest,
+            &format!("_csrf={token}&email={email}&password=wrong"),
+        )?)
+        .await?;
+    assert_eq!(response.headers()[header::LOCATION], "/en/login");
+    let kept: Option<String> = sqlx::query_scalar(
+        "SELECT data->>'oauth_return' FROM web_sessions WHERE account_id IS NULL",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(kept.as_deref(), Some(target));
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/en/login",
+            &guest,
+            &format!("_csrf={token}&email={email}&password=test+password"),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.headers()[header::LOCATION], target);
+    let left: Option<String> = sqlx::query_scalar(stored).bind(id).fetch_one(&pool).await?;
+    assert_eq!(left, None);
+    sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await?;
+    sqlx::query("DELETE FROM accounts WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await?;
+    database.close().await?;
+    Ok(())
+}

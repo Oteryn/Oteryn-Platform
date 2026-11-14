@@ -32,7 +32,9 @@ impl Credentials {
     }
 }
 /// None is the same refusal for absent, disabled, unverified and MFA-protected accounts.
-/// Until T06 supplies a challenge flow, MFA-protected accounts cannot create sessions here.
+/// This password-only path never signs in an MFA-protected account; those go through
+/// [`crate::mfa::Mfa::begin_login`] and then [`crate::mfa::Mfa::complete`] (or a trusted
+/// device), which the web login adapter calls when MFA is configured.
 pub async fn authenticate(
     pool: &PgPool,
     input: Credentials,
@@ -69,6 +71,26 @@ pub async fn authenticate(
     // Recheck authorization after hashing, including the explicit MFA import guard.
     sqlx::query_scalar("UPDATE accounts SET password_hash=COALESCE($3,password_hash), updated_at=CASE WHEN $3::text IS NULL THEN updated_at ELSE now() END WHERE id=$1 AND password_hash=$2 AND status='active' AND email_verified_at IS NOT NULL AND login_mfa_required=false RETURNING id")
         .bind(account.id).bind(original).bind(replacement).fetch_optional(pool).await
+}
+
+/// Session key of the post-login return target. The OAuth authorize adapter stores
+/// the signed-out authorize request there; the coin checkout stores its own path.
+pub const RETURN_KEY: &str = "oauth_return";
+/// The authorize route, the only OAuth target a login returns to.
+const AUTHORIZE: &str = "/oauth/authorize?";
+
+/// Whether a stored return target is a same-origin relative path to the native
+/// OAuth authorize route: exactly `/oauth/authorize?` and a non-empty query of
+/// printable ASCII, without a fragment, backslash or anything that could make a
+/// browser leave the origin. Everything else is refused (no open redirect).
+pub fn authorize_return(target: &str) -> bool {
+    target.len() <= 8192
+        && target.strip_prefix(AUTHORIZE).is_some_and(|query| {
+            !query.is_empty()
+                && query
+                    .bytes()
+                    .all(|b| b.is_ascii_graphic() && b != b'#' && b != b'\\')
+        })
 }
 
 #[cfg(test)]

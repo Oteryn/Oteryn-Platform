@@ -96,9 +96,13 @@ async fn immediate_change_revert_and_cooldown() -> TestResult {
     let Some((db, s, id)) = setup().await? else {
         return Ok(());
     };
+    let handle = crate::native_recovery_test_support::handle(&db.pool, id).await?;
     assert_eq!(s.request(id, input(true, false)).await?, Outcome::Requested);
     let (confirm, revert) = tokens(&db.pool).await?;
+    assert_eq!(s.confirm("not-a-token").await?, Outcome::Refused);
+    assert!(!crate::native_recovery_test_support::revoked(&db.pool, &handle).await?);
     assert_eq!(s.confirm(&confirm).await?, Outcome::Changed);
+    assert!(crate::native_recovery_test_support::revoked(&db.pool, &handle).await?);
     assert_eq!(s.confirm(&confirm).await?, Outcome::Refused);
     let mut tx = db.pool.begin().await?;
     assert!(!trade_allowed(&mut tx, id).await?);

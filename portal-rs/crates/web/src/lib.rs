@@ -130,8 +130,13 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                 if request.method() == axum::http::Method::GET
                     && request.uri().to_string().len() <= 8192
                 {
+                    // Origin-relative path and query only: the login accepts
+                    // nothing else as a return target.
                     let target = if session.account_id().await.is_none() {
-                        Some(request.uri().to_string())
+                        request
+                            .uri()
+                            .path_and_query()
+                            .map(|p| p.as_str().to_owned())
                     } else {
                         None
                     };

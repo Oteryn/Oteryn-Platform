@@ -32,3 +32,6 @@ pub mod security_revocations;
 
 #[cfg(test)]
 mod oauth_mfa_web_tests;
+
+#[cfg(test)]
+mod native_recovery_test_support;

@@ -249,6 +249,8 @@ async fn integrated_change(
         sqlx::query("INSERT INTO oauth_authorization_codes(code_hash,account_id,client_id,redirect_uri,challenge,credential_hash) VALUES($1,$2,'test','https://example.test/callback','test',$1)").bind(account.as_bytes().repeat(2)).bind(account).execute(&pool).await?;
         sqlx::query("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at) VALUES(uuidv7(),$1,uuidv7(),$2,1,1,9999999999,9999999999)").bind(account).bind(account.to_string()).execute(&pool).await?;
     }
+    let own_handle = crate::native_recovery_test_support::handle(&pool, id).await?;
+    let other_handle = crate::native_recovery_test_support::handle(&pool, other).await?;
     let service = Credentials {
         pool: pool.clone(),
         enabled: true,
@@ -289,6 +291,12 @@ async fn integrated_change(
             )
         );
     }
+    // The change ends the account's native recovery handles in its transaction.
+    assert_eq!(
+        crate::native_recovery_test_support::revoked(&pool, &own_handle).await?,
+        changed
+    );
+    assert!(!crate::native_recovery_test_support::revoked(&pool, &other_handle).await?);
     let stored: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
         .bind(id)
         .fetch_one(&pool)

@@ -305,3 +305,184 @@ fn claims_are_in_contract_order() {
         )
     );
 }
+
+/// Account state straight from `accounts`, locked like the real lookup.
+#[derive(Debug)]
+struct Accounts;
+impl AccountStateLookup for Accounts {
+    fn state<'a>(
+        &'a self,
+        connection: &'a mut PgConnection,
+        account: Uuid,
+    ) -> store::Future<'a, AccountState> {
+        Box::pin(async move {
+            let status: Option<String> =
+                sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
+                    .bind(account)
+                    .fetch_optional(connection)
+                    .await
+                    .map_err(|_| Error::Unavailable)?;
+            Ok(match status.as_deref() {
+                Some("active") => AccountState::Active,
+                _ => AccountState::Unknown,
+            })
+        })
+    }
+}
+
+/// A migrated schema of its own, dropped by [`close`].
+async fn database() -> Option<(PgPool, PgPool, String)> {
+    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        eprintln!("SKIPPED recovery PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
+        return None;
+    };
+    let admin = oteryn_db::lazy_pool(&url).unwrap();
+    let schema = format!("recovery_test_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&admin)
+        .await
+        .unwrap();
+    let path = schema.clone();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .after_connect(move |conn, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+    Some((admin, pool, schema))
+}
+async fn close(admin: PgPool, pool: PgPool, schema: String) {
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await
+        .unwrap();
+    admin.close().await;
+}
+async fn check(pool: &PgPool, request: &RecoveryRequest) -> Result<(), RecoveryError> {
+    let mut conn = pool.acquire().await.unwrap();
+    authenticate(&mut conn, request, &Accounts, 2_000_000_000)
+        .await
+        .map(|_| ())
+}
+async fn count(pool: &PgPool, sql: &'static str, account: Uuid) -> i64 {
+    sqlx::query_scalar(sql)
+        .bind(account)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+/// Re-arms the fixture handle at the account's current generation.
+async fn rearm(pool: &PgPool, account: Uuid) {
+    sqlx::query("UPDATE native_recovery_handles SET revoked_at=NULL, security_generation=(SELECT native_security_generation FROM accounts WHERE id=$1) WHERE account_id=$1")
+        .bind(account)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+/// §19.3: every credential or status change ends the account's handles in its
+/// own transaction, a retry of an outstanding attempt is then refused, the
+/// attempt record stays until retirement, and the rows go with their account
+/// or device family (ON DELETE CASCADE).
+#[tokio::test]
+async fn postgres_security_change_revokes_handles_and_refuses_retry() {
+    let Some((admin, pool, schema)) = database().await else {
+        return;
+    };
+    let request = RecoveryRequest::decode(&fixture("recover-request.json"), false).unwrap();
+    let account: Uuid = sqlx::query_scalar("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES(uuidv7(),$1,'hash','active','en',now()) RETURNING id")
+        .bind(format!("{}@example.test", Uuid::now_v7()))
+        .fetch_one(&pool).await.unwrap();
+    sqlx::query("INSERT INTO native_play_generations(account_id,generation) VALUES($1,1)")
+        .bind(account)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO native_recovery_handles(handle_hash,account_id,character_id,world_id,channel_id,security_generation,play_generation,attempt_ref,issued_at,expires_at) VALUES($1,$2,$3,uuidv7(),uuidv7(),1,1,$4,1,9999999999)")
+        .bind(&request.handle_hash[..]).bind(account).bind(request.character_id).bind(request.attempt_ref)
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO native_recoveries(attempt_ref,handle_hash,request_digest,account_id,response_body,expires_at_ms,retires_at_ms) VALUES($1,$2,$3,$4,'\\x7b7d',9999999999000,9999999999000)")
+        .bind(request.attempt_ref).bind(&request.handle_hash[..]).bind(&request.digest[..]).bind(account)
+        .execute(&pool).await.unwrap();
+    rearm(&pool, account).await;
+    check(&pool, &request).await.unwrap();
+    // Bad input: an unknown handle is refused like a revoked one.
+    let mut unknown = RecoveryRequest::decode(&fixture("recover-request.json"), false).unwrap();
+    unknown.handle_hash = [0; 32];
+    assert_eq!(
+        check(&pool, &unknown).await.unwrap_err(),
+        RecoveryError::HandleRejected
+    );
+    // A change that is not a credential keeps the handle.
+    sqlx::query("UPDATE accounts SET locale='pl' WHERE id=$1")
+        .bind(account)
+        .execute(&pool)
+        .await
+        .unwrap();
+    check(&pool, &request).await.unwrap();
+    for change in [
+        "password_hash='changed'",
+        "email='changed-' || email",
+        "email_verified_at=email_verified_at - interval '1 second'",
+        "login_mfa_required=true",
+        "login_mfa_required=false",
+        "native_security_generation=native_security_generation+1",
+        "game_auth_generation=game_auth_generation+1",
+        "status='suspended'",
+    ] {
+        rearm(&pool, account).await;
+        check(&pool, &request).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE accounts SET {change} WHERE id=$1"
+        )))
+        .bind(account)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let revoked: bool = sqlx::query_scalar(
+            "SELECT revoked_at IS NOT NULL FROM native_recovery_handles WHERE handle_hash=$1",
+        )
+        .bind(&request.handle_hash[..])
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(revoked, "{change}");
+        assert!(check(&pool, &request).await.is_err(), "{change}");
+    }
+    // The attempt record is kept until retirement (§6.1, §19.4 step 3).
+    let records = "SELECT count(*) FROM native_recoveries WHERE account_id=$1";
+    let handles = "SELECT count(*) FROM native_recovery_handles WHERE account_id=$1";
+    assert_eq!(count(&pool, records, account).await, 1);
+    // A device-bound handle goes with its family.
+    let family: Uuid = sqlx::query_scalar("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at) VALUES(uuidv7(),$1,uuidv7(),'recovery-test',1,1,9999999999,9999999999) RETURNING id")
+        .bind(account).fetch_one(&pool).await.unwrap();
+    sqlx::query("INSERT INTO native_recovery_handles(handle_hash,account_id,character_id,world_id,channel_id,security_generation,play_generation,attempt_ref,device_family_id,device_key_thumbprint,issued_at,expires_at) VALUES(decode(repeat('ab',32),'hex'),$1,uuidv7(),uuidv7(),uuidv7(),1,1,uuidv7(),$2,repeat('a',43),1,9999999999)")
+        .bind(account).bind(family).execute(&pool).await.unwrap();
+    assert_eq!(count(&pool, handles, account).await, 2);
+    sqlx::query("DELETE FROM device_sessions WHERE id=$1")
+        .bind(family)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count(&pool, handles, account).await, 1);
+    // Handles and attempt records go with their account.
+    sqlx::query("DELETE FROM accounts WHERE id=$1")
+        .bind(account)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count(&pool, handles, account).await, 0);
+    assert_eq!(count(&pool, records, account).await, 0);
+    close(admin, pool, schema).await;
+}
