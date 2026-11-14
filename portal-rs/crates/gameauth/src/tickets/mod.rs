@@ -120,6 +120,32 @@ impl Tickets {
         }
     }
 }
+/// Worker retention for `game_ticket_budgets`. A window lasts 60 seconds; a row
+/// is kept until ten minutes after its window started, so pruning never
+/// removes an active window, even beside a concurrent budget check.
+#[derive(Debug, Clone)]
+pub struct BudgetRetention {
+    pub pool: PgPool,
+}
+impl BudgetRetention {
+    pub const BATCH: i64 = 1000;
+    /// Deletes at most [`Self::BATCH`] expired rows and returns how many it removed.
+    pub async fn prune(&self) -> Result<u64, sqlx::Error> {
+        // The outer predicate re-checks a row that a concurrent budget check
+        // reset after the subquery saw it.
+        Ok(sqlx::query(
+            "DELETE FROM game_ticket_budgets WHERE credential_hash IN \
+             (SELECT credential_hash FROM game_ticket_budgets \
+              WHERE window_start < clock_timestamp() - interval '10 minutes' \
+              LIMIT $1 FOR UPDATE SKIP LOCKED) \
+             AND window_start < clock_timestamp() - interval '10 minutes'",
+        )
+        .bind(Self::BATCH)
+        .execute(&self.pool)
+        .await?
+        .rows_affected())
+    }
+}
 fn validate(principal: Principal) -> Result<(), Error> {
     if principal.status != AccountStatus::Active
         || principal.account_id.get_version_num() != 7
