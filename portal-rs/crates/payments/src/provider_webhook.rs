@@ -1,7 +1,8 @@
 //! Generic signed provider webhook for refunds and chargebacks
 //! (`docs/contracts/OTERYN_PAYMENT_PROVIDER_WEBHOOK_V1.md`). A verified event
 //! is recorded once by its event ID and drives the existing coin purchase
-//! reversal through `CoinPurchases::webhook`. No real provider is wired yet:
+//! reversal through `CoinPurchases::webhook_in`, in the transaction that
+//! records the event. No real provider is wired yet:
 //! the route exists only when `PORTAL_PAYMENTS_PROVIDER_WEBHOOK_ENABLED=true`,
 //! a signing secret is configured and the sandbox coin purchases run.
 use std::{
@@ -21,7 +22,7 @@ use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::coin::{CoinEvent, EventState};
@@ -316,10 +317,11 @@ impl ProviderWebhook {
 
     /// One transaction under the event ID's lock: a recorded ID is a replay or
     /// a conflict; a new one gets its effect and its row, committed together
-    /// with the decision. A reversal runs through the coin purchase webhook,
-    /// keyed by a sub-event ID derived from the event ID, so a retry after a
-    /// lost commit is answered as that webhook's replay and applies nothing
-    /// twice. An unknown effect rolls back and answers 503.
+    /// with the decision. A reversal runs through the coin purchase webhook
+    /// in this same transaction, keyed by a sub-event ID derived from the
+    /// event ID, so the event row and the reversal commit or roll back
+    /// together and a retry after a failure applies the reversal once. An
+    /// unknown effect rolls back and answers 503.
     async fn record(
         &self,
         envelope: &Envelope,
@@ -383,14 +385,14 @@ impl ProviderWebhook {
     /// an error, so nothing is recorded.
     async fn reverse(
         &self,
-        tx: &mut sqlx::PgConnection,
+        tx: &mut Transaction<'static, Postgres>,
         envelope: &Envelope,
         reversal: &Reversal,
     ) -> Result<Outcome, Error> {
         let intent: Option<Uuid> = sqlx::query_scalar("SELECT i.id FROM payment_intents i JOIN coin_purchase_orders o ON o.payment_intent_id=i.id WHERE i.provider=$1 AND i.provider_reference=$2")
             .bind(self.signer.name())
             .bind(&reversal.order_reference)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?;
         let Some(intent_id) = intent else {
             return Ok(Outcome::UnknownOrder);
@@ -411,7 +413,7 @@ impl ProviderWebhook {
         };
         let body = serde_json::to_vec(&event).map_err(|_| Error::InvalidInput)?;
         let signature = self.signer.sign(&body)?;
-        match self.coins.webhook(&body, &signature).await {
+        match self.coins.webhook_in(tx, &body, &signature).await {
             Ok(_) => Ok(Outcome::Applied),
             // The amount, currency or reference differs from the order.
             Err(Error::InvalidInput) => Ok(Outcome::Rejected),

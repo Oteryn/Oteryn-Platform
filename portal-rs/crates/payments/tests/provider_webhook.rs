@@ -773,3 +773,69 @@ async fn parallel_deliveries_of_one_event_apply_once() -> TestResult {
     );
     h.finish().await
 }
+
+#[tokio::test]
+async fn failure_after_the_event_insert_rolls_back_the_reversal_and_a_retry_applies_once()
+-> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let (payer, request, reference) = h.paid_order().await;
+    // Fails the delivery's commit, after the event row and the reversal were written.
+    sqlx::query("CREATE FUNCTION test_fail_event() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'forced failure after the event insert'; END$$")
+        .execute(&h.pool)
+        .await?;
+    sqlx::query("CREATE CONSTRAINT TRIGGER test_fail_event AFTER INSERT ON payment_provider_webhook_events DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION test_fail_event()")
+        .execute(&h.pool)
+        .await?;
+    let app = h.app();
+    let body = event("evt_atomic", "refund", &reference, 499);
+    let (status, reply) = deliver(&app, &body).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(reply, Value::Null);
+    assert_eq!(h.outcome("evt_atomic").await, None);
+    assert_eq!(h.balance(payer).await, 500);
+    assert_eq!(h.state(payer, request).await, OrderState::Paid);
+    assert_eq!(
+        h.count("SELECT count(*) FROM coin_purchase_reversals")
+            .await,
+        0
+    );
+    assert_eq!(
+        h.count(
+            "SELECT count(*) FROM payment_events WHERE provider_event_id LIKE 'provider-webhook:%'"
+        )
+        .await,
+        0
+    );
+    sqlx::query("DROP TRIGGER test_fail_event ON payment_provider_webhook_events")
+        .execute(&h.pool)
+        .await?;
+    let (status, reply) = deliver(&app, &body).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        reply,
+        json!({"version": 1, "event_id": "evt_atomic", "outcome": "applied", "replay": false})
+    );
+    assert_eq!(h.outcome("evt_atomic").await.as_deref(), Some("applied"));
+    assert_eq!(h.balance(payer).await, 0);
+    assert_eq!(h.state(payer, request).await, OrderState::Refunded);
+    assert_eq!(
+        h.count(
+            "SELECT count(*) FROM coin_purchase_reversals WHERE kind='refund' AND outcome='debited'"
+        )
+        .await,
+        1
+    );
+    // A later delivery of the same event is a replay and applies nothing.
+    let (status, reply) = deliver(&app, &body).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reply["replay"], true);
+    assert_eq!(h.balance(payer).await, 0);
+    assert_eq!(
+        h.count("SELECT count(*) FROM coin_purchase_reversals")
+            .await,
+        1
+    );
+    h.finish().await
+}

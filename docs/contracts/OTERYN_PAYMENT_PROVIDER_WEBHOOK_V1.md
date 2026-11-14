@@ -9,7 +9,7 @@ will be revised.
 A payment provider reports refunds and chargebacks of native coin purchases
 to the portal through one signed HTTP webhook. Each verified event drives the
 existing coin purchase reversal (`crates/payments/src/coin_store.rs`,
-`CoinPurchases::webhook`). Code: `portal-rs/crates/payments/src/provider_webhook.rs`.
+`CoinPurchases::webhook_in`). Code: `portal-rs/crates/payments/src/provider_webhook.rs`.
 Durable record: table `payment_provider_webhook_events` (migration
 `20261114100003`).
 
@@ -104,9 +104,11 @@ A body is the same when its SHA-256 matches the stored one byte for byte.
   purchasing is held (rules of `coin_store.rs`).
 - The reversal reaches the coin purchase service as a verified sandbox
   event whose ID is derived from `event_id`
-  (`provider-webhook:<hex SHA-256 of event_id>`). The event row is committed
-  only after that reversal has committed. If the commit of the row is lost, a
-  retry is answered by the coin purchase service as its own replay and records
-  the outcome, so nothing is applied twice.
+  (`provider-webhook:<hex SHA-256 of event_id>`). The event row and the
+  reversal are atomic: both are written in one database transaction, the one
+  that holds the event ID's lock, and committed once. A failure at any point,
+  the commit included, rolls back both, so nothing is stored, the answer is
+  `503` and a retry applies the reversal exactly once. If only the answer to
+  a successful commit is lost, a retry finds the event row and is a replay.
 - A timeout or any unknown result is neither success nor failure: nothing is
   stored and the answer is `503`.
