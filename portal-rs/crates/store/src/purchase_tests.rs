@@ -1480,6 +1480,10 @@ async fn db_wallet_upgrade_preserves_existing_rows_and_uuid_history() {
     .await
     .unwrap();
     sqlx::raw_sql("CREATE TABLE purchase_test_accounts(id uuid PRIMARY KEY,state text NOT NULL);CREATE TABLE purchase_test_audit(id uuid PRIMARY KEY)").execute(&pool).await.unwrap();
+    sqlx::raw_sql(crate::codes::tests::NO_COIN_DEBT_STUB)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO purchase_test_accounts VALUES($1,'active')")
         .bind(uuid(ACCOUNT).unwrap())
         .execute(&pool)

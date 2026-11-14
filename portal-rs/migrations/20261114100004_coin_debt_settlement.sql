@@ -15,10 +15,13 @@ CREATE INDEX wallet_operations_debt_settlement ON wallet_operations (reference_i
     WHERE kind = 'debt_settlement';
 
 -- One row per debt paid by one credit: the debt record, the coins applied and
--- the credit operation. Immutable like the rest of the ledger.
+-- the credit operation. Immutable like the rest of the ledger. reversal_id has
+-- no foreign key on purpose: the wallet ledger never references payments
+-- tables (plan 3.2), so no cascade from them can reach these rows. The row is
+-- written in the credit's transaction while that reversal row is locked.
 CREATE TABLE coin_debt_settlements (
     id uuid PRIMARY KEY,
-    reversal_id uuid NOT NULL REFERENCES coin_purchase_reversals(id),
+    reversal_id uuid NOT NULL,
     account_id uuid NOT NULL CHECK (account_id <> '00000000-0000-0000-0000-000000000000'),
     credit_operation_id uuid NOT NULL REFERENCES wallet_operations(id),
     settlement_operation_id uuid NOT NULL REFERENCES wallet_operations(id),
