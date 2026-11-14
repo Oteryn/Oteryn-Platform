@@ -92,6 +92,7 @@ impl Database {
             include_str!("../../../migrations/20261105151420_t26_wallet.sql"),
             include_str!("../../../migrations/20261105160000_t27_premium_ledger.sql"),
             include_str!("../../../migrations/20261105155204_t55_codes.sql"),
+            NO_COIN_DEBT_STUB,
         ] {
             sqlx::raw_sql(migration).execute(&pool).await.unwrap();
         }
@@ -545,3 +546,7 @@ async fn db_concurrent_batch_account_limit_and_same_key_retry() {
     assert_eq!(service.redeem(&denied).await, Err(Error::Denied));
     db.close().await;
 }
+
+/// Wallet credits read the coin-debt view, which spans the payments tables.
+/// A schema built from a migration subset gets an empty stand-in: no debt.
+pub(crate) const NO_COIN_DEBT_STUB: &str = "CREATE TABLE coin_purchase_reversals(id uuid PRIMARY KEY,payer_account_id uuid NOT NULL,outcome text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());CREATE VIEW coin_outstanding_debts AS SELECT id AS reversal_id,id AS order_id,payer_account_id AS account_id,created_at,0::bigint AS owed FROM coin_purchase_reversals";

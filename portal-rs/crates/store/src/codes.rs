@@ -329,4 +329,4 @@ fn normalized_hash(input: &str) -> Result<[u8; 32], Error> {
 }
 #[cfg(test)]
 #[path = "codes_tests.rs"]
-mod tests;
+pub(crate) mod tests;

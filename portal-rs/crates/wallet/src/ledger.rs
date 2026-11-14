@@ -103,8 +103,9 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         }
         self.allowed(&mut tx, sender).await?;
         self.allowed(&mut tx, recipient).await?;
+        crate::debt::unlocked(&mut tx, sender).await?;
         entry(&mut tx, key, sender, -amount, 0).await?;
-        entry(&mut tx, key, recipient, amount, 0).await?;
+        credit(&mut tx, key, recipient, amount).await?;
         sqlx::query("INSERT INTO wallet_transfers (id, sender_id, recipient_id, amount) VALUES ($1,$2,$3,$4)")
             .bind(key).bind(sender).bind(recipient).bind(amount).execute(&mut *tx).await?;
         let result = receipt(&mut tx, key, false).await?;
@@ -162,7 +163,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if !self.audit.adjustment(&mut tx, &event).await {
             return Err(Refusal::AuditDenied.into());
         }
-        entry(&mut tx, key, account, amount, 0).await?;
+        credit(&mut tx, key, account, amount).await?;
         sqlx::query("INSERT INTO wallet_adjustments (id, account_id, actor_id, amount, reason) VALUES ($1,$2,$3,$4,$5)")
             .bind(key).bind(account).bind(actor).bind(amount).bind(reason).execute(&mut *tx).await?;
         let result = receipt(&mut tx, key, false).await?;
@@ -228,7 +229,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if !self.audit.adjustment(tx, &event).await {
             return Err(Refusal::AuditDenied.into());
         }
-        entry(tx, key, account, amount, 0).await?;
+        credit(tx, key, account, amount).await?;
         sqlx::query("INSERT INTO wallet_adjustments (id, account_id, actor_id, amount, reason) VALUES ($1,$2,$3,$4,$5)")
             .bind(key).bind(account).bind(actor).bind(amount).bind(reason).execute(&mut **tx).await?;
         receipt(tx, key, false).await
@@ -377,7 +378,7 @@ async fn receipt(
     key: Uuid,
     replayed: bool,
 ) -> Result<Receipt, Error> {
-    let row = sqlx::query("SELECT o.kind,o.account_id,o.counterparty_id,o.amount,o.created_at,MAX((to_jsonb(e)->>'entry_sequence')::bigint) AS sequence FROM wallet_operations o JOIN wallet_entries e ON e.operation_id=o.id AND e.account_id=o.account_id WHERE o.id=$1 GROUP BY o.id")
+    let row = sqlx::query("SELECT o.kind,o.account_id,o.counterparty_id,o.amount,o.created_at,MAX((to_jsonb(e)->>'entry_sequence')::bigint) AS sequence FROM wallet_operations o JOIN wallet_entries e ON e.account_id=o.account_id AND (e.operation_id=o.id OR e.operation_id IN (SELECT d.id FROM wallet_operations d WHERE d.kind='debt_settlement' AND d.reference_id=o.id)) WHERE o.id=$1 GROUP BY o.id")
         .bind(key).fetch_optional(&mut **tx).await?.ok_or(Refusal::ReservationMissing)?;
     let account: Uuid = row.try_get("account_id")?;
     let sequence: Option<i64> = row.try_get("sequence")?;
@@ -433,7 +434,23 @@ async fn balance(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<Ba
         .bind(account).fetch_one(&mut **tx).await?;
     Balance::default().apply(available, reserved)
 }
-async fn entry(
+/// Every coin credit: the whole credit enters the balance, then pays the
+/// account's outstanding coin debt first, in the same transaction under the
+/// account lock the caller holds (owner decision 2026-11-14). A negative
+/// adjustment is a debit and settles nothing.
+async fn credit(
+    tx: &mut Transaction<'_, Postgres>,
+    key: Uuid,
+    account: Uuid,
+    amount: i64,
+) -> Result<(), Error> {
+    entry(tx, key, account, amount, 0).await?;
+    if amount > 0 {
+        crate::debt::settle(tx, key, account, amount).await?;
+    }
+    Ok(())
+}
+pub(crate) async fn entry(
     tx: &mut Transaction<'_, Postgres>,
     key: Uuid,
     account: Uuid,
@@ -706,7 +723,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             {
                 return Err(Refusal::AuditDenied.into());
             }
-            entry(&mut tx, key, account, amount, 0).await?;
+            credit(&mut tx, key, account, amount).await?;
         }
         let result = receipt(&mut tx, key, replayed).await?;
         tx.commit().await?;
@@ -744,6 +761,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         .await?;
         if !replayed {
             self.allowed(&mut tx, account).await?;
+            crate::debt::unlocked(&mut tx, account).await?;
             entry(&mut tx, key, account, -amount, amount).await?;
             sqlx::query("INSERT INTO wallet_reservations (id,account_id,amount) VALUES ($1,$2,$3)")
                 .bind(key)
@@ -816,7 +834,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
                 return Err(Refusal::InsufficientFunds.into());
             }
             entry(&mut tx, trade, seller, 0, -amount).await?;
-            entry(&mut tx, trade, buyer, amount, 0).await?;
+            credit(&mut tx, trade, buyer, amount).await?;
             sqlx::query("UPDATE wallet_reservations SET consumed=consumed+$2,status=CASE WHEN consumed+$2=amount THEN 'captured' ELSE 'active' END,updated_at=now() WHERE id=$1").bind(reservation).bind(amount).execute(&mut *tx).await?;
         }
         let result = receipt(&mut tx, trade, replayed).await?;

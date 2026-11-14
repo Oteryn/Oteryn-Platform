@@ -347,6 +347,17 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         let mut connection = self.pool.acquire().await?;
         Ok(oteryn_payments::coin_store::purchase_hold(&mut connection, id).await?)
     }
+    /// Coins the account still owes on held reversals, for the same staff.
+    pub async fn coin_debt(&self, context: CheckContext, id: Uuid) -> Result<i64, Error> {
+        self.check(context, Permission::ReleaseCoinPurchaseHold)
+            .await?;
+        if !self.flags.coin_holds {
+            return Err(Error::NotFound);
+        }
+        self.target(id).await?;
+        let mut connection = self.pool.acquire().await?;
+        Ok(oteryn_payments::coin_store::outstanding_debt(&mut connection, id).await?)
+    }
     /// Staff release of a coin purchase hold. The hold moves to its history
     /// table and the audit row (actor, target, reason, order) commits in the
     /// same transaction. The held reversal stays recorded: nothing is settled

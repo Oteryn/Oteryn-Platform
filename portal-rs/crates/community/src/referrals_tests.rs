@@ -134,14 +134,9 @@ impl Database {
             .connect(&url)
             .await
             .unwrap();
-        for migration in [
-            include_str!("../../../migrations/20261105151420_t26_wallet.sql"),
-            include_str!("../../../migrations/20261105120000_t37_outbox.sql"),
-            include_str!("../../../migrations/20261105130000_t36_notifications.sql"),
-            include_str!("../../../migrations/20261105220219_t56_referrals.sql"),
-        ] {
-            sqlx::raw_sql(migration).execute(&pool).await.unwrap();
-        }
+        // The full schema: wallet credits read the coin-debt view, which
+        // spans the payments tables.
+        oteryn_db::migrate(&pool).await.unwrap();
         Some(Self {
             pool,
             admin,

@@ -108,6 +108,14 @@ pub enum Refusal {
     ReservationSettled,
     #[error("history limit must be between 1 and 100")]
     InvalidPage,
+    /// Outstanding coin debt locks every outgoing transfer and market listing
+    /// until credits have paid it (owner decision 2026-11-14).
+    #[error("outstanding coin debt locks outgoing coins")]
+    DebtOutstanding,
+}
+impl Refusal {
+    /// Stable machine code of the debt lock refusal.
+    pub const DEBT_OUTSTANDING_CODE: &'static str = "coin_debt_outstanding";
 }
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

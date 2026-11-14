@@ -86,6 +86,20 @@ available balance, `non_transferable` and `non_transferable_after` are `0` and
 `coin_class` is `transferable`. Rollback disables flags and preserves financial
 history; do not discard ledger rows or partial fills.
 
+Coin debt (owner decision 2026-11-14): a held purchase reversal is debt, and
+`coin_outstanding_debts` (migration `20261114100004_coin_debt_settlement`) is
+the one definition of what is still owed. Every credit (transfer in, top-up,
+positive adjustment, reward, staff grant, market fill) enters whole, then pays
+the account's debt oldest first in the same transaction under the account lock:
+one `debt_settlement` operation (`reference_id` = the credit) takes the paid
+coins back, and each debt paid gets a `coin_debt_settlements` row and a
+`wallet.coin_debt_settled` audit row. The receipt of the credit includes it.
+Releasing a reservation returns own coins and settles nothing. While debt is
+outstanding, `transfer` (sender) and `reserve_offer` refuse with
+`Refusal::DebtOutstanding` (code `coin_debt_outstanding`; `transfer_blocked`
+on the coin wire, which has no debt code). `outstanding_debt` reads the total.
+PostgreSQL tests: `tests/debt.rs`.
+
 `wire::configured_router` reads `PORTAL_COIN_TRANSFERS_ENABLED`,
 `PORTAL_COIN_MARKET_ENABLED` and `PORTAL_GAME_COINS_IDENTITIES`. Both flags default
 off. The identity value is a JSON object of exact certificate SANs to empty arrays;
