@@ -114,7 +114,16 @@ async fn postgres_registration_login_removal_and_replay() {
     let mut auth = SoftPasskey::new(true);
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at) VALUES ($1,$2,'test',$3,now()+interval '1 hour',now()+interval '1 day')")
         .bind(hash(OTHER)).bind(id).bind(BINDING).execute(&db.pool).await.unwrap();
+    let before = crate::native_recovery_test_support::handle(&db.pool, id)
+        .await
+        .unwrap();
     registered(&service, id, &mut auth).await;
+    // Registration ends the account's native recovery handles.
+    assert!(
+        crate::native_recovery_test_support::revoked(&db.pool, &before)
+            .await
+            .unwrap()
+    );
     let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id=$1")
         .bind(id)
         .fetch_one(&db.pool)
@@ -135,11 +144,25 @@ async fn postgres_registration_login_removal_and_replay() {
         Err(Error::Refused)
     ));
     let key = service.list(id).await.unwrap()[0];
+    let handle = crate::native_recovery_test_support::handle(&db.pool, id)
+        .await
+        .unwrap();
     assert!(matches!(
         service.remove(Uuid::now_v7(), key).await,
         Err(Error::Refused)
     ));
+    // A refused removal keeps the handle; a removal ends it.
+    assert!(
+        !crate::native_recovery_test_support::revoked(&db.pool, &handle)
+            .await
+            .unwrap()
+    );
     service.remove(id, key).await.unwrap();
+    assert!(
+        crate::native_recovery_test_support::revoked(&db.pool, &handle)
+            .await
+            .unwrap()
+    );
     assert!(service.list(id).await.unwrap().is_empty());
     assert!(matches!(service.remove(id, key).await, Err(Error::Refused)));
     let audit: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE actor=$1")

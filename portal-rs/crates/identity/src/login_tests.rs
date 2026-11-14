@@ -19,6 +19,30 @@ fn validation_and_redaction() {
     assert!(!password::verify("wrong", DUMMY_HASH));
     assert!(!password::verify("wrong", "malformed"));
 }
+#[test]
+fn authorize_return_accepts_only_the_local_authorize_route() {
+    let valid = "/oauth/authorize?response_type=code&client_id=oteryn-client&state=s%20t";
+    assert!(authorize_return(valid));
+    let long = format!("/oauth/authorize?q={}", "a".repeat(8192));
+    for bad in [
+        "",
+        "/",
+        "/oauth/authorize",
+        "/oauth/authorize?",
+        "/oauth/authorizeX?a=1",
+        "/oauth/token?a=1",
+        "//evil.example/oauth/authorize?a=1",
+        "https://evil.example/oauth/authorize?a=1",
+        "/oauth/authorize?a=1#frag",
+        "/oauth/authorize?a=1\\evil",
+        "/oauth/authorize?a=1 b",
+        "/oauth/authorize?a=1\r\nLocation:x",
+        "/oauth/authorize?a=\u{e9}",
+        long.as_str(),
+    ] {
+        assert!(!authorize_return(bad), "{bad:?}");
+    }
+}
 #[tokio::test]
 async fn postgres_login_rehash_refusals_and_bad_input() -> Result<(), Box<dyn std::error::Error>> {
     let Some(database) = database::Database::open().await? else {

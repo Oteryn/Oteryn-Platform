@@ -52,8 +52,10 @@ async fn success_revokes_and_replay_denied() -> Result<(), Box<dyn std::error::E
     };
     let p = &db.pool;
     let id = account(p).await?;
+    let handle = crate::native_recovery_test_support::handle(p, id).await?;
     request(p, " RESET@example.test ", &key()).await?;
     let t = token(p).await?;
+    assert!(!crate::native_recovery_test_support::revoked(p, &handle).await?);
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token) VALUES (decode(repeat('ab',32),'hex'),$1,now()+interval '1 hour',now()+interval '1 day','test',repeat('c',64))").bind(id).execute(p).await?;
     assert!(complete(p, input("reset@example.test", &t)).await?);
     let h: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
@@ -66,6 +68,7 @@ async fn success_revokes_and_replay_denied() -> Result<(), Box<dyn std::error::E
         .fetch_one(p)
         .await?;
     assert_eq!(n, 0);
+    assert!(crate::native_recovery_test_support::revoked(p, &handle).await?);
     assert!(!complete(p, input("reset@example.test", &t)).await?);
     let n: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_log WHERE action='identity.password_reset_completed'",
@@ -82,6 +85,7 @@ async fn refusal_matrix_and_generic_requests() -> Result<(), Box<dyn std::error:
     };
     let p = &db.pool;
     let id = account(p).await?;
+    let handle = crate::native_recovery_test_support::handle(p, id).await?;
     for e in ["absent@example.test", "bad"] {
         request(p, e, &key()).await?;
     }
@@ -107,6 +111,8 @@ async fn refusal_matrix_and_generic_requests() -> Result<(), Box<dyn std::error:
     let mut i = input("reset@example.test", &t);
     i.password_confirmation = "different".into();
     assert!(!complete(p, i).await?);
+    // A refused or malformed reset leaves the recovery handles live.
+    assert!(!crate::native_recovery_test_support::revoked(p, &handle).await?);
     for status in ["suspended", "closed"] {
         sqlx::query("UPDATE accounts SET status=$2 WHERE id=$1")
             .bind(id)

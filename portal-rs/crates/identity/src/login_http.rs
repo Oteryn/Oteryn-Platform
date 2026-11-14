@@ -170,7 +170,12 @@ async fn submit(
         session::rotate(&session, PrivilegeChange::Login(id))
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        Ok(redirect(&format!("/{}/", language.code())))
+        let target = take_return(&session)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        Ok(redirect(
+            &target.unwrap_or_else(|| format!("/{}/", language.code())),
+        ))
     } else {
         refuse(language, &session).await
     }
@@ -193,6 +198,37 @@ async fn logout(
 mod tests;
 
 const LOGIN_FAILED: SessionKey<bool> = SessionKey::new("login_failed");
+const RETURN: SessionKey<Option<String>> = SessionKey::new(login::RETURN_KEY);
+/// The stored post-login target, read and cleared once a login has succeeded.
+/// Only the native OAuth authorize route and the exact coin checkout path are
+/// accepted; anything else (absent, malformed, another origin) yields `None`.
+pub(crate) async fn take_return(session: &BrowserSession) -> Result<Option<String>, sqlx::Error> {
+    let Some(target) = session.get(RETURN).await?.flatten() else {
+        return Ok(None);
+    };
+    session.set(RETURN, &None).await?;
+    Ok(Some(target).filter(|t| accepted(t)))
+}
+fn accepted(target: &str) -> bool {
+    login::authorize_return(target) || oteryn_payments::coin::is_checkout_return(target)
+}
+/// Reads the stored target before a session is replaced, so a challenge on
+/// the new session can still return to it.
+pub(crate) async fn pending_return(
+    session: &BrowserSession,
+) -> Result<Option<String>, sqlx::Error> {
+    Ok(session.get(RETURN).await?.flatten().filter(|t| accepted(t)))
+}
+/// Stores a target kept by [`pending_return`] on the current session.
+pub(crate) async fn keep_return(
+    session: &BrowserSession,
+    target: Option<String>,
+) -> Result<(), sqlx::Error> {
+    match target {
+        Some(target) => session.set(RETURN, &Some(target)).await,
+        None => Ok(()),
+    }
+}
 // Laravel browser forms use a redirect and a generic flash error on refusal.
 fn redirect(path: &str) -> Response {
     let mut response = Redirect::to(path).into_response();

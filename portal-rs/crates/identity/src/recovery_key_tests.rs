@@ -140,12 +140,14 @@ async fn postgres_success_consumes_key_and_revokes_sessions() -> Result {
     db.session(Some(id)).await?;
     sqlx::query("INSERT INTO oauth_token_families(id,account_id,client_id,credential_hash) VALUES(uuidv7(),$1,'test',decode(repeat('00',32),'hex'))").bind(id).execute(&db.pool).await?;
     sqlx::query("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at) VALUES(uuidv7(),$1,uuidv7(),'test',1,1,9999999999,9999999999)").bind(id).execute(&db.pool).await?;
+    let handle = crate::native_recovery_test_support::handle(&db.pool, id).await?;
     assert_eq!(
         db.keys()
             .recover(" OWNER@EXAMPLE.TEST ", &key.to_lowercase(), NEW, NEW)
             .await?,
         id
     );
+    assert!(crate::native_recovery_test_support::revoked(&db.pool, &handle).await?);
     let account = crate::accounts::Accounts {
         pool: db.pool.clone(),
     }
@@ -195,6 +197,7 @@ async fn postgres_pending_replaced_revoked_and_bad_password_refused() -> Result 
         return Ok(());
     };
     let id = db.account().await?;
+    let handle = crate::native_recovery_test_support::handle(&db.pool, id).await?;
     assert!(matches!(
         db.keys().generate(id, "wrong").await,
         Err(Error::Rejected)
@@ -240,6 +243,8 @@ async fn postgres_pending_replaced_revoked_and_bad_password_refused() -> Result 
         db.keys().revoke(id, CURRENT).await,
         Err(Error::Rejected)
     ));
+    // Refused recoveries change no credential and keep the recovery handles.
+    assert!(!crate::native_recovery_test_support::revoked(&db.pool, &handle).await?);
     db.close().await
 }
 #[tokio::test]

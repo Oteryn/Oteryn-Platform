@@ -157,9 +157,14 @@ fn verifier(s: &str) -> bool {
 /// The credential stamp binds codes and token families to the password, email and
 /// verification state. `login_mfa_required` is deliberately not hashed: MFA is
 /// enforced where a browser approves a grant (`approve`), and turning it on rotates
-/// `game_auth_generation`, which fences native enrollment of older families.
-async fn credentials(tx: &mut sqlx::PgConnection, account: Uuid) -> Result<(Vec<u8>, bool), Error> {
-    let row = sqlx::query("SELECT password_hash, email, email_verified_at::text AS verified, login_mfa_required, status FROM accounts WHERE id=$1 FOR UPDATE")
+/// `game_auth_generation`. Refresh and access verification compare the family's
+/// stored generation with that one, so the rotation ends every older family.
+/// Returns the stamp, the MFA requirement and the current `game_auth_generation`.
+async fn credentials(
+    tx: &mut sqlx::PgConnection,
+    account: Uuid,
+) -> Result<(Vec<u8>, bool, i64), Error> {
+    let row = sqlx::query("SELECT password_hash, email, email_verified_at::text AS verified, login_mfa_required, status, game_auth_generation FROM accounts WHERE id=$1 FOR UPDATE")
         .bind(account).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
     if row.get::<String, _>("status") != "active"
         || row.get::<Option<String>, _>("verified").is_none()
@@ -172,7 +177,11 @@ async fn credentials(tx: &mut sqlx::PgConnection, account: Uuid) -> Result<(Vec<
         row.get::<Option<String>, _>("verified"),
     ))
     .map_err(|_| Error::Unavailable)?;
-    Ok((hash(&input), row.get::<bool, _>("login_mfa_required")))
+    Ok((
+        hash(&input),
+        row.get::<bool, _>("login_mfa_required"),
+        row.get::<i64, _>("game_auth_generation"),
+    ))
 }
 async fn stamp(tx: &mut sqlx::PgConnection, account: Uuid) -> Result<Vec<u8>, Error> {
     Ok(credentials(tx, account).await?.0)
@@ -239,7 +248,7 @@ async fn step_up(
     account: Uuid,
     mfa: bool,
 ) -> Result<Option<Vec<u8>>, Error> {
-    let (stamp, required) = credentials(tx, account).await?;
+    let (stamp, required, _) = credentials(tx, account).await?;
     if required && !mfa {
         event(tx, Some(account), "mfa_step_up_required").await?;
         return Ok(None);
@@ -356,7 +365,7 @@ async fn refresh(pool: &PgPool, input: &TokenRequest) -> Result<Tokens, Error> {
     let row = sqlx::query("SELECT f.account_id, f.id FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.refresh_hash=$1").bind(hash(&input.refresh_token)).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
     let account: Uuid = row.get("account_id");
     let family: Uuid = row.get("id");
-    let current = stamp(&mut tx, account).await?;
+    let (current, _, generation) = credentials(&mut tx, account).await?;
     let row = sqlx::query("SELECT *, expires_at>clock_timestamp() AND revoked_at IS NULL AS valid FROM oauth_token_families WHERE id=$1 FOR UPDATE").bind(family).fetch_one(&mut *tx).await?;
     if row.get::<String, _>("client_id") != input.client_id {
         return Err(Error::InvalidGrant);
@@ -367,23 +376,16 @@ async fn refresh(pool: &PgPool, input: &TokenRequest) -> Result<Tokens, Error> {
             .fetch_one(&mut *tx)
             .await?;
     if used || !same(&current, &row.get::<Vec<u8>, _>("credential_hash")) {
-        sqlx::query(
-            "UPDATE oauth_token_families SET revoked_at=now(),updated_at=now() WHERE id=$1",
-        )
-        .bind(family)
-        .execute(&mut *tx)
-        .await?;
-        event(
-            &mut tx,
-            Some(account),
-            "refresh_reuse_or_credentials_changed",
-        )
-        .await?;
-        tx.commit().await?;
-        return Err(Error::InvalidGrant);
+        return revoke_family(tx, account, family, "refresh_reuse_or_credentials_changed").await;
     }
     if !row.get::<bool, _>("valid") {
         return Err(Error::InvalidGrant);
+    }
+    // A live family from before the latest generation rotation (MFA turned on,
+    // a credential or status change) is revoked; one without a generation
+    // fails closed.
+    if row.get::<Option<i64>, _>("game_generation") != Some(generation) {
+        return revoke_family(tx, account, family, "family_generation_stale").await;
     }
     // A refresh never changes or widens the family's single scope.
     let scope = known_scope(&row.get::<String, _>("scope")).ok_or(Error::InvalidGrant)?;
@@ -398,6 +400,21 @@ async fn refresh(pool: &PgPool, input: &TokenRequest) -> Result<Tokens, Error> {
     event(&mut tx, Some(account), "refresh_rotated").await?;
     tx.commit().await?;
     Ok(tokens)
+}
+/// Revokes one token family, records why and commits; the request is refused.
+async fn revoke_family<T>(
+    mut tx: Transaction<'_, Postgres>,
+    account: Uuid,
+    family: Uuid,
+    reason: &str,
+) -> Result<T, Error> {
+    sqlx::query("UPDATE oauth_token_families SET revoked_at=now(),updated_at=now() WHERE id=$1")
+        .bind(family)
+        .execute(&mut *tx)
+        .await?;
+    event(&mut tx, Some(account), reason).await?;
+    tx.commit().await?;
+    Err(Error::InvalidGrant)
 }
 /// All credential-changing callers must invoke this in their account transaction.
 /// Lock the account before changing credentials or invoking this function.
@@ -442,14 +459,17 @@ async fn verify_scoped(
     let mut tx = pool.begin().await?;
     let row = sqlx::query("SELECT f.account_id, f.client_id, f.credential_hash FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND t.access_expires_at>clock_timestamp() AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL AND f.scope=$2").bind(hash(token)).bind(scope).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
     let account = row.get("account_id");
-    let current = stamp(&mut tx, account).await?;
+    let (current, _, generation) = credentials(&mut tx, account).await?;
     // Re-read after acquiring the account lock so concurrent revocation cannot
     // leave a stale family snapshot authorized.
-    let row = sqlx::query("SELECT f.client_id, f.credential_hash FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND t.access_expires_at>clock_timestamp() AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL AND f.scope=$2").bind(hash(token)).bind(scope).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
+    let row = sqlx::query("SELECT f.id, f.client_id, f.credential_hash, f.game_generation FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE t.access_hash=$1 AND t.access_expires_at>clock_timestamp() AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL AND f.scope=$2").bind(hash(token)).bind(scope).fetch_optional(&mut *tx).await?.ok_or(Error::InvalidGrant)?;
     if !config.client(&row.get::<String, _>("client_id"))
         || !same(&current, &row.get::<Vec<u8>, _>("credential_hash"))
     {
         return Err(Error::InvalidGrant);
+    }
+    if row.get::<Option<i64>, _>("game_generation") != Some(generation) {
+        return revoke_family(tx, account, row.get("id"), "family_generation_stale").await;
     }
     tx.commit().await?;
     Ok(account)

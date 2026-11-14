@@ -122,6 +122,24 @@ fn redirect(language: Language, path: &str) -> Response {
     *response.status_mut() = StatusCode::FOUND;
     response
 }
+/// After a completed login: the stored OAuth authorize or checkout target
+/// (consumed once), otherwise the home page.
+async fn home_or_return(
+    language: Language,
+    session: &BrowserSession,
+) -> Result<Response, StatusCode> {
+    match crate::login_http::take_return(session)
+        .await
+        .map_err(unavailable)?
+    {
+        Some(target) => {
+            let mut response = Redirect::to(&target).into_response();
+            *response.status_mut() = StatusCode::FOUND;
+            Ok(response)
+        }
+        None => Ok(redirect(language, "/")),
+    }
+}
 fn unavailable(_: sqlx::Error) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
 }
@@ -342,7 +360,7 @@ async fn establish(
         .map_err(unavailable)?;
     session.set(GRANT, &auth.grant).await.map_err(unavailable)?;
     validate_rotated_session(context, session, &authorization).await?;
-    let mut response = redirect(language, "/");
+    let mut response = home_or_return(language, session).await?;
     if let Some(device) = auth.trusted {
         let value = HeaderValue::from_str(&format!(
             "{TRUSTED}={device}; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000"
@@ -403,7 +421,15 @@ async fn login(
         return Ok(r);
     }
     if let Some(challenge) = context.mfa.begin_login(&input).await.map_err(unavailable)? {
+        // The logout rotation drops the session; the challenge session keeps
+        // a valid post-login target so `establish` can return to it.
+        let target = crate::login_http::pending_return(&session)
+            .await
+            .map_err(unavailable)?;
         session::rotate(&session, PrivilegeChange::Logout)
+            .await
+            .map_err(unavailable)?;
+        crate::login_http::keep_return(&session, target)
             .await
             .map_err(unavailable)?;
         session
@@ -444,7 +470,7 @@ async fn login(
             .await
             .map_err(unavailable)?;
         validate_rotated_session(&context, &session, &authorization).await?;
-        return Ok(redirect(language, "/"));
+        return home_or_return(language, &session).await;
     }
     refusal(language, &session, "/login").await
 }

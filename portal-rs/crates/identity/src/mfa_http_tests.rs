@@ -64,6 +64,19 @@ async fn browser_flow() -> Result<(), Box<dyn std::error::Error>> {
                 "_csrf={token}&email=browser%40example.test&password=test+password"
             )))?)
     };
+    // A stored authorize target survives the challenge rotation and is the
+    // post-MFA destination, consumed once.
+    let target = "/oauth/authorize?response_type=code&client_id=c&state=s";
+    sqlx::query("UPDATE web_sessions SET data=data||jsonb_build_object('oauth_return',$1::text) WHERE account_id IS NULL")
+        .bind(target)
+        .execute(&db.pool)
+        .await?;
+    let stored = || {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT string_agg(data->>'oauth_return', ',') FROM web_sessions",
+        )
+        .fetch_one(&db.pool)
+    };
     let refused = app.clone().oneshot(request("bad")?).await?;
     assert_eq!(refused.status(), StatusCode::FORBIDDEN);
     let response = app.clone().oneshot(request(csrf)?).await?;
@@ -125,10 +138,17 @@ async fn browser_flow() -> Result<(), Box<dyn std::error::Error>> {
                 "_csrf={csrf}&code={code}&remember=yes"
             )))?)
     };
+    assert_eq!(stored().await?.as_deref(), Some(target));
     let refused = app.clone().oneshot(challenge_request("bad")?).await?;
     assert_eq!(refused.status(), StatusCode::FOUND);
+    assert_eq!(stored().await?.as_deref(), Some(target));
     let accepted = app.clone().oneshot(challenge_request(&codes[0])?).await?;
     assert_eq!(accepted.status(), StatusCode::FOUND);
+    assert_eq!(
+        accepted.headers().get(header::LOCATION).ok_or("location")?,
+        target
+    );
+    assert_eq!(stored().await?, None);
     assert!(
         accepted
             .headers()

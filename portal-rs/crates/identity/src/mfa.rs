@@ -322,6 +322,12 @@ impl Mfa {
             .bind(id)
             .execute(&mut **tx)
             .await?;
+        // A game OAuth code approved before MFA carries no MFA proof; the
+        // families it would open get the new generation, so refuse it here.
+        sqlx::query("UPDATE oauth_authorization_codes SET revoked_at=now(),updated_at=now() WHERE account_id=$1 AND revoked_at IS NULL")
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
         Ok(())
     }
     async fn token(

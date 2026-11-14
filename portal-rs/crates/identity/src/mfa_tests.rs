@@ -62,6 +62,15 @@ async fn postgres_mfa_enrollment_and_refusals() -> Result<(), Box<dyn std::error
     };
     let mfa = Mfa::new(db.pool.clone(), [7; 32]);
     let id = account(&db.pool, "enroll@example.test").await?;
+    let handle = crate::native_recovery_test_support::handle(&db.pool, id).await?;
+    sqlx::query("INSERT INTO oauth_authorization_codes(code_hash,account_id,client_id,redirect_uri,challenge,credential_hash) VALUES($1,$2,'test','https://example.test/callback','test',$1)").bind(id.as_bytes().repeat(2)).bind(id).execute(&db.pool).await?;
+    let open_codes = || {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM oauth_authorization_codes WHERE account_id=$1 AND revoked_at IS NULL",
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+    };
     assert!(mfa.enroll(id, "wrong").await?.is_none());
     assert!(mfa.enroll(Uuid::now_v7(), "test password").await?.is_none());
     assert!(mfa.confirm(id, "test password", "123456").await?.is_none());
@@ -72,6 +81,9 @@ async fn postgres_mfa_enrollment_and_refusals() -> Result<(), Box<dyn std::error
             .is_none()
     );
     assert!(mfa.confirm(id, "test password", "bad").await?.is_none());
+    // Refused and unconfirmed enrollment leaves the recovery handles live.
+    assert!(!crate::native_recovery_test_support::revoked(&db.pool, &handle).await?);
+    assert_eq!(open_codes().await?, 1);
     // Reuse the confirmed step's code: a fresh one could fall in the next 30 s window.
     let confirmed = code(&enrollment.secret, 0)?;
     let codes = mfa
@@ -79,6 +91,10 @@ async fn postgres_mfa_enrollment_and_refusals() -> Result<(), Box<dyn std::error
         .await?
         .ok_or("confirm")?;
     assert_eq!(codes.len(), 8);
+    // Turning MFA on ends the account's native recovery handles.
+    assert!(crate::native_recovery_test_support::revoked(&db.pool, &handle).await?);
+    // A game OAuth code approved before MFA is refused afterwards.
+    assert_eq!(open_codes().await?, 0);
     assert!(mfa.enroll(id, "test password").await?.is_none());
     assert!(
         mfa.confirm(id, "test password", &code(&enrollment.secret, 0)?)
