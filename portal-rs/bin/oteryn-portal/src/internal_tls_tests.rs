@@ -477,3 +477,49 @@ async fn public_listener_never_verifies_an_admin_agent() -> TestResult {
     assert_eq!(&body[..], b"agent none");
     Ok(())
 }
+
+#[tokio::test]
+async fn spki_bound_admin_agent_is_refused_on_the_san_only_listener() -> TestResult {
+    // An agent configured by SPKI is never matched here: the listener proves
+    // peers by SAN only, so its CN must not select it (fail closed).
+    let bindings = vec![oteryn_admin::control_http::AgentBinding {
+        agent_id: "agent-spki".into(),
+        identity: Identity::spki_sha256([7; 32]),
+        result_key: None,
+    }];
+    let pool = oteryn_db::outbox::PgPoolOptions::new()
+        .max_connections(2)
+        .connect_lazy("postgres://localhost/unused")?;
+    let control = oteryn_admin::control_http::router(pool, true, bindings.clone())?;
+    let app = control.route(
+        "/internal/v1/agent-probe",
+        get(|agent: Option<Extension<VerifiedAgent>>| async move {
+            agent.map_or_else(
+                || "agent none".to_owned(),
+                |a| format!("agent {}", a.agent_id()),
+            )
+        }),
+    );
+    let agents = AgentIdentities::new(true, &bindings).map(Arc::new);
+    let fixture = listener_with(app, agents).await?;
+    let cert = fixture.ca.issue_agent(
+        "agent-spki.oteryn.internal",
+        Some("oteryn-admin-agent/agent-spki"),
+    )?;
+    let client = Some((cert.0.as_str(), cert.1.as_str()));
+    let probe = call(&fixture, client, PROBE).await?;
+    assert!(probe.as_deref().is_some_and(|r| r.ends_with("agent none")));
+    let body = r#"{"agent_id":"agent-spki","unexpected":true}"#;
+    let hello = format!(
+        "POST /internal/v1/admin-control/hello HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let hello = call(&fixture, client, &hello).await?;
+    assert_eq!(status(&hello), Some("403"));
+    assert!(
+        hello
+            .as_deref()
+            .is_some_and(|r| r.contains("ADM_FORBIDDEN"))
+    );
+    Ok(())
+}
