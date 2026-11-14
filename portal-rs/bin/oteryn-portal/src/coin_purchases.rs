@@ -16,6 +16,7 @@ use oteryn_payments::{
     coin_store::{
         CoinError, CoinHost, CoinPurchases, Debit, HostFuture, Ownership, WalletSnapshot,
     },
+    provider_webhook,
 };
 use oteryn_wallet::{self as wallet, AdjustmentKind, Ledger, Refusal, WalletFlags};
 use serde_json::json;
@@ -38,17 +39,19 @@ pub fn configured_router(pool: PgPool) -> Router {
     };
     let service = if settings.enabled {
         sandbox_provider().map(|provider| {
-            Arc::new(CoinPurchases::new(
+            let coins = Arc::new(CoinPurchases::new(
                 pool.clone(),
                 settings,
-                provider,
+                provider.clone(),
                 Arc::new(host),
-            ))
+            ));
+            (coins, provider)
         })
     } else {
         None
     };
-    coin_http::router(pool, service)
+    let webhook = provider_webhook::configured_router(pool.clone(), service.clone());
+    coin_http::router(pool, service.map(|(coins, _)| coins)).merge(webhook)
 }
 
 /// A fresh random signing key; only this process can sign sandbox events.
