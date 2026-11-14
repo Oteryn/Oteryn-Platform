@@ -27,3 +27,4 @@ coin-hold-release = Release the coin purchase hold (the unpaid reversal stays re
 coin-hold-none = No coin purchase hold.
 coin-hold-released = The coin purchase hold was released.
 coin-hold-absent = There was no coin purchase hold to release.
+coin-debt = Outstanding coin debt (paid first from every credit)

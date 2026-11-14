@@ -1136,6 +1136,7 @@ async fn postgres_http_coin_hold_release_csrf_permission_mfa_and_result() {
     assert!(held.contains("value=\"release-coin-hold\""));
     assert!(held.contains("for=\"coin-hold-reason\""));
     assert!(held.contains(&order.to_string()));
+    assert!(held.contains("Zaległy dług w monetach (spłacany najpierw z każdego zasilenia): 500"));
     let (cookie, csrf) = kick_session(app(db.support, true), &path).await;
     assert_eq!(
         coin_hold_post(

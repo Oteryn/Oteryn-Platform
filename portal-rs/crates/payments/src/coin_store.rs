@@ -871,6 +871,14 @@ impl CoinPurchases {
             // Refund then chargeback: the credit was reversed (or held) once.
             Some(outcome) => outcome,
             None => {
+                // The wallet account lock serializes this debit, and the debt
+                // it may record, with every credit that would settle the debt.
+                sqlx::query(
+                    "SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE",
+                )
+                .bind(order.payer)
+                .fetch_optional(&mut **tx)
+                .await?;
                 let debit = self
                     .host
                     .reverse_in(tx, key, order.payer, order.order.coins)
@@ -949,8 +957,25 @@ impl CoinPurchases {
 pub struct PurchaseHold {
     pub order_id: Uuid,
     pub reason: String,
-    /// Coins of the held reversal still owed (`coins - debited`), 0 if none.
+    /// Coins of the held reversal still owed (`coins - debited` less what
+    /// credits have repaid), 0 if none.
     pub debt_coins: i64,
+}
+
+/// Coins the account still owes on held reversals (`coins - debited` less
+/// what later credits have repaid), 0 when none. Every wallet credit pays this
+/// first, and outgoing transfers and market listings are refused while it is
+/// positive (owner decision 2026-11-14).
+pub async fn outstanding_debt(
+    connection: &mut PgConnection,
+    account: Uuid,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT COALESCE(SUM(owed),0)::bigint FROM coin_outstanding_debts WHERE account_id=$1 AND owed>0",
+    )
+    .bind(account)
+    .fetch_one(connection)
+    .await
 }
 
 /// The account's coin purchase hold, if any.
@@ -959,7 +984,7 @@ pub async fn purchase_hold(
     account: Uuid,
 ) -> Result<Option<PurchaseHold>, sqlx::Error> {
     let row: Option<(Uuid, String, i64)> = sqlx::query_as(
-        "SELECT h.order_id,h.reason,COALESCE((SELECT r.coins-r.debited FROM coin_purchase_reversals r WHERE r.order_id=h.order_id AND r.outcome='held'),0) \
+        "SELECT h.order_id,h.reason,COALESCE((SELECT GREATEST(d.owed,0) FROM coin_outstanding_debts d WHERE d.order_id=h.order_id),0) \
          FROM coin_purchase_holds h WHERE h.account_id=$1",
     )
     .bind(account)
@@ -975,7 +1000,8 @@ pub async fn purchase_hold(
 /// Staff release of the account's coin purchase hold, in the caller's
 /// transaction (which also writes the audit record). The hold row moves to
 /// `coin_purchase_hold_releases` with the debt owed at that moment; the held
-/// reversal stays as the unsettled debt and is never cleared or zeroed here.
+/// reversal stays as the debt, settled only by later credits, never cleared or
+/// zeroed here.
 /// `None` means there was no hold to release.
 pub async fn release_purchase_hold_in(
     connection: &mut PgConnection,
@@ -987,7 +1013,7 @@ pub async fn release_purchase_hold_in(
         "WITH released AS (DELETE FROM coin_purchase_holds WHERE account_id=$1 RETURNING account_id,order_id,reason,created_at) \
          INSERT INTO coin_purchase_hold_releases (id,account_id,order_id,reason,held_at,released_by,release_reason,debt_coins) \
          SELECT $2,h.account_id,h.order_id,h.reason,h.created_at,$3,$4, \
-         COALESCE((SELECT r.coins-r.debited FROM coin_purchase_reversals r WHERE r.order_id=h.order_id AND r.outcome='held'),0) \
+         COALESCE((SELECT GREATEST(d.owed,0) FROM coin_outstanding_debts d WHERE d.order_id=h.order_id),0) \
          FROM released h RETURNING order_id,reason,debt_coins",
     )
     .bind(account)

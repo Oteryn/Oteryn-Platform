@@ -166,7 +166,8 @@ fn error(err: Error) -> Response {
         }
         Error::Refused(Refusal::AccountDenied) => "account_inactive",
         Error::Refused(Refusal::UnknownAccount) => "unknown_account",
-        Error::Refused(Refusal::TransferBlocked) => "transfer_blocked",
+        // coin-wire-v1 has no debt code: outstanding debt blocks the transfer.
+        Error::Refused(Refusal::TransferBlocked | Refusal::DebtOutstanding) => "transfer_blocked",
         Error::Refused(Refusal::IdempotencyConflict) => "idempotency_conflict",
         Error::Refused(
             Refusal::Disabled | Refusal::TransferStateUnknown | Refusal::AuditDenied,
