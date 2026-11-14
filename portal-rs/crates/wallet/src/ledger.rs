@@ -428,18 +428,18 @@ async fn lock(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(), E
         .await?;
     Ok(())
 }
-async fn balance(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<Balance, Error> {
+async fn balance(tx: &mut PgConnection, account: Uuid) -> Result<Balance, Error> {
     // One coin class: entries of either historical coin_class count.
     let (available, reserved): (i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta),0)::bigint, COALESCE(SUM(reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1")
-        .bind(account).fetch_one(&mut **tx).await?;
+        .bind(account).fetch_one(&mut *tx).await?;
     Balance::default().apply(available, reserved)
 }
 /// Every coin credit: the whole credit enters the balance, then pays the
 /// account's outstanding coin debt first, in the same transaction under the
 /// account lock the caller holds (owner decision 2026-11-14). A negative
 /// adjustment is a debit and settles nothing.
-async fn credit(
-    tx: &mut Transaction<'_, Postgres>,
+pub(crate) async fn credit(
+    tx: &mut PgConnection,
     key: Uuid,
     account: Uuid,
     amount: i64,
@@ -451,7 +451,7 @@ async fn credit(
     Ok(())
 }
 pub(crate) async fn entry(
-    tx: &mut Transaction<'_, Postgres>,
+    tx: &mut PgConnection,
     key: Uuid,
     account: Uuid,
     available: i64,
@@ -459,7 +459,7 @@ pub(crate) async fn entry(
 ) -> Result<(), Error> {
     balance(tx, account).await?.apply(available, reserved)?;
     sqlx::query("INSERT INTO wallet_entries (id,operation_id,account_id,available_delta,reserved_delta) VALUES ($1,$2,$3,$4,$5)")
-        .bind(Uuid::now_v7()).bind(key).bind(account).bind(available).bind(reserved).execute(&mut **tx).await?;
+        .bind(Uuid::now_v7()).bind(key).bind(account).bind(available).bind(reserved).execute(&mut *tx).await?;
     Ok(())
 }
 

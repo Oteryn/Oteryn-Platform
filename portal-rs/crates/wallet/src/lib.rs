@@ -5,7 +5,7 @@
 mod debt;
 mod domain;
 mod ledger;
-pub use debt::outstanding_debt;
+pub use debt::{credit_in, outstanding_debt, unlocked_in};
 pub use domain::*;
 pub use ledger::Ledger;
 pub mod wire;

@@ -169,6 +169,13 @@ impl Reservations for CoinReservations {
             return Ok(());
         }
         let delta = h.amount.checked_sub(amount).ok_or(Error::Overflow)?;
+        // Coins still owed never leave through the market (owner decision
+        // 2026-11-14); a lowered or replayed hold returns own coins.
+        if delta > 0 {
+            oteryn_wallet::unlocked_in(db, h.account)
+                .await
+                .map_err(wallet_error)?;
+        }
         let available:i64=sqlx::query_scalar("SELECT COALESCE(sum(available_delta),0)::bigint FROM wallet_entries WHERE account_id=$1").bind(h.account).fetch_one(&mut *db).await?;
         if delta > available {
             return Err(Error::InsufficientFunds);
@@ -317,7 +324,10 @@ impl Reservations for CoinReservations {
             .ok_or(Error::InsufficientFunds)?;
         let op = Self::operation(db, "capture", s.buyer, s.amount, s.id, Some(s.seller)).await?;
         Self::entry(db, op, s.buyer, excess, -held).await?;
-        Self::entry(db, op, s.seller, s.seller_net, 0).await?;
+        // Proceeds are a credit: they repay the seller's coin debt first.
+        oteryn_wallet::credit_in(db, op, s.seller, s.seller_net)
+            .await
+            .map_err(wallet_error)?;
         sqlx::query(
             "UPDATE bazaar_coin_holds SET amount=0,completed=true WHERE id=$1 AND account_id=$2",
         )
@@ -338,5 +348,19 @@ fn gold_error(e: super::Error) -> Error {
         super::Error::Database(e) => Error::Database(e),
         super::Error::Unavailable => Error::Disabled,
         _ => Error::Denied,
+    }
+}
+
+/// Wallet refusals on the coin path. Outstanding coin debt reads as
+/// insufficient funds: those coins are not the account's to spend.
+fn wallet_error(e: oteryn_wallet::Error) -> Error {
+    use oteryn_wallet::Refusal;
+    match e {
+        oteryn_wallet::Error::Storage(e) => Error::Database(e),
+        oteryn_wallet::Error::Refused(Refusal::DebtOutstanding | Refusal::InsufficientFunds) => {
+            Error::InsufficientFunds
+        }
+        oteryn_wallet::Error::Refused(Refusal::Overflow) => Error::Overflow,
+        oteryn_wallet::Error::Refused(_) => Error::Denied,
     }
 }
