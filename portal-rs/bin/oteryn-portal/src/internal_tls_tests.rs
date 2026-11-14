@@ -35,6 +35,20 @@ impl Authority {
         let cert = params.signed_by(&key, &self.cert, &self.key)?;
         Ok((cert.pem(), key.serialize_pem()))
     }
+    /// Client certificate with exactly the given DNS SAN and subject CN (or none).
+    fn issue_agent(&self, san: &str, cn: Option<&str>) -> Result<(String, String), rcgen::Error> {
+        let key = KeyPair::generate()?;
+        let mut params = CertificateParams::new(vec![san.to_owned()])?;
+        params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
+        params.distinguished_name = rcgen::DistinguishedName::new();
+        if let Some(cn) = cn {
+            params
+                .distinguished_name
+                .push(rcgen::DnType::CommonName, cn);
+        }
+        let cert = params.signed_by(&key, &self.cert, &self.key)?;
+        Ok((cert.pem(), key.serialize_pem()))
+    }
 }
 
 fn lookup(values: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
@@ -132,6 +146,13 @@ struct Fixture {
 }
 
 async fn listener() -> Result<Fixture, Box<dyn std::error::Error>> {
+    listener_with(app()?, None).await
+}
+
+async fn listener_with(
+    app: Router,
+    agents: Option<Arc<AgentIdentities>>,
+) -> Result<Fixture, Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let ca = Authority::new()?;
     let (cert, key) = ca.issue(&["localhost"], ExtendedKeyUsagePurpose::ServerAuth)?;
@@ -150,7 +171,7 @@ async fn listener() -> Result<Fixture, Box<dyn std::error::Error>> {
     let tls = config.server_config()?;
     let socket = tokio::net::TcpListener::bind(config.bind).await?;
     let addr = socket.local_addr()?;
-    tokio::spawn(serve(socket, tls, app()?));
+    tokio::spawn(serve(socket, tls, app, agents));
     Ok(Fixture {
         _dir: dir,
         addr,
@@ -311,5 +332,148 @@ async fn v2_prefix_is_served_and_other_prefixes_are_refused() -> TestResult {
         let response = call(&fixture, Some((&cert, &key)), &request).await?;
         assert_eq!(status(&response), Some("404"), "{path}");
     }
+    Ok(())
+}
+
+const AGENT_SAN: &str = "agent-a.oteryn.internal";
+const AGENT_CN: &str = "oteryn-admin-agent/agent-a";
+
+fn agent_bindings() -> Result<Vec<oteryn_admin::control_http::AgentBinding>, guard::ConfigError> {
+    Ok(vec![oteryn_admin::control_http::AgentBinding {
+        agent_id: "agent-a".into(),
+        identity: Identity::san(AGENT_SAN)?,
+        result_key: None,
+    }])
+}
+
+/// The real admin-control router (enabled) plus a probe that reports the agent.
+/// The pool is never reached: every request here stops before the database.
+fn admin_app() -> Result<Router, Box<dyn std::error::Error>> {
+    let pool = oteryn_db::outbox::PgPoolOptions::new()
+        .max_connections(2)
+        .connect_lazy("postgres://localhost/unused")?;
+    let control = oteryn_admin::control_http::router(pool, true, agent_bindings()?)?;
+    Ok(control.route(
+        "/internal/v1/agent-probe",
+        get(|agent: Option<Extension<VerifiedAgent>>| async move {
+            agent.map_or_else(
+                || "agent none".to_owned(),
+                |a| format!("agent {}", a.agent_id()),
+            )
+        }),
+    ))
+}
+
+fn enabled_agents() -> Result<Option<Arc<AgentIdentities>>, guard::ConfigError> {
+    Ok(AgentIdentities::new(true, &agent_bindings()?).map(Arc::new))
+}
+
+const PROBE: &str =
+    "GET /internal/v1/agent-probe HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+
+/// A hello with an unknown member: past dispatch and the identity guard it is
+/// refused as invalid input before any database access.
+fn hello() -> String {
+    let body = r#"{"agent_id":"agent-a","unexpected":true}"#;
+    format!(
+        "POST /internal/v1/admin-control/hello HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nX-Client-Cert-CN: {AGENT_CN}\r\nX-SSL-Client-S-DN: CN={AGENT_CN}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+async fn agent_of(
+    fixture: &Fixture,
+    cert: &(String, String),
+) -> Result<(Option<String>, Option<String>), Box<dyn std::error::Error>> {
+    let client = Some((cert.0.as_str(), cert.1.as_str()));
+    let probe = call(fixture, client, PROBE).await?;
+    let hello = call(fixture, client, &hello()).await?;
+    Ok((probe, hello))
+}
+
+#[tokio::test]
+async fn admin_agent_with_bound_san_and_cn_is_verified() -> TestResult {
+    let fixture = listener_with(admin_app()?, enabled_agents()?).await?;
+    let cert = fixture.ca.issue_agent(AGENT_SAN, Some(AGENT_CN))?;
+    let (probe, hello) = agent_of(&fixture, &cert).await?;
+    assert!(
+        probe
+            .as_deref()
+            .is_some_and(|r| r.ends_with("agent agent-a"))
+    );
+    assert_eq!(status(&hello), Some("400"));
+    assert!(
+        hello
+            .as_deref()
+            .is_some_and(|r| r.contains("ADM_INVALID_PARAMS"))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_agent_is_refused_without_a_bound_identity() -> TestResult {
+    let fixture = listener_with(admin_app()?, enabled_agents()?).await?;
+    let cases = [
+        // Wrong SAN for the CN: the CN alone never authenticates.
+        ("other.oteryn.internal", Some(AGENT_CN)),
+        // Unknown agent id.
+        (AGENT_SAN, Some("oteryn-admin-agent/agent-b")),
+        // Malformed or missing CN.
+        (AGENT_SAN, Some("agent-a")),
+        (AGENT_SAN, Some("oteryn-admin-agent/")),
+        (AGENT_SAN, Some("oteryn-admin-agent/agent a")),
+        (AGENT_SAN, Some("OTERYN-ADMIN-AGENT/agent-a")),
+        (AGENT_SAN, None),
+    ];
+    for (san, cn) in cases {
+        let cert = fixture.ca.issue_agent(san, cn)?;
+        let (probe, hello) = agent_of(&fixture, &cert).await?;
+        assert!(
+            probe.as_deref().is_some_and(|r| r.ends_with("agent none")),
+            "{san} {cn:?}"
+        );
+        assert_eq!(status(&hello), Some("403"), "{san} {cn:?}");
+        assert!(
+            hello
+                .as_deref()
+                .is_some_and(|r| r.contains("ADM_FORBIDDEN"))
+        );
+    }
+    // Missing client certificate: the handshake is refused.
+    assert_eq!(call(&fixture, None, PROBE).await?, None);
+    assert_eq!(call(&fixture, None, &hello()).await?, None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_agent_is_never_verified_while_the_flag_is_off() -> TestResult {
+    assert!(AgentIdentities::new(false, &agent_bindings()?).is_none());
+    let fixture = listener_with(admin_app()?, None).await?;
+    let cert = fixture.ca.issue_agent(AGENT_SAN, Some(AGENT_CN))?;
+    let (probe, hello) = agent_of(&fixture, &cert).await?;
+    assert!(probe.as_deref().is_some_and(|r| r.ends_with("agent none")));
+    assert_eq!(status(&hello), Some("403"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn public_listener_never_verifies_an_admin_agent() -> TestResult {
+    use tower::ServiceExt;
+    let request = axum::http::Request::post("/internal/v1/admin-control/hello")
+        .header("content-type", "application/json")
+        .header("x-client-cert-cn", AGENT_CN)
+        .header("x-client-cert-san", AGENT_SAN)
+        .header("x-ssl-client-s-dn", format!("CN={AGENT_CN}"))
+        .header("x-ssl-client-verify", "SUCCESS")
+        .body(axum::body::Body::from(
+            r#"{"agent_id":"agent-a","unexpected":true}"#,
+        ))?;
+    let response = admin_app()?.oneshot(request).await?;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let probe = axum::http::Request::get("/internal/v1/agent-probe")
+        .header("x-client-cert-cn", AGENT_CN)
+        .body(axum::body::Body::empty())?;
+    let body = axum::body::to_bytes(admin_app()?.oneshot(probe).await?.into_body(), 1024).await?;
+    assert_eq!(&body[..], b"agent none");
     Ok(())
 }

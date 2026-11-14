@@ -16,17 +16,25 @@ connections: duplicate-result serialization holds one connection while the
 existing store commits its audited state transition on another.
 
 The trusted TLS adapter must insert both the existing guard's `VerifiedClient`
-and `VerifiedAgent::from_verified_certificate_cn` from the verified certificate.
-Neither is derived from headers. The ordinary plaintext server cannot supply
-these extensions and therefore denies enabled requests with 403. This packet
-does not configure a TLS listener or enable production ingress.
+and a `VerifiedAgent` from the verified certificate. Neither is derived from
+headers. The ordinary plaintext server cannot supply these extensions and
+therefore denies enabled requests with 403.
+
+The internal mTLS listener (`bin/oteryn-portal/src/internal_tls.rs`) inserts
+`VerifiedAgent` through `AgentIdentities::verify` only while
+`PORTAL_ADMIN_CONTROL_ENABLED` is on, the leaf has exactly one subject CN of the
+form `oteryn-admin-agent/<agent_id>`, and that agent's configured identity
+equals the leaf's verified single DNS SAN. The SAN is the authority; the CN only
+selects the entry. That listener identifies peers by SAN only, so an agent
+configured with an `spki` identity is refused there. Production ingress is not
+enabled by this code.
 
 Nginx/ingress integration must allowlist the dedicated agent SAN/SPKI identity
 and verify its certificate CN, in addition to the existing internal identities.
 Preserve TLS provenance in the trusted adapter; forwarding certificate identity
 in public HTTP headers is insufficient. Allow at most 25 seconds per channel
 poll (plus transport overhead), and at most 90 MiB encoded stream bodies.
-Do not enable this path until the verified connection adapter is wired.
+Enable this path only behind the internal mTLS listener described above.
 
 All endpoints are POST under `/internal/v1/admin-control/` with application/json.
 Unknown structural members and duplicate JSON members are rejected. JSON depth
