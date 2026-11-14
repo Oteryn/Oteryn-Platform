@@ -615,6 +615,31 @@ impl CoinPurchases {
     /// `chargeback` reverse that credit once. A refused delivery whose payload
     /// differs from its event ID's record or from the order's binding is audited.
     pub async fn webhook(&self, body: &[u8], signature: &[u8]) -> Result<WebhookOutcome, Error> {
+        let event = self.verified(body, signature)?;
+        let mut tx = self.pool.begin().await?;
+        let outcome = self.apply_in(&mut tx, &event).await;
+        if matches!(outcome, Ok(_) | Err(Error::InvalidInput)) {
+            tx.commit().await?;
+        }
+        outcome
+    }
+
+    /// `webhook` inside the caller's transaction, which the caller commits.
+    /// The event's effect is applied under a savepoint: on a definite refusal
+    /// (`InvalidInput`, `IllegalTransition`, `NotFound`) it is rolled back and
+    /// the transaction stays usable, an `InvalidInput` refusal with its audit
+    /// row written in it. On any other error the caller must roll back.
+    pub async fn webhook_in(
+        &self,
+        tx: &mut Transaction<'static, Postgres>,
+        body: &[u8],
+        signature: &[u8],
+    ) -> Result<WebhookOutcome, Error> {
+        let event = self.verified(body, signature)?;
+        self.apply_in(tx, &event).await
+    }
+
+    fn verified(&self, body: &[u8], signature: &[u8]) -> Result<CoinEvent, Error> {
         if !self.settings.enabled {
             return Err(Error::Disabled);
         }
@@ -622,25 +647,42 @@ impl CoinPurchases {
             return Err(Error::InvalidInput);
         }
         self.provider.verify_webhook_signature(body, signature)?;
-        let event = CoinEvent::decode(body).ok_or(Error::InvalidInput)?;
-        match self.apply(&event).await {
-            Err(Error::InvalidInput) => {
-                self.refused_event(&event).await?;
-                Err(Error::InvalidInput)
-            }
-            outcome => outcome,
-        }
+        CoinEvent::decode(body).ok_or(Error::InvalidInput)
     }
 
-    /// Retains a refused event for audit after its transaction rolled back.
-    async fn refused_event(&self, event: &CoinEvent) -> Result<(), Error> {
-        let mut tx = self.pool.begin().await?;
+    async fn apply_in(
+        &self,
+        tx: &mut Transaction<'static, Postgres>,
+        event: &CoinEvent,
+    ) -> Result<WebhookOutcome, Error> {
+        sqlx::query("SAVEPOINT coin_purchase_event")
+            .execute(&mut **tx)
+            .await?;
+        let outcome = self.apply(tx, event).await;
+        let end = if outcome.is_ok() {
+            "RELEASE SAVEPOINT coin_purchase_event"
+        } else {
+            "ROLLBACK TO SAVEPOINT coin_purchase_event"
+        };
+        sqlx::query(end).execute(&mut **tx).await?;
+        if let Err(Error::InvalidInput) = outcome {
+            self.refused_event(tx, event).await?;
+        }
+        outcome
+    }
+
+    /// Retains a refused event for audit after its effect rolled back.
+    async fn refused_event(
+        &self,
+        tx: &mut Transaction<'static, Postgres>,
+        event: &CoinEvent,
+    ) -> Result<(), Error> {
         let recorded: Option<(Uuid, String)> = sqlx::query_as(
             "SELECT intent_id,state FROM payment_events WHERE provider=$1 AND provider_event_id=$2",
         )
         .bind(self.provider.name())
         .bind(&event.event_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?;
         let action = if recorded.is_some() {
             "coin_purchase.event_replay_refused"
@@ -652,7 +694,7 @@ impl CoinPurchases {
             |(intent, state)| json!({"intent_id": intent, "state": state}),
         );
         audit(
-            &mut tx,
+            tx,
             None,
             action,
             &event.event_id,
@@ -668,28 +710,30 @@ impl CoinPurchases {
             }),
         )
         .await?;
-        tx.commit().await?;
         Ok(())
     }
 
-    async fn apply(&self, event: &CoinEvent) -> Result<WebhookOutcome, Error> {
+    async fn apply(
+        &self,
+        tx: &mut Transaction<'static, Postgres>,
+        event: &CoinEvent,
+    ) -> Result<WebhookOutcome, Error> {
         let provider = self.provider.name();
-        let mut tx = self.pool.begin().await?;
         let intent = sqlx::query("SELECT account_id,amount,currency,state,provider_reference FROM payment_intents WHERE id=$1 AND provider=$2 FOR UPDATE")
-            .bind(event.intent_id).bind(provider).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+            .bind(event.intent_id).bind(provider).fetch_optional(&mut **tx).await?.ok_or(Error::NotFound)?;
         let order = sqlx::query(concat!(
             "SELECT ",
             order_columns!(),
             " FROM coin_purchase_orders WHERE payment_intent_id=$1 FOR UPDATE"
         ))
         .bind(event.intent_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?
         .ok_or(Error::NotFound)?;
         let order = order_row(&order).map_err(|_| Error::InvalidInput)?;
         let inserted = sqlx::query("INSERT INTO payment_events (id, provider, provider_event_id, intent_id, state) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (provider,provider_event_id) DO NOTHING")
             .bind(oteryn_core::new_id()).bind(provider).bind(&event.event_id).bind(event.intent_id).bind(event.state.as_str())
-            .execute(&mut *tx).await?.rows_affected();
+            .execute(&mut **tx).await?.rows_affected();
         // Every delivery, a replay included, must match the bound intent and order
         // exactly; a replayed event ID with any other payload is refused, changes
         // nothing and is audited by the caller.
@@ -707,11 +751,10 @@ impl CoinPurchases {
         if inserted == 0 {
             let same: bool = sqlx::query_scalar("SELECT intent_id=$3 AND state=$4 FROM payment_events WHERE provider=$1 AND provider_event_id=$2")
                 .bind(provider).bind(&event.event_id).bind(event.intent_id).bind(event.state.as_str())
-                .fetch_one(&mut *tx).await?;
+                .fetch_one(&mut **tx).await?;
             if !same {
                 return Err(Error::InvalidInput);
             }
-            tx.commit().await?;
             return Ok(WebhookOutcome::Replay);
         }
         let current: String = intent.try_get("state")?;
@@ -719,14 +762,14 @@ impl CoinPurchases {
         let reversal: Option<String> =
             sqlx::query_scalar("SELECT outcome FROM coin_purchase_reversals WHERE order_id=$1")
                 .bind(order.order.order_id)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await?;
         match event.state {
             EventState::Succeeded | EventState::Failed if reversal.is_some() => {
                 // Fenced: a reversal (even one that arrived first) wins; the late
                 // settlement is retained and changes nothing.
                 audit(
-                    &mut tx,
+                    tx,
                     None,
                     "coin_purchase.settlement_fenced",
                     &order.order.order_id.to_string(),
@@ -737,15 +780,13 @@ impl CoinPurchases {
                 .await?;
             }
             EventState::Succeeded | EventState::Failed => {
-                self.settle(&mut tx, event, &order, &current).await?;
+                self.settle(tx, event, &order, &current).await?;
             }
             EventState::Refunded | EventState::Chargeback => {
-                self.reverse(&mut tx, event, &order, &current, reversal)
-                    .await?;
+                self.reverse(tx, event, &order, &current, reversal).await?;
             }
             EventState::Pending => return Err(Error::IllegalTransition),
         }
-        tx.commit().await?;
         Ok(WebhookOutcome::Applied)
     }
 
