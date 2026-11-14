@@ -1,0 +1,8 @@
+# Keep build output, local configuration and secrets out of the build context.
+target
+e2e
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+.git

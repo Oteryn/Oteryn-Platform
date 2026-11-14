@@ -18,6 +18,14 @@ impl Handler for CleanupHandler {
         self.0.clean()
     }
 }
+/// Prunes expired native ticket budget windows, one bounded batch per run.
+#[derive(Debug)]
+struct TicketBudgetCleanup(oteryn_gameauth::tickets::BudgetRetention);
+impl Cleanup for TicketBudgetCleanup {
+    fn clean(&self) -> HandlerFuture<'_> {
+        Box::pin(async move { self.0.prune().await.map(|_| ()).map_err(|e| e.to_string()) })
+    }
+}
 /// Placeholder until the owning domain supplies its retention implementation.
 #[derive(Debug)]
 pub struct NoopCleanup;
@@ -229,6 +237,13 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         "cleanup.rate-limits",
         60,
         Arc::new(oteryn_web::ratelimit::RateLimitCleanup { pool: pool.clone() }),
+    )?;
+    registry.cleanup(
+        "cleanup.game-ticket-budgets",
+        60,
+        Arc::new(TicketBudgetCleanup(
+            oteryn_gameauth::tickets::BudgetRetention { pool: pool.clone() },
+        )),
     )?;
     registry.cleanup(
         "cleanup.passkeys",
