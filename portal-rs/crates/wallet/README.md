@@ -98,6 +98,9 @@ Releasing a reservation returns own coins and settles nothing. While debt is
 outstanding, `transfer` (sender) and `reserve_offer` refuse with
 `Refusal::DebtOutstanding` (code `coin_debt_outstanding`; `transfer_blocked`
 on the coin wire, which has no debt code). `outstanding_debt` reads the total.
+A module that moves coins in its own transaction (bazaar) holds the wallet
+account lock and calls `unlocked_in` before an outgoing effect and `credit_in`
+for a credit, so its credits settle debt the same way.
 PostgreSQL tests: `tests/debt.rs`.
 
 `wire::configured_router` reads `PORTAL_COIN_TRANSFERS_ENABLED`,

@@ -44,6 +44,22 @@ clearing price, releases excess reservation, and holds seller proceeds pending v
 Completion is replay-safe and requires durable delivery evidence. Failed adapters or SQL statements
 roll back the listing, ledger, request log and audit together.
 
+## Coin debt
+
+Owner decision 2026-11-14: coins still owed cannot leave through the market. The authority v1 coin
+adapter (`src/game/coin_ports.rs`) asks the wallet, inside the caller's transaction and after the
+wallet account lock: a coin hold that grows (bid, buy offer, want-to-buy acceptance) is refused
+through `oteryn_wallet::unlocked_in` while the account owes coins, and the seller's net proceeds
+enter through `oteryn_wallet::credit_in`, which repays the seller's debt first with the wallet's
+settlement and audit rows. A hold reserved before the debt arose still settles and completes; a
+lowered or replayed hold and the buyer's released excess are own coins and settle nothing.
+`Refusal::DebtOutstanding` maps to `Error::InsufficientFunds`, the closest existing result: the
+same `denied` answer and status as an unfunded hold, with no wire or result-code change. Wallet
+`InsufficientFunds` maps to the same, `Overflow` to `Error::Overflow`, storage errors to
+`Error::Database` and every other refusal to `Error::Denied`. Gold holds are Game-owned and
+unchanged. PostgreSQL test: `postgres_item_receipt_to_verified_delivery_to_wallet_completion` in
+`src/game/authority_tests.rs`.
+
 ## Validation
 
 Run the workspace acceptance commands with Rust 1.97.0. Queries use bound runtime SQL, not query

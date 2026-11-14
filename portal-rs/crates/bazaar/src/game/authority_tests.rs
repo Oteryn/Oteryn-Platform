@@ -575,6 +575,29 @@ async fn audit(
     .await
     .unwrap()
 }
+/// A held purchase reversal of `coins`: coin debt as payments records it.
+async fn owe(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, account: Uuid, coins: i64) -> Uuid {
+    let (quote, order, reversal) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    sqlx::query("INSERT INTO coin_purchase_quotes (id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at) VALUES ($1,$2,$3,$4,100,'EUR',2,'testing',now(),now())")
+        .bind(quote).bind(account).bind(Uuid::now_v7()).bind(coins).execute(&mut **tx).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_orders (id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code,review_required) VALUES ($1,$2,$3,$4,$5,$6,100,'EUR',2,'testing',$7,'processing','review',true)")
+        .bind(order).bind(account).bind(Uuid::now_v7()).bind(quote).bind(Uuid::now_v7()).bind(coins).bind(Uuid::now_v7())
+        .execute(&mut **tx).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_reversals (id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES ($1,$2,$3,'chargeback','test',$4,$5,0,'held')")
+        .bind(reversal).bind(order).bind(account).bind(reversal.to_string()).bind(coins)
+        .execute(&mut **tx).await.unwrap();
+    reversal
+}
+async fn owed(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, account: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT COALESCE(SUM(owed),0)::bigint FROM coin_outstanding_debts WHERE account_id=$1 AND owed>0")
+        .bind(account)
+        .fetch_one(&mut **tx)
+        .await
+        .unwrap()
+}
+async fn savepoint(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &'static str) {
+    sqlx::query(sql).execute(&mut **tx).await.unwrap();
+}
 async fn store_intent(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, intent: &PreparedIntent) {
     sqlx::query("INSERT INTO bazaar_game_outbox(operation_id,issuance_key,listing_id,actor_id,command,source_revision,intent,binding_digest,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6::text::numeric,$7,$8,3,3)").bind(id(text(&intent.value,"operation_id").unwrap()).unwrap()).bind(format!("fixture:{}",Uuid::now_v7())).bind(uid("20")).bind(uid("11")).bind(intent.command().wire()).bind(text(&intent.value,"source_revision").unwrap()).bind(std::str::from_utf8(intent.bytes()).unwrap()).bind(intent.binding_digest()).execute(&mut **tx).await.unwrap();
 }
@@ -719,6 +742,21 @@ async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
         currency: Currency::Coins,
         amount: 12000,
     };
+    // A debtor's outgoing coin reservation is refused (owner decision
+    // 2026-11-14) and leaves no hold or wallet entry behind.
+    savepoint(&mut tx, "SAVEPOINT buyer_debt").await;
+    owe(&mut tx, uid("13"), 1).await;
+    assert!(matches!(
+        funds.reserve(&mut tx, hold).await,
+        Err(crate::Error::InsufficientFunds)
+    ));
+    let holds: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_coin_holds WHERE id=$1")
+        .bind(hold.id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(holds, 0);
+    savepoint(&mut tx, "ROLLBACK TO SAVEPOINT buyer_debt").await;
     funds.reserve(&mut tx, hold).await.unwrap();
     funds.reserve(&mut tx, hold).await.unwrap();
     let sale = Settlement {
@@ -809,8 +847,62 @@ async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
         .unwrap();
     audit(&a, &mut tx, &delivery, &receipt, now).await;
     assert!(a.delivered(&mut tx, &sale).await.unwrap());
+    // The seller's proceeds repay the seller's debt first. A buyer debt that
+    // arose after the reservation does not stop the fill from completing.
+    savepoint(&mut tx, "SAVEPOINT seller_debt").await;
+    let seller_debt = owe(&mut tx, sale.seller, 4000).await;
+    owe(&mut tx, sale.buyer, 500).await;
     funds.complete(&mut tx, &sale).await.unwrap();
     funds.complete(&mut tx, &sale).await.unwrap();
+    let seller: i64 = sqlx::query_scalar(
+        "SELECT sum(available_delta)::bigint FROM wallet_entries WHERE account_id=$1",
+    )
+    .bind(sale.seller)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(seller, 5000);
+    assert_eq!(owed(&mut tx, sale.seller).await, 0);
+    assert_eq!(owed(&mut tx, sale.buyer).await, 500);
+    let buyer:(i64,i64)=sqlx::query_as("SELECT sum(available_delta)::bigint,sum(reserved_delta)::bigint FROM wallet_entries WHERE account_id=$1").bind(sale.buyer).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(buyer, (10000, 0));
+    let (paid, credit): (i64, Uuid) = sqlx::query_as(
+        "SELECT coins,credit_operation_id FROM coin_debt_settlements WHERE reversal_id=$1",
+    )
+    .bind(seller_debt)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(paid, 4000);
+    let capture: Uuid = sqlx::query_scalar(
+        "SELECT id FROM wallet_operations WHERE kind='capture' AND reference_id=$1",
+    )
+    .bind(sale.id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(credit, capture);
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='wallet.coin_debt_settled' AND target=$1",
+    )
+    .bind(seller_debt.to_string())
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(audited, 1);
+    savepoint(&mut tx, "ROLLBACK TO SAVEPOINT seller_debt").await;
+    // Without debt the fill completes exactly as before.
+    funds.complete(&mut tx, &sale).await.unwrap();
+    funds.complete(&mut tx, &sale).await.unwrap();
+    let settled: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM coin_debt_settlements WHERE account_id IN ($1,$2)",
+    )
+    .bind(sale.buyer)
+    .bind(sale.seller)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(settled, 0);
     let seller: i64 = sqlx::query_scalar(
         "SELECT sum(available_delta)::bigint FROM wallet_entries WHERE account_id=$1",
     )
