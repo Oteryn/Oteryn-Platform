@@ -53,7 +53,7 @@ workspace = true
 [dependencies.oteryn-wallet]
 workspace = true
 [dependencies.aes-gcm]
-version = "0.10"
+version = "0.11"
 [dependencies.totp-rs]
 version = "5.7"
 
