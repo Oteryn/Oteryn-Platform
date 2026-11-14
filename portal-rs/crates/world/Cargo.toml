@@ -12,7 +12,7 @@ workspace = true
 [dependencies]
 globset = "0.4.18"
 image = { version = "0.25.9", default-features = false, features = ["webp"] }
-jsonschema = { version = "0.60.2", default-features = false }
+jsonschema = { version = "0.61.0", default-features = false }
 lzma-rs = "0.3.0"
 prost = "0.14.1"
 serde = { version = "1.0.228", features = ["derive"] }
