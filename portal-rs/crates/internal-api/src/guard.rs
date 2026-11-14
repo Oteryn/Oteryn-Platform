@@ -44,6 +44,13 @@ impl Identity {
         self.kind.ct_eq(&other.kind) & self.len.ct_eq(&other.len) & self.bytes.ct_eq(&other.bytes)
     }
 }
+/// Constant-time: kind, length and padded bytes are always all compared.
+impl PartialEq for Identity {
+    fn eq(&self, other: &Self) -> bool {
+        bool::from(self.matches(other))
+    }
+}
+impl Eq for Identity {}
 /// Only the trusted connection adapter may insert this extension, after verifying
 /// the certificate chain, TLS 1.3 and HTTP/1.1. Never populate from public headers.
 #[derive(Debug, Clone)]

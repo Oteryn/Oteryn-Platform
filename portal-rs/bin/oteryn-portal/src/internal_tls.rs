@@ -10,6 +10,11 @@
 //! Configuration (all four or none; a partial set refuses to start):
 //! `OTERYN_INTERNAL_TLS_BIND`, `OTERYN_INTERNAL_TLS_CERT_FILE`,
 //! `OTERYN_INTERNAL_TLS_KEY_FILE`, `OTERYN_INTERNAL_TLS_CLIENT_CA_FILE`.
+//!
+//! With `PORTAL_ADMIN_CONTROL_ENABLED`, it also inserts the admin-control
+//! `VerifiedAgent` (ADR 0047): only when the leaf's single subject CN is
+//! `oteryn-admin-agent/<agent_id>` and that configured agent's identity equals
+//! the verified DNS SAN. The CN selects the entry; the SAN is the authority.
 use axum::{
     Router,
     extract::{ConnectInfo, Request},
@@ -17,6 +22,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
+use oteryn_admin::control_http::{AgentIdentities, VerifiedAgent};
 use oteryn_internal_api::guard::{Identity, VerifiedClient};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use std::{io::BufReader, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
@@ -133,6 +139,21 @@ pub fn identity(der: &[u8]) -> Option<Identity> {
     Identity::san(first).ok()
 }
 
+/// The leaf's subject CN when there is exactly one and it is a string.
+pub fn common_name(der: &[u8]) -> Option<String> {
+    use x509_parser::prelude::{FromDer, X509Certificate};
+    let (rest, certificate) = X509Certificate::from_der(der).ok()?;
+    if !rest.is_empty() {
+        return None;
+    }
+    let mut names = certificate.subject().iter_common_name();
+    let first = names.next()?.as_str().ok()?.to_owned();
+    if names.next().is_some() {
+        return None;
+    }
+    Some(first)
+}
+
 /// Bind and serve `app` on the private listener; `None` when not configured.
 pub async fn start(
     app: Router,
@@ -141,13 +162,20 @@ pub async fn start(
         return Ok(None);
     };
     let tls = config.server_config()?;
+    let agents = AgentIdentities::configured()?.map(Arc::new);
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "internal mTLS listener");
-    Ok(Some(tokio::spawn(serve(listener, tls, app))))
+    Ok(Some(tokio::spawn(serve(listener, tls, app, agents))))
 }
 
 /// Accept loop. Each connection carries exactly one verified identity.
-pub async fn serve(listener: tokio::net::TcpListener, tls: rustls::ServerConfig, app: Router) {
+/// `agents` is `None` while admin control is disabled.
+pub async fn serve(
+    listener: tokio::net::TcpListener,
+    tls: rustls::ServerConfig,
+    app: Router,
+    agents: Option<Arc<AgentIdentities>>,
+) {
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
     let slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
     loop {
@@ -159,6 +187,7 @@ pub async fn serve(listener: tokio::net::TcpListener, tls: rustls::ServerConfig,
         };
         let acceptor = acceptor.clone();
         let app = app.clone();
+        let agents = agents.clone();
         tokio::spawn(async move {
             let _permit = permit;
             let Ok(Ok(stream)) =
@@ -174,16 +203,19 @@ pub async fn serve(listener: tokio::net::TcpListener, tls: rustls::ServerConfig,
             {
                 return;
             }
-            let Some(identity) = session
-                .peer_certificates()
-                .and_then(|certs| certs.first())
-                .and_then(|leaf| identity(leaf.as_ref()))
-            else {
+            let Some(leaf) = session.peer_certificates().and_then(|certs| certs.first()) else {
                 return;
             };
+            let Some(identity) = identity(leaf.as_ref()) else {
+                return;
+            };
+            let agent = agents
+                .as_deref()
+                .and_then(|agents| agents.verify(&common_name(leaf.as_ref())?, &identity));
             let service = hyper_util::service::TowerToHyperService::new(scoped(
                 app,
                 VerifiedClient::from_verified_tls13_http11(identity),
+                agent,
                 peer,
             ));
             let connection = hyper::server::conn::http1::Builder::new()
@@ -196,10 +228,17 @@ pub async fn serve(listener: tokio::net::TcpListener, tls: rustls::ServerConfig,
 
 /// Only `/internal/v1/` and `/internal/v2/` over HTTP/1.1; everything else is
 /// 404 on this port.
-pub(crate) fn scoped(app: Router, client: VerifiedClient, peer: SocketAddr) -> Router {
+/// The admin-control agent is inserted only when the connection proved one.
+pub(crate) fn scoped(
+    app: Router,
+    client: VerifiedClient,
+    agent: Option<VerifiedAgent>,
+    peer: SocketAddr,
+) -> Router {
     app.layer(middleware::from_fn(
         move |mut request: Request, next: Next| {
             let client = client.clone();
+            let agent = agent.clone();
             async move {
                 if request.version() != Version::HTTP_11 {
                     return StatusCode::BAD_REQUEST.into_response();
@@ -209,6 +248,9 @@ pub(crate) fn scoped(app: Router, client: VerifiedClient, peer: SocketAddr) -> R
                     return StatusCode::NOT_FOUND.into_response();
                 }
                 request.extensions_mut().insert(client);
+                if let Some(agent) = agent {
+                    request.extensions_mut().insert(agent);
+                }
                 request.extensions_mut().insert(ConnectInfo(peer));
                 let response: Response = next.run(request).await;
                 response

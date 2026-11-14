@@ -170,7 +170,7 @@ async fn call(
     body: &str,
 ) -> Result<(StatusCode, String), Box<dyn std::error::Error>> {
     let client = VerifiedClient::from_verified_tls13_http11(Identity::san(san)?);
-    let scoped = crate::internal_tls::scoped(app.clone(), client, "127.0.0.1:9".parse()?);
+    let scoped = crate::internal_tls::scoped(app.clone(), client, None, "127.0.0.1:9".parse()?);
     let request = axum::http::Request::post(path)
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_owned()))?;

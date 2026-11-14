@@ -405,3 +405,64 @@ async fn configured_result_key_refuses_tampering_before_storage() {
         serde_json::from_slice(&to_bytes(response.into_body(), MIB).await.unwrap()).unwrap();
     assert_eq!(value["error"]["code"], "ADM_BAD_SIGNATURE");
 }
+
+#[test]
+fn agent_identity_requires_flag_exact_cn_and_bound_san() {
+    let bindings = [
+        AgentBinding {
+            agent_id: "agent-a".into(),
+            identity: Identity::san("agent-a.oteryn.internal").unwrap(),
+            result_key: None,
+        },
+        AgentBinding {
+            agent_id: "agent-spki".into(),
+            identity: Identity::spki_sha256([7; 32]),
+            result_key: None,
+        },
+    ];
+    let san = Identity::san("agent-a.oteryn.internal").unwrap();
+    assert!(AgentIdentities::new(false, &bindings).is_none());
+    let agents = AgentIdentities::new(true, &bindings).unwrap();
+    let agent = agents.verify("oteryn-admin-agent/agent-a", &san).unwrap();
+    assert_eq!(agent.agent_id(), "agent-a");
+    // The CN selects an entry; another verified identity never satisfies it.
+    let other = Identity::san("agent-b.oteryn.internal").unwrap();
+    assert!(
+        agents
+            .verify("oteryn-admin-agent/agent-a", &other)
+            .is_none()
+    );
+    assert!(agents.verify("oteryn-admin-agent/agent-b", &san).is_none());
+    for cn in [
+        "agent-a",
+        "oteryn-admin-agent/",
+        "oteryn-admin-agent/agent a",
+        "Oteryn-Admin-Agent/agent-a",
+        " oteryn-admin-agent/agent-a",
+        "oteryn-admin-agent/agent-a/x",
+    ] {
+        assert!(agents.verify(cn, &san).is_none(), "{cn}");
+    }
+    // An SPKI-bound agent is not matched by a SAN identity.
+    assert!(
+        agents
+            .verify("oteryn-admin-agent/agent-spki", &san)
+            .is_none()
+    );
+    assert!(
+        agents
+            .verify(
+                "oteryn-admin-agent/agent-spki",
+                &Identity::spki_sha256([7; 32])
+            )
+            .is_some()
+    );
+    // Duplicate agent ids are ambiguous.
+    let duplicate =
+        AgentIdentities::new(true, &[bindings[0].clone(), bindings[0].clone()]).unwrap();
+    assert!(
+        duplicate
+            .verify("oteryn-admin-agent/agent-a", &san)
+            .is_none()
+    );
+}

@@ -36,6 +36,47 @@ impl VerifiedAgent {
         }
         Ok(Self(id.to_owned()))
     }
+    pub fn agent_id(&self) -> &str {
+        &self.0
+    }
+}
+/// Agent selection for the internal mTLS adapter (ADR 0047 §1). The verified
+/// transport identity (DNS SAN) is the authority; the certificate CN only
+/// names which configured agent that identity must match. Anything else,
+/// including an SPKI-configured agent on a SAN-only listener, yields no agent.
+#[derive(Debug, Clone)]
+pub struct AgentIdentities(Vec<(String, Identity)>);
+impl AgentIdentities {
+    /// `None` when admin control is disabled, so no extension is ever inserted.
+    pub fn new(enabled: bool, bindings: &[AgentBinding]) -> Option<Self> {
+        enabled.then(|| {
+            Self(
+                bindings
+                    .iter()
+                    .map(|b| (b.agent_id.clone(), b.identity.clone()))
+                    .collect(),
+            )
+        })
+    }
+    /// Reads `PORTAL_ADMIN_CONTROL_ENABLED` and `PORTAL_ADMIN_CONTROL_AGENTS_JSON`
+    /// with the same validation as [`configured_router`].
+    pub fn configured() -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        if !store::Config::from_env().enabled {
+            return Ok(None);
+        }
+        Ok(Self::new(true, &configured_bindings()?))
+    }
+    /// `cn` and `verified` must come from a leaf certificate the TLS stack verified.
+    pub fn verify(&self, cn: &str, verified: &Identity) -> Option<VerifiedAgent> {
+        let agent = VerifiedAgent::from_verified_certificate_cn(cn).ok()?;
+        let mut entries = self.0.iter().filter(|(id, _)| id == &agent.0);
+        let (_, identity) = entries.next()?;
+        // A duplicate agent id is ambiguous and denied.
+        if entries.next().is_some() {
+            return None;
+        }
+        (identity == verified).then_some(agent)
+    }
 }
 #[derive(Debug, Clone)]
 pub struct AgentBinding {
@@ -520,6 +561,9 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     if !enabled {
         return Ok(router(pool, false, Vec::new())?);
     }
+    Ok(router(pool, true, configured_bindings()?)?)
+}
+fn configured_bindings() -> Result<Vec<AgentBinding>, Box<dyn std::error::Error>> {
     let config = std::env::var("PORTAL_ADMIN_CONTROL_AGENTS_JSON")?;
     let bindings: Vec<ConfiguredAgent> = serde_json::from_str(&config)?;
     if bindings.is_empty() {
@@ -568,7 +612,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
             })
         })
         .collect::<Result<Vec<_>, guard::ConfigError>>()?;
-    Ok(router(pool, true, bindings)?)
+    Ok(bindings)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
