@@ -139,6 +139,19 @@ async fn execute(
     handler: Option<Arc<dyn Handler>>,
     heartbeat_interval: Duration,
 ) -> Result<(), outbox::Error> {
+    execute_observed(pool, leases, job, handler, heartbeat_interval, || {}).await
+}
+
+// The observer marks polling a renewal, before connection acquisition. Tests
+// can synchronize pool exhaustion without relying on a timer or a global hook.
+async fn execute_observed(
+    pool: &PgPool,
+    leases: &PgPool,
+    job: Job,
+    handler: Option<Arc<dyn Handler>>,
+    heartbeat_interval: Duration,
+    renewal_started: impl Fn(),
+) -> Result<(), outbox::Error> {
     let Some(handler) = handler else {
         outbox::finish(
             pool,
@@ -156,8 +169,10 @@ async fn execute(
         tokio::select! {
             result = &mut future => break result,
             _ = heartbeat.tick() => {
-                let renewal = tokio::time::timeout(
-                    Duration::from_secs(5), outbox::renew(leases, &job, 60));
+                let renewal = async {
+                    renewal_started();
+                    tokio::time::timeout(Duration::from_secs(5), outbox::renew(leases, &job, 60)).await
+                };
                 tokio::pin!(renewal);
                 tokio::select! {
                     result = &mut future => break result,

@@ -22,7 +22,7 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
         .after_connect(move |c, _| {
             let search = search.clone();
             Box::pin(async move {
-                sqlx::query("SELECT set_config('search_path',$1,false)")
+                sqlx::query("SELECT set_config('search_path',$1 || ',pg_catalog',false)")
                     .bind(search)
                     .execute(c)
                     .await?;
@@ -32,6 +32,7 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
         .connect(&url)
         .await?;
     oteryn_db::migrate(&pool).await?;
+    crate::rate_clock::install(&pool).await?;
     let actor = Uuid::now_v7();
     sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'code-dispatch@example.test',now(),'test-credential-hash','active','en')").bind(actor).execute(&pool).await?;
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&pool).await?;

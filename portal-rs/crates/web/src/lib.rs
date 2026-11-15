@@ -1,5 +1,9 @@
 //! HTTP router, layout and cross-cutting web concerns for the Oteryn portal.
 
+#[cfg(test)]
+#[path = "../../../test-support/rate_clock.rs"]
+mod rate_clock;
+
 use askama::Template;
 use axum::{
     Router,

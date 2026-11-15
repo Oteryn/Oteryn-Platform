@@ -907,8 +907,31 @@ async fn sixteen_locked_topups_finish_after_heartbeat_with_exhausted_handler_poo
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        let baseline: time::OffsetDateTime =
+            query_scalar("SELECT max(leased_until) FROM outbox WHERE state='running'")
+                .fetch_one(&db.pool)
+                .await?;
+        let renewal = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let renewed: i64 = query_scalar(
+                    "SELECT count(*) FROM outbox WHERE state='running' AND leased_until > $1",
+                )
+                .bind(baseline)
+                .fetch_one(&db.pool)
+                .await?;
+                if renewed == 16 {
+                    return Ok::<_, sqlx::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
         lock.rollback().await?;
+        assert!(
+            renewal.is_ok(),
+            "heartbeat must successfully extend all sixteen live leases before releasing handlers"
+        );
+        renewal??;
         Ok::<_, Box<dyn std::error::Error>>(())
     };
     let (batch, unlock) = tokio::time::timeout(Duration::from_secs(10), async {
@@ -954,6 +977,7 @@ async fn handler_finishes_while_renewal_waits_for_capacity() -> TestResult {
         .connect_with((*db.pool.connect_options()).clone())
         .await?;
     let held = leases.acquire().await?;
+    let renewal_started = tokio::sync::Notify::new();
     let started = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
     let handler = Arc::new(GatedHandler {
@@ -962,17 +986,23 @@ async fn handler_finishes_while_renewal_waits_for_capacity() -> TestResult {
     });
     let control = async {
         started.notified().await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        renewal_started.notified().await;
+        assert_eq!(
+            leases.num_idle(),
+            0,
+            "renewal must wait for exhausted capacity"
+        );
         release.notify_one();
     };
-    let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(3), async {
         tokio::join!(
-            execute(
+            execute_observed(
                 &db.pool,
                 &leases,
                 job,
                 Some(handler),
-                Duration::from_secs(15)
+                Duration::from_secs(15),
+                || renewal_started.notify_one(),
             ),
             control
         )

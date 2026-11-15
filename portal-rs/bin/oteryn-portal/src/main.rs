@@ -589,3 +589,7 @@ fn with_proxy_policy(
 }
 #[cfg(test)]
 mod audit_l9_tests;
+
+#[cfg(test)]
+#[path = "../../../test-support/rate_clock.rs"]
+mod rate_clock;
