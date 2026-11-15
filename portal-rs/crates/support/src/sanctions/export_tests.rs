@@ -180,6 +180,13 @@ impl Database {
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
         }
+        let expiry_migration = include_str!(
+            "../../../../migrations/20261115120016_fix_a2-15-migrations_reminders_and_expiry.sql"
+        )
+        .split_once("-- SANCTION EXPIRY CANDIDATES")
+        .ok_or("expiry migration section missing")?
+        .1;
+        sqlx::raw_sql(expiry_migration).execute(&pool).await?;
         let actor = Uuid::now_v7();
         let owner = Uuid::parse_str("019a0000-0000-7000-8000-000000000002")?;
         for id in [actor, owner] {
@@ -709,6 +716,8 @@ async fn sanction_export_temporary_namelock_revokes_on_expiry() -> TestResult {
     // decision writer rejects already-expired input; this models elapsed time.
     sqlx::query("UPDATE support_sanction_revisions SET expires_at=to_timestamp(1700000060) WHERE sanction_id=$1")
         .bind(intent.sanction_id).execute(&db.pool).await?;
+    sqlx::query("UPDATE support_sanction_export_expiry_candidates SET expires_at=to_timestamp(1700000060) WHERE sanction_stream_id=$1")
+        .bind(intent.sanction_id).execute(&db.pool).await?;
     let after: i64 = initial["next_cursor"]
         .as_str()
         .ok_or("cursor required")?
@@ -774,4 +783,131 @@ async fn sanction_export_temporary_namelock_revokes_on_expiry() -> TestResult {
         2
     );
     db.cleanup().await
+}
+
+#[tokio::test]
+async fn postgres_expiry_candidates_bound_work_with_permanent_history() -> TestResult {
+    use super::super::{Features, SanctionAction, SanctionIntent, Service};
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    // Permanent, already-revoked streams are deliberately much larger than the
+    // foreground batch. They must never become expiry work again.
+    sqlx::query("INSERT INTO support_sanction_export_revisions(position,sanction_stream_id,decision_revision,account_id,character_id,kind,reason_code,reason_text,starts_at_ms,revoked) SELECT n,uuidv7(),1,$1,uuidv7(),5,42,'Name rule',1700000000000,true FROM generate_series(1,20000) n")
+        .bind(db.owner).execute(&db.pool).await?;
+    sqlx::query("UPDATE support_sanction_export_counter SET position=20000")
+        .execute(&db.pool)
+        .await?;
+    let service = Service::new(
+        db.pool.clone(),
+        Features {
+            sanctions: true,
+            game_access: false,
+        },
+    );
+    let ends: i64 = sqlx::query_scalar(
+        "SELECT floor(extract(epoch FROM clock_timestamp()+interval '1 hour')*1000)::bigint",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    for _ in 0..503 {
+        let mut tx = db.pool.begin().await?;
+        let intent = SanctionIntent {
+            account: db.owner,
+            sanction_id: Uuid::now_v7(),
+            character: Some(Uuid::now_v7()),
+            action: SanctionAction::Namelock {
+                expires_at_ms: Some(ends),
+            },
+        };
+        service.allocate_and_record(&mut tx, &intent).await?;
+        set_public_reason(&mut tx, intent.sanction_id, 42, "Temporary name rule").await?;
+        tx.commit().await?;
+    }
+    // Model elapsed time in both the authoritative decision and its expiry index.
+    sqlx::query(
+        "UPDATE support_sanction_revisions SET expires_at=decision_at+interval '1 millisecond'",
+    )
+    .execute(&db.pool)
+    .await?;
+    sqlx::query("UPDATE support_sanction_export_expiry_candidates SET expires_at=statement_timestamp()-interval '1 second'")
+        .execute(&db.pool).await?;
+    let before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM support_sanction_export_expiry_candidates")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(before, 503);
+    // Verify the bounded query uses the due index, independently of the journal.
+    let mut tx = db.pool.begin().await?;
+    sqlx::query("SET LOCAL enable_seqscan=off")
+        .execute(&mut *tx)
+        .await?;
+    let plan: Vec<(String,)> = sqlx::query_as("EXPLAIN (ANALYZE, COSTS OFF) SELECT position FROM support_sanction_export_expiry_candidates WHERE expires_at<=statement_timestamp() ORDER BY expires_at,sanction_stream_id LIMIT 500")
+        .fetch_all(&mut *tx).await?;
+    assert!(
+        plan.iter()
+            .any(|r| r.0.contains("support_sanction_export_expiry_due"))
+    );
+    tx.rollback().await?;
+    // A poll must not rediscover authoritative state, even if that permanent
+    // history is unavailable. The old journal/lateral query blocks on this lock.
+    let mut history = db.pool.begin().await?;
+    sqlx::query("LOCK TABLE support_sanction_revisions IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *history)
+        .await?;
+    let mut poll = db.pool.begin().await?;
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        sqlx::query("SELECT support_sanction_export_expire_namelocks()").execute(&mut *poll),
+    )
+    .await??;
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM support_sanction_export_expiry_candidates")
+            .fetch_one(&mut *poll)
+            .await?;
+    assert_eq!(remaining, 3, "exactly one bounded batch must be reconciled");
+    // Start an actual publisher while the poll owns the publication counter.
+    let publisher = async {
+        let mut tx = db.pool.begin().await?;
+        db.insert(&mut tx, Uuid::now_v7(), "warning", "Concurrent warning")
+            .await?;
+        tx.commit().await
+    };
+    let release = async { poll.commit().await };
+    let (published, released) = tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::join!(publisher, release)
+    })
+    .await?;
+    published?;
+    released?;
+    history.rollback().await?;
+    sqlx::query("SELECT support_sanction_export_expire_namelocks()")
+        .execute(&db.pool)
+        .await?;
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM support_sanction_export_expiry_candidates")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(remaining, 0);
+    let after: i64 = sqlx::query_scalar("SELECT position FROM support_sanction_export_counter")
+        .fetch_one(&db.pool)
+        .await?;
+    let mut history = db.pool.begin().await?;
+    sqlx::query("LOCK TABLE support_sanction_revisions IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *history)
+        .await?;
+    let caught_up =
+        tokio::time::timeout(Duration::from_secs(2), page(&db, Some(after), 1)).await??;
+    assert_eq!(
+        caught_up["items"].as_array().ok_or("items required")?.len(),
+        0
+    );
+    history.rollback().await?;
+    db.cleanup().await?;
+    eprintln!(
+        "PG postgres_expiry_candidates_bound_work_with_permanent_history {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }
