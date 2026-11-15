@@ -78,6 +78,7 @@ fn routes<A: AccountStateReader + 'static, I: Accounts>(players: Players<A, I>) 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         match self {
+            Self::Conflict => StatusCode::CONFLICT,
             Self::BadInput => StatusCode::BAD_REQUEST,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Denied | Self::Authorization(crate::rbac::Error::Denied) => StatusCode::FORBIDDEN,
@@ -100,6 +101,8 @@ struct Action {
     reason: String,
     evidence: Option<Uuid>,
     request: Option<Uuid>,
+    hold: Option<Uuid>,
+    ticket: Option<Uuid>,
 }
 #[derive(Template)]
 #[template(path = "page.html", config = "src/players/askama.toml")]
@@ -135,6 +138,7 @@ struct Page {
     yes: String,
     no: String,
     result: String,
+    issued_evidence: String,
     coin_hold_label: String,
     release_coin_hold: String,
     coin_debt_label: String,
@@ -142,6 +146,7 @@ struct Page {
     coin_hold: Option<CoinHold>,
 }
 struct CoinHold {
+    id: String,
     order: String,
     status: String,
     /// Coins still owed on held reversals; credits pay it first.
@@ -214,6 +219,7 @@ impl Page {
             yes: text(lang, "yes"),
             no: text(lang, "no"),
             result: String::new(),
+            issued_evidence: String::new(),
             coin_hold_label: text(lang, "coin-hold"),
             release_coin_hold: text(lang, "coin-hold-release"),
             coin_debt_label: text(lang, "coin-debt"),
@@ -239,6 +245,7 @@ async fn search<A: AccountStateReader, I: Accounts>(
 struct ResultQuery {
     request: Option<Uuid>,
     coin_hold: Option<String>,
+    evidence: Option<Uuid>,
 }
 async fn detail<A: AccountStateReader, I: Accounts>(
     State(s): State<Arc<Players<A, I>>>,
@@ -273,6 +280,10 @@ async fn detail<A: AccountStateReader, I: Accounts>(
             };
             let debt = s.coin_debt(context, id).await?;
             page.coin_hold = Some(CoinHold {
+                id: hold
+                    .as_ref()
+                    .map(|h| h.hold_id.to_string())
+                    .unwrap_or_default(),
                 order: hold.map(|h| h.order_id.to_string()).unwrap_or_default(),
                 status,
                 debt,
@@ -282,6 +293,7 @@ async fn detail<A: AccountStateReader, I: Accounts>(
         Err(e) => return Err(e),
     }
     page.csrf = session.csrf_token().await?;
+    page.issued_evidence = query.evidence.map(|v| v.to_string()).unwrap_or_default();
     if let Some(request) = query.request {
         page.result = request.to_string();
     }
@@ -301,12 +313,20 @@ async fn change<A: AccountStateReader, I: Accounts>(
             s.kick(context, id, &form.reason).await?;
         }
         "release-coin-hold" => {
-            let released = s.release_coin_hold(context, id, &form.reason).await?;
+            let released = s
+                .release_coin_hold(context, id, form.hold.ok_or(Error::BadInput)?, &form.reason)
+                .await?;
             location.push_str(if released.is_some() {
                 "?coin_hold=released"
             } else {
                 "?coin_hold=absent"
             });
+        }
+        "verify-identity" => {
+            let evidence = s
+                .attest_reset_evidence_for(context, form.ticket.ok_or(Error::BadInput)?, id)
+                .await?;
+            location.push_str(&format!("?evidence={evidence}"));
         }
         "request-reset" => {
             let request = s

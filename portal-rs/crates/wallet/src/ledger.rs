@@ -66,11 +66,22 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         self.enabled()?;
         valid_id(account)?;
         let mut tx = self.pool.begin().await?;
-        self.active(&mut tx, account).await?;
-        lock(&mut tx, account).await?;
-        let result = balance(&mut tx, account).await?;
+        let result = self.balance_in(&mut tx, account).await?;
         tx.commit().await?;
         Ok(result)
+    }
+    /// Read the balance through the caller transaction, preserving its account
+    /// locks and avoiding a second connection waiting on those same locks.
+    pub async fn balance_in(
+        &self,
+        connection: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+    ) -> Result<Balance, Error> {
+        self.enabled()?;
+        valid_id(account)?;
+        self.active(connection, account).await?;
+        lock(connection, account).await?;
+        balance(connection, account).await
     }
     pub async fn transfer(
         &self,

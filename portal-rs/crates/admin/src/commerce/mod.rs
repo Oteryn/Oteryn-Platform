@@ -119,7 +119,11 @@ impl From<rbac::Error> for Error {
 /// effects may occur here; use the transactional outbox for provider requests.
 pub trait Effects: Send + Sync {
     /// Read current target authority before accepting a pending request.
-    fn inspect(&self, request: &Request) -> impl Future<Output = Result<Value, Error>> + Send;
+    fn inspect(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        request: &Request,
+    ) -> impl Future<Output = Result<Value, Error>> + Send;
 
     fn apply(
         &self,
@@ -184,6 +188,7 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         let hash = format!("{:x}", Sha256::digest(request.reason.as_bytes()));
         let command = serde_json::to_value(&request.command).map_err(|_| Error::Invalid)?;
         let mut tx = self.pool.begin().await?;
+        rbac::lock_accounts(&mut tx, &[context.account, request.target]).await?;
         // Serialize with T10/T10b role writers. Check both staff permissions under
         // the lock, including on idempotent replays and approval requests.
         sqlx::query("SELECT pg_advisory_xact_lock(71010)")
@@ -224,7 +229,7 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
                 replayed: true,
             });
         }
-        let review = self.effects.inspect(&request).await?;
+        let review = self.effects.inspect(&mut tx, &request).await?;
         sqlx::query("UPDATE commerce_operations SET review=$2 WHERE id=$1")
             .bind(request.request_id)
             .bind(&review)
@@ -265,6 +270,13 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        let (original, target): (Uuid, Uuid) =
+            sqlx::query_as("SELECT actor_id,target_id FROM commerce_operations WHERE id=$1")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(Error::Invalid)?;
+        rbac::lock_accounts(&mut tx, &[context.account, original, target]).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(71010)")
             .execute(&mut *tx)
             .await?;

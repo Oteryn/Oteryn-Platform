@@ -1043,6 +1043,7 @@ impl CoinPurchases {
 /// One account's current coin purchase hold.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PurchaseHold {
+    pub hold_id: Uuid,
     pub order_id: Uuid,
     pub reason: String,
     /// Coins of the held reversal still owed (`coins - debited` less what
@@ -1071,18 +1072,21 @@ pub async fn purchase_hold(
     connection: &mut PgConnection,
     account: Uuid,
 ) -> Result<Option<PurchaseHold>, sqlx::Error> {
-    let row: Option<(Uuid, String, i64)> = sqlx::query_as(
-        "SELECT h.order_id,h.reason,COALESCE((SELECT GREATEST(d.owed,0) FROM coin_outstanding_debts d WHERE d.order_id=h.order_id),0) \
+    let row: Option<(Uuid, Uuid, String, i64)> = sqlx::query_as(
+        "SELECT h.hold_id,h.order_id,h.reason,COALESCE((SELECT GREATEST(d.owed,0) FROM coin_outstanding_debts d WHERE d.order_id=h.order_id),0) \
          FROM coin_purchase_holds h WHERE h.account_id=$1",
     )
     .bind(account)
     .fetch_optional(connection)
     .await?;
-    Ok(row.map(|(order_id, reason, debt_coins)| PurchaseHold {
-        order_id,
-        reason,
-        debt_coins,
-    }))
+    Ok(
+        row.map(|(hold_id, order_id, reason, debt_coins)| PurchaseHold {
+            hold_id,
+            order_id,
+            reason,
+            debt_coins,
+        }),
+    )
 }
 
 /// Staff release of the account's coin purchase hold, in the caller's
@@ -1095,24 +1099,29 @@ pub async fn release_purchase_hold_in(
     connection: &mut PgConnection,
     account: Uuid,
     staff: Uuid,
+    hold: Uuid,
     reason: &str,
 ) -> Result<Option<PurchaseHold>, sqlx::Error> {
-    let row: Option<(Uuid, String, i64)> = sqlx::query_as(
-        "WITH released AS (DELETE FROM coin_purchase_holds WHERE account_id=$1 RETURNING account_id,order_id,reason,created_at) \
-         INSERT INTO coin_purchase_hold_releases (id,account_id,order_id,reason,held_at,released_by,release_reason,debt_coins) \
+    let row: Option<(Uuid, Uuid, String, i64)> = sqlx::query_as(
+        "WITH released AS (DELETE FROM coin_purchase_holds WHERE account_id=$1 AND hold_id=$5 RETURNING account_id,order_id,reason,created_at,hold_id) \
+         INSERT INTO coin_purchase_hold_releases (id,account_id,order_id,reason,held_at,released_by,release_reason,debt_coins,hold_id) \
          SELECT $2,h.account_id,h.order_id,h.reason,h.created_at,$3,$4, \
          COALESCE((SELECT GREATEST(d.owed,0) FROM coin_outstanding_debts d WHERE d.order_id=h.order_id),0) \
-         FROM released h RETURNING order_id,reason,debt_coins",
+          ,h.hold_id FROM released h RETURNING hold_id,order_id,reason,debt_coins",
     )
     .bind(account)
     .bind(Uuid::now_v7())
     .bind(staff)
     .bind(reason)
+    .bind(hold)
     .fetch_optional(connection)
     .await?;
-    Ok(row.map(|(order_id, reason, debt_coins)| PurchaseHold {
-        order_id,
-        reason,
-        debt_coins,
-    }))
+    Ok(
+        row.map(|(hold_id, order_id, reason, debt_coins)| PurchaseHold {
+            hold_id,
+            order_id,
+            reason,
+            debt_coins,
+        }),
+    )
 }

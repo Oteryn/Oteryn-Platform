@@ -315,6 +315,9 @@ async fn mutate<A: AccountStateReader>(
         return Err(StatusCode::NOT_FOUND);
     }
     let mut tx = s.pool.begin().await.map_err(unavailable)?;
+    oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account])
+        .await
+        .map_err(unavailable)?;
     // Serialize with role writers, then recheck current grants before any change.
     sqlx::query("SELECT pg_advisory_xact_lock(71010)")
         .execute(&mut *tx)

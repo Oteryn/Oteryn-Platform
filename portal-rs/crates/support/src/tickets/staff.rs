@@ -119,6 +119,33 @@ impl Backend for StaffSupport {
         command: &Command,
     ) -> std::result::Result<(), StaffError> {
         self.available(command.area())?;
+        let target = match command {
+            Command::Sanction {
+                create: true,
+                target,
+                ..
+            } => Some(*target),
+            Command::Sanction { .. } | Command::Appeal { .. } => {
+                sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
+                    .bind(id)
+                    .fetch_optional(&mut **tx)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?
+            }
+            _ => None,
+        };
+        if let Some(target) = target {
+            oteryn_admin::rbac::lock_accounts(tx, &[actor, target])
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
+        } else if !matches!(
+            command,
+            Command::Reply { .. } | Command::TicketStatus { .. }
+        ) {
+            oteryn_admin::rbac::lock_accounts(tx, &[actor])
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
+        }
         if matches!(
             command,
             Command::Reply { .. } | Command::TicketStatus { .. }

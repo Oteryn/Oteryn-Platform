@@ -51,12 +51,7 @@ impl Service {
         Self { pool, features }
     }
 
-    async fn staff(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        context: CheckContext,
-        request: Uuid,
-    ) -> Result<(), Error> {
+    fn validate_staff(&self, context: CheckContext, request: Uuid) -> Result<(), Error> {
         if !self.features.sanctions {
             return Err(Error::Disabled);
         }
@@ -65,6 +60,16 @@ impl Service {
         }
         valid_id(context.account)?;
         valid_id(request)?;
+        Ok(())
+    }
+
+    async fn staff(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        context: CheckContext,
+        request: Uuid,
+    ) -> Result<(), Error> {
+        self.validate_staff(context, request)?;
         sqlx::query("SET LOCAL lock_timeout = '2s'")
             .execute(&mut **tx)
             .await?;
@@ -98,6 +103,8 @@ impl Service {
     ) -> Result<Receipt, Error> {
         decision.validate()?;
         let mut tx = self.pool.begin().await?;
+        self.validate_staff(context, request)?;
+        rbac::lock_accounts(&mut tx, &[context.account, decision.account]).await?;
         self.staff(&mut tx, context, request).await?;
         let status: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
@@ -165,13 +172,15 @@ impl Service {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
-        self.staff(&mut tx, context, request).await?;
+        self.validate_staff(context, request)?;
         // Lock target before sanction, matching game-access reads and creation.
         let target: Uuid = sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
             .bind(id)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
+        rbac::lock_accounts(&mut tx, &[context.account, target]).await?;
+        self.staff(&mut tx, context, request).await?;
         let target_status: String =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
                 .bind(target)
@@ -480,6 +489,22 @@ impl Service {
             .execute(&mut **tx)
             .await
             .map_err(|_| StaffError::Unavailable)?;
+        let target = match command {
+            Command::Sanction {
+                create: true,
+                target,
+                ..
+            } => *target,
+            _ => sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
+                .bind(id)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?
+                .ok_or(StaffError::NotFound)?,
+        };
+        rbac::lock_accounts(tx, &[actor, target])
+            .await
+            .map_err(|_| StaffError::Unavailable)?;
         rbac::lock_mutation(tx)
             .await
             .map_err(|_| StaffError::Unavailable)?;
@@ -501,19 +526,6 @@ impl Service {
                     _ => StaffError::Denied,
                 })?;
         }
-        let target = match command {
-            Command::Sanction {
-                create: true,
-                target,
-                ..
-            } => *target,
-            _ => sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
-                .bind(id)
-                .fetch_optional(&mut **tx)
-                .await
-                .map_err(|_| StaffError::Unavailable)?
-                .ok_or(StaffError::NotFound)?,
-        };
         let state: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
                 .bind(target)

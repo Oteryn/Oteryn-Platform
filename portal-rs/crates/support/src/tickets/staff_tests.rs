@@ -404,3 +404,172 @@ async fn staff_post(
         .await?
         .status())
 }
+
+#[derive(Clone)]
+struct PausedPreparation {
+    backend: StaffSupport,
+    prepared: Arc<tokio::sync::Notify>,
+    resume: Arc<tokio::sync::Notify>,
+}
+impl oteryn_admin::support::Backend for PausedPreparation {
+    async fn prepare(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        actor: Uuid,
+        id: Uuid,
+        command: &oteryn_admin::support::Command,
+    ) -> std::result::Result<(), oteryn_admin::support::Error> {
+        self.backend.prepare(tx, actor, id, command).await?;
+        self.prepared.notify_one();
+        self.resume.notified().await;
+        Ok(())
+    }
+    async fn list(
+        &self,
+        area: oteryn_admin::support::Area,
+        page: u32,
+    ) -> std::result::Result<Vec<oteryn_admin::support::Record>, oteryn_admin::support::Error> {
+        self.backend.list(area, page).await
+    }
+    async fn load(
+        &self,
+        area: oteryn_admin::support::Area,
+        id: Uuid,
+    ) -> std::result::Result<oteryn_admin::support::Record, oteryn_admin::support::Error> {
+        self.backend.load(area, id).await
+    }
+    async fn apply(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        actor: Uuid,
+        id: Uuid,
+        version: i64,
+        command: &oteryn_admin::support::Command,
+    ) -> std::result::Result<(serde_json::Value, serde_json::Value), oteryn_admin::support::Error>
+    {
+        self.backend.apply(tx, actor, id, version, command).await
+    }
+}
+#[tokio::test]
+async fn postgres_ticket_preparation_and_player_note_share_account_order() -> TestResult {
+    use oteryn_admin::{
+        players::{Flags, IdentityAccounts, Players},
+        rbac::{Authorizer, CheckContext},
+        web::PortalIdentity,
+    };
+    let started = std::time::Instant::now();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+    let root = PgPool::connect(&url).await?;
+    let schema = format!("account_order_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&root)
+        .await?;
+    let search = schema.clone();
+    let pool=sqlx::postgres::PgPoolOptions::new().max_connections(6).after_connect(move |c,_| {
+        let search=search.clone(); Box::pin(async move {
+            sqlx::query("SELECT set_config('search_path',$1,false),set_config('application_name',$1,false)").bind(search).execute(c).await?;Ok(())
+        })
+    }).connect(&url).await?;
+    oteryn_db::migrate(&pool).await?;
+    let actor = Uuid::now_v7();
+    let owner = Uuid::now_v7();
+    for id in [actor, owner] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'synthetic-hash','active','en',now())").bind(id).bind(format!("{id}@example.invalid")).execute(&pool).await?;
+    }
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'",
+    )
+    .bind(actor)
+    .execute(&pool)
+    .await?;
+    let ticket:Uuid=sqlx::query_scalar("INSERT INTO tickets(account_id,request_key,category,subject) VALUES($1,$2,'account','Identity help') RETURNING id").bind(owner).bind(Uuid::now_v7()).fetch_one(&pool).await?;
+    let lookup = |key: &str| match key {
+        "OTERYN_SUPPORT_TICKETS" => Some("true".to_owned()),
+        "OTERYN_NOTIFY_UNSUBSCRIBE_KEY" => Some("x".repeat(32)),
+        "OTERYN_NOTIFY_UNSUBSCRIBE_URL" => Some("https://portal.test/unsubscribe".to_owned()),
+        _ => None,
+    };
+    let prepared = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let backend = PausedPreparation {
+        backend: StaffSupport::configured_from(pool.clone(), &lookup).map_err(|e| e.to_string())?,
+        prepared: prepared.clone(),
+        resume: resume.clone(),
+    };
+    let context = CheckContext {
+        account: actor,
+        require_staff_mfa: true,
+        mfa_verified: true,
+    };
+    let reply_pool = pool.clone();
+    let reply = tokio::spawn(async move {
+        let auth = Authorizer::new(
+            reply_pool.clone(),
+            PortalIdentity::configured(reply_pool.clone()),
+        );
+        oteryn_admin::support::execute(
+            &reply_pool,
+            &auth,
+            &backend,
+            context,
+            ticket,
+            1,
+            &oteryn_admin::support::Command::Reply {
+                body: "Verified reply".into(),
+                internal: false,
+            },
+        )
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), prepared.notified()).await?;
+    let players = Players::new(
+        pool.clone(),
+        Flags {
+            players: true,
+            ..Flags::default()
+        },
+        PortalIdentity::configured(pool.clone()),
+        IdentityAccounts {
+            accounts: oteryn_identity::accounts::Accounts { pool: pool.clone() },
+            projection: None,
+        },
+    );
+    let note = tokio::spawn(async move { players.note(context, owner, "Support note").await });
+    // Observe the note blocked by prepared ticket locks. Before the fix it holds
+    // 71010 while waiting for the actor's SHARE lock, creating the cycle on resume.
+    tokio::time::timeout(std::time::Duration::from_secs(2),async {
+        loop {
+            let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%FROM accounts%')").bind(&schema).fetch_one(&root).await?;
+            if waiting {break;}
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        Ok::<(),sqlx::Error>(())
+    }).await??;
+    resume.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(2), reply).await???;
+    tokio::time::timeout(std::time::Duration::from_secs(2), note).await???;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM player_notes WHERE account_id=$1")
+            .bind(owner)
+            .fetch_one(&pool)
+            .await?,
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM ticket_messages WHERE ticket_id=$1")
+            .bind(ticket)
+            .fetch_one(&pool)
+            .await?,
+        1
+    );
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await?;
+    root.close().await;
+    eprintln!(
+        "postgres_ticket_preparation_and_player_note_share_account_order duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

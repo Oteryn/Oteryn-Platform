@@ -29,17 +29,21 @@ impl<
     P: PaymentActions,
 > Effects for LedgerEffects<W, B, H, P>
 {
-    async fn inspect(&self, request: &Request) -> Result<Value, Error> {
+    async fn inspect(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        request: &Request,
+    ) -> Result<Value, Error> {
         match request.command {
             Command::Adjust { amount } => {
-                let balance = self
-                    .wallet
-                    .balance(request.target)
-                    .await
-                    .map_err(|e| match e {
-                        wallet::Error::Refused(wallet::Refusal::AccountDenied) => Error::Denied,
-                        _ => Error::Unavailable,
-                    })?;
+                let balance =
+                    self.wallet
+                        .balance_in(tx, request.target)
+                        .await
+                        .map_err(|e| match e {
+                            wallet::Error::Refused(wallet::Refusal::AccountDenied) => Error::Denied,
+                            _ => Error::Unavailable,
+                        })?;
                 let after = balance
                     .available
                     .checked_add(amount)
@@ -275,7 +279,11 @@ fn payment_error(error: oteryn_payments::Error) -> Error {
 #[derive(Debug, Clone)]
 pub struct PendingEffects;
 impl Effects for PendingEffects {
-    async fn inspect(&self, _: &Request) -> Result<Value, Error> {
+    async fn inspect(
+        &self,
+        _: &mut Transaction<'_, Postgres>,
+        _: &Request,
+    ) -> Result<Value, Error> {
         Err(Error::Unavailable)
     }
     async fn apply(
