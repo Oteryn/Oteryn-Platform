@@ -421,6 +421,7 @@ async fn postgres_public_pages_privacy_freshness_names_and_window() -> TestResul
             )?;
         }
         assert!(body.contains("Aldric"));
+        assert!(body.contains(r#"<article class="op-card op-stack">"#));
         assert!(!body.contains("Beren"));
         assert!(!body.contains("Mira"));
         assert!(!body.contains(SUBJECT));
@@ -435,7 +436,9 @@ async fn postgres_public_pages_privacy_freshness_names_and_window() -> TestResul
     .await?;
     let r = get(pages(d.db.clone(), true), "/en/deaths").await;
     assert_eq!(r.status(), StatusCode::OK);
-    assert!(!text(r).await.contains("Beren"));
+    let body = text(r).await;
+    assert!(!body.contains(r#"<article class="op-card op-stack">"#));
+    assert!(!body.contains("Beren"));
     sqlx::query("UPDATE public_deaths_v2 SET deaths=$1")
         .bind(serde_json::to_value(snapshot().deaths)?)
         .execute(&d.db)
@@ -598,11 +601,14 @@ async fn postgres_suppression_waits_for_inflight_profile_read() -> TestResult {
     assert_eq!(response.status(), StatusCode::OK);
     let body = text(response).await;
     assert!(body.contains("Aldric"));
+    assert!(body.contains(r#"<article class="op-card op-stack">"#));
     assert!(!body.contains("Beren"));
     assert_eq!(write.await?.unwrap(), "accepted");
     let response = get(pages(d.db.clone(), true), "/en/deaths").await;
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(!text(response).await.contains("Beren"));
+    let body = text(response).await;
+    assert!(!body.contains(r#"<article class="op-card op-stack">"#));
+    assert!(!body.contains("Beren"));
     d.close().await
 }
 

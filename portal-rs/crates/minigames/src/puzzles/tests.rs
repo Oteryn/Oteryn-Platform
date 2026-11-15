@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+#[path = "../../../../test-support/clock.rs"]
+mod test_clock;
 use axum::{
     Extension, Router,
     body::{Body, to_bytes},
@@ -101,7 +103,7 @@ impl Database {
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&admin)
             .await?;
-        let search_path = schema.clone();
+        let search_path = format!("{schema},pg_catalog");
         let pool = PgPoolOptions::new()
             .max_connections(6)
             .after_connect(move |conn, _| {
@@ -117,6 +119,8 @@ impl Database {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
+        let instant = time::OffsetDateTime::from_unix_timestamp(1_790_035_199)?;
+        test_clock::install(&pool, instant).await?;
         let version = Uuid::now_v7();
         sqlx::query("INSERT INTO world_versions (id,source_commit,status) VALUES ($1,$2,'ready')")
             .bind(version)
@@ -142,9 +146,7 @@ impl Database {
         );
         let account = Uuid::now_v7();
         sqlx::query("INSERT INTO accounts (id,email,password_hash,status,email_verified_at,locale) VALUES ($1,'synthetic@example.invalid','unused','active',now(),'en')").bind(account).execute(&pool).await?;
-        let today = sqlx::query_scalar("SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date")
-            .fetch_one(&pool)
-            .await?;
+        let today = instant.date();
         Ok(Some(Self {
             admin,
             pool,
@@ -753,4 +755,25 @@ async fn postgres_answer_holds_account_lock_while_waiting_for_streak() -> TestRe
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn postgres_controlled_midnight_changes_available_puzzles() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let old = db.publish(Kind::Monster).await?;
+    let tomorrow = db.today.next_day().ok_or("date overflow")?;
+    let next = db.seed(tomorrow, Kind::Quiz).await?;
+    assert_eq!(db.service.today(db.account).await?[0].id, old);
+    test_clock::set(&db.pool, tomorrow.midnight().assume_utc()).await?;
+    assert_eq!(db.service.today(db.account).await?[0].id, next);
+    assert!(matches!(
+        db.service.answer(db.account, old, 1).await,
+        Err(Error::NotFound)
+    ));
+    assert!(matches!(
+        db.service.image(db.account, old).await,
+        Err(Error::NotFound)
+    ));
+    assert!(db.service.answer(db.account, next, 1).await?.correct);
+    db.close().await
 }

@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Native coin purchases through the real routes, OAuth grants, PostgreSQL
-//! state and wallet ledger. Character ownership is the only stubbed adapter.
+//! state and wallet ledger. Most cases isolate ownership; the production LCFA
+//! refusal regression below also exercises the real ownership adapter.
 use super::*;
 use axum::{
     body::{Body, to_bytes},
@@ -2266,4 +2267,233 @@ async fn unpaid_order_churn_is_bounded_and_replays_survive_budget() -> TestResul
         .await?;
     assert_eq!(count, 100);
     db.close().await
+}
+
+/// Keep OAuth, LCFA reads and the ownership-to-refusal mapping in production code.
+#[tokio::test]
+async fn production_lcfa_ownership_refuses_without_purchase_writes() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::open().await?.ok_or("PostgreSQL required")?;
+    let payer = db.account().await?;
+    let foreign_payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let mine = Uuid::now_v7();
+    let foreign = Uuid::now_v7();
+    let authority = "oteryn:character-authority:primary";
+    let settings = lcfa::Settings {
+        enabled: true,
+        environment: oteryn_core::Environment::Testing,
+        source_authority: authority.into(),
+        freshness_seconds: 120,
+        ..lcfa::Settings::default()
+    };
+    let host = Host {
+        pool: db.pool.clone(),
+        oauth: db.config.clone(),
+        projection: lcfa::Projection::new(
+            db.pool.clone(),
+            settings.clone(),
+            Arc::new(overview::Accounts(db.pool.clone())),
+        ),
+    };
+    let make_service = |host: Host| {
+        Arc::new(CoinPurchases::new(
+            db.pool.clone(),
+            CoinSettings {
+                enabled: true,
+                packages: parse_packages(&packages()).unwrap(),
+                origin: ORIGIN.into(),
+                environment: "testing".into(),
+            },
+            provider(),
+            Arc::new(host),
+        ))
+    };
+    for (account, character) in [(payer, mine), (foreign_payer, foreign)] {
+        let world = Uuid::now_v7();
+        let content = format!(
+            r#"[{{"character_id":"{character}","world_id":"{world}","name":"Synthetic","availability":"AVAILABLE"}}]"#
+        );
+        sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,$2,'1','1',0,$3)")
+            .bind(account).bind(authority).bind(Sha256::digest(content.as_bytes()).to_vec()).execute(&db.pool).await?;
+        sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Synthetic','AVAILABLE')")
+            .bind(account).bind(character).bind(world).execute(&db.pool).await?;
+    }
+    let missing_account = Uuid::now_v7();
+    let service = make_service(host.clone());
+    // Both a positive ownership result and a real quote prove the fixture is live.
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority=$1,complete_through=extract(epoch FROM clock_timestamp())::bigint,observed_at=extract(epoch FROM clock_timestamp())::bigint")
+        .bind(authority).execute(&db.pool).await?;
+    assert_eq!(host.ownership(payer, mine).await, Ownership::Owned);
+    assert_eq!(
+        host.ownership(foreign_payer, foreign).await,
+        Ownership::Owned
+    );
+    let (status, body) = get(
+        db.app(&service),
+        &format!("{API}/catalogue?character_id={mine}"),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let quote = json(&body)["packages"][0]["quote_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for case in [
+        "foreign",
+        "missing",
+        "denied",
+        "stale",
+        "epoch",
+        "invalid",
+        "unavailable",
+        "storage",
+    ] {
+        let mut candidate = host.clone();
+        let character = if case == "foreign" { foreign } else { mine };
+        let expected = match case {
+            "foreign" => Ownership::NotOwned,
+            "missing" => {
+                sqlx::query(
+                    "UPDATE account_character_snapshots SET account_id=$2 WHERE account_id=$1",
+                )
+                .bind(payer)
+                .bind(missing_account)
+                .execute(&db.pool)
+                .await?;
+                Ownership::NotOwned
+            }
+            "denied" => {
+                candidate.projection = lcfa::Projection::new(
+                    db.pool.clone(),
+                    settings.clone(),
+                    Arc::new(lcfa::DenyAccounts),
+                );
+                Ownership::NotOwned
+            }
+            "stale" => {
+                sqlx::query("UPDATE account_character_feed SET complete_through=0")
+                    .execute(&db.pool)
+                    .await?;
+                Ownership::Unavailable
+            }
+            "epoch" => {
+                sqlx::query("UPDATE account_character_snapshots SET projection_epoch='2' WHERE account_id=$1").bind(payer).execute(&db.pool).await?;
+                Ownership::Unavailable
+            }
+            "invalid" => {
+                sqlx::query(
+                    "UPDATE account_character_snapshots SET invalid=true WHERE account_id=$1",
+                )
+                .bind(payer)
+                .execute(&db.pool)
+                .await?;
+                Ownership::Unavailable
+            }
+            "unavailable" => {
+                candidate.projection = lcfa::Projection::new(
+                    db.pool.clone(),
+                    lcfa::Settings::default(),
+                    Arc::new(overview::Accounts(db.pool.clone())),
+                );
+                Ownership::Unavailable
+            }
+            "storage" => {
+                sqlx::query(
+                    "ALTER TABLE account_characters RENAME TO unavailable_account_characters",
+                )
+                .execute(&db.pool)
+                .await?;
+                Ownership::Unavailable
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            candidate.ownership(payer, character).await,
+            expected,
+            "{case}"
+        );
+        let expected_status = if expected == Ownership::NotOwned {
+            StatusCode::FORBIDDEN
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        };
+        let candidate = make_service(candidate);
+        let quotes: Value = sqlx::query_scalar("SELECT coalesce(jsonb_agg(to_jsonb(q) ORDER BY id),'[]'::jsonb) FROM coin_purchase_quotes q")
+            .fetch_one(&db.pool).await?;
+        let orders = db
+            .count("SELECT count(*) FROM coin_purchase_orders")
+            .await?;
+        let intents = db.count("SELECT count(*) FROM payment_intents").await?;
+        assert_eq!(
+            get(
+                db.app(&candidate),
+                &format!("{API}/catalogue?character_id={character}"),
+                &token
+            )
+            .await
+            .0,
+            expected_status,
+            "{case} catalogue"
+        );
+        assert_eq!(
+            post(
+                db.app(&candidate),
+                &token,
+                order_body(Uuid::now_v7(), &quote, Some(character))
+            )
+            .await
+            .0,
+            expected_status,
+            "{case} order"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, Value>("SELECT coalesce(jsonb_agg(to_jsonb(q) ORDER BY id),'[]'::jsonb) FROM coin_purchase_quotes q")
+                .fetch_one(&db.pool).await?,
+            quotes,
+            "{case}"
+        );
+        assert_eq!(
+            db.count("SELECT count(*) FROM coin_purchase_orders")
+                .await?,
+            orders,
+            "{case}"
+        );
+        assert_eq!(
+            db.count("SELECT count(*) FROM payment_intents").await?,
+            intents,
+            "{case}"
+        );
+        if case == "storage" {
+            sqlx::query("ALTER TABLE unavailable_account_characters RENAME TO account_characters")
+                .execute(&db.pool)
+                .await?;
+        }
+        if case == "missing" {
+            sqlx::query("UPDATE account_character_snapshots SET account_id=$2 WHERE account_id=$1")
+                .bind(missing_account)
+                .bind(payer)
+                .execute(&db.pool)
+                .await?;
+        }
+        sqlx::query("UPDATE account_character_snapshots SET projection_epoch='1',invalid=false WHERE account_id=$1").bind(payer).execute(&db.pool).await?;
+        sqlx::query("UPDATE account_character_feed SET complete_through=extract(epoch FROM clock_timestamp())::bigint,observed_at=extract(epoch FROM clock_timestamp())::bigint").execute(&db.pool).await?;
+    }
+    assert_eq!(
+        post(
+            db.app(&service),
+            &token,
+            order_body(Uuid::now_v7(), &quote, Some(mine))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    db.close().await?;
+    eprintln!(
+        "production_lcfa_ownership_refuses_without_purchase_writes: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }
