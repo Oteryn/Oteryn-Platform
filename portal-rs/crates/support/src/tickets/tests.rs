@@ -14,6 +14,11 @@ struct Database {
 }
 impl Database {
     async fn new() -> std::result::Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::with_connections(8).await
+    }
+    async fn with_connections(
+        maximum: u32,
+    ) -> std::result::Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("Skipping PostgreSQL support test: PORTAL_TEST_DATABASE_URL is unset");
             return Ok(None);
@@ -25,7 +30,7 @@ impl Database {
             .await?;
         let path = format!("SET search_path TO {schema}");
         let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(8)
+            .max_connections(maximum)
             .after_connect(move |conn, _| {
                 let path = path.clone();
                 Box::pin(async move {
@@ -812,6 +817,42 @@ async fn postgres_ticket_status_with_exhausted_pool() -> TestResult {
     db.finish().await?;
     eprintln!(
         "postgres_ticket_status_with_exhausted_pool duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_notification_transaction_with_exhausted_pool() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::with_connections(1).await? else {
+        return Ok(());
+    };
+    let account = db.account("en").await?;
+    let tickets = db.tickets(4)?;
+    let mut tx = db.pool.begin().await?;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tickets
+            .notifications
+            .enqueue(&mut tx, account, &EmailTemplate::PasswordChanged)
+            .await?;
+        tickets
+            .notifications
+            .preferences(&mut tx, account, oteryn_notify::Category::News, true, true)
+            .await?;
+        let token = tickets.notifications.unsubscribe.token(
+            account,
+            oteryn_notify::Category::News,
+            time::OffsetDateTime::now_utc().unix_timestamp() + 60,
+        )?;
+        tickets.notifications.unsubscribe(&mut tx, &token).await?;
+        oteryn_notify::Result::Ok(())
+    })
+    .await??;
+    tx.commit().await?;
+    db.finish().await?;
+    eprintln!(
+        "postgres_notification_transaction_with_exhausted_pool duration: {:?}",
         started.elapsed()
     );
     Ok(())

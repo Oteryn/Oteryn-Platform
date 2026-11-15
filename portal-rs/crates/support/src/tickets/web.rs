@@ -40,6 +40,27 @@ impl oteryn_notify::AccountState for NotifyAccounts {
                 }))
         })
     }
+    fn active_verified_in<'a>(
+        &'a self,
+        tx: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: Uuid,
+    ) -> oteryn_notify::NotifyFuture<'a, Option<oteryn_notify::Account>> {
+        Box::pin(async move {
+            let account = oteryn_identity::accounts::Accounts::find_by_id_in(tx, id).await?;
+            Ok(account
+                .filter(|a| a.status == "active" && a.email_verified_at.is_some())
+                .and_then(|a| {
+                    Some(oteryn_notify::Account {
+                        email: a.email,
+                        locale: match a.locale.as_str() {
+                            "pl" => oteryn_notify::Locale::Pl,
+                            "en" => oteryn_notify::Locale::En,
+                            _ => return None,
+                        },
+                    })
+                }))
+        })
+    }
 }
 pub fn configured_router(pool: PgPool) -> std::result::Result<Router, Box<dyn std::error::Error>> {
     if std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() != Ok("true") {
