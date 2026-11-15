@@ -382,14 +382,13 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 },
                 oteryn_web::chrome::middleware,
             ));
-            // Same router behind verified mTLS; the only adapter that admits /internal/v1 peers.
-            let app = app.merge(oteryn_wallet::wire::configured_router(db.clone()));
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);
             let app = app.merge(code_routes::configured(db.clone())?);
             let app = with_proxy_policy(app, db.clone(), proxies);
-            let public_app = app.clone();
+            let (public_app, app) =
+                coin_listener_apps(app, oteryn_wallet::wire::configured_router(db.clone()));
             let app = app.merge(oteryn_support::sanctions::export::configured_router(
                 db.clone(),
             ));
@@ -565,7 +564,7 @@ mod browser_configuration_tests {
         }
         assert!(
             composition
-                .find("let public_app = app.clone();")
+                .find("coin_listener_apps(app,")
                 .is_some_and(|at| at > configuration)
         );
     }
@@ -589,3 +588,13 @@ fn with_proxy_policy(
 }
 #[cfg(test)]
 mod audit_l9_tests;
+
+/// Capture the shared public/native router before adding internal coin exports.
+fn coin_listener_apps(app: axum::Router, coins: axum::Router) -> (axum::Router, axum::Router) {
+    let public = app.clone();
+    (public, app.merge(coins))
+}
+
+#[cfg(test)]
+#[path = "coin_listener_tests.rs"]
+mod coin_listener_tests;

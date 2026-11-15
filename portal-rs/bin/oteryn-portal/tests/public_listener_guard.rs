@@ -33,6 +33,9 @@ const PUBLIC_SAN: &str = "public.game.internal";
 const ANALYTICS_SAN: &str = "game-admin-analytics";
 const CONTROL_SAN: &str = "control.game.internal";
 
+// These real-binary fixtures allocate listeners and process-global adapters.
+static LISTENER_FIXTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 struct Server(Child);
 
 impl Drop for Server {
@@ -170,8 +173,7 @@ fn post(path: &str, san: &'static str, expected: u16) -> Route {
     }
 }
 
-/// Every `/internal/*` route merged into the public router (main.rs before
-/// `let public_app`, and the gameauth routers in `oteryn_web::router`).
+/// Internal route inventory: public guards and exports that must be absent.
 fn public_internal_routes() -> Vec<Route> {
     let mut routes = Vec::new();
     for path in [
@@ -180,7 +182,7 @@ fn public_internal_routes() -> Vec<Route> {
         "market/settlements",
         "market/cancellations",
     ] {
-        routes.push(post(&format!("/internal/v1/coins/{path}"), COINS_SAN, 401));
+        routes.push(post(&format!("/internal/v1/coins/{path}"), COINS_SAN, 404));
     }
     for path in [
         format!("operations/{ACCOUNT}"),
@@ -192,7 +194,7 @@ fn public_internal_routes() -> Vec<Route> {
             path: format!("/internal/v1/coins/{path}"),
             body: "",
             san: COINS_SAN,
-            expected: 401,
+            expected: 404,
         });
     }
     routes.push(post(
@@ -446,6 +448,7 @@ fn start(
     native_port: u16,
     native: &NativeTls,
     evidence_dir: &std::path::Path,
+    coins_enabled: bool,
 ) -> Server {
     let mut command = Command::new(env!("CARGO_BIN_EXE_oteryn-portal"));
     command
@@ -456,6 +459,8 @@ fn start(
         command.env(key, value);
     }
     command
+        .env("PORTAL_COIN_TRANSFERS_ENABLED", coins_enabled.to_string())
+        .env("PORTAL_COIN_MARKET_ENABLED", coins_enabled.to_string())
         .env("OTERYN_NATIVE_TLS_BIND", format!("127.0.0.1:{native_port}"))
         .env(
             "OTERYN_NATIVE_TLS_CERT_FILE",
@@ -496,10 +501,11 @@ fn start(
 
 #[test]
 fn public_listener_refuses_every_internal_route_with_or_without_spoofed_identity() {
+    let _fixture = LISTENER_FIXTURE.lock().expect("listener fixture");
     let (port, native_port) = (free_port(), free_port());
     let native = native_tls();
     let evidence_dir = tempfile::tempdir().expect("evidence dir");
-    let _server = start(port, native_port, &native, evidence_dir.path());
+    let _server = start(port, native_port, &native, evidence_dir.path(), true);
     let transports = [
         Transport::Public(port),
         Transport::Native(native_port, native.client.clone()),
@@ -559,4 +565,37 @@ fn public_listener_refuses_every_internal_route_with_or_without_spoofed_identity
         .expect("read evidence dir")
         .collect();
     assert!(written.is_empty(), "evidence handler wrote {written:?}");
+}
+
+#[test]
+fn sw3_05_actual_public_and_native_coin_routes_absent_with_flags_off_and_on() {
+    let _fixture = LISTENER_FIXTURE.lock().expect("listener fixture");
+    for enabled in [false, true] {
+        let (port, native_port) = (free_port(), free_port());
+        let native = native_tls();
+        let evidence_dir = tempfile::tempdir().expect("evidence dir");
+        let _server = start(port, native_port, &native, evidence_dir.path(), enabled);
+        for transport in [
+            Transport::Public(port),
+            Transport::Native(native_port, native.client.clone()),
+        ] {
+            for route in public_internal_routes()
+                .into_iter()
+                .filter(|route| route.path.starts_with("/internal/v1/coins/"))
+            {
+                for headers in [Vec::new(), spoofed(COINS_SAN)] {
+                    let response =
+                        send(&transport, route.method, &route.path, &headers, route.body)
+                            .expect("coin path response");
+                    assert_eq!(
+                        response.status,
+                        404,
+                        "{} enabled={enabled} {}",
+                        transport.label(),
+                        route.path
+                    );
+                }
+            }
+        }
+    }
 }
