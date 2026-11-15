@@ -225,6 +225,8 @@ impl Delivery {
     /// Called by the restore-notice owner inside its notice transaction, before
     /// locking any intent. The caller must validate and persist the notice and
     /// verify exchange availability before committing. No receipt is discarded.
+    /// More than 128 affected operations refuses without advancing the fence;
+    /// the caller must roll back rather than publish a partial restore.
     pub async fn reopen_in(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -248,8 +250,12 @@ impl Delivery {
         sqlx::query("SELECT pg_advisory_xact_lock(29,1)")
             .execute(&mut **tx)
             .await?;
-        let rows = sqlx::query("SELECT o.operation_id,o.entitlement_id,o.operation_kind FROM store_operations o LEFT JOIN store_receipts r ON r.operation_id=o.operation_id AND r.superseded_by_restore_event_id IS NULL WHERE r.recovery_generation >= $1::text::numeric OR o.state='REOPENED' ORDER BY o.source_revision FOR UPDATE OF o")
+        let rows = sqlx::query("SELECT o.operation_id,o.entitlement_id,o.operation_kind FROM store_operations o LEFT JOIN store_receipts r ON r.operation_id=o.operation_id AND r.superseded_by_restore_event_id IS NULL WHERE r.recovery_generation >= $1::text::numeric OR o.state='REOPENED' ORDER BY o.source_revision LIMIT 129 FOR UPDATE OF o")
             .bind(restored.to_string()).fetch_all(&mut **tx).await?;
+        // Refuse atomically; the caller rolls back without a partial generation.
+        if rows.len() > 128 {
+            return Err(Error::Unavailable);
+        }
         for row in &rows {
             let id: Uuid = row.try_get("operation_id")?;
             sqlx::query("UPDATE store_receipts SET superseded_by_restore_event_id=$2 WHERE operation_id=$1 AND superseded_by_restore_event_id IS NULL").bind(id).bind(event).execute(&mut **tx).await?;

@@ -4,6 +4,9 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 #[test]
 fn package_configuration_fails_closed() {
     assert!(!valid_packages(&[]));
+    for raw in [None, Some("[]"), Some("invalid")] {
+        assert!(packages_for_creation(raw).is_empty());
+    }
     let p = Package {
         key: "fixture".into(),
         coins: 100,
@@ -460,5 +463,198 @@ async fn postgres_dummy_checkout_browser_360px() -> TestResult {
         .await?;
     admin.close().await;
     assert!(result?.success());
+    Ok(())
+}
+
+fn recovery_topups(
+    pool: &PgPool,
+    packages: Vec<Package>,
+) -> Result<Arc<PaymentTopUps>, oteryn_payments::Error> {
+    Ok(Arc::new(PaymentTopUps {
+        signer: TestProvider::new(&[5; 32])?,
+        pool: pool.clone(),
+        payments: Payments::new(
+            pool.clone(),
+            TestProvider::new(&[5; 32])?,
+            Accounts(pool.clone()),
+            PaymentFlags { enabled: true },
+        ),
+        packages,
+    }))
+}
+fn recovery_package() -> Package {
+    Package {
+        key: "fixture".into(),
+        coins: 100,
+        minor_units: 250,
+        currency: "PLN".into(),
+    }
+}
+
+#[tokio::test]
+async fn postgres_checkout_resumes_after_claim_and_after_intent_commit() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some((pool, admin, schema)) = database().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'resume@example.invalid',now(),'test','active','en')").bind(account).execute(&pool).await?;
+    let topups = recovery_topups(&pool, vec![recovery_package()])?;
+    let (cookie, csrf) = browser_session(&pool, account).await?;
+    let app = oteryn_store::web::router(
+        pool.clone(),
+        oteryn_store::web::Flags {
+            shop: true,
+            top_ups: true,
+            ..Default::default()
+        },
+        oteryn_store::web::configured_backend(pool.clone(), Some(topups.clone())),
+        vec!["https://portal.example".into()],
+    );
+    use tower::ServiceExt;
+    for table in ["payment_intents", "store_web_topups"] {
+        let operation = Uuid::now_v7();
+        // Fail before intent commit, then independently after intent commit at
+        // the link writer. The claim survives either transaction's rollback.
+        sqlx::raw_sql("CREATE FUNCTION interrupt_checkout() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected checkout interruption'; END $$").execute(&pool).await?;
+        let trigger = if table == "payment_intents" {
+            "CREATE TRIGGER interrupt_checkout BEFORE INSERT ON payment_intents FOR EACH ROW EXECUTE FUNCTION interrupt_checkout()"
+        } else {
+            "CREATE TRIGGER interrupt_checkout BEFORE UPDATE ON store_web_topups FOR EACH ROW EXECUTE FUNCTION interrupt_checkout()"
+        };
+        sqlx::raw_sql(trigger).execute(&pool).await?;
+        let form = format!("_csrf={csrf}&operation={operation}&package=fixture");
+        let failed = app
+            .clone()
+            .oneshot(browser_post("/en/shop/coins", &cookie, form.clone())?)
+            .await?;
+        assert_eq!(failed.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+        let reserved: Option<Uuid> = sqlx::query_scalar(
+            "SELECT intended_payment_intent_id FROM store_web_topups WHERE operation_id=$1",
+        )
+        .bind(operation)
+        .fetch_one(&pool)
+        .await?;
+        let reserved = reserved.ok_or("missing reserved provider key")?;
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM payment_intents WHERE id=$1")
+            .bind(reserved)
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(count, i64::from(table == "store_web_topups"));
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "DROP TRIGGER interrupt_checkout ON {table}; DROP FUNCTION interrupt_checkout()"
+        )))
+        .execute(&pool)
+        .await?;
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(browser_post("/en/shop/coins", &cookie, form.clone())?)
+                .await?;
+            assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
+            assert_eq!(
+                response.headers()["location"],
+                format!("/en/shop/test-checkout/{reserved}")
+            );
+        }
+        let (left, right) = tokio::join!(
+            topups.create(account, operation, "fixture".into()),
+            topups.create(account, operation, "fixture".into())
+        );
+        assert_eq!(left, Ok(reserved));
+        assert_eq!(right, Ok(reserved));
+        let checkout = topups
+            .checkout(account, reserved, None)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        assert!(checkout.is_some_and(|c| c.pending && c.package.coins == 100));
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM payment_intents")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(count, 2);
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    eprintln!(
+        "PG postgres_checkout_resumes_after_claim_and_after_intent_commit {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_checkout_replays_after_package_change_and_removal() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some((pool, admin, schema)) = database().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    let operation = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'replay@example.invalid',now(),'test','active','en')").bind(account).execute(&pool).await?;
+    let original = recovery_topups(&pool, vec![recovery_package()])?;
+    let intent = original
+        .create(account, operation, "fixture".into())
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    let (cookie, csrf) = browser_session(&pool, account).await?;
+    use tower::ServiceExt;
+    for packages in [
+        vec![Package {
+            coins: 900,
+            minor_units: 1200,
+            ..recovery_package()
+        }],
+        packages_for_creation(Some("[]")),
+        packages_for_creation(None),
+    ] {
+        let topups = recovery_topups(&pool, packages)?;
+        let app = oteryn_store::web::router(
+            pool.clone(),
+            oteryn_store::web::Flags {
+                shop: true,
+                top_ups: true,
+                ..Default::default()
+            },
+            oteryn_store::web::configured_backend(pool.clone(), Some(topups.clone())),
+            vec!["https://portal.example".into()],
+        );
+        let response = app
+            .oneshot(browser_post(
+                "/en/shop/coins",
+                &cookie,
+                format!("_csrf={csrf}&operation={operation}&package=fixture"),
+            )?)
+            .await?;
+        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers()["location"],
+            format!("/en/shop/test-checkout/{intent}")
+        );
+        let checkout = topups
+            .checkout(account, intent, None)
+            .await
+            .map_err(|e| format!("{e:?}"))?
+            .ok_or("missing checkout")?;
+        assert_eq!(
+            (checkout.package.coins, checkout.package.minor_units),
+            (100, 250)
+        );
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM payment_intents")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(count, 1);
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    eprintln!(
+        "PG postgres_checkout_replays_after_package_change_and_removal {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
     Ok(())
 }

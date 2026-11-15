@@ -206,7 +206,7 @@ where
         Box::pin(async move {
             self.top_ups
                 .as_ref()
-                .ok_or(Error::Unavailable)?
+                .ok_or(Error::Invalid)?
                 .create(account, operation, package)
                 .await
         })

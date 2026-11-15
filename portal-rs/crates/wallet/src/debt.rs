@@ -34,25 +34,37 @@ pub(crate) async fn unlocked(connection: &mut PgConnection, account: Uuid) -> Re
 /// reversals are locked oldest first; each one paid gets a settlement row and
 /// an audit row. One `debt_settlement` operation takes the total back from the
 /// balance, never more than the credit, so the balance cannot go negative.
-/// Returns the coins applied.
+/// Returns the coins applied. A credit requiring more than 128 debt rows
+/// refuses atomically; smaller credits can continue repaying the bounded prefix.
 pub(crate) async fn settle(
     tx: &mut PgConnection,
     credit: Uuid,
     account: Uuid,
     coins: i64,
 ) -> Result<i64, Error> {
-    // Held reversals per account are few: each one places a purchase hold
-    // that freezes new purchasing until staff release it.
-    sqlx::query("SELECT id FROM coin_purchase_reversals WHERE payer_account_id=$1 AND outcome='held' ORDER BY created_at,id FOR UPDATE")
-        .bind(account)
-        .fetch_all(&mut *tx)
-        .await?;
-    let debts: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
-        "SELECT reversal_id,order_id,owed FROM coin_outstanding_debts WHERE account_id=$1 AND owed>0 ORDER BY created_at,reversal_id",
+    // Staff may repeatedly release holds. Bound work even in that case;
+    // refusal rolls back the credit and preserves every unsettled debt.
+    let mut debts: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
+        "SELECT reversal_id,order_id,owed FROM coin_outstanding_debts WHERE account_id=$1 AND owed>0 ORDER BY created_at,reversal_id LIMIT 129",
     )
     .bind(account)
     .fetch_all(&mut *tx)
     .await?;
+    if debts.len() > 128 {
+        let covered: i128 = debts
+            .iter()
+            .take(128)
+            .map(|(_, _, owed)| i128::from(*owed))
+            .sum();
+        if covered < i128::from(coins) {
+            return Err(Refusal::TransferStateUnknown.into());
+        }
+        debts.truncate(128);
+    }
+    let reversals: Vec<_> = debts.iter().map(|(reversal, _, _)| *reversal).collect();
+    // Fully repaid historical reversals do not consume the credit work budget.
+    sqlx::query("SELECT id FROM coin_purchase_reversals WHERE id=ANY($1) ORDER BY created_at,id LIMIT 128 FOR UPDATE")
+        .bind(&reversals).fetch_all(&mut *tx).await?;
     let mut remaining = coins;
     let mut steps = Vec::new();
     for (reversal, order, owed) in debts {

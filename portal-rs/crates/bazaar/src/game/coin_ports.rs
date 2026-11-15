@@ -75,7 +75,7 @@ impl CoinReservations {
     }
 
     async fn account(db: &mut PgConnection, account: Uuid) -> Result<(), Error> {
-        // Identity first, then Wallet, in sorted order supplied by the core.
+        // The complete identity set is acquired before any wallet row.
         let status: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
                 .bind(account)
@@ -84,14 +84,6 @@ impl CoinReservations {
         if status.as_deref() != Some("active") {
             return Err(Error::Denied);
         }
-        sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1) ON CONFLICT DO NOTHING")
-            .bind(account)
-            .execute(&mut *db)
-            .await?;
-        sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
-            .bind(account)
-            .fetch_one(&mut *db)
-            .await?;
         Ok(())
     }
     async fn entry(
@@ -140,6 +132,18 @@ impl Reservations for CoinReservations {
         }
         for account in accounts {
             Self::account(db, *account).await?;
+        }
+        for &account in accounts {
+            sqlx::query(
+                "INSERT INTO wallet_accounts(account_id) VALUES($1) ON CONFLICT DO NOTHING",
+            )
+            .bind(account)
+            .execute(&mut *db)
+            .await?;
+            sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+                .bind(account)
+                .fetch_one(&mut *db)
+                .await?;
         }
         Ok(())
     }
@@ -364,3 +368,7 @@ fn wallet_error(e: oteryn_wallet::Error) -> Error {
         oteryn_wallet::Error::Refused(_) => Error::Denied,
     }
 }
+
+#[cfg(test)]
+#[path = "coin_ports_lock_tests.rs"]
+mod lock_tests;
