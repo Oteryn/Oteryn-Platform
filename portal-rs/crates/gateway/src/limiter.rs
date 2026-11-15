@@ -16,6 +16,24 @@ impl WindowLimiter {
             entries: HashMap::new(),
         }
     }
+    pub fn prune(&mut self, now: Duration) {
+        self.entries
+            .retain(|_, (start, _)| now.saturating_sub(*start) < self.window);
+    }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+    pub fn contains(&self, key: &[u8], now: Duration) -> bool {
+        self.entries
+            .get(key)
+            .is_some_and(|(start, _)| now.saturating_sub(*start) < self.window)
+    }
+    pub(crate) fn insert(&mut self, key: &[u8], start: Duration, count: usize) {
+        self.entries.insert(key.to_vec(), (start, count));
+    }
     pub fn allow(&mut self, key: &[u8], now: Duration) -> Result<(), u64> {
         if let Some((start, count)) = self.entries.get_mut(key)
             && now.saturating_sub(*start) < self.window

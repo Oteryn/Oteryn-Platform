@@ -36,7 +36,7 @@ struct StateData {
     version: String,
     start: Instant,
     sources: Mutex<WindowLimiter>,
-    attempts: Mutex<WindowLimiter>,
+    attempts: Mutex<AttemptLimits>,
     recovery: RecoveryLimits,
 }
 /// §19.9: `/v1/recover` per source and per (`attempt_ref`, handle hash),
@@ -44,7 +44,7 @@ struct StateData {
 #[derive(Debug)]
 struct RecoveryLimits {
     sources: Mutex<WindowLimiter>,
-    attempts: Mutex<WindowLimiter>,
+    attempts: Mutex<AttemptLimits>,
     revoke_sources: Mutex<WindowLimiter>,
 }
 impl Default for RecoveryLimits {
@@ -268,10 +268,40 @@ async fn recover_route(State(s): State<Arc<StateData>>, req: Request) -> Respons
     response
 }
 async fn recovery(s: &StateData, source: &str, body: &[u8]) -> Response {
+    recovery_at(s, source, body, s.start.elapsed()).await
+}
+async fn recovery_at(s: &StateData, source: &str, body: &[u8], now: Duration) -> Response {
     let echo = wire::attempt_echo(body);
-    let now = s.start.elapsed();
     let result = match prepare_recovery(s, source, body, now) {
-        Ok(request) => s.issuer.recover(&request).await,
+        Ok(request) => {
+            let result = s.issuer.recover(&request).await;
+            let key = attempt_key(
+                &request.attempt_ref,
+                &Sha256::digest(request.recovery_handle.as_bytes()),
+            );
+            if let Ok(mut limits) = s.recovery.attempts.lock() {
+                limits.finish(
+                    &key,
+                    now,
+                    result.is_ok()
+                        || result.as_ref().err().is_some_and(|r| {
+                            matches!(
+                                r.code,
+                                RecoverCode::AttemptPending
+                                    | RecoverCode::CharacterConflict
+                                    | RecoverCode::WorldStale
+                                    | RecoverCode::RouteUnavailable
+                                    | RecoverCode::GrantExpired
+                            )
+                        }),
+                    result
+                        .as_ref()
+                        .err()
+                        .is_some_and(|r| r.code == RecoverCode::AuthenticationRequired),
+                );
+            }
+            result
+        }
         Err(refused) => Err(refused),
     };
     match result {
@@ -297,11 +327,11 @@ fn prepare_recovery(
 ) -> Result<recover::RecoverRequest, RecoverRefusal> {
     allow(&s.recovery.sources, source.as_bytes(), now).map_err(recover_limit)?;
     let request = recover::parse_request(body)?;
-    let mut digest = Sha256::new();
-    digest.update(request.attempt_ref.as_bytes());
-    digest.update([0]);
-    digest.update(Sha256::digest(request.recovery_handle.as_bytes()));
-    allow(&s.recovery.attempts, &digest.finalize(), now).map_err(recover_limit)?;
+    let key = attempt_key(
+        &request.attempt_ref,
+        &Sha256::digest(request.recovery_handle.as_bytes()),
+    );
+    reserve(&s.recovery.attempts, &key, now).map_err(recover_limit)?;
     Ok(request)
 }
 fn recover_limit(r: Refusal) -> RecoverRefusal {
@@ -371,12 +401,22 @@ fn allow(l: &Mutex<WindowLimiter>, key: &[u8], now: Duration) -> Result<(), Refu
         })
 }
 async fn native(s: &StateData, source: &str, body: &[u8]) -> Response {
+    native_at(s, source, body, s.start.elapsed()).await
+}
+async fn native_at(s: &StateData, source: &str, body: &[u8], now: Duration) -> Response {
     let echo = wire::attempt_echo(body);
-    let request = match prepare(s, source, body, s.start.elapsed()) {
+    let request = match prepare(s, source, body, now) {
         Ok(request) => request,
         Err(r) => return refuse(r, echo.as_deref()),
     };
-    match s.issuer.admit(&request).await {
+    let result = s.issuer.admit(&request).await;
+    finish(
+        &s.attempts,
+        &attempt_key(&request.attempt_ref, request.game_login_ticket.as_bytes()),
+        now,
+        result.as_ref().err().map(|r| r.code),
+    );
+    match result {
         Ok(success) => {
             tracing::info!(
                 attempt_ref = request.attempt_ref,
@@ -389,9 +429,21 @@ async fn native(s: &StateData, source: &str, body: &[u8]) -> Response {
     }
 }
 async fn native3(s: &StateData, source: &str, body: &[u8]) -> Response {
+    native3_at(s, source, body, s.start.elapsed()).await
+}
+async fn native3_at(s: &StateData, source: &str, body: &[u8], now: Duration) -> Response {
     let echo = wire::attempt_echo(body);
-    let result = match prepare_with(s, source, body, s.start.elapsed(), v3::parse_request) {
-        Ok(request) => s.issuer.admit3(&request).await.map(|ok| (request, ok)),
+    let result = match prepare_with(s, source, body, now, v3::parse_request) {
+        Ok(request) => {
+            let result = s.issuer.admit3(&request).await;
+            finish(
+                &s.attempts,
+                &attempt_key(&request.attempt_ref, request.game_login_ticket.as_bytes()),
+                now,
+                result.as_ref().err().map(|r| r.refusal.code),
+            );
+            result.map(|ok| (request, ok))
+        }
         Err(r) => Err(r.into()),
     };
     match result {
@@ -440,11 +492,11 @@ fn prepare_with(
 ) -> Result<wire::Request, Refusal> {
     allow(&s.sources, source.as_bytes(), now)?;
     let request = parse(body).map_err(Refusal::from)?;
-    let mut digest = Sha256::new();
-    digest.update(request.attempt_ref.as_bytes());
-    digest.update([0]);
-    digest.update(request.game_login_ticket.as_bytes());
-    allow(&s.attempts, &digest.finalize(), now)?;
+    reserve(
+        &s.attempts,
+        &attempt_key(&request.attempt_ref, request.game_login_ticket.as_bytes()),
+        now,
+    )?;
     Ok(request)
 }
 
@@ -516,8 +568,119 @@ mod golden;
 // Recovery handles have a maximum lifetime of 12 hours (§19.3 U20).
 // Starting retention at first use conservatively covers the remaining lifetime;
 // login tickets expire sooner. Never evict a live total budget for capacity.
-fn attempt_limiter() -> WindowLimiter {
-    WindowLimiter::new(6, Duration::from_secs(12 * 60 * 60), 100_000)
+#[derive(Debug)]
+struct PendingAttempt {
+    start: Duration,
+    count: usize,
+    in_flight: usize,
+    uncertain: bool,
+}
+#[derive(Debug)]
+struct AttemptLimits {
+    confirmed: WindowLimiter,
+    unverified: std::collections::HashMap<Vec<u8>, PendingAttempt>,
+    reservation_window: Duration,
+}
+impl AttemptLimits {
+    fn allow(&mut self, key: &[u8], now: Duration) -> Result<(), u64> {
+        if self.confirmed.contains(key, now) {
+            return self.confirmed.allow(key, now);
+        }
+        if let Some(pending) = self.unverified.get_mut(key)
+            && now.saturating_sub(pending.start) < self.reservation_window
+        {
+            if pending.count >= 6 {
+                return Err(self
+                    .reservation_window
+                    .saturating_sub(now.saturating_sub(pending.start))
+                    .as_secs()
+                    .max(1));
+            }
+            pending.count += 1;
+            pending.in_flight += 1;
+            return Ok(());
+        }
+        // Source admission happens first. Unverified reservations expire quickly
+        // and never displace a confirmed lifetime budget. Include both tables in
+        // the memory bound so promotion always has a reserved slot.
+        if self.confirmed.len() + self.unverified.len() >= 100_000 {
+            self.confirmed.prune(now);
+            self.unverified
+                .retain(|_, pending| now.saturating_sub(pending.start) < self.reservation_window);
+            if self.confirmed.len() + self.unverified.len() >= 100_000 {
+                return Err(60);
+            }
+        }
+        self.unverified.insert(
+            key.to_vec(),
+            PendingAttempt {
+                start: now,
+                count: 1,
+                in_flight: 1,
+                uncertain: false,
+            },
+        );
+        Ok(())
+    }
+    fn finish(&mut self, key: &[u8], now: Duration, authenticated: bool, rejected: bool) {
+        if authenticated {
+            if let Some(pending) = self.unverified.remove(key)
+                && !self.confirmed.contains(key, now)
+            {
+                // Count all concurrent reservations conservatively. A rejected
+                // exchange cannot erase another exchange's pending reservation.
+                self.confirmed.insert(key, pending.start, pending.count);
+            }
+        } else if let Some(pending) = self.unverified.get_mut(key) {
+            pending.in_flight = pending.in_flight.saturating_sub(1);
+            pending.uncertain |= !rejected;
+            if pending.in_flight == 0 && !pending.uncertain {
+                self.unverified.remove(key);
+            }
+        }
+    }
+}
+fn attempt_limiter() -> AttemptLimits {
+    AttemptLimits {
+        confirmed: WindowLimiter::new(6, Duration::from_secs(12 * 60 * 60), 100_000),
+        unverified: std::collections::HashMap::new(),
+        reservation_window: Duration::from_secs(60),
+    }
+}
+fn attempt_key(attempt: &str, credential: &[u8]) -> Vec<u8> {
+    let mut digest = Sha256::new();
+    digest.update(attempt.as_bytes());
+    digest.update([0]);
+    digest.update(credential);
+    digest.finalize().to_vec()
+}
+fn reserve(l: &Mutex<AttemptLimits>, key: &[u8], now: Duration) -> Result<(), Refusal> {
+    l.lock()
+        .map_err(|_| Refusal::from(Code::Unavailable))?
+        .allow(key, now)
+        .map_err(|retry_after| Refusal {
+            code: Code::RateLimited,
+            retry_after,
+        })
+}
+fn finish(l: &Mutex<AttemptLimits>, key: &[u8], now: Duration, code: Option<Code>) {
+    if let Ok(mut limits) = l.lock() {
+        limits.finish(
+            key,
+            now,
+            code.is_none()
+                || matches!(
+                    code,
+                    Some(
+                        Code::CharacterConflict
+                            | Code::RouteUnavailable
+                            | Code::GrantExpired
+                            | Code::ChannelUnavailable
+                    )
+                ),
+            code == Some(Code::AuthenticationRequired),
+        );
+    }
 }
 
 #[cfg(test)]
@@ -567,6 +730,17 @@ mod attempt_budget_tests {
                 issuer_dispatches += 1;
             }
         }
+        let request = recover::parse_request(body).map_err(|_| "invalid test request")?;
+        let key = attempt_key(
+            &request.attempt_ref,
+            &Sha256::digest(request.recovery_handle.as_bytes()),
+        );
+        state
+            .recovery
+            .attempts
+            .lock()
+            .map_err(|_| "poisoned")?
+            .finish(&key, Duration::ZERO, true, false);
         let result = prepare_recovery(&state, "127.0.0.1", body, Duration::from_secs(121));
         assert!(result.is_err());
         let refusal = result.err().ok_or("exhausted total budget")?;
@@ -578,10 +752,54 @@ mod attempt_budget_tests {
         Ok(())
     }
 
-    fn check_total_budget(mut limiter: WindowLimiter) {
+    #[test]
+    fn rejected_exchange_cannot_erase_concurrent_confirmation() {
+        let mut limits = attempt_limiter();
+        assert!(limits.allow(b"same-credential", Duration::ZERO).is_ok());
+        assert!(limits.allow(b"same-credential", Duration::ZERO).is_ok());
+        limits.finish(b"same-credential", Duration::ZERO, false, true);
+        limits.finish(b"same-credential", Duration::ZERO, true, false);
+        for _ in 0..4 {
+            assert!(
+                limits
+                    .allow(b"same-credential", Duration::from_secs(121))
+                    .is_ok()
+            );
+        }
+        assert!(
+            limits
+                .allow(b"same-credential", Duration::from_secs(121))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn uncertain_credentials_do_not_reserve_lifetime_capacity() {
+        let mut limits = attempt_limiter();
+        for _ in 0..6 {
+            assert!(limits.allow(b"confirmed", Duration::ZERO).is_ok());
+        }
+        limits.finish(b"confirmed", Duration::ZERO, true, false);
+        for i in 0u64..100_000 {
+            let now = Duration::from_secs(i / 150 * 60);
+            let key = i.to_be_bytes();
+            assert!(limits.allow(&key, now).is_ok());
+            limits.finish(&key, now, false, false);
+        }
+        assert_eq!(limits.confirmed.len(), 1);
+        assert!(
+            limits
+                .allow(b"confirmed", Duration::from_secs(40020))
+                .is_err()
+        );
+        assert!(limits.allow(b"fresh", Duration::from_secs(40020)).is_ok());
+    }
+
+    fn check_total_budget(mut limiter: AttemptLimits) {
         for _ in 0..6 {
             assert!(limiter.allow(b"attempt-and-handle", Duration::ZERO).is_ok());
         }
+        limiter.finish(b"attempt-and-handle", Duration::ZERO, true, false);
         for seconds in [121, 3600, 43199] {
             assert!(
                 limiter
@@ -589,5 +807,118 @@ mod attempt_budget_tests {
                     .is_err()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod capacity_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    #[tokio::test]
+    async fn rejected_credentials_cannot_exhaust_lifetime_capacity()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let confirmed = Arc::new(AtomicBool::new(false));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let count = calls.clone();
+        let authenticated = confirmed.clone();
+        let app = Router::new().fallback(post(move |req: Request| {
+            let count = count.clone();
+            let authenticated = authenticated.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                let recovery = req.uri().path() == recover::RECOVER_PATH;
+                let b = to_bytes(req.into_body(), 4096).await.map_err(|_| StatusCode::BAD_REQUEST)?;
+                let v: serde_json::Value = serde_json::from_slice(&b).map_err(|_| StatusCode::BAD_REQUEST)?;
+                let code = if authenticated.load(Ordering::SeqCst) {
+                    if recovery { "NATIVE_RECOVERY_CHARACTER_CONFLICT" } else { "NATIVE_LOGIN_CHARACTER_CONFLICT" }
+                } else { "NATIVE_LOGIN_AUTHENTICATION_REQUIRED" };
+                Ok::<_, StatusCode>(json(if authenticated.load(Ordering::SeqCst) {409} else {401}, &serde_json::json!({
+                    "protocol_version": v["protocol_version"],
+                    "attempt_ref": v["attempt_ref"],
+                    "error": { "code": code, "public_class": if authenticated.load(Ordering::SeqCst) {"SESSION_UNAVAILABLE"} else {"AUTHENTICATION_REQUIRED"} }
+                })))
+            }
+        }));
+        let server = tokio::spawn(async move { axum::serve(listener, app).await });
+        let login2: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/game_client_native_login/request.json"
+        ))?;
+        let login3: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/login-request.json"
+        ))?;
+        let recovery: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/recover-request.json"
+        ))?;
+        // Each surface gets the entire 100,000-key attack within five sources'
+        // 30/minute budgets, using an injected clock over less than 12 hours.
+        for (surface, template) in [login2, login3, recovery].into_iter().enumerate() {
+            let state = StateData {
+                issuer: IssuerClient::new(
+                    &url,
+                    "synthetic".into(),
+                    Duration::from_secs(2),
+                    Duration::from_secs(2),
+                )?,
+                enabled: true,
+                protocol3: true,
+                version: "test".into(),
+                start: Instant::now(),
+                sources: Mutex::new(WindowLimiter::new(30, Duration::from_secs(60), 100_000)),
+                attempts: Mutex::new(attempt_limiter()),
+                recovery: RecoveryLimits::default(),
+            };
+            for i in 0..100_000 {
+                if i % 50_000 == 0 {
+                    eprintln!("gateway capacity regression surface={surface} rejected={i}");
+                }
+                let now = Duration::from_secs((i / 150) * 60);
+                let mut request = template.clone();
+                request["attempt_ref"] =
+                    serde_json::json!(format!("0192b3c4-5d6e-7f80-9a1b-{i:012x}"));
+                if surface < 2 {
+                    request["game_login_ticket"] =
+                        serde_json::json!(format!("invented-ticket-{i}"));
+                } else {
+                    request["recovery_handle"] = serde_json::json!(format!("otr1.{i:042x}A"));
+                }
+                let body = serde_json::to_vec(&request)?;
+                let source = format!("192.0.2.{}", i % 5);
+                let response = match surface {
+                    0 => native_at(&state, &source, &body, now).await,
+                    1 => native3_at(&state, &source, &body, now).await,
+                    _ => recovery_at(&state, &source, &body, now).await,
+                };
+                assert_eq!(
+                    response.status(),
+                    StatusCode::UNAUTHORIZED,
+                    "surface {surface}, request {i}"
+                );
+            }
+            confirmed.store(true, Ordering::SeqCst);
+            let body = serde_json::to_vec(&template)?;
+            for n in 0..7 {
+                let now = Duration::from_secs(40020 + n * 121);
+                let response = match surface {
+                    0 => native_at(&state, "198.51.100.1", &body, now).await,
+                    1 => native3_at(&state, "198.51.100.1", &body, now).await,
+                    _ => recovery_at(&state, "198.51.100.1", &body, now).await,
+                };
+                assert_eq!(
+                    response.status(),
+                    if n < 6 {
+                        StatusCode::CONFLICT
+                    } else {
+                        StatusCode::TOO_MANY_REQUESTS
+                    }
+                );
+            }
+            confirmed.store(false, Ordering::SeqCst);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 300_018);
+        server.abort();
+        Ok(())
     }
 }
