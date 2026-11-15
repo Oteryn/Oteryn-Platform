@@ -156,7 +156,11 @@ impl MemoryReservations {
     }
 }
 impl Reservations for MemoryReservations {
-    async fn lock_accounts(&self, db: &mut PgConnection, _: &[Uuid]) -> Result<(), Error> {
+    async fn lock_accounts(&self, db: &mut PgConnection, accounts: &[Uuid]) -> Result<(), Error> {
+        assert!(
+            accounts.len() <= 66,
+            "financial account lock batch is unbounded"
+        );
         Self::load(db).await?;
         Ok(())
     }

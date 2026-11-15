@@ -7,7 +7,7 @@ pub(crate) mod gold;
 mod gold_worker;
 mod tls;
 mod transport;
-mod worker;
+pub(crate) mod worker;
 use super::authority_wire::{decode, number, same};
 use super::game_wire::{decimal, digest, id, text};
 use super::{
@@ -320,6 +320,9 @@ impl Runtime {
         id(&buyer_character.to_string())?;
         // Destination request, full funding, bid and replay fence share one SQL transaction.
         let mut tx = self.pool.begin().await?;
+        let replay =
+            check_bid_request(&mut tx, key, listing, actor, buyer_character, maximum).await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
             .bind(listing)
             .fetch_optional(&mut *tx)
@@ -335,15 +338,7 @@ impl Runtime {
             return Ok(());
         }
 
-        let old=sqlx::query("SELECT listing_id,buyer,character_id,maximum FROM bazaar_authority_bid_requests WHERE request_id=$1").bind(key).fetch_optional(&mut *tx).await?;
-        if let Some(old) = old {
-            if old.try_get::<Uuid, _>("listing_id")? != listing
-                || old.try_get::<Uuid, _>("buyer")? != actor
-                || old.try_get::<Uuid, _>("character_id")? != buyer_character
-                || old.try_get::<i64, _>("maximum")? != maximum
-            {
-                return Err(Error::Conflict);
-            }
+        if replay {
             self.core(None)
                 .bid_in(&mut tx, listing, actor, maximum, &key.to_string())
                 .await
@@ -463,6 +458,7 @@ impl Runtime {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
             .bind(listing)
             .fetch_optional(&mut *tx)
@@ -511,6 +507,84 @@ impl Runtime {
         }
         sqlx::query("INSERT INTO bazaar_authority_browser_requests(request_id,listing_id,actor,action) VALUES($1,$2,$3,$4)").bind(request).bind(listing).bind(actor).bind(action).execute(&mut *tx).await?;
         tx.commit().await?;
+        Ok(())
+    }
+}
+
+pub(super) async fn check_bid_request(
+    db: &mut PgConnection,
+    key: Uuid,
+    listing: Uuid,
+    buyer: Uuid,
+    character: Uuid,
+    maximum: i64,
+) -> Result<bool, Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,64004))")
+        .bind(key.to_string())
+        .execute(&mut *db)
+        .await?;
+    let rows = sqlx::query("SELECT listing_id,buyer,character_id,maximum FROM bazaar_authority_bid_requests WHERE request_id=$1 UNION ALL SELECT listing_id,buyer,character_id,maximum FROM bazaar_authority_gold_bids WHERE request_id=$1").bind(key).fetch_all(&mut *db).await?;
+    for row in &rows {
+        if row.try_get::<Uuid, _>("listing_id")? != listing
+            || row.try_get::<Uuid, _>("buyer")? != buyer
+            || row.try_get::<Uuid, _>("character_id")? != character
+            || row.try_get::<i64, _>("maximum")? != maximum
+        {
+            return Err(Error::Conflict);
+        }
+    }
+    Ok(!rows.is_empty())
+}
+#[cfg(test)]
+mod request_key_tests {
+    use super::*;
+    #[tokio::test]
+    async fn postgres_concurrent_request_key_binding_conflicts_before_effect()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let started = std::time::Instant::now();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(3)
+            .connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?)
+            .await?;
+        oteryn_db::migrate(&pool).await?;
+        let key = Uuid::now_v7();
+        let listing = Uuid::now_v7();
+        let buyer = Uuid::now_v7();
+        let character = Uuid::now_v7();
+        let mut first = pool.begin().await?;
+        assert!(!check_bid_request(&mut first, key, listing, buyer, character, 100).await?);
+        let pool2 = pool.clone();
+        let (ready, waiting) = tokio::sync::oneshot::channel();
+        let mut second = tokio::spawn(async move {
+            let mut tx = pool2.begin().await?;
+            let _ = ready.send(());
+            let outcome =
+                check_bid_request(&mut tx, key, Uuid::now_v7(), buyer, character, 100).await;
+            tx.rollback().await?;
+            Ok::<_, Error>(outcome)
+        });
+        waiting.await?;
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), &mut second)
+                .await
+                .is_err()
+        );
+        // The winning request and its listing commit together, as in Runtime::bid.
+        sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,'item','auction','coins',100,false,now()+interval '1 day')").bind(listing).bind(buyer).execute(&mut *first).await?;
+        sqlx::query("INSERT INTO bazaar_authority_bid_requests(request_id,listing_id,buyer,character_id,maximum) VALUES($1,$2,$3,$4,100)").bind(key).bind(listing).bind(buyer).bind(character).execute(&mut *first).await?;
+        first.commit().await?;
+        assert!(matches!(second.await??, Err(Error::Conflict)));
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM bazaar_authority_bid_requests WHERE request_id=$1",
+        )
+        .bind(key)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(count, 1);
+        eprintln!(
+            "postgres_concurrent_request_key_binding_conflicts_before_effect: {:?}",
+            started.elapsed()
+        );
         Ok(())
     }
 }

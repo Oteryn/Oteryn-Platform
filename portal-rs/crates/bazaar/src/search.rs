@@ -330,18 +330,22 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
         let now: OffsetDateTime = sqlx::query_scalar("SELECT transaction_timestamp()")
             .fetch_one(&mut *tx)
             .await?;
-        let watched: Vec<Uuid> = if query.tab == SearchTab::Watched {
-            sqlx::query_scalar("SELECT listing_id FROM bazaar_watches WHERE account=$1")
-                .bind(actor)
-                .fetch_all(&mut *tx)
-                .await?
-        } else {
-            Vec::new()
-        };
         let candidates = self.projection.candidates(&mut tx, actor).await?;
         if candidates.len() > 10_000 {
             return Err(Error::Denied);
         }
+        let candidate_ids: Vec<_> = candidates.iter().map(|r| r.listing.id).collect();
+        let watched: Vec<Uuid> = if query.tab == SearchTab::Watched {
+            sqlx::query_scalar(
+                "SELECT listing_id FROM bazaar_watches WHERE account=$1 AND listing_id=ANY($2)",
+            )
+            .bind(actor)
+            .bind(candidate_ids)
+            .fetch_all(&mut *tx)
+            .await?
+        } else {
+            Vec::new()
+        };
         let mut listings: Vec<_> = candidates
             .into_iter()
             .filter(|r| {
@@ -418,6 +422,21 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
                 })
             {
                 return Err(Error::NotFound);
+            }
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,64005))")
+                .bind(actor.to_string())
+                .execute(&mut *tx)
+                .await?;
+            let existing: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM bazaar_watches WHERE account=$1 AND listing_id=$2)",
+            )
+            .bind(actor)
+            .bind(listing)
+            .fetch_one(&mut *tx)
+            .await?;
+            let count:i64=sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM bazaar_watches WHERE account=$1 LIMIT 500) bounded").bind(actor).fetch_one(&mut *tx).await?;
+            if !existing && count >= 500 {
+                return Err(Error::Denied);
             }
             sqlx::query("INSERT INTO bazaar_watches(account,listing_id) VALUES($1,$2) ON CONFLICT DO NOTHING")
                 .bind(actor).bind(listing).execute(&mut *tx).await?;

@@ -16,18 +16,34 @@ impl Authority {
         worlds: &[Uuid],
     ) -> Result<(), Error> {
         self.lock(db).await?;
-        if worlds.is_empty() || worlds.windows(2).any(|w| w[0] >= w[1]) {
+        if worlds.is_empty() || worlds.len() > 32 || worlds.windows(2).any(|w| w[0] >= w[1]) {
             return Err(Error::Invalid);
         }
+        let completed:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_resync WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric)").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_one(&mut **db).await?;
+        if completed {
+            return Ok(());
+        }
+        let worlds_binding = worlds
+            .iter()
+            .map(Uuid::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        sqlx::query("INSERT INTO bazaar_resync_progress(projection_epoch,recovery_generation,worlds) VALUES($1::text::numeric,$2::text::numeric,$3) ON CONFLICT DO NOTHING").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(&worlds_binding).execute(&mut **db).await?;
+        let progress=sqlx::query("SELECT listing_cursor,operation_cursor::text AS operation_cursor,worlds FROM bazaar_resync_progress WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric FOR UPDATE").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_one(&mut **db).await?;
+        if progress.try_get::<String, _>("worlds")? != worlds_binding {
+            return Err(Error::Conflict);
+        }
+        let listing_cursor: Uuid = progress.try_get("listing_cursor")?;
+        let operation_cursor: String = progress.try_get("operation_cursor")?;
         for world in worlds {
             id(&world.to_string())?;
             self.projection(db, "POLICY", *world)
                 .await?
                 .ok_or(Error::Unavailable)?;
         }
-        let listings: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM bazaar_listings ORDER BY id")
-            .fetch_all(&mut **db)
-            .await?;
+        let listings: Vec<Uuid> = sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE l.id>$1 ORDER BY l.id LIMIT 24").bind(listing_cursor).fetch_all(&mut **db).await?;
+        let next_listing = listings.last().copied();
+        let listing_count = listings.len();
         for listing in listings {
             let status = self
                 .projection(db, "STATUS", listing)
@@ -60,9 +76,27 @@ impl Authority {
                 }
             }
         }
-        let missing:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox o WHERE NOT EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id AND r.recovery_generation=$1::text::numeric AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation)) OR EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id))").bind(self.fence.recovery_generation.to_string()).fetch_one(&mut **db).await?;
-        if missing {
-            return Err(Error::Unavailable);
+        if let Some(cursor) = next_listing {
+            sqlx::query("UPDATE bazaar_resync_progress SET listing_cursor=$3 WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(cursor).execute(&mut **db).await?;
+        }
+        if listing_count == 24 {
+            return Ok(());
+        }
+        let operations=sqlx::query("SELECT operation_id,source_revision::text AS revision FROM bazaar_game_outbox WHERE source_revision>$1::text::numeric ORDER BY source_revision LIMIT 24").bind(operation_cursor).fetch_all(&mut **db).await?;
+        for operation in &operations {
+            if self
+                .retained(db, operation.try_get("operation_id")?)
+                .await?
+                .is_none()
+            {
+                return Err(Error::Unavailable);
+            }
+        }
+        if let Some(last) = operations.last() {
+            sqlx::query("UPDATE bazaar_resync_progress SET operation_cursor=$3::text::numeric WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(last.try_get::<String,_>("revision")?).execute(&mut **db).await?;
+        }
+        if operations.len() == 24 {
+            return Ok(());
         }
         sqlx::query("INSERT INTO bazaar_authority_resync(projection_epoch,recovery_generation) VALUES($1::text::numeric,$2::text::numeric) ON CONFLICT DO NOTHING").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).execute(&mut **db).await?;
         Ok(())
@@ -207,7 +241,7 @@ impl Authority {
             return Ok(None);
         }
         let held: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1)",
+            "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1) OR EXISTS(SELECT 1 FROM bazaar_listings WHERE id=$1 AND kind='item' AND state='active' AND EXISTS(SELECT 1 FROM bazaar_item_restrictions))",
         )
         .bind(listing.id)
         .fetch_one(&mut *db)
@@ -270,7 +304,7 @@ impl Authority {
                 same(&s, "custody_id", d, "escrow_id")?;
                 same(&s, "custody_revision", d, "escrow_revision")?;
                 if state == "ESCROWED" {
-                    let row=sqlx::query("SELECT world_id,seller_character_id,item_instance_id,quantity,definition_key,definition_revision FROM bazaar_item_details WHERE id=$1 FOR SHARE").bind(listing.id).fetch_optional(&mut *db).await?;
+                    let row=sqlx::query("SELECT world_id,seller_character_id,item_instance_id,quantity,definition_key,definition_revision FROM bazaar_item_details WHERE id=$1").bind(listing.id).fetch_optional(&mut *db).await?;
                     let Some(row) = row else {
                         return Ok(None);
                     };
@@ -383,11 +417,10 @@ impl Evidence for Authority {
         db: &mut PgConnection,
         sale: &Settlement,
     ) -> Result<bool, crate::Error> {
-        let listing: Option<Listing> =
-            sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR SHARE")
-                .bind(sale.listing_id)
-                .fetch_optional(&mut *db)
-                .await?;
+        let listing: Option<Listing> = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
+            .bind(sale.listing_id)
+            .fetch_optional(&mut *db)
+            .await?;
         let Some(listing) = listing else {
             return Ok(false);
         };
