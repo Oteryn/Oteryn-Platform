@@ -1239,6 +1239,14 @@ async fn postgres_l8_source_revisions_supersede_current_state() {
         let next = next.replace(&PROGRESS_NOW.to_string(), &now.to_string());
         let a = playerdata::progress(body.as_bytes()).unwrap();
         let b = playerdata::progress(next.as_bytes()).unwrap();
+        let mut published = a.scope.clone();
+        published.character = None;
+        published.world = None;
+        published.character_revision = None;
+        published.projection_revision = None;
+        allowed.allow(published.clone()).await;
+        published.recovery = "4".into();
+        allowed.allow(published).await;
         allowed.allow(a.scope.clone()).await;
         allowed.allow(b.scope.clone()).await;
         let mut flags = settings().flags();
@@ -1268,6 +1276,28 @@ async fn postgres_l8_source_revisions_supersede_current_state() {
         let fenced = playerdata::progress(fenced.as_bytes()).unwrap();
         allowed.allow(fenced.scope.clone()).await;
         store.ingest(fenced, time(now + 2000)).await.unwrap();
+        // Supersession starts at publication: publish the whole prefix, including
+        // the re-owned or recovered revision 3, before retention runs. The
+        // premium watermark carries the recovery generation it was fenced to.
+        let recovery = if family == "skull" { "3" } else { "4" };
+        let mark = progress(&["\"complete_through\":\"1\""])
+            .replace(
+                "\"recovery_generation\":\"3\"",
+                &format!("\"recovery_generation\":\"{recovery}\""),
+            )
+            .replace(
+                "\"family\":\"stamina\"",
+                &format!("\"family\":\"{family}\""),
+            )
+            .replace("\"complete_through\":\"1\"", "\"complete_through\":\"3\"")
+            .replace(&PROGRESS_NOW.to_string(), &now.to_string());
+        store
+            .watermark(
+                playerdata::watermark(mark.as_bytes()).unwrap(),
+                time(now + 3000),
+            )
+            .await
+            .unwrap();
         crate::retention::Retention(db.pool.clone())
             .expire_batch()
             .await

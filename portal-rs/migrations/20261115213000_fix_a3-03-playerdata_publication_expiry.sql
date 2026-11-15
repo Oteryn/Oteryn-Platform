@@ -2,8 +2,8 @@
 -- Repair retained bytes whose replacement has not entered a proven prefix.
 -- Scrubbed lifecycle rows and already-published superseded values stay erased/
 -- bounded; this cannot recover bytes removed before the fix.
--- This task's reserved version precedes the initial schema numerically.
--- Fresh databases have nothing to repair; upgrades already have these tables.
+-- Fresh databases have nothing to repair; the guard keeps the file valid
+-- when applied alone.
 DO $repair$
 BEGIN
 IF to_regclass('pd_streams') IS NOT NULL THEN

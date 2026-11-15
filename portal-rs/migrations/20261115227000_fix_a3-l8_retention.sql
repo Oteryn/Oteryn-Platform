@@ -37,12 +37,16 @@ CREATE INDEX pd_g9_purged_expiry ON pd_g9_records(purged_at) WHERE purged_at IS 
 CREATE INDEX pd_t78_erased_expiry ON pd_t78_records(erased_at_ms) WHERE erased_at_ms IS NOT NULL;
 -- Repair already-superseded payloads; the latest value and unproven ownership
 -- intervals are left intact. Minimal digest/sequence fences are unaffected.
+-- Supersession starts at publication (03-playerdata): only a replacement inside
+-- the baseline-complete published prefix shortens retention.
 UPDATE pd_records r SET expires_ms=LEAST(r.expires_ms,floor(extract(epoch FROM clock_timestamp())*1000)::bigint)
 FROM pd_streams stream
 WHERE stream.stream_key=r.stream_key AND stream.family IN ('skull','premium_end')
   AND (stream.family='premium_end' OR r.ownership_revision IS NOT NULL)
+  AND stream.baseline_complete
   AND EXISTS(SELECT 1 FROM pd_records newer WHERE newer.stream_key=r.stream_key
       AND newer.entity_key=r.entity_key AND newer.source_revision>r.source_revision
+      AND newer.source_revision<=stream.published_through
       AND newer.ownership_revision IS NOT DISTINCT FROM r.ownership_revision
       AND split_part(newer.scope_key,'|',1)=split_part(r.scope_key,'|',1)
       AND split_part(newer.scope_key,'|',2)=split_part(r.scope_key,'|',2)
