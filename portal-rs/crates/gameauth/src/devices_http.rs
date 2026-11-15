@@ -66,11 +66,7 @@ pub fn router<S: Clone + Send + Sync + 'static>(sessions: Sessions) -> Router<S>
 }
 /// Native device routes remain unavailable unless explicitly enabled.
 pub fn routes<S: Clone + Send + Sync + 'static>(pool: PgPool) -> Router<S> {
-    let settings = Settings {
-        enabled: std::env::var("OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED").as_deref() == Ok("true"),
-        environment: std::env::var("APP_ENV").unwrap_or_default(),
-        ..Settings::default()
-    };
+    let settings = configured_settings(|key| std::env::var(key).ok());
     // The application supplies its guarded authority through the same explicit
     // authority injection used by the OAuth ticket composition. Missing wiring denies.
     router(Sessions::new(
@@ -78,6 +74,35 @@ pub fn routes<S: Clone + Send + Sync + 'static>(pool: PgPool) -> Router<S> {
         settings,
         Arc::new(UnavailableAuthority),
     ))
+}
+fn configured_settings(get: impl Fn(&str) -> Option<String>) -> Settings {
+    Settings {
+        enabled: get("OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED").as_deref() == Some("true")
+            && oteryn_core::restricted_environment(&get),
+        environment: get("APP_ENV").unwrap_or_default(),
+        ..Settings::default()
+    }
+}
+#[cfg(test)]
+mod configuration_tests {
+    use super::*;
+    #[test]
+    fn canonical_production_vetoes_device_enrollment() {
+        for canonical in ["production", "testing", "preprod"] {
+            let settings = configured_settings(|key| {
+                Some(
+                    match key {
+                        "OTERYN_ENV" => canonical,
+                        "APP_ENV" => "testing",
+                        "OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED" => "true",
+                        _ => return None,
+                    }
+                    .into(),
+                )
+            });
+            assert_eq!(settings.check().is_ok(), canonical != "production");
+        }
+    }
 }
 async fn handle(
     State(mut sessions): State<Sessions>,

@@ -35,9 +35,9 @@
 //! per Character Authority host, each value `[]`; those identities are bound to
 //! the command routes only, so every other route refuses them.
 //!
-//! Every internal identity variable (`*_IDENTITY`, `*_IDENTITIES` object keys,
-//! `*_SAN`) takes part in one overlap check; a reused or malformed identity
-//! keeps every route here unavailable.
+//! Every authentication setting in `oteryn_internal_api::identity_config` takes
+//! part in one overlap check; a reused or malformed identity keeps every route
+//! here unavailable. Locator-to-node metadata is not an authentication setting.
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -323,10 +323,10 @@ impl Routes {
         // G-4 character families: ingest only on this listener; the T24
         // prerequisite and APP_ENV are checked in `ingest_config`.
         let mut g4 = families::ingest_config(get);
-        g4.skills &= valid;
-        g4.achievements &= valid;
-        g4.equipment &= valid;
-        g4.outfit &= valid;
+        g4.skills &= valid && qualified;
+        g4.achievements &= valid && qualified;
+        g4.equipment &= valid && qualified;
+        g4.outfit &= valid && qualified;
         let g4 = families::ingest_router(pool.clone(), identities.clone(), g4);
         let mut character_families = Router::new();
         for family in families::Family::ALL {
@@ -341,6 +341,7 @@ impl Routes {
             identities.clone(),
             oteryn_stats::online::Config {
                 enabled: valid
+                    && qualified
                     && on("PORTAL_PUBLIC_PROJECTIONS_ENABLED")
                     && matches!(
                         values.get("APP_ENV").map(String::as_str),
@@ -400,13 +401,15 @@ impl Routes {
     }
 }
 
-/// Bindings for every internal identity variable. Dedicated variables get the
-/// group their route checks; the rest keep their variable name, so they take
-/// part in the overlap check without reaching any route here.
+/// Bindings for the shared authentication configuration schema. Dedicated settings
+/// get their route group; other authentication purposes retain their setting name
+/// and participate in overlap checks without reaching any route here.
 fn bindings(values: &Values) -> Result<Vec<Binding>, ConfigError> {
     let mut bindings = Vec::new();
     for (key, raw) in values {
-        if key.ends_with("_IDENTITIES") {
+        if oteryn_internal_api::identity_config::shape(key.as_str())
+            == Some(oteryn_internal_api::identity_config::Shape::Map)
+        {
             let Value::Object(members) =
                 canonical::decode(raw.as_bytes(), 131072, 4).map_err(|_| ConfigError)?
             else {
@@ -427,7 +430,9 @@ fn bindings(values: &Values) -> Result<Vec<Binding>, ConfigError> {
                     },
                 });
             }
-        } else if key.ends_with("_IDENTITY") || key.ends_with("_SAN") {
+        } else if oteryn_internal_api::identity_config::shape(key.as_str())
+            == Some(oteryn_internal_api::identity_config::Shape::Single)
+        {
             let group = match key.as_str() {
                 RESTORE_IDENTITY => restore::GROUP,
                 SERVICES_IDENTITY => services::PROJECTION_GROUP,

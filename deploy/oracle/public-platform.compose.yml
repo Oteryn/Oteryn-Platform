@@ -6,6 +6,7 @@ x-portal: &portal
   env_file: /opt/oteryn-oracle/platform.env
   environment:
     OTERYN_ENV: production
+    OTERYN_PUBLIC_ORIGIN: https://oteryn.com
   restart: unless-stopped
   init: true
   read_only: true
@@ -46,6 +47,7 @@ services:
     # namespace; keep gateway HTTP on a distinct port, reached by the edge there.
     network_mode: service:platform
     environment:
+      TRUSTED_PROXIES: 172.18.0.10
       GATEWAY_LISTEN_ADDR: 0.0.0.0:8081
       OTERYN_PLATFORM_BASE_URL: http://127.0.0.1:8091
       OTERYN_PLATFORM_SERVICE_TOKEN_FILE: /run/oteryn/gateway-token

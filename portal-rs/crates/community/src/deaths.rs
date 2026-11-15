@@ -230,10 +230,7 @@ pub fn configured_watermark_router(db: PgPool) -> Router {
     configured(db, Part::Watermark)
 }
 fn configured(db: PgPool, part: Part) -> Router {
-    let env_allowed = matches!(
-        std::env::var("APP_ENV").as_deref(),
-        Ok("testing" | "preproduction")
-    );
+    let env_allowed = oteryn_core::restricted_environment(|key| std::env::var(key).ok());
     let base =
         env_allowed && std::env::var("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Ok("true");
     let authority = std::env::var("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY").unwrap_or_default();

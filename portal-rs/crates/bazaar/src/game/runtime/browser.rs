@@ -533,7 +533,11 @@ async fn rate(
     else {
         return failure("en", Error::Denied);
     };
-    let mut keys = oteryn_web::ratelimit::Keys::source(peer.0.ip());
+    let source = match oteryn_web::ratelimit::client_source(peer.0, request.headers()) {
+        Ok(source) => source,
+        Err(_) => return failure("en", Error::Denied),
+    };
+    let mut keys = oteryn_web::ratelimit::Keys::source(source);
     keys.account = Some(actor.to_string());
     let policy = if request.uri().path().ends_with("/sell") {
         oteryn_web::ratelimit::NamedPolicy::MarketplaceListing

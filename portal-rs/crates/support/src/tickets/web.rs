@@ -2,16 +2,16 @@ use super::*;
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, OriginalUri, Path, Query, Request, State},
+    extract::{OriginalUri, Path, Query, Request, State},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
+use oteryn_web::ratelimit::ClientSource;
 use oteryn_web::ratelimit::{Keys, NamedPolicy, RateLimiter};
 use oteryn_web::session::{BrowserSession, SessionLayer};
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 
 #[derive(Debug)]
 pub(super) struct NotifyAccounts(pub(super) PgPool);
@@ -229,10 +229,10 @@ async fn limited(
     t: &Tickets,
     policy: NamedPolicy,
     account: Uuid,
-    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    peer: Option<ClientSource>,
 ) -> std::result::Result<(), StatusCode> {
     let peer = peer.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let mut keys = Keys::source(peer.0.0.ip());
+    let mut keys = Keys::source(peer.0);
     keys.account = Some(account.to_string());
     RateLimiter::new(t.pool.clone())
         .check(policy, &[keys])
@@ -518,7 +518,7 @@ async fn create(
     State(t): State<Tickets>,
     Path(language): Path<String>,
     Extension(session): Extension<BrowserSession>,
-    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    peer: Option<ClientSource>,
     form: std::result::Result<Form<Create>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if let Err(e) = lang(&language) {
@@ -599,7 +599,7 @@ async fn reply(
     Path((language, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
     staff: Option<Extension<CheckContext>>,
-    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    peer: Option<ClientSource>,
     form: std::result::Result<Form<Mutation>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     let form = match form {
@@ -613,7 +613,7 @@ async fn status(
     Path((language, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
     staff: Option<Extension<CheckContext>>,
-    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    peer: Option<ClientSource>,
     form: std::result::Result<Form<Mutation>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     let form = match form {
@@ -627,7 +627,7 @@ async fn mutate(
     (language, id): (String, Uuid),
     session: BrowserSession,
     staff: Option<Extension<CheckContext>>,
-    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    peer: Option<ClientSource>,
     form: Mutation,
     reply: bool,
 ) -> Response {

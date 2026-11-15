@@ -17,9 +17,8 @@ impl std::fmt::Debug for Mailer {
     }
 }
 pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(host) = std::env::var("OTERYN_SMTP_HOST") else {
-        return Ok(());
-    };
+    let host =
+        std::env::var("OTERYN_SMTP_HOST").map_err(|_| "registration SMTP host is required")?;
     let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;
     let uri: axum::http::Uri = origin.parse()?;
     if uri.scheme_str() != Some("https")
@@ -262,4 +261,35 @@ mod account_exists_tests {
         );
         Ok(())
     }
+}
+
+/// Freeze delivery readiness at startup, before registration body/session work.
+/// Serve and worker use the identical validated configuration.
+pub fn admission(app: axum::Router, pool: PgPool) -> axum::Router {
+    let ready = register(&mut Registry::default(), pool).is_ok();
+    admission_with_readiness(app, ready)
+}
+fn admission_with_readiness(app: axum::Router, ready: bool) -> axum::Router {
+    app.layer(axum::middleware::from_fn(
+        move |request: axum::extract::Request, next: axum::middleware::Next| async move {
+            use axum::{
+                http::{Method, StatusCode},
+                response::IntoResponse,
+            };
+            if !ready
+                && request.method() == Method::POST
+                && matches!(
+                    request.uri().path(),
+                    "/register" | "/pl/register" | "/en/register"
+                )
+            {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    [("cache-control", "no-store")],
+                )
+                    .into_response();
+            }
+            next.run(request).await
+        },
+    ))
 }

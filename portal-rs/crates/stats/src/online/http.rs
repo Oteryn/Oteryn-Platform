@@ -120,10 +120,7 @@ async fn handle(
 /// duration presentation is mounted without current authoritative policy adapters.
 pub fn configured_router(db: PgPool) -> Router {
     let enabled = std::env::var("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Ok("true")
-        && matches!(
-            std::env::var("APP_ENV").as_deref(),
-            Ok("testing" | "preproduction")
-        );
+        && oteryn_core::restricted_environment(|key| std::env::var(key).ok());
     let identities = std::env::var("PORTAL_PUBLIC_PROJECTIONS_SAN")
         .ok()
         .and_then(|s| guard::Identity::san(&s).ok())

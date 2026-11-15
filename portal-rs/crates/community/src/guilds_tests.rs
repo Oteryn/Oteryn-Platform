@@ -353,7 +353,7 @@ async fn configured_parent_switch_fences_children() -> TestResult {
     let get = |key: &str| {
         Some(
             match key {
-                "APP_ENV" => "testing",
+                "APP_ENV" | "OTERYN_ENV" => "testing",
                 "PORTAL_PUBLIC_PROJECTIONS_ENABLED" => "false",
                 "PORTAL_GUILDS_INGEST_ENABLED"
                 | "PORTAL_WORLD_DAILY_PUBLIC_ENABLED"
@@ -385,7 +385,7 @@ async fn postgres_configured_guild_parent_off_refuses_publication_and_watermark(
         configured_with(d.db.clone(), Part::All, |key| {
             Some(
                 match key {
-                    "APP_ENV" => "testing",
+                    "APP_ENV" | "OTERYN_ENV" => "testing",
                     "PORTAL_GUILDS_INGEST_ENABLED" => "true",
                     "PORTAL_PUBLIC_PROJECTIONS_ENABLED" => {
                         if parent {

@@ -285,10 +285,7 @@ mod ingest_tests;
 /// Missing or invalid configuration leaves every endpoint unavailable.
 pub fn configured_router(db: PgPool) -> Router {
     let enabled = std::env::var("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Ok("true")
-        && matches!(
-            std::env::var("APP_ENV").as_deref(),
-            Ok("testing" | "preproduction")
-        );
+        && oteryn_core::restricted_environment(|key| std::env::var(key).ok());
     let source_authority = std::env::var("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY").unwrap_or_default();
     let identities = std::env::var("PORTAL_PUBLIC_PROJECTIONS_SAN")
         .ok()

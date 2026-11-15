@@ -309,8 +309,7 @@ async fn handle(
 /// preproduction, plus one flag per family.
 pub fn ingest_config(get: impl Fn(&str) -> Option<String>) -> IngestConfig {
     let on = |key: &str| get(key).as_deref() == Some("true");
-    let base = on("PORTAL_PUBLIC_PROJECTIONS_ENABLED")
-        && matches!(get("APP_ENV").as_deref(), Some("testing" | "preproduction"));
+    let base = on("PORTAL_PUBLIC_PROJECTIONS_ENABLED") && oteryn_core::restricted_environment(&get);
     IngestConfig {
         skills: base && on("PORTAL_G4_SKILLS_INGEST_ENABLED"),
         achievements: base && on("PORTAL_G4_ACHIEVEMENTS_INGEST_ENABLED"),

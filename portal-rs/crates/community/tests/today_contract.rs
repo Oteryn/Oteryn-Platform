@@ -836,7 +836,7 @@ async fn configured_parent_off_refuses_fresh_retained_daily_data() -> Result {
     let c = Config::from_lookup(|key| {
         Some(
             match key {
-                "APP_ENV" => "testing",
+                "APP_ENV" | "OTERYN_ENV" => "testing",
                 "PORTAL_PUBLIC_PROJECTIONS_ENABLED" => "false",
                 "PORTAL_WORLD_DAILY_PUBLIC_ENABLED" | "PORTAL_WORLD_DAILY_INGEST_ENABLED" => "true",
                 "PORTAL_PUBLIC_PROJECTIONS_AUTHORITY" => "oteryn:game:primary",

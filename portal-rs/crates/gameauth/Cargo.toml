@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+oteryn-core = { path = "../core" }
 axum = "0.8.9"
 oteryn-internal-api = { path = "../internal-api" }
 serde = { version = "1.0.228", features = ["derive"] }
