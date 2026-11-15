@@ -173,6 +173,24 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         self.auth.check(context, permission).await?;
         Ok(())
     }
+    async fn check_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: CheckContext,
+        permission: Permission,
+    ) -> Result<(), Error> {
+        if !self.flags.players {
+            return Err(Error::NotFound);
+        }
+        if !context.require_staff_mfa || !context.mfa_verified {
+            return Err(Error::Denied);
+        }
+        self.auth
+            .check_in(connection, context, Permission::Access)
+            .await?;
+        self.auth.check_in(connection, context, permission).await?;
+        Ok(())
+    }
     async fn target(&self, id: Uuid) -> Result<Account, Error> {
         valid_id(id)?;
         self.accounts.account(id).await?.ok_or(Error::NotFound)
@@ -246,10 +264,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         self.target(id).await?;
         valid_text(body, 4000)?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
-        self.check(context, Permission::ManageSupportTickets)
+        crate::rbac::lock_mutation(&mut tx).await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         let note: Uuid = sqlx::query_scalar(
             "INSERT INTO player_notes(account_id,author,body) VALUES($1,$2,$3) RETURNING id",
@@ -281,10 +297,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
-        self.check(context, Permission::ManageSupportTickets)
+        crate::rbac::lock_mutation(&mut tx).await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         self.accounts.revoke_all(&mut tx, id).await?;
         append(
@@ -307,10 +321,9 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
+        crate::rbac::lock_mutation(&mut tx).await?;
+        self.check_in(&mut tx, context, Permission::KickAccountSessions)
             .await?;
-        self.check(context, Permission::KickAccountSessions).await?;
         let generation = oteryn_identity::security_revocations::staff_kick(&mut tx, id)
             .await
             .map_err(|error| match error {
@@ -376,10 +389,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
-        self.check(context, Permission::ReleaseCoinPurchaseHold)
+        crate::rbac::lock_mutation(&mut tx).await?;
+        self.check_in(&mut tx, context, Permission::ReleaseCoinPurchaseHold)
             .await?;
         let Some(hold) = oteryn_payments::coin_store::release_purchase_hold_in(
             &mut tx,
@@ -419,10 +430,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             return Err(Error::Denied);
         }
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
-        self.check(context, Permission::ManageSupportTickets)
+        crate::rbac::lock_mutation(&mut tx).await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         if !self.accounts.verified(&mut tx, id, evidence).await? {
             return Err(Error::Denied);
@@ -449,16 +458,16 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_id(request)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
+        crate::rbac::lock_mutation(&mut tx).await?;
         let row: Option<(Uuid,Uuid)> = sqlx::query_as("SELECT requested_by,evidence FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2 AND approved_by IS NULL AND expires_at>clock_timestamp() FOR UPDATE").bind(request).bind(id).fetch_optional(&mut *tx).await?;
         let (requester, evidence) = row.ok_or(Error::Denied)?;
         if context.account == requester || context.account == id {
             return Err(Error::Denied);
         }
-        self.check(context, Permission::ManageRoles).await?;
-        self.check(
+        self.check_in(&mut tx, context, Permission::ManageRoles)
+            .await?;
+        self.check_in(
+            &mut tx,
             CheckContext {
                 account: requester,
                 ..context

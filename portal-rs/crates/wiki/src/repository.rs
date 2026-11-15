@@ -220,6 +220,20 @@ impl<A: AccountStateReader> Repository<A> {
         .await?;
         let mut tx = self.pool.begin().await?;
         let guide = lock(&mut tx, id).await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+            .execute(&mut *tx)
+            .await?;
+        for required in [
+            Permission::Access,
+            Permission::WikiAccess,
+            if action.publisher() {
+                Permission::PublishWiki
+            } else {
+                Permission::ManageWikiArticles
+            },
+        ] {
+            self.auth.check_in(&mut tx, context, required).await?;
+        }
         if guide.version != expected {
             return Err(Error::Conflict);
         }

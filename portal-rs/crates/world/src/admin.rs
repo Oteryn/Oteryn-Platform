@@ -320,10 +320,17 @@ async fn mutate<A: AccountStateReader>(
         .execute(&mut *tx)
         .await
         .map_err(unavailable)?;
-    s.auth
-        .check(context, permission)
-        .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+    for required in [
+        Permission::Access,
+        Permission::GameCatalogAccess,
+        Permission::ViewGameCatalogSnapshots,
+        permission,
+    ] {
+        s.auth
+            .check_in(&mut tx, context, required)
+            .await
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+    }
     let (active,): (Option<Uuid>,) =
         sqlx::query_as("SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE")
             .fetch_one(&mut *tx)
@@ -495,3 +502,7 @@ fn unavailable(_: sqlx::Error) -> StatusCode {
 #[cfg(test)]
 #[path = "admin_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "admin_pool_tests.rs"]
+mod pool_tests;
