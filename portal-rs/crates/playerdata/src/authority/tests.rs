@@ -1130,3 +1130,175 @@ async fn postgres_login_baseline_batches_are_complete_atomic_and_allow_other_acc
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn postgres_account_stream_recovery_never_regresses() {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    db.account(SELLER, "1", "12").await;
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW + 10)), true);
+    let w = progress("watermark-baseline.valid.json")
+        .replace("\"family\":\"stamina\"", "\"family\":\"game_login\"")
+        .replace("\"complete_through\":\"1\"", "\"complete_through\":\"0\"");
+    assert_eq!(
+        post(&app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &w)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let before: serde_json::Value = sqlx::query_scalar("SELECT to_jsonb(s) FROM pd_streams s")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let lower = w
+        .replace(
+            "\"recovery_generation\":\"3\"",
+            "\"recovery_generation\":\"2\"",
+        )
+        .replace("1790000000000", "1790000000001");
+    assert_eq!(
+        post(&app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &lower)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let after: serde_json::Value = sqlx::query_scalar("SELECT to_jsonb(s) FROM pd_streams s")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(before, after);
+    // Account-scoped records carry no character ownership recovery floor.
+    let value = progress("record-stamina.valid.json")
+        .replace(&format!("\"character_id\":\"{CHARACTER}\""), "\"character_id\":null")
+        .replace(&format!("\"world_id\":\"{WORLD}\""), "\"world_id\":null")
+        .replace("\"character_revision\":\"9\"", "\"character_revision\":null")
+        .replace("\"projection_revision\":\"12\"", "\"projection_revision\":null")
+        .replace("\"family\":\"stamina\"", "\"family\":\"game_login\"")
+        .replace("\"entity_key\":\"stamina\"", "\"entity_key\":\"01934f10-7c04-7001-805b-3b1122334413\"")
+        .replace(r#"{"stamina_minutes":2400,"content_revision":"9","build_occurrence_id":"01934f10-7c04-7001-805b-3b1122334411"}"#, &progress("payload-game-login.valid.json"));
+    let lower_record = value.replace(
+        "\"recovery_generation\":\"3\"",
+        "\"recovery_generation\":\"2\"",
+    );
+    assert_eq!(record(&app, &lower_record).await.0, StatusCode::CONFLICT);
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
+    // A higher accepted record also fences subsequent watermarks.
+    let higher_record = value.replace(
+        "\"recovery_generation\":\"3\"",
+        "\"recovery_generation\":\"4\"",
+    );
+    assert_eq!(record(&app, &higher_record).await.0, StatusCode::OK);
+    assert_eq!(
+        post(&app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &w)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let conflict_record = value.replace(
+        "\"recovery_generation\":\"3\"",
+        "\"recovery_generation\":\"5\"",
+    );
+    assert_eq!(record(&app, &conflict_record).await.0, StatusCode::CONFLICT);
+    let high: String = sqlx::query_scalar("SELECT recovery_high_water::text FROM pd_streams")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        high, "4",
+        "a committed conflict alarm is not accepted recovery evidence"
+    );
+    let current = w.replace(
+        "\"recovery_generation\":\"3\"",
+        "\"recovery_generation\":\"4\"",
+    );
+    assert_eq!(
+        post(&app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &current)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    db.close().await;
+    eprintln!(
+        "postgres_account_stream_recovery_never_regresses duration={:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_watermarks_share_the_record_account_budget() {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    seller(&db).await;
+    for mixed in [false, true] {
+        let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+        let w = progress("watermark-baseline.valid.json")
+            .replace("\"complete_through\":\"1\"", "\"complete_through\":\"0\"");
+        for i in 0..60 {
+            let (path, body) = if mixed && i % 2 == 1 {
+                (
+                    http::PROGRESS_RECORD_PATH,
+                    progress("record-stamina.valid.json"),
+                )
+            } else {
+                (http::PROGRESS_WATERMARK_PATH, w.clone())
+            };
+            assert_eq!(
+                post(&app, PROGRESS_SAN, path, &body).await.0,
+                StatusCode::OK,
+                "mixed={mixed} i={i}"
+            );
+        }
+        let mut request = Request::post(http::PROGRESS_WATERMARK_PATH)
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::CONTENT_LENGTH, w.len())
+            .body(Body::from(w))
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(VerifiedClient::from_verified_tls13_http11(
+                Identity::san(PROGRESS_SAN).unwrap(),
+            ));
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "60");
+    }
+    db.close().await;
+    eprintln!(
+        "postgres_watermarks_share_the_record_account_budget duration={:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_pending_lifecycle_erasure_hides_character_before_worker() {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    seller(&db).await;
+    db.exec("INSERT INTO character_service_states(account_id,character_id,epoch,revision,character_revision,snapshot_json) VALUES($1::uuid,$2::uuid,1,1,'10','{\"lifecycle\":\"DELETED\"}')", &[SELLER, CHARACTER]).await;
+    assert_eq!(db.count("SELECT count(*) FROM pd_erasure_jobs").await, 1);
+    assert_eq!(db.count("SELECT count(*) FROM pd_deleted_scopes").await, 0);
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    assert_eq!(
+        record(&app, &progress("record-stamina.valid.json")).await,
+        (
+            StatusCode::OK,
+            progress("response-character-scope-deleted.json")
+        )
+    );
+    assert_eq!(
+        db.count("SELECT count(*) FROM pd_records WHERE payload IS NOT NULL")
+            .await,
+        0
+    );
+    db.close().await;
+    eprintln!(
+        "postgres_pending_lifecycle_erasure_hides_character_before_worker duration={:?}",
+        started.elapsed()
+    );
+}

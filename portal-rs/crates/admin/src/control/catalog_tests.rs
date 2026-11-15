@@ -183,3 +183,62 @@ fn r4_preview_free_dry_run() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(validate_staff_request(&r)?.risk, controls::RiskClass::R4);
     Ok(())
 }
+
+#[test]
+fn committed_staff_schemas_qualify_requests_and_results() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut action: Value =
+        serde_json::from_str(include_str!("fixtures/staff-actions-v1/action.schema.json"))?;
+    let base: Value = serde_json::from_str(include_str!(
+        "fixtures/admin-control-v1/request.schema.json"
+    ))?;
+    // Resolve the one committed relative reference locally; never retrieve schemas over the network.
+    assert_eq!(
+        action["allOf"][0]["$ref"],
+        "../admin-control-v1/request.schema.json"
+    );
+    action["$defs"] = base["$defs"].clone();
+    action["allOf"][0] = base;
+    let validator = jsonschema::options()
+        .should_validate_formats(true)
+        .build(&action)
+        .map_err(|e| e.to_string())?;
+    for golden in GOLDENS {
+        let request: Value = serde_json::from_str(golden)?;
+        validator.validate(&request).map_err(|e| e.to_string())?;
+        for (key, value) in [
+            ("operation", json!("staff.unknown")),
+            ("kind", json!("query")),
+            ("operation_version", json!(2)),
+        ] {
+            let mut bad = request.clone();
+            bad[key] = value;
+            assert!(!validator.is_valid(&bad), "{key}");
+        }
+        let mut bad = request.clone();
+        bad["params"]["sanction_revision"] = json!(0);
+        assert!(!validator.is_valid(&bad));
+        let mut bad = request.clone();
+        bad["params"]["unexpected"] = json!(true);
+        assert!(!validator.is_valid(&bad));
+    }
+    let schema: Value =
+        serde_json::from_str(include_str!("fixtures/staff-actions-v1/result.schema.json"))?;
+    let validator = jsonschema::validator_for(&schema).map_err(|e| e.to_string())?;
+    for enforcement in ["applied", "pending"] {
+        let result = json!({"sanction_id":"sanction-1","sanction_revision":1,"enforcement":enforcement,"evidence_refs":["case-1"]});
+        validator.validate(&result).map_err(|e| e.to_string())?;
+        for (key, value) in [
+            ("enforcement", json!("unknown")),
+            ("sanction_revision", json!(0)),
+            ("sanction_id", json!("")),
+            ("evidence_refs", json!([""])),
+            ("unexpected", json!(true)),
+        ] {
+            let mut bad = result.clone();
+            bad[key] = value;
+            assert!(!validator.is_valid(&bad), "{key}");
+        }
+    }
+    Ok(())
+}
