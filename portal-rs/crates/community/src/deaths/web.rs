@@ -208,7 +208,7 @@ async fn load_inner(
     if !s.privacy.ready().await? {
         return Err(Unavailable);
     }
-    let subjects: Vec<String> = sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='character_profile' AND NOT is_watermark AND epoch=$1::numeric ORDER BY subject LIMIT 10001").bind(&epoch).fetch_all(&s.db).await.map_err(|_| Unavailable)?;
+    let subjects: Vec<String> = sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='character_profile' AND NOT is_watermark AND epoch=$1::numeric AND ($2::text IS NULL OR payload->'profile'->0->>'name'=$2) ORDER BY subject LIMIT $3").bind(&epoch).bind(name).bind(if name.is_some() { 2_i64 } else { 10001_i64 }).fetch_all(&s.db).await.map_err(|_| Unavailable)?;
     if subjects.len() > 10000 {
         return Err(Unavailable);
     }

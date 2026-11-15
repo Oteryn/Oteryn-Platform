@@ -771,3 +771,52 @@ async fn audit06_wait_past_interval_refuses_boost_data() -> Result {
     assert!(!body.contains("creature"));
     d.close().await
 }
+
+#[tokio::test]
+async fn audit_w2_c02_today_catalogue_wait_revalidates_invalidations() -> Result {
+    let started = std::time::Instant::now();
+    for invalidation in [
+        "UPDATE public_projection_state SET highest_epoch=3 WHERE id=1",
+        "UPDATE today_snapshots SET content=NULL",
+        "UPDATE today_snapshots SET conflicted=true",
+    ] {
+        let d = Database::new().await?.ok_or("PostgreSQL required")?;
+        d.publish(at()).await;
+        let mut lock = d.db.begin().await?;
+        sqlx::query("LOCK TABLE world_admin_names IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *lock)
+            .await?;
+        let mounted = today::mount(Router::new(), d.db.clone(), config());
+        let read = tokio::spawn(async move {
+            mounted
+                .oneshot(Request::get("/en/today/data").body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT e.kind,e.key,%')").fetch_one(&d.root).await?;
+            if waiting {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            tokio::task::yield_now().await;
+        }
+        sqlx::query(sqlx::AssertSqlSafe(invalidation))
+            .execute(&d.db)
+            .await?;
+        lock.commit().await?;
+        let response = read.await?;
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{invalidation}"
+        );
+        d.close().await?;
+    }
+    eprintln!(
+        "audit_w2_c02_today_catalogue_wait_revalidates_invalidations {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

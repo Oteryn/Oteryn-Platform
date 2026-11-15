@@ -122,10 +122,7 @@ async fn worlds_seeded_page_and_minimal_versioned_api() -> TestResult {
     db.registry().await?;
     db.snapshot(0, roster()).await?;
     let response = send(db.app(true, 120), "/api/v1/worlds", None).await?;
-    assert_eq!(
-        response.headers()[header::CACHE_CONTROL],
-        "public, max-age=30"
-    );
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
     let raw = body(response).await?;
     assert!(!raw.contains("Private roster name"));
@@ -135,7 +132,7 @@ async fn worlds_seeded_page_and_minimal_versioned_api() -> TestResult {
     assert!(api["generated_at"].is_u64());
     assert_eq!(
         api["worlds"],
-        json!([{"id":ID,"name":"Test <World>","status":"online","players_online":1}])
+        json!([{"id":ID,"name":"Test <World>","status":"unknown","players_online":null}])
     );
     for (uri, lang, title) in [
         ("/en/worlds", "en", "World status"),
@@ -152,8 +149,8 @@ async fn worlds_seeded_page_and_minimal_versioned_api() -> TestResult {
             "Open PvP",
             "Europe",
             "UTC",
-            "<dd>1</dd>",
-            "op-badge--success",
+            if lang == "en" { "Unknown" } else { "Nieznany" },
+            "op-badge--warning",
             "name=\"viewport\"",
             "href=\"#main\"",
         ] {
@@ -185,7 +182,7 @@ async fn worlds_missing_stale_future_and_old_epoch_are_unknown() -> TestResult {
     db.snapshot(60, roster()).await?;
     assert_eq!(
         document(db.app(true, 120)).await?["worlds"][0]["status"],
-        "online"
+        "unknown"
     );
     assert_eq!(
         document(db.app(true, 30)).await?["worlds"][0]["status"],
@@ -216,19 +213,22 @@ async fn worlds_etag_revalidates_and_changes_with_public_data() -> TestResult {
     ] {
         let response = send(db.app(true, 120), "/api/v1/worlds", Some(&conditional)).await?;
         assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
-        assert_eq!(
-            response.headers()[header::CACHE_CONTROL],
-            "public, max-age=30"
-        );
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         assert_eq!(response.headers()[header::ETAG], tag);
         assert!(body(response).await?.is_empty());
     }
     for (age, payload) in [(121, roster()), (0, json!({"world_id":ID,"characters":[]}))] {
         db.snapshot(age, payload).await?;
         let response = send(db.app(true, 120), "/api/v1/worlds", Some(&tag)).await?;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_ne!(response.headers()[header::ETAG], tag);
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(response.headers()[header::ETAG], tag);
     }
+    sqlx::query("UPDATE world_status SET name='Renamed registry world'")
+        .execute(&db.db)
+        .await?;
+    let response = send(db.app(true, 120), "/api/v1/worlds", Some(&tag)).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_ne!(response.headers()[header::ETAG], tag);
     db.finish().await
 }
 #[tokio::test]
@@ -265,8 +265,8 @@ async fn worlds_empty_registry_and_zero_players_are_distinct() -> TestResult {
     db.snapshot(0, json!({"world_id":ID,"characters":[]}))
         .await?;
     let api = document(db.app(true, 120)).await?;
-    assert_eq!(api["worlds"][0]["players_online"], 0);
-    assert_eq!(api["worlds"][0]["status"], "online");
+    assert_eq!(api["worlds"][0]["players_online"], Value::Null);
+    assert_eq!(api["worlds"][0]["status"], "unknown");
     db.finish().await
 }
 #[tokio::test]
@@ -336,4 +336,30 @@ async fn audit06_world_database_wait_rechecks_serving_clock() -> TestResult {
     assert_eq!(v["worlds"][0]["status"], "unknown");
     assert!(v["worlds"][0]["players_online"].is_null());
     db.finish().await
+}
+
+#[tokio::test]
+async fn audit_w2_c04_c07_presence_never_authorizes_runtime_or_cached_claims() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    db.registry().await?;
+    db.snapshot(119, roster()).await?;
+    let response = send(db.app(true, 120), "/api/v1/worlds", None).await?;
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let tag = response.headers()[header::ETAG].to_str()?.to_owned();
+    let document: Value = serde_json::from_str(&body(response).await?)?;
+    assert_eq!(document["worlds"][0]["status"], "unknown");
+    assert!(document["worlds"][0]["players_online"].is_null());
+    let response = send(db.app(true, 120), "/api/v1/worlds", Some(&tag)).await?;
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let page = body(send(db.app(true, 120), "/en/worlds", None).await?).await?;
+    assert!(page.contains("Unknown"));
+    assert!(!page.contains("<dd>1</dd>"));
+    db.finish().await?;
+    eprintln!(
+        "audit_w2_c04_c07_presence_never_authorizes_runtime_or_cached_claims {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

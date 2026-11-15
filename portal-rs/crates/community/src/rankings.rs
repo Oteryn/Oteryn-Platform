@@ -277,14 +277,10 @@ async fn load(
 ) -> Result<Page, StatusCode> {
     let unavailable = StatusCode::SERVICE_UNAVAILABLE;
     // Read one subject snapshot only; never combine different ranking revisions/worlds.
-    let subjects: Vec<String> = sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='highscores' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 1101").fetch_all(&state.db).await.map_err(|_| unavailable)?;
-    if subjects.len() > 1100 {
+    let worlds: BTreeSet<String> = sqlx::query_scalar::<_, String>("SELECT DISTINCT split_part(subject,':',1) AS world FROM public_snapshots WHERE family='highscores' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY world LIMIT 257").fetch_all(&state.db).await.map_err(|_| unavailable)?.into_iter().collect();
+    if worlds.len() > 256 {
         return Err(unavailable);
     }
-    let worlds: BTreeSet<String> = subjects
-        .iter()
-        .filter_map(|s| s.split_once(':').map(|(w, _)| w.to_owned()))
-        .collect();
     let world = match selected {
         Some(w) if worlds.contains(w) => w,
         Some(_) => return Err(StatusCode::NOT_FOUND),

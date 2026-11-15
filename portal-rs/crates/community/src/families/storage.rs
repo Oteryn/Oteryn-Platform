@@ -157,8 +157,8 @@ pub(super) async fn body(
     authority: &str,
     epoch: &str,
     through: i64,
-) -> Result<Option<serde_json::Value>, Unavailable> {
-    let row = sqlx::query("SELECT body,observed FROM public_character_families_v2 WHERE family=$1 AND character_id=$2 AND source_authority=$3 AND epoch=$4::numeric")
+) -> Result<Option<(serde_json::Value, String)>, Unavailable> {
+    let row = sqlx::query("SELECT body,revision::text AS revision,observed FROM public_character_families_v2 WHERE family=$1 AND character_id=$2 AND source_authority=$3 AND epoch=$4::numeric")
         .bind(family.name())
         .bind(character)
         .bind(authority)
@@ -171,5 +171,5 @@ pub(super) async fn body(
     if row.try_get::<i64, _>("observed")? > through {
         return Err(Unavailable);
     }
-    Ok(Some(row.try_get("body")?))
+    Ok(Some((row.try_get("body")?, row.try_get("revision")?)))
 }

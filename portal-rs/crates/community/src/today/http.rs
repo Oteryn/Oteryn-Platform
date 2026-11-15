@@ -303,7 +303,6 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     }
     let result = load(&state, uri.path(), if today { uri.query() } else { None }).await;
     let lang = request_language(uri.path(), uri.query());
-    let view = result.as_ref().ok().map(|(v, _)| v);
     let lang = result.as_ref().map_or(lang, |(_, l)| *l);
     let (mut parts, body) = response.into_parts();
     let bytes = match oteryn_web::decoration::buffer(
@@ -316,7 +315,14 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
         Ok(bytes) => bytes,
         Err(body) => return Response::from_parts(parts, body),
     };
-    let view = view.filter(|v| v.eligible(now()));
+    // Body streaming can wait after the first source read. Resolve a new cut
+    // once buffering is complete, so invalidations during that wait take effect.
+    let final_result = load(&state, uri.path(), if today { uri.query() } else { None }).await;
+    let view = final_result
+        .as_ref()
+        .ok()
+        .map(|(v, _)| v)
+        .filter(|v| v.eligible(now()));
     let mut html = match String::from_utf8(bytes.to_vec()) {
         Ok(s) => s,
         Err(_) => return Response::from_parts(parts, Body::from(bytes)),
