@@ -44,8 +44,7 @@ impl Accounts for PlatformAccounts {
         .bind(account)
         .fetch_one(&mut *db)
         .await?;
-        let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sanctions WHERE account_id=$1 AND (category NOT IN ('warning','restriction','suspension') OR status NOT IN ('pending','active','expired','revoked') OR (category IN ('restriction','suspension') AND status='active' AND effective_at<=clock_timestamp() AND (expires_at IS NULL OR expires_at>clock_timestamp()))))").bind(account).fetch_one(&mut *db).await?;
-        let typed_ban: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM (SELECT DISTINCT ON (r.sanction_id) r.active,r.expires_at FROM support_sanction_revisions r JOIN support_sanction_identities i USING(sanction_id) WHERE r.account_id=$1 AND i.kind='ban' ORDER BY r.sanction_id,r.revision DESC) latest WHERE active AND (expires_at IS NULL OR expires_at>clock_timestamp()))").bind(account).fetch_one(&mut *db).await?;
+        let blocked = !oteryn_wallet::value_eligible_in(db, account).await?;
         let sudo = if let Some(hash) = self.session_hash {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND sudo_until>now() AND idle_expires_at>now() AND absolute_expires_at>now())").bind(hash.to_vec()).bind(account).fetch_one(&mut *db).await?
         } else {
@@ -56,7 +55,7 @@ impl Accounts for PlatformAccounts {
             email_verified: row.try_get("verified")?,
             mfa,
             sudo,
-            bazaar_blocked: blocked || typed_ban || row.try_get::<bool, _>("blocked")?,
+            bazaar_blocked: blocked || row.try_get::<bool, _>("blocked")?,
         }))
     }
 }
@@ -180,6 +179,9 @@ impl Reservations for CoinReservations {
         // Coins still owed never leave through the market (owner decision
         // 2026-11-14); a lowered or replayed hold returns own coins.
         if delta > 0 {
+            if !oteryn_wallet::value_eligible_in(db, h.account).await? {
+                return Err(Error::Denied);
+            }
             oteryn_wallet::unlocked_in(db, h.account)
                 .await
                 .map_err(wallet_error)?;
@@ -301,6 +303,14 @@ impl Reservations for CoinReservations {
         let mut accounts = [s.buyer, s.seller];
         accounts.sort();
         self.lock_accounts(db, &accounts).await?;
+        // Locking participants also serves safe returns; a sale still needs
+        // current value eligibility for both participants.
+        for account in accounts {
+            if !oteryn_wallet::value_eligible_in(db, account).await? {
+                return Err(Error::Denied);
+            }
+        }
+
         let old: Option<String> = sqlx::query_scalar(
             "SELECT binding FROM bazaar_coin_dispositions WHERE settlement_id=$1 FOR UPDATE",
         )

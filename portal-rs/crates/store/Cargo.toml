@@ -38,3 +38,6 @@ version = "0.16.1"
 version = "0.16"
 [dependencies.serde_urlencoded]
 version = "0.7"
+
+[dev-dependencies]
+oteryn-minigames.workspace = true

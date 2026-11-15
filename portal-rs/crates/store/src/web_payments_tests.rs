@@ -769,3 +769,68 @@ async fn postgres_single_connection_and_saturated_settlement() -> TestResult {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn l6_01_refund_retains_identity_rules_while_acquisition_is_restricted() -> TestResult {
+    use oteryn_payments::{IntentState, PaymentEvent};
+    let started = std::time::Instant::now();
+    let Some((pool, admin, schema)) = database().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'refund@example.invalid','test','active',now(),'en')").bind(account).execute(&pool).await?;
+    let provider = TestProvider::new(&[5; 32])?;
+    let payments = Payments::new(
+        pool.clone(),
+        provider.clone(),
+        Accounts(pool.clone()),
+        PaymentFlags { enabled: true },
+    );
+    let amount = Amount {
+        minor_units: 250,
+        currency: "PLN".into(),
+    };
+    let intent = payments.create_intent(account, amount.clone()).await?;
+    sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'refund-package',100,250,'PLN',$1)").bind(intent.id).bind(account).execute(&pool).await?;
+    let mut event = PaymentEvent {
+        event_id: "paid".into(),
+        intent_id: intent.id,
+        provider_reference: intent.provider_reference,
+        amount: amount.clone(),
+        state: IntentState::Succeeded,
+    };
+    let body = serde_json::to_vec(&event)?;
+    payments.webhook(&body, &provider.sign(&body)?).await?;
+    sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')").bind(account).execute(&pool).await?;
+    assert!(matches!(
+        payments.create_intent(account, amount).await,
+        Err(oteryn_payments::Error::AccountDenied)
+    ));
+    event.event_id = "refund".into();
+    event.state = IntentState::Refunded;
+    let body = serde_json::to_vec(&event)?;
+    payments.webhook(&body, &provider.sign(&body)?).await?;
+    let state: String = sqlx::query_scalar("SELECT state FROM payment_intents WHERE id=$1")
+        .bind(intent.id)
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(state, "refunded");
+    assert!(matches!(
+        payments.intent(intent.id).await,
+        Err(oteryn_payments::Error::AccountDenied)
+    ));
+    let entries: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_entries")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(entries, 0);
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    eprintln!(
+        "PG l6_01_refund_retains_identity_rules_while_acquisition_is_restricted {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}

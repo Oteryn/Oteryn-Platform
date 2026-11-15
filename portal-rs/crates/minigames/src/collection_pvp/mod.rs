@@ -132,13 +132,8 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         }
     }
     async fn active(conn: &mut PgConnection, account: Uuid) -> Result<()> {
-        let allowed: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE")
-            .bind(account).fetch_optional(conn).await?;
-        if allowed == Some(true) {
-            Ok(())
-        } else {
-            Err(Error::Refused)
-        }
+        let allowed = oteryn_wallet::value_eligible_in(conn, account).await?;
+        if allowed { Ok(()) } else { Err(Error::Refused) }
     }
     async fn creation_budget(conn: &mut PgConnection, actor: Uuid) -> Result<()> {
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,92))")
@@ -501,7 +496,7 @@ impl<
 > WalletPayment<A, B, H>
 {
     pub fn new(ledger: oteryn_wallet::Ledger<A, B, H>) -> Self {
-        Self(ledger.with_adjustment_kind(oteryn_wallet::AdjustmentKind::StorePurchase))
+        Self(ledger.with_adjustment_kind(oteryn_wallet::AdjustmentKind::CardSetPurchase))
     }
 }
 impl<

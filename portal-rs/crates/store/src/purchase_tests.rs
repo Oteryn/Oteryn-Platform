@@ -1746,3 +1746,74 @@ fn preprod_lookup_uses_core_environment_spelling() {
     };
     assert!(!production.valid());
 }
+
+#[tokio::test]
+async fn l6_01_pending_termination_refuses_store_purchase() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    let account = uuid(ACCOUNT).unwrap();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'pending@example.invalid','test','active',now(),'en')").bind(account).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')").bind(account).execute(&db.pool).await.unwrap();
+    db.fund(ACCOUNT, 1000).await;
+    let before = db.count("wallet_entries").await;
+    let service = super::accounts::database(db.pool.clone(), settings());
+    let response = service.purchase(&request(&db.revision)).await.unwrap();
+    assert_eq!(string(&value(&response), "result"), "ACCOUNT_RESTRICTED");
+    assert_eq!(before, db.count("wallet_entries").await);
+    assert_eq!(db.count("store_orders").await, 0);
+    db.finish().await;
+    eprintln!(
+        "PG l6_01_pending_termination_refuses_store_purchase {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
+
+#[tokio::test]
+async fn l6_05_minigame_wallet_bridges_have_readable_store_history() {
+    use oteryn_minigames::{collection_pvp::SetPayment, pass::Payment};
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    let account = uuid(ACCOUNT).unwrap();
+    db.fund(ACCOUNT, 1000).await;
+    let pass = oteryn_minigames::pass::Wallet::new(db.wallet());
+    let cards = oteryn_minigames::collection_pvp::WalletPayment::new(db.wallet());
+    let mut tx = db.pool.begin().await.unwrap();
+    pass.debit(&mut tx, account, Uuid::now_v7(), 100)
+        .await
+        .unwrap();
+    cards
+        .debit(&mut tx, account, 150, Uuid::now_v7())
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let response = db
+        .service(settings())
+        .read(
+            &read_request(true, ACCOUNT, "18446744073709551615", 32),
+            true,
+        )
+        .await
+        .unwrap();
+    let v = value(&response);
+    let entries = array(&v, "entries");
+    let others: Vec<_> = entries
+        .iter()
+        .filter(|e| string(e, "kind") == "OTHER")
+        .collect();
+    assert_eq!(others.len(), 2);
+    assert!(
+        others
+            .iter()
+            .all(|e| matches!(e.get("order_id"), Some(Value::Null)))
+    );
+    assert_eq!(db.count("store_orders").await, 0);
+    db.finish().await;
+    eprintln!(
+        "PG l6_05_minigame_wallet_bridges_have_readable_store_history {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

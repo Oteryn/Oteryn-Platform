@@ -522,6 +522,18 @@ async fn binding<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook>(
 #[derive(Debug, Clone, Copy)]
 pub struct DatabasePolicy;
 impl AccountStateReader for DatabasePolicy {
+    async fn safe_return(
+        &self,
+        db: &mut sqlx::PgConnection,
+        account: uuid::Uuid,
+    ) -> crate::AccountState {
+        match crate::safe_return_in(db, account).await {
+            Ok(true) => crate::AccountState::Active,
+            Ok(false) => crate::AccountState::Inactive,
+            Err(_) => crate::AccountState::Unavailable,
+        }
+    }
+
     async fn state(&self, conn: &mut sqlx::PgConnection, account: uuid::Uuid) -> AccountState {
         match sqlx::query_scalar::<_,bool>("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(conn).await {
             Ok(Some(true))=>AccountState::Active,Ok(Some(false))=>AccountState::Inactive,Ok(None)=>AccountState::Unknown,Err(_)=>AccountState::Unavailable,
@@ -534,8 +546,10 @@ impl TransferBlockCheck for DatabasePolicy {
         conn: &mut sqlx::PgConnection,
         account: uuid::Uuid,
     ) -> TransferPermission {
-        match sqlx::query_scalar::<_,bool>("SELECT status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=now() FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(conn).await {
-            Ok(Some(true))=>TransferPermission::Allowed,Ok(Some(false))=>TransferPermission::Blocked,_=>TransferPermission::Unknown,
+        match crate::value_eligible_in(conn, account).await {
+            Ok(true) => TransferPermission::Allowed,
+            Ok(false) => TransferPermission::Blocked,
+            _ => TransferPermission::Unknown,
         }
     }
 }

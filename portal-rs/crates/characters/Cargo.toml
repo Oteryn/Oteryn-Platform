@@ -27,6 +27,7 @@ unicode-properties = "0.1.5"
 sha2 = "0.10.9"
 
 [dev-dependencies]
+oteryn-db.workspace = true
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "time"] }
 [dependencies.askama]
 version = "0.16.1"

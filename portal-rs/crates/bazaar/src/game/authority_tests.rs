@@ -2898,3 +2898,122 @@ async fn postgres_browser_verified_character_snapshot_facts() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn l6_04_suspended_leader_can_be_outbid_and_exact_hold_released() {
+    let started = std::time::Instant::now();
+    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        return;
+    };
+    let admin = sqlx::PgPool::connect(&url).await.unwrap();
+    let schema = format!("l6_outbid_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&admin)
+        .await
+        .unwrap();
+    let path = schema.clone();
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .after_connect(move |db, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(db)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT singleton FROM bazaar_game_issuer FOR UPDATE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=3,recovery_generation=3")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let [seller, first, second, listing] = [
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+    ];
+    for account in [seller, first, second] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',now(),'en')").bind(account).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+            .bind(account)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let key = Uuid::now_v7();
+        sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,1000)").bind(key).bind(account).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,1000,0)").bind(Uuid::now_v7()).bind(key).bind(account).execute(&mut *tx).await.unwrap();
+    }
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,'item','auction','coins',100,false,now()+interval '2 days')").bind(listing).bind(seller).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE bazaar_listings SET state='active' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let bazaar = crate::Bazaar::new(
+        pool.clone(),
+        PlatformAccounts {
+            enabled: true,
+            session_hash: None,
+        },
+        CoinReservations {
+            authority: authority(),
+        },
+        authority(),
+        crate::Flags {
+            enabled: true,
+            gold_enabled: false,
+        },
+    );
+    bazaar
+        .bid_in(&mut tx, listing, first, 200, "first")
+        .await
+        .unwrap();
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(first)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let outcome = bazaar
+        .bid_in(&mut tx, listing, second, 300, "second")
+        .await
+        .unwrap();
+    assert_eq!(outcome.leader, second);
+    let balances:(i64,i64)=sqlx::query_as("SELECT sum(available_delta)::bigint,sum(reserved_delta)::bigint FROM wallet_entries WHERE account_id=$1").bind(first).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(balances, (1000, 0));
+    let hold: i64 =
+        sqlx::query_scalar("SELECT amount FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2")
+            .bind(listing)
+            .bind(first)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(hold, 0);
+    bazaar
+        .bid_in(&mut tx, listing, second, 300, "second")
+        .await
+        .unwrap();
+    let releases:i64=sqlx::query_scalar("SELECT count(*) FROM wallet_operations WHERE kind='release' AND account_id=$1 AND reference_id=$2").bind(first).bind(listing).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(releases, 1);
+    tx.rollback().await.unwrap();
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await
+        .unwrap();
+    admin.close().await;
+    eprintln!(
+        "PG l6_04_suspended_leader_can_be_outbid_and_exact_hold_released {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

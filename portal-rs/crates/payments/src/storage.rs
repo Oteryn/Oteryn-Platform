@@ -218,17 +218,30 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
             tx.commit().await?;
             return Ok(WebhookOutcome::Replay);
         }
-        IntentState::parse(row.try_get("state")?)?.transition(event.state)?;
-        if !matches!(
-            self.accounts.state_in(&mut tx, account_id).await,
-            Ok(AccountState::Active)
-        ) {
-            return Err(Error::AccountDenied);
-        }
-        // Generic top-ups have no reconciliation/reversal consumer. Never acknowledge
-        // a refund while leaving an earlier wallet credit freely spendable.
         if event.state == IntentState::Refunded {
-            return Err(Error::IllegalTransition);
+            // Delivery takes this same intent lock before crediting. A refund
+            // may win before delivery, but cannot erase an existing coin credit.
+            // Generic top-ups without a browser checkout have no reconciliation
+            // or reversal consumer, so their refunds are never acknowledged.
+            let refundable: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM store_web_topups t WHERE t.payment_intent_id=$1) \
+                 AND NOT EXISTS(SELECT 1 FROM store_web_topups t JOIN wallet_operations w ON w.id=t.payment_intent_id AND w.kind='top_up' WHERE t.payment_intent_id=$1)",
+            )
+            .bind(event.intent_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !refundable {
+                return Err(Error::IllegalTransition);
+            }
+        }
+        IntentState::parse(row.try_get("state")?)?.transition(event.state)?;
+        let state = if event.state == IntentState::Refunded {
+            self.accounts.refund_state_in(&mut tx, account_id).await
+        } else {
+            self.accounts.state_in(&mut tx, account_id).await
+        };
+        if !matches!(state, Ok(AccountState::Active)) {
+            return Err(Error::AccountDenied);
         }
         sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1")
             .bind(event.intent_id)

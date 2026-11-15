@@ -681,3 +681,135 @@ async fn legacy_excess_balance_is_readable_and_reducible_through_coin_dispatch()
         started.elapsed().as_secs_f64()
     );
 }
+
+async fn money_state(db: &Database) -> String {
+    sqlx::query_scalar("SELECT jsonb_build_array((SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM wallet_entries e),(SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM wallet_reservations h))::text")
+        .fetch_one(&db.pool).await.unwrap()
+}
+
+async fn production_wallet(
+    db: &Database,
+) -> Ledger<wire::DatabasePolicy, wire::DatabasePolicy, wire::DatabasePolicy> {
+    let (a, b, _, _) = ids();
+    for account in [a, b] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',now(),'en')").bind(account).execute(&db.pool).await.unwrap();
+    }
+    fund(&db.ledger(&[a, b]), a, 1000).await;
+    Ledger::new(
+        db.pool.clone(),
+        WalletFlags { enabled: true },
+        wire::DatabasePolicy,
+        wire::DatabasePolicy,
+        wire::DatabasePolicy,
+    )
+}
+
+#[tokio::test]
+async fn l6_01_production_value_routes_restrict_sanctions_and_typed_bans() {
+    let started = std::time::Instant::now();
+    for restriction in ["sanction", "ban", "termination"] {
+        for route in ["transfers", "offers", "settlements"] {
+            for target in 0..2 {
+                let Some(db) = Database::open().await else {
+                    return;
+                };
+                let ledger = production_wallet(&db).await;
+                let (a, b, _, offer) = ids();
+                if route == "settlements" {
+                    ledger.reserve_offer(offer, a, 100, 100).await.unwrap();
+                }
+                let account = if target == 0 { a } else { b };
+                if route == "offers" && target == 1 {
+                    db.close().await;
+                    continue;
+                }
+                match restriction {
+                    "sanction" => {
+                        sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','test',now()-interval '1 hour',now()+interval '1 day',$1)").bind(account).execute(&db.pool).await.unwrap();
+                    }
+                    "ban" => {
+                        let sanction = id();
+                        sqlx::query("INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES($1,$2,'ban')").bind(sanction).bind(account).execute(&db.pool).await.unwrap();
+                        sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at) VALUES($1,1,$2,'{}',true,now())").bind(account).bind(sanction).execute(&db.pool).await.unwrap();
+                    }
+                    _ => {
+                        sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')").bind(account).execute(&db.pool).await.unwrap();
+                    }
+                }
+                let before = money_state(&db).await;
+                let router = wire::router(ledger, enabled(), map());
+                let path = format!(
+                    "/internal/v1/coins/{}{}",
+                    if route == "transfers" { "" } else { "market/" },
+                    route
+                );
+                let (_, body) = call(
+                    router,
+                    &path,
+                    Some(fixture(&format!("{route}-request.json"))),
+                    true,
+                )
+                .await;
+                assert_eq!(
+                    member(&parse(&body), "result"),
+                    "transfer_blocked",
+                    "{restriction} {route}: {}",
+                    String::from_utf8_lossy(&body)
+                );
+                let after = money_state(&db).await;
+                assert_eq!(before, after);
+                db.close().await;
+            }
+        }
+    }
+    eprintln!(
+        "PG l6_01_production_value_routes_restrict_sanctions_and_typed_bans {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
+
+#[tokio::test]
+async fn l6_02_production_value_replays_check_current_transfer_permission() {
+    let started = std::time::Instant::now();
+    for route in ["transfers", "offers", "settlements"] {
+        let Some(db) = Database::open().await else {
+            return;
+        };
+        let ledger = production_wallet(&db).await;
+        let (a, _, _, offer) = ids();
+        if route == "settlements" {
+            ledger.reserve_offer(offer, a, 100, 100).await.unwrap();
+        }
+        let router = wire::router(ledger, enabled(), map());
+        let path = format!(
+            "/internal/v1/coins/{}{}",
+            if route == "transfers" { "" } else { "market/" },
+            route
+        );
+        let payload = fixture(&format!("{route}-request.json"));
+        let (status, body) = call(router.clone(), &path, Some(payload.clone()), true).await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let before = money_state(&db).await;
+        sqlx::query(
+            "UPDATE accounts SET email_change_blocked_until=now()+interval '1 day' WHERE id=$1",
+        )
+        .bind(a)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        let (_, body) = call(router, &path, Some(payload), true).await;
+        assert_eq!(
+            member(&parse(&body), "result"),
+            "transfer_blocked",
+            "{route}: {}",
+            String::from_utf8_lossy(&body)
+        );
+        let after = money_state(&db).await;
+        assert_eq!(before, after);
+        db.close().await;
+    }
+    eprintln!(
+        "PG l6_02_production_value_replays_check_current_transfer_permission {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

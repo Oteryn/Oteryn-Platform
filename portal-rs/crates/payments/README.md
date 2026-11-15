@@ -109,3 +109,11 @@ that hourly allowance. Quotes backing awaiting-payment or processing orders
 continue counting after the hour. Order allocation independently caps those
 unpaid states at 100 under the same payer lock. Identical request replays remain
 available without allocating quotes, orders, or payment intents.
+
+Browser `store_web_topups` refunds are refused after coin delivery while
+reversal/debt handling is unavailable. Before delivery, refunds retain their
+existing behavior: webhook processing and the worker lock the same intent, so
+an accepted refund prevents later credit. After delivery the payment remains
+succeeded and its immutable credit is retained. Native coin reversals keep
+their existing contract and idempotency rules.
+Refunds of generic top-ups without a browser checkout row are refused.

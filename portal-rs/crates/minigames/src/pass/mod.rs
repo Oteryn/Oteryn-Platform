@@ -193,7 +193,7 @@ impl<
 > Wallet<A, B, H>
 {
     pub fn new(ledger: oteryn_wallet::Ledger<A, B, H>) -> Self {
-        Self(ledger.with_adjustment_kind(oteryn_wallet::AdjustmentKind::StorePurchase))
+        Self(ledger.with_adjustment_kind(oteryn_wallet::AdjustmentKind::PassPurchase))
     }
 }
 impl<

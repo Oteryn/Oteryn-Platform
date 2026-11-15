@@ -14,30 +14,36 @@ impl AccountReader for Accounts {
         connection: &mut sqlx::PgConnection,
         id: Uuid,
     ) -> Result<AccountState, oteryn_payments::Error> {
-        let active: Option<bool> = sqlx::query_scalar(
-            "SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1",
-        )
-        .bind(id)
-        .fetch_optional(connection)
-        .await?;
+        Ok(if oteryn_wallet::value_eligible_in(connection, id).await? {
+            AccountState::Active
+        } else {
+            AccountState::Restricted
+        })
+    }
+    async fn refund_state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<AccountState, oteryn_payments::Error> {
+        // Retain the browser refund identity rules independently of restrictions
+        // on acquiring new value. Delivered checkouts are fenced by Payments.
+        let active: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE")
+            .bind(id).fetch_optional(connection).await?;
         Ok(match active {
             Some(true) => AccountState::Active,
             Some(false) => AccountState::Restricted,
             None => AccountState::Unknown,
         })
     }
+
     async fn state(&self, id: Uuid) -> Result<AccountState, oteryn_payments::Error> {
-        let account = oteryn_identity::accounts::Accounts {
-            pool: self.0.clone(),
-        }
-        .find_by_id(id)
-        .await?;
-        Ok(match account {
-            Some(a) if a.status == "active" && a.email_verified_at.is_some() => {
-                AccountState::Active
-            }
-            Some(_) => AccountState::Restricted,
-            None => AccountState::Unknown,
+        let mut tx = self.0.begin().await?;
+        let allowed = oteryn_wallet::value_eligible_in(&mut tx, id).await?;
+        tx.commit().await?;
+        Ok(if allowed {
+            AccountState::Active
+        } else {
+            AccountState::Restricted
         })
     }
 }
