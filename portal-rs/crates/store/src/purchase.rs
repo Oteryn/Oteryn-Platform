@@ -85,7 +85,10 @@ impl Settings {
                 == Some("true"),
             delivery_enabled: get("PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED").as_deref()
                 == Some("true"),
-            environment: get("OTERYN_ENV").unwrap_or_default(),
+            environment: match get("OTERYN_ENV").as_deref() {
+                Some("preprod") => "preproduction".into(),
+                other => other.unwrap_or_default().into(),
+            },
             source_authority: get("PRODUCTS_ENTITLEMENTS_STORE_SOURCE_AUTHORITY")
                 .unwrap_or_default(),
             peer_identity: get("PRODUCTS_ENTITLEMENTS_STORE_MTLS_CLIENT_IDENTITY")

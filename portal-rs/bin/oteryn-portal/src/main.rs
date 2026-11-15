@@ -84,6 +84,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tokio::signal::ctrl_c().await?;
         }
         Role::Serve => {
+            let internal_configuration = game_routes::Configuration::from_env()?;
             let catalog_db = db.clone();
             let catalog_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let refresh_ready = catalog_ready.clone();
@@ -390,7 +391,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             };
             // Game-facing internal routes, each behind its own default-off flag
             // and client identity; composition and variables in game_routes.rs.
-            let app = game_routes::mount(app, db.clone(), config.environment).await;
+            let app =
+                game_routes::mount(app, db.clone(), config.environment, internal_configuration)
+                    .await;
             let _internal_listener = internal_tls::start(app.clone()).await?;
             let app = public_app;
             let _native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;

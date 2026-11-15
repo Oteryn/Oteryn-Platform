@@ -711,7 +711,22 @@ async fn db_preprod_core_environment_accepts_purchase() {
     let mut values = values();
     values.insert("OTERYN_ENV".into(), "preprod".into());
     values.insert("APP_ENV".into(), "preproduction".into());
-    let app = db.app(&values).await;
+    let config = oteryn_core::Config::from_lookup(|key| {
+        if key == "OTERYN_DATABASE_URL" {
+            std::env::var("PORTAL_TEST_DATABASE_URL").ok()
+        } else {
+            values.get(key).cloned()
+        }
+    })
+    .unwrap();
+    let configuration = Configuration::new(values).unwrap();
+    let app = mount(
+        Router::new(),
+        db.pool.clone(),
+        config.environment,
+        configuration,
+    )
+    .await;
     let (status, bytes) = call(&app, STORE, PURCHASE, &request(&db.revision, None)).await;
     assert_eq!(
         (status, result(&bytes).as_str()),
@@ -722,6 +737,62 @@ async fn db_preprod_core_environment_accepts_purchase() {
     db.finish().await;
     eprintln!(
         "PG db_preprod_core_environment_accepts_purchase duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
+
+#[tokio::test]
+async fn db_binary_refuses_restore_with_committed_store_generation_seven() {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    db.fund(1000).await;
+    let mut values = values();
+    let app = db.app(&values).await;
+    let (status, bytes) = call(&app, STORE, PURCHASE, &request(&db.revision, None)).await;
+    assert_eq!(
+        (status, result(&bytes).as_str()),
+        (StatusCode::OK, "ACCEPTED")
+    );
+    let intent: Vec<u8> = sqlx::query_scalar("SELECT intent_bytes FROM store_operations")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let intent_value = decode(&intent);
+    let mut receipt = fixture("receipt.deliver-premium-time.committed.json");
+    for key in ["operation_id", "entitlement_id", "account_id"] {
+        set(&mut receipt, key, intent_value.get(key).unwrap().clone());
+    }
+    set(
+        &mut receipt,
+        "binding_digest",
+        text(format!("{:x}", Sha256::digest(&intent))),
+    );
+    let delivery = delivery::Delivery::new(
+        db.pool.clone(),
+        purchase::Settings::from_lookup(|key| values.get(key).cloned()),
+    );
+    delivery
+        .receipt(&canonical::encode(&receipt).unwrap())
+        .await
+        .unwrap();
+    let generation: String = sqlx::query_scalar(
+        "SELECT recovery_generation::text FROM store_receipts WHERE outcome='COMMITTED'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(generation, "7");
+    values.insert("PORTAL_GAME_RESTORE_NOTICE_ENABLED".into(), "true".into());
+    values.insert(RESTORE_IDENTITY.into(), "restore.oteryn.internal".into());
+    assert!(
+        Configuration::new(values).is_err(),
+        "binary must refuse before accepting a restore notice"
+    );
+    db.finish().await;
+    eprintln!(
+        "PG db_binary_refuses_restore_with_committed_store_generation_seven duration={:.3}s",
         started.elapsed().as_secs_f64()
     );
 }
