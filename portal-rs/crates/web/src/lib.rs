@@ -634,3 +634,5 @@ pub mod favicon;
 
 #[cfg(test)]
 mod trace_tests;
+
+pub mod decoration;

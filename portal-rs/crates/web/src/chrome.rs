@@ -157,13 +157,9 @@ async fn wrap_document(response: Response, chrome: &oteryn_ui::Chrome) -> Respon
         return response;
     }
     let (mut parts, body) = response.into_parts();
-    let bytes = match axum::body::to_bytes(body, WRAP_LIMIT).await {
+    let bytes = match crate::decoration::buffer(body, WRAP_LIMIT, None).await {
         Ok(bytes) => bytes,
-        Err(_) => {
-            parts.status = axum::http::StatusCode::INTERNAL_SERVER_ERROR;
-            parts.headers.remove(header::CONTENT_LENGTH);
-            return Response::from_parts(parts, Body::empty());
-        }
+        Err(body) => return Response::from_parts(parts, body),
     };
     let wrapped = std::str::from_utf8(&bytes).ok().and_then(|page| {
         let (top, bottom) = oteryn_ui::shell_parts(chrome)?;

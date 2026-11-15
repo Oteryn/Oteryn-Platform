@@ -3,7 +3,7 @@ use crate::v2_watermark::Part;
 use askama::Template;
 use axum::{
     Extension, Router,
-    body::{Body, Bytes, to_bytes},
+    body::{Body, Bytes},
     extract::{OriginalUri, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{Next, from_fn, from_fn_with_state},
@@ -293,10 +293,11 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     let uri = request.uri().clone();
     let today = matches!(uri.path(), "/today" | "/pl/today" | "/en/today");
     let response = next.run(request).await;
-    if !response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .is_some_and(|v| v.as_bytes().starts_with(b"text/html"))
+    if response.headers().contains_key(header::CONTENT_ENCODING)
+        || !response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .is_some_and(|v| v.as_bytes().starts_with(b"text/html"))
     {
         return response;
     }
@@ -305,17 +306,20 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     let view = result.as_ref().ok().map(|(v, _)| v);
     let lang = result.as_ref().map_or(lang, |(_, l)| *l);
     let (mut parts, body) = response.into_parts();
-    let bytes =
-        match tokio::time::timeout(std::time::Duration::from_secs(3), to_bytes(body, 2_097_152))
-            .await
-        {
-            Ok(Ok(b)) => b,
-            _ => return guard::failure(StatusCode::SERVICE_UNAVAILABLE),
-        };
+    let bytes = match oteryn_web::decoration::buffer(
+        body,
+        2_097_152,
+        Some(std::time::Duration::from_secs(3)),
+    )
+    .await
+    {
+        Ok(bytes) => bytes,
+        Err(body) => return Response::from_parts(parts, body),
+    };
     let view = view.filter(|v| v.eligible(now()));
     let mut html = match String::from_utf8(bytes.to_vec()) {
         Ok(s) => s,
-        Err(_) => return guard::failure(StatusCode::SERVICE_UNAVAILABLE),
+        Err(_) => return Response::from_parts(parts, Body::from(bytes)),
     };
     // The new source participates in the existing page's overall availability.
     if today
