@@ -44,7 +44,7 @@ struct ExchangeState {
 /// command router. Recovery enables only exchange, never `Commands::enqueue`.
 /// `exchange_available` must reflect deployment/environment qualification; the
 /// command guard is additionally probed so absent identities cannot acknowledge
-/// work that Game cannot answer. Use a pool with at least two connections.
+/// work that Game cannot answer. Receipt locking uses the command transaction connection.
 pub fn router(
     restore: Restore,
     mut command_settings: commands::Settings,
@@ -53,8 +53,9 @@ pub fn router(
     if restore.settings.available() && restore.settings.exchange_available {
         command_settings.enabled = true;
     }
-    let commands = commands::Commands::new(restore.pool.clone(), command_settings.clone());
-    let slots = restore.pool.options().get_max_connections() / 2;
+    let commands =
+        commands::Commands::new(restore.pool.clone(), command_settings.clone()).with_restore_lock();
+    let slots = restore.pool.options().get_max_connections();
     let probe = commands::router(commands.clone(), identities.clone());
     let exchange_state = ExchangeState {
         probe: probe.clone(),
@@ -192,8 +193,6 @@ async fn receipt(state: ExchangeState, request: Request, next: Next) -> Result<R
         .acquire()
         .await
         .map_err(|_| Error::Unavailable)?;
-    let mut tx = state.restore.pool.begin().await?;
-    storage::lock(&mut tx, false).await?;
     let mut response = next
         .run(Request::from_parts(parts, Body::from(raw.clone())))
         .await;
@@ -207,14 +206,13 @@ async fn receipt(state: ExchangeState, request: Request, next: Next) -> Result<R
         let latest: Option<String> = sqlx::query_scalar(
             "SELECT max(new_recovery_generation) FROM character_restore_notices",
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&state.restore.pool)
         .await?;
         let v = canonical::decode(&raw, 1024, 4).map_err(|_| Error::BadInput)?;
         let generation = wire::counter(wire::text(&v, "recovery_generation")?)?;
         if latest.is_some_and(|latest| format!("{generation:020}") < latest) {
             let id =
                 Uuid::parse_str(wire::text(&v, "operation_id")?).map_err(|_| Error::BadInput)?;
-            tx.rollback().await?;
             storage::alarm(
                 &state.restore.pool,
                 None,
@@ -226,6 +224,5 @@ async fn receipt(state: ExchangeState, request: Request, next: Next) -> Result<R
             return Ok(response);
         }
     }
-    tx.commit().await?;
     Ok(response)
 }

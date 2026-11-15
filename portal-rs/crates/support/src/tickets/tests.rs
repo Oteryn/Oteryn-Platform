@@ -34,7 +34,12 @@ impl Database {
             .after_connect(move |conn, _| {
                 let path = path.clone();
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(path)).execute(conn).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(path))
+                        .execute(&mut *conn)
+                        .await?;
+                    sqlx::query("SELECT set_config('application_name', current_schema(), false)")
+                        .execute(conn)
+                        .await?;
                     Ok(())
                 })
             })
@@ -235,6 +240,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
     };
     let owner = db.account("pl").await?;
     let actor = db.account("en").await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&db.pool).await?;
     let t = db.tickets(10)?;
     let ticket = t
         .create(owner, Uuid::now_v7(), "account", "Help", "body")
@@ -386,6 +392,7 @@ async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> Tes
     };
     let owner = db.account("en").await?;
     let actor = db.account("en").await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&db.pool).await?;
     let mut t = db.tickets(10)?;
     let ticket = t
         .create(owner, Uuid::now_v7(), "payment", "Help", "body")
@@ -857,3 +864,191 @@ async fn postgres_notification_transaction_with_exhausted_pool() -> TestResult {
     );
     Ok(())
 }
+
+async fn staff_waiting_mutation_rechecks_authority(
+    name: &str,
+    method: &str,
+    action: &str,
+    revocation_kind: &str,
+) -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let owner = db.account("en").await?;
+    let actor = db.account("en").await?;
+    let role: Uuid =
+        sqlx::query_scalar("INSERT INTO roles(key) VALUES ('support_agent') RETURNING id")
+            .fetch_one(&db.pool)
+            .await?;
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.access'),($1,'support.tickets.manage')").bind(role).execute(&db.pool).await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(actor)
+        .bind(role)
+        .execute(&db.pool)
+        .await?;
+    let tickets = db.tickets(10)?;
+    let ticket = tickets
+        .create(owner, Uuid::now_v7(), "other", "Help", "body")
+        .await?;
+    let (cookie, csrf) = db.cookie(actor).await?;
+    let adapter = StaffAdapter {
+        mfa: true,
+        state: oteryn_admin::rbac::AccountState::Active,
+    };
+    let app = staff_router(
+        tickets,
+        oteryn_admin::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        adapter.clone(),
+        adapter,
+    );
+    let mut owner_lock = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(owner)
+        .fetch_one(&mut *owner_lock)
+        .await?;
+    let (surface, fields) = match action {
+        "reply" => ("reply", "body=answer&internal=false"),
+        "note" => ("reply", "body=private&internal=true"),
+        _ => ("status", "status=closed"),
+    };
+    let request = Request::builder()
+        .method(method)
+        .uri(format!("/en/admin/support/tickets/{}/{surface}", ticket.id))
+        .header("host", "staff.test")
+        .header("cookie", cookie)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .extension(ConnectInfo(
+            "127.0.0.1:3210".parse::<std::net::SocketAddr>()?,
+        ))
+        .body(Body::from(format!("_csrf={csrf}&lock_version=1&{fields}")))?;
+    let pending = tokio::spawn(async move { app.oneshot(request).await });
+    // Observe the request waiting at the owner's account lock, after its
+    // shared guard and pre-lock actor read have completed.
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT status,locale FROM accounts%')").bind(&db.schema).fetch_one(&db.pool).await?;
+            if waiting { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        Ok::<(), sqlx::Error>(())
+    }).await??;
+    let mut revocation = db.pool.begin().await?;
+    oteryn_admin::rbac::lock_mutation(&mut revocation).await?;
+    if revocation_kind == "suspend" {
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(actor)
+            .execute(&mut *revocation)
+            .await?;
+    } else if revocation_kind == "role" {
+        sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+            .bind(actor)
+            .execute(&mut *revocation)
+            .await?;
+    }
+    if matches!(revocation_kind, "admin.access" | "support.tickets.manage") {
+        sqlx::query("DELETE FROM role_permissions WHERE role_id=$1 AND permission=$2")
+            .bind(role)
+            .bind(revocation_kind)
+            .execute(&mut *revocation)
+            .await?;
+    }
+    revocation.commit().await?;
+    owner_lock.commit().await?;
+    let response = tokio::time::timeout(std::time::Duration::from_secs(3), pending).await??;
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => match error {},
+    };
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "{name}");
+    let unchanged: (String, i64, bool) =
+        sqlx::query_as("SELECT status,lock_version,unread_reply FROM tickets WHERE id=$1")
+            .bind(ticket.id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(unchanged, ("open".into(), 1, false));
+    let messages: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ticket_messages WHERE ticket_id=$1")
+            .bind(ticket.id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(messages, 1);
+    for table in ["audit_log", "notifications", "email_outbox", "outbox"] {
+        let count: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(count, 0, "{name}: {table}");
+    }
+    db.finish().await?;
+    eprintln!("{name} duration={:?}", started.elapsed());
+    Ok(())
+}
+macro_rules! waiting_staff_test {
+    ($name:ident, $method:literal, $action:literal, $revocation:literal) => {
+        #[tokio::test]
+        async fn $name() -> TestResult {
+            staff_waiting_mutation_rechecks_authority(
+                stringify!($name),
+                $method,
+                $action,
+                $revocation,
+            )
+            .await
+        }
+    };
+}
+waiting_staff_test!(postgres_staff_reply_rechecks_role, "POST", "reply", "role");
+waiting_staff_test!(postgres_staff_note_rechecks_role, "POST", "note", "role");
+waiting_staff_test!(
+    postgres_staff_post_status_rechecks_role,
+    "POST",
+    "status",
+    "role"
+);
+waiting_staff_test!(
+    postgres_staff_put_status_rechecks_role,
+    "PUT",
+    "status",
+    "role"
+);
+waiting_staff_test!(
+    postgres_staff_reply_rechecks_disablement,
+    "POST",
+    "reply",
+    "suspend"
+);
+waiting_staff_test!(
+    postgres_staff_note_rechecks_disablement,
+    "POST",
+    "note",
+    "suspend"
+);
+waiting_staff_test!(
+    postgres_staff_post_status_rechecks_disablement,
+    "POST",
+    "status",
+    "suspend"
+);
+waiting_staff_test!(
+    postgres_staff_put_status_rechecks_disablement,
+    "PUT",
+    "status",
+    "suspend"
+);
+
+waiting_staff_test!(
+    postgres_staff_reply_rechecks_admin_access,
+    "POST",
+    "reply",
+    "admin.access"
+);
+waiting_staff_test!(
+    postgres_staff_reply_rechecks_ticket_permission,
+    "POST",
+    "reply",
+    "support.tickets.manage"
+);
