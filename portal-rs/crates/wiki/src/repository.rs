@@ -16,6 +16,9 @@ pub struct Guide {
     pub revision_version: i64,
     pub entity_key: Option<String>,
 }
+/// History pages contain whole snapshots (at most two locale rows each).
+pub const HISTORY_PAGE_VERSIONS: i64 = 10;
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Revision {
     pub version: i64,
@@ -89,10 +92,15 @@ impl<A: AccountStateReader> Repository<A> {
         tx.commit().await?;
         Ok((guide, values))
     }
-    pub async fn history(&self, context: CheckContext, id: Uuid) -> Result<Vec<Revision>, Error> {
+    pub async fn history(
+        &self,
+        context: CheckContext,
+        id: Uuid,
+        before: Option<i64>,
+    ) -> Result<Vec<Revision>, Error> {
         self.authorize(context, Permission::ManageWikiArticles)
             .await?;
-        Ok(sqlx::query_as("SELECT version,locale,title,slug,summary,markdown,editor,change_note,source_version FROM wiki_revisions WHERE guide_id=$1 ORDER BY version DESC,locale").bind(id).fetch_all(&self.pool).await?)
+        Ok(sqlx::query_as("SELECT version,locale,title,slug,summary,markdown,editor,change_note,source_version FROM wiki_revisions WHERE guide_id=$1 AND version IN (SELECT DISTINCT version FROM wiki_revisions WHERE guide_id=$1 AND ($2::bigint IS NULL OR version<$2) ORDER BY version DESC LIMIT $3) ORDER BY version DESC,locale").bind(id).bind(before).bind(HISTORY_PAGE_VERSIONS).fetch_all(&self.pool).await?)
     }
     pub async fn create(
         &self,

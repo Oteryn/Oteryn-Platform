@@ -31,3 +31,5 @@ draft = Draft
 in_review = In review
 published = Published
 archived = Archived
+
+older = Older revisions

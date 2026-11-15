@@ -31,3 +31,5 @@ draft = Szkic
 in_review = W przeglądzie
 published = Opublikowany
 archived = Zarchiwizowany
+
+older = Starsze wersje

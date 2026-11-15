@@ -285,10 +285,10 @@ async fn page(
             body += "<ul>";
             for p in s.spawns {
                 body += &format!(
-                    "<li><a href=\"/{lang}/atlas/{}/{}/{}\">{} ({}, {}, {})</a></li>",
-                    p.floor,
+                    "<li><a href=\"/{lang}/atlas?x={}&amp;y={}&amp;z={}\">{} ({}, {}, {})</a></li>",
                     p.x,
                     p.y,
+                    p.floor,
                     t.text("map"),
                     p.x,
                     p.y,
