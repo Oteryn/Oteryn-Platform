@@ -121,24 +121,38 @@ impl Runtime {
         extra: Vec<(&str, Value)>,
     ) -> Result<Uuid, Error> {
         self.authority().lock(tx).await?;
-        let key = format!("bazaar:{}:{}:{step}:1", listing.id, command.wire());
-        if let Some(raw) = sqlx::query_scalar::<_, String>(
-            "SELECT intent FROM bazaar_game_outbox WHERE issuance_key=$1",
-        )
-        .bind(&key)
-        .fetch_optional(&mut **tx)
-        .await?
-        {
+        // Follow immutable attempts. Only audited terminal no-effect evidence
+        // permits a new cleanup operation; pending/ambiguous attempts stay fenced.
+        let mut step = step;
+        loop {
+            let key = format!("bazaar:{}:{}:{step}:1", listing.id, command.wire());
+            let raw = sqlx::query_scalar::<_, String>(
+                "SELECT intent FROM bazaar_game_outbox WHERE issuance_key=$1",
+            )
+            .bind(&key)
+            .fetch_optional(&mut **tx)
+            .await?;
+            let Some(raw) = raw else { break };
             let intent = PreparedIntent::parse(&raw)?;
-            for (k, v) in extra {
+            for (k, v) in &extra {
                 if !k.starts_with("expected_")
-                    && k != "eligibility_revision"
-                    && intent.value.get(k) != Some(&v)
+                    && *k != "eligibility_revision"
+                    && intent.value.get(k) != Some(v)
                 {
                     return Err(Error::Conflict);
                 }
             }
-            return id(text(&intent.value, "operation_id")?);
+            let operation = id(text(&intent.value, "operation_id")?)?;
+            if matches!(
+                command,
+                Command::Release | Command::Return | Command::Unlock | Command::Payout
+            ) && let Some((_, receipt)) = self.authority().retained(tx, operation).await?
+                && !receipt.committed
+            {
+                step = operation;
+                continue;
+            }
+            return Ok(operation);
         }
         let asset = sqlx::query("SELECT world_id FROM bazaar_authority_assets WHERE listing_id=$1")
             .bind(listing.id)

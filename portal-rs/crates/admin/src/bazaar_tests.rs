@@ -371,3 +371,48 @@ async fn a2_bazaar_single_connection_and_sixteen_mutations() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn postgres_bazaar_single_connection_mutation_and_audit() {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::new().await else {
+        panic!("PostgreSQL required")
+    };
+    let path = db.schema.clone();
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(move |c, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(c)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&std::env::var("PORTAL_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let listing = db.listing().await;
+    let api = StaffBazaar::new(pool.clone(), Identity(db.actor), true);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        api.execute(db.context(), suspend(listing)),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='bazaar.suspend'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    pool.close().await;
+    db.end().await;
+    eprintln!(
+        "postgres_bazaar_single_connection_mutation_and_audit: {:?}",
+        started.elapsed()
+    );
+}

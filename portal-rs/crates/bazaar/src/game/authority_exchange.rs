@@ -38,7 +38,7 @@ impl Authority {
                 .ok_or(Error::Denied)?;
             let compensation = matches!(
                 i.command,
-                Command::Return | Command::Unlock | Command::Release
+                Command::Return | Command::Unlock | Command::Release | Command::Payout
             ) || (i.command == Command::Bind
                 && text(&i.value, "purpose")? == "BAZAAR_ESCROW_RETURN");
             if if compensation {
@@ -128,7 +128,7 @@ impl Authority {
             for previous in competing {
                 let safe = if let Some((_, receipt)) = self.retained(db, previous).await? {
                     i.command == Command::Return
-                        && receipt.command == Command::Deliver
+                        && matches!(receipt.command, Command::Deliver | Command::Return)
                         && !receipt.committed
                 } else {
                     false
