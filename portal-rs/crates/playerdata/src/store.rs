@@ -561,8 +561,8 @@ impl Store {
         } else {
             expires
         };
-        sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) VALUES($1,$2::numeric,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
-   .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).bind(&r.entity).bind(&r.scope.character).bind(subject_key(&r.scope)).bind(&r.kind).bind(r.occurred_ms as i64).bind(r.coverage_ms as i64).bind(digest).bind(payload).bind(expires as i64).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms,ownership_revision) VALUES($1,$2::numeric,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)")
+   .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).bind(&r.entity).bind(&r.scope.character).bind(subject_key(&r.scope)).bind(&r.kind).bind(r.occurred_ms as i64).bind(r.coverage_ms as i64).bind(digest).bind(payload).bind(expires as i64).bind(&r.scope.character_revision).execute(&mut *tx).await?;
         if r.scope.family == "BANK" {
             sqlx::query("INSERT INTO pd_bank_continuations(stream_key,entry_id,balance_after,coverage_ms) VALUES($1,$2,$3,$4) ON CONFLICT(stream_key) DO UPDATE SET entry_id=EXCLUDED.entry_id,balance_after=EXCLUDED.balance_after,coverage_ms=EXCLUDED.coverage_ms")
                 .bind(&key).bind(&r.entity).bind(playerdata::text(playerdata::get(&r.payload, "balance_after")?)?).bind(r.coverage_ms as i64).execute(&mut *tx).await?;
@@ -687,8 +687,10 @@ impl Store {
                     scope.family.as_str(),
                     "skill_history" | "death_recap" | "pvp"
                 ) {
-                    sqlx::query("UPDATE pd_records r SET expires_ms=LEAST(r.expires_ms,$4) WHERE r.stream_key=$1 AND r.scope_key<>'' AND EXISTS(SELECT 1 FROM pd_records n WHERE n.stream_key=r.stream_key AND n.entity_key=r.entity_key AND n.scope_key=r.scope_key AND n.source_revision>r.source_revision AND n.source_revision>$2::numeric AND n.source_revision<=$3::numeric)")
-                        .bind(&key).bind(after.to_string()).bind(w.through.to_string()).bind(now.saturating_add(7*86400000) as i64).execute(&mut *tx).await?;
+                    // Skull and premium_end carry their changing source revision in
+                    // scope field 3: match the stable fields and ownership instead.
+                    sqlx::query("UPDATE pd_records r SET expires_ms=LEAST(r.expires_ms,$4) WHERE r.stream_key=$1 AND r.scope_key<>'' AND EXISTS(SELECT 1 FROM pd_records n WHERE n.stream_key=r.stream_key AND n.entity_key=r.entity_key AND n.source_revision>r.source_revision AND n.source_revision>$2::numeric AND n.source_revision<=$3::numeric AND ((NOT $5 AND n.scope_key=r.scope_key) OR ($5 AND split_part(n.scope_key,'|',1)=split_part(r.scope_key,'|',1) AND split_part(n.scope_key,'|',2)=split_part(r.scope_key,'|',2) AND split_part(n.scope_key,'|',4)=split_part(r.scope_key,'|',4) AND split_part(n.scope_key,'|',5)=split_part(r.scope_key,'|',5) AND n.ownership_revision IS NOT DISTINCT FROM r.ownership_revision)))")
+                        .bind(&key).bind(after.to_string()).bind(w.through.to_string()).bind(now.saturating_add(7*86400000) as i64).bind(matches!(scope.family.as_str(), "skull" | "premium_end")).execute(&mut *tx).await?;
                 }
                 for consumer in &self.consumers {
                     consumer
@@ -840,7 +842,7 @@ impl Store {
         }
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT r.stream_key FROM pd_records r JOIN pd_streams s USING(stream_key) WHERE s.account_id=$1 AND r.character_id=$2)").bind(account).bind(character).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_records SET payload=NULL,entity_key='',occurred_ms=0,coverage_ms=0,scope_key='',character_id=NULL,expires_ms=$3 WHERE character_id=$2 AND stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).bind(character).bind(now.saturating_add(TOMBSTONE_MS-31*86400000) as i64).execute(&mut *tx).await?;
-        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=COALESCE(purged_at,$3) WHERE account_id=$1::uuid AND character_id=$2::uuid").bind(account).bind(character).bind((now/1000) as i64).execute(&mut *tx).await?;
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=GREATEST(purged_at,$3) WHERE account_id=$1::uuid AND character_id=$2::uuid").bind(account).bind(character).bind((now/1000) as i64).execute(&mut *tx).await?;
         tombstone(&mut tx, account, Some(character), now, closed_revision).await?;
         tx.commit().await?;
         Ok(())
@@ -875,7 +877,7 @@ impl Store {
             .bind(account)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=COALESCE(purged_at,$2) WHERE account_id=$1::uuid").bind(account).bind((now/1000) as i64).execute(&mut *tx).await?;
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=GREATEST(purged_at,$2) WHERE account_id=$1::uuid").bind(account).bind((now/1000) as i64).execute(&mut *tx).await?;
         tombstone(&mut tx, account, None, now, None).await?;
         tx.commit().await?;
         Ok(())

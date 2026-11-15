@@ -389,10 +389,10 @@ impl Routes {
         app.merge(self.routes)
             .layer(middleware::from_fn_with_state(self.diverted, watermark))
             .layer(middleware::from_fn(
-                move |request: Request, next: Next| async move {
+                move |mut request: Request, next: Next| async move {
                     if !valid && request.uri().path().starts_with("/internal/") {
-                        return oteryn_internal_api::guard::failure(
-                            StatusCode::SERVICE_UNAVAILABLE,
+                        request.extensions_mut().insert(
+                            oteryn_internal_api::guard::VerifiedClient::invalid_configuration(),
                         );
                     }
                     next.run(request).await

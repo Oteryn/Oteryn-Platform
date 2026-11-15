@@ -64,6 +64,29 @@ async fn send(app: &Router, identity: &str, body: &str) -> (StatusCode, String) 
         .await
         .unwrap();
     let status = response.status();
+    assert_eq!(
+        response.headers()[axum::http::header::CACHE_CONTROL],
+        "no-store, private"
+    );
+    if matches!(
+        status,
+        StatusCode::BAD_REQUEST
+            | StatusCode::UNAUTHORIZED
+            | StatusCode::CONFLICT
+            | StatusCode::TOO_MANY_REQUESTS
+    ) {
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "application/json"
+        );
+    }
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        assert!(
+            response
+                .headers()
+                .contains_key(axum::http::header::RETRY_AFTER)
+        );
+    }
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
     (status, String::from_utf8(body.to_vec()).unwrap())
 }
@@ -192,10 +215,10 @@ async fn route_is_off_by_default_and_keeps_identities_apart() {
         StatusCode::UNAUTHORIZED
     );
     // Rule 1: a locator SAN in scope but without a node mapping is refused
-    // before any database read, with an empty body.
+    // before any database read, with the fixed refusal envelope.
     assert_eq!(
         send(&app, "unmapped", &report()).await,
-        (StatusCode::UNAUTHORIZED, String::new())
+        (StatusCode::UNAUTHORIZED, refusal_fixture("unauthorized"))
     );
     let runtime_route = app
         .clone()
@@ -212,7 +235,10 @@ async fn route_is_off_by_default_and_keeps_identities_apart() {
     assert_eq!(runtime_route.status(), StatusCode::UNAUTHORIZED);
     // Outside its scope list.
     let other = report().replace(CHANNEL, "0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a72");
-    assert_eq!(send(&app, "node", &other).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        send(&app, "node", &other).await,
+        (StatusCode::UNAUTHORIZED, refusal_fixture("unauthorized"))
+    );
     // A report over 1024 bytes.
     let large = report().replacen('{', &format!("{{\"pad\":\"{}\",", "a".repeat(700)), 1);
     assert_eq!(
@@ -316,6 +342,7 @@ fn revision(raw: &str, n: u64) -> String {
 
 #[tokio::test]
 async fn db_locator_acceptance_ordering_and_refusals() -> TestResult {
+    let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -376,9 +403,12 @@ async fn db_locator_acceptance_ordering_and_refusals() -> TestResult {
         "\"scope_ownership_generation\":1",
         "\"scope_ownership_generation\":2",
     );
-    assert_eq!(send(&app, "node", &stale).await.0, StatusCode::CONFLICT);
+    assert_eq!(
+        send(&app, "node", &stale).await,
+        (StatusCode::CONFLICT, refusal_fixture("conflict"))
+    );
     // Rule 1: the SAN maps to another node_identity than the assignment's,
-    // or has no mapping: refused with an empty body, nothing stored.
+    // or has no mapping: refused with the fixed envelope, nothing stored.
     let elsewhere: Router = router(
         db.pool.clone(),
         Settings {
@@ -389,7 +419,7 @@ async fn db_locator_acceptance_ordering_and_refusals() -> TestResult {
     );
     assert_eq!(
         send(&elsewhere, "node", &good).await,
-        (StatusCode::UNAUTHORIZED, String::new())
+        (StatusCode::UNAUTHORIZED, refusal_fixture("unauthorized"))
     );
     let unmapped: Router = router(
         db.pool.clone(),
@@ -401,7 +431,7 @@ async fn db_locator_acceptance_ordering_and_refusals() -> TestResult {
     );
     assert_eq!(
         send(&unmapped, "node", &good).await,
-        (StatusCode::UNAUTHORIZED, String::new())
+        (StatusCode::UNAUTHORIZED, refusal_fixture("unauthorized"))
     );
     assert_eq!(entry(&db).await, None);
     // Rule 1: a deposed owner in scope is refused.
@@ -462,7 +492,12 @@ async fn db_locator_acceptance_ordering_and_refusals() -> TestResult {
         entry(&db).await,
         Some(("2".into(), "1".into(), true, false))
     );
-    db.close().await
+    db.close().await?;
+    eprintln!(
+        "PG db_locator_acceptance_ordering_and_refusals {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
 }
 
 #[tokio::test]
@@ -493,4 +528,39 @@ async fn futures_join(pool: &PgPool, reports: Vec<Report>) -> Vec<Result<&'stati
         results.push(result.unwrap());
     }
     results
+}
+
+fn refusal_fixture(kind: &str) -> String {
+    std::fs::read_to_string(format!(
+        "{}/tests/fixtures/locator-{kind}.json",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap()
+    .trim_end()
+    .to_owned()
+}
+
+#[tokio::test]
+async fn locator_refusal_envelopes_are_frozen() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@127.0.0.1/unused")
+        .unwrap();
+    let app = router(
+        pool,
+        Settings {
+            requests_per_minute: 1,
+            ..settings()
+        },
+        identities(),
+    );
+    for (peer, body, status, fixture) in [
+        ("stranger", "{}", StatusCode::UNAUTHORIZED, "unauthorized"),
+        ("node", "not json", StatusCode::BAD_REQUEST, "malformed"),
+        ("node", "{}", StatusCode::TOO_MANY_REQUESTS, "throttled"),
+    ] {
+        assert_eq!(
+            send(&app, peer, body).await,
+            (status, refusal_fixture(fixture))
+        );
+    }
 }

@@ -833,6 +833,29 @@ async fn db_binary_refuses_restore_with_committed_store_generation_seven() {
 
 #[tokio::test]
 async fn db_g9_revision3_goldens_through_binary_router() {
+    g9_goldens_case("all").await;
+}
+#[tokio::test]
+async fn db_l8_orphan_drop_blocks_application() {
+    g9_goldens_case("orphan").await;
+}
+#[tokio::test]
+async fn db_l8_transfer_straddling_segment_is_refused() {
+    g9_goldens_case("transfer").await;
+}
+#[tokio::test]
+async fn db_l8_g9_binding_alarms_are_durable_and_deduplicated() {
+    g9_goldens_case("alarms").await;
+}
+#[tokio::test]
+async fn db_l8_g9_tombstones_expire_without_replay() {
+    g9_goldens_case("retention").await;
+}
+#[tokio::test]
+async fn db_l8_g9_mixed_retention_closes_generation() {
+    g9_goldens_case("retention_mixed").await;
+}
+async fn g9_goldens_case(regression: &str) {
     let started = std::time::Instant::now();
     let db = Database::new().await.expect("real PostgreSQL is required");
     let contract = include_str!(
@@ -879,6 +902,95 @@ async fn db_g9_revision3_goldens_through_binary_router() {
     .collect();
     let app = db.app(&settings).await;
     let accepted = br#"{"contract_version":1,"result":"accepted"}"#.to_vec();
+    if matches!(regression, "all" | "orphan") {
+        // L8-001: a sealed unrelated segment cannot resolve an orphan drop.
+        let orphan = String::from_utf8(drop.clone()).unwrap().replace(
+            "019a5000-0000-7000-8000-000000000004",
+            "019a5000-0000-7000-8000-000000000044",
+        );
+        let empty_segment = String::from_utf8(segment.clone())
+            .unwrap()
+            .replace("\"rare_drop_count\":1", "\"rare_drop_count\":0");
+        assert_ne!(orphan.as_bytes(), drop);
+        assert_ne!(empty_segment.as_bytes(), segment);
+        assert_eq!(
+            call(&app, san, sessions::RECORDS, orphan.as_bytes())
+                .await
+                .0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            call(&app, san, sessions::RECORDS, empty_segment.as_bytes())
+                .await
+                .0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            db.count("SELECT count(*) FROM pd_g9_records WHERE resolved")
+                .await,
+            0
+        );
+        assert_eq!(
+            db.count("SELECT applied_through::bigint FROM pd_g9_streams")
+                .await,
+            0
+        );
+        sqlx::query("DELETE FROM pd_g9_records")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE pd_g9_streams SET highest_seen=0,stored_through=0,applied_through=0")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    if matches!(regression, "all" | "transfer") {
+        // L8-002: the authoritative cut lies inside this otherwise valid segment.
+        let parsed: serde_json::Value = serde_json::from_slice(&segment).unwrap();
+        let start = parsed["record"]["started_at"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap();
+        let end = parsed["record"]["ended_at"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap();
+        let transfer = Uuid::now_v7().to_string();
+        let receipt = serde_json::json!({"outcome":"COMMITTED","result_code":"CHAR_CMD_OK","from_account_id":MODERATOR,"to_account_id":account,"character_revision":"2","from_projection_revision":"1","to_projection_revision":"2","projection_epoch":"1","recovery_generation":"1","decided_at":((start+end)/2).to_string()}).to_string();
+        sqlx::query("UPDATE pd_ownership_baselines SET account_id=$1::uuid")
+            .bind(MODERATOR)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE account_character_snapshots SET projection_revision='2' WHERE account_id=$1::uuid").bind(account).execute(&db.pool).await.unwrap();
+        sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json,receipt_json,state) VALUES($1::uuid,$1::uuid,$1,'TransferCharacterOwnership',$2::uuid,$3::uuid,json_build_object('character_id',$4::text)::text,'',$5,'TERMINAL')")
+        .bind(&transfer).bind(MODERATOR).bind(account).bind(character).bind(receipt).execute(&db.pool).await.unwrap();
+        let straddling = String::from_utf8(segment.clone()).unwrap().replace(
+            "\"character_revision\":\"1\"",
+            "\"character_revision\":\"2\"",
+        );
+        assert_eq!(
+            call(&app, san, sessions::RECORDS, straddling.as_bytes())
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(db.count("SELECT count(*) FROM pd_g9_records").await, 0);
+        assert_eq!(db.count("SELECT highest_seen::bigint+stored_through::bigint+applied_through::bigint FROM pd_g9_streams").await, 0);
+        sqlx::query("DELETE FROM character_commands WHERE id=$1::uuid")
+            .bind(transfer)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE pd_ownership_baselines SET account_id=$1::uuid")
+            .bind(account)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE account_character_snapshots SET projection_revision='1' WHERE account_id=$1::uuid").bind(account).execute(&db.pool).await.unwrap();
+    }
     // Out-of-order delivery stores evidence but cannot claim a contiguous prefix.
     assert_eq!(
         call(&app, san, sessions::RECORDS, &drop).await,
@@ -927,6 +1039,25 @@ async fn db_g9_revision3_goldens_through_binary_router() {
     sessions::enqueue(&db.pool, "game.test", &intent)
         .await
         .unwrap();
+    if matches!(regression, "all" | "alarms") {
+        let changed_intent = String::from_utf8(intent.clone())
+            .unwrap()
+            .replace("\"source_revision\":\"1\"", "\"source_revision\":\"2\"");
+        assert_ne!(changed_intent.as_bytes(), intent);
+        for _ in 0..2 {
+            assert_eq!(
+                sessions::enqueue(&db.pool, "game.test", changed_intent.as_bytes()).await,
+                Err(StatusCode::CONFLICT)
+            );
+        }
+        assert_eq!(
+            db.count(
+                "SELECT count(*) FROM audit_log WHERE action='ops.playerdata_binding_conflict'"
+            )
+            .await,
+            1
+        );
+    }
     let pending=br#"{"contract_version":1,"operation":"ListPendingGameJournalCommandsV1","source_authority":"game.test","after_source_revision":"0","after_operation_id":"00000000-0000-0000-0000-000000000000","max_entries":32}"#;
     assert_eq!(call(&app,san,sessions::COMMANDS[0],pending).await,(StatusCode::OK,br#"{"contract_version":1,"entries":[{"operation_id":"019a5000-0000-7000-8000-000000000009","source_revision":"1"}]}"#.to_vec()));
     let read=br#"{"contract_version":1,"operation":"ReadGameJournalCommandIntentV1","source_authority":"game.test","issuer_authority":"OTERYN_PLATFORM_GAME_JOURNAL","operation_id":"019a5000-0000-7000-8000-000000000009"}"#;
@@ -971,6 +1102,59 @@ async fn db_g9_revision3_goldens_through_binary_router() {
             .0,
         StatusCode::CONFLICT
     );
+    if matches!(regression, "all" | "alarms") {
+        for _ in 0..2 {
+            assert_eq!(
+                call(&app, san, sessions::RECORDS, conflict.as_bytes())
+                    .await
+                    .0,
+                StatusCode::CONFLICT
+            );
+            assert_eq!(
+                call(&app, san, sessions::COMMANDS[2], changed.as_bytes())
+                    .await
+                    .0,
+                StatusCode::CONFLICT
+            );
+        }
+        let wrong_binding = receipt.replace(&digest, &"0".repeat(64));
+        for _ in 0..2 {
+            assert_eq!(
+                call(&app, san, sessions::COMMANDS[2], wrong_binding.as_bytes())
+                    .await
+                    .0,
+                StatusCode::CONFLICT
+            );
+        }
+        assert_eq!(
+            db.count(
+                "SELECT count(*) FROM audit_log WHERE action='ops.playerdata_binding_conflict'"
+            )
+            .await,
+            3
+        );
+        // Same non-null fields consumed by the durable operator alert reader.
+        let alerts: Vec<(String,String,String)> = sqlx::query_as("SELECT after->>'authority',after->>'family',after->>'record_id' FROM audit_log WHERE action='ops.playerdata_binding_conflict'").fetch_all(&db.pool).await.unwrap();
+        assert_eq!(alerts.len(), 3);
+        assert!(
+            alerts
+                .iter()
+                .all(|(authority, family, reference)| authority == "game.test"
+                    && family == "G9"
+                    && reference.len() == 64)
+        );
+        let original: Vec<u8> =
+            sqlx::query_scalar("SELECT canonical_bytes FROM pd_g9_records WHERE source_revision=1")
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(original, segment);
+        let original: Vec<u8> = sqlx::query_scalar("SELECT receipt FROM pd_g9_commands")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(original, receipt.as_bytes());
+    }
     let fenced = String::from_utf8(segment.clone())
         .unwrap()
         .replace(generation, "019a5000-0000-7000-8000-000000000099");
@@ -996,9 +1180,191 @@ async fn db_g9_revision3_goldens_through_binary_router() {
         );
     }
     assert_eq!(db.count("SELECT count(*) FROM pd_g9_records").await, 2);
+    if matches!(regression, "all" | "retention") {
+        // L8-007: retain until 120 days after the later purge, then drop digests.
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=floor(extract(epoch FROM clock_timestamp()))::bigint-120*86400+3600").execute(&db.pool).await.unwrap();
+        oteryn_playerdata::retention::Retention(db.pool.clone())
+            .expire_batch()
+            .await
+            .unwrap();
+        assert_eq!(db.count("SELECT count(*) FROM pd_g9_records").await, 2);
+        sqlx::query("UPDATE pd_g9_records SET purged_at=purged_at-7200")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        oteryn_playerdata::retention::Retention(db.pool.clone())
+            .expire_batch()
+            .await
+            .unwrap();
+        assert_eq!(db.count("SELECT count(*) FROM pd_g9_records").await, 0);
+        sqlx::query("UPDATE pd_g9_streams SET conflicted=false")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            call(&app, san, sessions::RECORDS, &segment).await.0,
+            StatusCode::CONFLICT
+        );
+    }
+    if regression == "retention_mixed" {
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=floor(extract(epoch FROM clock_timestamp()))::bigint-121*86400 WHERE source_revision=2").execute(&db.pool).await.unwrap();
+        oteryn_playerdata::retention::Retention(db.pool.clone())
+            .expire_batch()
+            .await
+            .unwrap();
+        assert_eq!(db.count("SELECT count(*) FROM pd_g9_records").await, 1);
+        assert_eq!(db.count("SELECT count(*) FROM pd_g9_streams WHERE blocked AND NOT admitted AND retention_floor=2 AND stored_through=2 AND applied_through=2").await, 1);
+        sqlx::query("UPDATE pd_g9_streams SET conflicted=false")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            call(&app, san, sessions::RECORDS, &drop).await.0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(db.count("SELECT count(*) FROM pd_g9_records").await, 1);
+    }
     db.finish().await;
     eprintln!(
-        "PG db_g9_revision3_goldens_through_binary_router {:.3}s",
+        "PG g9_goldens_case/{regression} {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
+
+#[tokio::test]
+async fn l8_composed_refusals_preserve_wire_and_cache() {
+    let started = std::time::Instant::now();
+    let pool = oteryn_db::lazy_pool("postgres://unused@127.0.0.1/unused").unwrap();
+    let mut values = values();
+    values.insert(PREMIUM_IDENTITY.into(), STORE.into());
+    let coins = oteryn_wallet::wire::router(
+        Ledger::new(
+            pool.clone(),
+            WalletFlags { enabled: true },
+            Funding,
+            Funding,
+            Funding,
+        ),
+        oteryn_wallet::wire::Flags {
+            transfers: true,
+            market: true,
+        },
+        IdentityMap::new(vec![Binding {
+            identity: Identity::san(STORE).unwrap(),
+            group: "game-coins".into(),
+        }])
+        .unwrap(),
+    );
+    let app = Routes::configured(pool, &values, oteryn_core::Environment::Testing)
+        .await
+        .mount(coins);
+    for (path, cache, expected) in [
+        (
+            "/internal/v1/coins/transfers",
+            "no-store",
+            br#"{"result":"unavailable"}"#.as_slice(),
+        ),
+        (
+            "/internal/v1/coins/market/offers",
+            "no-store",
+            br#"{"result":"unavailable"}"#.as_slice(),
+        ),
+        (
+            "/internal/v1/game-auth/character-commands/pending",
+            "no-store, private",
+            b"".as_slice(),
+        ),
+        (
+            oteryn_playerdata::sessions::RECORDS,
+            "no-store",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v1/game-auth/game-restore/notice",
+            "no-store, private",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v2/game-auth/character-services/state",
+            "no-store, private",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v1/game-auth/character-bootstrap-intents/read",
+            "no-store, private",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v1/products-entitlements/premium-snapshots/read",
+            "no-store, private",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v1/products-entitlements/loyalty-snapshots/read",
+            "no-store, private",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v1/products-entitlements/profile-b/authority/read",
+            "no-store, private",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v1/products-entitlements/store/operations/pending",
+            "no-store",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v1/products-entitlements/store/purchases",
+            "no-store",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v1/playerdata/progress/record",
+            "no-store",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v2/game-public/character-online-session",
+            "no-store, private",
+            b"".as_slice(),
+        ),
+        (
+            "/internal/v2/game-public/watermark",
+            "private, no-store, max-age=0",
+            b"".as_slice(),
+        ),
+    ] {
+        for san in [STORE, STRANGER] {
+            let client = VerifiedClient::from_verified_tls13_http11(Identity::san(san).unwrap());
+            let scoped = crate::internal_tls::scoped(
+                app.clone(),
+                client,
+                None,
+                "127.0.0.1:9".parse().unwrap(),
+            );
+            let response = scoped
+                .oneshot(
+                    axum::http::Request::post(path)
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from("not json"))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+            assert_eq!(response.headers()[header::CACHE_CONTROL], cache, "{path}");
+            if path.contains("/coins/") {
+                assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+            }
+            assert_eq!(
+                to_bytes(response.into_body(), 4096).await.unwrap().as_ref(),
+                expected
+            );
+        }
+    }
+    eprintln!(
+        "l8_composed_refusals_preserve_wire_and_cache {:.3}s",
         started.elapsed().as_secs_f64()
     );
 }

@@ -786,6 +786,33 @@ async fn postgres_pd2_01_production_lifecycle_dispatches_death_erasure() {
     let count:i64=sqlx::query_scalar("SELECT count(*) FROM pd_t78_records WHERE payload IS NOT NULL OR entity_key<>'' OR occurred_at_ms<>0").fetch_one(&database.pool).await.unwrap();
     assert_eq!(count, 0);
     assert_eq!(repo.ingest(&bytes(&r), NOW).await.unwrap(), accepted);
+    sqlx::query("UPDATE pd_t78_records SET erased_at_ms=floor(extract(epoch FROM clock_timestamp())*1000)::bigint-120*86400000::bigint+3600000").execute(&database.pool).await.unwrap();
+    crate::retention::Retention(database.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_t78_records")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    sqlx::query("UPDATE pd_t78_records SET erased_at_ms=erased_at_ms-7200000")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    crate::retention::Retention(database.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_t78_records")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    assert!(matches!(
+        repo.ingest(&bytes(&r), NOW).await,
+        Err(Failure::Conflict)
+    ));
     sqlx::query("INSERT INTO pd_erasure_jobs(account_id) VALUES($1)")
         .bind(ACCOUNT)
         .execute(&database.pool)
