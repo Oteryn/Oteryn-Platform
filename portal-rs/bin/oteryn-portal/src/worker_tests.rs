@@ -323,6 +323,7 @@ async fn shutdown_drains_in_flight_job() -> TestResult {
 
 #[tokio::test]
 async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
+    let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -464,6 +465,34 @@ async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
     tx.rollback().await?;
     oteryn_db::migrate(&db.pool).await?;
 
+    let paid = payments.intent(intent.id).await?;
+    for attempt in 0..2 {
+        let body = serde_json::to_vec(&PaymentEvent {
+            event_id: format!("refund-{attempt}"),
+            intent_id: paid.id,
+            provider_reference: paid.provider_reference.clone(),
+            amount: paid.amount.clone(),
+            state: IntentState::Refunded,
+        })?;
+        assert!(matches!(
+            payments.webhook(&body, &provider.sign(&body)?).await,
+            Err(oteryn_payments::Error::IllegalTransition)
+        ));
+    }
+    assert_eq!(
+        payments.intent(intent.id).await?.state,
+        IntentState::Succeeded
+    );
+    let balance: i64 =
+        query_scalar("SELECT sum(available_delta)::bigint FROM wallet_entries WHERE account_id=$1")
+            .bind(account)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(balance, 1234);
+    eprintln!(
+        "PG paid_topup_webhook_outbox_worker_balance (L6-03) {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
     db.close().await
 }
 

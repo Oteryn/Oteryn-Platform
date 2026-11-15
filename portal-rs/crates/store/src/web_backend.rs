@@ -217,13 +217,25 @@ where
 #[derive(Clone)]
 struct ReadAccounts(PgPool);
 impl AccountStateReader for ReadAccounts {
+    async fn safe_return(
+        &self,
+        db: &mut sqlx::PgConnection,
+        account: uuid::Uuid,
+    ) -> oteryn_wallet::AccountState {
+        match oteryn_wallet::safe_return_in(db, account).await {
+            Ok(true) => oteryn_wallet::AccountState::Active,
+            Ok(false) => oteryn_wallet::AccountState::Inactive,
+            Err(_) => oteryn_wallet::AccountState::Unavailable,
+        }
+    }
+
     async fn state(
         &self,
         conn: &mut sqlx::PgConnection,
         account: Uuid,
     ) -> oteryn_wallet::AccountState {
-        match sqlx::query_scalar::<_, bool>("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(conn).await {
-            Ok(Some(true)) => oteryn_wallet::AccountState::Active,
+        match oteryn_wallet::value_eligible_in(conn, account).await {
+            Ok(true) => oteryn_wallet::AccountState::Active,
             _ => oteryn_wallet::AccountState::Unknown,
         }
     }
@@ -259,11 +271,12 @@ impl Access for ReadAccounts {
     }
 }
 async fn active(pool: &PgPool, account: Uuid) -> Result<bool, Error> {
-    oteryn_identity::accounts::Accounts { pool: pool.clone() }
-        .find_by_id(account)
+    let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
+    let allowed = oteryn_wallet::value_eligible_in(&mut tx, account)
         .await
-        .map(|a| a.is_some_and(|a| a.status == "active" && a.email_verified_at.is_some()))
-        .map_err(|_| Error::Unavailable)
+        .map_err(|_| Error::Unavailable)?;
+    tx.commit().await.map_err(|_| Error::Unavailable)?;
+    Ok(allowed)
 }
 pub fn configured(pool: PgPool, top_ups: Option<Arc<dyn TopUps>>) -> Arc<dyn Backend> {
     let accounts = ReadAccounts(pool.clone());

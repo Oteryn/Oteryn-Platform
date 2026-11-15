@@ -81,18 +81,14 @@ async fn database() -> std::result::Result<Option<PgPool>, Box<dyn std::error::E
         })
         .connect(&url)
         .await?;
-    // Isolated account contract fixture; production migrations are exercised separately.
-    sqlx::raw_sql("CREATE TABLE accounts(id uuid PRIMARY KEY,status text NOT NULL,email_verified_at timestamptz); CREATE TABLE t91_test_balances(owner uuid PRIMARY KEY,balance bigint NOT NULL); CREATE TABLE t91_test_grants(owner uuid,cards jsonb);").execute(&pool).await?;
-    sqlx::raw_sql(include_str!(
-        "../../../../migrations/20261105231211_t91_collection_pvp.sql"
-    ))
-    .execute(&pool)
-    .await?;
+    // Real identity and value eligibility are part of the purchase contract.
+    oteryn_db::migrate(&pool).await?;
+    sqlx::raw_sql("CREATE TABLE t91_test_balances(owner uuid PRIMARY KEY,balance bigint NOT NULL); CREATE TABLE t91_test_grants(owner uuid,cards jsonb);").execute(&pool).await?;
     Ok(Some(pool))
 }
 async fn account(pool: &PgPool) -> Result<Uuid> {
     let id = Uuid::now_v7();
-    sqlx::query("INSERT INTO accounts VALUES($1,'active',now())")
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',now(),'en')")
         .bind(id)
         .execute(pool)
         .await?;
@@ -345,11 +341,6 @@ async fn postgres_browser_success_refusal_csrf_and_bad_input()
     let Some(pool) = database().await? else {
         return Ok(());
     };
-    sqlx::raw_sql(include_str!(
-        "../../../../migrations/20261105144852_t02_web_sessions.sql"
-    ))
-    .execute(&pool)
-    .await?;
     let a = account(&pool).await?;
     async fn login(
         State(actor): State<Uuid>,

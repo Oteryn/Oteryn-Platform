@@ -111,13 +111,14 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             reference: None,
             reason: None,
         };
-        if claim(&mut tx, &operation).await? {
+        let replayed = claim(&mut tx, &operation).await?;
+        self.allowed(&mut tx, sender).await?;
+        self.allowed(&mut tx, recipient).await?;
+        if replayed {
             let result = receipt(&mut tx, key, true).await?;
             tx.commit().await?;
             return Ok(result);
         }
-        self.allowed(&mut tx, sender).await?;
-        self.allowed(&mut tx, recipient).await?;
         crate::debt::unlocked(&mut tx, sender).await?;
         entry(&mut tx, key, sender, -amount, 0).await?;
         credit(&mut tx, key, recipient, amount).await?;
@@ -314,7 +315,11 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         valid_id(account)?;
         valid_key(reservation)?;
         let mut tx = self.pool.begin().await?;
-        self.active(&mut tx, account).await?;
+        if capture {
+            self.active(&mut tx, account).await?;
+        } else {
+            Self::active_state(self.accounts.safe_return(&mut tx, account).await)?;
+        }
         lock(&mut tx, account).await?;
         let row = sqlx::query("SELECT amount-COALESCE((to_jsonb(wallet_reservations)->>'consumed')::bigint,0) AS amount, status FROM wallet_reservations WHERE id=$1 AND account_id=$2 FOR UPDATE")
             .bind(reservation).bind(account).fetch_optional(&mut *tx).await?.ok_or(Refusal::ReservationMissing)?;
@@ -632,7 +637,11 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         valid_key(key)?;
         valid_id(account)?;
         valid_key(reservation)?;
-        self.active(tx, account).await?;
+        if capture {
+            self.active(tx, account).await?;
+        } else {
+            Self::active_state(self.accounts.safe_return(tx, account).await)?;
+        }
         lock(tx, account).await?;
         let row = sqlx::query("SELECT amount-COALESCE((to_jsonb(wallet_reservations)->>'consumed')::bigint,0) AS amount, status FROM wallet_reservations WHERE id=$1 AND account_id=$2 FOR UPDATE")
             .bind(reservation).bind(account).fetch_optional(&mut **tx).await?.ok_or(Refusal::ReservationMissing)?;
@@ -774,8 +783,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             },
         )
         .await?;
+        self.allowed(&mut tx, account).await?;
         if !replayed {
-            self.allowed(&mut tx, account).await?;
             crate::debt::unlocked(&mut tx, account).await?;
             entry(&mut tx, key, account, -amount, amount).await?;
             sqlx::query("INSERT INTO wallet_reservations (id,account_id,amount) VALUES ($1,$2,$3)")
@@ -841,9 +850,9 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             },
         )
         .await?;
+        self.allowed(&mut tx, seller).await?;
+        self.allowed(&mut tx, buyer).await?;
         if !replayed {
-            self.allowed(&mut tx, seller).await?;
-            self.allowed(&mut tx, buyer).await?;
             let row = sqlx::query("SELECT amount-consumed AS remaining,status FROM wallet_reservations WHERE id=$1 FOR UPDATE").bind(reservation).fetch_one(&mut *tx).await?;
             let remaining: i64 = row.try_get("remaining")?;
             let status: String = row.try_get("status")?;

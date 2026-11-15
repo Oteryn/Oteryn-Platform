@@ -73,16 +73,7 @@ impl Database {
             .connect(&url)
             .await
             .unwrap();
-        for raw in [
-            include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
-            include_str!("../../../../migrations/20261105151420_t26_wallet.sql"),
-            include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
-            include_str!("../../../../migrations/20261105160020_t23_restore_reconciliation.sql"),
-            include_str!("../../../../migrations/20261105231501_t46_character_services.sql"),
-            "CREATE TABLE accounts(id uuid PRIMARY KEY,status text NOT NULL)",
-        ] {
-            sqlx::raw_sql(raw).execute(&pool).await.unwrap();
-        }
+        oteryn_db::migrate(&pool).await.unwrap();
         Some(Self {
             pool,
             admin,
@@ -145,7 +136,7 @@ fn snapshot(
     )
 }
 async fn seed(s: &Services, account: Uuid, character: Uuid, coins: i64) {
-    sqlx::query("INSERT INTO accounts VALUES ($1,'active') ON CONFLICT DO NOTHING")
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES ($1,$1::text||'@example.invalid','test','active',now(),'en') ON CONFLICT DO NOTHING")
         .bind(account)
         .execute(&s.pool)
         .await
@@ -388,7 +379,7 @@ async fn postgres_owner_stale_unknown_flags_and_bad_input_deny() {
     let b = Uuid::now_v7();
     let c = Uuid::now_v7();
     seed(&s, a, c, 100).await;
-    sqlx::query("INSERT INTO accounts VALUES ($1,'active')")
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES ($1,$1::text||'@example.invalid','test','active',now(),'en')")
         .bind(b)
         .execute(&db.pool)
         .await
@@ -434,12 +425,20 @@ async fn postgres_owner_stale_unknown_flags_and_bad_input_deny() {
         .execute(&db.pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE accounts SET status='locked' WHERE id=$1")
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
         .bind(a)
         .execute(&db.pool)
         .await
         .unwrap();
     assert!(matches!(s.request(a, rename(c)).await, Err(Error::Denied)));
+    // The real identity schema also refuses the old fixture's unknown status.
+    assert!(
+        sqlx::query("UPDATE accounts SET status='locked' WHERE id=$1")
+            .bind(a)
+            .execute(&db.pool)
+            .await
+            .is_err()
+    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM character_commands")
             .fetch_one(&db.pool)
@@ -814,18 +813,12 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
     let Some(db) = Database::open().await else {
         return;
     };
-    sqlx::raw_sql(include_str!(
-        "../../../../migrations/20261105144852_t02_web_sessions.sql"
-    ))
-    .execute(&db.pool)
-    .await
-    .unwrap();
     let s = Services::new(db.pool.clone(), settings());
     let a = Uuid::now_v7();
     let other = Uuid::now_v7();
     let c = Uuid::now_v7();
     seed(&s, a, c, 100).await;
-    sqlx::query("INSERT INTO accounts VALUES ($1,'active')")
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES ($1,$1::text||'@example.invalid','test','active',now(),'en')")
         .bind(other)
         .execute(&db.pool)
         .await
@@ -1141,4 +1134,41 @@ async fn bzb_rate_refusal_precedes_malformed_and_oversized_bodies() {
             StatusCode::TOO_MANY_REQUESTS
         );
     }
+}
+
+#[tokio::test]
+async fn l6_04_rejected_paid_rename_releases_suspended_holder_once() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let service = Services::new(db.pool.clone(), settings());
+    let account = Uuid::now_v7();
+    let character = Uuid::now_v7();
+    seed(&service, account, character, 200).await;
+    let command = service.request(account, rename(character)).await.unwrap();
+    assert_eq!(balance(&service, account).await, (130, 70));
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let rejected = receipt(&command, false, 3);
+    service.receive(rejected.as_bytes()).await.unwrap();
+    service.receive(rejected.as_bytes()).await.unwrap();
+    let total: (i64,i64) = sqlx::query_as("SELECT sum(available_delta)::bigint,sum(reserved_delta)::bigint FROM wallet_entries WHERE account_id=$1").bind(account).fetch_one(&db.pool).await.unwrap();
+    assert_eq!(total, (200, 0));
+    let releases: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM wallet_operations WHERE account_id=$1 AND kind='release'",
+    )
+    .bind(account)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(releases, 1);
+    db.close().await;
+    eprintln!(
+        "PG l6_04_rejected_paid_rename_releases_suspended_holder_once {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
 }

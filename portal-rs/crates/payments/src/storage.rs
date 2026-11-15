@@ -193,8 +193,30 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
             tx.commit().await?;
             return Ok(WebhookOutcome::Replay);
         }
+        if event.state == IntentState::Refunded {
+            // Delivery takes this same intent lock before crediting. A refund
+            // may win before delivery, but cannot erase an existing coin credit.
+            let delivered: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM store_web_topups t JOIN wallet_operations w ON w.id=t.payment_intent_id AND w.kind='top_up' WHERE t.payment_intent_id=$1)",
+            )
+            .bind(event.intent_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if delivered {
+                return Err(Error::IllegalTransition);
+            }
+        }
         IntentState::parse(row.try_get("state")?)?.transition(event.state)?;
-        self.eligible(account_id).await?;
+        if event.state == IntentState::Refunded {
+            if !matches!(
+                self.accounts.refund_state(account_id).await,
+                Ok(AccountState::Active)
+            ) {
+                return Err(Error::AccountDenied);
+            }
+        } else {
+            self.eligible(account_id).await?;
+        }
         sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1")
             .bind(event.intent_id)
             .bind(event.state.as_str())

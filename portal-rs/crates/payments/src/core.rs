@@ -37,6 +37,12 @@ pub enum AccountState {
 #[allow(async_fn_in_trait)]
 pub trait AccountReader: Send + Sync {
     async fn state(&self, account_id: Uuid) -> Result<AccountState, Error>;
+
+    /// Refunds return an existing payment; adapters may retain a separate
+    /// identity policy from new acquisitions. The default remains fail closed.
+    async fn refund_state(&self, account_id: Uuid) -> Result<AccountState, Error> {
+        self.state(account_id).await
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

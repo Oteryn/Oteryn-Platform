@@ -101,3 +101,10 @@ purchase hold. A verified payment for such a payer is held without coins
 event (changed payload for a known event ID, or a binding mismatch) is audited
 after rollback (`coin_purchase.event_replay_refused` / `coin_purchase.event_refused`).
 Partial refunds need a new contract. No HTTP route delivers provider events.
+
+Browser `store_web_topups` refunds are refused after coin delivery while
+reversal/debt handling is unavailable. Before delivery, refunds retain their
+existing behavior: webhook processing and the worker lock the same intent, so
+an accepted refund prevents later credit. After delivery the payment remains
+succeeded and its immutable credit is retained. Native coin reversals keep
+their existing contract and idempotency rules.

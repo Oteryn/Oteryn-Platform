@@ -34,6 +34,16 @@ pub trait AccountStateReader: Send + Sync {
         connection: &mut PgConnection,
         account: Uuid,
     ) -> impl Future<Output = AccountState> + Send;
+
+    /// Existing holds may return to a restricted holder; adapters must explicitly
+    /// opt in to suspended identities while retaining an authoritative row lock.
+    fn safe_return(
+        &self,
+        connection: &mut PgConnection,
+        account: Uuid,
+    ) -> impl Future<Output = AccountState> + Send {
+        self.state(connection, account)
+    }
 }
 /// Check both parties for identity restrictions, including D14 cooldowns.
 pub trait TransferBlockCheck: Send + Sync {
@@ -244,6 +254,8 @@ pub enum AdjustmentKind {
     #[default]
     Operator,
     StorePurchase,
+    PassPurchase,
+    CardSetPurchase,
     TopUp,
 }
 impl AdjustmentKind {
@@ -251,6 +263,8 @@ impl AdjustmentKind {
         match self {
             Self::Operator => "adjustment",
             Self::StorePurchase => "store_purchase",
+            Self::PassPurchase => "pass_purchase",
+            Self::CardSetPurchase => "card_set_purchase",
             Self::TopUp => "top_up",
         }
     }
