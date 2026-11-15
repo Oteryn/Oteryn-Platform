@@ -484,3 +484,46 @@ pub(super) fn success3(
     }
     Ok(body)
 }
+
+/// Recalculate all response lifetimes after the last awaited issuance work.
+pub(super) fn refresh_validity(
+    raw: &[u8],
+    expires: i64,
+    now: i64,
+    recovery_expires: Option<i64>,
+) -> Result<Vec<u8>, Error> {
+    if expires.saturating_sub(now) < 1000 {
+        return Err(Error::GrantExpired);
+    }
+    let mut value =
+        canonical::decode(raw, MAX_SUCCESS3, 5).map_err(|_| Error::ReconciliationRequired)?;
+    if let Value::Object(members) = &mut value {
+        for (name, member) in members {
+            if name == "grant" {
+                if let Value::Object(fields) = member {
+                    for (key, field) in fields {
+                        if key == "valid_for_seconds" {
+                            *field = Value::Unsigned(((expires - now) / 1000) as u64);
+                        }
+                    }
+                }
+            } else if name == "recovery"
+                && let Value::Object(fields) = member
+            {
+                let remaining = recovery_expires
+                    .unwrap_or(0)
+                    .saturating_sub(now.div_euclid(1000));
+                if remaining <= 0 {
+                    *member = Value::Null;
+                    continue;
+                }
+                for (key, field) in fields {
+                    if key == "expires_in" {
+                        *field = Value::Unsigned(remaining as u64);
+                    }
+                }
+            }
+        }
+    }
+    canonical::encode(&value).map_err(|_| Error::Unavailable)
+}

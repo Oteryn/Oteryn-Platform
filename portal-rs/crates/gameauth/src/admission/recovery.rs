@@ -429,8 +429,8 @@ struct Bound {
     channel: Uuid,
     security_generation: i64,
 }
-/// §19.4 step 2 against current state, in the contract's lock order: handle,
-/// Identity, device family (shared), play generation. A family-bound handle
+/// §19.4 step 2 against current state: account, handle,
+/// device family (shared), play generation. A family-bound handle
 /// also needs its family live and current (§19.15.1: an expired family's
 /// handles count as revoked on every path); nothing here rotates or touches it.
 /// With binding on (a decoded `device_proof`), the handle must name a family
@@ -443,6 +443,18 @@ async fn authenticate(
     now: i64,
 ) -> Result<Bound, RecoveryError> {
     let get = |_: sqlx::Error| RecoveryError::Unavailable;
+    let located: Uuid =
+        sqlx::query_scalar("SELECT account_id FROM native_recovery_handles WHERE handle_hash=$1")
+            .bind(&request.handle_hash[..])
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(get)?
+            .ok_or(RecoveryError::HandleRejected)?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(located)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(get)?;
     let row = sqlx::query("SELECT account_id, character_id, world_id, channel_id, security_generation, play_generation, device_family_id, device_key_thumbprint, expires_at, revoked_at IS NULL AS live FROM native_recovery_handles WHERE handle_hash=$1 FOR UPDATE")
         .bind(&request.handle_hash[..]).fetch_optional(&mut *tx).await.map_err(get)?
         .ok_or(RecoveryError::HandleRejected)?;
@@ -452,6 +464,9 @@ async fn authenticate(
         return Err(RecoveryError::HandleRejected);
     }
     let account: Uuid = row.try_get("account_id").map_err(get)?;
+    if account != located {
+        return Err(RecoveryError::HandleRejected);
+    }
     let security_generation: i64 = row.try_get("security_generation").map_err(get)?;
     let identity = sqlx::query("SELECT status, native_security_generation::text AS native FROM accounts WHERE id=$1 FOR SHARE")
         .bind(account).fetch_optional(&mut *tx).await.map_err(get)?
@@ -586,6 +601,20 @@ pub(super) async fn recover(
     issuer: &RecoveryIssuer,
     runtime: &runtime::Settings,
 ) -> Result<Vec<u8>, Refusal> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        recover_inner(pool, request, accounts, issuer, runtime),
+    )
+    .await
+    .map_err(|_| Refusal::from(Error::Unavailable))?
+}
+async fn recover_inner(
+    pool: &PgPool,
+    request: &RecoveryRequest,
+    accounts: &dyn AccountStateLookup,
+    issuer: &RecoveryIssuer,
+    runtime: &runtime::Settings,
+) -> Result<Vec<u8>, Refusal> {
     let signer = issuer.signer()?;
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
     sqlx::query("SET LOCAL lock_timeout = '2s'")
@@ -602,6 +631,20 @@ pub(super) async fn recover(
             .map_err(|_| Error::Unavailable)?;
     if fresh {
         return Err(RecoveryError::AttemptConflict.into());
+    }
+    if let Some(account) = sqlx::query_scalar::<_, Uuid>(
+        "SELECT account_id FROM native_recovery_handles WHERE handle_hash=$1",
+    )
+    .bind(&request.handle_hash[..])
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| Error::Unavailable)?
+    {
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(account)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|_| Error::Unavailable)?;
     }
     let existing = sqlx::query("SELECT handle_hash, request_digest, response_body, expires_at_ms FROM native_recoveries WHERE attempt_ref=$1 FOR UPDATE")
         .bind(request.attempt_ref).fetch_optional(&mut *tx).await.map_err(|_| Error::Unavailable)?;
@@ -638,10 +681,13 @@ pub(super) async fn recover(
             return Err(RecoveryError::ReconciliationRequired.into());
         }
         signer
-            .prepare()
+            .prepare_on(&mut tx)
             .await
             .map_err(|_| RecoveryError::ReconciliationRequired)?;
         let at = store::now(&mut tx).await?;
+        if expires - at < 1000 {
+            return Err(RecoveryError::GrantExpired.into());
+        }
         let reconcile = |_| RecoveryError::ReconciliationRequired;
         success.grant.token = signer
             .resign(
@@ -655,8 +701,9 @@ pub(super) async fn recover(
         }
         success.grant.valid_for_seconds = (expires - at) / 1000;
         let response = encode(&success)?;
+        let response = store::PreparedResponse::new(&response, expires, at, None)?;
         tx.commit().await.map_err(|_| Error::Unavailable)?;
-        return Ok(response);
+        return response.finish().map_err(Into::into);
     }
     let bound = authenticate(&mut tx, request, accounts, now).await?;
     // §19.9: at most 20 committed recovery attempts per account per hour.
@@ -683,7 +730,7 @@ pub(super) async fn recover(
     }
     let candidate = target(&mut tx, issuer, runtime, request, &bound, now).await?;
     // The trust self-check is refreshed before the issuer clock is read.
-    signer.prepare().await?;
+    signer.prepare_on(&mut tx).await?;
     let iat = u64::try_from(store::now(&mut tx).await? / 1000).map_err(|_| Error::Unavailable)?;
     let payload = payload(&Claims {
         iat,
@@ -733,10 +780,12 @@ pub(super) async fn recover(
         .bind(request.attempt_ref).bind(&request.handle_hash[..]).bind(&request.digest[..])
         .bind(bound.account).bind(&record).bind(expires_ms).bind(retires_ms)
         .execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+    let response =
+        store::PreparedResponse::new(&response, expires_ms, store::now(&mut tx).await?, None)?;
     tx.commit()
         .await
         .map_err(|_| RecoveryError::ReconciliationRequired)?;
-    Ok(response)
+    response.finish().map_err(Into::into)
 }
 
 /// §19.7: revokes only that handle, idempotently; unknown, dead and live

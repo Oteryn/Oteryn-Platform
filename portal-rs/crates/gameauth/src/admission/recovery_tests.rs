@@ -486,3 +486,54 @@ async fn postgres_security_change_revokes_handles_and_refuses_retry() {
     assert_eq!(count(&pool, records, account).await, 0);
     close(admin, pool, schema).await;
 }
+
+#[tokio::test]
+async fn audit05_04_recovery_waits_for_account_without_holding_handle() {
+    let (admin, pool, schema) = database().await.expect("PORTAL_TEST_DATABASE_URL required");
+    let request = RecoveryRequest::decode(&fixture("recover-request.json"), false).unwrap();
+    let account: Uuid = sqlx::query_scalar("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES(uuidv7(),$1,'hash','active','en',now()) RETURNING id")
+        .bind(format!("{}@example.test",Uuid::now_v7())).fetch_one(&pool).await.unwrap();
+    sqlx::query("INSERT INTO native_play_generations(account_id,generation) VALUES($1,1)")
+        .bind(account)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO native_recovery_handles(handle_hash,account_id,character_id,world_id,channel_id,security_generation,play_generation,attempt_ref,issued_at,expires_at) VALUES($1,$2,$3,uuidv7(),uuidv7(),1,1,$4,1,9999999999)")
+        .bind(&request.handle_hash[..]).bind(account).bind(request.character_id).bind(request.attempt_ref).execute(&pool).await.unwrap();
+    let mut writer = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(account)
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let mut reader = pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reader)
+        .await
+        .unwrap();
+    let task = tokio::spawn(async move {
+        authenticate(&mut reader, &request, &Accounts, 2_000_000_000)
+            .await
+            .map(|_| ())
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2),async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock')").bind(pid).fetch_one(&mut *writer).await.unwrap();
+            if waiting { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout='300ms'")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    // Fresh login advances the generation and revokes handles under its account lock.
+    let advanced = protocol3::advance(&mut writer, account).await;
+    assert!(
+        advanced.is_ok(),
+        "fresh login waited for recovery's handle: {advanced:?}"
+    );
+    writer.commit().await.unwrap();
+    assert_eq!(task.await.unwrap(), Err(RecoveryError::HandleRejected));
+    close(admin, pool, schema).await;
+}

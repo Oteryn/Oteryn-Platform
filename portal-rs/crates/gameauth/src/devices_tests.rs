@@ -1287,3 +1287,33 @@ async fn database_http_refuses_proposed_and_malformed_bodies()
     assert!(revoked.is_none());
     Ok(())
 }
+
+#[tokio::test]
+async fn audit05_06_cleanup_preserves_locked_renewed_window()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let (sessions, _) = setup().await?.ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let source = "audit05-renewing-source";
+    sqlx::query("INSERT INTO device_session_source_limits(source_hash,window_start,attempts) VALUES($1,0,29)")
+        .bind(hash(source)).execute(&sessions.pool).await?;
+    let mut renewal = sessions.pool.begin().await?;
+    sqlx::query("UPDATE device_session_source_limits SET window_start=floor(extract(epoch FROM clock_timestamp()))::bigint,attempts=17 WHERE source_hash=$1")
+        .bind(hash(source)).execute(&mut *renewal).await?;
+    // Cleanup must skip the locked expired version instead of waiting to delete its renewed version.
+    let cleanup = tokio::time::timeout(
+        std::time::Duration::from_millis(300),
+        http::throttle(&sessions, "audit05-other-source"),
+    )
+    .await;
+    renewal.commit().await?;
+    assert!(cleanup.is_ok(), "cleanup waited for renewal");
+    assert_eq!(cleanup?, Ok(()));
+    let attempts: i32 = sqlx::query_scalar(
+        "SELECT attempts FROM device_session_source_limits WHERE source_hash=$1",
+    )
+    .bind(hash(source))
+    .fetch_one(&sessions.pool)
+    .await?;
+    assert_eq!(attempts, 17);
+    sessions.pool.close().await;
+    Ok(())
+}

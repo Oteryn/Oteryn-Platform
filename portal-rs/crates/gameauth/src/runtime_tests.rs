@@ -25,7 +25,6 @@ convert_errors!(
     axum::Error,
     axum::http::Error,
     std::io::Error,
-    std::convert::Infallible,
     &str,
     tokio::sync::TryAcquireError,
     Box<dyn std::error::Error>
@@ -564,4 +563,54 @@ async fn db_runtime_readers_in_open_transactions_share_the_assignment_lock() -> 
     writer.rollback().await?;
     first.rollback().await?;
     db.close().await
+}
+
+#[tokio::test]
+async fn audit05_02_assignment_lock_precedes_report_read() -> TestResult {
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    db.assignments().await?;
+    let report = Report::decode(&value("1", 20)?)?;
+    ingest(&db.pool, "node", &report).await?;
+    let mut writer = db.pool.begin().await?;
+    sqlx::query("SELECT world_id FROM native_scope_assignments FOR UPDATE")
+        .execute(&mut *writer)
+        .await?;
+    let mut reader = db.pool.begin().await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reader)
+        .await?;
+    let task = tokio::spawn(async move {
+        read_in(
+            &mut reader,
+            &settings()?,
+            WORLD.parse()?,
+            CHANNEL.parse()?,
+            21,
+        )
+        .await
+        .map_err(TestError::from)
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock')").bind(pid).fetch_one(&db.pool).await?;
+            if waiting { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        Ok::<_,sqlx::Error>(())
+    }).await.map_err(|_|"reader did not wait on assignment")??;
+    sqlx::query("UPDATE native_runtime_status_reports SET invalid=true")
+        .execute(&mut *writer)
+        .await?;
+    writer.commit().await?;
+    let observation = task.await.map_err(|_| "reader task failed")??;
+    assert_eq!(observation.state, EvidenceState::Invalid);
+    db.close().await
+}
+
+impl From<std::convert::Infallible> for TestError {
+    fn from(error: std::convert::Infallible) -> Self {
+        match error {}
+    }
 }

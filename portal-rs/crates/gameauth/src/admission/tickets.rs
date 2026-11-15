@@ -89,6 +89,19 @@ impl AdmissionAuthority for NativeTickets {
         request: &'a AdmissionRequest,
     ) -> Future<'a, AuthorizedAccount> {
         Box::pin(async move {
+            let located: Uuid = sqlx::query_scalar(
+                "SELECT account_id FROM game_login_tickets WHERE ticket_hash=$1",
+            )
+            .bind(request.ticket_hash())
+            .fetch_optional(&mut *db)
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .ok_or(Error::TicketRejected)?;
+            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+                .bind(located)
+                .fetch_optional(&mut *db)
+                .await
+                .map_err(|_| Error::Unavailable)?;
             let ticket = sqlx::query("SELECT account_id, game_generation, native_generation, audience, used_at IS NULL AND expires_at > clock_timestamp() AS usable FROM game_login_tickets WHERE ticket_hash=$1 FOR UPDATE")
                 .bind(request.ticket_hash()).fetch_optional(&mut *db).await.map_err(|_| Error::Unavailable)?
                 .ok_or(Error::TicketRejected)?;
@@ -102,6 +115,9 @@ impl AdmissionAuthority for NativeTickets {
             let account: Uuid = ticket
                 .try_get("account_id")
                 .map_err(|_| Error::Unavailable)?;
+            if account != located {
+                return Err(Error::TicketRejected);
+            }
             let current = sqlx::query("SELECT status, game_auth_generation::text AS game, native_security_generation::text AS native FROM accounts WHERE id=$1 FOR UPDATE")
                 .bind(account).fetch_optional(&mut *db).await.map_err(|_| Error::Unavailable)?
                 .ok_or(Error::SecurityDenied)?;
@@ -163,7 +179,7 @@ impl AdmissionAuthority for NativeTickets {
                 grant::select(db, runtime, world, request.channel_id, at).await?
             };
             // The trust self-check is refreshed before the issuer clock is read.
-            signer.prepare().await?;
+            signer.prepare_on(db).await?;
             let iat = u64::try_from(seconds(db).await?).map_err(|_| Error::Unavailable)?;
             let ttl = self.issuance.ttl_seconds;
             let payload = grant::payload(&grant::Claims {

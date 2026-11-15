@@ -191,7 +191,7 @@ async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Va
     sessions.rotate(secret, client, purpose).await
 }
 pub(super) async fn throttle(sessions: &Sessions, source: &str) -> Result<()> {
-    sqlx::query("DELETE FROM device_session_source_limits WHERE source_hash IN (SELECT source_hash FROM device_session_source_limits WHERE window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1 LIMIT 128)")
+    sqlx::query("DELETE FROM device_session_source_limits WHERE source_hash IN (SELECT source_hash FROM device_session_source_limits WHERE window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1 LIMIT 128 FOR UPDATE SKIP LOCKED) AND window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1")
         .bind(60_i64).execute(&sessions.pool).await.map_err(unavailable)?;
     let attempts: i32 = sqlx::query_scalar("INSERT INTO device_session_source_limits(source_hash,window_start,attempts) VALUES($1,floor(extract(epoch FROM clock_timestamp()))::bigint,1) ON CONFLICT(source_hash) DO UPDATE SET window_start=CASE WHEN device_session_source_limits.window_start <= EXCLUDED.window_start-60 THEN EXCLUDED.window_start ELSE device_session_source_limits.window_start END, attempts=CASE WHEN device_session_source_limits.window_start <= EXCLUDED.window_start-60 THEN 1 ELSE least(device_session_source_limits.attempts+1,61) END RETURNING attempts")
         .bind(hash(source)).fetch_one(&sessions.pool).await.map_err(unavailable)?;

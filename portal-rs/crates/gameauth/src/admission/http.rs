@@ -38,7 +38,7 @@ impl ServiceTokens {
                 return Err(Error::Unavailable);
             }
             let mut hash = [0; 32];
-            for (index, pair) in raw.chunks_exact(2).enumerate() {
+            for (index, pair) in raw.as_chunks::<2>().0.iter().enumerate() {
                 let text = std::str::from_utf8(pair).map_err(|_| Error::Unavailable)?;
                 hash[index] = u8::from_str_radix(text, 16).map_err(|_| Error::Unavailable)?;
             }
@@ -171,6 +171,7 @@ fn authenticate(app: &App, request: &Request) -> Result<[u8; 32], Box<Response>>
     Ok(hash)
 }
 async fn handle(State(app): State<App>, request: Request) -> Response {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     let hash = match authenticate(&app, &request) {
         Ok(hash) => hash,
         Err(refused) => return *refused,
@@ -189,22 +190,32 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
     if !app.config.enabled || !(1..=600).contains(&app.config.requests_per_minute) {
         return refusal_for(Error::Unavailable, attempt.as_deref(), protocol, &[]);
     }
-    if let Err(error) = store::budget(&app.db, &hash, app.config.requests_per_minute).await {
+    if let Err(error) = tokio::time::timeout_at(
+        deadline,
+        store::budget(&app.db, &hash, app.config.requests_per_minute),
+    )
+    .await
+    .unwrap_or(Err(Error::Unavailable))
+    {
         return refusal_for(error, attempt.as_deref(), protocol, &[]);
     }
     let decoded = match AdmissionRequest::decode_with(&raw, app.config.protocol3.is_some()) {
         Ok(decoded) => decoded,
         Err(error) => return refusal_for(error, attempt.as_deref(), protocol, &[]),
     };
-    match store::admit(
-        &app.db,
-        &decoded,
-        app.accounts.as_ref(),
-        app.authority.as_ref(),
-        app.config.signer.as_deref(),
-        app.config.protocol3.as_ref(),
+    match tokio::time::timeout_at(
+        deadline,
+        store::admit(
+            &app.db,
+            &decoded,
+            app.accounts.as_ref(),
+            app.authority.as_ref(),
+            app.config.signer.as_deref(),
+            app.config.protocol3.as_ref(),
+        ),
     )
     .await
+    .unwrap_or_else(|_| Err(Error::Unavailable.into()))
     {
         Ok(body) => response(StatusCode::OK, body),
         Err(refused) => refusal_for(
@@ -241,6 +252,7 @@ async fn recovery_front(
     app: &App,
     request: Request,
     attempt_of: fn(&[u8]) -> Option<String>,
+    deadline: tokio::time::Instant,
 ) -> Result<(axum::body::Bytes, &Protocol3, Option<String>), Box<Response>> {
     let hash = authenticate(app, &request)?;
     let raw = to_bytes(request.into_body(), wire::MAX_BODY)
@@ -263,7 +275,13 @@ async fn recovery_front(
             None,
         )));
     }
-    if let Err(error) = store::budget(&app.db, &hash, app.config.requests_per_minute).await {
+    if let Err(error) = tokio::time::timeout_at(
+        deadline,
+        store::budget(&app.db, &hash, app.config.requests_per_minute),
+    )
+    .await
+    .unwrap_or(Err(Error::Unavailable))
+    {
         return Err(Box::new(recovery_refusal(
             error.into(),
             attempt.as_deref(),
@@ -278,10 +296,12 @@ async fn recovery_front(
 /// only) the member must be absent. With binding on and the device-session
 /// switch off, every well-formed request is refused as for an unknown handle.
 async fn recover(State(app): State<App>, request: Request) -> Response {
-    let (raw, settings, attempt) = match recovery_front(&app, request, wire::attempt).await {
-        Ok(front) => front,
-        Err(refused) => return *refused,
-    };
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    let (raw, settings, attempt) =
+        match recovery_front(&app, request, wire::attempt, deadline).await {
+            Ok(front) => front,
+            Err(refused) => return *refused,
+        };
     let (issuer, binding, devices) = match (&app.config.recovery, settings.handles) {
         (
             Some(issuer),
@@ -300,14 +320,18 @@ async fn recover(State(app): State<App>, request: Request) -> Response {
     if binding && !devices {
         return recovery_refusal(RecoveryError::HandleRejected, attempt.as_deref(), 3, None);
     }
-    match recovery::recover(
-        &app.db,
-        &decoded,
-        app.accounts.as_ref(),
-        issuer,
-        &settings.runtime,
+    match tokio::time::timeout_at(
+        deadline,
+        recovery::recover(
+            &app.db,
+            &decoded,
+            app.accounts.as_ref(),
+            issuer,
+            &settings.runtime,
+        ),
     )
     .await
+    .unwrap_or_else(|_| Err(RecoveryError::Unavailable.into()))
     {
         Ok(body) => response(StatusCode::OK, body),
         Err(refused) => recovery_refusal(refused.error, attempt.as_deref(), 3, refused.retry_after),
@@ -316,7 +340,8 @@ async fn recover(State(app): State<App>, request: Request) -> Response {
 /// §19.7, available whenever protocol 3 is on: a well-formed request always
 /// answers `revoked`, whatever the handle's state.
 async fn revoke(State(app): State<App>, request: Request) -> Response {
-    let (raw, _, _) = match recovery_front(&app, request, |_| None).await {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    let (raw, _, _) = match recovery_front(&app, request, |_| None, deadline).await {
         Ok(front) => front,
         Err(refused) => return *refused,
     };
