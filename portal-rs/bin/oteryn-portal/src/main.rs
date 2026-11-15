@@ -206,7 +206,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(passkeys_http::configured_router(db.clone())?);
             let app = oteryn_wiki::entities::mount(
                 app,
-                oteryn_wiki::entities::EntityState::configured(db.clone(), catalog_ready),
+                oteryn_wiki::entities::EntityState::configured(db.clone(), catalog_ready.clone()),
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
             let app = app.merge(credentials_http::configured_router(db.clone()));
@@ -251,8 +251,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     characters: None,
                     world: Some(std::sync::Arc::new({
                         let pool = db.clone();
+                        let catalog = oteryn_world::catalog::publication_enabled().then(||
+                            oteryn_world::catalog::CatalogStore::configured(pool.clone(), catalog_ready.clone()));
                         move |lang, query, page| {
                             let pool = pool.clone();
+                            let catalog = catalog.clone();
                             Box::pin(async move {
                                 if std::env::var("PORTAL_WIKI_ENTITIES_ENABLED").as_deref()
                                     != Ok("true")
@@ -263,7 +266,22 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                                     pool.clone(),
                                     oteryn_world::WorldOptions { enabled: true },
                                 );
-                                oteryn_web::search::world_search(
+                                let selection: oteryn_web::search::SelectionReader = std::sync::Arc::new({
+                                    let catalog = catalog.clone();
+                                    let world = world.clone();
+                                    move || {
+                                        let catalog = catalog.clone();
+                                        let world = world.clone();
+                                        Box::pin(async move {
+                                            let version = match catalog {
+                                                Some(c) => c.active_version_id().await.map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE)?,
+                                                None => world.active_version_id().await.map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE)?,
+                                            };
+                                            Ok(version.map(|v| v.to_string()))
+                                        })
+                                    }
+                                });
+                                oteryn_web::search::world_search_selected(
                                     &pool,
                                     &lang,
                                     &query,
@@ -272,24 +290,23 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                                         let lang = lang.clone();
                                         move |kind, key| {
                                             let world = world.clone();
+                                            let catalog = catalog.clone();
                                             let lang = lang.clone();
                                             Box::pin(async move {
-                                                world
-                                                    .get_entity(&kind, &key)
-                                                    .await
-                                                    .map(|entity| {
-                                                        entity.map(|e| {
-                                                            oteryn_web::search::world_title(
-                                                                &e.data, &e.key, &lang,
-                                                            )
-                                                        })
-                                                    })
-                                                    .map_err(|_| {
-                                                        axum::http::StatusCode::SERVICE_UNAVAILABLE
-                                                    })
+                                                let entity = match catalog {
+                                                    Some(c) => {
+                                                        if !c.available(&kind).await.map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE)? { return Ok(None); }
+                                                        c.get_entity(&kind, &key).await.map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE)?
+                                                    }
+                                                    None => world.get_entity(&kind, &key).await.map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE)?,
+                                                };
+                                                Ok(entity.map(|e| {
+                                                    oteryn_web::search::world_title(&e.data, &e.key, &lang)
+                                                }))
                                             })
                                         }
                                     }),
+                                    selection,
                                 )
                                 .await
                             })

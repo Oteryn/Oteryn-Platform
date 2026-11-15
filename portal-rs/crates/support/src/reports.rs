@@ -126,6 +126,8 @@ pub enum Error {
     Forbidden,
     #[error("report not found")]
     NotFound,
+    #[error("request key payload conflict")]
+    Conflict,
     #[error("pending report limit reached")]
     PendingLimit,
     #[error("reporting blocked after unjustified reports")]
@@ -180,6 +182,18 @@ impl Reports {
             .bind(owner).bind(input.request_key).fetch_optional(&mut *tx).await?;
         // Retries return the original report even when the account has reached its quota.
         if let Some(report) = existing {
+            if report.report_type != input.report_type
+                || report.category != input.category
+                || report.target_reference != input.target_reference.trim()
+                || report.evidence_summary.as_deref()
+                    != input
+                        .evidence_summary
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+            {
+                return Err(Error::Conflict);
+            }
             tx.commit().await?;
             return Ok(report);
         }

@@ -173,7 +173,10 @@ async fn postgres_success_idempotency_privacy_and_history() -> TestResult {
     assert_eq!(report.id.get_version_num(), 7);
     let mut replay = original;
     replay.target_reference = "different".into();
-    assert_eq!(service.submit(owner, replay).await?.id, report.id);
+    assert!(matches!(
+        service.submit(owner, replay).await,
+        Err(Error::Conflict)
+    ));
     assert!(matches!(
         service.get(other, report.id).await,
         Err(Error::NotFound)
@@ -508,5 +511,45 @@ async fn postgres_browser_configured_origin_still_requires_csrf() -> TestResult 
             .fetch_one(&db.pool)
             .await?;
     assert_eq!(count, 1);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_request_key_binds_every_report_field() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let owner = db.account("active").await?;
+    let service = Reports::new(db.pool.clone(), policy());
+    let original = input();
+    let created = service.submit(owner, original.clone()).await?;
+    assert_eq!(
+        service.submit(owner, original.clone()).await?.id,
+        created.id
+    );
+    for field in 0..4 {
+        sqlx::query("DELETE FROM player_report_submission_limits WHERE account_id=$1")
+            .bind(owner)
+            .execute(&db.pool)
+            .await?;
+        let mut changed = original.clone();
+        match field {
+            0 => {
+                changed.report_type = "guild".into();
+            }
+            1 => changed.category = "other".into(),
+            2 => changed.target_reference = "Changed target".into(),
+            _ => changed.evidence_summary = Some("Changed evidence".into()),
+        }
+        assert!(matches!(
+            service.submit(owner, changed).await,
+            Err(Error::Conflict)
+        ));
+    }
+    let stored = service.get(owner, created.id).await?;
+    assert_eq!(stored.report_type, created.report_type);
+    assert_eq!(stored.category, created.category);
+    assert_eq!(stored.target_reference, created.target_reference);
+    assert_eq!(stored.evidence_summary, created.evidence_summary);
     db.close().await
 }

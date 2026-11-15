@@ -650,13 +650,7 @@ async fn top_up(
         Ok(v) => v,
         Err(e) => return failure(l, e),
     };
-    if !uuid7(form.operation)
-        || !s
-            .backend
-            .packages()
-            .iter()
-            .any(|p| p.key == form.package && p.coins > 0 && p.minor_units > 0)
-    {
+    if !uuid7(form.operation) {
         return failure(l, Error::Invalid);
     }
     match s.backend.top_up(a, form.operation, form.package).await {

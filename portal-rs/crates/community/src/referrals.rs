@@ -226,16 +226,7 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
             return Err(Error::Invalid);
         }
         // Follow the inviter's ancestry: a candidate invitee must not be an ancestor.
-        let graph = if campaign {
-            "WITH RECURSIVE edges AS (SELECT inviter_id,invitee_id FROM referral_invitations UNION SELECT inviter_id,invitee_id FROM referral_campaign_invitations), ancestors(id) AS (SELECT $1::uuid UNION SELECT r.inviter_id FROM edges r JOIN ancestors a ON r.invitee_id=a.id) SELECT EXISTS(SELECT 1 FROM ancestors WHERE id=$2) OR EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=$2)"
-        } else {
-            "WITH RECURSIVE ancestors(id) AS (SELECT $1::uuid UNION SELECT r.inviter_id FROM referral_invitations r JOIN ancestors a ON r.invitee_id=a.id) SELECT EXISTS(SELECT 1 FROM ancestors WHERE id=$2)"
-        };
-        let cycle: bool = sqlx::query_scalar(graph)
-            .bind(request.inviter)
-            .bind(request.invitee)
-            .fetch_one(&mut *tx)
-            .await?;
+        let cycle = ancestry_denied(&mut tx, request.inviter, request.invitee, campaign).await?;
         let duplicate: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM referral_invitations WHERE invitee_id=$1)",
         )
@@ -413,3 +404,46 @@ mod tests;
 /// Tell-a-friend campaign, browser surface and authoritative store integration.
 #[path = "referrals/campaign.rs"]
 pub mod campaign;
+
+/// Each lookup uses an indexed unique invitee key; unrelated edges are never loaded.
+async fn ancestry_denied(
+    conn: &mut sqlx::PgConnection,
+    inviter: Uuid,
+    invitee: Uuid,
+    campaign: bool,
+) -> Result<bool, sqlx::Error> {
+    let mut pending = vec![inviter];
+    let mut seen = std::collections::HashSet::new();
+    while let Some(id) = pending.pop() {
+        if id == invitee || seen.len() >= 256 {
+            return Ok(true);
+        }
+        if !seen.insert(id) {
+            continue;
+        }
+        let parent: Option<Uuid> =
+            sqlx::query_scalar("SELECT inviter_id FROM referral_invitations WHERE invitee_id=$1")
+                .bind(id)
+                .fetch_optional(&mut *conn)
+                .await?;
+        pending.extend(parent);
+        if campaign {
+            let parent: Option<Uuid> = sqlx::query_scalar(
+                "SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=$1",
+            )
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?;
+            pending.extend(parent);
+        }
+    }
+    if campaign {
+        return sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=$1)",
+        )
+        .bind(invitee)
+        .fetch_one(conn)
+        .await;
+    }
+    Ok(false)
+}

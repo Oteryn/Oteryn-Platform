@@ -157,32 +157,39 @@ impl Watches {
             return Err(invalid());
         }
         let mut tx = self.pool.begin().await?;
-        let rows: Vec<(Uuid,String,Uuid)> = sqlx::query_as("SELECT account_id,target_kind,target_id FROM stats_watches WHERE event_kind=$1 AND ((target_kind='character' AND target_id=$2) OR (target_kind='guild' AND target_id=$3)) ORDER BY account_id,target_kind,target_id FOR UPDATE")
-            .bind(event.kind.key()).bind(event.character).bind(event.guild).fetch_all(&mut *tx).await?;
         let mut sent = 0;
-        for (owner, target, id) in rows {
-            let s = Subscription {
-                target_kind: if target == "character" {
-                    TargetKind::Character
-                } else {
-                    TargetKind::Guild
-                },
-                target_id: id,
-                event_kind: event.kind,
-            };
-            if !self.policy.allowed(&mut tx, owner, s, Some(event)).await? {
-                continue;
+        let mut cursor: Option<(Uuid, String, Uuid)> = None;
+        loop {
+            let rows: Vec<(Uuid,String,Uuid)> = sqlx::query_as("SELECT account_id,target_kind,target_id FROM stats_watches WHERE event_kind=$1 AND ((target_kind='character' AND target_id=$2) OR (target_kind='guild' AND target_id=$3)) AND ($4::uuid IS NULL OR (account_id,target_kind,target_id)>($4,$5,$6)) ORDER BY account_id,target_kind,target_id LIMIT 100 FOR UPDATE")
+            .bind(event.kind.key()).bind(event.character).bind(event.guild).bind(cursor.as_ref().map(|v|v.0)).bind(cursor.as_ref().map(|v|v.1.as_str())).bind(cursor.as_ref().map(|v|v.2)).fetch_all(&mut *tx).await?;
+            if rows.is_empty() {
+                break;
             }
-            let inserted = sqlx::query("INSERT INTO stats_watch_deliveries(account_id,event_id) VALUES($1,$2) ON CONFLICT DO NOTHING")
+            for (owner, target, id) in rows {
+                cursor = Some((owner, target.clone(), id));
+                let s = Subscription {
+                    target_kind: if target == "character" {
+                        TargetKind::Character
+                    } else {
+                        TargetKind::Guild
+                    },
+                    target_id: id,
+                    event_kind: event.kind,
+                };
+                if !self.policy.allowed(&mut tx, owner, s, Some(event)).await? {
+                    continue;
+                }
+                let inserted = sqlx::query("INSERT INTO stats_watch_deliveries(account_id,event_id) VALUES($1,$2) ON CONFLICT DO NOTHING")
                 .bind(owner).bind(event.id).execute(&mut *tx).await?;
-            if inserted.rows_affected() == 0 {
-                continue;
+                if inserted.rows_affected() == 0 {
+                    continue;
+                }
+                let (title, body) = message(self.policy.locale(owner).await?)?;
+                notify
+                    .enqueue(&mut tx, owner, &EmailTemplate::News { title, body })
+                    .await?;
+                sent += 1;
             }
-            let (title, body) = message(self.policy.locale(owner).await?)?;
-            notify
-                .enqueue(&mut tx, owner, &EmailTemplate::News { title, body })
-                .await?;
-            sent += 1;
         }
         tx.commit().await?;
         Ok(sent)

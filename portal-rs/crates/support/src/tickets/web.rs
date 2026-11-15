@@ -2,7 +2,7 @@ use super::*;
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, Path, Query, Request, State},
+    extract::{ConnectInfo, OriginalUri, Path, Query, Request, State},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
@@ -270,6 +270,7 @@ struct Page {
     categories: Vec<OptionText>,
     statuses: Vec<OptionText>,
     messages: Vec<DisplayMessage>,
+    message_after: String,
     request_key: Uuid,
     subject: String,
     draft_body: String,
@@ -323,6 +324,7 @@ impl Page {
             categories: options(CATEGORIES),
             statuses: options(if staff { STATUSES } else { &["open", "closed"] }),
             messages: vec![],
+            message_after: String::new(),
             request_key: Uuid::now_v7(),
             subject: String::new(),
             draft_body: String::new(),
@@ -409,8 +411,13 @@ async fn new_ticket(
     }
     page.response()
 }
+#[derive(Deserialize)]
+struct MessagePage {
+    after: Option<Uuid>,
+}
 async fn show(
     State(t): State<Tickets>,
+    OriginalUri(uri): OriginalUri,
     Path((language, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
     staff: Option<Extension<CheckContext>>,
@@ -422,11 +429,23 @@ async fn show(
         Ok(v) => v,
         Err(e) => return e.into_response(),
     };
-    let (ticket, messages) = match t.show(account, staff.is_some(), id).await {
+    let cursor = match Query::<MessagePage>::try_from_uri(&uri) {
+        Ok(Query(value)) => value,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    let (ticket, messages) = match t
+        .show_page(account, staff.is_some(), id, cursor.after)
+        .await
+    {
         Ok(v) => v,
         Err(e) => return fail(e, &language),
     };
     let mut page = Page::new(&language, staff.is_some());
+    page.message_after = messages
+        .last()
+        .filter(|_| messages.len() == 50)
+        .map(|m| m.id.to_string())
+        .unwrap_or_default();
     page.showing = true;
     page.subject = ticket.subject;
     page.status = text::text(&language, &ticket.status);

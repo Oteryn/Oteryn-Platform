@@ -19,7 +19,11 @@
 //! | v2 `game-public/{character-skills,character-achievements,character-equipment,character-outfit}` and their watermarks (G-4) | `PORTAL_PUBLIC_PROJECTIONS_ENABLED` with `PORTAL_G4_{SKILLS,ACHIEVEMENTS,EQUIPMENT,OUTFIT}_INGEST_ENABLED` | `PORTAL_PUBLIC_PROJECTIONS_SAN` |
 //! | `playerdata/journal/{records,cursor}` (G-10) | `PORTAL_PLAYERDATA_G10_INGEST_ENABLED` | `PORTAL_PLAYERDATA_JOURNAL_ITEMS_SAN` |
 //! | `playerdata/progress/{record,watermark}` (G-11) | `PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED` | `PORTAL_PLAYERDATA_JOURNAL_PROGRESS_SAN` |
+//! | `support/enforcement-commands/{stream/read,commands/read,reconcile/read}` | `PORTAL_GAME_ENFORCEMENT_ENABLED` | `PORTAL_GAME_ENFORCEMENT_READER_IDENTITY` |
+//! | `support/enforcement-commands/results` | `PORTAL_GAME_ENFORCEMENT_ENABLED`, and `PORTAL_GAME_RESTORE_NOTICE_ENABLED` not `true` | `PORTAL_GAME_ENFORCEMENT_RESULTS_IDENTITY` |
 //!
+//! The enforcement results group stays off while the restore notice is on:
+//! the notice does not yet reopen enforcement results (wire contract §6.4, E6).
 //! Character commands and both character-service exchanges also require
 //! `OTERYN_ENV` `testing` or `preprod`, as the enablement runbook states.
 //! So do both journal ingest purposes (T72, G-11 §9 rollout), which also need
@@ -51,6 +55,7 @@ use oteryn_internal_api::{
 };
 use oteryn_playerdata::journal;
 use oteryn_store::{delivery, loyalty, premium, premium::profile_b, purchase};
+use oteryn_support::sanctions::enforcement;
 use sqlx::PgPool;
 use std::{collections::BTreeMap, sync::Arc};
 use tower::ServiceExt;
@@ -247,6 +252,11 @@ impl Routes {
         let journal =
             journal::configured_router(pool.clone(), &journal_settings, identities.clone());
 
+        let mut enforcement_settings = enforcement::Settings::from_lookup(get);
+        enforcement_settings.reader_enabled &= valid;
+        enforcement_settings.results_enabled &= valid && !on("PORTAL_GAME_RESTORE_NOTICE_ENABLED");
+        let enforcement =
+            enforcement::router(pool.clone(), enforcement_settings, identities.clone());
         // G-4 character families: ingest only on this listener; the T24
         // prerequisite and APP_ENV are checked in `ingest_config`.
         let mut g4 = families::ingest_config(get);
@@ -294,6 +304,7 @@ impl Routes {
                 .merge(delivery)
                 .merge(journal)
                 .merge(purchase)
+                .merge(enforcement)
                 .merge(online)
                 .merge(character_families),
             diverted: Diverted {
@@ -350,8 +361,13 @@ fn bindings(values: &Values) -> Result<Vec<Binding>, ConfigError> {
                 PUBLIC_IDENTITY => PUBLIC_GROUP,
                 journal::ITEMS_IDENTITY => journal::ITEMS_GROUP,
                 journal::PROGRESS_IDENTITY => journal::PROGRESS_GROUP,
+                enforcement::READER_IDENTITY => enforcement::READER_GROUP,
+                enforcement::RESULTS_IDENTITY => enforcement::RESULTS_GROUP,
                 other => other,
             };
+            if group.starts_with("support-enforcement-") && !dns_name(raw) {
+                return Err(ConfigError);
+            }
             bindings.push(Binding {
                 identity: Identity::san(raw)?,
                 group: group.into(),

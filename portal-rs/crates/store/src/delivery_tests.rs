@@ -1016,3 +1016,35 @@ async fn postgres_http_read_receipt_and_reconcile_round_trip() {
     assert_eq!(db.count("store_receipts").await, 1);
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_restore_selection_is_bounded_and_atomic() {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::new().await else { return };
+    // Reopened operations already qualify without manufacturing receipts.
+    for _ in 0..129 {
+        let (id, _, _) = db.seed(true).await;
+        sqlx::query("UPDATE store_operations SET state='REOPENED' WHERE operation_id=$1")
+            .bind(id)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let mut tx = db.pool.begin().await.unwrap();
+    let result = db.delivery.reopen_in(&mut tx, Uuid::now_v7(), 7, 8).await;
+    tx.rollback().await.unwrap();
+    assert_eq!(result, Err(Error::Unavailable));
+    assert_eq!(db.count("store_reconcile_state").await, 0);
+    let generation: String = sqlx::query_scalar(
+        "SELECT new_recovery_generation::text FROM store_delivery_fence WHERE id=1",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(generation, "0");
+    db.close().await;
+    eprintln!(
+        "PG postgres_restore_selection_is_bounded_and_atomic {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

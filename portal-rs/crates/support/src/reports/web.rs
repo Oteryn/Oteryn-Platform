@@ -176,7 +176,7 @@ fn status(error: Error) -> StatusCode {
         Error::Disabled | Error::NotFound => StatusCode::NOT_FOUND,
         Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         Error::Forbidden | Error::UnjustifiedLimit => StatusCode::FORBIDDEN,
-        Error::PendingLimit => StatusCode::CONFLICT,
+        Error::PendingLimit | Error::Conflict => StatusCode::CONFLICT,
         Error::RateLimited => StatusCode::TOO_MANY_REQUESTS,
         Error::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }

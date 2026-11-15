@@ -448,3 +448,55 @@ fn hmac_matches_rfc4231_case_six() -> TestResult {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn audit_09_02_changed_replay_binding_is_refused() -> TestResult {
+    let started = std::time::Instant::now();
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
+    let intent = h.create().await?;
+    let event = h.event(&intent, IntentState::Succeeded);
+    let service = h.service(true);
+    let (body, signature) = h.signed(&event)?;
+    assert_eq!(
+        service.webhook(&body, &signature).await?,
+        WebhookOutcome::Applied
+    );
+    let mut changes = Vec::new();
+    let mut changed = event.clone();
+    changed.state = IntentState::Failed;
+    changes.push(changed);
+    let mut changed = event.clone();
+    changed.amount.minor_units += 1;
+    changes.push(changed);
+    let mut changed = event.clone();
+    changed.amount.currency = "USD".into();
+    changes.push(changed);
+    let mut changed = event.clone();
+    changed.provider_reference.push('x');
+    changes.push(changed);
+    let other = h.create().await?;
+    let mut changed = h.event(&other, IntentState::Succeeded);
+    changed.event_id.clone_from(&event.event_id);
+    changes.push(changed);
+    for changed in changes {
+        let (body, signature) = h.signed(&changed)?;
+        assert!(matches!(
+            service.webhook(&body, &signature).await,
+            Err(Error::InvalidInput)
+        ));
+    }
+    assert_eq!(
+        service.webhook(&body, &signature).await?,
+        WebhookOutcome::Replay
+    );
+    assert_eq!(service.intent(other.id).await?.state, IntentState::Pending);
+    assert_eq!(h.count("payment_events").await?, 1);
+    assert_eq!(h.count("invoices").await?, 1);
+    assert_eq!(h.count("outbox").await?, 1);
+    h.finish().await?;
+    eprintln!(
+        "PG audit_09_02_changed_replay_binding_is_refused: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}

@@ -222,7 +222,10 @@ async fn load(
         return Err(unavailable);
     }
     // One committed cut covers the watermark, shared epoch and all catalogue rows.
-    let rows=sqlx::query("SELECT m.epoch::text AS generation,m.complete_through,h.payload,h.observed FROM public_houses_v2_watermark m JOIN public_projection_state s ON s.id=1 AND s.highest_epoch=m.epoch LEFT JOIN public_houses_v2 h ON h.epoch=m.epoch AND h.source_authority=m.source_authority WHERE m.id=1 AND m.source_authority=$1 ORDER BY h.subject") .bind(&state.config.ingest.source_authority).fetch_all(&state.db).await.map_err(|_|unavailable)?;
+    let rows=sqlx::query("SELECT m.epoch::text AS generation,m.complete_through,h.payload,h.observed FROM public_houses_v2_watermark m JOIN public_projection_state s ON s.id=1 AND s.highest_epoch=m.epoch LEFT JOIN public_houses_v2 h ON h.epoch=m.epoch AND h.source_authority=m.source_authority AND ($2::text IS NULL OR h.payload->>'world_id'=$2) AND ($3::text IS NULL OR h.payload->>'house_key'=$3) WHERE m.id=1 AND m.source_authority=$1 ORDER BY h.subject LIMIT 257") .bind(&state.config.ingest.source_authority).bind(world).bind(key).fetch_all(&state.db).await.map_err(|_|unavailable)?;
+    if rows.len() > 256 {
+        return Err(unavailable);
+    }
     if rows.is_empty() {
         return Err(unavailable);
     }
@@ -230,6 +233,7 @@ async fn load(
     let complete: i64 = rows[0]
         .try_get("complete_through")
         .map_err(|_| unavailable)?;
+    let mut identities = vec![];
     let mut houses = vec![];
     for row in rows {
         let complete: i64 = row.try_get("complete_through").map_err(|_| unavailable)?;
@@ -243,8 +247,12 @@ async fn load(
             .try_get::<Option<serde_json::Value>, _>("payload")
             .map_err(|_| unavailable)?
         else {
-            return Err(unavailable);
+            if world.is_none() && key.is_none() {
+                return Err(unavailable);
+            }
+            continue;
         };
+        identities.push(v.clone());
         let observed: i64 = row.try_get("observed").map_err(|_| unavailable)?;
         if observed > complete {
             return Err(unavailable);
@@ -303,10 +311,25 @@ async fn load(
             extras,
         });
     }
+    let mut fence = state.db.begin().await.map_err(|_| unavailable)?;
+    sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
+        .fetch_one(&mut *fence)
+        .await
+        .map_err(|_| unavailable)?;
+    for payload in identities {
+        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_houses_v2 WHERE epoch=$1::numeric AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND subject=$2 AND payload=$3)").bind(&generation).bind(format!("{}:{}", payload["world_id"].as_str().ok_or(unavailable)?, payload["house_key"].as_str().ok_or(unavailable)?)).bind(payload).fetch_one(&mut *fence).await.map_err(|_| unavailable)?;
+        if !current {
+            return Err(unavailable);
+        }
+    }
     // Recheck after asynchronous privacy resolution; an epoch raise or elapsed
     // freshness budget must not publish the previously loaded cut.
-    let current: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM public_projection_state WHERE id=1 AND highest_epoch=$1::numeric)").bind(&generation).fetch_one(&state.db).await.map_err(|_| unavailable)?;
+    let current: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM public_projection_state WHERE id=1 AND highest_epoch=$1::numeric)").bind(&generation).fetch_one(&mut *fence).await.map_err(|_| unavailable)?;
     if !current || now().saturating_sub(complete as u64).saturating_add(1) > 30 {
+        return Err(unavailable);
+    }
+    fence.commit().await.map_err(|_| unavailable)?;
+    if now().saturating_sub(complete as u64).saturating_add(1) > 30 {
         return Err(unavailable);
     }
     houses.sort_by(|a, b| {

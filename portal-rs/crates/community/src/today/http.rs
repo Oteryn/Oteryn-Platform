@@ -1,4 +1,4 @@
-use super::{Config, Error, read, schema, store};
+use super::{Config, Error, schema, store, view::read_current};
 use crate::v2_watermark::Part;
 use askama::Template;
 use axum::{
@@ -256,7 +256,7 @@ async fn load(
     let (world, selected) = options(raw, &state.config)?;
     let lang = language(path, selected.as_deref())?;
     Ok((
-        read(&state.db, &state.config, world, lang, now()).await?,
+        read_current(&state.db, &state.config, world, lang).await?,
         lang,
     ))
 }
@@ -326,10 +326,14 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     let view = result.as_ref().ok().map(|(v, _)| v);
     let lang = result.as_ref().map_or(lang, |(_, l)| *l);
     let (mut parts, body) = response.into_parts();
-    let bytes = match to_bytes(body, 2_097_152).await {
-        Ok(b) => b,
-        Err(_) => return guard::failure(StatusCode::SERVICE_UNAVAILABLE),
-    };
+    let bytes =
+        match tokio::time::timeout(std::time::Duration::from_secs(3), to_bytes(body, 2_097_152))
+            .await
+        {
+            Ok(Ok(b)) => b,
+            _ => return guard::failure(StatusCode::SERVICE_UNAVAILABLE),
+        };
+    let view = view.filter(|v| v.eligible(now()));
     let mut html = match String::from_utf8(bytes.to_vec()) {
         Ok(s) => s,
         Err(_) => return guard::failure(StatusCode::SERVICE_UNAVAILABLE),
@@ -499,7 +503,11 @@ fn render_section(view: Option<&super::DailyView>, lang: &str) -> String {
                         format!(
                             "{} — {} ({})",
                             r.name,
-                            date(r.scheduled_at),
+                            r.scheduled_at.map(date).unwrap_or_else(|| if lang == "en" {
+                                "Unknown time".into()
+                            } else {
+                                "Nieznany czas".into()
+                            }),
                             label(lang, &r.state)
                         )
                     })

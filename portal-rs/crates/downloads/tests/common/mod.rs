@@ -135,6 +135,16 @@ impl SignerFixture {
     }
 
     fn upload_profile(&self, policy: UpdaterPolicy, expires: &str, duplicate: bool) -> Upload {
+        self.upload_artifact(policy, expires, duplicate, b"package")
+    }
+
+    pub fn upload_artifact(
+        &self,
+        policy: UpdaterPolicy,
+        expires: &str,
+        duplicate: bool,
+        artifact_bytes: &[u8],
+    ) -> Upload {
         let revision = policy.policy_revision;
         let channel = policy.channel;
         let policy_bytes = serde_json::to_vec_pretty(&policy).unwrap();
@@ -146,7 +156,7 @@ impl SignerFixture {
             target_entries.insert(
                 artifact.target_path.clone(),
                 json!({
-                    "length":7,"hashes":{"sha256":hex::encode(Sha256::digest(b"package"))}
+                    "length":artifact_bytes.len(),"hashes":{"sha256":hex::encode(Sha256::digest(artifact_bytes))}
                 }),
             );
         }

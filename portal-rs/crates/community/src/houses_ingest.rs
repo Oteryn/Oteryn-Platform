@@ -114,11 +114,19 @@ pub(super) async fn apply(
                     return Ok("superseded");
                 }
                 if order.is_eq() {
-                    return if old
+                    let mut old_payload = old
                         .try_get::<serde_json::Value, _>("payload")
-                        .map_err(db_error)?
-                        == payload
-                    {
+                        .map_err(db_error)?;
+                    let mut identity = payload.clone();
+                    old_payload
+                        .as_object_mut()
+                        .ok_or(bad)?
+                        .remove("source_observed_at");
+                    identity
+                        .as_object_mut()
+                        .ok_or(bad)?
+                        .remove("source_observed_at");
+                    return if old_payload == identity {
                         Ok("accepted")
                     } else {
                         Err(StatusCode::CONFLICT)

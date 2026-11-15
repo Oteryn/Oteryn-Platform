@@ -133,42 +133,63 @@ impl TopUps for PaymentTopUps {
             if operation.get_version_num() != 7 {
                 return Err(Error::Invalid);
             }
-            let p = self
-                .packages
-                .iter()
-                .find(|p| p.key == key)
-                .ok_or(Error::Invalid)?;
-            // Commit the claim before an external call. A crash/timeout never
-            // releases it for automatic retry: unknown payment state denies.
-            let claimed = sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(operation_id) DO NOTHING")
-                .bind(operation).bind(account).bind(&p.key).bind(p.coins).bind(p.minor_units).bind(&p.currency).execute(&self.pool).await.map_err(|_| Error::Unavailable)?.rows_affected() == 1;
-            if !claimed {
-                let row = sqlx::query("SELECT account_id,package_key,coins,minor_units,currency,payment_intent_id FROM store_web_topups WHERE operation_id=$1").bind(operation).fetch_one(&self.pool).await.map_err(|_| Error::Unavailable)?;
-                let matches = row.try_get::<Uuid, _>("account_id").ok() == Some(account)
-                    && row.try_get::<String, _>("package_key").ok().as_deref() == Some(&p.key)
-                    && row.try_get::<i64, _>("coins").ok() == Some(p.coins)
-                    && row.try_get::<i64, _>("minor_units").ok() == Some(p.minor_units)
-                    && row.try_get::<String, _>("currency").ok().as_deref() == Some(&p.currency);
-                if !matches {
-                    return Err(Error::Conflict);
-                }
-                return row
-                    .try_get::<Option<Uuid>, _>("payment_intent_id")
-                    .map_err(|_| Error::Unavailable)?
-                    .ok_or(Error::Unavailable);
+            // Resolve durable browser operations before consulting mutable packages.
+            let prior = sqlx::query(
+                "SELECT account_id,package_key FROM store_web_topups WHERE operation_id=$1",
+            )
+            .bind(operation)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+            if prior.is_none() {
+                let p = self
+                    .packages
+                    .iter()
+                    .find(|p| p.key == key)
+                    .ok_or(Error::Invalid)?;
+                // Reserve the provider key atomically with the commercial terms.
+                // Never delete uncertain claims: ensure_intent resumes this key.
+                sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,intended_payment_intent_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(operation_id) DO NOTHING")
+                    .bind(operation).bind(account).bind(&p.key).bind(p.coins).bind(p.minor_units).bind(&p.currency).bind(Uuid::now_v7()).execute(&self.pool).await.map_err(|_| Error::Unavailable)?;
             }
+            let row = sqlx::query("SELECT account_id,package_key,minor_units,currency,payment_intent_id,intended_payment_intent_id FROM store_web_topups WHERE operation_id=$1")
+                .bind(operation).fetch_one(&self.pool).await.map_err(|_| Error::Unavailable)?;
+            if row
+                .try_get::<Uuid, _>("account_id")
+                .map_err(|_| Error::Unavailable)?
+                != account
+                || row
+                    .try_get::<String, _>("package_key")
+                    .map_err(|_| Error::Unavailable)?
+                    != key
+            {
+                return Err(Error::Conflict);
+            }
+            if let Some(id) = row
+                .try_get::<Option<Uuid>, _>("payment_intent_id")
+                .map_err(|_| Error::Unavailable)?
+            {
+                return Ok(id);
+            }
+            // Legacy unlinked claims have no known provider key. Preserve them.
+            let id = row
+                .try_get::<Option<Uuid>, _>("intended_payment_intent_id")
+                .map_err(|_| Error::Unavailable)?
+                .ok_or(Error::Unavailable)?;
             let intent = self
                 .payments
-                .create_intent(
+                .ensure_intent(
+                    id,
                     account,
                     Amount {
-                        minor_units: p.minor_units,
-                        currency: p.currency.clone(),
+                        minor_units: row.try_get("minor_units").map_err(|_| Error::Unavailable)?,
+                        currency: row.try_get("currency").map_err(|_| Error::Unavailable)?,
                     },
                 )
                 .await
                 .map_err(|_| Error::Unavailable)?;
-            let updated = sqlx::query("UPDATE store_web_topups SET payment_intent_id=$2, updated_at=now() WHERE operation_id=$1 AND payment_intent_id IS NULL").bind(operation).bind(intent.id).execute(&self.pool).await.map_err(|_| Error::Unavailable)?;
+            let updated = sqlx::query("UPDATE store_web_topups SET payment_intent_id=$2, updated_at=now() WHERE operation_id=$1 AND (payment_intent_id IS NULL OR payment_intent_id=$2)")
+                .bind(operation).bind(intent.id).execute(&self.pool).await.map_err(|_| Error::Unavailable)?;
             if updated.rows_affected() != 1 {
                 return Err(Error::Unavailable);
             }
@@ -191,6 +212,11 @@ fn valid_packages(packages: &[Package]) -> bool {
                 && !packages[..i].iter().any(|old| old.key == p.key)
         })
 }
+fn packages_for_creation(raw: Option<&str>) -> Vec<Package> {
+    raw.and_then(|raw| serde_json::from_str::<Vec<Package>>(raw).ok())
+        .filter(|packages| valid_packages(packages))
+        .unwrap_or_default()
+}
 pub(super) fn router(pool: PgPool) -> axum::Router {
     // T31 currently supplies a local test provider only. It is never selected in
     // production, and no payment or wallet effect is inferred from a return URL.
@@ -200,26 +226,29 @@ pub(super) fn router(pool: PgPool) -> axum::Router {
 }
 fn router_for(pool: PgPool, testing: bool, enabled: bool) -> axum::Router {
     let topups = if testing && enabled {
-        let packages = std::env::var("OTERYN_SHOP_TOP_UP_PACKAGES")
+        // Missing/removed/invalid packages disable new creation, while durable
+        // operations can still resume using their persisted commercial terms.
+        let raw = std::env::var("OTERYN_SHOP_TOP_UP_PACKAGES").ok();
+        let packages = packages_for_creation(raw.as_deref());
+        std::env::var("OTERYN_SHOP_TEST_PAYMENT_KEY")
             .ok()
-            .and_then(|raw| serde_json::from_str::<Vec<Package>>(&raw).ok());
-        packages.filter(|p| valid_packages(p)).and_then(|packages| {
-            let key = std::env::var("OTERYN_SHOP_TEST_PAYMENT_KEY").ok()?;
-            let provider = TestProvider::new(key.as_bytes()).ok()?;
-            Some(Arc::new(PaymentTopUps {
-                signer: provider.clone(),
-                payments: Payments::new(
-                    pool.clone(),
-                    provider,
-                    Accounts(pool.clone()),
-                    PaymentFlags {
-                        enabled: std::env::var("OTERYN_PAYMENTS_ENABLED").as_deref() == Ok("true"),
-                    },
-                ),
-                pool: pool.clone(),
-                packages,
-            }) as Arc<dyn TopUps>)
-        })
+            .and_then(|key| {
+                let provider = TestProvider::new(key.as_bytes()).ok()?;
+                Some(Arc::new(PaymentTopUps {
+                    signer: provider.clone(),
+                    payments: Payments::new(
+                        pool.clone(),
+                        provider,
+                        Accounts(pool.clone()),
+                        PaymentFlags {
+                            enabled: std::env::var("OTERYN_PAYMENTS_ENABLED").as_deref()
+                                == Ok("true"),
+                        },
+                    ),
+                    pool: pool.clone(),
+                    packages,
+                }) as Arc<dyn TopUps>)
+            })
     } else {
         None
     };

@@ -94,6 +94,12 @@ async fn postgres_news_lifecycle() {
     changed.body_pl = "Treść".into();
     changed.translation_published_at = "2020-01-01T00:00:00Z".into();
     let _ = save(&pool, context, Some(id), changed).await.unwrap();
+    let mut unchanged = make();
+    unchanged.title = "Changed source".into();
+    unchanged.title_pl = "Tytuł".into();
+    unchanged.body_pl = "Treść".into();
+    unchanged.translation_published_at = "2020-01-01T00:00:00Z".into();
+    let _ = save(&pool, context, Some(id), unchanged).await.unwrap();
     assert_eq!(
         article(&pool, "pl", &slug).await.unwrap_err(),
         StatusCode::NOT_FOUND
