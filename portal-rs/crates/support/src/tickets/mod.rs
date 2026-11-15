@@ -1,5 +1,9 @@
 //! Account-owned support tickets. Account locks serialize every limit-changing operation.
-use oteryn_admin::{audit, rbac::CheckContext};
+use oteryn_admin::{
+    audit,
+    rbac::{self, Authorizer, CheckContext, Permission},
+    web::PortalIdentity,
+};
 use oteryn_notify::{EmailTemplate, Notifications};
 use sqlx::{PgPool, Postgres, Transaction};
 use std::sync::Arc;
@@ -219,6 +223,24 @@ impl Tickets {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(Error::NotFound)?;
+        if let Some(context) = staff {
+            // The owner lock may have waited behind a revocation. Join the
+            // role-writer fence only after the domain locks, then keep current
+            // grants and the actor's account state valid through commit.
+            rbac::lock_mutation(&mut tx).await?;
+            let auth = Authorizer::new(
+                self.pool.clone(),
+                PortalIdentity::configured(self.pool.clone()),
+            );
+            for permission in [Permission::Access, Permission::ManageSupportTickets] {
+                auth.check_in(&mut tx, context, permission)
+                    .await
+                    .map_err(|error| match error {
+                        rbac::Error::Storage(error) => Error::Database(error),
+                        _ => Error::Denied,
+                    })?;
+            }
+        }
         if !STATUSES.contains(&ticket.status.as_str()) {
             return Err(Error::Denied);
         }

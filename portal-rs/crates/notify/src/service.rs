@@ -55,6 +55,15 @@ pub struct Account {
 /// Return None for unknown, inactive, unverified or ambiguous account state.
 pub trait AccountState: std::fmt::Debug + Send + Sync {
     fn active_verified(&self, account: Uuid) -> NotifyFuture<'_, Option<Account>>;
+    /// Pool-backed adapters must override this to use the caller's transaction.
+    /// The default is for adapters whose state is already available in memory.
+    fn active_verified_in<'a>(
+        &'a self,
+        _tx: &'a mut Transaction<'_, Postgres>,
+        account: Uuid,
+    ) -> NotifyFuture<'a, Option<Account>> {
+        self.active_verified(account)
+    }
 }
 #[derive(Debug)]
 pub struct DenyAccounts;
@@ -253,6 +262,12 @@ impl Notifications {
     async fn account(&self, id: Uuid) -> Result<Account> {
         self.accounts.active_verified(id).await?.ok_or_else(invalid)
     }
+    async fn account_in(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<Account> {
+        self.accounts
+            .active_verified_in(tx, id)
+            .await?
+            .ok_or_else(invalid)
+    }
     /// Missing optional preferences mean email off and portal on.
     pub async fn preference(&self, account: Uuid, category: Category) -> Result<(bool, bool)> {
         self.account(account).await?;
@@ -271,7 +286,7 @@ impl Notifications {
         email: bool,
         portal: bool,
     ) -> Result<()> {
-        self.account(account).await?;
+        self.account_in(tx, account).await?;
         if category == Category::Security && (!email || !portal) {
             return Err(invalid());
         }
@@ -286,7 +301,7 @@ impl Notifications {
         account: Uuid,
         template: &EmailTemplate,
     ) -> Result<Option<Uuid>> {
-        let state = self.account(account).await?;
+        let state = self.account_in(tx, account).await?;
         let _: lettre::message::Mailbox = state.email.parse()?;
         let rendered = template.render(state.locale)?;
         let category = template.category();
@@ -338,7 +353,7 @@ impl Notifications {
         let (account, category) = self
             .unsubscribe
             .verify(token, OffsetDateTime::now_utc().unix_timestamp())?;
-        self.account(account).await?;
+        self.account_in(tx, account).await?;
         outbox::query("INSERT INTO account_notification_prefs(account_id,category,email_enabled) VALUES($1,$2,false) ON CONFLICT(account_id,category) DO UPDATE SET email_enabled=false,updated_at=now()")
             .bind(account).bind(category.as_str()).execute(&mut **tx).await?;
         Ok(())
