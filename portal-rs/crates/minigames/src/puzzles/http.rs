@@ -42,6 +42,7 @@ pub fn router(pool: PgPool, world: WorldStore, flags: Flags, csrf: CsrfConfig) -
         .layer(DefaultBodyLimit::max(4096))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(4096))
         .layer(middleware::from_fn(response_policy))
+        .layer(axum::middleware::from_fn(crate::browser::deadline))
         .with_state(state)
 }
 pub fn configured_router(pool: PgPool) -> Router {

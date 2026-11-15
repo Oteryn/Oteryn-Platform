@@ -152,7 +152,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         if actor == opponent || deck.is_nil() {
             return Err(Error::Invalid);
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
         Self::active(&mut tx, opponent).await?;
         Self::creation_budget(&mut tx, actor).await?;
@@ -166,7 +166,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
     }
     pub async fn accept(&self, actor: Uuid, id: Uuid, deck: Uuid) -> Result<()> {
         self.enabled()?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
         let row: (Uuid, Value, String) = sqlx::query_as("SELECT right_account,left_deck,status FROM collection_pvp_battles WHERE id=$1 FOR UPDATE")
             .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
@@ -190,7 +190,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
     }
     pub async fn decline(&self, actor: Uuid, id: Uuid) -> Result<()> {
         self.enabled()?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
         let changed=sqlx::query("UPDATE collection_pvp_battles SET status='declined',updated_at=now() WHERE id=$1 AND right_account=$2 AND status='pending'")
             .bind(id).bind(actor).execute(&mut *tx).await?.rows_affected();
@@ -202,7 +202,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
     }
     pub async fn battle(&self, actor: Uuid, id: Uuid) -> Result<Battle> {
         self.enabled()?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
         let mut battle: Battle=sqlx::query_as("SELECT id,left_account,right_account,status,revision,state,winner,tournament_id FROM collection_pvp_battles WHERE id=$1 AND $2 IN(left_account,right_account)")
             .bind(id).bind(actor).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
@@ -223,7 +223,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         if revision < 0 || action.to_string().len() > 4096 {
             return Err(Error::Invalid);
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
         let tournament: Option<Option<Uuid>> =
             sqlx::query_scalar("SELECT tournament_id FROM collection_pvp_battles WHERE id=$1")
@@ -280,7 +280,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
     }
     pub async fn tournaments(&self, actor: Uuid) -> Result<Vec<Tournament>> {
         self.enabled()?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
         let rows=sqlx::query_as("SELECT t.id,t.capacity,t.status,(SELECT count(*) FROM collection_pvp_entries e WHERE e.tournament_id=t.id) AS entrants FROM collection_pvp_tournaments t WHERE t.status='registration' OR t.organizer=$1 OR EXISTS(SELECT 1 FROM collection_pvp_entries e WHERE e.tournament_id=t.id AND e.account_id=$1) ORDER BY t.created_at DESC LIMIT 50").bind(actor).fetch_all(&mut *tx).await?;
         tx.commit().await?;
@@ -291,7 +291,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         if !(2..=16).contains(&capacity) {
             return Err(Error::Invalid);
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, organizer).await?;
         Self::creation_budget(&mut tx, organizer).await?;
         let id = Uuid::now_v7();
@@ -309,7 +309,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
     /// Joining constitutes consent to every round-robin fixture with this pinned deck.
     pub async fn join(&self, actor: Uuid, tournament: Uuid, deck: Uuid) -> Result<()> {
         self.enabled()?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
         let (status, capacity): (String, i32) = sqlx::query_as(
             "SELECT status,capacity FROM collection_pvp_tournaments WHERE id=$1 FOR UPDATE",
@@ -339,7 +339,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
     }
     pub async fn start(&self, actor: Uuid, tournament: Uuid) -> Result<()> {
         self.enabled()?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
         let (organizer, status): (Uuid, String) = sqlx::query_as(
             "SELECT organizer,status FROM collection_pvp_tournaments WHERE id=$1 FOR UPDATE",
@@ -399,7 +399,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         if request.get_version_num() != 7 || price <= 0 || version <= 0 {
             return Err(Error::Invalid);
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,91))")
             .bind(request.to_string())

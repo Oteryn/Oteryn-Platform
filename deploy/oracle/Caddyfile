@@ -23,7 +23,9 @@ www.oteryn.com {
 }
 
 gateway.oteryn.com, login.oteryn.com {
-	reverse_proxy platform:8081
+	reverse_proxy platform:8081 {
+		header_up X-Forwarded-For {client_ip}
+	}
 }
 
 # Native gameplay connects directly to this hostname on TCP 7172. This HTTP

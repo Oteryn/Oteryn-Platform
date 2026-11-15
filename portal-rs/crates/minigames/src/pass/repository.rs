@@ -34,7 +34,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         if !valid_id(actor) {
             return Err(Error::Invalid);
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         self.authority.publish(&mut tx, actor).await?;
         let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
             .fetch_one(&mut *tx)
@@ -100,7 +100,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
     }
     pub async fn progress(&self, account: Uuid, season: Uuid) -> Result<Progress> {
         self.enabled()?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         let (progress, _) = self.lock(&mut tx, account, season).await?;
         self.live(&mut tx, season).await?;
         tx.commit().await?;
@@ -109,7 +109,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
     /// The account comes from the browser session, never a form field.
     pub async fn overview(&self, account: Uuid) -> Result<Overview> {
         self.enabled()?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         self.authority.account(&mut tx, account).await?;
         let row = sqlx::query("SELECT id,ends_at FROM pass_seasons WHERE starts_at<=clock_timestamp() AND ends_at>clock_timestamp()")
             .fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
@@ -155,7 +155,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         {
             return Err(Error::Invalid);
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         let (mut progress, _) = self.lock(&mut tx, event.account, event.season).await?;
         self.authority.event(&mut tx, event).await?;
         let c = sqlx::query("SELECT c.source,c.metric,c.target,c.xp FROM pass_challenges c JOIN pass_seasons s ON s.id=c.season_id WHERE c.id=$1 AND c.season_id=$2 AND $3>=s.starts_at AND $3<s.ends_at AND $3<=clock_timestamp()")
@@ -199,7 +199,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         if !valid_id(operation) {
             return Err(Error::Invalid);
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         let (mut progress, price) = self.lock(&mut tx, account, season).await?;
         if progress.paid {
             let key: Option<Uuid> = sqlx::query_scalar(
@@ -238,7 +238,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         if !valid_id(reward) || !valid_id(operation) {
             return Err(Error::Invalid);
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         let (progress, _) = self.lock(&mut tx, account, season).await?;
         let row = sqlx::query("SELECT track,xp,grant_key,grant_revision FROM pass_rewards WHERE id=$1 AND season_id=$2")
             .bind(reward).bind(season).fetch_optional(&mut *tx).await?.ok_or(Error::Denied)?;
