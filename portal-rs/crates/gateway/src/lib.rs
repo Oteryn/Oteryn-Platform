@@ -192,25 +192,43 @@ async fn version_info(State(s): State<Arc<StateData>>) -> Response {
     )
 }
 
-fn source_of(req: &Request, trusted: &[IpAddr]) -> String {
+/// Rate-limit identity: the socket peer unless it is an explicitly trusted proxy
+/// (the gateway list or the shared `TRUSTED_PROXIES`). A trusted proxy (Caddy
+/// overwrites the header) may name exactly one client address; a chain keeps the
+/// peer budget, and malformed forwarding is refused rather than guessed.
+fn source_of(req: &Request, trusted: &[IpAddr]) -> Result<String, ()> {
     let Some(peer) = req.extensions().get::<ConnectInfo<SocketAddr>>() else {
-        return String::new();
+        return Ok(String::new());
     };
-    if trusted.contains(&peer.0.ip()) {
-        let mut values = req.headers().get_all("x-forwarded-for").iter();
-        if let Some(value) = values.next()
-            && values.next().is_none()
-            && let Ok(value) = value.to_str()
-            && let Ok(client) = value.parse::<IpAddr>()
-        {
-            return client.to_string();
-        }
-        // Malformed/missing forwarding never creates a caller-chosen identity.
+    let peer = peer.0.ip();
+    let shared = oteryn_internal_api::proxy::TrustedProxies::configured().map_err(|_| ())?;
+    if !trusted.contains(&peer) && !shared.0.contains(&peer) {
+        return Ok(peer.to_string());
     }
-    peer.0.ip().to_string()
+    let mut chain = Vec::new();
+    for value in req.headers().get_all("x-forwarded-for") {
+        let value = value.to_str().map_err(|_| ())?;
+        if value.len() > 4096 {
+            return Err(());
+        }
+        for ip in value.split(',') {
+            if chain.len() >= 32 {
+                return Err(());
+            }
+            chain.push(ip.trim().parse::<IpAddr>().map_err(|_| ())?);
+        }
+    }
+    match chain.as_slice() {
+        [client] => Ok(client.to_string()),
+        _ => Ok(peer.to_string()),
+    }
 }
 async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
-    let source = source_of(&req, &s.trusted_proxies);
+    let Ok(source) = source_of(&req, &s.trusted_proxies) else {
+        let mut response = StatusCode::SERVICE_UNAVAILABLE.into_response();
+        no_store(&mut response);
+        return response;
+    };
     let query = req.uri().query().is_some_and(|q| !q.is_empty());
     let mut response = if query {
         invalid()
@@ -261,7 +279,9 @@ async fn recovery_front(
     if !s.enabled {
         return Err(StatusCode::NOT_FOUND.into_response());
     }
-    let source = source_of(&req, &s.trusted_proxies);
+    let Ok(source) = source_of(&req, &s.trusted_proxies) else {
+        return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    };
     let query = req.uri().query().is_some_and(|q| !q.is_empty());
     let body = tokio::time::timeout(BODY_DEADLINE, to_bytes(req.into_body(), 16 * 1024))
         .await
@@ -1043,8 +1063,8 @@ mod proxy_tests {
                 .extension(ConnectInfo(SocketAddr::new(peer, 1234)))
                 .body(Body::empty())
         };
-        let a = source_of(&request(proxy, "198.51.100.1")?, &[proxy]);
-        let b = source_of(&request(proxy, "198.51.100.2")?, &[proxy]);
+        let a = source_of(&request(proxy, "198.51.100.1")?, &[proxy]).map_err(|_| "source")?;
+        let b = source_of(&request(proxy, "198.51.100.2")?, &[proxy]).map_err(|_| "source")?;
         for _ in 0..30 {
             assert!(limiter.allow(a.as_bytes(), Duration::ZERO).is_ok());
         }
@@ -1058,14 +1078,108 @@ mod proxy_tests {
             "198.51.100.1, 198.51.100.2",
         ] {
             assert_eq!(
-                source_of(&request(peer, forwarded)?, &[proxy]),
+                source_of(&request(peer, forwarded)?, &[proxy]).map_err(|_| "source")?,
                 peer.to_string()
             );
         }
         assert_eq!(
-            source_of(&request(proxy, "198.51.100.1, 198.51.100.2")?, &[proxy]),
+            source_of(&request(proxy, "198.51.100.1, 198.51.100.2")?, &[proxy]).map_err(|_| "source")?,
             proxy.to_string()
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod proxy_budget_tests {
+    use super::*;
+    #[tokio::test]
+    async fn trusted_proxy_keeps_native_callers_independent()
+    -> Result<(), Box<dyn std::error::Error>> {
+        if std::env::var("L9_GATEWAY_CHILD").is_err() {
+            let output = std::process::Command::new(std::env::current_exe()?)
+                .args([
+                    "--exact",
+                    "proxy_budget_tests::trusted_proxy_keeps_native_callers_independent",
+                    "--nocapture",
+                ])
+                .env("L9_GATEWAY_CHILD", "1")
+                .env("TRUSTED_PROXIES", "10.0.0.1")
+                .output()?;
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return Ok(());
+        }
+        let request =
+            |peer: &str, forwarded: &str| -> Result<Request, Box<dyn std::error::Error>> {
+                Ok(Request::builder()
+                    .extension(ConnectInfo(peer.parse::<SocketAddr>()?))
+                    .header("x-forwarded-for", forwarded)
+                    .body(Body::empty())?)
+            };
+        let a = source_of(&request("10.0.0.1:40000", "192.0.2.1")?, &[]).map_err(|_| "source A")?;
+        let b = source_of(&request("10.0.0.1:40000", "192.0.2.2")?, &[]).map_err(|_| "source B")?;
+        use tower::ServiceExt;
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = calls.clone();
+        let issuer_app = Router::new().route(
+            issuer::ISSUER_PATH,
+            post(move || {
+                let observed = observed.clone();
+                async move {
+                    observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let task = tokio::spawn(async move { axum::serve(listener, issuer_app).await });
+        let app = router_with(
+            IssuerClient::new(
+                &format!("http://{address}"),
+                "fixture".into(),
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+            )?,
+            Options {
+                enabled: true,
+                protocol3: true,
+                version: "test".into(),
+            },
+        );
+        for _ in 0..30 {
+            let mut req = request("10.0.0.1:40000", &a)?;
+            *req.method_mut() = axum::http::Method::POST;
+            *req.uri_mut() = "/v1/login".parse()?;
+            *req.body_mut() = Body::from(r#"{"protocol_version":3}"#);
+            assert_eq!(
+                app.clone().oneshot(req).await?.status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+        for (source, expected) in [
+            (&a, StatusCode::TOO_MANY_REQUESTS),
+            (&b, StatusCode::SERVICE_UNAVAILABLE),
+        ] {
+            let mut req = request("10.0.0.1:40000", source)?;
+            *req.method_mut() = axum::http::Method::POST;
+            *req.uri_mut() = "/v1/login".parse()?;
+            *req.body_mut() = Body::from(include_str!(
+                "../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/login-request.json"
+            ));
+            assert_eq!(app.clone().oneshot(req).await?.status(), expected);
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        task.abort();
+        assert_eq!(
+            source_of(&request("198.51.100.1:40000", "192.0.2.2")?, &[]).map_err(|_| "source")?,
+            "198.51.100.1"
+        );
+        assert!(source_of(&request("10.0.0.1:40000", "spoofed")?, &[]).is_err());
         Ok(())
     }
 }

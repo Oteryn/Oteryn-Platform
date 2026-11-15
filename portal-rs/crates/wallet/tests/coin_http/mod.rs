@@ -548,7 +548,7 @@ async fn flags_transport_and_peer_provenance_fail_closed_without_database() {
                 "{\"coins.test.invalid\":[]}".into()
             ),
             (
-                "OTHER_IDENTITIES".into(),
+                "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
                 "{\"coins.test.invalid\":[]}".into()
             )
         ])
@@ -982,5 +982,26 @@ async fn a3_l6_04_cancellation_returns_suspended_holder_once() {
     eprintln!(
         "PG a3_l6_04_cancellation_returns_suspended_holder_once {:.3}s",
         started.elapsed().as_secs_f64()
+    );
+}
+
+#[test]
+fn recovery_locator_metadata_does_not_disable_coins() {
+    assert!(
+        wire::identities(vec![
+            (
+                "PORTAL_GAME_COINS_IDENTITIES".into(),
+                r#"{"coins.oteryn.internal":[]}"#.into()
+            ),
+            (
+                "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+                r#"{"locator.oteryn.internal":["019c0000-0000-7000-8000-000000000001/019c0000-0000-7000-8000-000000000002"]}"#.into()
+            ),
+            (
+                "PORTAL_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+                r#"{"locator.oteryn.internal":"game-node-1"}"#.into()
+            ),
+        ])
+        .is_ok()
     );
 }

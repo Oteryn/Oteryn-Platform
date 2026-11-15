@@ -38,10 +38,7 @@ pub fn register(registry: &mut Registry) {
         Group::Community,
         false,
     );
-    let staging = matches!(
-        std::env::var("APP_ENV").as_deref(),
-        Ok("testing" | "preproduction")
-    );
+    let staging = oteryn_core::restricted_environment(|key| std::env::var(key).ok());
     registry.section(
         on("PORTAL_GUILDS_ENABLED") && staging,
         "guilds",

@@ -105,10 +105,7 @@ fn segment(family: Family) -> &'static str {
 pub fn configured_router(db: PgPool) -> Router {
     let on = |key: &str| std::env::var(key).as_deref() == Ok("true");
     let base = on("PORTAL_PUBLIC_PROJECTIONS_ENABLED")
-        && matches!(
-            std::env::var("APP_ENV").as_deref(),
-            Ok("testing" | "preproduction")
-        );
+        && oteryn_core::restricted_environment(|key| std::env::var(key).ok());
     let mut layer = SessionLayer::new(db.clone());
     layer.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
         .ok()

@@ -254,3 +254,20 @@ Caddy forwards its already-resolved `{client_ip}` as a single `X-Forwarded-For`
 value. Its strict Cloudflare trust policy rejects spoofed forwarding from other
 peers, while Rust trusts only the Caddy container at `172.18.0.10`; a Cloudflare
 transport hop cannot accidentally become the registration budget key.
+
+Registration requires mail delivery in both `serve` and `worker`. Supply
+`OTERYN_SMTP_HOST`, `OTERYN_SMTP_USERNAME`, `OTERYN_SMTP_PASSWORD`, and
+`OTERYN_MAIL_FROM` in the private `platform.env`. Both roles receive
+`OTERYN_PUBLIC_ORIGIN=https://oteryn.com` from the compose configuration; this
+also supplies the origin used by password reset, email change, referrals and
+Bazaar workers when their existing flags are enabled. `OTERYN_SMTP_TLS_MODE`
+(default `starttls`) and `OTERYN_SMTP_PORT` may select the authenticated TLS
+transport. The worker refuses startup when registration delivery is incomplete;
+serve refuses registration POSTs with 503 until restarted with valid delivery
+configuration. Existing queued verification jobs remain untouched during that
+configuration failure. Configure enabled reset/email-change/referral/Bazaar
+consumers' additional settings before starting the worker.
+
+The gateway also trusts only Caddy at `172.18.0.10`, and receives the same single
+resolved client address header. Native login/recovery and browser account/source
+budgets therefore keep independent client identities behind the edge.

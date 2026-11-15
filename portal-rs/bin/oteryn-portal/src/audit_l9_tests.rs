@@ -130,6 +130,9 @@ async fn fixture(name: &str, mode: &str) -> Result {
         .env("OTERYN_ACCOUNT_SESSIONS", "false")
         .env("OTERYN_ACCOUNT_LOGIN", "false")
         .env("OTERYN_ACCOUNT_PASSKEYS", "false");
+    if name == "missing_mail_refuses_admission" {
+        command.env_remove("OTERYN_SMTP_HOST");
+    }
     if name == "production_smtp_senders_both_tls_modes" {
         command
             .env("OTERYN_ACCOUNT_SESSIONS", "true")
@@ -638,6 +641,108 @@ async fn production_smtp_senders_both_tls_modes() -> Result {
     eprintln!(
         "PG production_smtp_senders_both_tls_modes {} {:.3}s",
         std::env::var("OTERYN_SMTP_TLS_MODE")?,
+        start.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn missing_mail_refuses_admission() -> Result {
+    if std::env::var("L9_CHILD").is_err() {
+        fixture("missing_mail_refuses_admission", "starttls").await?;
+        // Restart with complete delivery configuration and dispatch through real TLS SMTP.
+        return fixture("production_registration_account_exists", "starttls").await;
+    }
+    let start = Instant::now();
+    let db = database().await?;
+    let browser = browser(&db.pool, None).await?;
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
+        .execute(&db.pool)
+        .await?;
+    let app = crate::registration_delivery::admission(app(db.pool.clone()), db.pool.clone());
+    let body = registration_body(
+        &app,
+        &db.pool,
+        &browser,
+        "delivery-unavailable@example.test",
+        "192.0.2.90",
+    )
+    .await?;
+    assert_eq!(
+        app.oneshot(request(
+            "POST",
+            "/en/register",
+            &browser,
+            "10.0.0.1:1234",
+            "192.0.2.90",
+            &body
+        )?)
+        .await?
+        .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let accounts: i64 = sqlx::query_scalar("SELECT count(*) FROM accounts")
+        .fetch_one(&db.pool)
+        .await?;
+    let jobs: i64 = sqlx::query_scalar("SELECT count(*) FROM outbox")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!((accounts, jobs), (0, 0));
+    assert!(crate::worker::configured(db.pool.clone()).await.is_err());
+    db.close().await?;
+    eprintln!(
+        "PG missing_mail_refuses_admission {:.3}s",
+        start.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+#[tokio::test]
+async fn browser_account_source_budgets_separate_proxy_clients() -> Result {
+    if std::env::var("L9_CHILD").is_err() {
+        return fixture(
+            "browser_account_source_budgets_separate_proxy_clients",
+            "starttls",
+        )
+        .await;
+    }
+    let start = Instant::now();
+    let db = database().await?;
+    let id = account(&db.pool, "budget@example.test").await?;
+    let browser = browser(&db.pool, Some(id)).await?;
+    let app = app(db.pool.clone());
+    for _ in 0..5 {
+        let response = app.clone().oneshot(request("POST", "/en/password/change", &browser, "10.0.0.1:1234", "192.0.2.1", "current_password=incorrect&password=next+password&password_confirmation=next+password")?).await?;
+        assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+    for (source, expected) in [("192.0.2.1", true), ("192.0.2.2", false)] {
+        let response = app.clone().oneshot(request("POST", "/en/password/change", &browser, "10.0.0.1:1234", source, "current_password=incorrect&password=next+password&password_confirmation=next+password")?).await?;
+        assert_eq!(
+            response.status() == StatusCode::TOO_MANY_REQUESTS,
+            expected,
+            "{source}"
+        );
+    }
+    // Untrusted sockets cannot split their budget by changing forwarding headers.
+    for n in 0..5 {
+        let response = app.clone().oneshot(request("POST", "/en/password/change", &browser, "198.51.100.7:1234", &format!("203.0.113.{n}"), "current_password=incorrect&password=next+password&password_confirmation=next+password")?).await?;
+        assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+    assert_eq!(
+        app.oneshot(request(
+            "POST",
+            "/en/password/change",
+            &browser,
+            "198.51.100.7:1234",
+            "203.0.113.99",
+            "current_password=incorrect&password=next+password&password_confirmation=next+password"
+        )?)
+        .await?
+        .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    db.close().await?;
+    eprintln!(
+        "PG browser_account_source_budgets_separate_proxy_clients {:.3}s",
         start.elapsed().as_secs_f64()
     );
     Ok(())

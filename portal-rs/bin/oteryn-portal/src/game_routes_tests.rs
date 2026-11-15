@@ -1001,3 +1001,52 @@ fn enabled_values_for_watermark() -> Values {
     values.insert("APP_ENV".into(), "testing".into());
     values
 }
+
+#[tokio::test]
+async fn production_vetoes_family_and_stats_ingest_with_testing_app_env() -> TestResult {
+    for canonical in ["production", "local"] {
+        let mut values = enabled();
+        values.insert("OTERYN_ENV".into(), canonical.into());
+        values.remove("PORTAL_GAME_RESTORE_NOTICE_ENABLED");
+        let app = app_without_lcfa(&values).await?;
+        for path in [
+            ONLINE_SESSION_PATH,
+            WORLD_DAILY_KILLS_PATH,
+            "/internal/v2/game-public/character-skills",
+            "/internal/v2/game-public/character-achievements",
+            "/internal/v2/game-public/character-equipment",
+            "/internal/v2/game-public/character-outfit",
+        ] {
+            assert_eq!(
+                status(&app, PUBLIC, path).await?,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{canonical} {path}"
+            );
+        }
+    }
+    Ok(())
+}
+#[tokio::test]
+async fn recovery_locator_metadata_preserves_unrelated_purpose_admission() -> TestResult {
+    let mut values = enabled();
+    values.remove("PORTAL_GAME_RESTORE_NOTICE_ENABLED");
+    values.insert(
+        "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+        r#"{"locator.oteryn.internal":["019c0000-0000-7000-8000-000000000001/019c0000-0000-7000-8000-000000000002"]}"#.into(),
+    );
+    values.insert(
+        "PORTAL_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+        r#"{"locator.oteryn.internal":"game-node-1"}"#.into(),
+    );
+    let app = app_without_lcfa(&values).await?;
+    for (path, identity, _, expected) in surfaces() {
+        if path == RESTORE_PATH {
+            continue;
+        }
+        assert_eq!(status(&app, identity, path).await?, expected, "{path}");
+    }
+    // Authentication scopes still participate in cross-purpose overlap rejection.
+    values.insert(PREMIUM_IDENTITY.into(), "locator.oteryn.internal".into());
+    assert!(bindings(&values).is_err());
+    Ok(())
+}

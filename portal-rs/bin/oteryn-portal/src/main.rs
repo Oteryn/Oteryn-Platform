@@ -385,6 +385,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);
+            let app = registration_delivery::admission(app, db.clone());
             let app = app.merge(code_routes::configured(db.clone())?);
             let app = with_proxy_policy(app, db.clone(), proxies);
             let (public_app, app) =

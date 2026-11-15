@@ -67,8 +67,10 @@ stateless role. No SQL or offline query metadata is added. Deployment, productio
 activation and future protocol changes remain outside T52.
 
 Public login and both recovery routes resolve rate-limit identity from the socket
-peer unless it is in `GATEWAY_TRUSTED_PROXIES`. A trusted peer may supply exactly
-one IP in `X-Forwarded-For`; malformed or missing headers use the peer budget.
+peer unless it is in `GATEWAY_TRUSTED_PROXIES` or the shared `TRUSTED_PROXIES`.
+A trusted peer may supply exactly one IP in `X-Forwarded-For`; a missing header
+or an address chain uses the peer budget, and a malformed header or invalid
+`TRUSTED_PROXIES` is refused with 503.
 The Oracle Caddy route overwrites this header with its resolved `{client_ip}` and
 the gateway trusts only the edge container address. Direct callers cannot select
 their budget through forwarding headers. Uncertain issuer outcomes consume the

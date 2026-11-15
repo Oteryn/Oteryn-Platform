@@ -74,7 +74,9 @@ pub(super) fn identity_map(
     // Match the internal identity configuration forms, including the coins SAN
     // map. Reuse across separately mounted route groups must also fail closed.
     for (key, raw) in values {
-        if key.ends_with("_IDENTITIES") {
+        if oteryn_internal_api::identity_config::shape(key.as_str())
+            == Some(oteryn_internal_api::identity_config::Shape::Map)
+        {
             let Value::Object(members) =
                 oteryn_internal_api::canonical::decode(raw.as_bytes(), 131072, 4)
                     .map_err(|_| guard::ConfigError)?
@@ -92,7 +94,9 @@ pub(super) fn identity_map(
                     group: key.clone(),
                 });
             }
-        } else if key.ends_with("_IDENTITY") || key.ends_with("_SAN") {
+        } else if oteryn_internal_api::identity_config::shape(key.as_str())
+            == Some(oteryn_internal_api::identity_config::Shape::Single)
+        {
             bindings.push(guard::Binding {
                 identity: guard::Identity::san(raw)?,
                 group: if key == "PRODUCTS_ENTITLEMENTS_LOYALTY_STREAM_MTLS_CLIENT_IDENTITY" {

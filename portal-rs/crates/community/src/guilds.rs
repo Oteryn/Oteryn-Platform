@@ -213,7 +213,7 @@ fn configured(db: PgPool, part: Part) -> Router {
     configured_with(db, part, |key| std::env::var(key).ok())
 }
 fn configured_with(db: PgPool, part: Part, get: impl Fn(&str) -> Option<String>) -> Router {
-    let environment = matches!(get("APP_ENV").as_deref(), Some("testing" | "preproduction"));
+    let environment = oteryn_core::restricted_environment(&get);
     let identities = get("PORTAL_PUBLIC_PROJECTIONS_SAN")
         .and_then(|s| guard::Identity::san(&s).ok())
         .and_then(|identity| {
