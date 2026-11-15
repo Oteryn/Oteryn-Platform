@@ -157,7 +157,7 @@ impl<A: Accounts, V: PublicViews, L: PromotionLedger> Moderation<A, V, L> {
         }
         let mut visible = Vec::new();
         for mut listing in profile.listings {
-            let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_listings l WHERE l.id=$1 AND l.owner=$2 AND l.state='active' AND l.ends_at>clock_timestamp() AND NOT EXISTS(SELECT 1 FROM bazaar_moderation_holds h WHERE h.listing_id=l.id) AND NOT (l.kind='item' AND EXISTS(SELECT 1 FROM bazaar_item_restrictions)))")
+            let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_listings l WHERE l.id=$1 AND l.owner=$2 AND l.state='active' AND l.ends_at>clock_timestamp() AND NOT EXISTS(SELECT 1 FROM bazaar_moderation_holds h WHERE h.listing_id=l.id) AND NOT (l.kind='item' AND bazaar_item_restricted(l.id,l.price)))")
                 .bind(listing.id).bind(seller).fetch_one(&mut *tx).await?;
             if allowed && self.views.listing_visible(&mut tx, listing.id).await? {
                 listing.featured=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_promotions WHERE listing_id=$1 AND owner=$2)").bind(listing.id).bind(seller).fetch_one(&mut *tx).await?;
@@ -327,7 +327,7 @@ async fn lock_listing(
 }
 async fn held(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<bool, Error> {
     Ok(sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1) OR EXISTS(SELECT 1 FROM bazaar_listings WHERE id=$1 AND kind='item' AND state='active' AND EXISTS(SELECT 1 FROM bazaar_item_restrictions))",
+        "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1) OR EXISTS(SELECT 1 FROM bazaar_listings WHERE id=$1 AND kind='item' AND state='active' AND bazaar_item_restricted(id,price))",
     )
     .bind(id)
     .fetch_one(&mut **tx)

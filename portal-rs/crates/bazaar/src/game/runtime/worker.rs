@@ -24,6 +24,17 @@ impl Runtime {
             Err(Error::Database(e)) => return Err(Error::Database(e)),
             Err(_) => resync.rollback().await?,
         }
+        // Reconcile legacy dispositions in bounded, independently committed batches.
+        let mut reconciliation = self.pool.begin().await?;
+        self.authority().lock(&mut reconciliation).await?;
+        let operations: Vec<Uuid> = sqlx::query_scalar("SELECT f.operation_id FROM bazaar_disposition_fences f JOIN bazaar_authority_receipts r USING(operation_id) WHERE NOT f.terminal_committed AND NOT f.quarantined AND (f.no_effect_generation<$1::text::numeric OR f.no_effect_generation>$1::text::numeric) AND r.recovery_generation=$1::text::numeric AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=f.operation_id) AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=f.operation_id AND d.recovery_generation=r.recovery_generation) ORDER BY f.operation_id LIMIT 24")
+            .bind(self.config.fence.recovery_generation.to_string()).fetch_all(&mut *reconciliation).await?;
+        for operation in operations {
+            self.authority()
+                .retained(&mut reconciliation, operation)
+                .await?;
+        }
+        reconciliation.commit().await?;
         self.tick_gold_bids().await?;
         let ids = listing_batch(&self.pool, self.config.fence.recovery_generation).await?;
         for listing in ids {
@@ -281,7 +292,7 @@ impl Runtime {
                     .await
                     .map_err(core_error)?;
             }
-            State::Completed if l.kind == Kind::Character => {
+            State::Completed | State::Cancelled if l.kind == Kind::Character => {
                 self.unlock(&mut tx, &l).await?;
                 tx.commit().await?;
             }
@@ -643,9 +654,9 @@ fn funding(s: &Settlement) -> Value {
     ])
 }
 
-pub(super) async fn listing_batch(pool: &PgPool, generation: u64) -> Result<Vec<Uuid>, Error> {
+pub(crate) async fn listing_batch(pool: &PgPool, generation: u64) -> Result<Vec<Uuid>, Error> {
     let cursor = crate::scheduling::cursor(pool, "listings").await?;
-    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE (a.refusal_code IS NULL OR (l.kind='item' AND l.state='awaiting_delivery') OR EXISTS(SELECT 1 FROM bazaar_game_outbox cleanup WHERE cleanup.listing_id=l.id AND cleanup.command IN ('ReturnBazaarItem','UnlockBazaarCharacter','PayoutBazaarGold'))) AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state='completed' AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric))) ORDER BY (l.id <= $2),l.id LIMIT 24").bind(generation.to_string()).bind(cursor).fetch_all(pool).await?;
+    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE (a.refusal_code IS NULL OR (l.kind='item' AND l.state='awaiting_delivery') OR EXISTS(SELECT 1 FROM bazaar_game_outbox cleanup WHERE cleanup.listing_id=l.id AND cleanup.command IN ('ReturnBazaarItem','UnlockBazaarCharacter','PayoutBazaarGold'))) AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state IN ('completed','cancelled') AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id) AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation)))) ORDER BY (l.id <= $2),l.id LIMIT 24").bind(generation.to_string()).bind(cursor).fetch_all(pool).await?;
     if let Some(last) = ids.last() {
         crate::scheduling::advance(pool, "listings", *last).await?;
     }
