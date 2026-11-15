@@ -27,3 +27,19 @@ fn migration_versions_are_unique() {
 fn migrations_are_embedded() {
     assert!(oteryn_db::MIGRATOR.iter().next().is_some());
 }
+
+/// Versions are 14-digit UTC timestamps (`YYYYMMDDhhmmss`). A shorter or
+/// longer prefix still compiles but sorts out of order, so the migration
+/// would run before or after the schema it was written against.
+#[test]
+fn migration_versions_are_fourteen_digit_timestamps() {
+    let malformed: Vec<_> = oteryn_db::MIGRATOR
+        .iter()
+        .filter(|migration| !(10_000_000_000_000..100_000_000_000_000).contains(&migration.version))
+        .map(|migration| (migration.version, migration.description.to_string()))
+        .collect();
+    assert!(
+        malformed.is_empty(),
+        "migration versions must be 14-digit timestamps: {malformed:?}"
+    );
+}

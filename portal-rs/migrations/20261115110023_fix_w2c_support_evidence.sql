@@ -1,5 +1,3 @@
--- The assigned version precedes existing 14-digit migration versions.
--- Domain APIs validate ticket/owner bindings after those schemas are installed.
 -- Short-lived staff attestations, bound to the authoritative ticket owner.
 CREATE TABLE support_mfa_reset_evidence (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
