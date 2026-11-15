@@ -780,3 +780,39 @@ async fn postgres_message_pages_and_payload_binding() -> TestResult {
 
     db.finish().await
 }
+
+#[tokio::test]
+async fn postgres_ticket_status_with_exhausted_pool() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = db.account("en").await?;
+    let tickets = db.tickets(4)?;
+    let ticket = tickets
+        .create(account, Uuid::now_v7(), "other", "subject", "body")
+        .await?;
+    // Leave precisely one connection for the mutation's transaction.
+    let mut held = Vec::new();
+    for _ in 0..7 {
+        held.push(db.pool.acquire().await?);
+    }
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        tickets.change(
+            account,
+            None,
+            ticket.id,
+            ticket.lock_version,
+            Change::Status("closed"),
+        ),
+    )
+    .await??;
+    drop(held);
+    db.finish().await?;
+    eprintln!(
+        "postgres_ticket_status_with_exhausted_pool duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

@@ -194,12 +194,9 @@ impl Tickets {
         }
         let mut tx = self.pool.begin().await?;
         // Always acquire account locks before ticket locks, including reopen operations.
-        let actor_state = oteryn_identity::accounts::Accounts {
-            pool: self.pool.clone(),
-        }
-        .find_by_id(actor)
-        .await?
-        .ok_or(Error::Denied)?;
+        let actor_state = oteryn_identity::accounts::Accounts::find_by_id_in(&mut tx, actor)
+            .await?
+            .ok_or(Error::Denied)?;
         if actor_state.status != "active" {
             return Err(Error::Denied);
         }
@@ -265,12 +262,10 @@ impl Tickets {
             audit::append(&mut tx,audit::Entry {context:audit::AuditContext {actor:Some(actor),request_id:Uuid::now_v7()},action:match change { Change::Reply {internal:true,..}=>"support.ticket_internal_note_added",Change::Reply {..}=>"support.ticket_replied",Change::Status(_)=>"support.ticket_status_changed"},target:&id.to_string(),before:serde_json::json!({"status":before,"lock_version":version}),after:serde_json::json!({"status":ticket.status,"lock_version":ticket.lock_version})}).await.map_err(|_|Error::Denied)?;
         }
         if notify {
-            let owner = oteryn_identity::accounts::Accounts {
-                pool: self.pool.clone(),
-            }
-            .find_by_id(ticket.account_id)
-            .await?
-            .ok_or(Error::Denied)?;
+            let owner =
+                oteryn_identity::accounts::Accounts::find_by_id_in(&mut tx, ticket.account_id)
+                    .await?
+                    .ok_or(Error::Denied)?;
             let body = format!(
                 "{} /{}/support/tickets/{}",
                 text::text(
