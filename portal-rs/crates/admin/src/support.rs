@@ -251,15 +251,16 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
         return Err(Error::Denied);
     }
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
-    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-        .execute(&mut *tx)
+    crate::rbac::lock_mutation(&mut tx)
         .await
         .map_err(|_| Error::Unavailable)?;
     for permission in [Permission::Access, command.area().permission()] {
-        auth.check(context, permission).await.map_err(|e| match e {
-            crate::rbac::Error::Storage(_) => Error::Unavailable,
-            _ => Error::Denied,
-        })?;
+        auth.check_in(&mut tx, context, permission)
+            .await
+            .map_err(|e| match e {
+                crate::rbac::Error::Storage(_) => Error::Unavailable,
+                _ => Error::Denied,
+            })?;
     }
     let (before, after) = backend
         .apply(&mut tx, context.account, id, version, command)

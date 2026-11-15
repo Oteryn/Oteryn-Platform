@@ -15,6 +15,17 @@ use sqlx::{PgConnection, PgPool};
 use std::future::Future;
 use uuid::Uuid;
 
+/// Bound waits at the role-writer fence so blocked requests release pool capacity.
+pub async fn lock_mutation(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(connection)
+        .await?;
+    Ok(())
+}
+
 /// Unavailable, missing and conflicting identity state all deny access.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountState {
@@ -33,6 +44,15 @@ pub trait AccountStateReader: Send + Sync {
         &self,
         account: Uuid,
     ) -> impl Future<Output = Result<AccountState, AccountStateUnavailable>> + Send;
+    /// Database-backed adapters must read through this connection and must not
+    /// acquire another pool connection while the caller holds a transaction.
+    fn state_in(
+        &self,
+        _connection: &mut PgConnection,
+        account: Uuid,
+    ) -> impl Future<Output = Result<AccountState, AccountStateUnavailable>> + Send {
+        self.state(account)
+    }
 }
 
 /// Trusted, per-request authentication state. Staff MFA is required by default.
@@ -121,6 +141,44 @@ impl<A: AccountStateReader> Authorizer<A> {
         Self::check_permission(&mut connection, context.account, permission).await
     }
 
+    pub(crate) async fn account_active_in(
+        &self,
+        connection: &mut PgConnection,
+        account: Uuid,
+    ) -> bool {
+        !account.is_nil()
+            && matches!(
+                self.accounts.state_in(connection, account).await,
+                Ok(AccountState::Active)
+            )
+    }
+
+    /// Rechecks eligibility and grants on the mutation connection. Call after
+    /// taking resource locks and the role-writer fence (71010).
+    pub async fn check_in(
+        &self,
+        connection: &mut PgConnection,
+        context: CheckContext,
+        permission: Permission,
+    ) -> Result<(), Error> {
+        if permission.as_str().starts_with("game.")
+            && (!self.game_flags.enabled
+                || (permission == Permission::GameNodeDeploy && !self.game_flags.deploy))
+        {
+            return Err(Error::Denied);
+        }
+        if context.account.is_nil()
+            || (context.require_staff_mfa && !context.mfa_verified)
+            || !matches!(
+                self.accounts.state_in(connection, context.account).await,
+                Ok(AccountState::Active)
+            )
+        {
+            return Err(Error::Denied);
+        }
+        Self::check_permission(connection, context.account, permission).await
+    }
+
     async fn check_permission(
         connection: &mut PgConnection,
         account: Uuid,
@@ -145,3 +203,6 @@ impl<A: AccountStateReader> Authorizer<A> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod panel_tests;

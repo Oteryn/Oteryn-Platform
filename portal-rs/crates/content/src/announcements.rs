@@ -122,7 +122,7 @@ impl Announcements {
         sqlx::query("SELECT pg_advisory_xact_lock(71010)")
             .execute(&mut *tx)
             .await?;
-        auth.check(context, Permission::ManagePortalAnnouncements)
+        auth.check_in(&mut tx, context, Permission::ManagePortalAnnouncements)
             .await?;
         input.validate()?;
         let id = existing.map_or_else(Uuid::now_v7, |v| v.0);

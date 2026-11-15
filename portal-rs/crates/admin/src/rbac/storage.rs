@@ -35,16 +35,59 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
     ) -> Result<Option<Uuid>, Error> {
+        self.change_impl(context, request_id, change, false).await
+    }
+
+    /// Browser role edits cannot bypass privileged-grant approval or alter the
+    /// roles responsible for administrator survival.
+    pub async fn change_from_panel(
+        &self,
+        context: CheckContext,
+        request_id: Uuid,
+        change: Change<'_>,
+    ) -> Result<Option<Uuid>, Error> {
+        self.change_impl(context, request_id, change, true).await
+    }
+
+    async fn change_impl(
+        &self,
+        context: CheckContext,
+        request_id: Uuid,
+        change: Change<'_>,
+        panel: bool,
+    ) -> Result<Option<Uuid>, Error> {
         if request_id.is_nil() {
             return Err(Error::InvalidInput);
         }
         self.validate_account(context).await?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
+        super::lock_mutation(&mut tx).await?;
+        self.check_in(&mut tx, context, Permission::ManageRoles)
             .await?;
-        self.validate_account(context).await?;
-        Self::check_permission(&mut tx, context.account, Permission::ManageRoles).await?;
+        if panel {
+            self.check_in(&mut tx, context, Permission::Access).await?;
+            match &change {
+                Change::CreateRole { permissions, .. }
+                | Change::SetPermissions { permissions, .. }
+                    if permissions.contains(&Permission::ManageRoles) =>
+                {
+                    return Err(Error::Denied);
+                }
+                _ => {}
+            }
+            let protected_role = match &change {
+                Change::SetPermissions { role, .. } | Change::Grant { role, .. } => Some(*role),
+                _ => None,
+            };
+            if let Some(role) = protected_role {
+                let protected: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM roles r WHERE r.id=$1 AND (r.key IN ('owner','platform_admin') OR EXISTS(SELECT 1 FROM role_permissions rp WHERE rp.role_id=r.id AND rp.permission='admin.roles.manage')))",
+                ).bind(role).fetch_one(&mut *tx).await?;
+                if protected {
+                    return Err(Error::Denied);
+                }
+            }
+        }
         let (action, target, before, after, result) = match change {
             Change::CreateRole { key, permissions } => {
                 validate_key(key)?;
@@ -105,7 +148,11 @@ impl<A: AccountStateReader> Authorizer<A> {
                 require_role(&mut tx, role).await?;
                 let grant = matches!(change, Change::Grant { .. });
                 // Revocation must remain possible even for a disabled or deleted account.
-                if grant && !matches!(self.accounts.state(account).await, Ok(AccountState::Active))
+                if grant
+                    && !matches!(
+                        self.accounts.state_in(&mut tx, account).await,
+                        Ok(AccountState::Active)
+                    )
                 {
                     return Err(Error::Denied);
                 }

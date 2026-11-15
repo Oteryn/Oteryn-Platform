@@ -892,3 +892,152 @@ async fn db_game_roles_authorize_only_explicit_grants_and_deploy_stays_dormant()
     }
     db.close().await;
 }
+
+async fn bounded_pool(db: &Database, size: u32) -> PgPool {
+    let path = format!("SET search_path TO {}", db.schema);
+    PgPoolOptions::new()
+        .max_connections(size)
+        .acquire_timeout(std::time::Duration::from_millis(500))
+        .after_connect(move |conn, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query(AssertSqlSafe(path)).execute(conn).await?;
+                Ok(())
+            })
+        })
+        .connect_with((*db.pool.connect_options()).clone())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn db_transaction_authorization_two_queued_mutations_do_not_starve() {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let actor = db.manager().await;
+    let pool = bounded_pool(&db, 2).await;
+    let auth = Authorizer::new(pool.clone(), Accounts(Ok(AccountState::Active)));
+    let mut blocker = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let mut tasks = Vec::new();
+    for _ in 0..2 {
+        let pool = pool.clone();
+        let auth = auth.clone();
+        tasks.push(tokio::spawn(async move {
+            let mut tx = pool.begin().await.unwrap();
+            sqlx::query("SELECT pg_advisory_xact_lock(71010)").execute(&mut *tx).await.unwrap();
+            auth.check_in(&mut tx, actor, Permission::Access).await.unwrap();
+            sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'")
+                .bind(Uuid::now_v7()).execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+        }));
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while pool.size() != 2 || pool.num_idle() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    blocker.commit().await.unwrap();
+    for task in tasks {
+        tokio::time::timeout(std::time::Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    pool.close().await;
+    db.close().await;
+    eprintln!(
+        "db_transaction_authorization_two_queued_mutations_do_not_starve: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn db_transaction_authorization_one_connection_identity_read() {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let actor = db.manager().await;
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'pool-test@local.test','unused','active','en',now())")
+        .bind(actor.account).execute(&db.pool).await.unwrap();
+    let pool = bounded_pool(&db, 1).await;
+    let auth = Authorizer::new(
+        pool.clone(),
+        crate::web::PortalIdentity::configured(pool.clone()),
+    );
+    let mut tx = pool.begin().await.unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        auth.check_in(&mut tx, actor, Permission::Access),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(actor.account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        auth.check_in(&mut tx, actor, Permission::Access).await,
+        Err(Error::Denied)
+    ));
+    tx.rollback().await.unwrap();
+
+    pool.close().await;
+    db.close().await;
+    eprintln!(
+        "db_transaction_authorization_one_connection_identity_read: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn db_transaction_authorization_observes_revocation_after_resource_wait() {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let manager = db.manager().await;
+    let actor = db.manager().await;
+    let auth = db.auth();
+    auth.check(actor, Permission::Access).await.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    // Model the resource wait: authorization succeeded before the transaction,
+    // and the role writer commits before the mutation takes the role fence.
+    auth.change(
+        manager,
+        Uuid::now_v7(),
+        Change::Revoke {
+            account: actor.account,
+            role: db.role("security_admin").await,
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(matches!(
+        auth.check_in(&mut tx, actor, Permission::Access).await,
+        Err(Error::Denied)
+    ));
+    tx.rollback().await.unwrap();
+    db.close().await;
+    eprintln!(
+        "db_transaction_authorization_observes_revocation_after_resource_wait: {:?}",
+        started.elapsed()
+    );
+}

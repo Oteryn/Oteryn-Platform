@@ -70,7 +70,8 @@ impl Events {
         sqlx::query("SELECT pg_advisory_xact_lock(71010)")
             .execute(&mut *tx)
             .await?;
-        auth.check(context, Permission::ManageEvents).await?;
+        auth.check_in(&mut tx, context, Permission::ManageEvents)
+            .await?;
         draft.validate()?;
         let id = existing.map_or_else(Uuid::now_v7, |v| v.0);
         let before = if let Some((_, version)) = existing {
@@ -133,7 +134,7 @@ impl Events {
             .execute(&mut *tx)
             .await?;
         for permission in [Permission::ManageEvents, Permission::PublishEvents] {
-            auth.check(context, permission).await?;
+            auth.check_in(&mut tx, context, permission).await?;
         }
         let target = Status::parse(target).ok_or(Error::Invalid)?;
         let current: Event=sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version FROM events WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
