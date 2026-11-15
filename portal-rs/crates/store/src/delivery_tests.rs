@@ -1048,3 +1048,32 @@ async fn postgres_restore_selection_is_bounded_and_atomic() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn non_rfc_v7_restore_event_never_changes_store_fence() {
+    let started = std::time::Instant::now();
+    let db = Db::new().await.expect("PORTAL_TEST_DATABASE_URL required");
+    for variant in ["0000", "c000", "e000"] {
+        let event = format!("019a65f0-0000-7000-{variant}-000000000003")
+            .parse()
+            .unwrap();
+        let mut tx = db.pool.begin().await.unwrap();
+        assert!(matches!(
+            db.delivery.reopen_in(&mut tx, event, 3, 8).await,
+            Err(Error::Invalid)
+        ));
+        tx.rollback().await.unwrap();
+    }
+    let generation: String = sqlx::query_scalar(
+        "SELECT new_recovery_generation::text FROM store_delivery_fence WHERE id=1",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(generation, "0");
+    db.close().await;
+    eprintln!(
+        "PG non_rfc_v7_restore_event_never_changes_store_fence duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

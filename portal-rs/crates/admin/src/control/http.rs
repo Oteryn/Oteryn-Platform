@@ -296,15 +296,18 @@ async fn hello(
         return Err(store::Error::Unavailable.into());
     }
     ctx.store
-        .register_agent(&store::AgentHello {
-            agent_id: h.agent_id,
-            build: h.build,
-            catalog_digest: digest,
-            advertised_operations: h.advertised_operations,
-            served_worlds: h.served_worlds,
-            served_nodes: h.served_nodes,
-            owner_epoch: h.owner_epoch,
-        })
+        .register_agent_in(
+            &mut tx,
+            &store::AgentHello {
+                agent_id: h.agent_id,
+                build: h.build,
+                catalog_digest: digest,
+                advertised_operations: h.advertised_operations,
+                served_worlds: h.served_worlds,
+                served_nodes: h.served_nodes,
+                owner_epoch: h.owner_epoch,
+            },
+        )
         .await?;
     tx.commit().await?;
     Ok(Json(json!({"status":"registered"})))
@@ -408,7 +411,8 @@ async fn results(
     let duplicate:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_results WHERE request_id=$1 AND agent_id=$2 AND payload=$3)").bind(e.request_id).bind(&e.agent_id).bind(&payload).fetch_one(&mut *tx).await?;
     if !duplicate {
         ctx.store
-            .record_result(
+            .record_result_in(
+                &mut tx,
                 &store::NewResult {
                     request_id: e.request_id,
                     agent_id: e.agent_id.clone(),
@@ -563,7 +567,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     }
     Ok(router(pool, true, configured_bindings()?)?)
 }
-fn configured_bindings() -> Result<Vec<AgentBinding>, Box<dyn std::error::Error>> {
+pub(crate) fn configured_bindings() -> Result<Vec<AgentBinding>, Box<dyn std::error::Error>> {
     let config = std::env::var("PORTAL_ADMIN_CONTROL_AGENTS_JSON")?;
     let bindings: Vec<ConfiguredAgent> = serde_json::from_str(&config)?;
     if bindings.is_empty() {

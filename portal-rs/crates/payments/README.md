@@ -21,7 +21,8 @@ within a provider and have no repeated effects. Reusing an ID for a different
 event is a provider contract violation. Signatures are verified before parsing.
 
 Transitions: created → pending/succeeded/failed; pending → succeeded/failed;
-succeeded → refunded. Terminal failed/refunded states cannot be reopened.
+succeeded → refunded is reserved for reconciled native coin orders. Generic top-up
+webhooks refuse refunds until a reversal consumer exists. Terminal states cannot be reopened.
 A successful event writes its receipt, minimal invoice, new state and
 `wallet.top_up` job in one transaction. The intent row lock serializes concurrent
 events. The outbox key is the intent ID. `TopUpJob` documents the payload: intent
@@ -29,8 +30,8 @@ ID, account ID, amount and currency. Amount is the purchased minor-unit quantity
 the future wallet handler must define conversion and deduplicate by intent ID.
 No wallet call or handler registration is included.
 
-The provider refund operation has a deterministic refund key. A signed refund
-event records the refunded state; this task does not implement staff refund
+The provider refund operation has a deterministic refund key. Generic signed refund
+events are rejected atomically; this module does not implement staff refund
 authorization, financial reconciliation, or a wallet reversal handler. These
 must be wired before enabling real payments, along with the selected provider.
 Invoices are minimal success records, not tax-document generation.
@@ -101,3 +102,18 @@ purchase hold. A verified payment for such a payer is held without coins
 event (changed payload for a known event ID, or a binding mismatch) is audited
 after rollback (`coin_purchase.event_replay_refused` / `coin_purchase.event_refused`).
 Partial refunds need a new contract. No HTTP route delivers provider events.
+
+Quote issuance is serialized per payer across character contexts. The allowance
+is 100 retained unused/recent quotes per rolling hour; consumption never frees
+that hourly allowance. Quotes backing awaiting-payment or processing orders
+continue counting after the hour. Order allocation independently caps those
+unpaid states at 100 under the same payer lock. Identical request replays remain
+available without allocating quotes, orders, or payment intents.
+
+Browser `store_web_topups` refunds are refused after coin delivery while
+reversal/debt handling is unavailable. Before delivery, refunds retain their
+existing behavior: webhook processing and the worker lock the same intent, so
+an accepted refund prevents later credit. After delivery the payment remains
+succeeded and its immutable credit is retained. Native coin reversals keep
+their existing contract and idempotency rules.
+Refunds of generic top-ups without a browser checkout row are refused.

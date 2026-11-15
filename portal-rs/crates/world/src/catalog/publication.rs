@@ -58,6 +58,47 @@ fn presentation(capability: &str, data: &serde_json::Value) -> bool {
     });
     named && (capability != "quest" || label(body.get("classification"), 80))
 }
+// PostgreSQL JSONB cannot represent NUL, including object keys. The immutable
+// byte cache remains the authoritative artifact; withhold the whole capability.
+fn jsonb_compatible(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(s) => !s.contains('\0'),
+        serde_json::Value::Array(a) => a.iter().all(jsonb_compatible),
+        serde_json::Value::Object(o) => o
+            .iter()
+            .all(|(k, v)| !k.contains('\0') && jsonb_compatible(v)),
+        _ => true,
+    }
+}
+impl Source {
+    /// The explicitly pinned configuration is the authority transition evidence.
+    /// Reserve it before producer I/O so an older in-flight refresh cannot win.
+    pub(super) async fn reserve_publication(&self, db: &PgPool) -> Result<()> {
+        let mut tx = db.begin().await.map_err(|_| Error::Unavailable)?;
+        let (epoch, snapshot): (Option<String>, Option<String>) = sqlx::query_as("SELECT authority_epoch,COALESCE(configured_snapshot_id,snapshot_id) FROM world_catalog_publication WHERE singleton FOR UPDATE")
+            .fetch_one(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+        let retired: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM world_catalog_retired_epochs WHERE authority_epoch=$1) OR EXISTS(SELECT 1 FROM world_catalog_retired_snapshots WHERE snapshot_id=$2)")
+            .bind(&self.fence.authority_epoch).bind(&self.fence.snapshot_id).fetch_one(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+        if retired {
+            return Err(Error::ProvenanceConflict);
+        }
+        if epoch
+            .as_ref()
+            .is_some_and(|e| e != &self.fence.authority_epoch)
+        {
+            sqlx::query("INSERT INTO world_catalog_retired_epochs(authority_epoch) VALUES($1) ON CONFLICT DO NOTHING").bind(epoch).execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+        }
+        if snapshot
+            .as_ref()
+            .is_some_and(|s| s != &self.fence.snapshot_id)
+        {
+            sqlx::query("INSERT INTO world_catalog_retired_snapshots(snapshot_id) VALUES($1) ON CONFLICT DO NOTHING").bind(snapshot).execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+        }
+        sqlx::query("UPDATE world_catalog_publication SET authority_epoch=$1,configured_snapshot_id=$2 WHERE singleton")
+            .bind(&self.fence.authority_epoch).bind(&self.fence.snapshot_id).execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+        tx.commit().await.map_err(|_| Error::Unavailable)
+    }
+}
 impl Candidate {
     /// Admin-selected source provenance and the publication switch are checked by
     /// the caller. This projects only complete cache categories, never approvals.
@@ -82,10 +123,9 @@ impl Candidate {
             }
             // Complete transport inventory does not supply a missing wiki field.
             // Refuse that category rather than inventing a name from its key.
-            if records
-                .iter()
-                .any(|(_, key, data)| key.len() > 512 || !presentation(capability, data))
-            {
+            if records.iter().any(|(_, key, data)| {
+                key.len() > 512 || !presentation(capability, data) || !jsonb_compatible(data)
+            }) {
                 continue;
             }
             categories.push(capability.to_owned());
@@ -95,6 +135,56 @@ impl Candidate {
         // One publication lock orders switches, including unsupported replacements.
         sqlx::query("SELECT singleton FROM world_catalog_publication WHERE singleton FOR UPDATE")
             .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        let configured: Option<String> = sqlx::query_scalar(
+            "SELECT configured_snapshot_id FROM world_catalog_publication WHERE singleton",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+        if configured
+            .as_deref()
+            .is_some_and(|id| id != self.snapshot_id())
+        {
+            return Err(Error::ProvenanceConflict);
+        }
+        let epoch = &self.snapshot.authority_epoch;
+        let retired: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM world_catalog_retired_epochs WHERE authority_epoch=$1)",
+        )
+        .bind(epoch)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+        if retired {
+            return Err(Error::ProvenanceConflict);
+        }
+        let current: Option<String> = sqlx::query_scalar(
+            "SELECT authority_epoch FROM world_catalog_publication WHERE singleton",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+        if current.as_ref().is_some_and(|e| e != epoch) {
+            sqlx::query("INSERT INTO world_catalog_retired_epochs(authority_epoch) VALUES($1) ON CONFLICT DO NOTHING")
+                .bind(&current).execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+        }
+        let replay: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM world_catalog_retired_snapshots WHERE snapshot_id=$1)",
+        )
+        .bind(self.snapshot_id())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+        if replay {
+            return Err(Error::ProvenanceConflict);
+        }
+        sqlx::query("INSERT INTO world_catalog_retired_snapshots(snapshot_id) SELECT snapshot_id FROM world_catalog_publication WHERE singleton AND snapshot_id IS NOT NULL AND snapshot_id<>$1 ON CONFLICT DO NOTHING")
+            .bind(self.snapshot_id()).execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+        sqlx::query("UPDATE world_catalog_publication SET authority_epoch=$1 WHERE singleton")
+            .bind(epoch)
+            .execute(&mut *tx)
             .await
             .map_err(|_| Error::Unavailable)?;
         if categories.is_empty() {
@@ -184,7 +274,7 @@ impl CatalogStore {
             return Err(Error::Unavailable);
         }
         let source = self.source.as_ref().ok_or(Error::Unavailable)?;
-        sqlx::query_as("SELECT v.version_id,v.capabilities FROM world_catalog_publication p JOIN world_catalog_versions v USING(snapshot_id) JOIN world_catalog_candidates c USING(snapshot_id) WHERE p.singleton AND c.snapshot_id=$1 AND c.artifact_sha256=$2 AND c.source_revision=$3 AND c.authority_epoch=$4 AND c.ruleset_id=$5 AND c.content_profile_id=$6")
+        sqlx::query_as("SELECT v.version_id,v.capabilities FROM world_catalog_publication p JOIN world_catalog_versions v USING(snapshot_id) JOIN world_catalog_candidates c USING(snapshot_id) WHERE p.singleton AND (p.authority_epoch IS NULL OR p.authority_epoch=c.authority_epoch) AND (p.configured_snapshot_id IS NULL OR p.configured_snapshot_id=c.snapshot_id) AND c.snapshot_id=$1 AND c.artifact_sha256=$2 AND c.source_revision=$3 AND c.authority_epoch=$4 AND c.ruleset_id=$5 AND c.content_profile_id=$6")
             .bind(&source.fence.snapshot_id).bind(&source.expected_sha256).bind(&source.fence.source_revision)
             .bind(&source.fence.authority_epoch).bind(&source.fence.ruleset_id).bind(&source.fence.content_profile_id)
             .fetch_optional(&self.pool).await.map_err(|_| Error::Unavailable)

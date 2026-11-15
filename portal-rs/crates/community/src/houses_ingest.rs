@@ -85,6 +85,13 @@ pub(super) async fn apply(
         .await
         .map_err(db_error)?;
     if watermark {
+        if sqlx::query_scalar::<_, bool>("SELECT public_projection_conflicted('house')")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db_error)?
+        {
+            return Err(StatusCode::CONFLICT);
+        }
         let complete =
             schema::decimal(v, "complete_through", 0, i64::MAX as u64).map_err(|_| bad)? as i64;
         let old = sqlx::query(
@@ -145,6 +152,10 @@ pub(super) async fn apply(
                     return if old_payload == identity {
                         Ok("accepted")
                     } else {
+                        crate::ingest::conflict(&mut tx, "house", &subject, epoch, revision)
+                            .await
+                            .map_err(db_error)?;
+                        tx.commit().await.map_err(db_error)?;
                         Err(StatusCode::CONFLICT)
                     };
                 }

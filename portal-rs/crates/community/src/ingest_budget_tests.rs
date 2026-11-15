@@ -223,3 +223,109 @@ const V1_FIXTURES: &[(&str, &str)] = &[
         r#"{"contract_version":1,"operation":"PublishPublicProjectionWatermarkV1","source_authority":"oteryn:game:primary","family":"world_online","projection_epoch":"1","complete_through":"1790000000","observed_at":"1790000003"}"#,
     ),
 ];
+
+#[tokio::test]
+async fn audit_w2_c03_v2_families_and_deaths_share_publisher_route_budgets() -> Result {
+    let started = Instant::now();
+    let database = Database::new().await?;
+    let ids = Arc::new(IdentityMap::new(vec![
+        Binding {
+            identity: Identity::san("budget-test")?,
+            group: "game-public".into(),
+        },
+        Binding {
+            identity: Identity::san("second-publisher")?,
+            group: "game-public".into(),
+        },
+    ])?);
+    let config = crate::families::IngestConfig {
+        skills: true,
+        achievements: true,
+        equipment: true,
+        outfit: true,
+        source_authority: AUTHORITY.into(),
+        requests_per_minute: 1,
+    };
+    let make = || crate::families::ingest_router(database.db.clone(), ids.clone(), config.clone());
+    for (route, body) in [
+        (
+            "character-skills",
+            include_str!(
+                "../../../../docs/contracts/fixtures/public-game-families-v2/valid-character-skills.json"
+            ),
+        ),
+        (
+            "character-achievements",
+            include_str!(
+                "../../../../docs/contracts/fixtures/public-game-families-v2/valid-character-achievements.json"
+            ),
+        ),
+        (
+            "character-equipment",
+            include_str!(
+                "../../../../docs/contracts/fixtures/public-game-families-v2/valid-character-equipment.json"
+            ),
+        ),
+        (
+            "character-outfit",
+            include_str!(
+                "../../../../docs/contracts/fixtures/public-game-families-v2/valid-character-outfit.json"
+            ),
+        ),
+        (
+            "watermark",
+            include_str!(
+                "../../../../docs/contracts/fixtures/public-game-families-v2/valid-character-skills-watermark.json"
+            ),
+        ),
+    ] {
+        let body = body.trim();
+        let path = format!("v2/game-public/{route}");
+        assert_eq!(send(make(), &path, body).await?.status(), StatusCode::OK);
+        exhausted(send(make(), &path, body).await?).await?;
+        let second = make()
+            .oneshot(
+                Request::post(format!("/internal/{path}"))
+                    .header("content-type", "application/json")
+                    .extension(VerifiedClient::from_verified_tls13_http11(Identity::san(
+                        "second-publisher",
+                    )?))
+                    .body(Body::from(body.to_owned()))?,
+            )
+            .await?;
+        assert_eq!(second.status(), StatusCode::OK);
+    }
+    // The same route identity must cover the independently mounted deaths handler.
+    let make_deaths = || {
+        crate::deaths::ingest_router(
+            database.db.clone(),
+            ids.clone(),
+            crate::deaths::IngestConfig {
+                requests_per_minute: 1,
+                enabled: true,
+                source_authority: AUTHORITY.into(),
+            },
+        )
+    };
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let snapshot = format!(
+        r#"{{"contract_version":2,"operation":"PublishCharacterDeathsV2","source_authority":"{AUTHORITY}","character_id":"01934f10-7c04-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"1","source_observed_at":"{now}","deaths":[]}}"#
+    );
+    assert_eq!(
+        send(make_deaths(), "v2/game-public/character-deaths", &snapshot)
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+    exhausted(send(make_deaths(), "v2/game-public/character-deaths", &snapshot).await?).await?;
+    let watermark = format!(
+        r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"{AUTHORITY}","family":"character_deaths","projection_epoch":"1","complete_through":"{now}","observed_at":"{now}"}}"#
+    );
+    exhausted(send(make_deaths(), "v2/game-public/watermark", &watermark).await?).await?;
+    database.close().await?;
+    eprintln!(
+        "audit_w2_c03_v2_families_and_deaths_share_publisher_route_budgets {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

@@ -146,6 +146,31 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         })
     }
 
+    /// Read and authorize without acquiring a second pool connection.
+    pub async fn intent_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<Intent, Error> {
+        self.enabled()?;
+        let row = sqlx::query("SELECT account_id, amount, currency, state, provider_reference FROM payment_intents WHERE id=$1 AND provider=$2 FOR SHARE")
+            .bind(id).bind(self.provider.name()).fetch_optional(&mut *connection).await?.ok_or(Error::NotFound)?;
+        let account_id = row.try_get("account_id")?;
+        if self.accounts.state_in(connection, account_id).await? != AccountState::Active {
+            return Err(Error::AccountDenied);
+        }
+        Ok(Intent {
+            id,
+            account_id,
+            amount: Amount {
+                minor_units: row.try_get("amount")?,
+                currency: row.try_get("currency")?,
+            },
+            state: IntentState::parse(row.try_get("state")?)?,
+            provider_reference: row.try_get("provider_reference")?,
+        })
+    }
+
     /// A duplicate event is a no-op, including concurrent deliveries. Validation, state change,
     /// invoice and outbox enqueue either all commit or all roll back.
     pub async fn webhook(&self, body: &[u8], signature: &[u8]) -> Result<WebhookOutcome, Error> {
@@ -193,8 +218,31 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
             tx.commit().await?;
             return Ok(WebhookOutcome::Replay);
         }
+        if event.state == IntentState::Refunded {
+            // Delivery takes this same intent lock before crediting. A refund
+            // may win before delivery, but cannot erase an existing coin credit.
+            // Generic top-ups without a browser checkout have no reconciliation
+            // or reversal consumer, so their refunds are never acknowledged.
+            let refundable: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM store_web_topups t WHERE t.payment_intent_id=$1) \
+                 AND NOT EXISTS(SELECT 1 FROM store_web_topups t JOIN wallet_operations w ON w.id=t.payment_intent_id AND w.kind='top_up' WHERE t.payment_intent_id=$1)",
+            )
+            .bind(event.intent_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !refundable {
+                return Err(Error::IllegalTransition);
+            }
+        }
         IntentState::parse(row.try_get("state")?)?.transition(event.state)?;
-        self.eligible(account_id).await?;
+        let state = if event.state == IntentState::Refunded {
+            self.accounts.refund_state_in(&mut tx, account_id).await
+        } else {
+            self.accounts.state_in(&mut tx, account_id).await
+        };
+        if !matches!(state, Ok(AccountState::Active)) {
+            return Err(Error::AccountDenied);
+        }
         sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1")
             .bind(event.intent_id)
             .bind(event.state.as_str())

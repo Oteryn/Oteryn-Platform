@@ -8,10 +8,14 @@
 
 oteryn.com {
 	encode zstd gzip
-	# Preserve the native contract path and Laravel's authenticated API handler.
+	# Preserve the native contract alias to the Rust authenticated API handler.
 	@native_ticket path /v1/game-auth/tickets
 	rewrite @native_ticket /api/v1/game-auth/tickets
-	reverse_proxy platform:8000
+	reverse_proxy platform:8080 {
+		# Forward the client already resolved through the Cloudflare trust policy,
+		# rather than exposing an extra Cloudflare hop to the Rust allowlist.
+		header_up X-Forwarded-For {client_ip}
+	}
 }
 
 www.oteryn.com {
@@ -19,7 +23,7 @@ www.oteryn.com {
 }
 
 gateway.oteryn.com, login.oteryn.com {
-	reverse_proxy gateway:8080
+	reverse_proxy platform:8081
 }
 
 # Native gameplay connects directly to this hostname on TCP 7172. This HTTP

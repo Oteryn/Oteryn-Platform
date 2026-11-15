@@ -506,12 +506,7 @@ impl Projection {
     /// metadata survives until cleanup advances the durable floor.
     pub async fn erase(&self, account: Uuid, character: Option<Uuid>) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("UPDATE pd_t76_streams SET fenced=true,snapshot=NULL,snapshot_at=NULL,staging_start=NULL,staging_at=NULL,updated_at=now() WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2)")
-            .bind(account).bind(character).execute(&mut *tx).await?;
-        sqlx::query("UPDATE pd_t76_records SET canonical_bytes=NULL WHERE stream_key IN (SELECT stream_key FROM pd_t76_streams WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2))")
-            .bind(account).bind(character).execute(&mut *tx).await?;
-        sqlx::query("UPDATE pd_t76_events SET canonical_bytes=NULL WHERE stream_key IN (SELECT stream_key FROM pd_t76_streams WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2))")
-            .bind(account).bind(character).execute(&mut *tx).await?;
+        erase_scope(&mut tx, account, character).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -532,14 +527,15 @@ impl Projection {
             .bind(integer(now.saturating_sub(RETENTION))?)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE pd_t76_streams s SET retention_floor=GREATEST(retention_floor,(SELECT COALESCE(MAX(source_revision),0) FROM pd_t76_records r WHERE r.stream_key=s.stream_key AND occurred_at<=$1))")
-            .bind(integer(now.saturating_sub(61*86400))?).execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM pd_t76_records WHERE occurred_at<=$1")
+        sqlx::query("UPDATE pd_t76_streams s SET retention_floor=GREATEST(retention_floor,COALESCE((SELECT min(source_revision)-1 FROM pd_t76_records r WHERE r.stream_key=s.stream_key AND r.occurred_at>$1),s.cursor)) WHERE NOT s.fenced OR extract(epoch FROM s.updated_at)::bigint<=$2")
+            .bind(integer(now.saturating_sub(61*86400))?).bind(integer(now.saturating_sub(120*86400))?).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM pd_t76_records r USING pd_t76_streams s WHERE r.stream_key=s.stream_key AND r.source_revision<=s.retention_floor AND r.occurred_at<=$1")
             .bind(integer(now.saturating_sub(61 * 86400))?)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM pd_t76_events WHERE occurred_at<=$1")
+        sqlx::query("DELETE FROM pd_t76_events r USING pd_t76_streams s WHERE r.stream_key=s.stream_key AND r.occurred_at<=$1 AND (NOT s.fenced OR extract(epoch FROM s.updated_at)::bigint<=$2)")
             .bind(integer(now.saturating_sub(61 * 86400))?)
+            .bind(integer(now.saturating_sub(120 * 86400))?)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
@@ -614,4 +610,19 @@ pub fn assemble(records: &[Record]) -> Result<Option<Snapshot>> {
         }
     }
     Ok(None)
+}
+
+/// Lifecycle purge shared by the projection adapter and production worker.
+pub(crate) async fn erase_scope(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account: Uuid,
+    character: Option<Uuid>,
+) -> std::result::Result<(), sqlx::Error> {
+    sqlx::query("UPDATE pd_t76_streams SET fenced=true,snapshot=NULL,snapshot_at=NULL,staging_start=NULL,staging_at=NULL,coverage_start=0,last_bank_entry=NULL,last_bank_balance=NULL,updated_at=now() WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2)")
+            .bind(account).bind(character).execute(&mut **tx).await?;
+    sqlx::query("UPDATE pd_t76_records SET canonical_bytes=NULL,occurred_at=0 WHERE stream_key IN (SELECT stream_key FROM pd_t76_streams WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2))")
+            .bind(account).bind(character).execute(&mut **tx).await?;
+    sqlx::query("UPDATE pd_t76_events SET canonical_bytes=NULL,occurred_at=0 WHERE stream_key IN (SELECT stream_key FROM pd_t76_streams WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2))")
+            .bind(account).bind(character).execute(&mut **tx).await?;
+    Ok(())
 }

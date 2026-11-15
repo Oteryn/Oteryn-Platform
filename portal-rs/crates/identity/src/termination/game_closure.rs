@@ -446,7 +446,11 @@ impl GameBoundary {
         let now = now(tx).await?;
         let operation = Uuid::now_v7();
         let next = if decision.is_some() {
-            generation.checked_add(1).ok_or(Error::UnknownState)?
+            if retry_generation.is_some() {
+                generation
+            } else {
+                generation.checked_add(1).ok_or(Error::UnknownState)?
+            }
         } else {
             generation
         };
@@ -479,7 +483,9 @@ impl GameBoundary {
         sqlx::query("INSERT INTO plat3_closure_commands(operation_id,termination_id,command,intent,intent_sha256,source_revision) VALUES($1,$2,$3,$4,$5,$6)")
             .bind(operation).bind(termination.id).bind(&intent.command).bind(&bytes).bind(digest(&bytes)).bind(revision).execute(&mut **tx).await?;
         if let Some(decision) = decision {
-            advance(tx, termination.account_id, generation).await?;
+            if retry_generation.is_none() {
+                advance(tx, termination.account_id, generation).await?;
+            }
             sqlx::query("UPDATE plat3_closure_work SET resolution=$2 WHERE termination_id=$1")
                 .bind(termination.id)
                 .bind(decision)

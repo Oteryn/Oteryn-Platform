@@ -107,6 +107,28 @@ async fn audit_09_01_real_wallet_serializes_ceiling_and_holds_paid_settlement() 
             .count(),
         1
     );
+    // A paid credit at the ceiling is valid when it repays debt in full.
+    // This exercises the production Host, including its caller-owned transaction.
+    let (quote, debt_order, reversal) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    sqlx::query("INSERT INTO coin_purchase_quotes (id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at) VALUES ($1,$2,$3,2,100,'EUR',2,'testing',now(),now())")
+        .bind(quote).bind(payer).bind(Uuid::now_v7()).execute(&pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_orders (id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code,review_required) VALUES ($1,$2,$3,$4,$5,2,100,'EUR',2,'testing',$6,'processing','review',true)")
+        .bind(debt_order).bind(payer).bind(Uuid::now_v7()).bind(quote).bind(Uuid::now_v7()).bind(Uuid::now_v7()).execute(&pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_reversals (id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES ($1,$2,$3,'chargeback','test',$4,2,0,'held')")
+        .bind(reversal).bind(debt_order).bind(payer).bind(reversal.to_string()).execute(&pool).await?;
+    let mut tx = pool.begin().await?;
+    host.credit_in(&mut tx, Uuid::now_v7(), payer, 2).await?;
+    tx.commit().await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT owed FROM coin_outstanding_debts WHERE reversal_id=$1"
+        )
+        .bind(reversal)
+        .fetch_one(&pool)
+        .await?,
+        0
+    );
+    assert_eq!(host.wallet(payer).await?.total, MAX_COINS);
     let settings = CoinSettings {
         enabled: true,
         environment: "testing".into(),

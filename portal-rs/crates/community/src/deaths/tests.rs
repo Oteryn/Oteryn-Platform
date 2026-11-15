@@ -243,6 +243,9 @@ impl Database {
         let db = PgPool::connect_with(options).await?;
         for migration in [
             include_str!("../../../../migrations/20261105180000_t24_public_snapshots.sql"),
+            include_str!(
+                "../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+            ),
             include_str!("../../../../migrations/20261105190000_t25_world_registry.sql"),
             include_str!("../../../../migrations/20261105231101_t24d_deaths.sql"),
             include_str!("../../../../migrations/20261105231103_t24f_houses.sql"),
@@ -304,6 +307,15 @@ async fn postgres_replay_conflict_suppression_and_epoch_fence() -> TestResult {
     s.projection_revision = "1".into();
     assert_eq!(storage::snapshot(&d.db, &s).await.unwrap(), "superseded");
     let mut w = watermark();
+    assert!(matches!(
+        storage::watermark(&d.db, &w).await,
+        Err(storage::Error::Conflict)
+    ));
+    // Only explicit authoritative reconciliation in this isolated fixture
+    // releases the fence before testing independent epoch ordering.
+    sqlx::query("DELETE FROM public_projection_conflicts WHERE family='character_deaths'")
+        .execute(&d.db)
+        .await?;
     assert_eq!(storage::watermark(&d.db, &w).await.unwrap(), "accepted");
     assert_eq!(storage::watermark(&d.db, &w).await.unwrap(), "superseded");
     w.projection_epoch = "2".into();
@@ -317,7 +329,7 @@ async fn postgres_replay_conflict_suppression_and_epoch_fence() -> TestResult {
             .fetch_one(&d.db)
             .await?;
     assert_eq!(epoch, "2");
-    sqlx::query("UPDATE public_deaths_v2_rate_limits SET requests=6000")
+    sqlx::query("UPDATE community_ingest_budgets SET admitted_at=array_fill(extract(epoch FROM clock_timestamp())::double precision,ARRAY[6000]) WHERE route='v2/character-deaths'")
         .execute(&d.db)
         .await?;
     let r = post(
@@ -421,6 +433,7 @@ async fn postgres_public_pages_privacy_freshness_names_and_window() -> TestResul
             )?;
         }
         assert!(body.contains("Aldric"));
+        assert!(body.contains(r#"<article class="op-card op-stack">"#));
         assert!(!body.contains("Beren"));
         assert!(!body.contains("Mira"));
         assert!(!body.contains(SUBJECT));
@@ -435,7 +448,9 @@ async fn postgres_public_pages_privacy_freshness_names_and_window() -> TestResul
     .await?;
     let r = get(pages(d.db.clone(), true), "/en/deaths").await;
     assert_eq!(r.status(), StatusCode::OK);
-    assert!(!text(r).await.contains("Beren"));
+    let body = text(r).await;
+    assert!(!body.contains(r#"<article class="op-card op-stack">"#));
+    assert!(!body.contains("Beren"));
     sqlx::query("UPDATE public_deaths_v2 SET deaths=$1")
         .bind(serde_json::to_value(snapshot().deaths)?)
         .execute(&d.db)
@@ -598,11 +613,14 @@ async fn postgres_suppression_waits_for_inflight_profile_read() -> TestResult {
     assert_eq!(response.status(), StatusCode::OK);
     let body = text(response).await;
     assert!(body.contains("Aldric"));
+    assert!(body.contains(r#"<article class="op-card op-stack">"#));
     assert!(!body.contains("Beren"));
     assert_eq!(write.await?.unwrap(), "accepted");
     let response = get(pages(d.db.clone(), true), "/en/deaths").await;
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(!text(response).await.contains("Beren"));
+    let body = text(response).await;
+    assert!(!body.contains(r#"<article class="op-card op-stack">"#));
+    assert!(!body.contains("Beren"));
     d.close().await
 }
 
@@ -700,4 +718,21 @@ async fn audit06_deaths_two_connection_pool_with_nested_privacy() -> TestResult 
     assert_eq!(b.status(), StatusCode::OK);
     small.close().await;
     d.close().await
+}
+
+#[tokio::test]
+async fn audit_w2_c06_deaths_detail_ignores_unrelated_profiles() -> TestResult {
+    let started = std::time::Instant::now();
+    let d = Database::open().await?.ok_or("PostgreSQL required")?;
+    seed(&d.db).await?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) SELECT 'character_profile',n::text,false,1,1,0,jsonb_build_object('profile',jsonb_build_array(jsonb_build_object('name','Unrelated'||n))) FROM generate_series(1,10001) n").execute(&d.db).await?;
+    let response = get(pages(d.db.clone(), true), "/en/characters/Aldric/deaths").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text(response).await.contains("413"));
+    d.close().await?;
+    eprintln!(
+        "audit_w2_c06_deaths_detail_ignores_unrelated_profiles {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

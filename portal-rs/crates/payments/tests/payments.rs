@@ -12,6 +12,9 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 #[derive(Debug, Clone)]
 struct Accounts(Arc<AtomicU8>);
 impl AccountReader for Accounts {
+    async fn state_in(&self, _: &mut sqlx::PgConnection, id: Uuid) -> Result<AccountState, Error> {
+        self.state(id).await
+    }
     async fn state(&self, _: Uuid) -> Result<AccountState, Error> {
         match self.0.load(Ordering::SeqCst) {
             0 => Ok(AccountState::Active),
@@ -329,11 +332,15 @@ async fn refund_transition_has_no_second_credit() -> TestResult {
         h.provider.refund(intent.id, &intent.amount).await?
     );
     let (body, signature) = h.signed(&h.event(&intent, IntentState::Refunded))?;
-    service.webhook(&body, &signature).await?;
+    assert!(matches!(
+        service.webhook(&body, &signature).await,
+        Err(Error::IllegalTransition)
+    ));
     assert_eq!(
         service.intent(intent.id).await?.state,
-        IntentState::Refunded
+        IntentState::Succeeded
     );
+    assert_eq!(h.count("payment_events").await?, 1);
     assert_eq!(h.count("outbox").await?, 1);
     h.finish().await
 }
@@ -496,6 +503,73 @@ async fn audit_09_02_changed_replay_binding_is_refused() -> TestResult {
     h.finish().await?;
     eprintln!(
         "PG audit_09_02_changed_replay_binding_is_refused: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn l6_03_browser_checkout_refund_refused_twice_after_credit() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let intent = h.create().await?;
+    sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'test-package',25,$3,$4,$1)").bind(intent.id).bind(intent.account_id).bind(intent.amount.minor_units).bind(&intent.amount.currency).execute(&h.pool).await?;
+    let service = h.service(true);
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    service.webhook(&body, &sig).await?;
+    // Same ledger binding and exact persisted quantity as the top-up worker.
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+        .bind(intent.account_id)
+        .execute(&h.pool)
+        .await?;
+    sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount,reference_id,reason) VALUES($1,'top_up',$2,25,$2,$3)").bind(intent.id).bind(intent.account_id).bind(format!("wallet-top-up:{}",intent.id)).execute(&h.pool).await?;
+    sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,25,0)").bind(Uuid::now_v7()).bind(intent.id).bind(intent.account_id).execute(&h.pool).await?;
+    for _ in 0..2 {
+        let (body, sig) = h.signed(&h.event(&intent, IntentState::Refunded))?;
+        assert!(matches!(
+            service.webhook(&body, &sig).await,
+            Err(Error::IllegalTransition)
+        ));
+    }
+    assert_eq!(
+        service.intent(intent.id).await?.state,
+        IntentState::Succeeded
+    );
+    assert_eq!(h.count("wallet_entries").await?, 1);
+    assert_eq!(h.count("payment_events").await?, 1);
+    h.finish().await?;
+    eprintln!(
+        "PG l6_03_browser_checkout_refund_refused_twice_after_credit {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn l6_03_undelivered_browser_checkout_can_still_be_refunded() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let intent = h.create().await?;
+    sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'test-package',25,$3,$4,$1)").bind(intent.id).bind(intent.account_id).bind(intent.amount.minor_units).bind(&intent.amount.currency).execute(&h.pool).await?;
+    let service = h.service(true);
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    service.webhook(&body, &sig).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Refunded))?;
+    assert_eq!(service.webhook(&body, &sig).await?, WebhookOutcome::Applied);
+    assert_eq!(service.webhook(&body, &sig).await?, WebhookOutcome::Replay);
+    assert_eq!(
+        service.intent(intent.id).await?.state,
+        IntentState::Refunded
+    );
+    assert_eq!(h.count("wallet_entries").await?, 0);
+    assert_eq!(h.count("payment_events").await?, 2);
+    h.finish().await?;
+    eprintln!(
+        "PG l6_03_undelivered_browser_checkout_can_still_be_refunded {:.3}s",
         started.elapsed().as_secs_f64()
     );
     Ok(())

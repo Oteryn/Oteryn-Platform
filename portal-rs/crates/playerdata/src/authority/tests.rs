@@ -1302,3 +1302,396 @@ async fn postgres_pending_lifecycle_erasure_hides_character_before_worker() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn postgres_pd2_01_lifecycle_purges_recent_promoted_logins() {
+    let started = std::time::Instant::now();
+    for action in ["close", "delete", "transfer"] {
+        let Some(db) = Db::open().await else { return };
+        let now = db_now(&db).await;
+        db.account(SELLER, "1", "12").await;
+        db.account(BUYER, "1", "13").await;
+        db.character(SELLER, CHARACTER, WORLD).await;
+        db.character(BUYER, KEPT, WORLD).await;
+        let born = (now / 1000 - 100).to_string();
+        db.create(SELLER, CHARACTER, WORLD, ["9", "12", &born])
+            .await;
+        db.create(BUYER, KEPT, WORLD, ["5", "13", &born]).await;
+        let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+        for (account, character, cut) in
+            [(SELLER, CHARACTER, ["12", "9"]), (BUYER, KEPT, ["13", "5"])]
+        {
+            let body = login_record(account, character, cut, 1, Uuid::now_v7(), now - 1000);
+            assert_eq!(record(&app, &body).await.0, StatusCode::OK);
+            login_watermark(&app, &db, account, 1).await;
+        }
+        assert_eq!(db.count("SELECT count(*) FROM pd_game_logins").await, 2);
+        match action {
+            "close" => db.exec("UPDATE accounts SET status='closed' WHERE id=$1::uuid", &[SELLER]).await,
+            "delete" => db.exec("INSERT INTO character_service_states(account_id,character_id,epoch,revision,character_revision,snapshot_json) VALUES($1::uuid,$2::uuid,1,1,'10','{\"lifecycle\":\"DELETED\"}')", &[SELLER, CHARACTER]).await,
+            _ => db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", &(now/1000).to_string()]).await,
+        }
+        crate::retention::Retention(db.pool.clone())
+            .expire_batch()
+            .await
+            .unwrap();
+        assert_eq!(db.count("SELECT count(*) FROM pd_erasure_jobs").await, 0);
+        assert_eq!(
+            db.count("SELECT count(*) FROM pd_game_logins").await,
+            1,
+            "{action}"
+        );
+        db.close().await;
+    }
+    eprintln!(
+        "postgres_pd2_01_lifecycle_purges_recent_promoted_logins duration={:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_pd2_02_return_transfer_admits_only_new_ownership_cut() {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await else { return };
+    let now = db_now(&db).await;
+    db.account(SELLER, "1", "12").await;
+    db.account(BUYER, "1", "13").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    db.create(
+        SELLER,
+        CHARACTER,
+        WORLD,
+        ["9", "12", &(now / 1000 - 100).to_string()],
+    )
+    .await;
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let old = login_record(
+        SELLER,
+        CHARACTER,
+        ["12", "9"],
+        1,
+        Uuid::now_v7(),
+        now - 60_000,
+    );
+    assert_eq!(record(&app, &old).await.0, StatusCode::OK);
+    login_watermark(&app, &db, SELLER, 1).await;
+    db.transfer(
+        CHARACTER,
+        SELLER,
+        BUYER,
+        ["10", "12", "13", &(now / 1000 - 30).to_string()],
+    )
+    .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    db.transfer(
+        CHARACTER,
+        BUYER,
+        SELLER,
+        ["11", "13", "14", &(now / 1000 - 10).to_string()],
+    )
+    .await;
+    db.exec("UPDATE account_character_snapshots SET projection_revision=CASE WHEN account_id=$1::uuid THEN '14' ELSE '13' END", &[SELLER]).await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(record(&app, &old).await.0, StatusCode::CONFLICT);
+    let event = Uuid::now_v7();
+    let fresh = login_record(SELLER, CHARACTER, ["14", "11"], 2, event, now - 1000);
+    assert_eq!(record(&app, &fresh).await.0, StatusCode::OK);
+    login_watermark(&app, &db, SELLER, 2).await;
+    assert_eq!(history(&db, SELLER).await, vec![event]);
+    // The G-10 read adapter must likewise reach the current cut, not a stale
+    // tombstone. Baseline verification still refuses access independently.
+    let mut conn = db.pool.acquire().await.unwrap();
+    let evidence = JournalEvidence {
+        source: ITEMS_AUTHORITY.into(),
+    };
+    assert!(
+        evidence
+            .resolve(
+                &mut conn,
+                id(SELLER),
+                id(WORLD),
+                Some(id(CHARACTER)),
+                "ITEMS"
+            )
+            .await
+            .is_ok()
+    );
+    drop(conn);
+    db.close().await;
+    eprintln!(
+        "postgres_pd2_02_return_transfer_admits_only_new_ownership_cut duration={:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_pd2_04_hidden_final_page_refuses_stale_empty_history() {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await else { return };
+    let now = db_now(&db).await;
+    db.account(SELLER, "1", "12").await;
+    db.account(BUYER, "1", "13").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    db.create(
+        SELLER,
+        CHARACTER,
+        WORLD,
+        ["9", "12", &(now / 1000 - 100).to_string()],
+    )
+    .await;
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let body = login_record(
+        SELLER,
+        CHARACTER,
+        ["12", "9"],
+        1,
+        Uuid::now_v7(),
+        now - 1000,
+    );
+    assert_eq!(record(&app, &body).await.0, StatusCode::OK);
+    login_watermark(&app, &db, SELLER, 1).await;
+    db.transfer(
+        CHARACTER,
+        SELLER,
+        BUYER,
+        ["10", "12", "13", &(now / 1000).to_string()],
+    )
+    .await;
+    db.exec("UPDATE pd_streams SET observed_ms=(extract(epoch FROM clock_timestamp())*1000)::bigint-11000", &[]).await;
+    let logins = crate::logins::Logins {
+        pool: db.pool.clone(),
+        flags: crate::logins::Flags {
+            progress_ingest_enabled: true,
+            progress_read_enabled: true,
+            game_login_history_enabled: true,
+        },
+        authority: Arc::new(JournalLoginAuthority {
+            source: PROGRESS_AUTHORITY.into(),
+        }),
+    };
+    assert!(matches!(
+        logins.history(id(SELLER)).await,
+        Err(crate::logins::Error::Unavailable)
+    ));
+    let layer = oteryn_web::session::SessionLayer::new(db.pool.clone());
+    let routes = crate::logins::web::router(logins, layer.clone()).merge(
+        Router::new()
+            .route(
+                "/test-login",
+                axum::routing::get(
+                    |axum::Extension(session): axum::Extension<
+                        oteryn_web::session::BrowserSession,
+                    >| async move {
+                        oteryn_web::session::rotate(
+                            &session,
+                            oteryn_web::session::PrivilegeChange::Login(id(SELLER)),
+                        )
+                        .await
+                        .unwrap();
+                        StatusCode::NO_CONTENT
+                    },
+                ),
+            )
+            .route_layer(axum::middleware::from_fn_with_state(
+                layer,
+                oteryn_web::session::middleware,
+            )),
+    );
+    let response = routes
+        .clone()
+        .oneshot(Request::get("/test-login").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+    for path in [
+        "/account/game-logins",
+        "/en/account/game-logins",
+        "/pl/account/game-logins",
+    ] {
+        let response = routes
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .header("cookie", cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+    }
+    db.close().await;
+    eprintln!(
+        "postgres_pd2_04_hidden_final_page_refuses_stale_empty_history duration={:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_pd2_05_erasure_keeps_only_minimal_replay_records() {
+    let started = std::time::Instant::now();
+    for character_only in [true, false] {
+        let Some(db) = Db::open().await else { return };
+        seller(&db).await;
+        let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+        let body = progress("record-stamina.valid.json");
+        let accepted = record(&app, &body).await;
+        assert_eq!(accepted.0, StatusCode::OK);
+        let digest: Vec<u8> = sqlx::query_scalar("SELECT digest FROM pd_records")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        if character_only {
+            db.exec(
+                "INSERT INTO pd_erasure_jobs(account_id,character_id) VALUES($1,$2)",
+                &[SELLER, CHARACTER],
+            )
+            .await;
+        } else {
+            db.exec(
+                "UPDATE accounts SET status='closed' WHERE id=$1::uuid",
+                &[SELLER],
+            )
+            .await;
+        }
+        crate::retention::Retention(db.pool.clone())
+            .expire_batch()
+            .await
+            .unwrap();
+        assert_eq!(db.count("SELECT count(*) FROM pd_records WHERE payload IS NOT NULL OR entity_key<>'' OR occurred_ms<>0 OR coverage_ms<>0 OR scope_key<>'' OR character_id IS NOT NULL").await, 0);
+        let retained: Vec<u8> = sqlx::query_scalar("SELECT digest FROM pd_records")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(digest, retained);
+        if character_only {
+            assert_eq!(record(&app, &body).await, accepted);
+        } else {
+            assert_eq!(record(&app, &body).await.0, StatusCode::CONFLICT);
+        }
+        db.close().await;
+    }
+    eprintln!(
+        "postgres_pd2_05_erasure_keeps_only_minimal_replay_records duration={:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_pd2_02_upgrade_recovers_acknowledged_transfer_purges() {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await else { return };
+    let now = db_now(&db).await;
+    db.account(SELLER, "1", "12").await;
+    db.account(BUYER, "1", "13").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    db.create(
+        SELLER,
+        CHARACTER,
+        WORLD,
+        ["9", "12", &(now / 1000 - 100).to_string()],
+    )
+    .await;
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let old = login_record(
+        SELLER,
+        CHARACTER,
+        ["12", "9"],
+        1,
+        Uuid::now_v7(),
+        now - 60_000,
+    );
+    assert_eq!(record(&app, &old).await.0, StatusCode::OK);
+    login_watermark(&app, &db, SELLER, 1).await;
+    db.transfer(
+        CHARACTER,
+        SELLER,
+        BUYER,
+        ["10", "12", "13", &(now / 1000 - 30).to_string()],
+    )
+    .await;
+    // Reproduce the pre-upgrade worker's durable tombstone and acknowledged
+    // handoff, with the recent login projection still present.
+    let store = Store::new(
+        db.pool.clone(),
+        Arc::new(crate::store::UnavailableAuthority),
+        crate::store::Flags::default(),
+    );
+    store
+        .erase_character(
+            SELLER,
+            CHARACTER,
+            TrustedTime {
+                unix_ms: now as u64,
+                uncertainty_ms: 0,
+            },
+        )
+        .await
+        .unwrap();
+    db.exec("DELETE FROM pd_erasure_jobs", &[]).await;
+    db.exec(
+        "ALTER TABLE pd_erasure_jobs DROP COLUMN closed_revision",
+        &[],
+    )
+    .await;
+    db.exec(
+        "ALTER TABLE pd_deleted_scopes DROP COLUMN closed_revision",
+        &[],
+    )
+    .await;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261115120004_fix_a2-03-playerdata_ownership.sql"
+    ))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        db.count("SELECT count(*) FROM pd_erasure_jobs WHERE closed_revision=10")
+            .await,
+        1
+    );
+    db.transfer(
+        CHARACTER,
+        BUYER,
+        SELLER,
+        ["11", "13", "14", &(now / 1000 - 10).to_string()],
+    )
+    .await;
+    db.exec(
+        "UPDATE account_character_snapshots SET projection_revision='14' WHERE account_id=$1::uuid",
+        &[SELLER],
+    )
+    .await;
+    let event = Uuid::now_v7();
+    let fresh = login_record(SELLER, CHARACTER, ["14", "11"], 2, event, now - 1000);
+    assert_eq!(
+        record(&app, &fresh).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(db.count("SELECT count(*) FROM pd_game_logins").await, 0);
+    assert_eq!(record(&app, &fresh).await.0, StatusCode::OK);
+    login_watermark(&app, &db, SELLER, 2).await;
+    assert_eq!(history(&db, SELLER).await, vec![event]);
+    assert_eq!(record(&app, &old).await.0, StatusCode::CONFLICT);
+    db.close().await;
+    eprintln!(
+        "postgres_pd2_02_upgrade_recovers_acknowledged_transfer_purges duration={:?}",
+        started.elapsed()
+    );
+}

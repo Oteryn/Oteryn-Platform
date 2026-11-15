@@ -99,7 +99,7 @@ async fn missing_backend_denies_reads() {
     );
     assert_eq!(
         PendingSupport
-            .load(Area::Enforcement, Uuid::now_v7())
+            .load(Area::Enforcement, Uuid::now_v7(), None)
             .await
             .err(),
         Some(Error::Unavailable)
@@ -118,7 +118,7 @@ impl Backend for TestBackend {
     async fn list(&self, _: Area, _: u32) -> Result<Vec<Record>, Error> {
         Ok(vec![])
     }
-    async fn load(&self, _: Area, _: Uuid) -> Result<Record, Error> {
+    async fn load(&self, _: Area, _: Uuid, _: Option<Uuid>) -> Result<Record, Error> {
         Err(Error::NotFound)
     }
     async fn apply(

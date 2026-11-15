@@ -237,6 +237,27 @@ impl Snapshot {
             return Err(Error::Unavailable);
         }
         let mut sources = Vec::new();
+        let mut estimate_cache = BTreeMap::new();
+        // Each distinct fixed estimate uses three bounded binary searches. Cap
+        // their aggregate summation terms; exhausted estimates stay unavailable.
+        let mut remaining_terms = 4096u32;
+        // Index once per request rather than rescanning all spawn documents per source.
+        let mut spawn_index: BTreeMap<&str, Vec<(&Value, &Value)>> = BTreeMap::new();
+        for (_, spawn) in self.kind("Spawn.Source") {
+            for point in spawn
+                .get("points")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(creature) = point.get("creature").and_then(reference) {
+                    spawn_index
+                        .entry(creature)
+                        .or_default()
+                        .push((spawn, point));
+                }
+            }
+        }
         for (creature, v) in self.kind("Creature") {
             if filters.creature.as_deref().is_some_and(|k| k != creature)
                 || filters
@@ -292,52 +313,54 @@ impl Snapshot {
                 continue;
             }
             let mut spawns = Vec::new();
-            for (_, spawn) in self.kind("Spawn.Source") {
-                for point in spawn
-                    .get("points")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
+            for (spawn, point) in spawn_index.get(creature).into_iter().flatten() {
+                let Some(cell) = point.get("cell") else {
+                    continue;
+                };
+                let (Some(x), Some(y), Some(floor), Some(respawn_ms)) = (
+                    cell.get("x").and_then(Value::as_i64),
+                    cell.get("y").and_then(Value::as_i64),
+                    cell.get("floor").and_then(Value::as_i64),
+                    point.get("respawn_ms").and_then(Value::as_u64),
+                ) else {
+                    continue;
+                };
+                let city = spawn.get("city").and_then(Value::as_str).map(str::to_owned);
+                if respawn_ms == 0
+                    || filters.floor.is_some_and(|n| n != floor)
+                    || filters
+                        .city
+                        .as_ref()
+                        .is_some_and(|n| city.as_ref() != Some(n))
                 {
-                    if point.get("creature").and_then(reference) != Some(creature) {
-                        continue;
-                    }
-                    let Some(cell) = point.get("cell") else {
-                        continue;
-                    };
-                    let (Some(x), Some(y), Some(floor), Some(respawn_ms)) = (
-                        cell.get("x").and_then(Value::as_i64),
-                        cell.get("y").and_then(Value::as_i64),
-                        cell.get("floor").and_then(Value::as_i64),
-                        point.get("respawn_ms").and_then(Value::as_u64),
-                    ) else {
-                        continue;
-                    };
-                    let city = spawn.get("city").and_then(Value::as_str).map(str::to_owned);
-                    if respawn_ms == 0
-                        || filters.floor.is_some_and(|n| n != floor)
-                        || filters
-                            .city
-                            .as_ref()
-                            .is_some_and(|n| city.as_ref() != Some(n))
-                    {
-                        continue;
-                    }
-                    spawns.push(Spawn {
-                        x,
-                        y,
-                        floor,
-                        respawn_ms,
-                        city,
-                    });
+                    continue;
                 }
+                spawns.push(Spawn {
+                    x,
+                    y,
+                    floor,
+                    respawn_ms,
+                    city,
+                });
             }
             if (filters.floor.is_some() || filters.city.is_some()) && spawns.is_empty() {
                 continue;
             }
             spawns.sort_by_key(|p| (p.floor, p.x, p.y));
             let estimate = if min == max {
-                estimate::fixed(filters.count.unwrap_or(1), min, ppm).ok()
+                let target = filters.count.unwrap_or(1);
+                let key = (target, min, ppm);
+                estimate_cache
+                    .entry(key)
+                    .or_insert_with(|| {
+                        let cost = target.div_ceil(min);
+                        if cost > remaining_terms {
+                            return None;
+                        }
+                        remaining_terms -= cost;
+                        estimate::fixed(target, min, ppm).ok()
+                    })
+                    .clone()
             } else {
                 None
             };
@@ -435,6 +458,11 @@ pub fn encode(value: &str) -> String {
             }
         })
         .collect()
+}
+/// Shared flag decision for wiki entry points and delivery routes.
+pub fn wiki_map_links_enabled() -> bool {
+    let flags = crate::config::Flags::configured();
+    flags.delivery && flags.world
 }
 /// Wiki T14b can mount this stable item/creature link without depending on private internals.
 pub fn wiki_map_link(locale: &str, kind: &str, key: &str) -> Result<String, Error> {

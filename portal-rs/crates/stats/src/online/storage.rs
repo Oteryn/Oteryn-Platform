@@ -39,6 +39,13 @@ pub async fn ingest(
         .execute(&mut *tx)
         .await?;
     if let Some(complete) = p.watermark {
+        if sqlx::query_scalar::<_, bool>("SELECT public_projection_conflicted($1)")
+            .bind(p.family.name())
+            .fetch_one(&mut *tx)
+            .await?
+        {
+            return Err(Error::Conflict);
+        }
         let row = sqlx::query("SELECT epoch::text, complete_through, observed_at FROM stats_v2_watermarks WHERE source_authority=$1 AND family=$2").bind(&p.authority).bind(p.family.name()).fetch_optional(&mut *tx).await?;
         if let Some(row) = row {
             let epoch: String = row.try_get("epoch")?;
@@ -80,6 +87,10 @@ pub async fn ingest(
                 return if previous == digest {
                     Ok(Receipt::Accepted)
                 } else {
+                    sqlx::query("INSERT INTO public_projection_conflicts(family,subject,epoch,revision) VALUES($1,$2,$3::numeric,$4::numeric) ON CONFLICT DO NOTHING")
+                        .bind(p.family.name()).bind(&p.subject).bind(&p.epoch).bind(&p.revision).execute(&mut *tx).await?;
+                    tx.commit().await?;
+                    tracing::error!("contradictory statistics projection quarantined");
                     Err(Error::Conflict)
                 };
             }
@@ -171,7 +182,7 @@ pub(crate) async fn fresh(
     {
         return Err(Error::Unavailable);
     }
-    let row = sqlx::query("SELECT complete_through,observed_at FROM stats_v2_watermarks WHERE source_authority=$1 AND family=$2 AND epoch=$3::numeric")
+    let row = sqlx::query("SELECT complete_through,observed_at FROM stats_v2_watermarks WHERE source_authority=$1 AND family=$2 AND epoch=$3::numeric AND NOT public_projection_conflicted(family)")
         .bind(&config.source_authority).bind(family.name()).bind(&cut.epoch).fetch_optional(&mut **tx).await?.ok_or(Error::Unavailable)?;
     let complete: i64 = row.try_get("complete_through")?;
     let observed: i64 = row.try_get("observed_at")?;

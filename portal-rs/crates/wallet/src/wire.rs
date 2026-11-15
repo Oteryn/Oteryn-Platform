@@ -185,7 +185,10 @@ fn string<'a>(v: &'a Value, k: &str) -> Result<&'a str, Error> {
 }
 fn uuid(s: &str, key: bool) -> Result<uuid::Uuid, Error> {
     let id = uuid::Uuid::parse_str(s).map_err(|_| Refusal::InvalidIdentifier)?;
-    if id.is_nil() || id.to_string() != s || (key && id.get_version_num() != 7) {
+    if id.is_nil()
+        || id.to_string() != s
+        || (key && (id.get_version_num() != 7 || id.get_variant() != uuid::Variant::RFC4122))
+    {
         return Err(Refusal::InvalidIdentifier.into());
     }
     Ok(id)
@@ -519,6 +522,18 @@ async fn binding<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook>(
 #[derive(Debug, Clone, Copy)]
 pub struct DatabasePolicy;
 impl AccountStateReader for DatabasePolicy {
+    async fn safe_return(
+        &self,
+        db: &mut sqlx::PgConnection,
+        account: uuid::Uuid,
+    ) -> crate::AccountState {
+        match crate::safe_return_in(db, account).await {
+            Ok(true) => crate::AccountState::Active,
+            Ok(false) => crate::AccountState::Inactive,
+            Err(_) => crate::AccountState::Unavailable,
+        }
+    }
+
     async fn state(&self, conn: &mut sqlx::PgConnection, account: uuid::Uuid) -> AccountState {
         match sqlx::query_scalar::<_,bool>("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(conn).await {
             Ok(Some(true))=>AccountState::Active,Ok(Some(false))=>AccountState::Inactive,Ok(None)=>AccountState::Unknown,Err(_)=>AccountState::Unavailable,
@@ -531,8 +546,10 @@ impl TransferBlockCheck for DatabasePolicy {
         conn: &mut sqlx::PgConnection,
         account: uuid::Uuid,
     ) -> TransferPermission {
-        match sqlx::query_scalar::<_,bool>("SELECT status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=now() FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(conn).await {
-            Ok(Some(true))=>TransferPermission::Allowed,Ok(Some(false))=>TransferPermission::Blocked,_=>TransferPermission::Unknown,
+        match crate::value_eligible_in(conn, account).await {
+            Ok(true) => TransferPermission::Allowed,
+            Ok(false) => TransferPermission::Blocked,
+            _ => TransferPermission::Unknown,
         }
     }
 }
@@ -603,6 +620,16 @@ pub fn identities(vars: Vec<(String, String)>) -> Result<IdentityMap, guard::Con
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn operation_keys_require_rfc_variant() {
+        for variant in ["0000", "c000", "e000"] {
+            assert!(
+                super::uuid(&format!("019a65f0-0000-7000-{variant}-000000000003"), true).is_err()
+            );
+        }
+        assert!(super::uuid("019a65f0-0000-7000-8000-000000000003", true).is_ok());
+    }
+
     #[test]
     fn nwave_coins_refuse_sanction_identity_overlap() {
         for key in [

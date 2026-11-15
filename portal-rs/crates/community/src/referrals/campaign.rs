@@ -21,9 +21,16 @@ impl Policy for DatabasePolicy {
         kind: Kind,
         stage: Stage,
     ) -> Result<bool, sqlx::Error> {
-        let active = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM accounts WHERE id=ANY($1) AND status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp()")
-            .bind(if actor == other { vec![actor] } else { vec![actor, other] })
-            .fetch_one(&mut *conn).await?;
+        let active = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM accounts WHERE id=ANY($1) AND account_value_eligible(id)",
+        )
+        .bind(if actor == other {
+            vec![actor]
+        } else {
+            vec![actor, other]
+        })
+        .fetch_one(&mut *conn)
+        .await?;
         if active != if actor == other { 1 } else { 2 } {
             return Ok(false);
         }
@@ -57,9 +64,8 @@ impl oteryn_store::premium::Accounts for DatabasePolicy {
         >,
     > {
         Box::pin(async move {
-            let active: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp() FROM accounts WHERE id=$1 FOR SHARE")
-                .bind(account).fetch_optional(conn).await?;
-            Ok(if active == Some(true) {
+            let active = oteryn_wallet::value_eligible_in(conn, account).await?;
+            Ok(if active {
                 oteryn_store::premium::AccountState::Known
             } else {
                 oteryn_store::premium::AccountState::Unknown
@@ -375,7 +381,7 @@ impl Worker {
         if !enabled {
             return Ok(());
         }
-        let candidates: Vec<(Uuid,String)>=sqlx::query_as("SELECT DISTINCT s.account_id,s.data->>'referral.code' FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.data ? 'referral.code' AND a.status='active' AND a.email_verified_at IS NOT NULL AND a.email_change_blocked_until<=clock_timestamp() ORDER BY s.account_id,s.data->>'referral.code' LIMIT 100").fetch_all(&self.campaign.pool).await?;
+        let candidates: Vec<(Uuid,String)>=sqlx::query_as("SELECT DISTINCT s.account_id,s.data->>'referral.code' FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.data ? 'referral.code' AND account_value_eligible(a.id) ORDER BY s.account_id,s.data->>'referral.code' LIMIT 100").fetch_all(&self.campaign.pool).await?;
         for (account, code) in candidates {
             if let Ok(code) = Uuid::parse_str(&code) {
                 match self.campaign.accept(account, code).await {
@@ -393,7 +399,7 @@ impl Worker {
             Arc::new(DatabasePolicy),
             true,
         );
-        let ids: Vec<Uuid>=sqlx::query_scalar("SELECT r.id FROM referral_campaign_rewards r JOIN accounts a ON a.id=r.account_id WHERE r.kind='premium' AND r.applied_at IS NULL AND a.status='active' AND a.email_verified_at IS NOT NULL AND a.email_change_blocked_until<=clock_timestamp() ORDER BY r.created_at LIMIT 100").fetch_all(&self.campaign.pool).await?;
+        let ids: Vec<Uuid>=sqlx::query_scalar("SELECT r.id FROM referral_campaign_rewards r JOIN accounts a ON a.id=r.account_id WHERE r.kind='premium' AND r.applied_at IS NULL AND account_value_eligible(a.id) ORDER BY r.created_at LIMIT 100").fetch_all(&self.campaign.pool).await?;
         let mut premium_failed = false;
         for id in ids {
             let mut tx = self.campaign.pool.begin().await?;

@@ -113,7 +113,12 @@ impl Database {
         .await?;
         for migration in [
             include_str!("../../../migrations/20261105151225_t14_world_store.sql"),
-            include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
+            concat!(
+                include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
+                include_str!(
+                    "../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+                )
+            ),
             include_str!("../../../migrations/20261105190000_t25_world_registry.sql"),
             include_str!("../../../migrations/20261105220207_t14c_world_names.sql"),
             include_str!("../../../migrations/20261105231303_t88_world_daily.sql"),
@@ -770,4 +775,93 @@ async fn audit06_wait_past_interval_refuses_boost_data() -> Result {
     let body = String::from_utf8(to_bytes(response.into_body(), 10000).await?.to_vec())?;
     assert!(!body.contains("creature"));
     d.close().await
+}
+
+#[tokio::test]
+async fn audit_w2_c02_today_catalogue_wait_revalidates_invalidations() -> Result {
+    let started = std::time::Instant::now();
+    for invalidation in [
+        "UPDATE public_projection_state SET highest_epoch=3 WHERE id=1",
+        "UPDATE today_snapshots SET content=NULL",
+        "UPDATE today_snapshots SET conflicted=true",
+    ] {
+        let d = Database::new().await?.ok_or("PostgreSQL required")?;
+        d.publish(at()).await;
+        let mut lock = d.db.begin().await?;
+        sqlx::query("LOCK TABLE world_admin_names IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *lock)
+            .await?;
+        let mounted = today::mount(Router::new(), d.db.clone(), config());
+        let read = tokio::spawn(async move {
+            mounted
+                .oneshot(Request::get("/en/today/data").body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT e.kind,e.key,%')").fetch_one(&d.root).await?;
+            if waiting {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            tokio::task::yield_now().await;
+        }
+        sqlx::query(sqlx::AssertSqlSafe(invalidation))
+            .execute(&d.db)
+            .await?;
+        lock.commit().await?;
+        let response = read.await?;
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{invalidation}"
+        );
+        d.close().await?;
+    }
+    eprintln!(
+        "audit_w2_c02_today_catalogue_wait_revalidates_invalidations {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn configured_parent_off_refuses_fresh_retained_daily_data() -> Result {
+    let started = std::time::Instant::now();
+    let d = Database::new().await?.expect("real PostgreSQL is required");
+    let now = at();
+    d.publish(now).await;
+    assert!(d.view(now).await.is_ok());
+    let c = Config::from_lookup(|key| {
+        Some(
+            match key {
+                "APP_ENV" => "testing",
+                "PORTAL_PUBLIC_PROJECTIONS_ENABLED" => "false",
+                "PORTAL_WORLD_DAILY_PUBLIC_ENABLED" | "PORTAL_WORLD_DAILY_INGEST_ENABLED" => "true",
+                "PORTAL_PUBLIC_PROJECTIONS_AUTHORITY" => "oteryn:game:primary",
+                "PORTAL_WORLD_DAILY_WORLDS" => WORLD,
+                _ => return None,
+            }
+            .to_owned(),
+        )
+    });
+    assert!(matches!(
+        today::read(&d.db, &c, Uuid::parse_str(WORLD)?, "en", now).await,
+        Err(Error::Unavailable)
+    ));
+    let site = today::mount(Router::new(), d.db.clone(), c);
+    for path in ["/en/today", "/en/today/data", "/en/today/widget"] {
+        let r = site
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty())?)
+            .await?;
+        assert_ne!(r.status(), StatusCode::OK);
+    }
+    d.close().await?;
+    eprintln!(
+        "PG configured_parent_off_refuses_fresh_retained_daily_data {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
 }

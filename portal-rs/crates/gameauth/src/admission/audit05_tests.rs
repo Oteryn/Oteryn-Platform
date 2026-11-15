@@ -577,3 +577,346 @@ async fn lk_signing_cold_and_expired_cache_with_sixteen_held_transactions() -> T
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn wave2_03_report_expires_while_assignment_locked() -> TestResult {
+    let started = std::time::Instant::now();
+    let mut f = Fixture::new().await?;
+    f.authority.issuance.runtime.freshness_seconds = 1;
+    let mut blocker = f.db.pool.begin().await?;
+    sqlx::query("SELECT world_id FROM native_scope_assignments FOR UPDATE")
+        .execute(&mut *blocker)
+        .await?;
+    sqlx::query("UPDATE native_runtime_status_reports SET observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint-1").execute(&mut *blocker).await?;
+    // Publish the timestamp and release the assignment in the same commit.
+    // Readers must evaluate it using a clock captured after that wait.
+    let db = f.db.pool.clone();
+    let request = f.request.clone();
+    let authority = f.authority.clone();
+    let signer = f.signer.clone();
+    let task = tokio::spawn(async move {
+        store::admit(
+            &db,
+            &request,
+            &Accounts,
+            &authority,
+            Some(signer.as_ref()),
+            None,
+        )
+        .await
+    });
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    blocker.commit().await?;
+    let result = task.await?;
+    assert_eq!(result.err().map(|r| r.error), Some(Error::RouteUnavailable));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM native_admissions")
+        .fetch_one(&f.db.pool)
+        .await?;
+    assert_eq!(count, 0);
+    f.close().await?;
+    eprintln!(
+        "wave2_03_report_expires_while_assignment_locked duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+async fn recovery_fixture(
+    f: &Fixture,
+) -> Result<(recovery::RecoveryRequest, RecoveryIssuer), Box<dyn std::error::Error>> {
+    let raw = include_str!(
+        "../../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/recover-request.json"
+    );
+    let mut value: serde_json::Value = serde_json::from_str(raw)?;
+    value["character_id"] = f.request.character_id.to_string().into();
+    let request = recovery::RecoveryRequest::decode(&serde_json::to_vec(&value)?, false)
+        .map_err(|e| format!("{e:?}"))?;
+    sqlx::query("INSERT INTO native_play_generations(account_id,generation) VALUES($1,1)")
+        .bind(f.account)
+        .execute(&f.db.pool)
+        .await?;
+    sqlx::query("INSERT INTO native_recovery_handles(handle_hash,account_id,character_id,world_id,channel_id,security_generation,play_generation,attempt_ref,issued_at,expires_at) VALUES($1,$2,$3,$4,$5,1,1,$6,1,9999999999)")
+        .bind(&request.handle_hash[..]).bind(f.account).bind(request.character_id).bind(runtime::tests::WORLD.parse::<Uuid>()?).bind(runtime::tests::CHANNEL.parse::<Uuid>()?).bind(Uuid::now_v7()).execute(&f.db.pool).await?;
+    let settings = keys::Settings {
+        enabled: true,
+        key_purpose: keys::RECOVERY_KEY_PURPOSE.into(),
+        clock_uncertainty_seconds: 0,
+    };
+    let registry = keys::PublicTrustRegistry::new_scoped(
+        f.db.pool.clone(),
+        settings.clone(),
+        keys::Scope::Recovery,
+        f.directory.clone(),
+    )?;
+    let mut ring =
+        keys::Keyring::create_scoped(settings, keys::Scope::Recovery, Memory::default())?;
+    let key = ring.generate_next("recovery-wave2")?;
+    registry.publish(&key).await?;
+    sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=trusted_at-interval '60 seconds'").execute(&f.db.pool).await?;
+    let now = runtime::now().map_err(runtime::tests::TestError::from)? as u64;
+    ring.activate("recovery-wave2", now, &registry.snapshot().await?)?;
+    Ok((
+        request,
+        RecoveryIssuer {
+            signer: Some(Arc::new(KeyringSigner::recovery(ring, registry))),
+            projection_authority: "game".into(),
+            ttl_seconds: 20,
+            clock_uncertainty_seconds: 0,
+        },
+    ))
+}
+
+#[tokio::test]
+async fn wave2_01_unrelated_account_lock_does_not_block_recovery() -> TestResult {
+    let started = std::time::Instant::now();
+    let f = Fixture::new().await?;
+    let (request, issuer) = recovery_fixture(&f).await?;
+    let other = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,$2,'test-only','active','en')").bind(other).bind(format!("{other}@example.test")).execute(&f.db.pool).await?;
+    let mut blocker = f.db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(other)
+        .execute(&mut *blocker)
+        .await?;
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        recovery::recover(
+            &f.db.pool,
+            &request,
+            &Accounts,
+            &issuer,
+            &f.authority.issuance.runtime,
+        ),
+    )
+    .await?;
+    assert!(response.is_ok(), "{response:?}");
+    // Retry authentication must also stay independent of B.
+    let retry = tokio::time::timeout(
+        Duration::from_secs(2),
+        recovery::recover(
+            &f.db.pool,
+            &request,
+            &Accounts,
+            &issuer,
+            &f.authority.issuance.runtime,
+        ),
+    )
+    .await?;
+    assert!(retry.is_ok(), "{retry:?}");
+    blocker.rollback().await?;
+    f.close().await?;
+    eprintln!(
+        "wave2_01_unrelated_account_lock_does_not_block_recovery duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+async fn http_app(f: &Fixture) -> Result<axum::Router, Box<dyn std::error::Error>> {
+    use sha2::{Digest, Sha256};
+    let path = f.directory.join("service-digest");
+    std::fs::write(
+        &path,
+        format!("{:x}", Sha256::digest(b"wave2-test-service")),
+    )?;
+    Ok(http::router(
+        f.db.pool.clone(),
+        AdmissionConfig {
+            enabled: true,
+            tokens: Some(ServiceTokens::from_files(&path, None)?),
+            protocol3: Some(Protocol3 {
+                runtime: f.authority.issuance.runtime.clone(),
+                handles: Handles::Off,
+            }),
+            ..AdmissionConfig::default()
+        },
+        Arc::new(Accounts),
+        Arc::new(f.authority.clone()),
+    ))
+}
+
+#[tokio::test]
+async fn wave2_02_revoke_deadline_covers_row_lock() -> TestResult {
+    let started = std::time::Instant::now();
+    let f = Fixture::new().await?;
+    let (request, _) = recovery_fixture(&f).await?;
+    let app = http_app(&f).await?;
+    let mut blocker = f.db.pool.begin().await?;
+    sqlx::query("SELECT handle_hash FROM native_recovery_handles WHERE handle_hash=$1 FOR UPDATE")
+        .bind(&request.handle_hash[..])
+        .execute(&mut *blocker)
+        .await?;
+    let body = include_bytes!(
+        "../../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/recover-revoke-request.json"
+    );
+    let req = axum::http::Request::post("/internal/v1/game-auth/native-recoveries/revoke")
+        .header("authorization", "Bearer wave2-test-service")
+        .body(axum::body::Body::from(body.as_slice()))?;
+    let response = tokio::time::timeout(Duration::from_secs(6), app.oneshot(req)).await??;
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let mut slots = Vec::new();
+    // The blocker owns one of six connections. Every remaining slot must be
+    // reusable before it releases the handle lock.
+    for _ in 0..5 {
+        slots.push(tokio::time::timeout(Duration::from_secs(1), f.db.pool.acquire()).await??);
+    }
+    drop(slots);
+    blocker.rollback().await?;
+    f.close().await?;
+    eprintln!(
+        "wave2_02_revoke_deadline_covers_row_lock duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn wave2_02_incomplete_bodies_have_absolute_deadline() -> TestResult {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let started = std::time::Instant::now();
+    let f = Fixture::new().await?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    let app = http_app(&f).await?;
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    for path in [
+        "native-admissions",
+        "native-recoveries",
+        "native-recoveries/revoke",
+    ] {
+        let mut stream = tokio::net::TcpStream::connect(addr).await?;
+        stream.write_all(format!("POST /internal/v1/game-auth/{path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer wave2-test-service\r\nContent-Length: 100\r\n\r\n{{").as_bytes()).await?;
+        let mut bytes = [0; 1024];
+        let size = tokio::time::timeout(Duration::from_secs(6), stream.read(&mut bytes)).await??;
+        assert!(std::str::from_utf8(&bytes[..size])?.starts_with("HTTP/1.1 503"));
+    }
+    server.abort();
+    f.close().await?;
+    eprintln!(
+        "wave2_02_incomplete_bodies_have_absolute_deadline duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[derive(Debug)]
+struct StalledStorage {
+    memory: Memory,
+    stall: Arc<std::sync::atomic::AtomicBool>,
+}
+impl keys::KeyStorage for StalledStorage {
+    fn load(&self) -> Result<Option<Zeroizing<Vec<u8>>>, keys::KeyError> {
+        self.memory.load()
+    }
+    fn save(&self, bytes: &[u8]) -> Result<(), keys::KeyError> {
+        if self.stall.load(std::sync::atomic::Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_secs(6));
+        }
+        self.memory.save(bytes)
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn wave2_05_stalled_custody_preserves_timer_and_request_deadline() -> TestResult {
+    let started = std::time::Instant::now();
+    let mut f = Fixture::new().await?;
+    let stall = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let settings = keys::Settings {
+        enabled: true,
+        key_purpose: "fresh_entry".into(),
+        clock_uncertainty_seconds: 0,
+    };
+    let registry =
+        keys::PublicTrustRegistry::new(f.db.pool.clone(), settings.clone(), f.directory.clone())?;
+    let mut ring = keys::Keyring::create(
+        settings,
+        StalledStorage {
+            memory: Memory::default(),
+            stall: stall.clone(),
+        },
+    )?;
+    let key = ring.generate_next("stalled-custody")?;
+    registry.publish(&key).await?;
+    sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=trusted_at-interval '60 seconds'").execute(&f.db.pool).await?;
+    ring.activate(
+        "stalled-custody",
+        runtime::now().map_err(runtime::tests::TestError::from)? as u64,
+        &registry.snapshot().await?,
+    )?;
+    f.signer = Arc::new(KeyringSigner::new(ring, registry));
+    f.authority.issuance.signer = Some(f.signer.clone());
+    stall.store(true, std::sync::atomic::Ordering::SeqCst);
+    let clock = std::time::Instant::now();
+    let concurrent = f.signer.clone();
+    let timer = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Another request prepares while the first holds the custody mutex.
+        concurrent.prepare().await?;
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(250),
+                concurrent.sign_async(b"{}", 20, 0)
+            )
+            .await
+            .is_err(),
+            "concurrent signing must await the custody permit"
+        );
+        Ok::<_, Error>(clock.elapsed())
+    });
+    let result = store::admit(
+        &f.db.pool,
+        &f.request,
+        &Accounts,
+        &f.authority,
+        Some(f.signer.as_ref()),
+        None,
+    )
+    .await;
+    assert!(
+        timer.await?? < Duration::from_secs(1),
+        "storage blocked the sole Tokio worker"
+    );
+    assert!(clock.elapsed() < Duration::from_millis(5600));
+    assert_eq!(result.err().map(|r| r.error), Some(Error::Unavailable));
+    // Let the already running durable write finish before deleting test storage.
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    f.close().await?;
+    eprintln!(
+        "wave2_05_stalled_custody_preserves_timer_and_request_deadline duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn wave2_03_report_rechecked_after_trust_refresh() -> TestResult {
+    let started = std::time::Instant::now();
+    let mut f = Fixture::new().await?;
+    f.authority.issuance.runtime.freshness_seconds = 1;
+    f.signer = Arc::new(DelayedSigner(f.signer.clone()));
+    f.authority.issuance.signer = Some(f.signer.clone());
+    sqlx::query("UPDATE native_runtime_status_reports SET observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint-1").execute(&f.db.pool).await?;
+    let result = store::admit(
+        &f.db.pool,
+        &f.request,
+        &Accounts,
+        &f.authority,
+        Some(f.signer.as_ref()),
+        None,
+    )
+    .await;
+    assert_eq!(result.err().map(|r| r.error), Some(Error::RouteUnavailable));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM native_admissions")
+        .fetch_one(&f.db.pool)
+        .await?;
+    assert_eq!(count, 0);
+    f.close().await?;
+    eprintln!(
+        "wave2_03_report_rechecked_after_trust_refresh duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

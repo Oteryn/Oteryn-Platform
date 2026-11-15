@@ -69,13 +69,13 @@ pub(crate) async fn message(
 }
 async fn consume(
     State(state): State<AppState>,
+    Extension(limiter): Extension<crate::ratelimit::RateLimiter>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     Extension(query): Extension<Token>,
     peer: Option<Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
     headers: axum::http::HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let limiter = crate::ratelimit::RateLimiter::new(state.db.clone());
     let Some(Extension(axum::extract::ConnectInfo(peer))) = peer else {
         return Ok(crate::ratelimit::Denial::Unavailable.response(language, false));
     };
@@ -124,13 +124,13 @@ async fn resend_form(
 }
 async fn resend(
     State(state): State<AppState>,
+    Extension(limiter): Extension<crate::ratelimit::RateLimiter>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
     headers: axum::http::HeaderMap,
 ) -> Result<Response, StatusCode> {
     let id = session.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
-    let limiter = crate::ratelimit::RateLimiter::new(state.db.clone());
     let Some(Extension(axum::extract::ConnectInfo(peer))) = peer else {
         return Ok(crate::ratelimit::Denial::Unavailable.response(language, false));
     };

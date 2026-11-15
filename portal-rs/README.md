@@ -55,3 +55,26 @@ All default to off; `bin/oteryn-portal` mounts the ingest only on a qualified in
 Ownership comes from the character projection and a receipt chain: the committed `CreateCharacter` receipt is the initial cut (an accepted `pd_ownership_baselines` row only where no create receipt exists), and each committed transfer must name the previous owner as its seller. A pending transfer, missing creation evidence or a broken chain answers 503; a wrong owner or a stale cut answers 409. At the transfer cut the character's earlier login sessions are hidden from both accounts (G-11): the seller sees none of them, and the buyer sees only sessions after its cut. A sold character, or one whose ownership cannot be proven, is hidden from the login history; the rest of the page stays readable.
 
 Operators can run `oteryn-portal catalog import <file> --actor <account-uuid>` (prints the revision), then `oteryn-portal catalog activate <catalog_revision> --actor <account-uuid>`. The active account needs `store.catalog.import` or `store.catalog.activate`, respectively; the explicit command enables catalog operations and audits changes.
+
+G-9 revision 3 uses `PORTAL_PLAYERDATA_G9_INGEST_ENABLED` and
+`PORTAL_PLAYERDATA_G9_REPLAY_COMMANDS_ENABLED` (both default false), with
+`PORTAL_PLAYERDATA_JOURNAL_SESSIONS_SAN` and
+`PORTAL_PLAYERDATA_G9_SOURCE_AUTHORITY`. The internal listener restricts both
+flags to testing/preproduction and checks their identity against every other
+purpose. G-9 and G-10 share the records URL but select separate guarded codecs
+by verified peer purpose, before reading the body. G-9 needs an authoritatively
+admitted `pd_g9_streams` generation, current receipt-derived ownership and
+accepted `pd_g9_catalogue_keys`; requests cannot establish those inputs.
+Replay commands use a durable Platform outbox, exact stored intent bytes and
+immutable digest-bound receipts. Ingest enables no hunt/drop reads, party
+capture, sharing, exports or aggregation. Contradictory projections retain the
+first snapshot and a content-free `public_projection_conflicts` fence; neither
+retries, epoch raises nor watermarks reconcile that fence.
+
+All production email senders share `OTERYN_SMTP_TLS_MODE` (`starttls`, the default,
+or `implicit`) and optional `OTERYN_SMTP_PORT` (default 587 or 465 respectively).
+Both modes require certificate validation and SMTP credentials. There is no
+plaintext production mode. `TRUSTED_PROXIES` is a comma-separated list of exact IP
+addresses, validated once per process; absent/empty trusts no forwarding headers.
+Every browser limiter and abuse adapter uses this policy. Invalid entries refuse
+startup. Proxies must append/overwrite `X-Forwarded-For` correctly.

@@ -597,8 +597,11 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         }
         listing.state.transition(State::Completed)?;
         let result = settlement(&mut tx, id).await?;
-        self.authorize_many(&mut tx, vec![(result.buyer, false), (result.seller, false)])
-            .await?;
+        for actor in [result.buyer, result.seller] {
+            if !self.accounts.safe_return(&mut tx, actor).await? {
+                return Err(Error::Denied);
+            }
+        }
         if !self.evidence.delivered(&mut tx, &result).await? {
             return Err(Error::Denied);
         }

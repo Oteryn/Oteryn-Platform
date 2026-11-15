@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+#[path = "../../../../test-support/clock.rs"]
+mod test_clock;
 use axum::{
     Extension, Router,
     body::{Body, to_bytes},
@@ -101,7 +103,7 @@ impl Database {
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&admin)
             .await?;
-        let search_path = schema.clone();
+        let search_path = format!("{schema},pg_catalog");
         let pool = PgPoolOptions::new()
             .max_connections(6)
             .after_connect(move |conn, _| {
@@ -117,6 +119,8 @@ impl Database {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
+        let instant = time::OffsetDateTime::from_unix_timestamp(1_790_035_199)?;
+        test_clock::install(&pool, instant).await?;
         let version = Uuid::now_v7();
         sqlx::query("INSERT INTO world_versions (id,source_commit,status) VALUES ($1,$2,'ready')")
             .bind(version)
@@ -142,9 +146,7 @@ impl Database {
         );
         let account = Uuid::now_v7();
         sqlx::query("INSERT INTO accounts (id,email,password_hash,status,email_verified_at,locale) VALUES ($1,'synthetic@example.invalid','unused','active',now(),'en')").bind(account).execute(&pool).await?;
-        let today = sqlx::query_scalar("SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date")
-            .fetch_one(&pool)
-            .await?;
+        let today = instant.date();
         Ok(Some(Self {
             admin,
             pool,
@@ -655,4 +657,123 @@ async fn disabled_router_never_connects_to_database() -> TestResult {
         );
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn postgres_answer_rechecks_locked_account() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let id = db.publish(Kind::Quiz).await?;
+    let mut suspension = db.pool.begin().await?;
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(db.account)
+        .execute(&mut *suspension)
+        .await?;
+    {
+        let answer = db.service.answer(db.account, id, 0);
+        tokio::pin!(answer);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                tokio::select! {
+                    result = &mut answer => panic!("answer passed suspension: {result:?}"),
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {}
+                }
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.wait_event_type='Lock' AND EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND l.relation='accounts'::regclass))")
+                    .fetch_one(&db.pool).await?;
+                if waiting { break; }
+            }
+            Ok::<(), sqlx::Error>(())
+        }).await??;
+        suspension.commit().await?;
+        assert!(matches!(answer.await, Err(Error::Forbidden)));
+    }
+    let counts:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM puzzles_answers WHERE account_id=$1),(SELECT count(*) FROM puzzles_streaks WHERE account_id=$1)").bind(db.account).fetch_one(&db.pool).await?;
+    assert_eq!(counts, (0, 0));
+    db.close().await?;
+    eprintln!(
+        "postgres_answer_rechecks_locked_account duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_answer_holds_account_lock_while_waiting_for_streak() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let id = db.publish(Kind::Quiz).await?;
+    sqlx::query("INSERT INTO puzzles_streaks(account_id) VALUES($1)")
+        .bind(db.account)
+        .execute(&db.pool)
+        .await?;
+    let mut streak = db.pool.begin().await?;
+    sqlx::query("SELECT account_id FROM puzzles_streaks WHERE account_id=$1 FOR UPDATE")
+        .bind(db.account)
+        .fetch_one(&mut *streak)
+        .await?;
+    {
+        let answer = db.service.answer(db.account, id, 0);
+        tokio::pin!(answer);
+        // Poll the answer until PostgreSQL reports its domain-row lock wait.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                tokio::select! {
+                    result = &mut answer => panic!("answer did not wait: {result:?}"),
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {}
+                }
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.wait_event_type='Lock' AND a.query LIKE 'SELECT account_id FROM puzzles_streaks%' AND EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND l.relation='puzzles_streaks'::regclass))")
+                    .fetch_one(&db.pool).await?;
+                if waiting { break; }
+            }
+            Ok::<(), sqlx::Error>(())
+        }).await??;
+        let suspension = sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(db.account)
+            .execute(&db.pool);
+        tokio::pin!(suspension);
+        tokio::select! {
+            result = &mut suspension => panic!("suspension bypassed account lock: {result:?}"),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+        }
+        // Account-before-domain ordering serializes suspension after the answer.
+        streak.commit().await?;
+        answer.await?;
+        suspension.await?;
+    }
+    assert!(matches!(
+        db.service.answer(db.account, id, 0).await,
+        Err(Error::Forbidden)
+    ));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM puzzles_answers WHERE account_id=$1")
+        .bind(db.account)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 1);
+    db.close().await?;
+    eprintln!(
+        "postgres_answer_holds_account_lock_while_waiting_for_streak duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_controlled_midnight_changes_available_puzzles() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let old = db.publish(Kind::Monster).await?;
+    let tomorrow = db.today.next_day().ok_or("date overflow")?;
+    let next = db.seed(tomorrow, Kind::Quiz).await?;
+    assert_eq!(db.service.today(db.account).await?[0].id, old);
+    test_clock::set(&db.pool, tomorrow.midnight().assume_utc()).await?;
+    assert_eq!(db.service.today(db.account).await?[0].id, next);
+    assert!(matches!(
+        db.service.answer(db.account, old, 1).await,
+        Err(Error::NotFound)
+    ));
+    assert!(matches!(
+        db.service.image(db.account, old).await,
+        Err(Error::NotFound)
+    ));
+    assert!(db.service.answer(db.account, next, 1).await?.correct);
+    db.close().await
 }

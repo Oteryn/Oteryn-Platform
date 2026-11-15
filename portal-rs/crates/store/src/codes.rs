@@ -1,4 +1,4 @@
-//! Gift code issuance and atomic redemption. No game delivery or HTTP surface.
+//! Gift code issuance and atomic redemption. Item codes remain unavailable on the browser surface.
 use crate::premium;
 use oteryn_wallet::{AccountStateReader, AuditHook, TransferBlockCheck};
 use sha2::{Digest, Sha256};
@@ -33,8 +33,8 @@ impl From<sqlx::Error> for Error {
         Self::Unavailable
     }
 }
-/// Capability supplied by the future admin integration. There is deliberately
-/// no public constructor: ordinary store callers cannot mint staff authority.
+/// Internal issuance capability. Production issuance uses `generate_staff`,
+/// which checks current permissions in the issuance transaction.
 #[derive(Debug)]
 pub struct AuthorizedStaff {
     actor: Uuid,
@@ -137,8 +137,52 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
             Err(Error::Disabled)
         }
     }
+    /// Called only after the browser staff MFA guard. Recheck current role grants
+    /// under the role-writer fence and retain it through issuance and audit.
+    pub async fn generate_staff(
+        &self,
+        actor: Uuid,
+        batch: &Batch,
+        count: usize,
+    ) -> Result<Generated, Error> {
+        self.enabled()?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(71010)")
+            .execute(&mut *tx)
+            .await?;
+        let active: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE")
+            .bind(actor).fetch_optional(&mut *tx).await?;
+        let permitted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id WHERE ar.account_id=$1 AND rp.permission='store.codes.generate')")
+            .bind(actor).fetch_one(&mut *tx).await?;
+        if active != Some(true) || !permitted {
+            return Err(Error::Denied);
+        }
+        if batch.kind == Kind::ItemGrant {
+            return Err(Error::Disabled);
+        }
+        let result = self
+            .generate_in(&mut tx, &AuthorizedStaff { actor }, batch, count)
+            .await?;
+        sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES($1,'store.codes.generated',$2,'{}'::jsonb,jsonb_build_object('count',$3::bigint),$4)")
+            .bind(actor).bind(result.batch_id.to_string()).bind(count as i64).bind(result.batch_id).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(result)
+    }
     pub async fn generate(
         &self,
+        staff: &AuthorizedStaff,
+        batch: &Batch,
+        count: usize,
+    ) -> Result<Generated, Error> {
+        self.enabled()?;
+        let mut tx = self.pool.begin().await?;
+        let result = self.generate_in(&mut tx, staff, batch, count).await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+    async fn generate_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         staff: &AuthorizedStaff,
         batch: &Batch,
         count: usize,
@@ -155,11 +199,10 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
         {
             return Err(Error::Invalid);
         }
-        let mut tx = self.pool.begin().await?;
         let batch_id = Uuid::now_v7();
         sqlx::query("INSERT INTO code_batches(id,kind,amount,max_per_code,max_per_account,valid_from,valid_until,created_by,note) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
             .bind(batch_id).bind(batch.kind.name()).bind(batch.amount).bind(batch.max_per_code).bind(batch.max_per_account)
-            .bind(batch.valid_from).bind(batch.valid_until).bind(staff.actor).bind(&batch.note).execute(&mut *tx).await?;
+            .bind(batch.valid_from).bind(batch.valid_until).bind(staff.actor).bind(&batch.note).execute(&mut **tx).await?;
         let mut codes = Vec::with_capacity(count);
         for _ in 0..count {
             let mut random = [0u8; 16];
@@ -177,7 +220,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
             .bind(batch_id)
             .bind(hash)
             .bind(&plain[..4])
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
             codes.push(format!(
                 "{}-{}-{}-{}",
@@ -187,12 +230,39 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
                 &plain[12..]
             ));
         }
-        tx.commit().await?;
         Ok(Generated { batch_id, codes })
     }
-    pub async fn redeem(&self, request: &Redemption) -> Result<Receipt, Error> {
+    /// Browser adapter entry: the caller must charge the authenticated attempt
+    /// budget before decoding the body, including requests that never reach here.
+    /// Only account rewards are exposed; no character authority is inferred.
+    pub async fn redeem_player(&self, request: &Redemption) -> Result<Receipt, Error> {
         self.enabled()?;
-        self.attempts.check(request.account).await?;
+        let mut tx = self.pool.begin().await?;
+        let active: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE")
+            .bind(request.account).fetch_optional(&mut *tx).await?;
+        if active != Some(true) {
+            return Err(Error::Denied);
+        }
+        // Item batches have no item/product binding or qualified consumer yet.
+        // Never expose an unfulfillable queued command through production.
+        let hash = normalized_hash(&request.code)?;
+        let item: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM gift_codes c JOIN code_batches b ON b.id=c.batch_id WHERE c.code_hash=$1 AND b.kind='item_grant')")
+            .bind(hash.as_slice()).fetch_one(&mut *tx).await?;
+        if item || request.character_ref.is_some() {
+            return Err(Error::Disabled);
+        }
+        let result = self.redeem_impl(request, false).await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+    pub async fn redeem(&self, request: &Redemption) -> Result<Receipt, Error> {
+        self.redeem_impl(request, true).await
+    }
+    async fn redeem_impl(&self, request: &Redemption, charge: bool) -> Result<Receipt, Error> {
+        self.enabled()?;
+        if charge {
+            self.attempts.check(request.account).await?;
+        }
         if !valid_id(request.account)
             || !valid_id(request.key)
             || request.character_ref.is_some_and(|id| !valid_id(id))

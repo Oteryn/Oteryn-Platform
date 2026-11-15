@@ -62,6 +62,7 @@ pub struct LedgerRow {
 pub(crate) async fn page<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
+    Extension(session): Extension<oteryn_web::session::BrowserSession>,
     Query(filter): Query<Filter>,
 ) -> Result<Response, Error> {
     state.check(actor, "audit.view").await?;
@@ -87,7 +88,11 @@ pub(crate) async fn page<B: Backend>(
     let ledger = if state.backend.permitted(actor, "game.audit.read").await
         && state.backend.advertised("admin.ledger.query").await
     {
-        state.backend.ledger(actor, &filter).await?
+        state
+            .backend
+            .for_session(session)
+            .ledger(actor, &filter)
+            .await?
     } else {
         None
     };

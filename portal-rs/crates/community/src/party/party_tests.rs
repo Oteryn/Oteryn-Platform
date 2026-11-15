@@ -564,3 +564,135 @@ async fn public_board_does_not_link_to_the_staff_queue() -> Result<(), Box<dyn s
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let owner = db.trusted.owner;
+    let reporter = db.trusted.reporter;
+    let staff = db.trusted.staff;
+    let character = db.trusted.character.id;
+    let world = db.trusted.character.world;
+    for account in [owner, reporter, staff] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test','active',now(),'en')").bind(account).bind(format!("{account}@example.test")).execute(&db.pool).await.unwrap();
+    }
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1").execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'test','1','1',0,decode(repeat('00',32),'hex'))").bind(owner).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(owner).bind(character).bind(world).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,from_projection_revision,to_projection_revision,projection_epoch,recovery_generation) VALUES($1,$2,$3,1,1,1,1,1)").bind(character).bind(owner).bind(world).execute(&db.pool).await.unwrap();
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1 WHERE id=1")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let profile = serde_json::json!({"profile":[{"world_id":world.to_string(),"name":"Aldric","level":"120","vocation":2}]});
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile',$1,false,1,1,0,$2),('character_profile','',true,1,1,floor(extract(epoch FROM clock_timestamp()))::bigint,'{}')").bind(character.to_string()).bind(profile).execute(&db.pool).await.unwrap();
+    let board = production_board(db.pool.clone());
+    assert!(
+        board
+            .authority
+            .character(reporter, character)
+            .await
+            .is_none()
+    );
+    let app = router(board.clone(), true);
+    let (token, csrf) = db.session(owner).await;
+    let draft = db.draft().await;
+    let body = format!(
+        "character={character}&purpose=hunt&min_level=80&max_level=180&profession=knight&starts_at={}&expires_at={}&note=Team",
+        draft.starts_at, draft.expires_at
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/en/party")
+                .header(
+                    header::COOKIE,
+                    format!("{}={token}", oteryn_web::session::COOKIE_NAME),
+                )
+                .header("x-csrf-token", &csrf)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let id: Uuid = sqlx::query_scalar("SELECT id FROM pd_party_posts WHERE account_id=$1")
+        .bind(owner)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM web_sessions")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let (token, csrf) = db.session(reporter).await;
+    let response = app
+        .oneshot(
+            Request::post(format!("/en/party/{id}/report"))
+                .header(
+                    header::COOKIE,
+                    format!("{}={token}", oteryn_web::session::COOKIE_NAME),
+                )
+                .header("x-csrf-token", csrf)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("reason=spam"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(board.authority.moderator(staff).await.is_none());
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'",
+    )
+    .bind(staff)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert!(board.authority.moderator(staff).await.is_some());
+    sqlx::query("DELETE FROM web_sessions")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let (token, csrf) = db.session(staff).await;
+    let adapter = StaffAdapter { mfa: true };
+    let app = moderation_router(
+        board.clone(),
+        oteryn_admin::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.example.test".into(),
+        },
+        adapter,
+        oteryn_admin::web::PortalIdentity::configured(db.pool.clone()),
+    );
+    let response = app
+        .oneshot(
+            Request::post(format!("/admin/en/party/{id}/moderate"))
+                .header(header::HOST, "staff.example.test")
+                .header(
+                    header::COOKIE,
+                    format!("{}={token}", oteryn_web::session::COOKIE_NAME),
+                )
+                .header("x-csrf-token", csrf)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("action=remove&reason=spam"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(board.list(&Filter::default()).await.unwrap().is_empty());
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(owner)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert!(board.authority.active(owner).await.is_none());
+    db.close().await;
+    eprintln!(
+        "audit_w2_c05_production_authority_owner_report_and_staff_flow {:?}",
+        started.elapsed()
+    );
+}

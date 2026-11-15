@@ -21,13 +21,21 @@ impl Backend for Fake {
         &self,
         _: CheckContext,
         _: &Input,
-        _: &'static str,
+        operation: &'static str,
     ) -> Result<Option<Snapshot>, Error> {
         assert!(
             self.allowed && self.advertised,
             "unavailable reads must never reach the backend"
         );
-        Ok(self.snapshot.clone())
+        Ok(self.snapshot.clone().map(|mut s| {
+            let offset = match operation {
+                "player.inventory.get" => 1,
+                "sanction.list" => 2,
+                _ => 0,
+            };
+            s.request_id = Uuid::from_u128(s.request_id.as_u128() + offset);
+            s
+        }))
     }
     async fn ledger(
         &self,
@@ -523,5 +531,70 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
         .await?;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a2_inventory_and_sanctions_audit_distinct_requests_and_fail_closed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+    let db = Database::open(&url).await?;
+    let request_id = Uuid::now_v7();
+    let actor = actor();
+    let state = Console {
+        pool: db.pool.clone(),
+        flags: Flags { console: true },
+        backend: Fake {
+            allowed: true,
+            advertised: true,
+            snapshot: Some(Snapshot {
+                request_id,
+                observed_at: "2026-11-15T00:00:00Z".into(),
+                characters: Some(vec![]),
+                inventory: Some(vec![Item {
+                    instance_id: "private-inventory".into(),
+                    type_id: "42".into(),
+                    location: "bag".into(),
+                    count: "1".into(),
+                }]),
+                sanctions: Some(vec![]),
+            }),
+        },
+    };
+    let input = || Input {
+        character: Some("c-1".into()),
+        lang: Some("en".into()),
+        q: None,
+    };
+    let page = view(&state, actor, input())
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(page.render()?.contains("private-inventory"));
+    for (offset, operation) in [
+        (0, "player.character.get"),
+        (1, "player.inventory.get"),
+        (2, "sanction.list"),
+    ] {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_log WHERE request_id=$1 AND operation=$2 AND actor=$3",
+        )
+        .bind(Uuid::from_u128(request_id.as_u128() + offset))
+        .bind(operation)
+        .bind(actor.account)
+        .fetch_one(&db.pool)
+        .await?;
+        assert_eq!(count, 1, "{operation}");
+    }
+    sqlx::raw_sql("CREATE FUNCTION reject_inventory_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.operation='player.inventory.get' THEN RAISE EXCEPTION 'inventory audit refused'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_inventory BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_inventory_audit();").execute(&db.pool).await?;
+    assert!(matches!(
+        view(&state, actor, input()).await,
+        Err(Error::Unavailable)
+    ));
+    db.close().await?;
+    eprintln!(
+        "a2_inventory_and_sanctions_audit_distinct_requests_and_fail_closed duration: {:?}",
+        started.elapsed()
+    );
     Ok(())
 }

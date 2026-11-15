@@ -599,6 +599,18 @@ async fn lk_commerce_single_connection_and_sixteen_mutations() {
             h.effects(),
             flags(),
         ));
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let adjustment = service.submit(context(h.actor), request(h.target, Command::Adjust { amount: 50 })).await.unwrap();
+            service.approve(context(h.second), adjustment.id).await.unwrap();
+            let payment = Uuid::now_v7();
+            sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,100,'PLN','succeeded')")
+                .bind(payment).bind(h.target).bind(format!("test:{payment}")).execute(&h.pool).await.unwrap();
+            service.submit(context(h.actor), request(payment, Command::Reconcile)).await.unwrap();
+            let refund = service.submit(context(h.actor), request(payment, Command::Refund)).await.unwrap();
+            service.approve(context(h.second), refund.id).await.unwrap();
+            let delivery = RefundDelivery { pool: h.pool.clone(), adapter: TestPaymentAdapter::new(h.pool.clone(), oteryn_payments::TestProvider::new(&[7;32]).unwrap(), oteryn_payments::PaymentFlags { enabled: true }) };
+            delivery.adapter.deliver_refund(&h.pool, refund.id).await.unwrap();
+        }).await.unwrap();
         let barrier = Arc::new(tokio::sync::Barrier::new(16));
         let mut tasks = tokio::task::JoinSet::new();
         for _ in 0..16 {
@@ -652,6 +664,182 @@ async fn lk_commerce_single_connection_and_sixteen_mutations() {
     }
     eprintln!(
         "lk_commerce_single_connection_and_sixteen_mutations duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
+    let started = std::time::Instant::now();
+    let h = Harness::with_connections(1)
+        .await
+        .expect("PostgreSQL required");
+    let app_for = |actor| {
+        crate::web::guarded(
+            http::configured_routes(h.pool.clone(), flags(), None),
+            h.pool.clone(),
+            crate::web::PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            Session(actor),
+            Authority(h.pool.clone()),
+            rbac::Permission::Access,
+        )
+    };
+    let app = app_for(h.actor);
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::get("/admin/commerce")
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let grant_id = Uuid::now_v7();
+    let adjustment_id = Uuid::now_v7();
+    for (action, id, argument) in [
+        ("grant", grant_id, "days=2"),
+        ("adjust", adjustment_id, "amount=77"),
+    ] {
+        let response = app.clone().oneshot(HttpRequest::post(format!("/admin/commerce/{action}")).header("host","staff.test").header("origin","https://staff.test").header("cookie",&cookie).header("content-type","application/x-www-form-urlencoded")
+            .body(Body::from(format!("_csrf={csrf}&request_id={id}&target={}&reason=Reviewed+support+request&{argument}",h.target))).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER, "{action}");
+    }
+    let second_app = app_for(h.second);
+    let response = second_app
+        .clone()
+        .oneshot(
+            HttpRequest::get("/admin/commerce")
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let second_cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let response = second_app
+        .oneshot(
+            HttpRequest::post(format!("/admin/commerce/approvals/{adjustment_id}"))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", second_cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM premium_ledger WHERE request_id=$1")
+        .bind(grant_id)
+        .fetch_one(&h.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT sum(available_delta)::bigint FROM wallet_entries WHERE account_id=$1",
+    )
+    .bind(h.target)
+    .fetch_one(&h.pool)
+    .await
+    .unwrap();
+    assert_eq!(balance, 77);
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE request_id=$1 AND action='commerce.wallet.adjusted'",
+    )
+    .bind(adjustment_id)
+    .fetch_one(&h.pool)
+    .await
+    .unwrap();
+    assert_eq!(audits, 1);
+    h.close().await;
+    eprintln!(
+        "a2_configured_commerce_domain_adapters_commit_ledgers duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a2_commerce_role_writer_waits_are_bounded() {
+    let started = std::time::Instant::now();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let service = h.service();
+    let pending = service
+        .submit(
+            context(h.actor),
+            request(h.target, Command::Adjust { amount: 1 }),
+        )
+        .await
+        .unwrap();
+    let mut blocker = h.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let (submit, approve) = tokio::join!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            service.submit(
+                context(h.actor),
+                request(h.target, Command::Grant { days: 1 })
+            )
+        ),
+        tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            service.approve(context(h.second), pending.id)
+        )
+    );
+    assert!(matches!(submit.unwrap(), Err(Error::Storage(_))));
+    assert!(matches!(approve.unwrap(), Err(Error::Storage(_))));
+    blocker.rollback().await.unwrap();
+    h.close().await;
+    eprintln!(
+        "a2_commerce_role_writer_waits_are_bounded duration: {:?}",
         started.elapsed()
     );
 }

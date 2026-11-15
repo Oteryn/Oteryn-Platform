@@ -953,3 +953,51 @@ fn global_registry_includes_control_agent_identities() -> TestResult {
     assert!(bindings(&values).is_ok());
     Ok(())
 }
+
+#[tokio::test]
+async fn watermark_dispatch_refuses_before_polling_disabled_or_wrong_peer() -> TestResult {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    for (enabled, peer, expected) in [
+        (false, PUBLIC, StatusCode::SERVICE_UNAVAILABLE),
+        (true, STRANGER, StatusCode::UNAUTHORIZED),
+    ] {
+        let mut settings = enabled_values_for_watermark();
+        settings.insert(
+            "PORTAL_PUBLIC_PROJECTIONS_ENABLED".into(),
+            enabled.to_string(),
+        );
+        let app = app_without_lcfa(&settings).await?;
+        for oversized in [false, true] {
+            let count = Arc::new(AtomicUsize::new(0));
+            let observed = count.clone();
+            let body = if oversized {
+                Body::from(vec![b'x'; WATERMARK_BUFFER + 1])
+            } else {
+                Body::from_stream(futures_util::stream::poll_fn(move |_| {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    std::task::Poll::Ready(Some(Err::<axum::body::Bytes, _>(
+                        std::io::Error::other("body polled"),
+                    )))
+                }))
+            };
+            let request = Request::post(oteryn_community::v2_watermark::PATH)
+                .extension(VerifiedClient::from_verified_tls13_http11(Identity::san(
+                    peer,
+                )?))
+                .body(body)?;
+            let r = app.clone().oneshot(request).await?;
+            assert_eq!(r.status(), expected);
+            assert_eq!(count.load(Ordering::SeqCst), 0);
+            assert!(r.headers()["cache-control"].to_str()?.contains("no-store"));
+        }
+    }
+    Ok(())
+}
+fn enabled_values_for_watermark() -> Values {
+    let mut values = enabled();
+    values.insert("APP_ENV".into(), "testing".into());
+    values
+}

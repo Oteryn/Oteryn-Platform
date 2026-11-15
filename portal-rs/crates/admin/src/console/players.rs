@@ -65,7 +65,7 @@ pub struct Dossier {
     pub skills: Vec<(String, u32)>,
     pub position: String,
     pub online: bool,
-    pub premium_until: Option<String>,
+    pub premium: bool,
     pub guild: Option<String>,
     pub house: Option<String>,
     pub bank_balance: String,
@@ -128,6 +128,10 @@ pub(crate) async fn record_read(
     let writer = AdminControlAuditWriter { enabled: true };
     if operation == ReadView::Dossier.operation() {
         writer.read_audit(&mut tx, ReadView::Dossier, record).await
+    } else if operation == ReadView::Inventory.operation() {
+        writer
+            .read_audit(&mut tx, ReadView::Inventory, record)
+            .await
     } else {
         writer.append(&mut tx, record).await
     }
@@ -197,7 +201,7 @@ pub(crate) async fn view<B: Backend>(
                             format!("{base} · {}: {} · {}: {:?} · {}: {} · {}: {} · {}: {} · {}: {} · {}: {} · {}: {} · {}: {}",
                                 tr(lang,"vocation"),d.vocation,tr(lang,"skills"),d.skills,
                                 tr(lang,"position"),d.position,tr(lang,"online"),tr(lang,if d.online {"yes"} else {"no"}),
-                                tr(lang,"premium"),d.premium_until.unwrap_or_default(),tr(lang,"guild"),d.guild.unwrap_or_default(),
+                                tr(lang,"premium"),tr(lang,if d.premium {"yes"} else {"no"}),tr(lang,"guild"),d.guild.unwrap_or_default(),
                                 tr(lang,"house"),d.house.unwrap_or_default(),tr(lang,"bank"),d.bank_balance,tr(lang,"logins"),d.last_login_times.join(", "))
                         } else { base }
                     })
@@ -206,12 +210,24 @@ pub(crate) async fn view<B: Backend>(
         );
         page.section("personal", Some(vec![tr(lang, "masked")]));
         let inventory = if dossier && state.backend.advertised("player.inventory.get").await {
-            state
+            if let Some(snapshot) = state
                 .backend
                 .players(actor, &input, "player.inventory.get")
                 .await?
                 .filter(|s| !s.request_id.is_nil())
-                .and_then(|s| s.inventory)
+            {
+                record_read(
+                    &state.pool,
+                    actor,
+                    snapshot.request_id,
+                    input.character.as_deref().unwrap_or("search"),
+                    "player.inventory.get",
+                )
+                .await?;
+                snapshot.inventory
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -232,12 +248,24 @@ pub(crate) async fn view<B: Backend>(
             && state.backend.permitted(actor, "game.sanction.read").await
             && state.backend.advertised("sanction.list").await
         {
-            state
+            if let Some(snapshot) = state
                 .backend
                 .players(actor, &input, "sanction.list")
                 .await?
                 .filter(|s| !s.request_id.is_nil())
-                .and_then(|s| s.sanctions)
+            {
+                record_read(
+                    &state.pool,
+                    actor,
+                    snapshot.request_id,
+                    input.character.as_deref().unwrap_or("search"),
+                    "sanction.list",
+                )
+                .await?;
+                snapshot.sanctions
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -259,9 +287,15 @@ pub(crate) async fn view<B: Backend>(
 pub(crate) async fn page<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
+    Extension(session): Extension<oteryn_web::session::BrowserSession>,
     Query(input): Query<Input>,
 ) -> Result<Response, Error> {
-    view(&state, actor, input).await?.response()
+    let scoped = Console {
+        pool: state.pool.clone(),
+        flags: state.flags,
+        backend: state.backend.for_session(session),
+    };
+    view(&scoped, actor, input).await?.response()
 }
 
 #[cfg(test)]

@@ -23,3 +23,6 @@ stale = Game connection is out of date
 invalid = Game connection could not be verified
 availability = Game availability
 available = Available
+
+main-character = Main character
+profile-preferences = Profile preferences

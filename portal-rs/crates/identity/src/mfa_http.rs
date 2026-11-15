@@ -276,7 +276,7 @@ async fn show_challenge(
     .await
 }
 async fn charge(
-    context: &Context,
+    limiter: &RateLimiter,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: &HeaderMap,
     language: Language,
@@ -286,8 +286,7 @@ async fn charge(
     let Some(Extension(ConnectInfo(peer))) = peer else {
         return Err(Denial::Unavailable.response(language, false));
     };
-    let source = context
-        .limiter
+    let source = limiter
         .trusted_proxies
         .client_ip(peer, headers)
         .map_err(|e| e.response(language, false))?;
@@ -297,8 +296,7 @@ async fn charge(
     keys.pending_account = pending;
     keys.email = email;
     for policy in policies {
-        context
-            .limiter
+        limiter
             .check(*policy, &[keys.clone()])
             .await
             .map_err(|e| e.response(language, false))?;
@@ -376,14 +374,18 @@ async fn establish(
 }
 async fn login(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     form: Result<Form<Credentials>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -409,7 +411,7 @@ async fn login(
         return refusal(language, &session, "/login").await;
     }
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -492,14 +494,18 @@ struct Input {
 }
 async fn challenge(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     form: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -520,7 +526,7 @@ async fn challenge(
         .map_err(unavailable)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -551,13 +557,17 @@ async fn challenge(
 }
 async fn email(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -578,7 +588,7 @@ async fn email(
         .map_err(unavailable)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -610,30 +620,34 @@ async fn email(
     };
     let subject = text.text("mfa-email-subject");
     let body = format!("{}\n\n{code}", text.text("mfa-email-body"));
-    tokio::task::spawn_blocking(move || {
-        use lettre::{Message, SmtpTransport, Transport};
-        let message = Message::builder()
-            .from(from.parse().map_err(|_| ())?)
-            .to(to.parse().map_err(|_| ())?)
-            .subject(subject)
-            .body(body)
-            .map_err(|_| ())?;
-        let mut builder = SmtpTransport::relay(&host).map_err(|_| ())?;
-        if let (Ok(user), Ok(password)) = (
-            std::env::var("OTERYN_SMTP_USERNAME"),
-            std::env::var("OTERYN_SMTP_PASSWORD"),
-        ) {
-            builder = builder.credentials(
-                lettre::transport::smtp::authentication::Credentials::new(user, password),
-            );
-        }
-        builder.build().send(&message).map_err(|_| ())?;
-        Ok::<(), ()>(())
-    })
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    send_email(&host, &from, &to, subject, body).await?;
     Ok(redirect(language, "/mfa/challenge"))
+}
+
+pub(crate) async fn send_email(
+    host: &str,
+    from: &str,
+    to: &str,
+    subject: String,
+    body: String,
+) -> Result<(), StatusCode> {
+    use lettre::AsyncTransport;
+    let smtp = oteryn_notify::smtp::transport(
+        host,
+        std::env::var("OTERYN_SMTP_USERNAME").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        std::env::var("OTERYN_SMTP_PASSWORD").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+    )
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let message = lettre::Message::builder()
+        .from(from.parse().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?)
+        .to(to.parse().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?)
+        .subject(subject)
+        .body(body)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    smtp.send(message)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(())
 }
 async fn settings(
     State(context): State<Context>,
@@ -666,17 +680,21 @@ async fn settings(
 }
 async fn enroll(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     form: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     let Some(id) = session.account_id().await else {
         return Ok(redirect(language, "/login"));
     };
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -709,17 +727,21 @@ async fn enroll(
 }
 async fn confirm(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     form: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     let Some(id) = session.account_id().await else {
         return Ok(redirect(language, "/login"));
     };
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -755,17 +777,21 @@ async fn confirm(
 }
 async fn remove_device(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     form: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     let Some(id) = session.account_id().await else {
         return Ok(redirect(language, "/login"));
     };
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,

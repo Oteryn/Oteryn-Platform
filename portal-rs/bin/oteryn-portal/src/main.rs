@@ -24,6 +24,18 @@ fn parse_role(arg: Option<&str>) -> Option<Role> {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("check-image") {
+        let directory = std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "/app/static".into());
+        return if std::fs::metadata(directory).is_ok_and(|metadata| metadata.is_dir()) {
+            println!(
+                "oteryn-portal {}: serve worker migrate gateway",
+                env!("CARGO_PKG_VERSION")
+            );
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
     // Test-only seeding prints one JSON object on stdout, so it runs before logging starts.
     if std::env::args().nth(1).as_deref() == Some("seed") {
         return seed::main().await;
@@ -84,6 +96,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tokio::signal::ctrl_c().await?;
         }
         Role::Serve => {
+            let proxies = oteryn_web::ratelimit::TrustedProxies::configured()?;
             let internal_configuration = game_routes::Configuration::from_env()?;
             let catalog_db = db.clone();
             let catalog_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -374,6 +387,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);
+            let app = app.merge(code_routes::configured(db.clone())?);
+            let app = with_proxy_policy(app, db.clone(), proxies);
             let public_app = app.clone();
             let app = app.merge(oteryn_support::sanctions::export::configured_router(
                 db.clone(),
@@ -397,12 +412,14 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app =
                 game_routes::mount(app, db.clone(), config.environment, internal_configuration)
                     .await;
-            let _internal_listener = internal_tls::start(app.clone()).await?;
+            let internal_listener = internal_tls::start(app.clone()).await?;
             let app = public_app;
-            let _native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
+            let native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             let mut private_listeners = tokio::task::JoinSet::new();
             for (name, handle) in [
+                ("internal-mtls", internal_listener),
+                ("native-tls", native_listener),
                 ("league", league_listener),
                 ("bazaar", bazaar_listener),
                 ("account-closure", closure_listener),
@@ -454,7 +471,13 @@ mod tests {
     #[tokio::test]
     async fn all_private_listener_completions_are_supervised()
     -> Result<(), Box<dyn std::error::Error>> {
-        for name in ["league", "bazaar", "account-closure"] {
+        for name in [
+            "league",
+            "bazaar",
+            "account-closure",
+            "internal-mtls",
+            "native-tls",
+        ] {
             let handle = tokio::spawn(async {});
             let mut tasks = tokio::task::JoinSet::new();
             tasks.spawn(async move { (name, handle.await) });
@@ -523,6 +546,7 @@ mod account_lifecycle_http;
 mod account_closure;
 
 mod catalog_cli;
+mod code_routes;
 
 #[cfg(test)]
 mod browser_configuration_tests {
@@ -549,3 +573,19 @@ mod browser_configuration_tests {
 
 #[cfg(test)]
 mod large_pages_tests;
+
+/// Last browser composition layer shares one validated policy across module adapters.
+fn with_proxy_policy(
+    app: axum::Router,
+    pool: sqlx::PgPool,
+    proxies: oteryn_web::ratelimit::TrustedProxies,
+) -> axum::Router {
+    let mut limiter = oteryn_web::ratelimit::RateLimiter::new(pool);
+    limiter.trusted_proxies = proxies;
+    app.layer(axum::middleware::from_fn_with_state(
+        limiter,
+        oteryn_web::ratelimit::supply,
+    ))
+}
+#[cfg(test)]
+mod audit_l9_tests;

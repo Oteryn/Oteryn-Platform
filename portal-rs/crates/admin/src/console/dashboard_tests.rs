@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[path = "../../../../test-support/clock.rs"]
+mod test_clock;
 use super::*;
 use axum::{
     body::{Body, to_bytes},
@@ -155,7 +157,7 @@ impl Db {
             .execute(&root)
             .await
             .unwrap();
-        let path = format!("SET search_path TO {schema}");
+        let path = format!("SET search_path TO {schema},pg_catalog");
         let pool = PgPoolOptions::new()
             .max_connections(4)
             .after_connect(move |c, _| {
@@ -438,6 +440,11 @@ async fn postgres_platform_metrics_and_closed_permission_catalog() {
     let Some(db) = Db::new().await else {
         return;
     };
+    let instant = time::OffsetDateTime::from_unix_timestamp(1_790_035_199).unwrap();
+    test_clock::install(&db.pool, instant).await.unwrap();
+    // Defaults are bound when created; bind fixture timestamps to the test clock.
+    sqlx::raw_sql("ALTER TABLE accounts ALTER COLUMN created_at SET DEFAULT now(); ALTER TABLE security_events ALTER COLUMN created_at SET DEFAULT now(); ALTER TABLE payment_events ALTER COLUMN created_at SET DEFAULT now();")
+        .execute(&db.pool).await.unwrap();
     let actor = db.staff().await;
     let auth = PgPermissions {
         pool: db.pool.clone(),
@@ -476,6 +483,14 @@ async fn postgres_platform_metrics_and_closed_permission_catalog() {
         "Revenue (minor units)".into(),
         "No successful payments today".into()
     )));
+    // Crossing midnight must remove yesterday's registrations and logins.
+    test_clock::set(&db.pool, instant + time::Duration::seconds(1))
+        .await
+        .unwrap();
+    let section = dashboard::section(&db.pool, "en").await;
+    let fields = &section.records[0].fields;
+    assert!(fields.contains(&("Registrations".into(), "0".into())));
+    assert!(fields.contains(&("Successful logins".into(), "0".into())));
     db.close().await;
 }
 

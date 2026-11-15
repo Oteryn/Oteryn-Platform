@@ -3,9 +3,9 @@
 Governed by Platform issue #1639 and PR #1640. The owner authorized the complete
 existing-state migration and direct oteryn.com DNS/HTTPS on Oracle, without Tunnel.
 
-## Pinned inputs
+## Historical qualification inputs
 
-- Platform/gateway: `1194d5548760d9d773a1cebb182bc5986a6a42bf`
+- Historical Platform/gateway: `1194d5548760d9d773a1cebb182bc5986a6a42bf` (retired Laravel deployment)
 - Current Game runtime: `77af046ce14c81df6ed6cab03ae693a68acff32c`
 - Initial isolated Game qualification: `87f770c87ce17518ba69f5effdbd04725d8a7d06`
 - Game runtime and PostgreSQL base images are digest-pinned in these files.
@@ -24,16 +24,15 @@ files from one exact reviewed candidate commit; keep them together in an
 owner-only directory. Never print the generated environment files or keys.
 
 ```bash
-bash prepare-platform.sh
+bash prepare-platform.sh /opt/oteryn-build/<reviewed-platform-checkout>
 bash prepare-game.sh
 python3 check-game-db.py
 ```
 
-`prepare-platform.sh` uses the existing Synology Compose contract and operational
-PostgreSQL bootstrap, with project `oteryn-oracle`, generated independent secrets,
-TLS 1.3 / verify-full, split database roles, loopback HTTP and native admission off.
-It reconciles the existing WAL archive / daily physical and logical backup jobs.
-An existing database or witness is never reset on retry.
+`prepare-platform.sh` validates operator-supplied Rust application and migration
+configuration and starts the Rust roles described below. PostgreSQL provisioning,
+TLS, split roles, WAL and backup retention remain independently managed. It never
+resets an existing database or witness.
 
 `prepare-game-db.py` creates configuration once and refuses to replace it. Its
 CA private key remains outside all container mounts. The Game store has a separate
@@ -44,7 +43,7 @@ migration executable over verify-full TLS as the schema owner. It starts no node
 `check-game-db.py` proves the runtime role cannot perform DDL and rejects
 plaintext and an unknown CA, without printing credentials.
 
-## Verified target results
+## Historical verified target results
 
 - Platform, gateway and Game native ARM64 builds passed.
 - Platform home/login and gateway readiness return HTTP 200.
@@ -203,15 +202,55 @@ explicit operator reconciliation; a successful receipt never authorizes retry
 through an unresolved candidate. Legacy NAS recovery workflows remain disabled.
 Main protection, aggregate success and the approved active workflow are rechecked
 after backup and before migration. A still-running old Game prevents migration.
-Platform readiness includes the scheduler as well as web/gateway/databases.
+Platform readiness includes the Rust worker as well as web/gateway/databases.
 
 
 Operator prerequisites for Actions deployment: host Git, curl, Python3, Docker
 and Compose must be installed. Runner tools do not install host packages.
 The adapter gives only public Git child processes umask022, so copied source is
-readable by the non-root PHP image USER; private operator writes retain077.
-Before maintenance it verifies application entry files in an isolated candidate
-container inheriting its real USER and WORKDIR. An unreadable image fails before
+readable by the non-root Rust image USER; private operator writes retain077.
+Before stopping writers it runs the Rust `check-image` command in an isolated
+candidate container inheriting its real USER and WORKDIR. An unreadable image fails before
 backup, writer stop or migration. Preserve failed deployment records and reconcile
-against the predeployment backup/schema and actual runtime before retry; a PHP
-failure to open artisan is not evidence that a schema migration committed.
+against the predeployment backup/schema and actual runtime before retry; a failed
+image preflight is not evidence that a schema migration committed.
+
+### Rust application deployment
+
+The active `actions-deploy.py` application path builds `portal-rs/Dockerfile`
+with `portal-rs` as context. One immutable image runs `serve`, `worker`, `migrate`
+and `gateway` via `public-platform.compose.yml`. Caddy forwards directly to the
+portal on port 8080, preserving the native ticket path alias to the Rust API. Rust internal mTLS is configured
+on the portal using its existing `OTERYN_INTERNAL_*` settings and certificate files;
+the retired nginx listener is not part of application deployment. The gateway
+shares the portal network namespace to reach the Rust issuer on loopback port
+8091; Caddy reaches gateway HTTP at `platform:8081`, separately from portal HTTP.
+The admission and protocol flags retain their existing default-off behavior. The retained
+nginx repair helper supports an opaque TCP relay for separately retained ingress
+installations with nginx's stream module. It never terminates TLS or manufactures
+certificate identity; the Rust listener uses `OTERYN_INTERNAL_TLS_BIND` on port
+8443 in that topology. New application deployment uses direct Rust mTLS instead.
+
+Provision the external `oteryn-oracle_private` network and PostgreSQL separately.
+Supply root-owned mode-0600 `/opt/oteryn-oracle/platform.env` with the Rust
+`OTERYN_DATABASE_URL` for the application role, and `platform-migrate.env` with the
+schema-owner URL. Mount certificate/key files, `gateway-token` and its hexadecimal SHA-256 digest
+`gateway-token.sha256` in the
+read-only `platform-secrets` directory, readable by image UID 65532. These files
+remain host-private; `prepare-platform.sh <reviewed-checkout>` validates their
+presence and runs the Rust migration role. Existing game/money flags remain off
+unless the operator explicitly enables them.
+
+The release receipt records the latest embedded Rust migration version and
+accepts only predecessors present in the candidate migration inventory. A legacy
+Laravel schema receipt requires explicit operator reconciliation: the removed
+application is not a migration source. Before stopping Rust writers, deployment
+streams a PostgreSQL custom-format dump to private action state, fsyncs it and
+validates its archive table of contents. The backup uses the retained PostgreSQL image as a one-off client with the
+migration role's exact database URL, TLS configuration and read-only certificates;
+it keeps that URL out of command arguments and logs. Failure prevents disruption. No automatic schema rollback is attempted.
+
+Caddy forwards its already-resolved `{client_ip}` as a single `X-Forwarded-For`
+value. Its strict Cloudflare trust policy rejects spoofed forwarding from other
+peers, while Rust trusts only the Caddy container at `172.18.0.10`; a Cloudflare
+transport hop cannot accidentally become the registration budget key.

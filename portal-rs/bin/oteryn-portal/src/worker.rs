@@ -78,12 +78,12 @@ impl Registry {
     }
     async fn schedule(&self, pool: &PgPool) -> Result<(), outbox::Error> {
         for (kind, seconds) in &self.schedules {
-            outbox::schedule(pool, kind, *seconds).await?;
+            outbox::schedule_with_deadline(pool, kind, *seconds, self.execution_budget).await?;
         }
         Ok(())
     }
     /// Batch jobs start together and renew leases while handlers are in flight.
-    async fn batch(&self, pool: &PgPool) -> Result<usize, Box<dyn std::error::Error>> {
+    pub(crate) async fn batch(&self, pool: &PgPool) -> Result<usize, Box<dyn std::error::Error>> {
         // Preserve connection hooks (including tenant/search_path settings), but
         // reserve independent capacity before handlers can occupy the shared pool.
         let leases = pool
@@ -94,7 +94,7 @@ impl Registry {
             .acquire_timeout(Duration::from_secs(5))
             .connect_with((*pool.connect_options()).clone())
             .await?;
-        let jobs = outbox::claim(pool, 16, 60).await?;
+        let jobs = outbox::claim_with_deadline(pool, 16, 60, self.execution_budget).await?;
         let count = jobs.len();
         let mut tasks = tokio::task::JoinSet::new();
         for job in jobs {
@@ -222,8 +222,26 @@ fn register_journal_cleanup(registry: &mut Registry, pool: &PgPool) -> Result<()
         Arc::new(oteryn_playerdata::retention::Retention(pool.clone())),
     )
 }
-pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+fn register_security_notifications(
+    registry: &mut Registry,
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(delivery) = crate::sessions_http::delivery(pool)? {
+        registry.notifications(delivery)?;
+    }
+    Ok(())
+}
+pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
+    if std::env::var("OTERYN_ADMIN_COMMERCE").as_deref() == Ok("true")
+        && std::env::var("OTERYN_REFUNDS_ENABLED").as_deref() == Ok("true")
+        && let Some(adapter) = oteryn_admin::commerce::configured_payment_adapter(pool.clone())?
+    {
+        registry.commerce_refunds(oteryn_admin::commerce::RefundDelivery {
+            pool: pool.clone(),
+            adapter,
+        })?;
+    }
     crate::wallet_topup::register(&mut registry, pool.clone())?;
     if let Some(runtime) = oteryn_bazaar::game::runtime::Runtime::configured(pool.clone()).await? {
         registry.cleanup("bazaar.authority", 1, Arc::new(runtime))?;
@@ -280,9 +298,7 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         closure.worker_interval_seconds(),
         Arc::new(closure.terminations),
     )?;
-    if let Some(delivery) = crate::sessions_http::delivery(pool.clone())? {
-        registry.notifications(delivery)?;
-    }
+    register_security_notifications(&mut registry, pool.clone())?;
     registry.cleanup(
         "cleanup.deaths",
         3600,
@@ -359,6 +375,11 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         3600,
         Arc::new(oteryn_stats::online::Retention { pool: pool.clone() }),
     )?;
+    Ok(registry)
+}
+
+pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let registry = configured(pool.clone()).await?;
     #[cfg(unix)]
     let shutdown = {
         let mut terminate =
@@ -407,7 +428,6 @@ impl Handler for oteryn_admin::commerce::RefundDelivery {
 }
 impl Registry {
     /// Commerce supplies verified domain authority before refund dispatch is enabled.
-    #[allow(dead_code)]
     pub fn commerce_refunds(
         &mut self,
         delivery: oteryn_admin::commerce::RefundDelivery,

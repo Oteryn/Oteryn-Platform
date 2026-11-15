@@ -41,19 +41,87 @@ pub trait Authority: Send + Sync + std::fmt::Debug {
     fn reporting_allowed(&self, account: Uuid) -> CheckFuture<'_, ()>;
 }
 #[derive(Debug)]
-struct Unavailable;
-impl Authority for Unavailable {
-    fn reporting_allowed(&self, _: Uuid) -> CheckFuture<'_, ()> {
-        Box::pin(async { None })
+struct ProductionAuthority {
+    db: PgPool,
+}
+impl Authority for ProductionAuthority {
+    fn active(&self, account: Uuid) -> CheckFuture<'_, ()> {
+        Box::pin(async move {
+            let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts a WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sanctions s WHERE s.account_id=a.id AND s.status='active' AND s.category IN ('restriction','suspension') AND s.effective_at<=clock_timestamp() AND (s.expires_at IS NULL OR s.expires_at>clock_timestamp())))")
+                .bind(account).fetch_one(&self.db).await.ok()?;
+            allowed.then_some(())
+        })
     }
-    fn active(&self, _: Uuid) -> CheckFuture<'_, ()> {
-        Box::pin(async { None })
+    fn reporting_allowed(&self, account: Uuid) -> CheckFuture<'_, ()> {
+        Box::pin(async move {
+            self.active(account).await?;
+            let rejected: i64 = sqlx::query_scalar("SELECT count(*) FROM player_reports WHERE reporter_account_id=$1 AND rejected_at>=clock_timestamp()-interval '30 days'")
+                .bind(account).fetch_one(&self.db).await.ok()?;
+            (rejected < 3).then_some(())
+        })
     }
-    fn character(&self, _: Uuid, _: Uuid) -> CheckFuture<'_, Character> {
-        Box::pin(async { None })
+    fn character(&self, account: Uuid, character: Uuid) -> CheckFuture<'_, Character> {
+        Box::pin(async move {
+            self.active(account).await?;
+            let mut tx = self.db.begin().await.ok()?;
+            let oteryn_playerdata::authority::Ownership::Owner(cut) =
+                oteryn_playerdata::authority::ownership(&mut tx, account, character)
+                    .await
+                    .ok()?
+            else {
+                return None;
+            };
+            let name: String = sqlx::query_scalar("SELECT name FROM account_characters WHERE account_id=$1 AND character_id=$2 AND world_id=$3 AND availability='AVAILABLE'")
+                .bind(account).bind(character).bind(cut.world).fetch_optional(&mut *tx).await.ok()??;
+            sqlx::query("SELECT highest_epoch FROM public_projection_state WHERE id=1 FOR SHARE")
+                .execute(&mut *tx)
+                .await
+                .ok()?;
+            let profile: serde_json::Value = sqlx::query_scalar("SELECT s.payload->'profile'->0 FROM public_snapshots s JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch WHERE s.family='character_profile' AND s.subject=$1 AND NOT s.is_watermark AND jsonb_array_length(s.payload->'profile')=1 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM clock_timestamp()))::bigint-29 AND floor(extract(epoch FROM clock_timestamp()))::bigint+1)")
+                .bind(character.to_string()).fetch_optional(&mut *tx).await.ok()??;
+            if profile["name"].as_str()? != name
+                || profile["world_id"].as_str()? != cut.world.to_string()
+            {
+                return None;
+            }
+            let level = profile["level"].as_str()?.parse().ok()?;
+            let profession = match profile["vocation"].as_u64()? {
+                1 | 5 => "sorcerer",
+                2 | 6 => "druid",
+                3 | 7 => "paladin",
+                4 | 8 => "knight",
+                9 | 10 => "monk",
+                _ => return None,
+            };
+            tx.commit().await.ok()?;
+            Some(Character {
+                id: character,
+                world: cut.world,
+                name,
+                level,
+                profession: profession.into(),
+            })
+        })
     }
-    fn moderator(&self, _: Uuid) -> CheckFuture<'_, ()> {
-        Box::pin(async { None })
+    fn moderator(&self, account: Uuid) -> CheckFuture<'_, ()> {
+        Box::pin(async move {
+            // Production staff routes require session MFA through T10b's guard.
+            // Recheck current RBAC for the service mutation as well.
+            let identity = oteryn_admin::web::PortalIdentity::configured(self.db.clone());
+            let auth = oteryn_admin::rbac::Authorizer::new(self.db.clone(), identity);
+            let context = oteryn_admin::rbac::CheckContext {
+                account,
+                require_staff_mfa: false,
+                mfa_verified: false,
+            };
+            for permission in [
+                oteryn_admin::rbac::Permission::Access,
+                oteryn_admin::rbac::Permission::ManageSupportReports,
+            ] {
+                auth.check(context, permission).await.ok()?;
+            }
+            Some(())
+        })
     }
 }
 #[derive(Clone, Debug)]
@@ -66,9 +134,12 @@ impl Board {
         Self { db, authority }
     }
 }
+fn production_board(db: PgPool) -> Board {
+    Board::new(db.clone(), Arc::new(ProductionAuthority { db }))
+}
 pub fn configured_router(db: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let enabled = std::env::var("PORTAL_PARTY_ENABLED").as_deref() == Ok("true");
-    let board = Board::new(db.clone(), Arc::new(Unavailable));
+    let board = production_board(db.clone());
     let public = router(board.clone(), enabled);
     if !enabled {
         return Ok(public);
@@ -323,4 +394,23 @@ async fn moderate(
         )
         .await?;
     Ok(Redirect::to(&format!("/admin/{lang}/party")).into_response())
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct Unavailable;
+#[cfg(test)]
+impl Authority for Unavailable {
+    fn active(&self, _: Uuid) -> CheckFuture<'_, ()> {
+        Box::pin(async { None })
+    }
+    fn reporting_allowed(&self, _: Uuid) -> CheckFuture<'_, ()> {
+        Box::pin(async { None })
+    }
+    fn character(&self, _: Uuid, _: Uuid) -> CheckFuture<'_, Character> {
+        Box::pin(async { None })
+    }
+    fn moderator(&self, _: Uuid) -> CheckFuture<'_, ()> {
+        Box::pin(async { None })
+    }
 }

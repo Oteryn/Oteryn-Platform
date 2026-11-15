@@ -16,6 +16,8 @@ mod projection;
 pub enum Error {
     #[error("access denied")]
     Denied,
+    #[error("stale hold")]
+    Conflict,
     #[error("invalid input")]
     BadInput,
     #[error("not found")]
@@ -283,6 +285,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         self.target(id).await?;
         valid_text(body, 4000)?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
         crate::rbac::lock_mutation(&mut tx).await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
@@ -316,6 +319,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
         crate::rbac::lock_mutation(&mut tx).await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
@@ -340,6 +344,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
         crate::rbac::lock_mutation(&mut tx).await?;
         self.check_in(&mut tx, context, Permission::KickAccountSessions)
             .await?;
@@ -393,11 +398,13 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
     /// Staff release of a coin purchase hold. The hold moves to its history
     /// table and the audit row (actor, target, reason, order) commits in the
     /// same transaction. The held reversal stays recorded: nothing is settled
-    /// or credited. No hold is an idempotent no-op (`None`) without an audit row.
+    /// or credited. The immutable hold ID is the operation key: retries return
+    /// the receipt, and an unknown/stale ID conflicts without touching another hold.
     pub async fn release_coin_hold(
         &self,
         context: CheckContext,
         id: Uuid,
+        hold: Uuid,
         reason: &str,
     ) -> Result<Option<Uuid>, Error> {
         self.check(context, Permission::ReleaseCoinPurchaseHold)
@@ -406,21 +413,34 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             return Err(Error::NotFound);
         }
         valid_text(reason, 500)?;
+        valid_id(hold)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
         crate::rbac::lock_mutation(&mut tx).await?;
         self.check_in(&mut tx, context, Permission::ReleaseCoinPurchaseHold)
             .await?;
+        let receipt: Option<Uuid> = sqlx::query_scalar(
+            "SELECT order_id FROM coin_purchase_hold_releases WHERE account_id=$1 AND hold_id=$2",
+        )
+        .bind(id)
+        .bind(hold)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(order) = receipt {
+            tx.commit().await?;
+            return Ok(Some(order));
+        }
         let Some(hold) = oteryn_payments::coin_store::release_purchase_hold_in(
             &mut tx,
             id,
             context.account,
+            hold,
             reason.trim(),
         )
         .await?
         else {
-            tx.rollback().await?;
-            return Ok(None);
+            return Err(Error::Conflict);
         };
         append(
             &mut tx,
@@ -434,27 +454,45 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         Ok(Some(hold.order_id))
     }
     /// Record a staff attestation after support has verified the ticket owner's identity.
-    /// This is a privileged service API, never a browser-supplied verification bit.
+    /// The guarded staff workflow invokes this explicit, audited attestation.
     pub async fn attest_reset_evidence(
         &self,
         context: CheckContext,
         ticket: Uuid,
     ) -> Result<Uuid, Error> {
+        self.attest_reset_evidence_impl(context, ticket, None).await
+    }
+    pub async fn attest_reset_evidence_for(
+        &self,
+        context: CheckContext,
+        ticket: Uuid,
+        target: Uuid,
+    ) -> Result<Uuid, Error> {
+        valid_id(target)?;
+        self.attest_reset_evidence_impl(context, ticket, Some(target))
+            .await
+    }
+    async fn attest_reset_evidence_impl(
+        &self,
+        context: CheckContext,
+        ticket: Uuid,
+        expected: Option<Uuid>,
+    ) -> Result<Uuid, Error> {
         self.check(context, Permission::ManageSupportTickets)
             .await?;
         valid_id(ticket)?;
         let mut tx = self.pool.begin().await?;
+        let target: Uuid =
+            sqlx::query_scalar("SELECT account_id FROM tickets WHERE id=$1 AND category='account'")
+                .bind(ticket)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(Error::NotFound)?;
+        crate::rbac::lock_accounts(&mut tx, &[context.account, target]).await?;
         crate::rbac::lock_mutation(&mut tx).await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
-        let target: Uuid = sqlx::query_scalar(
-            "SELECT account_id FROM tickets WHERE id=$1 AND category='account' FOR SHARE",
-        )
-        .bind(ticket)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(Error::NotFound)?;
-        if target == context.account {
+        if target == context.account || expected.is_some_and(|id| id != target) {
             return Err(Error::Denied);
         }
         let evidence: Uuid = sqlx::query_scalar("INSERT INTO support_mfa_reset_evidence(ticket_id,account_id,verified_by) VALUES($1,$2,$3) RETURNING id").bind(ticket).bind(target).bind(context.account).fetch_one(&mut *tx).await?;
@@ -485,6 +523,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             return Err(Error::Denied);
         }
         let mut tx = self.pool.begin().await?;
+        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
         crate::rbac::lock_mutation(&mut tx).await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
@@ -513,6 +552,15 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_id(request)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
+        let requester: Uuid = sqlx::query_scalar(
+            "SELECT requested_by FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2",
+        )
+        .bind(request)
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::Denied)?;
+        crate::rbac::lock_accounts(&mut tx, &[context.account, id, requester]).await?;
         crate::rbac::lock_mutation(&mut tx).await?;
         let row: Option<(Uuid,Uuid)> = sqlx::query_as("SELECT requested_by,evidence FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2 AND approved_by IS NULL AND expires_at>clock_timestamp() FOR UPDATE").bind(request).bind(id).fetch_optional(&mut *tx).await?;
         let (requester, evidence) = row.ok_or(Error::Denied)?;

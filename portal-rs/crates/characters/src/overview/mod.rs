@@ -43,8 +43,10 @@ struct Page {
     title: String,
     facts: Vec<(String, String)>,
     characters_label: String,
+    main_label: String,
+    preferences_label: String,
     state: String,
-    characters: Vec<(String, String, String, String)>,
+    characters: Vec<(String, String, String, String, bool)>,
     world: String,
     availability: String,
     level: String,
@@ -138,6 +140,11 @@ async fn load(
         Ok(_) => return StatusCode::FORBIDDEN.into_response(),
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let profiles = crate::profile::Service::new(
+        pool.clone(),
+        settings.clone(),
+        std::env::var("OTERYN_CHARACTER_PROFILES_ENABLED").as_deref() == Ok("true"),
+    );
     let projection = Projection::new(pool.clone(), settings, Arc::new(Accounts(pool.clone())));
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -170,6 +177,10 @@ async fn load(
             .map(|value| value.to_string())
             .unwrap_or_else(|| t("unavailable")),
     ));
+    let main = match now {
+        Some(now) => profiles.main_character(account, now).await,
+        None => None,
+    };
     let characters = view
         .filter(|v| v.state == ReadState::Ready)
         .map(|v| {
@@ -187,6 +198,7 @@ async fn load(
                         c.name,
                         c.world_id.to_string(),
                         availability,
+                        main == Some(c.character_id.as_uuid()),
                     )
                 })
                 .collect()
@@ -197,6 +209,8 @@ async fn load(
         title: t("overview"),
         facts,
         characters_label: t("characters"),
+        main_label: t("main-character"),
+        preferences_label: t("profile-preferences"),
         state: t(match read_state {
             Some(ReadState::Ready) => "linked",
             Some(ReadState::Missing) => "missing",

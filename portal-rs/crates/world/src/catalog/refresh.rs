@@ -81,6 +81,9 @@ pub(super) async fn run(
     policy: RetryPolicy,
     ready: &AtomicBool,
 ) -> Result<String> {
+    if publish {
+        source.reserve_publication(db).await?;
+    }
     for attempt in 0..policy.max_attempts {
         let result =
             tokio::time::timeout(Duration::from_secs(60), read_source(db, source, publish))

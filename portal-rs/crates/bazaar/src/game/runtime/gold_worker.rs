@@ -65,7 +65,7 @@ impl Runtime {
         sqlx::query("INSERT INTO bazaar_authority_gold_bids(request_id,listing_id,buyer,character_id,maximum,hold_operation_id) VALUES($1,$2,$3,$4,$5,$6)").bind(key).bind(l.id).bind(buyer).bind(character).bind(maximum).bind(operation).execute(&mut **tx).await?;
         Ok(())
     }
-    pub(super) async fn tick_gold_bids(&self) -> Result<(), Error> {
+    pub(in crate::game) async fn tick_gold_bids(&self) -> Result<(), Error> {
         let requests = gold_batch(&self.pool).await?;
         for request in requests {
             crate::scheduling::advance(&self.pool, "gold-bids", request).await?;
@@ -101,14 +101,28 @@ impl Runtime {
             let operation: Uuid = row
                 .try_get::<Option<Uuid>, _>("release_operation_id")?
                 .ok_or(Error::Unavailable)?;
-            let Some((_, receipt)) = self.authority().retained(&mut tx, operation).await? else {
+            let Some((intent, receipt)) = self.authority().retained(&mut tx, operation).await?
+            else {
                 return Ok(());
             };
             if !receipt.committed {
-                return Err(Error::Denied);
+                let replacement = self
+                    .gold_release(
+                        &mut tx,
+                        &l,
+                        id(text(&intent.value, "buyer_account_id")?)?,
+                        number(&intent.value, "amount")?,
+                        text(&intent.value, "release_reason")?,
+                        request,
+                    )
+                    .await?;
+                sqlx::query("UPDATE bazaar_authority_gold_bids SET release_operation_id=$2 WHERE request_id=$1")
+                    .bind(request).bind(replacement).execute(&mut *tx).await?;
+                tx.commit().await?;
+                return Ok(());
             }
             sqlx::query(
-                "UPDATE bazaar_authority_gold_bids SET phase='refused' WHERE request_id=$1",
+                "UPDATE bazaar_authority_gold_bids SET phase=CASE WHEN release_accepted THEN 'accepted' ELSE 'refused' END WHERE request_id=$1",
             )
             .bind(request)
             .execute(&mut *tx)
@@ -171,16 +185,22 @@ impl Runtime {
             )
             .await
             .map_err(core_error)?;
-            if leader != buyer {
-                self.gold_release(&mut tx, &l, buyer, hold.amount, "OUTBID", request)
-                    .await?;
+            let release = if leader != buyer {
+                Some(
+                    self.gold_release(&mut tx, &l, buyer, hold.amount, "OUTBID", request)
+                        .await?,
+                )
             } else if let Some(old) = l.leader.filter(|old| *old != buyer) {
                 let previous = current_hold(self.authority(), &mut tx, l.id, old, None)
                     .await?
                     .ok_or(Error::Unavailable)?;
-                self.gold_release(&mut tx, &l, old, previous.amount, "OUTBID", request)
-                    .await?;
-            }
+                Some(
+                    self.gold_release(&mut tx, &l, old, previous.amount, "OUTBID", request)
+                        .await?,
+                )
+            } else {
+                None
+            };
             let leader_max = if leader == buyer {
                 maximum
             } else {
@@ -197,9 +217,9 @@ impl Runtime {
                 sqlx::query("INSERT INTO bazaar_authority_destinations(listing_id,buyer,character_id) VALUES($1,$2,$3) ON CONFLICT(listing_id,buyer) DO UPDATE SET character_id=EXCLUDED.character_id").bind(l.id).bind(buyer).bind(row.try_get::<Uuid,_>("character_id")?).execute(&mut *tx).await?;
             }
             sqlx::query(
-                "UPDATE bazaar_authority_gold_bids SET phase='accepted' WHERE request_id=$1",
+                "UPDATE bazaar_authority_gold_bids SET phase=CASE WHEN $2::uuid IS NULL THEN 'accepted' ELSE 'releasing' END,release_operation_id=$2,release_accepted=true WHERE request_id=$1",
             )
-            .bind(request)
+            .bind(request).bind(release)
             .execute(&mut *tx)
             .await?;
         } else {

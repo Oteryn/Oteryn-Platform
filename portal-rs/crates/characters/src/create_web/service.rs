@@ -1,7 +1,7 @@
 use super::names;
 use crate::commands::{self, AccountState, AccountStateReader, Commands, Intent};
 use oteryn_identity::accounts::Accounts;
-use sqlx::{PgConnection, PgPool, Row};
+use sqlx::{Acquire, PgConnection, PgPool, Row};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Default)]
@@ -218,33 +218,46 @@ impl Creation {
             return Ok(status.operation_id);
         }
         self.limit_in(&mut tx, account, "create").await?;
-        if !self
-            .worlds_in(&mut tx)
-            .await?
-            .iter()
-            .any(|world| world.id == input.world)
-        {
-            return Err(Error::Invalid);
+        // Issuance may fail, but an admitted attempt must remain charged. A
+        // savepoint keeps admission durable without acquiring a nested connection.
+        let mut issuance = tx.begin().await?;
+        let result = async {
+            let tx = &mut issuance;
+            if !self
+                .worlds_in(tx)
+                .await?
+                .iter()
+                .any(|world| world.id == input.world)
+            {
+                return Err(Error::Invalid);
+            }
+            if self.reserved_in(tx, &name).await? {
+                return Err(Error::Reserved);
+            }
+            let status = self
+                .commands
+                .enqueue_in(
+                    tx,
+                    &Eligible(account),
+                    input.id,
+                    &format!("web-create:{account}:{}", input.id),
+                    Intent::Create {
+                        account_id: account,
+                        world_id: input.world,
+                        name,
+                    },
+                )
+                .await?;
+            Ok(status.operation_id)
         }
-        if self.reserved_in(&mut tx, &name).await? {
-            return Err(Error::Reserved);
+        .await;
+        if result.is_ok() {
+            issuance.commit().await?;
+        } else {
+            issuance.rollback().await?;
         }
-        let status = self
-            .commands
-            .enqueue_in(
-                &mut tx,
-                &Eligible(account),
-                input.id,
-                &format!("web-create:{account}:{}", input.id),
-                Intent::Create {
-                    account_id: account,
-                    world_id: input.world,
-                    name,
-                },
-            )
-            .await?;
         tx.commit().await?;
-        Ok(status.operation_id)
+        result
     }
     pub async fn status(&self, account: Uuid, operation: Uuid) -> Result<Outcome, Error> {
         if !self.available() {

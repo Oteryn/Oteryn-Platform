@@ -323,6 +323,16 @@ async fn shutdown_drains_in_flight_job() -> TestResult {
 
 #[tokio::test]
 async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
+    paid_topup_and_refund_scenario().await
+}
+
+#[tokio::test]
+async fn generic_refund_after_real_worker_credit_is_refused() -> TestResult {
+    paid_topup_and_refund_scenario().await
+}
+
+async fn paid_topup_and_refund_scenario() -> TestResult {
+    let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -331,6 +341,13 @@ async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
     };
     struct Active;
     impl oteryn_payments::AccountReader for Active {
+        async fn state_in(
+            &self,
+            _: &mut sqlx::PgConnection,
+            id: Uuid,
+        ) -> Result<oteryn_payments::AccountState, oteryn_payments::Error> {
+            self.state(id).await
+        }
         async fn state(
             &self,
             _: Uuid,
@@ -341,6 +358,16 @@ async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
     // Empty reversible migration preserves all history through rollback/reapply.
     oteryn_db::MIGRATOR.undo(&db.pool, 20261107170001).await?;
     oteryn_db::migrate(&db.pool).await?;
+    // Financial aggregation uses a closed fixture day, independent of UTC now.
+    let day = 1_789_948_800_u64;
+    let credited_at = OffsetDateTime::from_unix_timestamp(i64::try_from(day + 3600)?)?;
+    // Set a literal default in this disposable schema before the real worker writes.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "ALTER TABLE wallet_entries ALTER COLUMN created_at SET DEFAULT to_timestamp({})",
+        credited_at.unix_timestamp()
+    )))
+    .execute(&db.pool)
+    .await?;
     let account = Uuid::now_v7();
     query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'topup@example.invalid',now(),'unused','active','en')").bind(account).execute(&db.pool).await?;
     let provider = TestProvider::new(&[5; 32])?;
@@ -405,6 +432,22 @@ async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
         balance, 1234,
         "paid checkout must credit package coins, not minor units"
     );
+    let mut refund: PaymentEvent = serde_json::from_slice(&body)?;
+    refund.event_id = "refund-after-worker-credit".into();
+    refund.state = IntentState::Refunded;
+    let refund = serde_json::to_vec(&refund)?;
+    assert!(matches!(
+        payments.webhook(&refund, &provider.sign(&refund)?).await,
+        Err(oteryn_payments::Error::IllegalTransition)
+    ));
+    assert_eq!(
+        payments.intent(intent.id).await?.state,
+        IntentState::Succeeded
+    );
+    let refunds: i64 = query_scalar("SELECT count(*) FROM payment_events WHERE state='refunded'")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(refunds, 0);
     assert_eq!(outbox::counts(&db.pool).await?.done, 2);
     let payload: String =
         query_scalar("SELECT payload::text FROM outbox WHERE kind='wallet.top_up'")
@@ -440,7 +483,6 @@ async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
             .await?;
     assert_eq!(audit, 1);
     let mut tx = db.pool.begin().await?;
-    let day = OffsetDateTime::now_utc().unix_timestamp() as u64 / 86400 * 86400;
     let aggregate = oteryn_admin::analytics::purchased::read_in(&mut tx, day, day + 86400).await?;
     assert_eq!(aggregate.count, "1");
     assert_eq!(aggregate.coins, "1234");
@@ -464,6 +506,34 @@ async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
     tx.rollback().await?;
     oteryn_db::migrate(&db.pool).await?;
 
+    let paid = payments.intent(intent.id).await?;
+    for attempt in 0..2 {
+        let body = serde_json::to_vec(&PaymentEvent {
+            event_id: format!("refund-{attempt}"),
+            intent_id: paid.id,
+            provider_reference: paid.provider_reference.clone(),
+            amount: paid.amount.clone(),
+            state: IntentState::Refunded,
+        })?;
+        assert!(matches!(
+            payments.webhook(&body, &provider.sign(&body)?).await,
+            Err(oteryn_payments::Error::IllegalTransition)
+        ));
+    }
+    assert_eq!(
+        payments.intent(intent.id).await?.state,
+        IntentState::Succeeded
+    );
+    let balance: i64 =
+        query_scalar("SELECT sum(available_delta)::bigint FROM wallet_entries WHERE account_id=$1")
+            .bind(account)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(balance, 1234);
+    eprintln!(
+        "PG paid_topup_webhook_outbox_worker_balance (L6-03) {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
     db.close().await
 }
 
@@ -1041,4 +1111,179 @@ async fn postgres_journal_registry_expires_and_erases_lifecycle_payloads() -> Te
         started.elapsed()
     );
     Ok(())
+}
+
+#[test]
+fn audit02_credentials_only_delivers_password_notification() -> TestResult {
+    if std::env::var_os("A2_CREDENTIALS_ONLY_CHILD").is_some() {
+        return tokio::runtime::Runtime::new()?.block_on(credentials_only_delivery());
+    }
+    for credentials_enabled in ["true", "false"] {
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "worker::tests::audit02_credentials_only_delivers_password_notification",
+                "--nocapture",
+            ])
+            .env("A2_CREDENTIALS_ONLY_CHILD", "1")
+            .env("OTERYN_ACCOUNT_CREDENTIALS", credentials_enabled)
+            .env("OTERYN_ACCOUNT_LOGIN", "false")
+            .env("OTERYN_ACCOUNT_SESSIONS", "false")
+            .env("OTERYN_ACCOUNT_PASSKEYS", "false")
+            .env("OTERYN_SMTP_HOST", "localhost")
+            .env("OTERYN_SMTP_USERNAME", "test-sender")
+            .env("OTERYN_SMTP_PASSWORD", "test-smtp-password")
+            .env("OTERYN_SMTP_FROM", "security@example.test")
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    }
+    Ok(())
+}
+async fn credentials_only_delivery() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let id: Uuid = query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('credential-notify@example.test',$1,'active','en',now()) RETURNING id")
+        .bind(oteryn_identity::password::hash("current test password")?).fetch_one(&db.pool).await?;
+    let session = vec![21u8; 32];
+    query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,repeat('c',64),'test',now()+interval '1 hour',now()+interval '1 day')").bind(&session).bind(id).execute(&db.pool).await?;
+    let credentials = oteryn_identity::credentials::Credentials {
+        pool: db.pool.clone(),
+        enabled: true,
+        revoker: Arc::new(oteryn_identity::credentials::TransactionalRevoker),
+        notifications: Arc::new(
+            oteryn_identity::sessions::security_notifications(db.pool.clone())
+                .map_err(|e| e.to_string())?,
+        ),
+    };
+    assert_eq!(
+        credentials
+            .change(
+                &session,
+                oteryn_identity::credentials::PasswordChange {
+                    current_password: "current test password".into(),
+                    password: "replacement test password".into(),
+                    password_confirmation: "replacement test password".into(),
+                }
+            )
+            .await?,
+        oteryn_identity::credentials::Outcome::Changed
+    );
+    let mut delivery = crate::sessions_http::delivery(db.pool.clone())?
+        .ok_or("credentials producer has no notification consumer")?;
+    let sender = Arc::new(oteryn_notify::CaptureSender::default());
+    delivery.sender = sender.clone();
+    let mut registry = Registry::default();
+    register_security_notifications(&mut registry, db.pool.clone())?;
+    *registry
+        .handlers
+        .get_mut(oteryn_notify::EMAIL_JOB)
+        .ok_or("production registry omitted notify.email")? = Arc::new(delivery);
+    assert_eq!(registry.batch(&db.pool).await?, 1);
+    {
+        let emails = sender.emails.lock().map_err(|e| e.to_string())?;
+        assert_eq!(emails.len(), 1);
+        assert_eq!(emails[0].recipient, "credential-notify@example.test");
+        assert!(emails[0].subject.to_lowercase().contains("password"));
+    }
+    let failed: i64 =
+        query_scalar("SELECT count(*) FROM outbox WHERE state<>'done' OR last_error IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(failed, 0);
+    eprintln!(
+        "audit02_credentials_only_delivers_password_notification duration: {:?}",
+        started.elapsed()
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn scheduling_conflict_has_a_deadline_and_closes_blocked_session() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let mut blocker = db.pool.begin().await?;
+    // A long slot avoids crossing the schedule boundary during this test.
+    query("INSERT INTO outbox(kind,payload,idempotency_key) VALUES('blocked','{}','schedule:' || floor(extract(epoch FROM now()) / 2000000000)::text)")
+        .execute(&mut *blocker).await?;
+    let mut registry = Registry {
+        execution_budget: Duration::from_millis(150),
+        ..Registry::default()
+    };
+    registry.cleanup("blocked", 2_000_000_000, Arc::new(NoopCleanup))?;
+    let start = std::time::Instant::now();
+    let error = tokio::time::timeout(Duration::from_secs(2), registry.schedule(&db.pool))
+        .await?
+        .err()
+        .ok_or("conflicting schedule must time out")?;
+    assert!(error.to_string().contains("scheduling deadline"));
+    assert!(start.elapsed() >= Duration::from_millis(150));
+    // Cancellation must terminate the database session while its blocker is
+    // still held, rather than leave a query waiting in a pooled connection.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let waiting: i64 = query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'")
+                .bind(&db.schema).fetch_one(&db.admin).await?;
+            if waiting == 0 { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<_, outbox::Error>(())
+    }).await??;
+    blocker.rollback().await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM outbox WHERE kind='blocked'")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn claiming_table_lock_has_a_deadline_and_closes_blocked_session() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let mut blocker = db.pool.begin().await?;
+    query("LOCK TABLE outbox IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await?;
+    let registry = Registry {
+        execution_budget: Duration::from_millis(150),
+        ..Registry::default()
+    };
+    let start = std::time::Instant::now();
+    let error = tokio::time::timeout(Duration::from_secs(2), registry.batch(&db.pool))
+        .await?
+        .err()
+        .ok_or("table lock must time out")?;
+    assert!(error.to_string().contains("claiming deadline"));
+    assert!(start.elapsed() >= Duration::from_millis(150));
+    // Cancellation must terminate the database session while its blocker is
+    // still held, rather than leave a query waiting in a pooled connection.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let waiting: i64 = query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'")
+                .bind(&db.schema).fetch_one(&db.admin).await?;
+            if waiting == 0 { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<_, outbox::Error>(())
+    }).await??;
+    blocker.rollback().await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM outbox WHERE state='running'")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await
 }

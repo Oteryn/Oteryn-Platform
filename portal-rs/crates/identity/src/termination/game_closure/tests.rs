@@ -757,6 +757,7 @@ fn production_owner_defaults_use_one_feature_switch_and_require_real_trust() {
 }
 #[tokio::test]
 async fn postgres_production_factory_and_guarded_http_pull_read_signed_receipt() -> TestResult {
+    let started = std::time::Instant::now();
     use axum::{
         body::Body,
         http::{Request, StatusCode},
@@ -884,6 +885,61 @@ async fn postgres_production_factory_and_guarded_http_pull_read_signed_receipt()
         app.clone().oneshot(request).await?.status(),
         StatusCode::BAD_REQUEST
     );
+
+    // Signed permanent conflicts and invalid echoes must never masquerade as outages.
+    for (generation, command, expected) in [
+        ("2", "CloseAccount", StatusCode::CONFLICT),
+        ("3", "ResolveAccountClosure", StatusCode::BAD_REQUEST),
+        ("3", "CloseAccount", StatusCode::BAD_REQUEST),
+    ] {
+        let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
+        receipt.command = command.into();
+        receipt.operation_id = intent.operation_id.clone();
+        receipt.recovery_generation = generation.into();
+        receipt.outcome = "REJECTED".into();
+        receipt.result_code = "CHAR_CMD_INTENT_EXPIRED".into();
+        receipt.result_data = None;
+        receipt.decided_at = intent.issued_at_source.clone();
+        if command == "CloseAccount" && expected == StatusCode::BAD_REQUEST {
+            let mut result = Receipt::parse(&vectors().remove(1).1)?
+                .result_data
+                .ok_or("committed fixture")?;
+            result.account_id = Uuid::now_v7().to_string();
+            result.termination_id = intent.termination_id.clone();
+            result.lifecycle_generation = intent.lifecycle_generation.clone();
+            let bytes = serde_json::to_vec(&result)?;
+            let marker = b",\"proof_sha256\":";
+            let pos = bytes
+                .windows(marker.len())
+                .position(|w| w == marker)
+                .ok_or("proof field")?;
+            let mut proof = bytes[..pos].to_vec();
+            proof.push(b'}');
+            result.proof_sha256 = wire::hex(&digest(&proof));
+            receipt.outcome = "COMMITTED".into();
+            receipt.result_code = "CHAR_CMD_OK".into();
+            receipt.result_data = Some(result);
+        }
+        let raw = serde_json::to_vec(&receipt)?;
+        let mut request = raw_request("/internal/v1/game-auth/character-commands/receipt", &raw);
+        request
+            .extensions_mut()
+            .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+        request
+            .headers_mut()
+            .insert("x-oteryn-key-id", "closure-test".parse()?);
+        request.headers_mut().insert(
+            "x-oteryn-signature",
+            wire::hex(&seed().sign(&raw).to_bytes()).parse()?,
+        );
+        assert_eq!(app.clone().oneshot(request).await?.status(), expected);
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM plat3_closure_receipts WHERE operation_id=$1")
+                .bind(wire::id(&intent.operation_id)?)
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(count, 0);
+    }
     let (receipt, _) = publish(&db, &b, &intent, true).await;
     let path = "/internal/v1/game-auth/character-commands/receipt";
     let mut request = raw_request(path, &receipt);
@@ -915,6 +971,10 @@ async fn postgres_production_factory_and_guarded_http_pull_read_signed_receipt()
             .is_err()
     );
     tx.rollback().await?;
+    eprintln!(
+        "postgres_production_factory_and_guarded_http_pull_read_signed_receipt duration: {:?}",
+        started.elapsed()
+    );
     db.close().await
 }
 
@@ -1155,12 +1215,18 @@ async fn postgres_lifecycle_current_state_and_unknown_refusal() -> TestResult {
 
 #[tokio::test]
 async fn audit02_terminal_cancel_and_finalize_refusals_reconcile() -> TestResult {
+    let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
     let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
     let s = service(&db, b.clone());
-    for decision in ["CANCEL", "FINALIZE"] {
+    for (decision, rejection) in [
+        ("CANCEL", "CHAR_CMD_INTENT_EXPIRED"),
+        ("CANCEL", "CHAR_CMD_ACCOUNT_CLOSE_STALE_GENERATION"),
+        ("FINALIZE", "CHAR_CMD_INTENT_EXPIRED"),
+        ("FINALIZE", "CHAR_CMD_ACCOUNT_CLOSE_STALE_GENERATION"),
+    ] {
         let account = db.account().await?;
         let (_, close) = issue(&db, &s, account).await;
         if decision == "CANCEL" {
@@ -1186,7 +1252,7 @@ async fn audit02_terminal_cancel_and_finalize_refusals_reconcile() -> TestResult
         receipt.command = intent.command.clone();
         receipt.operation_id = intent.operation_id.clone();
         receipt.outcome = "REJECTED".into();
-        receipt.result_code = "CHAR_CMD_INTENT_EXPIRED".into();
+        receipt.result_code = rejection.into();
         receipt.result_data = None;
         receipt.recovery_generation = "3".into();
         receipt.decided_at = intent.issued_at_source.clone();
@@ -1205,11 +1271,53 @@ async fn audit02_terminal_cancel_and_finalize_refusals_reconcile() -> TestResult
         assert_ne!(fresh.operation_id, intent.operation_id);
         assert_eq!(fresh.decision, intent.decision);
         assert_eq!(fresh.close_operation_id, intent.close_operation_id);
+        use axum::{
+            body::Body,
+            http::{Request, StatusCode},
+        };
+        use oteryn_internal_api::guard::{Binding, Identity, IdentityMap, VerifiedClient};
+        use tower::ServiceExt;
+        let identity = Identity::san("audit-resolution-lifecycle")?;
+        let identities = Arc::new(IdentityMap::new(vec![Binding {
+            identity: identity.clone(),
+            group: http::GROUP.into(),
+        }])?);
+        let app = http::router(db.pool.clone(), b.clone(), "audit-key".into(), identities);
+        let raw = serde_json::to_vec(&wire::LifecycleRequest {
+            contract_version: 2,
+            operation: "ReadAccountClosureLifecycleV1".into(),
+            source_authority: "oteryn:character-authority:primary".into(),
+            account_id: account.to_string(),
+            termination_id: fresh.termination_id.clone(),
+            recovery_generation: "3".into(),
+            audience: "OTERYN_PLATFORM_CHARACTER_AUTHORITY".into(),
+        })?;
+        let response = app
+            .oneshot(
+                Request::post("/internal/v1/game-auth/account-closure/lifecycle/read")
+                    .header("content-type", "application/json")
+                    .extension(VerifiedClient::from_verified_tls13_http11(identity))
+                    .body(Body::from(raw))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let observation: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 8192).await?)?;
+        assert_eq!(
+            observation["lifecycle_generation"],
+            fresh.lifecycle_generation
+        );
+        assert_eq!(observation["phase"], decision);
+
         assert!(
             wire::number(&fresh.source_revision, true)?
                 > wire::number(&intent.source_revision, true)?
         );
     }
+    eprintln!(
+        "audit02_terminal_cancel_and_finalize_refusals_reconcile duration: {:?}",
+        started.elapsed()
+    );
     db.close().await
 }
 

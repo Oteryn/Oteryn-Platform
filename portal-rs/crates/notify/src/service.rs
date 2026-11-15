@@ -3,7 +3,6 @@ use hmac::{Hmac, Mac};
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
     message::{MultiPart, header},
-    transport::smtp::authentication::Credentials,
 };
 use oteryn_db::outbox::{self, OffsetDateTime, PgPool, Postgres, Transaction, Uuid};
 use std::{
@@ -54,6 +53,9 @@ pub struct Account {
 }
 /// Return None for unknown, inactive, unverified or ambiguous account state.
 pub trait AccountState: std::fmt::Debug + Send + Sync {
+    fn recipient(&self, account: Uuid, _category: Category) -> NotifyFuture<'_, Option<Account>> {
+        self.active_verified(account)
+    }
     fn active_verified(&self, account: Uuid) -> NotifyFuture<'_, Option<Account>>;
     /// Pool-backed adapters must override this to use the caller's transaction.
     /// The default is for adapters whose state is already available in memory.
@@ -231,13 +233,11 @@ pub struct SmtpSender {
     from: String,
 }
 impl SmtpSender {
-    /// Uses STARTTLS with certificate validation; credentials are never logged.
+    /// Uses the shared TLS/port policy with certificate validation.
     pub fn new(host: &str, username: String, password: String, from: String) -> Result<Self> {
         let _: lettre::message::Mailbox = from.parse()?;
         Ok(Self {
-            transport: AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)?
-                .credentials(Credentials::new(username, password))
-                .build(),
+            transport: crate::smtp::transport(host, username, password)?,
             from,
         })
     }
@@ -394,7 +394,11 @@ impl Notifications {
         if delivered.is_some() {
             return Ok(());
         }
-        let state = self.account(account).await?;
+        let state = self
+            .accounts
+            .recipient(account, Category::parse(&category)?)
+            .await?
+            .ok_or_else(invalid)?;
         if state.email != recipient {
             return Err(invalid());
         }

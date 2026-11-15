@@ -20,6 +20,7 @@ fn input_boundaries() {
 }
 #[tokio::test]
 async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("skipping PostgreSQL pages test: PORTAL_TEST_DATABASE_URL unset");
         return Ok(());
@@ -40,22 +41,17 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
         })
         .connect(&url)
         .await?;
-    for sql in [
-        include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
-        include_str!("../../../../migrations/20261105170000_t10_rbac_audit.sql"),
-        include_str!("../../../../migrations/20261105220204_t11b_pages.sql"),
-        include_str!("../../../../migrations/20261115110014_fix_14_revisions.sql"),
-    ] {
-        sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
-            .execute(&pool)
-            .await?;
-    }
+    oteryn_db::migrate(&pool).await?;
     let slug = format!("page-{}", Uuid::now_v7());
     let ctx = oteryn_admin::rbac::CheckContext {
         account: Uuid::now_v7(),
         require_staff_mfa: true,
         mfa_verified: true,
     };
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='content_editor'").bind(ctx.account).execute(&pool).await?;
+    let auth = oteryn_admin::rbac::MutationAuthorization::new(std::sync::Arc::new(
+        oteryn_admin::rbac::Authorizer::new(pool.clone(), Identity(ctx.account)),
+    ));
     let mut form = PageForm {
         title: "Safe title".into(),
         body: "# Hello\n<script>alert(1)</script>".into(),
@@ -63,7 +59,7 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
         action: "save".into(),
         ..Default::default()
     };
-    persist(&pool, ctx, &slug, "en", &form).await?;
+    persist(&pool, &auth, ctx, &slug, "en", &form).await?;
     let app = router(pool.clone());
     for (lang, message) in [
         ("en", "This page has not been published yet."),
@@ -106,7 +102,7 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
             .status(),
         StatusCode::NOT_FOUND
     );
-    persist(&pool, ctx, &slug, "pl", &form).await?;
+    persist(&pool, &auth, ctx, &slug, "pl", &form).await?;
     assert_eq!(
         app.clone()
             .oneshot(Request::get(format!("/pl/pages/{slug}")).body(Body::empty())?)
@@ -114,8 +110,35 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
             .status(),
         StatusCode::OK
     );
+    // Saving the same source, or changing only publication metadata, keeps approval.
+    for published in ["2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z"] {
+        form.published_at = published.into();
+        persist(&pool, &auth, ctx, &slug, "en", &form).await?;
+        for locale in ["en", "pl"] {
+            assert_eq!(
+                app.clone()
+                    .oneshot(Request::get(format!("/{locale}/pages/{slug}")).body(Body::empty())?)
+                    .await?
+                    .status(),
+                StatusCode::OK
+            );
+            let search = oteryn_web::search::routes(oteryn_web::search::SearchState {
+                pool: pool.clone(),
+                world: None,
+                characters: None,
+            });
+            let mut req =
+                Request::get(format!("/{locale}/search?q=hello&kind=pages")).body(Body::empty())?;
+            req.extensions_mut().insert(axum::extract::ConnectInfo(
+                "192.0.2.17:1234".parse::<std::net::SocketAddr>()?,
+            ));
+            let response = search.oneshot(req).await?;
+            let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+            assert!(html.contains(&format!("/{locale}/pages/{slug}")));
+        }
+    }
     form.body = "Changed source".into();
-    persist(&pool, ctx, &slug, "en", &form).await?;
+    persist(&pool, &auth, ctx, &slug, "en", &form).await?;
     assert_eq!(
         app.clone()
             .oneshot(Request::get(format!("/pl/pages/{slug}")).body(Body::empty())?)
@@ -124,7 +147,7 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
         StatusCode::NOT_FOUND
     );
     form.published_at = "2099-01-01T00:00:00Z".into();
-    persist(&pool, ctx, &slug, "en", &form).await?;
+    persist(&pool, &auth, ctx, &slug, "en", &form).await?;
     assert_eq!(
         app.clone()
             .oneshot(Request::get(format!("/en/pages/{slug}")).body(Body::empty())?)
@@ -139,15 +162,19 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
         StatusCode::NOT_FOUND
     );
     form.title.clear();
-    assert!(persist(&pool, ctx, &slug, "en", &form).await.is_err());
+    assert!(
+        persist(&pool, &auth, ctx, &slug, "en", &form)
+            .await
+            .is_err()
+    );
     form.title = "Delete title".into();
     form.action = "delete".into();
-    persist(&pool, ctx, &slug, "en", &form).await?;
+    persist(&pool, &auth, ctx, &slug, "en", &form).await?;
     let remaining:i64=sqlx::query_scalar("SELECT count(*) FROM editorial_pages e JOIN pages p ON p.id=e.page_id WHERE p.slug=$1 AND e.locale='en'").bind(&slug).fetch_one(&pool).await?;
     assert_eq!(remaining, 0);
     form.action = "save".into();
     form.published_at = "2020-01-01T00:00:00Z".into();
-    persist(&pool, ctx, &slug, "en", &form).await?;
+    persist(&pool, &auth, ctx, &slug, "en", &form).await?;
     assert_eq!(
         router(pool.clone())
             .oneshot(Request::get(format!("/pl/pages/{slug}")).body(Body::empty())?)
@@ -156,11 +183,11 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
         StatusCode::NOT_FOUND
     );
     assert!(
-        persist(&pool, ctx, "orphan-translation", "pl", &form)
+        persist(&pool, &auth, ctx, "orphan-translation", "pl", &form)
             .await
             .is_err()
     );
-    persist(&pool, ctx, "support", "en", &form).await?;
+    persist(&pool, &auth, ctx, "support", "en", &form).await?;
     assert_eq!(
         router(pool.clone())
             .oneshot(Request::get("/en/support").body(Body::empty())?)
@@ -175,20 +202,24 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
     form.published_at = "2020-01-01T00:00:00Z".into();
     form.legal_version = "test-v1".into();
     form.legal_effective_date = "2020-01-01".into();
-    persist(&pool, ctx, "terms-of-service", "en", &form).await?;
+    persist(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
     form.body = "Changed legal text".into();
     assert!(
-        persist(&pool, ctx, "terms-of-service", "en", &form)
+        persist(&pool, &auth, ctx, "terms-of-service", "en", &form)
             .await
             .is_err()
     );
     form.legal_version = "test-v2".into();
-    persist(&pool, ctx, "terms-of-service", "en", &form).await?;
+    persist(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
     let versions: i64 = sqlx::query_scalar("SELECT count(*) FROM page_legal_versions")
         .fetch_one(&pool)
         .await?;
     assert_eq!(versions, 2);
     use oteryn_admin::web::PanelConfig;
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(ctx.account)
+        .execute(&pool)
+        .await?;
     let identity = Identity(ctx.account);
     let staff = staff_router(
         pool.clone(),
@@ -260,6 +291,10 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&root)
         .await?;
+    eprintln!(
+        "postgres_pages_publication_and_legal_history duration: {:?}",
+        started.elapsed()
+    );
     Ok(())
 }
 #[tokio::test]

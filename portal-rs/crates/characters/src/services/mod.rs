@@ -71,15 +71,23 @@ pub struct Request {
 #[derive(Debug, Clone)]
 pub struct Authority;
 impl AccountStateReader for Authority {
+    async fn safe_return(
+        &self,
+        db: &mut sqlx::PgConnection,
+        account: uuid::Uuid,
+    ) -> oteryn_wallet::AccountState {
+        match oteryn_wallet::safe_return_in(db, account).await {
+            Ok(true) => oteryn_wallet::AccountState::Active,
+            Ok(false) => oteryn_wallet::AccountState::Inactive,
+            Err(_) => oteryn_wallet::AccountState::Unavailable,
+        }
+    }
+
     async fn state(&self, conn: &mut PgConnection, account: Uuid) -> oteryn_wallet::AccountState {
-        match sqlx::query_scalar::<_, String>("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
-            .bind(account)
-            .fetch_optional(conn)
-            .await
-        {
-            Ok(Some(s)) if s == "active" => oteryn_wallet::AccountState::Active,
-            Ok(Some(_)) => oteryn_wallet::AccountState::Inactive,
-            _ => oteryn_wallet::AccountState::Unknown,
+        match oteryn_wallet::value_eligible_in(conn, account).await {
+            Ok(true) => oteryn_wallet::AccountState::Active,
+            Ok(false) => oteryn_wallet::AccountState::Inactive,
+            Err(_) => oteryn_wallet::AccountState::Unknown,
         }
     }
 }
@@ -258,7 +266,7 @@ impl Services {
         if financial == "RESERVED" {
             let reservation: Uuid = row.try_get("reservation_id")?;
             self.wallet()
-                .settle_in(
+                .reconcile_reservation_in(
                     &mut tx,
                     row.try_get("settlement_id")?,
                     account,

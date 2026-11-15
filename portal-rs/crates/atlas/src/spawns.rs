@@ -135,7 +135,7 @@ async fn spawn_layer(
     let mut output = Vec::new();
     loop {
         let entities = world
-            .list_by_kind("spawns", after.as_deref(), 1000)
+            .list_by_kind("Spawn.Source", after.as_deref(), 1000)
             .await
             .map_err(unavailable)?;
         let count = entities.len();
@@ -155,7 +155,7 @@ async fn spawn_layer(
                 }
                 if !creatures.contains_key(&point.creature) {
                     let allowed = world
-                        .get_entity("creatures", &point.creature)
+                        .get_entity("Creature", &point.creature)
                         .await
                         .map_err(unavailable)?
                         .is_some_and(|e| e.version_id == version);

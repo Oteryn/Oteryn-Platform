@@ -70,8 +70,11 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             return Err(Error::Invalid);
         }
         self.authority.account(tx, account).await?;
-        let price: Option<i64> = sqlx::query_scalar("SELECT price FROM pass_seasons WHERE id=$1 AND starts_at<=clock_timestamp() AND ends_at>clock_timestamp() FOR SHARE")
-            .bind(season).fetch_optional(&mut **tx).await?;
+        let price: Option<i64> =
+            sqlx::query_scalar("SELECT price FROM pass_seasons WHERE id=$1 FOR SHARE")
+                .bind(season)
+                .fetch_optional(&mut **tx)
+                .await?;
         let price = price.ok_or(Error::Denied)?;
         sqlx::query("INSERT INTO pass_progress (account_id,season_id) VALUES ($1,$2) ON CONFLICT DO NOTHING")
             .bind(account).bind(season).execute(&mut **tx).await?;
@@ -90,10 +93,16 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             price,
         ))
     }
+    async fn live(&self, tx: &mut Transaction<'_, Postgres>, season: Uuid) -> Result<()> {
+        let live: bool = sqlx::query_scalar("SELECT starts_at<=clock_timestamp() AND ends_at>clock_timestamp() FROM pass_seasons WHERE id=$1")
+            .bind(season).fetch_one(&mut **tx).await?;
+        if live { Ok(()) } else { Err(Error::Denied) }
+    }
     pub async fn progress(&self, account: Uuid, season: Uuid) -> Result<Progress> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
         let (progress, _) = self.lock(&mut tx, account, season).await?;
+        self.live(&mut tx, season).await?;
         tx.commit().await?;
         Ok(progress)
     }
@@ -106,6 +115,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             .fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
         let season: Uuid = row.try_get("id")?;
         let (progress, price) = self.lock(&mut tx, account, season).await?;
+        self.live(&mut tx, season).await?;
         let mut challenges = Vec::new();
         for row in sqlx::query("SELECT c.id,c.source,c.metric,c.target,c.xp,COALESCE(p.amount,0) AS amount FROM pass_challenges c LEFT JOIN pass_challenge_progress p ON p.challenge_id=c.id AND p.account_id=$2 AND p.season_id=c.season_id WHERE c.season_id=$1 ORDER BY c.id")
             .bind(season).bind(account).fetch_all(&mut *tx).await? {
@@ -161,6 +171,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             tx.commit().await?;
             return Ok(progress);
         }
+        self.live(&mut tx, event.season).await?;
         let target: i64 = c.try_get("target")?;
         let prior: i64 = sqlx::query_scalar("SELECT amount FROM pass_challenge_progress WHERE account_id=$1 AND season_id=$2 AND challenge_id=$3")
             .bind(event.account).bind(event.season).bind(event.challenge).fetch_optional(&mut *tx).await?.unwrap_or(0);
@@ -202,6 +213,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
                 return Err(Error::Conflict);
             }
         } else {
+            self.live(&mut tx, season).await?;
             self.payment
                 .debit(&mut tx, account, operation, price)
                 .await?;
@@ -252,6 +264,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             tx.commit().await?;
             return Ok(result);
         }
+        self.live(&mut tx, season).await?;
         let delivery = self
             .rewards
             .enqueue(&mut tx, account, operation, &definition)

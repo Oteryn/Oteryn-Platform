@@ -22,6 +22,7 @@ fn validation_and_escaping() {
 }
 #[tokio::test]
 async fn postgres_news_lifecycle() {
+    let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL news test: PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -51,6 +52,10 @@ async fn postgres_news_lifecycle() {
         require_staff_mfa: true,
         mfa_verified: true,
     };
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='content_editor'").bind(context.account).execute(&pool).await.unwrap();
+    let auth = MutationAuthorization::new(std::sync::Arc::new(
+        oteryn_admin::rbac::Authorizer::new(pool.clone(), Identity(context.account)),
+    ));
     let make = || Input {
         slug: slug.clone(),
         title: "<script>Title</script>".into(),
@@ -58,7 +63,7 @@ async fn postgres_news_lifecycle() {
         published_at: "2020-01-01T00:00:00Z".into(),
         ..Input::default()
     };
-    let _ = save(&pool, context, None, make()).await.unwrap();
+    let _ = save(&pool, &auth, context, None, make()).await.unwrap();
     let id: Uuid = sqlx::query_scalar("SELECT id FROM news WHERE slug=$1")
         .bind(&slug)
         .fetch_one(&pool)
@@ -76,7 +81,7 @@ async fn postgres_news_lifecycle() {
     input.title_pl = "Tytuł".into();
     input.body_pl = "Treść".into();
     input.translation_published_at = "2020-01-01T00:00:00Z".into();
-    let _ = save(&pool, context, Some(id), input).await.unwrap();
+    let _ = save(&pool, &auth, context, Some(id), input).await.unwrap();
     assert!(
         article(&pool, "pl", &slug)
             .await
@@ -85,7 +90,7 @@ async fn postgres_news_lifecycle() {
             .contains("Treść")
     );
     assert_eq!(
-        save(&pool, context, None, make()).await.unwrap_err(),
+        save(&pool, &auth, context, None, make()).await.unwrap_err(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
     let mut changed = make();
@@ -93,13 +98,37 @@ async fn postgres_news_lifecycle() {
     changed.title_pl = "Tytuł".into();
     changed.body_pl = "Treść".into();
     changed.translation_published_at = "2020-01-01T00:00:00Z".into();
-    let _ = save(&pool, context, Some(id), changed).await.unwrap();
+    let _ = save(&pool, &auth, context, Some(id), changed)
+        .await
+        .unwrap();
     let mut unchanged = make();
     unchanged.title = "Changed source".into();
     unchanged.title_pl = "Tytuł".into();
     unchanged.body_pl = "Treść".into();
     unchanged.translation_published_at = "2020-01-01T00:00:00Z".into();
-    let _ = save(&pool, context, Some(id), unchanged).await.unwrap();
+    let _ = save(&pool, &auth, context, Some(id), unchanged)
+        .await
+        .unwrap();
+    assert_eq!(
+        article(&pool, "pl", &slug).await.unwrap_err(),
+        StatusCode::NOT_FOUND
+    );
+    // A new approval stamp must win over source-only invalidation.
+    let mut renewed = make();
+    renewed.title = "Renewed source".into();
+    renewed.title_pl = "Tytuł".into();
+    renewed.body_pl = "Treść".into();
+    renewed.translation_published_at = "2020-01-02T00:00:00Z".into();
+    save(&pool, &auth, context, Some(id), renewed)
+        .await
+        .unwrap();
+    assert!(article(&pool, "pl", &slug).await.is_ok());
+    let mut reused = make();
+    reused.title = "Another source change".into();
+    reused.title_pl = "Tytuł".into();
+    reused.body_pl = "Treść".into();
+    reused.translation_published_at = "2020-01-02T00:00:00Z".into();
+    save(&pool, &auth, context, Some(id), reused).await.unwrap();
     assert_eq!(
         article(&pool, "pl", &slug).await.unwrap_err(),
         StatusCode::NOT_FOUND
@@ -107,7 +136,9 @@ async fn postgres_news_lifecycle() {
     let mut invalid = make();
     invalid.published_at = "invalid".into();
     assert_eq!(
-        save(&pool, context, Some(id), invalid).await.unwrap_err(),
+        save(&pool, &auth, context, Some(id), invalid)
+            .await
+            .unwrap_err(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
     sqlx::query(
@@ -148,17 +179,27 @@ async fn postgres_news_lifecycle() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let _ = delete(State(pool.clone()), Extension(context), Path(id))
-        .await
-        .unwrap();
+    let _ = delete(
+        State(pool.clone()),
+        Extension(context),
+        Extension(auth.clone()),
+        Path(id),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         article(&pool, "en", &slug).await.unwrap_err(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        delete(State(pool.clone()), Extension(context), Path(id))
-            .await
-            .unwrap_err(),
+        delete(
+            State(pool.clone()),
+            Extension(context),
+            Extension(auth.clone()),
+            Path(id)
+        )
+        .await
+        .unwrap_err(),
         StatusCode::NOT_FOUND
     );
     let response = public_router(pool.clone())
@@ -173,6 +214,11 @@ async fn postgres_news_lifecycle() {
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let _ = to_bytes(response.into_body(), 1024).await.unwrap();
 
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(context.account)
+        .execute(&pool)
+        .await
+        .unwrap();
     let role: Uuid = sqlx::query_scalar("INSERT INTO roles(key) VALUES ('news_test') RETURNING id")
         .fetch_one(&pool)
         .await
@@ -267,6 +313,7 @@ async fn postgres_news_lifecycle() {
         .execute(&root)
         .await
         .unwrap();
+    eprintln!("postgres_news_lifecycle duration: {:?}", started.elapsed());
 }
 
 #[derive(Clone)]

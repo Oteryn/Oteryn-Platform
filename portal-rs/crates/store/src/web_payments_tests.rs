@@ -330,6 +330,12 @@ async fn checkout_and_webhook_routes_absent_outside_testing_gate() -> TestResult
 }
 
 async fn database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error::Error>> {
+    database_with_connections(8).await
+}
+
+async fn database_with_connections(
+    max: u32,
+) -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error::Error>> {
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIPPED shop payment PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(None);
@@ -341,7 +347,7 @@ async fn database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::err
         .await?;
     let path = schema.clone();
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(8)
+        .max_connections(max)
         .after_connect(move |c, _| {
             let path = path.clone();
             Box::pin(async move {
@@ -654,6 +660,176 @@ async fn postgres_checkout_replays_after_package_change_and_removal() -> TestRes
     admin.close().await;
     eprintln!(
         "PG postgres_checkout_replays_after_package_change_and_removal {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_non_rfc_v7_checkout_keys_never_claim_payments() -> TestResult {
+    let started = std::time::Instant::now();
+    let (pool, admin, schema) = database()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let topups = PaymentTopUps {
+        signer: TestProvider::new(&[5; 32])?,
+        pool: pool.clone(),
+        payments: Payments::new(
+            pool.clone(),
+            TestProvider::new(&[5; 32])?,
+            Accounts(pool.clone()),
+            PaymentFlags { enabled: true },
+        ),
+        packages: vec![Package {
+            key: "regression".into(),
+            coins: 100,
+            minor_units: 250,
+            currency: "PLN".into(),
+        }],
+    };
+    for variant in ["0000", "c000", "e000"] {
+        let key = format!("019a65f0-0000-7000-{variant}-000000000003").parse()?;
+        assert!(matches!(
+            topups
+                .create(Uuid::now_v7(), key, "regression".into())
+                .await,
+            Err(Error::Invalid)
+        ));
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM store_web_topups")
+            .fetch_one(&pool)
+            .await?,
+        0
+    );
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    eprintln!(
+        "PG postgres_non_rfc_v7_checkout_keys_never_claim_payments duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_single_connection_and_saturated_settlement() -> TestResult {
+    for connections in [1, 3] {
+        let Some((pool, admin, schema)) = database_with_connections(connections).await? else {
+            return Ok(());
+        };
+        let account = Uuid::now_v7();
+        sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'pool@example.invalid',now(),'unused','active','en')").bind(account).execute(&pool).await?;
+        let provider = TestProvider::new(&[5; 32])?;
+        let payments = Payments::new(
+            pool.clone(),
+            provider.clone(),
+            Accounts(pool.clone()),
+            PaymentFlags { enabled: true },
+        );
+        let intent = payments
+            .create_intent(
+                account,
+                Amount {
+                    minor_units: 250,
+                    currency: "PLN".into(),
+                },
+            )
+            .await?;
+        let body = serde_json::to_vec(&oteryn_payments::PaymentEvent {
+            event_id: "pool-settlement".into(),
+            intent_id: intent.id,
+            provider_reference: intent.provider_reference,
+            amount: intent.amount,
+            state: oteryn_payments::IntentState::Succeeded,
+        })?;
+        let signature = provider.sign(&body)?;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            let (a, b, c) = tokio::join!(
+                payments.webhook(&body, &signature),
+                payments.webhook(&body, &signature),
+                payments.webhook(&body, &signature)
+            );
+            Ok::<_, oteryn_payments::Error>([a?, b?, c?])
+        })
+        .await??;
+        assert_eq!(
+            result
+                .iter()
+                .filter(|r| **r == oteryn_payments::WebhookOutcome::Applied)
+                .count(),
+            1
+        );
+        pool.close().await;
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+            .execute(&admin)
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn l6_01_refund_retains_identity_rules_while_acquisition_is_restricted() -> TestResult {
+    use oteryn_payments::{IntentState, PaymentEvent};
+    let started = std::time::Instant::now();
+    let Some((pool, admin, schema)) = database().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'refund@example.invalid','test','active',now(),'en')").bind(account).execute(&pool).await?;
+    let provider = TestProvider::new(&[5; 32])?;
+    let payments = Payments::new(
+        pool.clone(),
+        provider.clone(),
+        Accounts(pool.clone()),
+        PaymentFlags { enabled: true },
+    );
+    let amount = Amount {
+        minor_units: 250,
+        currency: "PLN".into(),
+    };
+    let intent = payments.create_intent(account, amount.clone()).await?;
+    sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'refund-package',100,250,'PLN',$1)").bind(intent.id).bind(account).execute(&pool).await?;
+    let mut event = PaymentEvent {
+        event_id: "paid".into(),
+        intent_id: intent.id,
+        provider_reference: intent.provider_reference,
+        amount: amount.clone(),
+        state: IntentState::Succeeded,
+    };
+    let body = serde_json::to_vec(&event)?;
+    payments.webhook(&body, &provider.sign(&body)?).await?;
+    sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')").bind(account).execute(&pool).await?;
+    assert!(matches!(
+        payments.create_intent(account, amount).await,
+        Err(oteryn_payments::Error::AccountDenied)
+    ));
+    event.event_id = "refund".into();
+    event.state = IntentState::Refunded;
+    let body = serde_json::to_vec(&event)?;
+    payments.webhook(&body, &provider.sign(&body)?).await?;
+    let state: String = sqlx::query_scalar("SELECT state FROM payment_intents WHERE id=$1")
+        .bind(intent.id)
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(state, "refunded");
+    assert!(matches!(
+        payments.intent(intent.id).await,
+        Err(oteryn_payments::Error::AccountDenied)
+    ));
+    let entries: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_entries")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(entries, 0);
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    eprintln!(
+        "PG l6_01_refund_retains_identity_rules_while_acquisition_is_restricted {:.3}s",
         started.elapsed().as_secs_f64()
     );
     Ok(())

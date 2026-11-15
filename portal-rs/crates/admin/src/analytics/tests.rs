@@ -839,7 +839,7 @@ async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
     };
     // The historical down migration predates later permissions; remove their
     // grants first so the head schema returns to the analytics-era catalog.
-    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick','payments.coin_hold.release','store.catalog.import','store.catalog.activate')")
+    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick','payments.coin_hold.release','store.catalog.import','store.catalog.activate','store.codes.generate')")
         .execute(&pool)
         .await
         .unwrap();
@@ -1520,4 +1520,84 @@ async fn postgres_platform_purchased_units_empty_day_and_boundaries() {
     // Game freshness cannot qualify or invalidate the separate Platform source.
     assert_eq!(value["groups"][0]["state"], "unavailable");
     clean(pool, root, name).await;
+}
+
+#[tokio::test]
+async fn a2_committed_revision_rejects_unreceipted_page_identity() {
+    let started = std::time::Instant::now();
+    let (pool, root, name) = database().await.expect("PostgreSQL required");
+    let s = store(pool.clone()).await;
+    let mut p = page();
+    publish(&s, &p).await.unwrap();
+    apply(&s, &commit(&p)).await.unwrap();
+    assert_eq!(publish(&s, &p).await.unwrap(), "accepted");
+    p.page_index = "1".into();
+    p.page_count = "2".into();
+    assert!(matches!(publish(&s, &p).await, Err(store::Error::Conflict)));
+    p.rows[0].values[0] = "9".into();
+    assert!(matches!(publish(&s, &p).await, Err(store::Error::Conflict)));
+    clean(pool, root, name).await;
+    eprintln!(
+        "a2_committed_revision_rejects_unreceipted_page_identity duration: {:?}",
+        started.elapsed()
+    );
+}
+#[tokio::test]
+async fn a2_blocked_purge_refuses_browser_reads_without_pool_exhaustion() {
+    let started = std::time::Instant::now();
+    let (pool, root, name) = database().await.expect("PostgreSQL required");
+    let s = store(pool.clone()).await;
+    publish(&s, &page()).await.unwrap();
+    sqlx::query("UPDATE admin_analytics.pages SET staged_at=now()-interval '2 days'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let admin = staff(&pool, "platform_admin").await;
+    let mut blocker = pool.begin().await.unwrap();
+    sqlx::query("SELECT * FROM admin_analytics.pages FOR UPDATE")
+        .fetch_all(&mut *blocker)
+        .await
+        .unwrap();
+    let purge_pool = pool.clone();
+    let purge = tokio::spawn(async move { store::purge(&purge_pool, NOW).await });
+    // Observe the purge's advisory lock before issuing foreground reads.
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let held: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND objid=71140001 AND granted)").fetch_one(&pool).await.unwrap();
+            if held { break; } tokio::task::yield_now().await;
+        }
+    }).await.unwrap();
+    for path in [
+        "/admin/analytics",
+        "/admin/analytics/economy",
+        "/admin/analytics/economy/data",
+    ] {
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            get(panel(pool.clone(), Some(admin), true), path),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            sqlx::query("SELECT 1").execute(&pool),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    }
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(4), purge)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    blocker.rollback().await.unwrap();
+    clean(pool, root, name).await;
+    eprintln!(
+        "a2_blocked_purge_refuses_browser_reads_without_pool_exhaustion duration: {:?}",
+        started.elapsed()
+    );
 }

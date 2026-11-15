@@ -57,8 +57,13 @@ pub async fn serve(listener: tokio::net::TcpListener, config: rustls::ServerConf
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
     let slots = Arc::new(tokio::sync::Semaphore::new(64));
     loop {
-        let Ok((socket, peer)) = listener.accept().await else {
-            continue;
+        let Ok((socket, peer)) = crate::accept::accept_with_retry(
+            || listener.accept(),
+            |error| eprintln!("native TLS listener accept failed: {error}"),
+        )
+        .await
+        else {
+            return;
         };
         let Ok(permit) = slots.clone().try_acquire_owned() else {
             continue;
@@ -100,3 +105,40 @@ pub async fn serve(listener: tokio::net::TcpListener, config: rustls::ServerConf
 #[cfg(test)]
 #[path = "devices_tls_tests.rs"]
 pub(super) mod tests;
+
+/// Retry transient accept failures with capped delay and return sustained failures.
+pub use crate::accept::accept_with_retry;
+
+#[cfg(test)]
+mod accept_retry_tests {
+    #[tokio::test]
+    async fn persistent_accept_errors_are_delayed_recorded_and_propagated()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let started = std::time::Instant::now();
+        let mut causes = Vec::new();
+        let mut task = tokio::spawn(async move {
+            let result = super::accept_with_retry(
+                || async {
+                    tokio::task::yield_now().await;
+                    Err::<(), _>(std::io::Error::from_raw_os_error(24))
+                },
+                |error| causes.push(error.raw_os_error()),
+            )
+            .await;
+            (result, causes)
+        });
+        let completed = tokio::time::timeout(std::time::Duration::from_secs(5), &mut task).await;
+        task.abort();
+        let (result, causes) = completed??;
+        assert_eq!(
+            result
+                .err()
+                .ok_or("persistent failure must propagate")?
+                .raw_os_error(),
+            Some(24)
+        );
+        assert_eq!(causes, vec![Some(24); 8]);
+        assert!(started.elapsed() >= std::time::Duration::from_millis(2575));
+        Ok(())
+    }
+}

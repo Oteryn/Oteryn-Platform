@@ -37,9 +37,8 @@ impl Board {
             return Err(Error::Denied);
         }
         self.authority.active(owner).await.ok_or(Error::Denied)?;
-        let mut tx = self.db.begin().await?;
         let now: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM now()))::bigint")
-            .fetch_one(&mut *tx)
+            .fetch_one(&self.db)
             .await?;
         if !draft.valid(now) {
             return Err(Error::Invalid);
@@ -58,6 +57,7 @@ impl Board {
         {
             return Err(Error::Denied);
         }
+        let mut tx = self.db.begin().await?;
         // Serialize per-account caps across serving processes; hash collisions only reduce throughput.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
             .bind(owner.to_string())

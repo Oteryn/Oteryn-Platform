@@ -64,13 +64,16 @@ pub struct Policy {
     pub permission: String,
 }
 
-/// Narrow bridge until the channel, permission and approval services are integrated.
+/// Trusted bridge to the channel, permission and approval services.
 /// Every call rechecks current authoritative permissions. `advertised` is true only
 /// for a unique owning agent, live heartbeat/poll <30s, and operation version 1.
 /// Results must be verified, correlated to this actor/input, unexpired and bounded.
 /// None means unavailable, never an empty successful response. No raw result JSON
 /// or unfiltered free-text secrets may be passed to these presentation types.
 pub trait Backend: Clone + Send + Sync + 'static {
+    fn for_session(&self, _: oteryn_web::session::BrowserSession) -> Self {
+        self.clone()
+    }
     fn permitted(
         &self,
         actor: CheckContext,
@@ -135,16 +138,24 @@ impl Backend for PendingBackend {
         Ok(None)
     }
 }
-/// Read-only bridge to merged RBAC and request-store metadata. Query results
-/// remain unavailable until a verified query service is supplied through Backend.
+/// Bridge to current RBAC, verified query results and immutable approval evidence.
 #[derive(Debug, Clone)]
 pub struct StoredMetadata<A> {
+    pool: PgPool,
     auth: crate::rbac::Authorizer<A>,
     store: crate::control::Store,
+    channel: Option<super::StoredChannel>,
+    session: Option<oteryn_web::session::BrowserSession>,
 }
 impl<A: crate::rbac::AccountStateReader> StoredMetadata<A> {
+    pub fn with_channel(mut self, channel: super::StoredChannel) -> Self {
+        self.channel = Some(channel);
+        self
+    }
+
     pub fn new(pool: PgPool, flags: Flags, accounts: A, config: crate::control::Config) -> Self {
         Self {
+            pool: pool.clone(),
             auth: crate::rbac::Authorizer::new(pool.clone(), accounts).with_game_flags(
                 crate::rbac::GamePermissionFlags {
                     enabled: flags.console,
@@ -152,10 +163,17 @@ impl<A: crate::rbac::AccountStateReader> StoredMetadata<A> {
                 },
             ),
             store: crate::control::Store::new(pool, config),
+            channel: None,
+            session: None,
         }
     }
 }
 impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMetadata<A> {
+    fn for_session(&self, session: oteryn_web::session::BrowserSession) -> Self {
+        let mut backend = self.clone();
+        backend.session = Some(session);
+        backend
+    }
     async fn permitted(&self, actor: CheckContext, permission: &'static str) -> bool {
         let Ok(permission) = permission.parse::<Permission>() else {
             return false;
@@ -179,19 +197,81 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
     }
     async fn players(
         &self,
-        _: CheckContext,
-        _: &super::players::Input,
-        _: &'static str,
+        actor: CheckContext,
+        input: &super::players::Input,
+        operation: &'static str,
     ) -> Result<Option<super::players::Snapshot>, Error> {
-        Ok(None)
+        input.validate()?;
+        match operation {
+            "player.search" if input.q.is_some() => (),
+            "player.character.get" | "player.inventory.get" | "sanction.list"
+                if input.character.is_some() => {}
+            _ => return Err(Error::BadInput),
+        }
+        let permission = if operation == "sanction.list" {
+            "game.sanction.read"
+        } else {
+            "game.player.read"
+        };
+        if !self.permitted(actor, permission).await {
+            return Err(Error::Denied);
+        }
+        let Some(channel) = &self.channel else {
+            return Err(Error::Unavailable);
+        };
+        let params = if let Some(q) = &input.q {
+            serde_json::json!({"query":q})
+        } else {
+            serde_json::json!({})
+        };
+        let Some((request_id, observed_at, value)) = channel
+            .snapshot(
+                actor,
+                self.session.as_ref(),
+                operation,
+                permission,
+                input.character.as_deref(),
+                params,
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(super::projection::snapshot(
+            operation,
+            request_id,
+            observed_at,
+            &value,
+        )?))
     }
     async fn ledger(
         &self,
-        _: CheckContext,
-        _: &super::audit::Filter,
+        actor: CheckContext,
+        filter: &super::audit::Filter,
     ) -> Result<Option<Vec<super::audit::LedgerRow>>, Error> {
-        Ok(None)
+        if !self.permitted(actor, "game.audit.read").await {
+            return Err(Error::Denied);
+        }
+        let Some(channel) = &self.channel else {
+            return Err(Error::Unavailable);
+        };
+        let params = serde_json::json!({"request_id":filter.request_id,"admin_id":filter.admin,"operation":filter.operation,"target":filter.target});
+        let Some((_, _, value)) = channel
+            .snapshot(
+                actor,
+                self.session.as_ref(),
+                "admin.ledger.query",
+                "game.audit.read",
+                None,
+                params,
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(super::projection::ledger(&value)?))
     }
+
     async fn access(&self) -> Result<AccessSnapshot, Error> {
         let agents = match self.store.agents().await {
             Ok(agents) => agents,
@@ -224,14 +304,64 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
             ),
         })
     }
-    async fn policy(&self, _: CheckContext) -> Result<Option<Vec<Policy>>, Error> {
-        Ok(None)
+    async fn policy(&self, actor: CheckContext) -> Result<Option<Vec<Policy>>, Error> {
+        if !self.permitted(actor, "game.ops.read").await {
+            return Err(Error::Denied);
+        }
+        let Some(channel) = &self.channel else {
+            return Err(Error::Unavailable);
+        };
+        let Some((_, _, value)) = channel
+            .snapshot(
+                actor,
+                self.session.as_ref(),
+                "admin.policy.get",
+                "game.ops.read",
+                None,
+                serde_json::json!({}),
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(super::projection::policy(&value)?))
     }
+
     async fn approvals(
         &self,
-        _: CheckContext,
+        actor: CheckContext,
     ) -> Result<Option<Vec<super::approvals::Pending>>, Error> {
-        Ok(None)
+        if !self.permitted(actor, "admin.roles.manage").await {
+            return Err(Error::Denied);
+        }
+        let rows = sqlx::query("SELECT r.request_id,r.actor,r.operation,r.target,r.expires_at::text,p.preview_digest,p.preview,p.permission FROM admin_control_requests r JOIN admin_control_previews p ON p.id=r.request_id WHERE r.risk_class='R4' AND r.dry_run AND r.status='succeeded' AND p.requester=r.actor AND p.operation=r.operation AND EXISTS(SELECT 1 FROM admin_control_agents g WHERE g.agent_id=r.agent_id AND g.last_seen_at>clock_timestamp()-interval '30 seconds' AND g.last_seen_at<=clock_timestamp() AND (r.target->>'world_id' IS NULL OR r.target->>'world_id'=ANY(g.served_worlds)) AND (r.target->>'node_id' IS NULL OR r.target->>'node_id'=ANY(g.served_nodes)) AND g.advertised_operations @> jsonb_build_array(jsonb_build_object('operation',r.operation,'operation_version',r.operation_version,'kind',r.kind)) AND NOT EXISTS(SELECT 1 FROM admin_control_agents other WHERE other.agent_id<>g.agent_id AND other.owner_epoch>=g.owner_epoch AND (r.target->>'world_id'=ANY(other.served_worlds) OR r.target->>'node_id'=ANY(other.served_nodes)))) AND r.expires_at>clock_timestamp() AND p.requester<>$1 AND p.created_at>clock_timestamp()-interval '30 minutes' AND NOT EXISTS(SELECT 1 FROM admin_control_approvals a WHERE a.preview_id=p.id) ORDER BY p.created_at DESC LIMIT 100")
+            .bind(actor.account).fetch_all(&self.pool).await?;
+        use sqlx::Row;
+        let mut pending = Vec::new();
+        for row in rows {
+            let operation: String = row.try_get("operation")?;
+            let permission: String = row.try_get("permission")?;
+            let permission: &'static str = match permission.parse::<Permission>() {
+                Ok(p) => p.as_str(),
+                Err(_) => continue,
+            };
+            if !self.permitted(actor, permission).await {
+                continue;
+            }
+            let target: serde_json::Value = row.try_get("target")?;
+            pending.push(super::approvals::Pending {
+                request_id: row.try_get("request_id")?,
+                requester: row.try_get("actor")?,
+                operation,
+                target: super::projection::target(&target)?,
+                expires_at: row.try_get("expires_at")?,
+                preview_digest: row.try_get("preview_digest")?,
+                preview: super::projection::preview(
+                    &row.try_get::<serde_json::Value, _>("preview")?,
+                )?,
+            });
+        }
+        Ok(Some(pending))
     }
 }
 pub(crate) struct Console<B> {
@@ -322,7 +452,8 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         flags,
         crate::web::PortalIdentity::configured(pool.clone()),
         crate::control::Config::from_env(),
-    );
+    )
+    .with_channel(super::StoredChannel::configured(pool.clone())?);
     Ok(router(
         pool.clone(),
         flags,
@@ -442,6 +573,7 @@ impl Page {
 pub(crate) async fn page<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
+    Extension(session): Extension<oteryn_web::session::BrowserSession>,
     Query(input): Query<Locale>,
 ) -> Result<Response, Error> {
     state.check(actor, "admin.roles.manage").await?;
@@ -482,10 +614,11 @@ pub(crate) async fn page<B: Backend>(
                 .collect()
         }),
     );
-    let policy = if state.backend.permitted(actor, "game.ops.read").await
-        && state.backend.advertised("admin.policy.get").await
+    let backend = state.backend.for_session(session);
+    let policy = if backend.permitted(actor, "game.ops.read").await
+        && backend.advertised("admin.policy.get").await
     {
-        state.backend.policy(actor).await?
+        backend.policy(actor).await?
     } else {
         None
     };

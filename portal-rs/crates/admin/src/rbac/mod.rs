@@ -15,9 +15,48 @@ use sqlx::{PgConnection, PgPool};
 use std::future::Future;
 use uuid::Uuid;
 
+/// Prepare every account needed by a mutation before the RBAC fence. Exclusive
+/// locks avoid later SHARE-to-UPDATE upgrades; SQL orders and deduplicates IDs.
+/// Callers must discover immutable target/requester IDs before calling this.
+pub async fn lock_accounts(
+    connection: &mut PgConnection,
+    accounts: &[Uuid],
+) -> Result<(), sqlx::Error> {
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE")
+        .bind(accounts)
+        .execute(connection)
+        .await?;
+    Ok(())
+}
+
 /// Bound waits at the role-writer fence so blocked requests release pool capacity.
 pub async fn lock_mutation(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
     sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(connection)
+        .await?;
+    Ok(())
+}
+
+/// Lock accounts, then the RBAC fence, within one shared wait budget, so a
+/// writer queued behind a fence holder cannot wait for each lock in turn.
+pub async fn lock_accounts_and_mutation(
+    connection: &mut PgConnection,
+    accounts: &[Uuid],
+) -> Result<(), sqlx::Error> {
+    const BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
+    let started = std::time::Instant::now();
+    lock_accounts(&mut *connection, accounts).await?;
+    let remaining = BUDGET
+        .saturating_sub(started.elapsed())
+        .max(std::time::Duration::from_millis(1));
+    sqlx::query("SELECT set_config('lock_timeout', $1, true)")
+        .bind(format!("{}ms", remaining.as_millis()))
         .execute(&mut *connection)
         .await?;
     sqlx::query("SELECT pg_advisory_xact_lock(71010)")
@@ -141,6 +180,9 @@ impl<A: AccountStateReader> Authorizer<A> {
         Self::check_permission(&mut connection, context.account, permission).await
     }
 
+    pub(crate) async fn account_active(&self, account: Uuid) -> bool {
+        matches!(self.accounts.state(account).await, Ok(AccountState::Active))
+    }
     pub(crate) async fn account_active_in(
         &self,
         connection: &mut PgConnection,
@@ -206,3 +248,50 @@ mod tests;
 
 #[cfg(test)]
 mod panel_tests;
+
+/// Request-scoped authorization using the guard's authoritative account adapter.
+#[derive(Clone)]
+pub struct MutationAuthorization(std::sync::Arc<dyn MutationCheck>);
+impl std::fmt::Debug for MutationAuthorization {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MutationAuthorization")
+            .finish_non_exhaustive()
+    }
+}
+trait MutationCheck: Send + Sync {
+    fn check<'a>(
+        &'a self,
+        connection: &'a mut PgConnection,
+        context: CheckContext,
+        permission: Permission,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
+}
+impl<A: AccountStateReader> MutationCheck for Authorizer<A> {
+    fn check<'a>(
+        &'a self,
+        connection: &'a mut PgConnection,
+        context: CheckContext,
+        permission: Permission,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>> {
+        Box::pin(async move {
+            self.check_in(connection, context, Permission::Access)
+                .await?;
+            self.check_in(connection, context, permission).await
+        })
+    }
+}
+impl MutationAuthorization {
+    pub fn new<A: AccountStateReader + 'static>(auth: std::sync::Arc<Authorizer<A>>) -> Self {
+        Self(auth)
+    }
+    /// Acquire after resource locks, then retain the transaction through commit.
+    pub async fn check_in(
+        &self,
+        connection: &mut PgConnection,
+        context: CheckContext,
+        permission: Permission,
+    ) -> Result<(), Error> {
+        lock_mutation(connection).await?;
+        self.0.check(connection, context, permission).await
+    }
+}

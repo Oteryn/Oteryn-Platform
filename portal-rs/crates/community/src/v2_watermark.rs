@@ -75,10 +75,69 @@ struct Peek {
     family: Option<String>,
 }
 
+/// Reuse the exact family guard without polling a request body or invoking a handler.
+pub fn probe_request(request: &Request) -> Request {
+    let mut probe = Request::new(Body::empty());
+    *probe.method_mut() = request.method().clone();
+    *probe.uri_mut() = request.uri().clone();
+    *probe.headers_mut() = request.headers().clone();
+    *probe.extensions_mut() = request.extensions().clone();
+    probe
+        .extensions_mut()
+        .insert(oteryn_internal_api::guard::PeerAdmissionProbe);
+    probe
+}
+pub async fn probe(target: &Router, request: Request) -> Response {
+    match target.clone().oneshot(request).await {
+        Ok(r) => r,
+        Err(never) => match never {},
+    }
+}
+/// Admit the shared transport before reading the only family discriminator.
+/// A selected family's stricter guard still runs on the unchanged real request.
+pub async fn admission(targets: &[Router], request: Request) -> Option<Response> {
+    let mut refusal = None;
+    for target in targets {
+        let result = probe(target, probe_request(&request)).await;
+        if result.status() == StatusCode::NO_CONTENT {
+            return None;
+        }
+        if refusal
+            .as_ref()
+            .is_none_or(|r: &Response| r.status() != StatusCode::UNAUTHORIZED)
+        {
+            refusal = Some(result);
+        }
+    }
+    refusal
+}
+pub fn dispatch_failure(status: StatusCode) -> Response {
+    let mut r = status.into_response();
+    r.headers_mut().insert(
+        "cache-control",
+        axum::http::HeaderValue::from_static("no-store, private"),
+    );
+    r.headers_mut()
+        .insert("pragma", axum::http::HeaderValue::from_static("no-cache"));
+    r
+}
 async fn dispatch(State(targets): State<Arc<Targets>>, request: Request) -> Response {
+    if let Some(response) = admission(
+        &[
+            targets.deaths.clone(),
+            targets.guilds.clone(),
+            targets.houses.clone(),
+            targets.today.clone(),
+        ],
+        probe_request(&request),
+    )
+    .await
+    {
+        return response;
+    }
     let (parts, body) = request.into_parts();
     let Ok(bytes): Result<Bytes, _> = axum::body::to_bytes(body, BUFFER_LIMIT).await else {
-        return StatusCode::BAD_REQUEST.into_response();
+        return dispatch_failure(StatusCode::BAD_REQUEST);
     };
     let family = serde_json::from_slice::<Peek>(&bytes)
         .ok()
@@ -102,7 +161,19 @@ mod tests {
     use axum::routing::post;
 
     fn tagged(tag: &'static str) -> Router {
-        Router::new().route(PATH, post(move || async move { tag }))
+        Router::new().route(
+            PATH,
+            post(move |request: Request| async move {
+                if request
+                    .extensions()
+                    .get::<oteryn_internal_api::guard::PeerAdmissionProbe>()
+                    .is_some()
+                {
+                    return StatusCode::NO_CONTENT.into_response();
+                }
+                tag.into_response()
+            }),
+        )
     }
 
     type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
@@ -153,5 +224,77 @@ mod tests {
         assert!(Part::All.includes("watermark") && Part::All.includes("guild"));
         assert!(!Part::Payload.includes("watermark") && Part::Payload.includes("house"));
         assert!(Part::Watermark.includes("watermark") && !Part::Watermark.includes("guild"));
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    use oteryn_internal_api::guard::{
+        self, Binding, Identity, IdentityMap, JsonRule, RoutePolicy, VerifiedClient,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    fn guarded(enabled: bool) -> Result<Router, Box<dyn std::error::Error>> {
+        let app = Router::new().route(PATH, post(|| async { StatusCode::OK }));
+        let identities = Arc::new(IdentityMap::new(vec![Binding {
+            identity: Identity::san("watermark-test")?,
+            group: "game-public".into(),
+        }])?);
+        Ok(guard::protect(
+            app,
+            identities,
+            RoutePolicy {
+                enabled,
+                group: "game-public".into(),
+                max_body_bytes: 512,
+                max_json_depth: 6,
+                json: JsonRule::Object,
+            },
+        )
+        .layer(axum::middleware::from_fn(
+            |request: Request, next: axum::middleware::Next| async move {
+                let mut r = next.run(request).await;
+                r.headers_mut().insert(
+                    "cache-control",
+                    axum::http::HeaderValue::from_static("no-store, private"),
+                );
+                r
+            },
+        )))
+    }
+    #[tokio::test]
+    async fn disabled_and_wrong_peer_refuse_before_body_poll()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (enabled, peer, status) in [
+            (false, "watermark-test", StatusCode::SERVICE_UNAVAILABLE),
+            (true, "wrong-purpose", StatusCode::UNAUTHORIZED),
+        ] {
+            let target = guarded(enabled)?;
+            let app = router(target.clone(), target.clone(), target.clone(), target);
+            for oversized in [false, true] {
+                let polled = Arc::new(AtomicUsize::new(0));
+                let counter = polled.clone();
+                let body = if oversized {
+                    Body::from(vec![b'x'; BUFFER_LIMIT + 1])
+                } else {
+                    Body::from_stream(futures_util::stream::poll_fn(move |_| {
+                        counter.fetch_add(1, Ordering::SeqCst);
+                        std::task::Poll::Ready(Some(Err::<Bytes, _>(std::io::Error::other(
+                            "body polled",
+                        ))))
+                    }))
+                };
+                let request = Request::post(PATH)
+                    .extension(VerifiedClient::from_verified_tls13_http11(Identity::san(
+                        peer,
+                    )?))
+                    .body(body)?;
+                let r = app.clone().oneshot(request).await?;
+                assert_eq!(r.status(), status);
+                assert_eq!(polled.load(Ordering::SeqCst), 0);
+                assert!(r.headers()["cache-control"].to_str()?.contains("no-store"));
+            }
+        }
+        Ok(())
     }
 }

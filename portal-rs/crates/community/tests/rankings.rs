@@ -83,8 +83,9 @@ async fn seeded() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error
         .clone()
         .options([("search_path", schema.as_str())]);
     let db = PgPool::connect_with(options).await?;
-    sqlx::raw_sql(include_str!(
-        "../../../migrations/20261105180000_t24_public_snapshots.sql"
+    sqlx::raw_sql(concat!(
+        include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
+        include_str!("../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql")
     ))
     .execute(&db)
     .await?;
@@ -361,5 +362,28 @@ async fn audit06_rankings_recheck_epoch_and_same_epoch_suppression() -> TestResu
             cleanup(root, db, schema).await?;
         }
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn audit_w2_c06_targeted_ranking_ignores_unrelated_subject_count() -> TestResult {
+    let started = std::time::Instant::now();
+    let (pool, db, schema) = seeded().await?.ok_or("PostgreSQL required")?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) SELECT 'highscores',$1||':extra:'||n,false,1,1,1790000000,'{}'::jsonb FROM generate_series(1,1101) n")
+        .bind(OTHER).execute(&db).await?;
+    assert_eq!(
+        send(
+            rankings::router(db.clone(), true, Arc::new(Visible)),
+            &format!("/en/rankings/level?world={WORLD}")
+        )
+        .await?
+        .0,
+        StatusCode::OK
+    );
+    cleanup(pool, db, schema).await?;
+    eprintln!(
+        "audit_w2_c06_targeted_ranking_ignores_unrelated_subject_count {:?}",
+        started.elapsed()
+    );
     Ok(())
 }

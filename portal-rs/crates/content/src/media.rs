@@ -11,7 +11,7 @@ use axum_extra::extract::Multipart;
 use image::{GenericImageView, ImageFormat, ImageReader};
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
-    rbac::{CheckContext, Permission},
+    rbac::{CheckContext, MutationAuthorization, Permission},
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -281,6 +281,7 @@ async fn record(
 async fn upload(
     State(pool): State<PgPool>,
     Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     mut multipart: Multipart,
 ) -> Result<Response, StatusCode> {
     let mut image = None;
@@ -311,11 +312,24 @@ async fn upload(
     let (name, bytes) = image.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
     // CPU-heavy decoding does not block the async runtime.
     let mut tx = pool.begin().await.map_err(unavailable)?;
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,12))")
         .bind(context.account.to_string())
         .execute(&mut *tx)
         .await
         .map_err(unavailable)?;
+    auth.check_in(&mut tx, context, Permission::ManageMedia)
+        .await
+        .map_err(|e| {
+            if matches!(e, oteryn_admin::rbac::Error::Denied) {
+                StatusCode::FORBIDDEN
+            } else {
+                unavailable(e)
+            }
+        })?;
     let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE actor=$1 AND action='editorial_media.uploaded' AND created_at > now()-interval '1 minute'").bind(context.account).fetch_one(&mut *tx).await.map_err(unavailable)?;
     if recent >= 10 {
         return Err(StatusCode::TOO_MANY_REQUESTS);
@@ -392,9 +406,14 @@ async fn read(pool: &PgPool, id: Uuid, thumbnail: bool) -> Result<Response, Stat
 async fn delete(
     State(pool): State<PgPool>,
     Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
 ) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
     let row = sqlx::query(
         "SELECT content,sha256,thumbnail,thumbnail_sha256 FROM media WHERE id=$1 FOR UPDATE",
     )
@@ -403,6 +422,15 @@ async fn delete(
     .await
     .map_err(unavailable)?
     .ok_or(StatusCode::NOT_FOUND)?;
+    auth.check_in(&mut tx, context, Permission::ManageMedia)
+        .await
+        .map_err(|e| {
+            if matches!(e, oteryn_admin::rbac::Error::Denied) {
+                StatusCode::FORBIDDEN
+            } else {
+                unavailable(e)
+            }
+        })?;
     let content: Vec<u8> = row.get("content");
     let hash: Vec<u8> = row.get("sha256");
     let thumbnail: Option<Vec<u8>> = row.get("thumbnail");

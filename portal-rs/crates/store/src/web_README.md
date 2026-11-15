@@ -113,3 +113,25 @@ cargo test --locked -p oteryn-portal postgres_dummy_checkout_browser_360px -- --
 It checks both checkout languages at 360 px with keyboard payment submission and
 axe WCAG 2.2 AA rules, then waits for worker credit and transfers coins. The buy
 step remains blocked by the ownership dependency described above.
+
+Gift codes use the default-off `OTERYN_STORE_CODES_ENABLED` flag. The portal
+mounts `POST /{lang}/admin/store/codes` on the configured admin host with the
+existing session, CSRF, staff MFA and `admin.access` guards. Issuance also needs
+`store.codes.generate`, rechecked under the RBAC writer fence in the issuance
+transaction. The additive migration grants this permission to built-in
+`platform_admin` roles. Its JSON fields are `kind` (`coins` or `premium_days`),
+`amount`, `count`, `max_per_code`, `max_per_account`, `valid_from`, `valid_until`
+(Unix seconds), and `note`. The response returns the batch ID and the plaintext
+codes once; issuance is audited without their plaintext.
+
+`POST /{lang}/shop/codes/redeem` accepts JSON `code` and UUIDv7 `operation`, with
+the browser session and CSRF header. The acting account comes from the session
+and must currently be active and verified. Its durable account budget is five
+attempts per minute, including malformed authenticated requests. Coin redemption
+also requires `OTERYN_WALLET_ENABLED`; credits and debt settlement use the wallet
+transaction. Retries retain the operation ID and never grant twice.
+
+Item codes are refused by both production adapters. The existing batch schema
+has no item/product binding and no qualified game consumer; exposing queued
+item grants would promise delivery that the portal cannot perform. Existing
+item batches cannot be redeemed through this surface either.

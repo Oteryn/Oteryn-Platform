@@ -74,16 +74,14 @@ async fn submit(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     (limiter, headers): (
-        Option<Extension<crate::ratelimit::RateLimiter>>,
+        Extension<crate::ratelimit::RateLimiter>,
         axum::http::HeaderMap,
     ),
     value: Option<Extension<ConsentConfig>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     form: Result<Form<Registration>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
-    let limiter = limiter
-        .map(|v| v.0)
-        .unwrap_or_else(|| crate::ratelimit::RateLimiter::new(state.db.clone()));
+    let Extension(limiter) = limiter;
     let Some(Extension(ConnectInfo(peer_addr))) = peer else {
         return Ok(crate::ratelimit::Denial::Unavailable.response(language, false));
     };
@@ -122,15 +120,9 @@ async fn submit(
         *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
         return Ok(response);
     }
-    let account = register::register(
-        &state.db,
-        input,
-        &config,
-        language.code(),
-        peer.map(|Extension(ConnectInfo(peer))| peer.ip()),
-    )
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let account = register::register(&state.db, input, &config, language.code(), Some(source))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if let Some(id) = account {
         session::rotate(&session, PrivilegeChange::Login(id))
             .await

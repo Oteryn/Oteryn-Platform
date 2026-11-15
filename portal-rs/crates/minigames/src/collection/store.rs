@@ -40,6 +40,24 @@ impl Collection {
             Err(Error::Denied)
         }
     }
+    async fn lock_account(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        account: Uuid,
+    ) -> Result<()> {
+        self.enabled()?;
+        let state: Option<(String, bool)> = sqlx::query_as(
+            "SELECT status,email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR UPDATE",
+        )
+        .bind(account)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if state.is_some_and(|(status, verified)| status == "active" && verified) {
+            Ok(())
+        } else {
+            Err(Error::Denied)
+        }
+    }
     async fn visible(&self, card: &Card) -> Result<()> {
         card.validate()?;
         let entity = self
@@ -113,19 +131,20 @@ impl Collection {
                 oteryn_playerdata::progress::Error::Denied => Error::Denied,
                 _ => Error::Unavailable,
             })?;
-        let definitions: Vec<sqlx::types::Json<Card>> =
-            sqlx::query_scalar("SELECT definition FROM collection_cards ORDER BY id LIMIT 1001")
-                .fetch_all(&self.pool)
-                .await?;
-        if definitions.len() > 1000 {
-            return Err(Error::Unavailable);
-        }
         let active = self
             .world
             .active_version_id()
             .await
             .map_err(|_| Error::Unavailable)?
             .ok_or(Error::Unavailable)?;
+        let definitions: Vec<sqlx::types::Json<Card>> =
+            sqlx::query_scalar("SELECT definition FROM collection_cards WHERE definition->>'world_version'=$1 ORDER BY id LIMIT 1001")
+                .bind(active.to_string())
+                .fetch_all(&self.pool)
+                .await?;
+        if definitions.len() > 1000 {
+            return Err(Error::Unavailable);
+        }
         let mut cards = Vec::new();
         for sqlx::types::Json(card) in definitions {
             // Retired/hidden entities disappear; a deck referencing one is refused.
@@ -183,10 +202,7 @@ impl Collection {
         require_cards(&owned, &deck.cards)?;
         let mut tx = self.pool.begin().await?;
         // Lock the owning account, serializing quota checks, edits and battle starts.
-        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
-            .bind(account)
-            .fetch_one(&mut *tx)
-            .await?;
+        self.lock_account(&mut tx, account).await?;
         let owner: Option<Uuid> =
             sqlx::query_scalar("SELECT account_id FROM collection_decks WHERE id=$1")
                 .bind(deck.id)
@@ -235,10 +251,7 @@ impl Collection {
         let battle = Battle::new(player, enemy, seed)?;
         let id = Uuid::now_v7();
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
-            .bind(account)
-            .fetch_one(&mut *tx)
-            .await?;
+        self.lock_account(&mut tx, account).await?;
         let current: (Uuid,Vec<Uuid>) = sqlx::query_as("SELECT character_id,cards FROM collection_decks WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(deck_id).bind(account).fetch_one(&mut *tx).await?;
         if current != (deck.character, deck.cards) {
             return Err(Error::Conflict);
@@ -302,6 +315,7 @@ impl Collection {
         // Check ownership and freshness before exposing or changing any private state.
         let checked = self.battle(account, id, authority, now).await?;
         let mut tx = self.pool.begin().await?;
+        self.lock_account(&mut tx, account).await?;
         let sqlx::types::Json(mut state): sqlx::types::Json<Battle> = sqlx::query_scalar(
             "SELECT state FROM collection_battles WHERE id=$1 AND account_id=$2 FOR UPDATE",
         )
@@ -372,21 +386,29 @@ impl Collection {
     /// character is transferred. It exposes no history and grants no rewards.
     pub async fn forfeit(&self, account: Uuid, id: Uuid) -> Result<Uuid> {
         self.eligible(account).await?;
-        sqlx::query_scalar("UPDATE collection_battles SET state=jsonb_set(state,'{outcome}','\"defeat\"'),updated_at=now() WHERE id=$1 AND account_id=$2 AND state->>'outcome'='active' RETURNING character_id").bind(id).bind(account).fetch_optional(&self.pool).await?.ok_or(Error::Denied)
+        let mut tx = self.pool.begin().await?;
+        self.lock_account(&mut tx, account).await?;
+        let character = sqlx::query_scalar("UPDATE collection_battles SET state=jsonb_set(state,'{outcome}','\"defeat\"'),updated_at=now() WHERE id=$1 AND account_id=$2 AND state->>'outcome'='active' RETURNING character_id").bind(id).bind(account).fetch_optional(&mut *tx).await?.ok_or(Error::Denied)?;
+        tx.commit().await?;
+        Ok(character)
     }
 }
 
 impl Collection {
     pub async fn delete_deck(&self, account: Uuid, id: Uuid) -> Result<Uuid> {
         self.eligible(account).await?;
-        sqlx::query_scalar(
+        let mut tx = self.pool.begin().await?;
+        self.lock_account(&mut tx, account).await?;
+        let character = sqlx::query_scalar(
             "DELETE FROM collection_decks WHERE id=$1 AND account_id=$2 RETURNING character_id",
         )
         .bind(id)
         .bind(account)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
-        .ok_or(Error::Denied)
+        .ok_or(Error::Denied)?;
+        tx.commit().await?;
+        Ok(character)
     }
     pub async fn battle_character(&self, account: Uuid, id: Uuid) -> Result<Uuid> {
         self.eligible(account).await?;

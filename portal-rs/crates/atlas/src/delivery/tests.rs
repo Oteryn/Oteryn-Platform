@@ -2,7 +2,7 @@
 
 use super::*;
 use serde_json::json;
-fn snapshot() -> Snapshot {
+pub(super) fn snapshot() -> Snapshot {
     let version = Uuid::now_v7();
     let records = vec![
         ("Item", "item:ore", json!({})),
@@ -542,4 +542,47 @@ fn original_rational_extremes() {
         3.0
     );
     assert!(estimate::fixed_rational(1, 1, 1, 0).is_err());
+}
+
+#[test]
+fn maximum_count_many_sources_has_bounded_estimate_work() {
+    let mut s = snapshot();
+    let one = s
+        .discover(
+            Options { enabled: true },
+            &Filters {
+                count: Some(100_000),
+                ..filters()
+            },
+        )
+        .unwrap();
+    assert!(one.sources[0].estimate.is_none());
+    for i in 0..1000 {
+        s.entities.insert(
+            ("Creature".into(), format!("source-{i}")),
+            json!({"loot":"loot:rat", "level":1}),
+        );
+    }
+    let d = s
+        .discover(
+            Options { enabled: true },
+            &Filters {
+                count: Some(100_000),
+                ..filters()
+            },
+        )
+        .unwrap();
+    assert_eq!(d.sources.len(), 1001);
+    assert!(d.sources.iter().all(|source| source.estimate.is_none()));
+    // Identical estimates reuse a request-local result rather than exhausting the budget.
+    let d = s
+        .discover(
+            Options { enabled: true },
+            &Filters {
+                count: Some(4000),
+                ..filters()
+            },
+        )
+        .unwrap();
+    assert!(d.sources.iter().all(|source| source.estimate.is_some()));
 }

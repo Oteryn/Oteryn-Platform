@@ -40,7 +40,8 @@ impl From<sqlx::Error> for CoinError {
     }
 }
 
-/// Payer-wide allowance for independent unconsumed quotes across all contexts.
+/// Payer-wide allowance for retained quotes and issuance in a rolling hour.
+/// Consumed quotes count while recent or attached to an unpaid order.
 pub const MAX_OUTSTANDING_QUOTES: i64 = 100;
 /// Maximum expired, unconsumed quotes pruned by one catalogue request.
 pub const QUOTE_PRUNE_BATCH: i64 = 100;
@@ -136,6 +137,17 @@ impl std::fmt::Debug for HostAccounts {
     }
 }
 impl AccountReader for HostAccounts {
+    async fn state_in(
+        &self,
+        connection: &mut PgConnection,
+        id: Uuid,
+    ) -> Result<AccountState, Error> {
+        Ok(match self.host.restriction_in(connection, id).await {
+            Ok(None) => AccountState::Active,
+            Ok(Some(_)) => AccountState::Restricted,
+            Err(_) => AccountState::Unknown,
+        })
+    }
     async fn state(&self, account_id: Uuid) -> Result<AccountState, Error> {
         let mut connection = self.pool.acquire().await?;
         Ok(
@@ -362,9 +374,9 @@ impl CoinPurchases {
             .bind(payer)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM coin_purchase_quotes WHERE id IN (SELECT q.id FROM coin_purchase_quotes q WHERE q.payer_account_id=$1 AND q.consumed_at IS NULL AND q.expires_at<=clock_timestamp() AND NOT EXISTS (SELECT 1 FROM coin_purchase_orders o WHERE o.quote_id=q.id) ORDER BY q.created_at,q.id LIMIT $2 FOR UPDATE OF q)")
+        sqlx::query("DELETE FROM coin_purchase_quotes WHERE id IN (SELECT q.id FROM coin_purchase_quotes q WHERE q.payer_account_id=$1 AND q.consumed_at IS NULL AND q.expires_at<=clock_timestamp() AND q.created_at<=clock_timestamp()-interval '1 hour' AND NOT EXISTS (SELECT 1 FROM coin_purchase_orders o WHERE o.quote_id=q.id) ORDER BY q.created_at,q.id LIMIT $2 FOR UPDATE OF q)")
             .bind(payer).bind(QUOTE_PRUNE_BATCH).execute(&mut *tx).await?;
-        let mut outstanding: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM coin_purchase_quotes WHERE payer_account_id=$1 AND consumed_at IS NULL LIMIT $2) q")
+        let mut outstanding: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM coin_purchase_quotes WHERE payer_account_id=$1 AND (consumed_at IS NULL OR created_at>clock_timestamp()-interval '1 hour' OR EXISTS (SELECT 1 FROM coin_purchase_orders o WHERE o.quote_id=coin_purchase_quotes.id AND o.state IN ('awaiting_payment','processing'))) LIMIT $2) q")
             .bind(payer).bind(MAX_OUTSTANDING_QUOTES).fetch_one(&mut *tx).await?;
         // A refused catalogue retains cleanup but issues no partial catalogue.
         sqlx::query("SAVEPOINT quote_issuance")
@@ -526,6 +538,23 @@ impl CoinPurchases {
                 .await?;
             return Err(CoinError::Conflict);
         }
+        // Share the payer lock with issuance; replays bypass allocation budgets.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 90105))")
+            .bind(payer)
+            .execute(&mut *tx)
+            .await?;
+        let prior = sqlx::query(concat!(
+            "SELECT ",
+            order_columns!(),
+            " FROM coin_purchase_orders WHERE payer_account_id=$1 AND request_id=$2"
+        ))
+        .bind(payer)
+        .bind(request.request_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(prior) = prior {
+            return Ok(Created::Existing(order_row(&prior)?));
+        }
         let quote = sqlx::query("SELECT payer_account_id,character_id,package_id,coins,minor_units,currency,exponent,environment,consumed_at IS NOT NULL AS consumed,expires_at>clock_timestamp() AS live FROM coin_purchase_quotes WHERE id=$1 FOR UPDATE")
             .bind(request.quote_id).fetch_optional(&mut *tx).await?.ok_or(CoinError::Conflict)?;
         if quote.try_get::<bool, _>("consumed")? {
@@ -543,6 +572,11 @@ impl CoinPurchases {
             || !quote.try_get::<bool, _>("live")?
         {
             return Err(CoinError::Conflict);
+        }
+        let unpaid: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM coin_purchase_orders WHERE payer_account_id=$1 AND state IN ('awaiting_payment','processing') LIMIT $2) o")
+            .bind(payer).bind(MAX_OUTSTANDING_QUOTES).fetch_one(&mut *tx).await?;
+        if unpaid >= MAX_OUTSTANDING_QUOTES {
+            return Err(CoinError::Unavailable);
         }
         let id = oteryn_core::new_id();
         let state = OrderState::AwaitingPayment;
@@ -1043,6 +1077,7 @@ impl CoinPurchases {
 /// One account's current coin purchase hold.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PurchaseHold {
+    pub hold_id: Uuid,
     pub order_id: Uuid,
     pub reason: String,
     /// Coins of the held reversal still owed (`coins - debited` less what
@@ -1071,18 +1106,21 @@ pub async fn purchase_hold(
     connection: &mut PgConnection,
     account: Uuid,
 ) -> Result<Option<PurchaseHold>, sqlx::Error> {
-    let row: Option<(Uuid, String, i64)> = sqlx::query_as(
-        "SELECT h.order_id,h.reason,COALESCE((SELECT GREATEST(d.owed,0) FROM coin_outstanding_debts d WHERE d.order_id=h.order_id),0) \
+    let row: Option<(Uuid, Uuid, String, i64)> = sqlx::query_as(
+        "SELECT h.hold_id,h.order_id,h.reason,COALESCE((SELECT GREATEST(d.owed,0) FROM coin_outstanding_debts d WHERE d.order_id=h.order_id),0) \
          FROM coin_purchase_holds h WHERE h.account_id=$1",
     )
     .bind(account)
     .fetch_optional(connection)
     .await?;
-    Ok(row.map(|(order_id, reason, debt_coins)| PurchaseHold {
-        order_id,
-        reason,
-        debt_coins,
-    }))
+    Ok(
+        row.map(|(hold_id, order_id, reason, debt_coins)| PurchaseHold {
+            hold_id,
+            order_id,
+            reason,
+            debt_coins,
+        }),
+    )
 }
 
 /// Staff release of the account's coin purchase hold, in the caller's
@@ -1095,24 +1133,29 @@ pub async fn release_purchase_hold_in(
     connection: &mut PgConnection,
     account: Uuid,
     staff: Uuid,
+    hold: Uuid,
     reason: &str,
 ) -> Result<Option<PurchaseHold>, sqlx::Error> {
-    let row: Option<(Uuid, String, i64)> = sqlx::query_as(
-        "WITH released AS (DELETE FROM coin_purchase_holds WHERE account_id=$1 RETURNING account_id,order_id,reason,created_at) \
-         INSERT INTO coin_purchase_hold_releases (id,account_id,order_id,reason,held_at,released_by,release_reason,debt_coins) \
+    let row: Option<(Uuid, Uuid, String, i64)> = sqlx::query_as(
+        "WITH released AS (DELETE FROM coin_purchase_holds WHERE account_id=$1 AND hold_id=$5 RETURNING account_id,order_id,reason,created_at,hold_id) \
+         INSERT INTO coin_purchase_hold_releases (id,account_id,order_id,reason,held_at,released_by,release_reason,debt_coins,hold_id) \
          SELECT $2,h.account_id,h.order_id,h.reason,h.created_at,$3,$4, \
          COALESCE((SELECT GREATEST(d.owed,0) FROM coin_outstanding_debts d WHERE d.order_id=h.order_id),0) \
-         FROM released h RETURNING order_id,reason,debt_coins",
+          ,h.hold_id FROM released h RETURNING hold_id,order_id,reason,debt_coins",
     )
     .bind(account)
     .bind(Uuid::now_v7())
     .bind(staff)
     .bind(reason)
+    .bind(hold)
     .fetch_optional(connection)
     .await?;
-    Ok(row.map(|(order_id, reason, debt_coins)| PurchaseHold {
-        order_id,
-        reason,
-        debt_coins,
-    }))
+    Ok(
+        row.map(|(hold_id, order_id, reason, debt_coins)| PurchaseHold {
+            hold_id,
+            order_id,
+            reason,
+            debt_coins,
+        }),
+    )
 }

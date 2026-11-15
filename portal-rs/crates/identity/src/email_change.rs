@@ -410,7 +410,7 @@ async fn mark_reverted(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<(
 /// Consumer seam for wallet and bazaar: call inside their transaction before trade.
 /// The shared account lock serializes the check with an email change. Missing state denies.
 pub async fn trade_allowed(db: &mut PgConnection, account: AccountId) -> Result<bool, sqlx::Error> {
-    Ok(sqlx::query_scalar::<_,bool>("SELECT status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp() FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(db).await?.unwrap_or(false))
+    oteryn_wallet::value_eligible_in(db, account).await
 }
 #[cfg(test)]
 #[path = "email_change_tests.rs"]

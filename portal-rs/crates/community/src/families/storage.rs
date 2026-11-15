@@ -65,6 +65,15 @@ pub(super) async fn snapshot(db: &PgPool, p: &Publication<'_>) -> Result<&'stati
             return if old.try_get::<serde_json::Value, _>("body")? == p.body {
                 Ok("accepted")
             } else {
+                crate::ingest::conflict(
+                    &mut tx,
+                    p.family.name(),
+                    &p.character.to_string(),
+                    p.epoch,
+                    p.revision,
+                )
+                .await?;
+                tx.commit().await?;
                 Err(Error::Conflict)
             };
         }
@@ -93,6 +102,13 @@ pub(super) async fn watermark(
     let mut tx = db.begin().await?;
     if !fence(&mut tx, epoch).await? {
         return Ok("superseded");
+    }
+    if sqlx::query_scalar::<_, bool>("SELECT public_projection_conflicted($1)")
+        .bind(family.name())
+        .fetch_one(&mut *tx)
+        .await?
+    {
+        return Err(Error::Conflict);
     }
     let old = sqlx::query("SELECT epoch::text AS epoch,complete_through FROM public_character_families_v2_watermarks WHERE family=$1 FOR UPDATE")
         .bind(family.name())
@@ -157,8 +173,8 @@ pub(super) async fn body(
     authority: &str,
     epoch: &str,
     through: i64,
-) -> Result<Option<serde_json::Value>, Unavailable> {
-    let row = sqlx::query("SELECT body,observed FROM public_character_families_v2 WHERE family=$1 AND character_id=$2 AND source_authority=$3 AND epoch=$4::numeric")
+) -> Result<Option<(serde_json::Value, String)>, Unavailable> {
+    let row = sqlx::query("SELECT body,revision::text AS revision,observed FROM public_character_families_v2 WHERE family=$1 AND character_id=$2 AND source_authority=$3 AND epoch=$4::numeric AND NOT public_projection_conflicted(family,character_id::text)")
         .bind(family.name())
         .bind(character)
         .bind(authority)
@@ -171,5 +187,5 @@ pub(super) async fn body(
     if row.try_get::<i64, _>("observed")? > through {
         return Err(Unavailable);
     }
-    Ok(Some(row.try_get("body")?))
+    Ok(Some((row.try_get("body")?, row.try_get("revision")?)))
 }

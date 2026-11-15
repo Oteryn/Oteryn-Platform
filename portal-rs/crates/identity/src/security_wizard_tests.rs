@@ -337,3 +337,109 @@ async fn audit02_production_facts_report_four_and_revocations()
     assert_eq!(loaded.backup_email, Evidence::Missing);
     db.close().await
 }
+
+#[tokio::test]
+async fn audit02_password_history_includes_reset_and_recovery()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let id: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('history@example.test',$1,'active','en',now()) RETURNING id")
+        .bind(crate::password::hash("original test password")?).fetch_one(&db.pool).await?;
+    let session_hash = vec![42u8; 32];
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,repeat('c',64),'test',now()+interval '1 hour',now()+interval '1 day')").bind(&session_hash).bind(id).execute(&db.pool).await?;
+    let credentials = crate::credentials::Credentials {
+        pool: db.pool.clone(),
+        enabled: true,
+        revoker: Arc::new(crate::credentials::TransactionalRevoker),
+        notifications: Arc::new(
+            crate::sessions::security_notifications(db.pool.clone()).map_err(|e| e.to_string())?,
+        ),
+    };
+    assert_eq!(
+        credentials
+            .change(
+                &session_hash,
+                crate::credentials::PasswordChange {
+                    current_password: "original test password".into(),
+                    password: "changed test password".into(),
+                    password_confirmation: "changed test password".into(),
+                }
+            )
+            .await?,
+        crate::credentials::Outcome::Changed
+    );
+    sqlx::query("UPDATE credential_security_events SET created_at=now()-interval '2 days' WHERE account_id=$1").bind(id).execute(&db.pool).await?;
+    let facts = RecoveryFacts(db.pool.clone());
+    let old = facts
+        .load(id)
+        .await?
+        .password_changed_at
+        .ok_or("ordinary change date")?;
+    let token = "d".repeat(64);
+    sqlx::query("INSERT INTO account_password_resets(account_id,token_hash,expires_at) VALUES($1,$2,now()+interval '1 hour')")
+        .bind(id).bind(crate::verify::token_hash(&token)).execute(&db.pool).await?;
+    assert!(
+        crate::reset::complete(
+            &db.pool,
+            crate::reset::Input {
+                email: "history@example.test".into(),
+                token,
+                password: "reset test password".into(),
+                password_confirmation: "reset test password".into(),
+            }
+        )
+        .await?
+    );
+    let reset_date = facts
+        .load(id)
+        .await?
+        .password_changed_at
+        .ok_or("reset date")?;
+    assert!(reset_date > old);
+    let response = production(db.pool.clone(), true)
+        .layer(Extension(Viewer(id)))
+        .oneshot(Request::get("/en/account/security/wizard").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains(&reset_date.date().to_string()));
+    assert!(!html.contains(&old.date().to_string()));
+    sqlx::query("UPDATE credential_security_events SET created_at=now()-interval '1 day' WHERE account_id=$1 AND created_at>$2").bind(id).bind(old).execute(&db.pool).await?;
+    let before_recovery = facts
+        .load(id)
+        .await?
+        .password_changed_at
+        .ok_or("reset history")?;
+    let mut keys = crate::recovery_key::RecoveryKeys::new(db.pool.clone());
+    keys.enabled = crate::recovery_key::Enabled(true);
+    let key = keys.generate(id, "reset test password").await?;
+    keys.confirm(id, "reset test password", &key).await?;
+    keys.recover(
+        "history@example.test",
+        &key,
+        "recovered test password",
+        "recovered test password",
+    )
+    .await?;
+    let recovered = facts
+        .load(id)
+        .await?
+        .password_changed_at
+        .ok_or("recovery date")?;
+    assert!(recovered > before_recovery);
+    let response = production(db.pool.clone(), true)
+        .layer(Extension(Viewer(id)))
+        .oneshot(Request::get("/en/account/security/wizard").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains(&recovered.date().to_string()));
+    assert!(!html.contains(&before_recovery.date().to_string()));
+    eprintln!(
+        "audit02_password_history_includes_reset_and_recovery duration: {:?}",
+        started.elapsed()
+    );
+    db.close().await
+}

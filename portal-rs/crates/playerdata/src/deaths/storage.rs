@@ -311,11 +311,9 @@ impl<A: Authority> Deaths<A> {
         Ok(result.rows_affected())
     }
     pub async fn erase_account(&self, account: Uuid) -> Result<(), Failure> {
-        sqlx::query("DELETE FROM pd_t78_streams WHERE account_id=$1")
-            .bind(account)
-            .execute(&self.pool)
-            .await
-            .map_err(db)?;
+        let mut tx = self.pool.begin().await.map_err(db)?;
+        erase_scope(&mut tx, account, None).await.map_err(db)?;
+        tx.commit().await.map_err(db)?;
         Ok(())
     }
 }
@@ -332,5 +330,27 @@ async fn lock_stream(connection: &mut PgConnection, stream: &Stream) -> Result<(
         .bind(&stream.source_authority).bind(id(&stream.account_id)?).bind(&stream.projection_epoch).bind(&stream.recovery_generation).bind(stream.family.key()).execute(&mut *connection).await.map_err(db)?;
     sqlx::query("SELECT 1 FROM pd_t78_streams WHERE source_authority=$1 AND account_id=$2 AND projection_epoch=$3::text::numeric AND recovery_generation=$4::text::numeric AND family=$5 FOR UPDATE")
         .bind(&stream.source_authority).bind(id(&stream.account_id)?).bind(&stream.projection_epoch).bind(&stream.recovery_generation).bind(stream.family.key()).fetch_one(connection).await.map_err(db)?;
+    Ok(())
+}
+
+/// Keep account-wide sequence/digest fences while removing subject content.
+pub(crate) async fn erase_scope(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account: Uuid,
+    character: Option<Uuid>,
+) -> std::result::Result<(), sqlx::Error> {
+    if character.is_none() {
+        // The account-wide accepted cursor survives, so old revisions cannot
+        // resurrect even after removing all subject rows.
+        sqlx::query("UPDATE pd_t78_streams SET baseline_complete=false,observed_at_ms=NULL WHERE account_id=$1")
+            .bind(account).execute(&mut **tx).await?;
+        sqlx::query("DELETE FROM pd_t78_records WHERE account_id=$1")
+            .bind(account)
+            .execute(&mut **tx)
+            .await?;
+        return Ok(());
+    }
+    sqlx::query("UPDATE pd_t78_records SET payload=NULL,entity_key='',occurred_at_ms=0 WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2)")
+        .bind(account).bind(character).execute(&mut **tx).await?;
     Ok(())
 }

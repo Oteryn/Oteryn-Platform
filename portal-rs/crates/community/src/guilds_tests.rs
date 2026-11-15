@@ -133,6 +133,11 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
     .execute(&db)
     .await?;
     sqlx::raw_sql(include_str!(
+        "../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
         "../../../migrations/20261115110016_fix_w2a_ingest_budget.sql"
     ))
     .execute(&db)
@@ -155,8 +160,6 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
     assert_eq!(apply(&db, &p).await.unwrap(), "accepted");
     let mut equal = publication(&GOLDEN.replace("1790000000", "1790000001"), false);
     assert_eq!(apply(&db, &equal).await.unwrap(), "accepted");
-    equal.payload["guild"][0]["name"] = "Other".into();
-    assert_eq!(apply(&db, &equal).await, Err(StatusCode::CONFLICT));
     let watermark = format!(
         r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"oteryn:game:primary","family":"guild","projection_epoch":"1","complete_through":"{}","observed_at":"{}"}}"#,
         now(),
@@ -198,6 +201,20 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("Aldric"));
     assert!(!body.contains("Hidden Member"));
+    equal.payload["guild"][0]["name"] = "Other".into();
+    assert_eq!(apply(&db, &equal).await, Err(StatusCode::CONFLICT));
+    assert_eq!(
+        apply(&db, &publication(&watermark, true)).await,
+        Err(StatusCode::CONFLICT)
+    );
+    let (_, quarantined) = page_body(pages(), "/en/guilds").await;
+    assert!(!quarantined.contains("Red Rose") && !quarantined.contains("Aldric"));
+    // Explicit authoritative reconciliation in this isolated fixture permits the
+    // remaining privacy tests; ordinary publication never removes the fence.
+    sqlx::query("DELETE FROM public_projection_conflicts WHERE family='guild'")
+        .execute(&db)
+        .await?;
+    apply(&db, &publication(&watermark, true)).await.unwrap();
     sqlx::query("UPDATE public_snapshots SET payload=jsonb_set(payload,'{profile,0,guild_visible}','false') WHERE family='character_profile' AND subject='01934f10-7c04-7001-805b-3b1122334401'").execute(&db).await?;
     let (_, hidden) = page_body(pages(), "/en/guilds/Red%20Rose").await;
     assert!(!hidden.contains("Aldric"));
@@ -328,4 +345,90 @@ async fn audit06_guild_detail_bounds_and_same_epoch_suppression() -> TestResult 
 #[tokio::test]
 async fn audit06_guild_same_epoch_suppression_after_privacy() -> TestResult {
     audit06_guild_scenario(false).await
+}
+
+#[tokio::test]
+async fn configured_parent_switch_fences_children() -> TestResult {
+    let db = PgPool::connect_lazy("postgres://portal@127.0.0.1:1/unreachable")?;
+    let get = |key: &str| {
+        Some(
+            match key {
+                "APP_ENV" => "testing",
+                "PORTAL_PUBLIC_PROJECTIONS_ENABLED" => "false",
+                "PORTAL_GUILDS_INGEST_ENABLED"
+                | "PORTAL_WORLD_DAILY_PUBLIC_ENABLED"
+                | "PORTAL_WORLD_DAILY_INGEST_ENABLED" => "true",
+                "PORTAL_PUBLIC_PROJECTIONS_SAN" => "guild-test",
+                "PORTAL_PUBLIC_PROJECTIONS_AUTHORITY" => "oteryn:game:primary",
+                "PORTAL_WORLD_DAILY_WORLDS" => "01934f10-7c02-7001-805b-3b1122334401",
+                _ => return None,
+            }
+            .to_owned(),
+        )
+    };
+    let app = configured_with(db.clone(), Part::All, get);
+    assert_eq!(
+        send(app, GOLDEN, "guild-test").await.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let daily = crate::today::Config::from_lookup(get);
+    assert!(!daily.ingest_enabled);
+    assert!(!daily.public_enabled);
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_configured_guild_parent_off_refuses_publication_and_watermark() -> TestResult {
+    let started = std::time::Instant::now();
+    let d = crate::audit06_test_db::Database::new().await?;
+    let build = |parent: bool| {
+        configured_with(d.db.clone(), Part::All, |key| {
+            Some(
+                match key {
+                    "APP_ENV" => "testing",
+                    "PORTAL_GUILDS_INGEST_ENABLED" => "true",
+                    "PORTAL_PUBLIC_PROJECTIONS_ENABLED" => {
+                        if parent {
+                            "true"
+                        } else {
+                            "false"
+                        }
+                    }
+                    "PORTAL_PUBLIC_PROJECTIONS_SAN" => "guild-test",
+                    "PORTAL_PUBLIC_PROJECTIONS_AUTHORITY" => "oteryn:game:primary",
+                    _ => return None,
+                }
+                .to_owned(),
+            )
+        })
+    };
+    assert_eq!(
+        send(build(true), GOLDEN, "guild-test").await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(build(false), GOLDEN, "guild-test").await.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let wm = format!(
+        r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"oteryn:game:primary","family":"guild","projection_epoch":"1","complete_through":"{}","observed_at":"{}"}}"#,
+        now(),
+        now()
+    );
+    let request = Request::post(crate::v2_watermark::PATH)
+        .header("content-type", "application/json")
+        .extension(guard::VerifiedClient::from_verified_tls13_http11(
+            guard::Identity::san("guild-test")?,
+        ))
+        .body(Body::from(wm))?;
+    assert_eq!(
+        build(false).oneshot(request).await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    d.close().await?;
+    eprintln!(
+        "PG postgres_configured_guild_parent_off_refuses_publication_and_watermark {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
 }

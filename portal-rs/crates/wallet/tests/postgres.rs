@@ -1011,3 +1011,118 @@ async fn postgres_credit_debt_selection_has_enforced_cardinality_bound() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn l6_04_wallet_safe_release_allows_suspended_holder() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = id();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',now(),'en')").bind(account).execute(&db.pool).await.unwrap();
+    fund(&db.ledger(&[account]), account, 1000).await;
+    let ledger = Ledger::new(
+        db.pool.clone(),
+        WalletFlags { enabled: true },
+        wire::DatabasePolicy,
+        wire::DatabasePolicy,
+        wire::DatabasePolicy,
+    );
+    let (one, two) = (id(), id());
+    ledger.reserve(one, account, 100).await.unwrap();
+    ledger.reserve(two, account, 200).await.unwrap();
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let key = id();
+    ledger.release(key, account, one).await.unwrap();
+    assert!(ledger.release(key, account, one).await.unwrap().replayed);
+    let mut tx = db.pool.begin().await.unwrap();
+    let key = id();
+    ledger
+        .settle_in(&mut tx, key, account, two, false)
+        .await
+        .unwrap();
+    assert!(
+        ledger
+            .settle_in(&mut tx, key, account, two, false)
+            .await
+            .unwrap()
+            .replayed
+    );
+    tx.commit().await.unwrap();
+    let totals:(i64,i64)=sqlx::query_as("SELECT sum(available_delta)::bigint,sum(reserved_delta)::bigint FROM wallet_entries WHERE account_id=$1").bind(account).fetch_one(&db.pool).await.unwrap();
+    assert_eq!(totals, (1000, 0));
+    db.close().await;
+    eprintln!(
+        "PG l6_04_wallet_safe_release_allows_suspended_holder {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
+
+#[tokio::test]
+async fn exact_replays_revalidate_current_transfer_permission() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("real PostgreSQL is required");
+    let (a, b) = (id(), id());
+    let ledger = db.ledger(&[a, b]);
+    fund(&ledger, a, 100).await;
+    let (transfer, offer, trade) = (id(), id(), id());
+    ledger.transfer(transfer, a, b, 10).await.unwrap();
+    ledger.reserve_offer(offer, a, 50, 100).await.unwrap();
+    ledger.settle(trade, offer, b, 10).await.unwrap();
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_entries")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    for party in [a, b] {
+        for unknown in [false, true] {
+            let denied = Ledger::new(
+                db.pool.clone(),
+                WalletFlags { enabled: true },
+                Accounts(vec![a, b]),
+                Blocks {
+                    blocked: Some(party),
+                    unknown,
+                },
+                Audit(true),
+            );
+            let refusal = if unknown {
+                Refusal::TransferStateUnknown
+            } else {
+                Refusal::TransferBlocked
+            };
+            refused(denied.transfer(transfer, a, b, 10).await, refusal);
+            if party == a {
+                refused(denied.reserve_offer(offer, a, 50, 100).await, refusal);
+            }
+            refused(denied.settle(trade, offer, b, 10).await, refusal);
+            refused(
+                denied.transfer(transfer, a, b, 11).await,
+                Refusal::IdempotencyConflict,
+            );
+            refused(
+                denied.reserve_offer(offer, a, 50, 101).await,
+                Refusal::IdempotencyConflict,
+            );
+            refused(
+                denied.settle(trade, offer, b, 11).await,
+                Refusal::IdempotencyConflict,
+            );
+        }
+    }
+    assert_eq!(
+        before,
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM wallet_entries")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap()
+    );
+    db.close().await;
+    eprintln!(
+        "PG exact_replays_revalidate_current_transfer_permission {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

@@ -27,17 +27,11 @@ const KINDS: [&str; 8] = [
 ];
 const PAGE_SIZE: usize = 24;
 fn world_kind(route: &str) -> &'static str {
-    match route {
-        "items" => "Item",
-        "creatures" => "Creature",
-        "npcs" => "NPC",
-        "spells" => "Spell",
-        "quests" => "Quest",
-        "loot" => "Loot",
-        "achievements" => "Achievement",
-        "areas" => "Area",
-        _ => "",
-    }
+    KINDS
+        .into_iter()
+        .find(|kind| *kind == route)
+        .map(oteryn_world::canonical_kind)
+        .unwrap_or_default()
 }
 fn route_kind(family: &str) -> &'static str {
     KINDS
@@ -52,6 +46,7 @@ pub struct EntityState {
     world: WorldStore,
     enabled: bool,
     catalog: Option<oteryn_world::catalog::CatalogStore>,
+    delivery: bool,
 }
 impl EntityState {
     pub fn new(pool: PgPool, enabled: bool) -> Self {
@@ -60,6 +55,7 @@ impl EntityState {
             pool,
             enabled,
             catalog: None,
+            delivery: false,
         }
     }
     pub fn configured(pool: PgPool, ready: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
@@ -70,6 +66,7 @@ impl EntityState {
             std::env::var("PORTAL_WIKI_ENTITIES_ENABLED").as_deref() == Ok("true"),
         );
         state.catalog = catalog;
+        state.delivery = oteryn_atlas::delivery::wiki_map_links_enabled();
         state
     }
     async fn active_version_id(&self) -> Result<Option<uuid::Uuid>, StatusCode> {
@@ -442,11 +439,18 @@ async fn listing(
     } else {
         vec![]
     };
-    let next = if guides.len() == 12 && number < 1000 {
-        number + 1
+    let more_guides = if guides.len() == 12 && number < 1000 {
+        match PublicRepository::new(state.pool.clone())
+            .search(lang, &filters.q, number + 1, !search)
+            .await
+        {
+            Ok(rows) => !rows.is_empty(),
+            Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE, lang),
+        }
     } else {
-        next
+        false
     };
+    let next = if more_guides { number + 1 } else { next };
     let title = if filters.kind.is_empty() {
         t(lang, "wiki")
     } else {
@@ -600,6 +604,7 @@ async fn dispatch_listing(
 #[derive(Template)]
 #[template(path = "wiki/entity.html", config = "wiki_askama.toml")]
 struct Detail {
+    map_link: String,
     lang: &'static str,
     title: String,
     kind: String,
@@ -710,6 +715,11 @@ async fn detail(
         key: key.into(),
         version: entity.version_id.to_string(),
         classification: scalar(body(&entity), "classification").into(),
+        map_link: if state.delivery {
+            oteryn_atlas::delivery::wiki_map_link(lang, kind, key).unwrap_or_default()
+        } else {
+            String::new()
+        },
         facts,
         editorial,
     })

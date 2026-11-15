@@ -37,6 +37,22 @@ pub enum AccountState {
 #[allow(async_fn_in_trait)]
 pub trait AccountReader: Send + Sync {
     async fn state(&self, account_id: Uuid) -> Result<AccountState, Error>;
+
+    /// Authorization inside a caller transaction. Adapters must use this connection;
+    /// unsupported adapters deny rather than acquiring another pool connection.
+    async fn state_in(&self, _: &mut sqlx::PgConnection, _: Uuid) -> Result<AccountState, Error> {
+        Ok(AccountState::Unknown)
+    }
+
+    /// Refunds return an existing payment; adapters may retain a separate
+    /// identity policy from new acquisitions. The default remains fail closed.
+    async fn refund_state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        account_id: Uuid,
+    ) -> Result<AccountState, Error> {
+        self.state_in(connection, account_id).await
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -80,6 +80,12 @@ impl Store {
         let epoch_number = wire::uint(&epoch)?;
         let mut tx = self.pool.begin().await?;
         // Global serialization also enforces the four-exchange ceiling across processes.
+        sqlx::query("SET LOCAL statement_timeout = '3s'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SET LOCAL lock_timeout = '3s'")
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("SELECT pg_advisory_xact_lock(71140001)")
             .execute(&mut *tx)
             .await?;
@@ -203,7 +209,7 @@ impl Store {
     ) -> Result<&'static str, Error> {
         let receipt:Option<String>=sqlx::query_scalar("SELECT digest FROM admin_analytics.page_receipts WHERE authority=$1 AND family=$2 AND world=$3 AND bucket_start=$4::text::numeric AND epoch=$5::text::numeric AND revision=$6::text::numeric AND page_index=$7")
             .bind(&self.authority).bind(family).bind(world).bind(&p.bucket_start).bind(&p.analytics_epoch).bind(&p.snapshot_revision).bind(wire::uint(&p.page_index)? as i32).fetch_optional(&mut **tx).await?;
-        if receipt.is_some_and(|d| d != digest(raw)) {
+        if receipt.as_ref().is_some_and(|d| *d != digest(raw)) {
             self.conflict(tx, family, world, &p.bucket_start).await?;
             return Ok("conflict");
         }
@@ -221,7 +227,11 @@ impl Store {
                 return Ok("superseded");
             }
             if incoming == existing {
-                return Ok("accepted");
+                return if receipt.is_some() {
+                    Ok("accepted")
+                } else {
+                    Err(Error::Conflict)
+                };
             }
         }
         let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_analytics.pages WHERE authority=$1 AND family=$2 AND world=$3 AND bucket_start=$4::text::numeric AND epoch=$5::text::numeric AND revision=$6::text::numeric AND page_index=$7)")
@@ -388,7 +398,18 @@ impl Store {
 
 /// Hourly maintenance is independent of traffic and never deletes durable fences.
 pub async fn purge(pool: &PgPool, now: u64) -> Result<(), Error> {
+    tokio::time::timeout(std::time::Duration::from_secs(5), purge_bounded(pool, now))
+        .await
+        .map_err(|_| Error::Unavailable)?
+}
+async fn purge_bounded(pool: &PgPool, now: u64) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '3s'")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("SELECT pg_advisory_xact_lock(71140001)")
         .execute(&mut *tx)
         .await?;

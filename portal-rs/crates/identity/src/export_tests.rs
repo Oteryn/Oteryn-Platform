@@ -40,6 +40,8 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
         .await?;
     let path = schema.clone();
     let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(PRODUCER_DEADLINE + std::time::Duration::from_secs(3))
         .after_connect(move |conn, _| {
             let path = path.clone();
             Box::pin(async move {
@@ -63,6 +65,25 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
     sqlx::query("INSERT INTO account_consents(account_id,document_kind,document_version) VALUES ($1,'terms','v1')").bind(id).execute(&pool).await?;
     sqlx::query("INSERT INTO account_consents(account_id,document_kind,document_version) SELECT $1,'privacy','batch-' || n FROM generate_series(1,193) n").bind(id).execute(&pool).await?;
     let config = ExportConfig { enabled: true };
+    let unread = stream_download(&pool, &config, &token)
+        .await
+        .map_err(|s| s.to_string())?;
+    let released = tokio::time::timeout(
+        PRODUCER_DEADLINE + std::time::Duration::from_secs(2),
+        pool.acquire(),
+    )
+    .await;
+    assert!(
+        released.is_ok(),
+        "unread export retained its transaction past deadline"
+    );
+    drop(released??);
+    drop(unread);
+    let cancelled = stream_download(&pool, &config, &token)
+        .await
+        .map_err(|s| s.to_string())?;
+    drop(cancelled);
+    drop(tokio::time::timeout(std::time::Duration::from_secs(2), pool.acquire()).await??);
     let body = stream_download(&pool, &config, &token)
         .await
         .map_err(|s| s.to_string())?;

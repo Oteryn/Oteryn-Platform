@@ -63,7 +63,10 @@ pub fn router(service: Service, sessions: SessionLayer) -> Router {
                 sessions,
                 session::middleware,
             ))
-            .layer(Extension(limiter))
+            .layer(axum::middleware::from_fn_with_state(
+                limiter,
+                oteryn_web::ratelimit::supply,
+            ))
             .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024))
             .with_state(service),
     )

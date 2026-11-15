@@ -2,7 +2,7 @@ use super::*;
 use axum::{Extension, Form, response::Redirect};
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
-    rbac::{AccountStateReader, CheckContext, Error, Permission},
+    rbac::{AccountStateReader, CheckContext, Error, MutationAuthorization, Permission},
     web::{PanelConfig, StaffSession},
 };
 use oteryn_web::session::BrowserSession;
@@ -201,19 +201,22 @@ async fn save(
     State(pool): State<PgPool>,
     Path((slug, locale)): Path<(String, String)>,
     Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Form(form): Form<PageForm>,
 ) -> Response {
     if !valid(&form, &slug, &locale) {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    match persist(&pool, context, &slug, &locale, &form).await {
+    match persist(&pool, &auth, context, &slug, &locale, &form).await {
         Ok(()) => Redirect::to("/admin/pages").into_response(),
+        Err(Error::Denied) => StatusCode::FORBIDDEN.into_response(),
         Err(Error::InvalidInput) => StatusCode::CONFLICT.into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 pub(super) async fn persist(
     pool: &PgPool,
+    auth: &MutationAuthorization,
     context: CheckContext,
     slug: &str,
     locale: &str,
@@ -223,9 +226,14 @@ pub(super) async fn persist(
         return Err(Error::InvalidInput);
     }
     let mut tx = pool.begin().await?;
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,71102))")
         .bind(slug)
         .execute(&mut *tx)
+        .await?;
+    auth.check_in(&mut tx, context, Permission::ManagePages)
         .await?;
     let id:Uuid=sqlx::query_scalar("INSERT INTO pages(id,slug) VALUES($1,$2) ON CONFLICT(slug) DO UPDATE SET updated_at=now() RETURNING id").bind(Uuid::now_v7()).bind(slug).fetch_one(&mut *tx).await?;
     let before: Option<serde_json::Value> = sqlx::query_scalar(
@@ -261,7 +269,7 @@ pub(super) async fn persist(
             }
             sqlx::query("INSERT INTO page_legal_versions(page_id,locale,version,content) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING").bind(id).bind(locale).bind(&form.legal_version).bind(content).execute(&mut *tx).await?;
         }
-        sqlx::query("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=nextval('editorial_page_revision_seq'),updated_at=now()")
+        sqlx::query("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=CASE WHEN (editorial_pages.title,editorial_pages.body,editorial_pages.legal_version,editorial_pages.legal_effective_date) IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.body,EXCLUDED.legal_version,EXCLUDED.legal_effective_date) THEN nextval('editorial_page_revision_seq') ELSE editorial_pages.revision END,updated_at=now()")
             .bind(id).bind(locale).bind(&form.title).bind(&form.body).bind(&form.published_at).bind(if legal(slug){form.legal_version.as_str()}else{""}).bind(if legal(slug){form.legal_effective_date.as_str()}else{""}).execute(&mut *tx).await?;
     }
     audit::append(

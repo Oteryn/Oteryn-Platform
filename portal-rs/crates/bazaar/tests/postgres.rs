@@ -534,3 +534,38 @@ async fn postgres_core_legacy_offer_cleanup_keeps_every_reservation_accounted_fo
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_committed_delivery_completes_after_trade_restriction() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(h) = Harness::new().await? else {
+        return Err("PostgreSQL required".into());
+    };
+    let listing = h.listing(Form::Auction, Currency::Coins, 100).await?;
+    h.api.bid(listing.id, h.a, 200, "funded").await?;
+    h.end_in(listing.id, -1).await?;
+    h.api.settle(listing.id, "obligation").await?;
+    h.evidence.delivery.store(true, Ordering::SeqCst);
+    for party in [h.a, h.owner] {
+        h.accounts
+            .0
+            .write()
+            .map_err(|_| "poisoned accounts")?
+            .get_mut(&party)
+            .ok_or("missing identity")?
+            .bazaar_blocked = true;
+    }
+    h.api.complete_delivery(listing.id).await?;
+    h.api.complete_delivery(listing.id).await?;
+    assert_eq!(h.api.get(listing.id).await?.state, State::Completed);
+    assert_eq!(
+        h.ledger().await?.balances[&MemoryLedger::key(h.owner, Currency::Coins)],
+        1_000_090
+    );
+    h.finish().await?;
+    eprintln!(
+        "postgres_committed_delivery_completes_after_trade_restriction: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

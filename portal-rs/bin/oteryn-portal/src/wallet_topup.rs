@@ -160,10 +160,9 @@ pub(crate) struct Policy;
 impl wallet::AccountStateReader for Policy {
     async fn state(&self, conn: &mut PgConnection, account: Uuid) -> wallet::AccountState {
         // Serialize account restriction/closure against delivery. Match payments'
-        // active + verified policy; database errors and missing rows deny.
-        match sqlx::query_scalar::<_,bool>("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE")
-            .bind(account).fetch_optional(conn).await {
-            Ok(Some(true)) => wallet::AccountState::Active,
+        // shared value eligibility policy; database errors and missing rows deny.
+        match oteryn_wallet::value_eligible_in(conn, account).await {
+            Ok(true) => wallet::AccountState::Active,
             _ => wallet::AccountState::Unknown,
         }
     }

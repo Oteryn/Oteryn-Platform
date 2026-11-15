@@ -609,3 +609,48 @@ async fn db_all_pool_connections_can_submit_concurrently() -> TestResult {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn audit_a210_db_browser_rejected_attempts_consume_admission_budget() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let known = db.world().await?;
+    sqlx::query(
+        "INSERT INTO reserved_names(name,expires_at) VALUES ('aldric',now()+interval '1 hour')",
+    )
+    .execute(&db.pool)
+    .await?;
+    for (world, name) in [
+        (known, "Aldric"),
+        (Uuid::now_v7(), "Aldric"),
+        (known, "Belric"),
+    ] {
+        if name == "Belric" {
+            sqlx::query("ALTER TABLE character_commands ADD CONSTRAINT audit_refuse_enqueue CHECK (false) NOT VALID").execute(&db.pool).await?;
+        }
+        let account = db.account("active").await?;
+        let (app, _) = app(db.pool.clone(), settings(), Some(account));
+        for attempt in 1..=6 {
+            let response = app
+                .clone()
+                .oneshot(post(name, world, Uuid::now_v7(), CSRF))
+                .await?;
+            assert_eq!(
+                response.status(),
+                if attempt == 6 {
+                    StatusCode::TOO_MANY_REQUESTS
+                } else {
+                    StatusCode::FOUND
+                }
+            );
+        }
+    }
+    db.close().await?;
+    eprintln!(
+        "audit_a210_db_browser_rejected_attempts_consume_admission_budget duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

@@ -243,7 +243,7 @@ fn hash(bytes: &[u8]) -> Vec<u8> {
 const TOMBSTONE_MS: u64 = 120 * 86400000;
 /// SHA-256 of the canonical deleted-scope key: the account, or the account and
 /// one of its characters. No identifier is stored in clear.
-fn scope_digest(account: &str, character: Option<&str>) -> Vec<u8> {
+pub(crate) fn scope_digest(account: &str, character: Option<&str>) -> Vec<u8> {
     hash(tuple(vec![Some("deleted-scope"), Some(account), character]).as_bytes())
 }
 async fn tombstone(
@@ -251,11 +251,13 @@ async fn tombstone(
     account: &str,
     character: Option<&str>,
     now: u64,
+    closed_revision: Option<&str>,
 ) -> Result<()> {
-    sqlx::query("INSERT INTO pd_deleted_scopes(scope_digest,deleted_ms,expires_ms) VALUES($1,$2,$3) ON CONFLICT(scope_digest) DO UPDATE SET expires_ms=GREATEST(pd_deleted_scopes.expires_ms,EXCLUDED.expires_ms)")
+    sqlx::query("INSERT INTO pd_deleted_scopes(scope_digest,deleted_ms,expires_ms,closed_revision) VALUES($1,$2,$3,$4::text::numeric) ON CONFLICT(scope_digest) DO UPDATE SET expires_ms=GREATEST(pd_deleted_scopes.expires_ms,EXCLUDED.expires_ms),closed_revision=CASE WHEN pd_deleted_scopes.closed_revision IS NULL OR EXCLUDED.closed_revision IS NULL THEN NULL ELSE GREATEST(pd_deleted_scopes.closed_revision,EXCLUDED.closed_revision) END")
         .bind(scope_digest(account, character))
         .bind(now as i64)
         .bind(now.saturating_add(TOMBSTONE_MS).min(i64::MAX as u64) as i64)
+        .bind(closed_revision)
         .execute(&mut **tx)
         .await?;
     Ok(())
@@ -265,12 +267,14 @@ pub(crate) async fn character_deleted(
     conn: &mut PgConnection,
     account: &str,
     character: &str,
+    ownership_revision: Option<u64>,
 ) -> Result<bool> {
     Ok(
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1) OR EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$2 AND (character_id IS NULL OR character_id=$3))")
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1 AND (closed_revision IS NULL OR $4::text::numeric IS NULL OR closed_revision >= $4::text::numeric)) OR EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$2 AND (character_id IS NULL OR character_id=$3))")
             .bind(scope_digest(account, Some(character)))
             .bind(account)
             .bind(character)
+            .bind(ownership_revision.map(|v| v.to_string()))
             .fetch_one(conn)
             .await?,
     )
@@ -297,9 +301,10 @@ async fn deleted(tx: &mut Transaction<'_, Postgres>, s: &Scope) -> Result<Delete
         digests.push(scope_digest(&s.account, Some(character)));
     }
     let found: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT scope_digest FROM pd_deleted_scopes WHERE scope_digest = ANY($1)",
+        "SELECT scope_digest FROM pd_deleted_scopes WHERE scope_digest = ANY($1) AND (closed_revision IS NULL OR $2::text::numeric IS NULL OR closed_revision >= $2::text::numeric)",
     )
     .bind(digests)
+    .bind(&s.character_revision)
     .fetch_all(&mut **tx)
     .await?;
     // Authoritative writers enqueue in their own transaction. Hide immediately;
@@ -515,10 +520,8 @@ impl Store {
             return Err(Error::Conflict);
         };
         let terminal = if transferred {
-            // The seller's character scope closes at the transfer cut (G-11 §8.2).
-            if let Some(character) = r.scope.character.as_deref() {
-                tombstone(&mut tx, &r.scope.account, Some(character), now).await?;
-            }
+            // The committed receipt's lifecycle job owns the closed-cut
+            // tombstone. Never derive its cut from a former owner's record.
             Some(CHARACTER_SCOPE_DELETED)
         } else {
             terminal
@@ -528,7 +531,7 @@ impl Store {
             // only; no subject, entity, time or payload. Its empty scope key never
             // matches a subject read or supersession.
             sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) VALUES($1,$2::numeric,$3,'',$4,'',NULL,'',$5,0,0,$6,NULL,$7)")
-                .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(&r.id).bind(reason).bind(&digest).bind(now as i64).execute(&mut *tx).await?;
+                .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(&r.id).bind(reason).bind(&digest).bind(now.saturating_add(TOMBSTONE_MS-31*86400000) as i64).execute(&mut *tx).await?;
             sqlx::query("UPDATE pd_streams SET highest_seen=$2::numeric,stored_through=$2::numeric,applied_through=$2::numeric,last_record_id=$3 WHERE stream_key=$1").bind(&key).bind(r.revision.to_string()).bind(&r.id).execute(&mut *tx).await?;
             accept_recovery(&mut tx, &r.scope, r.progress).await?;
             tx.commit().await?;
@@ -813,6 +816,16 @@ impl Store {
         character: &str,
         time: TrustedTime,
     ) -> Result<()> {
+        self.erase_character_cut(account, character, time, None)
+            .await
+    }
+    pub(crate) async fn erase_character_cut(
+        &self,
+        account: &str,
+        character: &str,
+        time: TrustedTime,
+        closed_revision: Option<&str>,
+    ) -> Result<()> {
         let now = time.now(true)?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, account).await?;
@@ -826,8 +839,9 @@ impl Store {
             lock(&mut tx, &authority).await?;
         }
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT r.stream_key FROM pd_records r JOIN pd_streams s USING(stream_key) WHERE s.account_id=$1 AND r.character_id=$2)").bind(account).bind(character).execute(&mut *tx).await?;
-        sqlx::query("UPDATE pd_records SET payload=NULL,expires_ms=LEAST(expires_ms,$3) WHERE character_id=$2 AND stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).bind(character).bind(now as i64).execute(&mut *tx).await?;
-        tombstone(&mut tx, account, Some(character), now).await?;
+        sqlx::query("UPDATE pd_records SET payload=NULL,entity_key='',occurred_ms=0,coverage_ms=0,scope_key='',character_id=NULL,expires_ms=$3 WHERE character_id=$2 AND stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).bind(character).bind(now.saturating_add(TOMBSTONE_MS-31*86400000) as i64).execute(&mut *tx).await?;
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=COALESCE(purged_at,$3) WHERE account_id=$1::uuid AND character_id=$2::uuid").bind(account).bind(character).bind((now/1000) as i64).execute(&mut *tx).await?;
+        tombstone(&mut tx, account, Some(character), now, closed_revision).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -848,20 +862,25 @@ impl Store {
             lock(&mut tx, &authority).await?;
         }
         sqlx::query(
-            "UPDATE pd_streams SET erased=true,baseline_complete=false,erased_ms=COALESCE(erased_ms,$2) WHERE account_id=$1",
+            "UPDATE pd_streams SET erased=true,baseline_complete=false,observed_ms=0,erased_ms=COALESCE(erased_ms,$2) WHERE account_id=$1",
         )
         .bind(account)
         .bind(now as i64)
         .execute(&mut *tx)
         .await?;
-        sqlx::query("UPDATE pd_records SET payload=NULL WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
+        sqlx::query("UPDATE pd_records SET payload=NULL,entity_key='',occurred_ms=0,coverage_ms=0,scope_key='',character_id=NULL,expires_ms=$2 WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).bind(now as i64).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_bank_continuations WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
-        tombstone(&mut tx, account, None, now).await?;
+        sqlx::query("UPDATE pd_g9_streams SET blocked=true WHERE account_id=$1::uuid")
+            .bind(account)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=COALESCE(purged_at,$2) WHERE account_id=$1::uuid").bind(account).bind((now/1000) as i64).execute(&mut *tx).await?;
+        tombstone(&mut tx, account, None, now, None).await?;
         tx.commit().await?;
         Ok(())
     }
-    /// Expiration never changes digest, revision, baseline or ownership fences.
+    /// Advance replay floors before removing digests; ownership fences survive.
     pub async fn expire(&self, time: TrustedTime) -> Result<u64> {
         let now = time.now(true)?;
         let mut tx = self.pool.begin().await?;
@@ -882,10 +901,10 @@ impl Store {
         .rows_affected();
         // Prune only a proven prefix. The durable floor refuses older replay
         // after its exact digest has aged out, rather than resurrecting history.
-        sqlx::query("UPDATE pd_streams s SET retention_floor=GREATEST(retention_floor,COALESCE((SELECT min(r.source_revision)-1 FROM pd_records r WHERE r.stream_key=s.stream_key AND (r.payload IS NOT NULL OR r.expires_ms>$1)),stored_through)) WHERE progress=false")
-            .bind(now.saturating_sub(31*86400000) as i64).execute(&mut *tx).await?;
+        sqlx::query("UPDATE pd_streams s SET retention_floor=GREATEST(retention_floor,COALESCE((SELECT min(r.source_revision)-1 FROM pd_records r WHERE r.stream_key=s.stream_key AND (r.payload IS NOT NULL OR r.expires_ms>$1)),stored_through)) WHERE progress=false AND (NOT erased OR erased_ms<=$2)")
+            .bind(now.saturating_sub(31*86400000) as i64).bind(now.saturating_sub(TOMBSTONE_MS) as i64).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_streams SET retention_floor=stored_through WHERE progress=true AND erased=true AND erased_ms<=$1")
-            .bind(now.saturating_sub(90*86400000) as i64).execute(&mut *tx).await?;
+            .bind(now.saturating_sub(TOMBSTONE_MS) as i64).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_records r USING pd_streams s WHERE r.stream_key=s.stream_key AND r.source_revision<=s.retention_floor").execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_deleted_scopes WHERE expires_ms<=$1")
             .bind(now as i64)

@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Native coin purchases through the real routes, OAuth grants, PostgreSQL
-//! state and wallet ledger. Character ownership is the only stubbed adapter.
+//! state and wallet ledger. Most cases isolate ownership; the production LCFA
+//! refusal regression below also exercises the real ownership adapter.
 use super::*;
 use axum::{
     body::{Body, to_bytes},
@@ -35,6 +36,13 @@ fn packages() -> String {
 struct TestHost {
     host: Host,
     owned: Vec<(Uuid, Uuid)>,
+    pause: Option<Arc<EligibilityPause>>,
+}
+#[derive(Debug, Default)]
+struct EligibilityPause {
+    remaining: std::sync::atomic::AtomicUsize,
+    reached: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
 }
 impl CoinHost for TestHost {
     fn payer<'a>(&'a self, bearer: &'a str) -> HostFuture<'a, Result<Uuid, CoinError>> {
@@ -55,7 +63,20 @@ impl CoinHost for TestHost {
         connection: &'a mut PgConnection,
         payer: Uuid,
     ) -> HostFuture<'a, Result<Option<String>, CoinError>> {
-        self.host.restriction_in(connection, payer)
+        Box::pin(async move {
+            let result = self.host.restriction_in(connection, payer).await;
+            if let Some(pause) = &self.pause
+                && pause.remaining.fetch_update(
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::SeqCst,
+                    |remaining| remaining.checked_sub(1),
+                ) == Ok(1)
+            {
+                pause.reached.notify_one();
+                pause.resume.notified().await;
+            }
+            result
+        })
     }
     fn reverse_in<'a>(
         &'a self,
@@ -178,6 +199,13 @@ impl Database {
             .access_token)
     }
     fn service(&self, owned: Vec<(Uuid, Uuid)>) -> Arc<CoinPurchases> {
+        self.service_with_pause(owned, None)
+    }
+    fn service_with_pause(
+        &self,
+        owned: Vec<(Uuid, Uuid)>,
+        pause: Option<Arc<EligibilityPause>>,
+    ) -> Arc<CoinPurchases> {
         let settings = CoinSettings {
             enabled: true,
             packages: parse_packages(&packages()).unwrap(),
@@ -195,6 +223,7 @@ impl Database {
                 ),
             },
             owned,
+            pause,
         };
         Arc::new(CoinPurchases::new(
             self.pool.clone(),
@@ -470,6 +499,13 @@ async fn catalogue_order_paid_credits_once() -> TestResult {
 #[derive(Debug)]
 struct Active;
 impl AccountReader for Active {
+    async fn state_in(
+        &self,
+        _: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<AccountState, PaymentError> {
+        self.state(id).await
+    }
     async fn state(&self, _: Uuid) -> Result<AccountState, PaymentError> {
         Ok(AccountState::Active)
     }
@@ -1415,11 +1451,17 @@ async fn reversal_of_unavailable_coins_holds_and_freezes_purchasing() -> TestRes
     // unsettled debt) and the wallet stay as they were.
     let staff = Uuid::now_v7();
     let mut connection = db.pool.acquire().await?;
+    let hold: Uuid =
+        sqlx::query_scalar("SELECT hold_id FROM coin_purchase_holds WHERE account_id=$1")
+            .bind(payer)
+            .fetch_one(&mut *connection)
+            .await?;
     assert_eq!(
         oteryn_payments::coin_store::release_purchase_hold_in(
             &mut connection,
             payer,
             staff,
+            hold,
             "Reviewed"
         )
         .await?
@@ -1431,6 +1473,7 @@ async fn reversal_of_unavailable_coins_holds_and_freezes_purchasing() -> TestRes
             &mut connection,
             payer,
             staff,
+            hold,
             "Reviewed"
         )
         .await?,
@@ -1682,6 +1725,7 @@ async fn bad_reversal_events_are_refused() -> TestResult {
                 ),
             },
             owned: vec![],
+            pause: None,
         }),
     );
     assert!(matches!(
@@ -2071,6 +2115,385 @@ async fn l2_01_shared_transfer_ceiling_refuses_atomically_and_native_balance_rea
     eprintln!(
         "PG l2_01_shared_transfer_ceiling_refuses_atomically_and_native_balance_reads: {:.3}s",
         started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn settlement_and_store_read_sanctions_committed_during_account_lock_wait() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let staff = db.account().await?;
+    for category in ["restriction", "suspension", "ban"] {
+        let payer = db.account().await?;
+        let token = db.token(payer).await?;
+        let pause = Arc::new(EligibilityPause::default());
+        let service = db.service_with_pause(vec![], Some(pause.clone()));
+        let (order, _, request) = awaiting_order(&db, &service, payer, &token).await?;
+        // sandbox_complete checks payable, then Payments::intent checks
+        // eligibility again. Pause after that final pre-settlement check.
+        pause
+            .remaining
+            .store(2, std::sync::atomic::Ordering::SeqCst);
+        let paying = service.clone();
+        let payment =
+            tokio::spawn(async move { paying.sandbox_complete(payer, order, true).await });
+        tokio::time::timeout(std::time::Duration::from_secs(5), pause.reached.notified()).await?;
+        // The initial checkout eligibility check completed. The production
+        // sanction writer locks the payer before inserting dependent rows.
+        let mut writer = db.pool.begin().await?;
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(payer)
+            .fetch_one(&mut *writer)
+            .await?;
+        if category == "ban" {
+            sqlx::query("WITH i AS (INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES(gen_random_uuid(),$1,'ban') RETURNING sanction_id) INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) SELECT $1,1,sanction_id,jsonb_build_object('staff',$2::uuid),true,now()-interval '1 minute',now()+interval '1 day' FROM i")
+                .bind(payer).bind(staff).execute(&mut *writer).await?;
+        } else {
+            sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,$3,'active','test',now()-interval '1 minute',now()+interval '1 day',$2)")
+                .bind(payer).bind(staff).bind(category).execute(&mut *writer).await?;
+        }
+        let pool = db.pool.clone();
+        let store = tokio::spawn(async move {
+            let mut tx = pool.begin().await?;
+            let state = oteryn_store::purchase::Accounts::state(
+                &oteryn_store::purchase::DatabaseAccounts,
+                &mut tx,
+                payer,
+            )
+            .await;
+            tx.rollback().await?;
+            Ok::<_, sqlx::Error>(state)
+        });
+        pause.resume.notify_one();
+        // Observe both readers actually waiting on this writer, rather than
+        // relying on scheduler timing to reproduce the old statement snapshot.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid))")
+                    .bind(sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()").fetch_one(&mut *writer).await?)
+                    .fetch_one(&db.pool).await?;
+                if waiting >= 2 { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            Ok::<_, sqlx::Error>(())
+        }).await??;
+        writer.commit().await?;
+        let paid = tokio::time::timeout(std::time::Duration::from_secs(5), payment).await???;
+        assert_eq!(paid.state, OrderState::Processing, "{category}");
+        assert!(paid.review_required, "{category}");
+        assert_eq!(
+            service.order(payer, request).await?.state,
+            OrderState::Processing
+        );
+        assert_eq!(top_ups(&db, payer).await, 0, "{category}");
+        assert_eq!(
+            store.await???,
+            oteryn_store::purchase::AccountState::Restricted
+        );
+    }
+    db.close().await
+}
+
+#[tokio::test]
+async fn unpaid_order_churn_is_bounded_and_replays_survive_budget() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let service = db.service(vec![]);
+    let mut last = None;
+    for _ in 0..100 {
+        let catalogue = service.catalogue(payer, None).await?;
+        let request = CoinOrderRequest::decode(
+            order_body(
+                Uuid::now_v7(),
+                &catalogue.packages[0].quote_id.to_string(),
+                None,
+            )
+            .as_bytes(),
+        )
+        .ok_or("invalid order fixture")?;
+        let order = service.create_order(payer, &request).await?;
+        last = Some((request, order));
+    }
+    assert!(service.catalogue(payer, None).await.is_err());
+    let (request, order) = last.ok_or("no orders")?;
+    assert_eq!(service.create_order(payer, &request).await?, order);
+    // Terminal orders cannot free the rolling issuance budget either.
+    sqlx::query("UPDATE coin_purchase_orders SET state='failed',checkout_url=NULL")
+        .execute(&db.pool)
+        .await?;
+    assert!(service.catalogue(payer, None).await.is_err());
+    sqlx::query("UPDATE coin_purchase_orders SET state='processing'")
+        .execute(&db.pool)
+        .await?;
+    // The issuance window can elapse, but unpaid orders still block allocation.
+    sqlx::query("UPDATE coin_purchase_quotes SET created_at=now()-interval '2 hours'")
+        .execute(&db.pool)
+        .await?;
+    assert!(service.catalogue(payer, None).await.is_err());
+    for table in [
+        "coin_purchase_quotes",
+        "coin_purchase_orders",
+        "payment_intents",
+    ] {
+        let count: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(count, 100, "{table}");
+    }
+    // A previously issued live quote must also be refused by the independent
+    // order cap, including concurrent attempts and processing orders.
+    let spare = Uuid::now_v7();
+    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,character_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) SELECT $1,payer_account_id,character_id,package_id,coins,minor_units,currency,exponent,environment,now()+interval '2 minutes' FROM coin_purchase_quotes WHERE id=$2")
+        .bind(spare).bind(request.quote_id).execute(&db.pool).await?;
+    let a =
+        CoinOrderRequest::decode(order_body(Uuid::now_v7(), &spare.to_string(), None).as_bytes())
+            .ok_or("invalid order fixture")?;
+    let b =
+        CoinOrderRequest::decode(order_body(Uuid::now_v7(), &spare.to_string(), None).as_bytes())
+            .ok_or("invalid order fixture")?;
+    let (a, b) = tokio::join!(
+        service.create_order(payer, &a),
+        service.create_order(payer, &b)
+    );
+    assert_eq!(a, Err(CoinError::Unavailable));
+    assert_eq!(b, Err(CoinError::Unavailable));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM coin_purchase_orders")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 100);
+    db.close().await
+}
+
+/// Keep OAuth, LCFA reads and the ownership-to-refusal mapping in production code.
+#[tokio::test]
+async fn production_lcfa_ownership_refuses_without_purchase_writes() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::open().await?.ok_or("PostgreSQL required")?;
+    let payer = db.account().await?;
+    let foreign_payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let mine = Uuid::now_v7();
+    let foreign = Uuid::now_v7();
+    let authority = "oteryn:character-authority:primary";
+    let settings = lcfa::Settings {
+        enabled: true,
+        environment: oteryn_core::Environment::Testing,
+        source_authority: authority.into(),
+        freshness_seconds: 120,
+        ..lcfa::Settings::default()
+    };
+    let host = Host {
+        pool: db.pool.clone(),
+        oauth: db.config.clone(),
+        projection: lcfa::Projection::new(
+            db.pool.clone(),
+            settings.clone(),
+            Arc::new(overview::Accounts(db.pool.clone())),
+        ),
+    };
+    let make_service = |host: Host| {
+        Arc::new(CoinPurchases::new(
+            db.pool.clone(),
+            CoinSettings {
+                enabled: true,
+                packages: parse_packages(&packages()).unwrap(),
+                origin: ORIGIN.into(),
+                environment: "testing".into(),
+            },
+            provider(),
+            Arc::new(host),
+        ))
+    };
+    for (account, character) in [(payer, mine), (foreign_payer, foreign)] {
+        let world = Uuid::now_v7();
+        let content = format!(
+            r#"[{{"character_id":"{character}","world_id":"{world}","name":"Synthetic","availability":"AVAILABLE"}}]"#
+        );
+        sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,$2,'1','1',0,$3)")
+            .bind(account).bind(authority).bind(Sha256::digest(content.as_bytes()).to_vec()).execute(&db.pool).await?;
+        sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Synthetic','AVAILABLE')")
+            .bind(account).bind(character).bind(world).execute(&db.pool).await?;
+    }
+    let missing_account = Uuid::now_v7();
+    let service = make_service(host.clone());
+    // Both a positive ownership result and a real quote prove the fixture is live.
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority=$1,complete_through=extract(epoch FROM clock_timestamp())::bigint,observed_at=extract(epoch FROM clock_timestamp())::bigint")
+        .bind(authority).execute(&db.pool).await?;
+    assert_eq!(host.ownership(payer, mine).await, Ownership::Owned);
+    assert_eq!(
+        host.ownership(foreign_payer, foreign).await,
+        Ownership::Owned
+    );
+    let (status, body) = get(
+        db.app(&service),
+        &format!("{API}/catalogue?character_id={mine}"),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let quote = json(&body)["packages"][0]["quote_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for case in [
+        "foreign",
+        "missing",
+        "denied",
+        "stale",
+        "epoch",
+        "invalid",
+        "unavailable",
+        "storage",
+    ] {
+        let mut candidate = host.clone();
+        let character = if case == "foreign" { foreign } else { mine };
+        let expected = match case {
+            "foreign" => Ownership::NotOwned,
+            "missing" => {
+                sqlx::query(
+                    "UPDATE account_character_snapshots SET account_id=$2 WHERE account_id=$1",
+                )
+                .bind(payer)
+                .bind(missing_account)
+                .execute(&db.pool)
+                .await?;
+                Ownership::NotOwned
+            }
+            "denied" => {
+                candidate.projection = lcfa::Projection::new(
+                    db.pool.clone(),
+                    settings.clone(),
+                    Arc::new(lcfa::DenyAccounts),
+                );
+                Ownership::NotOwned
+            }
+            "stale" => {
+                sqlx::query("UPDATE account_character_feed SET complete_through=0")
+                    .execute(&db.pool)
+                    .await?;
+                Ownership::Unavailable
+            }
+            "epoch" => {
+                sqlx::query("UPDATE account_character_snapshots SET projection_epoch='2' WHERE account_id=$1").bind(payer).execute(&db.pool).await?;
+                Ownership::Unavailable
+            }
+            "invalid" => {
+                sqlx::query(
+                    "UPDATE account_character_snapshots SET invalid=true WHERE account_id=$1",
+                )
+                .bind(payer)
+                .execute(&db.pool)
+                .await?;
+                Ownership::Unavailable
+            }
+            "unavailable" => {
+                candidate.projection = lcfa::Projection::new(
+                    db.pool.clone(),
+                    lcfa::Settings::default(),
+                    Arc::new(overview::Accounts(db.pool.clone())),
+                );
+                Ownership::Unavailable
+            }
+            "storage" => {
+                sqlx::query(
+                    "ALTER TABLE account_characters RENAME TO unavailable_account_characters",
+                )
+                .execute(&db.pool)
+                .await?;
+                Ownership::Unavailable
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            candidate.ownership(payer, character).await,
+            expected,
+            "{case}"
+        );
+        let expected_status = if expected == Ownership::NotOwned {
+            StatusCode::FORBIDDEN
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        };
+        let candidate = make_service(candidate);
+        let quotes: Value = sqlx::query_scalar("SELECT coalesce(jsonb_agg(to_jsonb(q) ORDER BY id),'[]'::jsonb) FROM coin_purchase_quotes q")
+            .fetch_one(&db.pool).await?;
+        let orders = db
+            .count("SELECT count(*) FROM coin_purchase_orders")
+            .await?;
+        let intents = db.count("SELECT count(*) FROM payment_intents").await?;
+        assert_eq!(
+            get(
+                db.app(&candidate),
+                &format!("{API}/catalogue?character_id={character}"),
+                &token
+            )
+            .await
+            .0,
+            expected_status,
+            "{case} catalogue"
+        );
+        assert_eq!(
+            post(
+                db.app(&candidate),
+                &token,
+                order_body(Uuid::now_v7(), &quote, Some(character))
+            )
+            .await
+            .0,
+            expected_status,
+            "{case} order"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, Value>("SELECT coalesce(jsonb_agg(to_jsonb(q) ORDER BY id),'[]'::jsonb) FROM coin_purchase_quotes q")
+                .fetch_one(&db.pool).await?,
+            quotes,
+            "{case}"
+        );
+        assert_eq!(
+            db.count("SELECT count(*) FROM coin_purchase_orders")
+                .await?,
+            orders,
+            "{case}"
+        );
+        assert_eq!(
+            db.count("SELECT count(*) FROM payment_intents").await?,
+            intents,
+            "{case}"
+        );
+        if case == "storage" {
+            sqlx::query("ALTER TABLE unavailable_account_characters RENAME TO account_characters")
+                .execute(&db.pool)
+                .await?;
+        }
+        if case == "missing" {
+            sqlx::query("UPDATE account_character_snapshots SET account_id=$2 WHERE account_id=$1")
+                .bind(missing_account)
+                .bind(payer)
+                .execute(&db.pool)
+                .await?;
+        }
+        sqlx::query("UPDATE account_character_snapshots SET projection_epoch='1',invalid=false WHERE account_id=$1").bind(payer).execute(&db.pool).await?;
+        sqlx::query("UPDATE account_character_feed SET complete_through=extract(epoch FROM clock_timestamp())::bigint,observed_at=extract(epoch FROM clock_timestamp())::bigint").execute(&db.pool).await?;
+    }
+    assert_eq!(
+        post(
+            db.app(&service),
+            &token,
+            order_body(Uuid::now_v7(), &quote, Some(mine))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    db.close().await?;
+    eprintln!(
+        "production_lcfa_ownership_refuses_without_purchase_writes: {:?}",
+        started.elapsed()
     );
     Ok(())
 }

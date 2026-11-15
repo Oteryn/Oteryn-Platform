@@ -54,7 +54,10 @@ fn router(service: Passkeys, sessions: SessionLayer) -> Router {
             sessions,
             session::middleware,
         ))
-        .layer(Extension(limiter))
+        .layer(axum::middleware::from_fn_with_state(
+            limiter,
+            oteryn_web::ratelimit::supply,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(32 * 1024))
         .with_state(service.clone());
     oteryn_web::ratelimit::finish_routes(routes)
@@ -217,10 +220,9 @@ async fn confirm(
     service: &Passkeys,
     session: &BrowserSession,
     input: Password,
-) -> Result<Uuid, Error> {
+) -> Result<oteryn_identity::login::Authorization, Error> {
     let account = session.account_id().await.ok_or(Error::Refused)?;
-    service.confirm_password(account, input.password).await?;
-    Ok(account)
+    service.confirm_password(account, input.password).await
 }
 // Each endpoint charges the shared limiter before credential verification.
 macro_rules! endpoint {
@@ -259,8 +261,12 @@ async fn begin_register(
     _: &std::collections::HashMap<String, String>,
 ) -> Result<serde_json::Value, Error> {
     let account = confirm(service, session, input).await?;
-    serde_json::to_value(service.begin_registration(binding, account).await?)
-        .map_err(|_| Error::Refused)
+    serde_json::to_value(
+        service
+            .begin_registration_authorized(binding, account)
+            .await?,
+    )
+    .map_err(|_| Error::Refused)
 }
 async fn end_register(
     service: &Passkeys,
@@ -317,7 +323,7 @@ async fn end_authenticate(
 async fn delete_key(
     service: &Passkeys,
     session: &BrowserSession,
-    _: &str,
+    binding: &str,
     input: Password,
     path: &std::collections::HashMap<String, String>,
 ) -> Result<serde_json::Value, Error> {
@@ -326,7 +332,7 @@ async fn delete_key(
         .and_then(|id| Uuid::parse_str(id).ok())
         .ok_or(Error::Refused)?;
     let account = confirm(service, session, input).await?;
-    service.remove(account, id).await?;
+    service.remove_authorized(binding, account, id).await?;
     session::rotate(session, PrivilegeChange::Logout).await?;
     Ok(serde_json::json!({"ok":true}))
 }

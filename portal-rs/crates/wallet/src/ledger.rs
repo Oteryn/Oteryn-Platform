@@ -66,11 +66,21 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         self.enabled()?;
         valid_id(account)?;
         let mut tx = self.pool.begin().await?;
-        self.active(&mut tx, account).await?;
-        lock(&mut tx, account).await?;
-        let result = balance(&mut tx, account).await?;
+        let result = self.balance_in(&mut tx, account).await?;
         tx.commit().await?;
         Ok(result)
+    }
+    /// Read using the caller's transaction and account lock.
+    pub async fn balance_in(
+        &self,
+        connection: &mut PgConnection,
+        account: Uuid,
+    ) -> Result<Balance, Error> {
+        self.enabled()?;
+        valid_id(account)?;
+        self.active(connection, account).await?;
+        lock(connection, account).await?;
+        balance(connection, account).await
     }
     pub async fn transfer(
         &self,
@@ -111,13 +121,14 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             reference: None,
             reason: None,
         };
-        if claim(&mut tx, &operation).await? {
+        let replayed = claim(&mut tx, &operation).await?;
+        self.allowed(&mut tx, sender).await?;
+        self.allowed(&mut tx, recipient).await?;
+        if replayed {
             let result = receipt(&mut tx, key, true).await?;
             tx.commit().await?;
             return Ok(result);
         }
-        self.allowed(&mut tx, sender).await?;
-        self.allowed(&mut tx, recipient).await?;
         crate::debt::unlocked(&mut tx, sender).await?;
         entry(&mut tx, key, sender, -amount, 0).await?;
         credit(&mut tx, key, recipient, amount).await?;
@@ -165,7 +176,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             return Ok(result);
         }
         let before = balance(&mut tx, account).await?;
-        let after = before.apply(amount, 0)?;
+        credit(&mut tx, key, account, amount).await?;
+        let after = balance(&mut tx, account).await?;
         let event = AdjustmentAudit {
             operation_id: key,
             account_id: account,
@@ -178,7 +190,6 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if !self.audit.adjustment(&mut tx, &event).await {
             return Err(Refusal::AuditDenied.into());
         }
-        credit(&mut tx, key, account, amount).await?;
         sqlx::query("INSERT INTO wallet_adjustments (id, account_id, actor_id, amount, reason) VALUES ($1,$2,$3,$4,$5)")
             .bind(key).bind(account).bind(actor).bind(amount).bind(reason).execute(&mut *tx).await?;
         let result = receipt(&mut tx, key, false).await?;
@@ -231,7 +242,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             return receipt(tx, key, true).await;
         }
         let before = balance(tx, account).await?;
-        let after = before.apply(amount, 0)?;
+        credit(tx, key, account, amount).await?;
+        let after = balance(tx, account).await?;
         let event = AdjustmentAudit {
             operation_id: key,
             account_id: account,
@@ -244,7 +256,6 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if !self.audit.adjustment(tx, &event).await {
             return Err(Refusal::AuditDenied.into());
         }
-        credit(tx, key, account, amount).await?;
         sqlx::query("INSERT INTO wallet_adjustments (id, account_id, actor_id, amount, reason) VALUES ($1,$2,$3,$4,$5)")
             .bind(key).bind(account).bind(actor).bind(amount).bind(reason).execute(&mut **tx).await?;
         receipt(tx, key, false).await
@@ -314,7 +325,11 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         valid_id(account)?;
         valid_key(reservation)?;
         let mut tx = self.pool.begin().await?;
-        self.active(&mut tx, account).await?;
+        if capture {
+            self.active(&mut tx, account).await?;
+        } else {
+            Self::active_state(self.accounts.safe_return(&mut tx, account).await)?;
+        }
         lock(&mut tx, account).await?;
         let row = sqlx::query("SELECT amount-COALESCE((to_jsonb(wallet_reservations)->>'consumed')::bigint,0) AS amount, status FROM wallet_reservations WHERE id=$1 AND account_id=$2 FOR UPDATE")
             .bind(reservation).bind(account).fetch_optional(&mut *tx).await?.ok_or(Refusal::ReservationMissing)?;
@@ -420,7 +435,7 @@ fn valid_id(id: Uuid) -> Result<(), Error> {
 }
 fn valid_key(id: Uuid) -> Result<(), Error> {
     valid_id(id)?;
-    if id.get_version_num() != 7 {
+    if id.get_version_num() != 7 || id.get_variant() != uuid::Variant::RFC4122 {
         return Err(Refusal::InvalidIdentifier.into());
     }
     Ok(())
@@ -431,15 +446,15 @@ fn positive(amount: i64) -> Result<(), Error> {
     }
     Ok(())
 }
-async fn lock(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(), Error> {
+async fn lock(tx: &mut PgConnection, account: Uuid) -> Result<(), Error> {
     // Creation also acquires a lock: callers order inserts as well as SELECTs.
     sqlx::query("INSERT INTO wallet_accounts (account_id) VALUES ($1) ON CONFLICT DO NOTHING")
         .bind(account)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await?;
     sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
         .bind(account)
-        .fetch_one(&mut **tx)
+        .fetch_one(&mut *tx)
         .await?;
     Ok(())
 }
@@ -447,7 +462,7 @@ async fn balance(tx: &mut PgConnection, account: Uuid) -> Result<Balance, Error>
     // One coin class: entries of either historical coin_class count.
     let (available, reserved): (i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta),0)::bigint, COALESCE(SUM(reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1")
         .bind(account).fetch_one(&mut *tx).await?;
-    Balance::default().apply(available, reserved)
+    Balance::existing(available, reserved)
 }
 /// Every coin credit: the whole credit enters the balance, then pays the
 /// account's outstanding coin debt first, in the same transaction under the
@@ -459,10 +474,15 @@ pub(crate) async fn credit(
     account: Uuid,
     amount: i64,
 ) -> Result<(), Error> {
-    entry(tx, key, account, amount, 0).await?;
-    if amount > 0 {
-        crate::debt::settle(tx, key, account, amount).await?;
+    let before = balance(tx, account).await?;
+    if amount <= 0 {
+        return entry(tx, key, account, amount, 0).await;
     }
+    // Gross credit and debt debit are immutable history in one transaction.
+    // Validate only their net effect; even a historical bigint balance may repay debt.
+    insert_entry(tx, key, account, amount, 0).await?;
+    let repaid = crate::debt::settle(tx, key, account, amount).await?;
+    before.apply(amount - repaid, 0)?;
     Ok(())
 }
 pub(crate) async fn entry(
@@ -473,6 +493,15 @@ pub(crate) async fn entry(
     reserved: i64,
 ) -> Result<(), Error> {
     balance(tx, account).await?.apply(available, reserved)?;
+    insert_entry(tx, key, account, available, reserved).await
+}
+pub(crate) async fn insert_entry(
+    tx: &mut PgConnection,
+    key: Uuid,
+    account: Uuid,
+    available: i64,
+    reserved: i64,
+) -> Result<(), Error> {
     sqlx::query("INSERT INTO wallet_entries (id,operation_id,account_id,available_delta,reserved_delta) VALUES ($1,$2,$3,$4,$5)")
         .bind(Uuid::now_v7()).bind(key).bind(account).bind(available).bind(reserved).execute(&mut *tx).await?;
     Ok(())
@@ -530,7 +559,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         self.known(tx, account).await?;
         let (available, reserved, entries): (i64, i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta),0)::bigint, COALESCE(SUM(reserved_delta),0)::bigint, COUNT(*)::bigint FROM wallet_entries WHERE account_id=$1")
             .bind(account).fetch_one(&mut **tx).await?;
-        let balance = Balance::default().apply(available, reserved)?;
+        let balance = Balance::existing(available, reserved)?;
         Ok((balance, entries.checked_add(1).ok_or(Refusal::Overflow)?))
     }
 
@@ -628,11 +657,46 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         reservation: Uuid,
         capture: bool,
     ) -> Result<Receipt, Error> {
+        self.settle_existing_in::<false>(tx, key, account, reservation, capture)
+            .await
+    }
+    /// Trusted reconciliation of an existing reservation may settle a known inactive
+    /// account. Unknown accounts still fail closed; this never authorizes new spending.
+    pub async fn reconcile_reservation_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        key: Uuid,
+        account: Uuid,
+        reservation: Uuid,
+        capture: bool,
+    ) -> Result<Receipt, Error> {
+        self.settle_existing_in::<true>(tx, key, account, reservation, capture)
+            .await
+    }
+    async fn settle_existing_in<const RECONCILE: bool>(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        key: Uuid,
+        account: Uuid,
+        reservation: Uuid,
+        capture: bool,
+    ) -> Result<Receipt, Error> {
         self.enabled()?;
         valid_key(key)?;
         valid_id(account)?;
         valid_key(reservation)?;
-        self.active(tx, account).await?;
+        if RECONCILE {
+            if !matches!(
+                self.accounts.state(tx, account).await,
+                AccountState::Active | AccountState::Inactive
+            ) {
+                return Err(Refusal::AccountDenied.into());
+            }
+        } else if capture {
+            self.active(tx, account).await?;
+        } else {
+            Self::active_state(self.accounts.safe_return(tx, account).await)?;
+        }
         lock(tx, account).await?;
         let row = sqlx::query("SELECT amount-COALESCE((to_jsonb(wallet_reservations)->>'consumed')::bigint,0) AS amount, status FROM wallet_reservations WHERE id=$1 AND account_id=$2 FOR UPDATE")
             .bind(reservation).bind(account).fetch_optional(&mut **tx).await?.ok_or(Refusal::ReservationMissing)?;
@@ -719,7 +783,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         let replayed = claim(&mut tx, &op).await?;
         if !replayed {
             let before = balance(&mut tx, account).await?;
-            let after = before.apply(amount, 0)?;
+            credit(&mut tx, key, account, amount).await?;
+            let after = balance(&mut tx, account).await?;
             if !self
                 .audit
                 .adjustment(
@@ -738,7 +803,6 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             {
                 return Err(Refusal::AuditDenied.into());
             }
-            credit(&mut tx, key, account, amount).await?;
         }
         let result = receipt(&mut tx, key, replayed).await?;
         tx.commit().await?;
@@ -774,8 +838,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             },
         )
         .await?;
+        self.allowed(&mut tx, account).await?;
         if !replayed {
-            self.allowed(&mut tx, account).await?;
             crate::debt::unlocked(&mut tx, account).await?;
             entry(&mut tx, key, account, -amount, amount).await?;
             sqlx::query("INSERT INTO wallet_reservations (id,account_id,amount) VALUES ($1,$2,$3)")
@@ -841,9 +905,9 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             },
         )
         .await?;
+        self.allowed(&mut tx, seller).await?;
+        self.allowed(&mut tx, buyer).await?;
         if !replayed {
-            self.allowed(&mut tx, seller).await?;
-            self.allowed(&mut tx, buyer).await?;
             let row = sqlx::query("SELECT amount-consumed AS remaining,status FROM wallet_reservations WHERE id=$1 FOR UPDATE").bind(reservation).fetch_one(&mut *tx).await?;
             let remaining: i64 = row.try_get("remaining")?;
             let status: String = row.try_get("status")?;

@@ -18,6 +18,8 @@
 {% for character in characters %}
 <li class="op-panel op-stack">
 <a class="op-button op-button--secondary" href="/characters/{{ character.0 }}">{{ character.1 }}</a>
+{% if character.4 %}<span data-main-character>{{ main_label }}</span>{% endif %}
+<a href="/{{ lang }}/account/characters/{{ character.0 }}/profile">{{ preferences_label }}</a>
 <dl>
 <dt>{{ availability }}</dt><dd>{{ character.3 }}</dd>
 <dt>{{ world }}</dt><dd>{{ character.2 }}</dd>

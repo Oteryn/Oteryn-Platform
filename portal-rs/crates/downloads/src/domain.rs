@@ -52,6 +52,10 @@ pub enum AccountState {
 pub trait PublishAccess: Send + Sync {
     async fn account_state(&self, account_id: Uuid) -> AccountState;
     async fn may_publish(&self, account_id: Uuid, channel: Channel) -> Option<bool>;
+    /// Reauthorize using the publication transaction; unsupported adapters deny.
+    async fn authorize_in(&self, _: &mut sqlx::PgConnection, _: Uuid, _: Channel) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

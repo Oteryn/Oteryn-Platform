@@ -88,7 +88,9 @@ impl Downloads {
         .await?;
         let channel_id: Uuid = row.try_get("id")?;
         let previous: Option<Uuid> = row.try_get("active_publication_id")?;
-        self.authorize(access, actor, channel).await?;
+        if !access.authorize_in(&mut tx, actor, channel).await {
+            return Err(Error::Denied);
+        }
         if verified.expires_at <= OffsetDateTime::now_utc() {
             return Err(Error::Verification);
         }

@@ -11,10 +11,9 @@ All flags default off. The environment-mounted route additionally requires
 `OTERYN_ADMIN_COMMERCE=true`; the domain switches are
 `OTERYN_PREMIUM_ENABLED`, `OTERYN_WALLET_ENABLED`, `OTERYN_PAYMENTS_ENABLED`,
 and `OTERYN_REFUNDS_ENABLED`. Exact `true` is the only enabled value.
-The configured route retains T10b's `PendingAuthentication` and a denying
-`PendingEffects` until the application supplies verified staff/domain authority.
-Use the injected `router` for that composition; enabling flags alone grants no
-identity or monetary authority.
+The configured route uses current staff identity and the premium/wallet domain
+ledgers. Transactional account and permission adapters recheck authority;
+enabling flags alone grants no identity or monetary authority.
 
 The staff page is `/admin/commerce`. Grants accept 1–366 days, adjustments a
 nonzero integer within ±1,000,000,000, and reasons 10–500 trimmed characters.
@@ -35,9 +34,9 @@ Approved refunds atomically persist an intent-scoped unique refund and enqueue
 `commerce.refund`. `RefundDelivery` validates the outbox payload and rechecks the
 intent's account, currency, amount and eligible state before calling the
 provider with its stable per-intent refund identity. Its row lock serializes
-workers; a crash can retry the provider's idempotent request. The binary exposes
-`Registry::commerce_refunds` for explicit registration with the selected
-adapter. No provider is installed by default. The dispatch receipt is separate
+workers; a crash can retry the provider's idempotent request. The binary registers
+`Registry::commerce_refunds` when commerce and refunds are enabled and a provider
+is configured. No provider is installed by default. The dispatch receipt is separate
 from settlement: only T31's verified webhook may mark a payment refunded. This
 module never converts money to coins or fabricates a wallet reversal policy.
 
@@ -45,3 +44,8 @@ Database tests use `PORTAL_TEST_DATABASE_URL`, create isolated schemas and print
 a skip notice when the variable is absent. They cover real ledger effects,
 idempotency, four eyes, concurrency, changed balance, revoked permissions,
 unknown targets, refunds without fabricated settlement, localized SSR and CSRF.
+
+Outside production, `OTERYN_PAYMENTS_ENABLED=true` and
+`OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE` (a custodied test-provider HMAC key file)
+configure the same adapter for HTTP and worker processes. Production continues
+to refuse the test provider; a live payment provider is not implemented here.

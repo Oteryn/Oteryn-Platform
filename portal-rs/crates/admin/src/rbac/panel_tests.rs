@@ -376,9 +376,11 @@ async fn player_notes_complete_when_small_pool_is_queued_on_role_fence() -> Test
             players.note(actor, actor.account, body).await
         }));
     }
+    // Same-account mutations now queue at account preparation before the fence.
+    // Both connections must still be occupied and both operations must commit.
     tokio::time::timeout(std::time::Duration::from_secs(2),async {
         loop {
-            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query='SELECT pg_advisory_xact_lock(71010)'").fetch_one(&db.root).await?;
+            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND (query='SELECT pg_advisory_xact_lock(71010)' OR query='SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE')").fetch_one(&db.root).await?;
             if count >= 2 {return Ok::<_,sqlx::Error>(());}
             tokio::task::yield_now().await;
         }
@@ -435,6 +437,86 @@ async fn role_fence_wait_is_bounded_and_releases_pool_capacity() -> TestResult {
     db.close().await?;
     eprintln!(
         "role_fence_wait_is_bounded_and_releases_pool_capacity: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_role_pages_and_survivor_batches_are_bounded() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Fixture::open(3).await?;
+    insert_account(&db, db.actor.account, "active").await?;
+    sqlx::query("INSERT INTO roles(key) SELECT 'batch_'||n FROM generate_series(1,125) n")
+        .execute(&db.pool)
+        .await?;
+    let mut cursor = None;
+    let mut seen = std::collections::BTreeSet::new();
+    loop {
+        let page = crate::web::role_page(&db.pool, cursor).await?;
+        assert!(page.len() <= 50);
+        if page.is_empty() {
+            break;
+        }
+        cursor = page.last().map(|r| r.0);
+        for (id, _) in page {
+            assert!(seen.insert(id));
+        }
+    }
+    assert!(seen.len() > 125);
+    let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
+        .fetch_one(&db.pool)
+        .await?;
+    // More disabled candidates than a batch, followed by one eligible survivor.
+    let mut holders = Vec::new();
+    for n in 1..=125_u128 {
+        let id = Uuid::from_u128(n);
+        insert_account(&db, id, if n == 125 { "active" } else { "suspended" }).await?;
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+            .bind(id)
+            .bind(role)
+            .execute(&db.pool)
+            .await?;
+        holders.push(id);
+    }
+    let batch = crate::web::holder_batch(&db.pool, role, db.actor.account, None).await?;
+    assert_eq!(batch.len(), 50);
+    assert_eq!(batch, holders[..50]);
+    let (cookie, csrf) = browser(&db).await?;
+    assert_eq!(
+        post(
+            &db,
+            &cookie,
+            &csrf,
+            format!("action=revoke&account={}&role={role}", db.actor.account)
+        )
+        .await?,
+        StatusCode::SEE_OTHER
+    );
+    // The remaining eligible administrator may not revoke itself.
+    let last = Fixture {
+        pool: db.pool.clone(),
+        root: db.root.clone(),
+        schema: db.schema.clone(),
+        actor: CheckContext {
+            account: holders[124],
+            ..db.actor
+        },
+    };
+    let (cookie, csrf) = browser(&last).await?;
+    assert_eq!(
+        post(
+            &last,
+            &cookie,
+            &csrf,
+            format!("action=revoke&account={}&role={role}", holders[124])
+        )
+        .await?,
+        StatusCode::FORBIDDEN
+    );
+    db.close().await?;
+    eprintln!(
+        "postgres_role_pages_and_survivor_batches_are_bounded duration={:?}",
         started.elapsed()
     );
     Ok(())

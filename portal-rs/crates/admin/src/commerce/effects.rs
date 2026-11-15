@@ -14,7 +14,11 @@ pub struct LedgerEffects<W, B, H, P> {
     pub payments: P,
 }
 pub trait PaymentActions: Send + Sync {
-    fn inspect(&self, request: &Request) -> impl Future<Output = Result<Value, Error>> + Send;
+    fn inspect(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        request: &Request,
+    ) -> impl Future<Output = Result<Value, Error>> + Send;
 
     fn apply(
         &self,
@@ -29,12 +33,16 @@ impl<
     P: PaymentActions,
 > Effects for LedgerEffects<W, B, H, P>
 {
-    async fn inspect(&self, request: &Request) -> Result<Value, Error> {
+    async fn inspect(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        request: &Request,
+    ) -> Result<Value, Error> {
         match request.command {
             Command::Adjust { amount } => {
                 let balance = self
                     .wallet
-                    .balance(request.target)
+                    .balance_in(connection, request.target)
                     .await
                     .map_err(|e| match e {
                         wallet::Error::Refused(wallet::Refusal::AccountDenied) => Error::Denied,
@@ -47,7 +55,9 @@ impl<
                     .ok_or(Error::Conflict)?;
                 Ok(json!({"before":balance.available,"after":after,"amount":amount}))
             }
-            Command::Refund | Command::Reconcile => self.payments.inspect(request).await,
+            Command::Refund | Command::Reconcile => {
+                self.payments.inspect(connection, request).await
+            }
             _ => Ok(json!(null)),
         }
     }
@@ -161,7 +171,7 @@ impl TestPaymentAdapter {
         }
         let intent = self
             .payments
-            .intent(row.try_get("intent_id")?)
+            .intent_in(&mut tx, row.try_get("intent_id")?)
             .await
             .map_err(payment_error)?;
         if intent.account_id != row.try_get::<Uuid, _>("account_id")?
@@ -203,13 +213,17 @@ impl TestPaymentAdapter {
     }
 }
 impl PaymentActions for TestPaymentAdapter {
-    async fn inspect(&self, request: &Request) -> Result<Value, Error> {
+    async fn inspect(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        request: &Request,
+    ) -> Result<Value, Error> {
         if !self.enabled {
             return Err(Error::Disabled);
         }
         let intent = self
             .payments
-            .intent(request.target)
+            .intent_in(connection, request.target)
             .await
             .map_err(payment_error)?;
         if matches!(request.command, Command::Refund) && intent.state != IntentState::Succeeded {
@@ -229,7 +243,7 @@ impl PaymentActions for TestPaymentAdapter {
         }
         let intent = self
             .payments
-            .intent(request.target)
+            .intent_in(tx, request.target)
             .await
             .map_err(payment_error)?;
         match request.command {
@@ -275,7 +289,7 @@ fn payment_error(error: oteryn_payments::Error) -> Error {
 #[derive(Debug, Clone)]
 pub struct PendingEffects;
 impl Effects for PendingEffects {
-    async fn inspect(&self, _: &Request) -> Result<Value, Error> {
+    async fn inspect(&self, _: &mut sqlx::PgConnection, _: &Request) -> Result<Value, Error> {
         Err(Error::Unavailable)
     }
     async fn apply(
@@ -299,6 +313,23 @@ impl AccountReader for PaymentAccounts {
         Ok(match self.0.find_by_id(id).await? {
             Some(account) if account.status == "active" => oteryn_payments::AccountState::Active,
             _ => oteryn_payments::AccountState::Unknown,
+        })
+    }
+    async fn state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<oteryn_payments::AccountState, oteryn_payments::Error> {
+        let active: bool =
+            sqlx::query_scalar("SELECT status='active' FROM accounts WHERE id=$1 FOR SHARE")
+                .bind(id)
+                .fetch_optional(connection)
+                .await?
+                .unwrap_or(false);
+        Ok(if active {
+            oteryn_payments::AccountState::Active
+        } else {
+            oteryn_payments::AccountState::Unknown
         })
     }
 }

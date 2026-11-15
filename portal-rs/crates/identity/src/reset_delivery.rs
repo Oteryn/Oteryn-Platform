@@ -3,10 +3,7 @@ use crate::{
     reset_http::text,
     worker::{Handler, HandlerFuture, Registry},
 };
-use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    transport::smtp::authentication::Credentials,
-};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use oteryn_identity::{
     reset::{DeliveryKey, audit},
     verify::token_hash,
@@ -41,12 +38,12 @@ pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std
     {
         return Err("reset origin must be an HTTPS origin".into());
     }
-    let smtp = AsyncSmtpTransport::<Tokio1Executor>::relay(&std::env::var("OTERYN_SMTP_HOST")?)?
-        .credentials(Credentials::new(
-            std::env::var("OTERYN_SMTP_USERNAME")?,
-            std::env::var("OTERYN_SMTP_PASSWORD")?,
-        ))
-        .build();
+    let smtp = oteryn_notify::smtp::transport(
+        &std::env::var("OTERYN_SMTP_HOST")?,
+        std::env::var("OTERYN_SMTP_USERNAME")?,
+        std::env::var("OTERYN_SMTP_PASSWORD")?,
+    )
+    .map_err(|_| "SMTP configuration invalid")?;
     let from = std::env::var("OTERYN_MAIL_FROM")?.parse()?;
     registry.register(
         "email.password-reset",

@@ -1179,3 +1179,62 @@ async fn lk_crossed_staff_replies_finish() -> TestResult {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let owner = db.account("en").await?;
+    let staff = db.account("en").await?;
+    let tickets = db.tickets(10)?;
+    let id:Uuid=sqlx::query_scalar("INSERT INTO tickets(account_id,request_key,category,subject,unread_reply) VALUES($1,$2,'account','Read boundary',true) RETURNING id").bind(owner).bind(Uuid::now_v7()).fetch_one(&db.pool).await?;
+    for n in 0..51 {
+        sqlx::query("INSERT INTO ticket_messages(id,ticket_id,author_account_id,author_kind,body,internal) VALUES($1,$2,$3,$4,$5,false)").bind(Uuid::now_v7()).bind(id).bind(if n==50 {staff} else {owner}).bind(if n==50 {"staff"} else {"user"}).bind(format!("Message {n}")).execute(&db.pool).await?;
+    }
+    let (_, first) = tickets.show(owner, false, id).await?;
+    let unread = || {
+        sqlx::query_scalar::<_, bool>("SELECT unread_reply FROM tickets WHERE id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+    };
+    assert!(unread().await?);
+    // Owner mutations establish no viewing boundary.
+    tickets
+        .change(
+            owner,
+            None,
+            id,
+            1,
+            Change::Reply {
+                body: "Owner reply",
+                internal: false,
+            },
+        )
+        .await?;
+    assert!(unread().await?);
+    tickets
+        .change(owner, None, id, 2, Change::Status("closed"))
+        .await?;
+    assert!(unread().await?);
+    let (_, last) = tickets
+        .show_page(owner, false, id, first.last().map(|m| m.id))
+        .await?;
+    assert_eq!(last.len(), 2);
+    assert!(!unread().await?);
+    // A later reply must survive an acknowledgement of the older page.
+    sqlx::query("INSERT INTO ticket_messages(id,ticket_id,author_account_id,author_kind,body,internal) VALUES($1,$2,$3,'staff','New reply',false)").bind(Uuid::now_v7()).bind(id).bind(staff).execute(&db.pool).await?;
+    sqlx::query("UPDATE tickets SET unread_reply=true WHERE id=$1")
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+    tickets.show(owner, false, id).await?;
+    assert!(unread().await?);
+    db.finish().await?;
+    eprintln!(
+        "postgres_read_acknowledgement_requires_displayed_reply duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

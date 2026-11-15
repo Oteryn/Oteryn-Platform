@@ -182,3 +182,57 @@ impl Config {
         Ok(())
     }
 }
+
+#[cfg(test)]
+impl Config {
+    pub(crate) fn fixture(authority: Authority, directory: &std::path::Path) -> Self {
+        let fence = Fence {
+            projection_epoch: 3,
+            recovery_generation: 3,
+            incarnation: Uuid::now_v7(),
+            character_history_complete_since: None,
+        };
+        let fence_file = directory.join("fence.json");
+        let keys_file = directory.join("keys.json");
+        let fence_bytes = serde_json::to_vec(&serde_json::json!({
+            "projection_epoch":3,"recovery_generation":3,"incarnation":fence.incarnation,
+            "character_history_complete_since":null
+        }))
+        .unwrap_or_default();
+        assert!(std::fs::write(&fence_file, fence_bytes).is_ok());
+        let public_keys = authority
+            .config
+            .snapshot_keys
+            .iter()
+            .map(|(kid, key)| {
+                let public_key_hex = key
+                    .as_bytes()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>();
+                serde_json::json!({"kid":kid,"public_key_hex":public_key_hex})
+            })
+            .collect::<Vec<_>>();
+        let keys_bytes = serde_json::to_vec(&public_keys).unwrap_or_default();
+        assert!(std::fs::write(&keys_file, &keys_bytes).is_ok());
+        Self {
+            authority,
+            fence,
+            fence_file,
+            keys_file,
+            keys_hash: Sha256::digest(&keys_bytes).into(),
+            bind: ([127, 0, 0, 1], 0).into(),
+            base_url: "https://game.invalid".into(),
+            certificate: directory.join("cert"),
+            private_key: directory.join("key"),
+            client_ca: directory.join("ca"),
+            bazaar_spki: [1; 32],
+            receipt_spki: [2; 32],
+            escrow_account: None,
+            worlds: vec![],
+            public_origin: "https://portal.test".into(),
+            cooldown_seconds: 86400,
+            financial_retention_days: 3650,
+        }
+    }
+}

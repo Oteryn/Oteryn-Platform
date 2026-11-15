@@ -22,6 +22,10 @@ const MAX_PAGE: u32 = 10000;
 struct Paging {
     page: Option<u32>,
 }
+#[derive(Deserialize, Default)]
+struct MessagePaging {
+    after: Option<Uuid>,
+}
 #[derive(Deserialize)]
 struct Input {
     lock_version: i64,
@@ -237,12 +241,13 @@ async fn show<A: AccountStateReader, B: Backend>(
     Extension(area): Extension<Area>,
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
+    Query(paging): Query<MessagePaging>,
     headers: HeaderMap,
 ) -> Response {
     if id.is_nil() {
         return status(Error::Invalid);
     }
-    let record = match s.backend.load(area, id).await {
+    let record = match s.backend.load(area, id, paging.after).await {
         Ok(v) => v,
         Err(e) => return status(e),
     };
@@ -261,6 +266,7 @@ async fn create_page(
         title: text(language(&headers), "create"),
         status: "active".into(),
         messages: vec![],
+        next_message: None,
     };
     render_record(Area::Enforcement, record, session, headers, true).await
 }
@@ -283,7 +289,10 @@ async fn render_record(
     );
     for message in record.messages {
         body.push_str(&format!(
-            "<article><h3>{}</h3><p>{}</p></article>",
+            "<article{}><h3>{}</h3><p>{}</p></article>",
+            message
+                .id
+                .map_or_else(String::new, |id| format!(" id=\"message-{id}\"")),
             text(
                 lang,
                 if message.internal {
@@ -293,6 +302,15 @@ async fn render_record(
                 }
             ),
             escape(&message.body)
+        ));
+    }
+    if let Some(after) = record.next_message {
+        body.push_str(&format!(
+            "<a href=\"{}/{}?after={}\">{}</a>",
+            base(area),
+            record.id,
+            after,
+            text(lang, "next")
         ));
     }
     let actions: &[(&str, &[&str])] = match area {

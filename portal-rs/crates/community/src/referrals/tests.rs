@@ -2402,3 +2402,78 @@ async fn bzb_referral_delivery_rotates_failed_recipient() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn l6_01_pending_termination_refuses_campaign_rewards() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = db.account().await;
+    sqlx::query("SELECT referral_campaign_reward('pending-premium',$1,'premium',5)")
+        .bind(account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let reward: Uuid = sqlx::query_scalar(
+        "SELECT id FROM referral_campaign_rewards WHERE operation_key='pending-premium'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+
+    sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')").bind(account).execute(&db.pool).await.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    assert!(
+        !DatabasePolicy
+            .allowed(&mut tx, account, account, Kind::New, Stage::Statistics)
+            .await
+            .unwrap()
+    );
+    sqlx::query("SELECT referral_campaign_reward('terminated-test',$1,'premium',5)")
+        .bind(account)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT referral_campaign_reward('terminated-outfit',$1,'outfit',1)")
+        .bind(account)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let rewards: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM referral_campaign_rewards WHERE account_id=$1 AND operation_key<>'pending-premium'")
+            .bind(account)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(rewards, 0);
+    let ledger = oteryn_store::premium::repository::Ledger::new(
+        db.pool.clone(),
+        Arc::new(DatabasePolicy),
+        true,
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    assert!(ledger.grant_referral_in(&mut tx, reward).await.is_err());
+    tx.rollback().await.unwrap();
+    Worker {
+        campaign: db.campaign.clone(),
+        sender: None,
+    }
+    .process()
+    .await
+    .unwrap();
+    let unapplied: bool =
+        sqlx::query_scalar("SELECT applied_at IS NULL FROM referral_campaign_rewards WHERE id=$1")
+            .bind(reward)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert!(unapplied);
+
+    db.close().await;
+    eprintln!(
+        "PG l6_01_pending_termination_refuses_campaign_rewards {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

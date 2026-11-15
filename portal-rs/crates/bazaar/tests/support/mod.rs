@@ -16,6 +16,13 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 #[derive(Debug, Clone, Default)]
 pub struct TestAccounts(pub Arc<RwLock<BTreeMap<Uuid, AccountState>>>);
 impl Accounts for TestAccounts {
+    async fn safe_return(&self, db: &mut PgConnection, account: Uuid) -> Result<bool, Error> {
+        Ok(self
+            .state(db, account)
+            .await?
+            .is_some_and(|state| state.active))
+    }
+
     async fn state(
         &self,
         _: &mut PgConnection,

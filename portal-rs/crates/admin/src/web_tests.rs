@@ -125,6 +125,7 @@ fn localized_responsive_labelled_template() {
             csrf: "token".into(),
             roles: vec![(Uuid::now_v7(), "<unsafe>".into())],
             manage: true,
+            next: None,
         }
         .render()
         .unwrap();
@@ -358,7 +359,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
         config: PanelConfig::default(),
         required: None,
         identity: Identity(identity),
-        auth: Authorizer::new(pool.clone(), Identity(identity)),
+        auth: Arc::new(Authorizer::new(pool.clone(), Identity(identity))),
         pool: pool.clone(),
     };
     assert!(matches!(
