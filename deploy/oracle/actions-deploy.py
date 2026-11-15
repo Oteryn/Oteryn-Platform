@@ -135,30 +135,22 @@ def journal(component, sha, phase, **facts):
 
 
 def contract(directory):
-    values = {}
-    for line in (directory / 'deploy/synology/release-contract.env').read_text().splitlines():
-        if line and not line.startswith('#'):
-            key, value = line.split('=', 1)
-            values[key] = value
-    schema = values.get('OTERYN_SCHEMA_COMPATIBILITY_ID', '')
-    accepts = values.get('OTERYN_APP_ACCEPTS_SCHEMA_IDS', '').split(',')
-    if (values.get('OTERYN_MIGRATION_POLICY') != 'expand-contract'
-            or values.get('PLATFORM_DB_ENGINE') != 'postgres'
-            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', schema)
-            or schema not in accepts):
-        raise ValueError('invalid Platform schema contract')
+    migrations = sorted((directory / 'portal-rs/migrations').glob('*.sql'))
+    if not migrations or not (directory / 'portal-rs/Dockerfile').is_file():
+        raise ValueError('Rust build inputs or migrations missing')
+    schema = 'portal-rs-' + migrations[-1].name.split('_', 1)[0]
     current = STATE / 'platform-current.json'
-    if current.exists() and json.loads(current.read_text())['schema'] not in accepts:
-        raise ValueError('new application does not accept the retained current schema')
+    if current.exists():
+        previous = json.loads(current.read_text())['schema']
+        accepted = {'portal-rs-' + path.name.split('_', 1)[0] for path in migrations}
+        if previous not in accepted:
+            raise ValueError('retained schema is not a Rust portal predecessor; operator reconciliation required')
     return schema
 
 
 def compose(source_dir):
     return ['docker', 'compose', '--env-file', str(ROOT / 'platform.env'),
-            '-f', str(source_dir / 'deploy/synology/compose.yml'),
-            '-f', str(ROOT / 'public-platform.compose.yml'),
-            '-f', str(ROOT / 'migrated-storage.compose.yml'),
-            '-f', str(ROOT / 'internal-mtls.compose.yml')]
+            '-f', str(source_dir / 'deploy/oracle/public-platform.compose.yml')]
 
 
 def inspect(name):
@@ -176,9 +168,9 @@ def status(component, *, allow_pending=False):
         names = ['oteryn-oracle-runtime-game-1', 'oteryn-oracle-game-postgres-1']
     else:
         names = ['oteryn-oracle-platform-1', 'oteryn-oracle-gateway-1',
-                 'oteryn-oracle-marketplace-scheduler-1', 'oteryn-oracle-postgres-1',
+                 'oteryn-oracle-worker-1', 'oteryn-oracle-postgres-1',
                  'oteryn-oracle-postgres-backup-1']
-        for url in ['https://oteryn.com/login', 'https://gateway.oteryn.com/ready']:
+        for url in ['https://oteryn.com/readyz', 'https://gateway.oteryn.com/ready']:
             run(['curl', '--fail', '--silent', '--show-error', '--max-time', '20', '-o', '/dev/null', url])
     for name in names:
         info = inspect(name)
@@ -197,7 +189,7 @@ def verify_current_release(component, sha):
     images = ({'oteryn-oracle-runtime-game-1': record['image']} if component == 'game' else
               {'oteryn-oracle-platform-1': record['platform_image'],
                'oteryn-oracle-gateway-1': record['gateway_image'],
-               'oteryn-oracle-marketplace-scheduler-1': record['platform_image']})
+               'oteryn-oracle-worker-1': record['platform_image']})
     if any(inspect(name)['Image'] != identity for name, identity in images.items()):
         raise ValueError('receipt differs from current runtime images')
     if component == 'platform':
@@ -252,7 +244,7 @@ def mtls_bootstrap():
 
 def prepare_mtls(directory, sha):
     bootstrap = mtls_bootstrap()
-    candidate = (directory / 'deploy/synology/nginx/internal-mtls.conf').read_text()
+    candidate = (directory / 'deploy/synology/docker/internal-mtls-nginx.conf').read_text()
     for stale in bootstrap.glob('internal-mtls-nginx.*.conf'):
         if re.fullmatch(r'internal-mtls-nginx\.' + SHA + r'\.conf', stale.name):
             stale.unlink()
@@ -279,9 +271,9 @@ def mtls_workers():
 
 
 def deploy_mtls(directory, sha, run_id, attempt):
-    # Neither prepare-platform.sh nor this deploy otherwise refreshes the listener's
-    # nginx configuration, so new internal routes would stay unreachable (404).
-    candidate = (directory / 'deploy/synology/nginx/internal-mtls.conf').read_text()
+    # Compatibility repair for separately retained TCP ingress. Application
+    # deployment itself uses the Rust mTLS listener directly.
+    candidate = (directory / 'deploy/synology/docker/internal-mtls-nginx.conf').read_text()
     bootstrap = mtls_bootstrap()
     staged = bootstrap / ('internal-mtls-nginx.' + sha + '.conf')
     live = bootstrap / Path(MTLS_CONFIG).name
@@ -319,63 +311,79 @@ def deploy_mtls(directory, sha, run_id, attempt):
     journal('platform', sha, 'schema_known', mtls_sha256=hashlib.sha256(candidate.encode()).hexdigest())
 
 
+def backup_platform(sha):
+    # Use the retained PostgreSQL client version and the migration role's exact
+    # target/TLS configuration. Keep the URL in container environment memory,
+    # never command arguments or captured logs.
+    database_image = inspect('oteryn-oracle-postgres-1')['Config']['Image']
+    path = STATE / (sha + '-platform.dump')
+    with path.open('xb') as archive:
+        subprocess.run(['docker', 'run', '--rm', '--network', 'oteryn-oracle_private',
+                        '--env-file', str(ROOT / 'platform-migrate.env'),
+                        '--mount', 'type=bind,source=' + str(ROOT / 'platform-secrets') + ',target=/run/oteryn,readonly',
+                        '--entrypoint', 'sh', database_image, '-ec',
+                        'export PGDATABASE="${OTERYN_DATABASE_URL:?missing migration database URL}"; exec pg_dump --format=custom'],
+                       check=True, stdout=archive, stderr=subprocess.DEVNULL, timeout=1800)
+        archive.flush()
+        os.fsync(archive.fileno())
+    with path.open('rb') as archive:
+        subprocess.run(['docker', 'run', '--rm', '-i', '--network', 'none',
+                        '--entrypoint', 'pg_restore', database_image, '--list'],
+                       check=True, stdin=archive, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=120)
+
+
 def platform_deploy(directory, sha, run_id, attempt):
     image = 'oteryn-platform:' + sha + '-arm64'
-    gateway = 'oteryn-gateway:' + sha + '-arm64'
-    for name, dockerfile in [(image, 'platform'), (gateway, 'gateway')]:
-        run(['docker', 'build', '--build-arg', 'OTERYN_BUILD_SHA=' + sha,
-             '--label', 'org.opencontainers.image.revision=' + sha,
-             '-f', 'deploy/synology/docker/' + dockerfile + '.Dockerfile',
-             '-t', name, '.'], cwd=directory)
-        if inspect_image(name)['Architecture'] != 'arm64':
-            raise ValueError('image architecture differs')
-    # Inherit the actual image USER and WORKDIR, with no keys, mounts or network.
-    # Refuse an unreadable application before backup, maintenance or migration.
-    run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'php', image,
-         '-r', 'foreach (["artisan", "bootstrap/app.php", "vendor/autoload.php"] as $file) { if (!is_readable($file)) { exit(1); } }'],
-        timeout=120)
-    reauthorize('platform', sha, run_id, attempt)
     schema = contract(directory)
+    run(['docker', 'build', '--label', 'org.opencontainers.image.revision=' + sha,
+         '-f', 'portal-rs/Dockerfile', '-t', image, 'portal-rs'], cwd=directory)
+    info = inspect_image(image)
+    if info['Architecture'] != 'arm64':
+        raise ValueError('image architecture differs')
+    run(['docker', 'run', '--rm', '--network', 'none', image, 'check-image'], timeout=120)
+    reauthorize('platform', sha, run_id, attempt)
     prepare_edge(directory, sha)
-    prepare_mtls(directory, sha)
-    # Preserve every private setting; change only immutable image identities.
     path = ROOT / 'platform.env'
     before = path.read_text()
-    old_files = inspect('oteryn-oracle-platform-1')['Config']['Labels']['com.docker.compose.project.config_files']
-    old_source = Path(old_files.split(',')[0]).parents[2]
-    previous = compose(old_source)
     current = compose(directory)
-    env = dict(os.environ, OTERYN_ENV_FILE=str(path))
-    run(['bash', str(old_source / 'deploy/synology/scripts/backup-postgres.sh'), 'run', 'dump'], env=env)
+    # The old Compose files are host-retained. Use their exact paths only to stop
+    # the old writers; never execute application or migration code from them.
+    old_files = inspect('oteryn-oracle-platform-1')['Config']['Labels']['com.docker.compose.project.config_files']
+    previous = ['docker', 'compose', '--env-file', str(path)]
+    for filename in old_files.split(','):
+        previous += ['-f', filename]
+    backup_platform(sha)
     reauthorize('platform', sha, run_id, attempt)
     journal('platform', sha, 'prepared', schema=schema,
             previous_image=inspect('oteryn-oracle-platform-1')['Image'],
-            platform_image=inspect_image(image)['Id'], gateway_image=inspect_image(gateway)['Id'])
-    run(previous + ['exec', '-T', 'platform', 'php', 'artisan', 'down', '--retry=60'])
-    run(previous + ['stop', 'platform', 'gateway', 'marketplace-scheduler'])
-    # No automatic rollback across a possibly committed schema migration.
+            platform_image=info['Id'], gateway_image=info['Id'])
+    services = run(previous + ['config', '--services'], output=True).splitlines()
+    writers = [name for name in ('platform', 'gateway', 'worker', 'marketplace-scheduler',
+                                 'internal-proxy', 'internal-mtls') if name in services]
+    if not {'platform', 'gateway'}.issubset(writers):
+        raise ValueError('retained application composition differs')
+    run(previous + ['stop', *writers])
+    retired = [name for name in ('marketplace-scheduler', 'internal-proxy', 'internal-mtls') if name in services]
+    if retired:
+        run(previous + ['rm', '--force', *retired])
     atomic(STATE / (sha + '-platform.env.before'), before)
-    settings = {'PLATFORM_IMAGE': image, 'GATEWAY_IMAGE': gateway, 'GATEWAY_VERSION': 'oracle-' + sha}
+    settings = {'PLATFORM_IMAGE': image, 'GATEWAY_IMAGE': image, 'GATEWAY_VERSION': 'oracle-' + sha}
     lines = before.splitlines()
     for key, value in settings.items():
         if sum(line.startswith(key + '=') for line in lines) != 1:
             raise ValueError('expected exactly one image setting')
         lines = [key + '=' + value if line.startswith(key + '=') else line for line in lines]
     atomic(path, '\n'.join(lines) + '\n')
-    script = ('source "$1/deploy/synology/scripts/lib.sh"; '
-              'load_oteryn_env_file "$OTERYN_ENV_FILE"; shift; '
-              'oteryn_platform_migrate_postgres "$@"')
     reauthorize('platform', sha, run_id, attempt)
     journal('platform', sha, 'schema_unknown')
-    run(['bash', '-euc', script, 'oracle-migrate', str(directory), *current], env=env)
+    run(current + ['run', '--rm', '-T', '--no-deps', 'migrate'])
     journal('platform', sha, 'schema_known')
-    run(current + ['up', '-d', '--no-deps', '--force-recreate', 'platform', 'gateway', 'marketplace-scheduler'])
-    run(current + ['exec', '-T', 'platform', 'php', 'artisan', 'up'])
+    run(current + ['up', '-d', '--no-deps', '--force-recreate', 'platform', 'gateway', 'worker'])
     deploy_edge(directory, sha, run_id, attempt)
-    deploy_mtls(directory, sha, run_id, attempt)
-    return {'oteryn-oracle-platform-1': inspect_image(image)['Id'],
-            'oteryn-oracle-gateway-1': inspect_image(gateway)['Id'],
-            'oteryn-oracle-marketplace-scheduler-1': inspect_image(image)['Id']}
+    return {'oteryn-oracle-platform-1': info['Id'],
+            'oteryn-oracle-gateway-1': info['Id'],
+            'oteryn-oracle-worker-1': info['Id']}
 
 
 def inspect_image(image):

@@ -620,30 +620,34 @@ async fn email(
     };
     let subject = text.text("mfa-email-subject");
     let body = format!("{}\n\n{code}", text.text("mfa-email-body"));
-    tokio::task::spawn_blocking(move || {
-        use lettre::{Message, SmtpTransport, Transport};
-        let message = Message::builder()
-            .from(from.parse().map_err(|_| ())?)
-            .to(to.parse().map_err(|_| ())?)
-            .subject(subject)
-            .body(body)
-            .map_err(|_| ())?;
-        let mut builder = SmtpTransport::relay(&host).map_err(|_| ())?;
-        if let (Ok(user), Ok(password)) = (
-            std::env::var("OTERYN_SMTP_USERNAME"),
-            std::env::var("OTERYN_SMTP_PASSWORD"),
-        ) {
-            builder = builder.credentials(
-                lettre::transport::smtp::authentication::Credentials::new(user, password),
-            );
-        }
-        builder.build().send(&message).map_err(|_| ())?;
-        Ok::<(), ()>(())
-    })
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    send_email(&host, &from, &to, subject, body).await?;
     Ok(redirect(language, "/mfa/challenge"))
+}
+
+pub(crate) async fn send_email(
+    host: &str,
+    from: &str,
+    to: &str,
+    subject: String,
+    body: String,
+) -> Result<(), StatusCode> {
+    use lettre::AsyncTransport;
+    let smtp = oteryn_notify::smtp::transport(
+        host,
+        std::env::var("OTERYN_SMTP_USERNAME").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        std::env::var("OTERYN_SMTP_PASSWORD").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+    )
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let message = lettre::Message::builder()
+        .from(from.parse().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?)
+        .to(to.parse().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?)
+        .subject(subject)
+        .body(body)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    smtp.send(message)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(())
 }
 async fn settings(
     State(context): State<Context>,

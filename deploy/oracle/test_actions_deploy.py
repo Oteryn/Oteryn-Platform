@@ -56,31 +56,26 @@ class AuthorityBoundary(unittest.TestCase):
             (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
             calls = []
             probes = []
-            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/synology/compose.yml'}}}
+            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/oracle/public-platform.compose.yml'}}}
             def command(args, **kwargs):
                 calls.append(args)
                 if args[:2] == ['docker', 'run']:
                     probes.append((args, kwargs))
                 # Model the observed PHP entry-script failure at either boundary:
                 # the new isolated image probe, or the old late migration command.
-                if args[:2] == ['docker', 'run'] or args[:2] == ['bash', '-euc']:
+                if args[:2] == ['docker', 'run'] or args[-1:] == ['migrate']:
                     raise subprocess.CalledProcessError(1, args, output='Could not open input file: artisan')
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'journal'), patch.object(deploy, 'atomic'), patch.object(deploy, 'reauthorize'), patch.object(deploy, 'run', side_effect=command):
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'backup_platform'), patch.object(deploy, 'journal'), patch.object(deploy, 'atomic'), patch.object(deploy, 'reauthorize'), patch.object(deploy, 'run', side_effect=command):
                 with self.assertRaises(subprocess.CalledProcessError):
                     deploy.platform_deploy(root, sha, 100, 1)
             self.assertFalse(any('dump' in args or 'stop' in args or 'down' in args for args in calls))
             # The probe is the first docker run and is bounded, isolated and uses the image's own USER/WORKDIR.
             self.assertEqual(len(probes), 1)
             argv, kwargs = probes[0]
-            self.assertEqual(argv[:7], ['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'php'])
-            self.assertEqual(argv[7], 'oteryn-platform:' + sha + '-arm64')
-            self.assertEqual(argv[8], '-r')
-            self.assertEqual(len(argv), 10)
+            self.assertEqual(argv, ['docker', 'run', '--rm', '--network', 'none',
+                                    'oteryn-platform:' + sha + '-arm64', 'check-image'])
             for flag in ('--user', '-u', '--workdir', '-w', '-v', '--volume', '--mount', '--env', '-e', '--env-file'):
                 self.assertNotIn(flag, argv)
-            for name in ('artisan', 'bootstrap/app.php', 'vendor/autoload.php'):
-                self.assertIn('"' + name + '"', argv[9])
-            self.assertIn('is_readable', argv[9])
             self.assertEqual(kwargs.get('timeout'), 120)
 
     def test_receipt_cannot_accept_a_different_healthy_image(self):
@@ -116,8 +111,8 @@ class AuthorityBoundary(unittest.TestCase):
         sha = 'a' * 40
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            (root / 'deploy/synology/nginx').mkdir(parents=True)
-            (root / 'deploy/synology/nginx/internal-mtls.conf').write_text('new routes\n')
+            (root / 'deploy/synology/docker').mkdir(parents=True)
+            (root / 'deploy/synology/docker/internal-mtls-nginx.conf').write_text('new routes\n')
             volume = root / 'volume'
             volume.mkdir()
             (volume / 'internal-mtls-nginx.conf').write_text('old routes\n')
@@ -157,8 +152,8 @@ class AuthorityBoundary(unittest.TestCase):
             self.assertFalse(any('reload' in args for args in calls))
 
     def _mtls_fixture(self, root):
-        (root / 'deploy/synology/nginx').mkdir(parents=True)
-        (root / 'deploy/synology/nginx/internal-mtls.conf').write_text('new routes\n')
+        (root / 'deploy/synology/docker').mkdir(parents=True)
+        (root / 'deploy/synology/docker/internal-mtls-nginx.conf').write_text('new routes\n')
         volume = root / 'volume'
         volume.mkdir()
         (volume / 'internal-mtls-nginx.conf').write_text('old routes\n')
@@ -238,8 +233,8 @@ class AuthorityBoundary(unittest.TestCase):
             root = Path(temporary)
             (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
             calls = []
-            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/synology/compose.yml'}}}
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'reauthorize', side_effect=[None, ValueError('workflow canceled')]):
+            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/oracle/public-platform.compose.yml'}}}
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'backup_platform', side_effect=lambda sha: calls.append(['dump'])), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'reauthorize', side_effect=[None, ValueError('workflow canceled')]):
                 with self.assertRaisesRegex(ValueError, 'canceled'):
                     deploy.platform_deploy(root, sha, 100, 1)
             self.assertTrue(any('dump' in args for args in calls))
@@ -252,11 +247,12 @@ class AuthorityBoundary(unittest.TestCase):
             state = root / 'actions'
             state.mkdir()
             (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
-            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/synology/compose.yml'}}}
+            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/oracle/public-platform.compose.yml'}}}
             def command(args, **kw):
-                if args[:2] == ['bash', '-euc']:
+                if args[-2:] == ['config', '--services']: return 'platform\ngateway\nworker\n'
+                if args[-1:] == ['migrate']:
                     raise subprocess.CalledProcessError(1, args)
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'reauthorize'):
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'backup_platform'), patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'reauthorize'):
                 with self.assertRaises(subprocess.CalledProcessError):
                     deploy.platform_deploy(root, sha, 100, 1)
                 self.assertEqual(json.loads((state / 'platform-pending.json').read_text())['phase'], 'schema_unknown')
@@ -280,9 +276,9 @@ class AuthorityBoundary(unittest.TestCase):
 
     def test_failed_scheduler_blocks_platform_readiness(self):
         def container(name):
-            return {'State': {'Running': True, 'Health': {'Status': 'unhealthy' if 'scheduler' in name else 'healthy'}}}
+            return {'State': {'Running': True, 'Health': {'Status': 'unhealthy' if 'worker' in name else 'healthy'}}}
         with patch.object(deploy, 'run'), patch.object(deploy, 'inspect', side_effect=container):
-            with self.assertRaisesRegex(ValueError, 'scheduler'):
+            with self.assertRaisesRegex(ValueError, 'worker'):
                 deploy.status('platform')
 
     def test_component_cannot_select_another_component_or_general_shell(self):
@@ -337,6 +333,96 @@ class AuthorityBoundary(unittest.TestCase):
                 deploy.qualify_workflow('game', sha, 100, 1)
         with patch.object(deploy, 'api', side_effect=[workflow, {'jobs': [job]}]):
             deploy.qualify_workflow('game', sha, 100, 1)
+
+
+class RustDeployment(unittest.TestCase):
+    def test_retained_mtls_relay_preserves_rust_certificate_authentication(self):
+        relay = (Path(__file__).resolve().parents[2] / 'deploy/synology/docker/internal-mtls-nginx.conf').read_text()
+        self.assertIn('stream {', relay)
+        self.assertIn('proxy_pass platform:8443;', relay)
+        self.assertNotIn('ssl_certificate', relay)
+        self.assertNotIn('proxy_set_header', relay)
+
+    def test_edge_passes_its_verified_client_as_one_trusted_proxy_hop(self):
+        edge = (Path(__file__).with_name('Caddyfile')).read_text()
+        self.assertIn('trusted_proxies_strict', edge)
+        self.assertIn('header_up X-Forwarded-For {client_ip}', edge)
+        self.assertIn('TRUSTED_PROXIES: 172.18.0.10', Path(__file__).with_name('public-platform.compose.yml').read_text())
+
+    def test_readiness_uses_rust_database_health_independently_of_login_flags(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as temporary, patch.object(deploy, 'STATE', Path(temporary)), patch.object(deploy, 'inspect', return_value={'State': {'Running': True}}), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)):
+            deploy.status('platform')
+        self.assertTrue(any(args[-1] == 'https://oteryn.com/readyz' for args in calls))
+        self.assertTrue(any(args[-1] == 'https://gateway.oteryn.com/ready' for args in calls))
+
+    def test_gateway_composition_reaches_the_rust_loopback_issuer(self):
+        checkout = Path(__file__).resolve().parents[2]
+        config = (checkout / 'deploy/oracle/public-platform.compose.yml').read_text()
+        edge = (checkout / 'deploy/oracle/Caddyfile').read_text()
+        self.assertIn('network_mode: service:platform', config)
+        self.assertIn('PORTAL_NATIVE_ADMISSION_BIND: 127.0.0.1:8091', config)
+        self.assertIn('OTERYN_PLATFORM_BASE_URL: http://127.0.0.1:8091', config)
+        self.assertIn('GATEWAY_LISTEN_ADDR: 0.0.0.0:8081', config)
+        self.assertIn('reverse_proxy platform:8081', edge)
+        self.assertIn('rewrite @native_ticket /api/v1/game-auth/tickets', edge)
+
+    def test_backup_uses_the_migration_target_without_exposing_a_url(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            def command(args, **kwargs):
+                calls.append(args)
+                if len(calls) == 1:
+                    kwargs['stdout'].write(b'PGDMP-fixture-archive')
+                else:
+                    self.assertEqual(kwargs['stdin'].read(), b'PGDMP-fixture-archive')
+            previous = os.umask(0o077)
+            try:
+                with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', root), patch.object(deploy, 'inspect', return_value={'Config': {'Image': 'postgres:fixture'}}), patch.object(deploy.subprocess, 'run', side_effect=command):
+                    deploy.backup_platform('a' * 40)
+                self.assertEqual(stat.S_IMODE((root / ('a' * 40 + '-platform.dump')).stat().st_mode), 0o600)
+            finally:
+                os.umask(previous)
+            self.assertIn(str(root / 'platform-migrate.env'), calls[0])
+            self.assertIn('postgres:fixture', calls[0])
+            self.assertIn('export PGDATABASE="${OTERYN_DATABASE_URL:?missing migration database URL}"; exec pg_dump --format=custom', calls[0])
+            self.assertIn('pg_restore', calls[1])
+            self.assertNotIn('--env-file', calls[1])
+
+    def test_active_platform_deployment_uses_existing_rust_inputs_and_roles(self):
+        checkout = Path(__file__).resolve().parents[2]
+        sha = 'a' * 40
+        calls = []
+        def command(args, **kwargs):
+            calls.append(args)
+            if args[:2] == ['docker', 'build']:
+                dockerfile = checkout / args[args.index('-f') + 1]
+                self.assertTrue(dockerfile.is_file(), str(dockerfile))
+                self.assertTrue((checkout / args[-1]).is_dir())
+            if args[-2:] == ['config', '--services']:
+                return 'platform\ngateway\nworker\n'
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
+            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': str(checkout / 'deploy/oracle/public-platform.compose.yml')}}}
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'rust-id'}), patch.object(deploy, 'backup_platform'), patch.object(deploy, 'prepare_edge'), patch.object(deploy, 'deploy_edge'), patch.object(deploy, 'reauthorize'), patch.object(deploy, 'run', side_effect=command):
+                images = deploy.platform_deploy(checkout, sha, 100, 1)
+            build = next(args for args in calls if args[:2] == ['docker', 'build'])
+            self.assertTrue((checkout / build[build.index('-f') + 1]).is_file())
+            context = checkout / build[-1]
+            for filename in ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'bin', 'crates', 'migrations', 'templates', 'static']:
+                self.assertTrue((context / filename).exists(), filename)
+            self.assertTrue(any(args[-5:] == ['run', '--rm', '-T', '--no-deps', 'migrate'] for args in calls))
+            self.assertTrue(any(args[-3:] == ['platform', 'gateway', 'worker'] and 'up' in args for args in calls))
+            self.assertEqual(set(images.values()), {'rust-id'})
+            for args in calls:
+                self.assertNotIn('php', args)
+                self.assertNotIn('artisan', args)
+                self.assertNotIn('nginx', args)
+                for index, arg in enumerate(args):
+                    if arg == '-f': self.assertTrue(Path(args[index + 1]).is_file() if Path(args[index + 1]).is_absolute() else (checkout / args[index + 1]).is_file())
 
 
 if __name__ == '__main__':

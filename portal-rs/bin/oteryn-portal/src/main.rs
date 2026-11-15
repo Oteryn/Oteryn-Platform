@@ -24,6 +24,18 @@ fn parse_role(arg: Option<&str>) -> Option<Role> {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("check-image") {
+        let directory = std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "/app/static".into());
+        return if std::fs::metadata(directory).is_ok_and(|metadata| metadata.is_dir()) {
+            println!(
+                "oteryn-portal {}: serve worker migrate gateway",
+                env!("CARGO_PKG_VERSION")
+            );
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
     // Test-only seeding prints one JSON object on stdout, so it runs before logging starts.
     if std::env::args().nth(1).as_deref() == Some("seed") {
         return seed::main().await;
@@ -406,8 +418,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             let mut private_listeners = tokio::task::JoinSet::new();
             for (name, handle) in [
-                ("internal TLS", internal_listener),
-                ("native TLS", native_listener),
+                ("internal-mtls", internal_listener),
+                ("native-tls", native_listener),
                 ("league", league_listener),
                 ("bazaar", bazaar_listener),
                 ("account-closure", closure_listener),
@@ -463,8 +475,8 @@ mod tests {
             "league",
             "bazaar",
             "account-closure",
-            "internal TLS",
-            "native TLS",
+            "internal-mtls",
+            "native-tls",
         ] {
             let handle = tokio::spawn(async {});
             let mut tasks = tokio::task::JoinSet::new();
@@ -575,3 +587,5 @@ fn with_proxy_policy(
         oteryn_web::ratelimit::supply,
     ))
 }
+#[cfg(test)]
+mod audit_l9_tests;

@@ -70,3 +70,11 @@ immutable digest-bound receipts. Ingest enables no hunt/drop reads, party
 capture, sharing, exports or aggregation. Contradictory projections retain the
 first snapshot and a content-free `public_projection_conflicts` fence; neither
 retries, epoch raises nor watermarks reconcile that fence.
+
+All production email senders share `OTERYN_SMTP_TLS_MODE` (`starttls`, the default,
+or `implicit`) and optional `OTERYN_SMTP_PORT` (default 587 or 465 respectively).
+Both modes require certificate validation and SMTP credentials. There is no
+plaintext production mode. `TRUSTED_PROXIES` is a comma-separated list of exact IP
+addresses, validated once per process; absent/empty trusts no forwarding headers.
+Every browser limiter and abuse adapter uses this policy. Invalid entries refuse
+startup. Proxies must append/overwrite `X-Forwarded-For` correctly.

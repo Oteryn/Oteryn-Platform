@@ -1,16 +1,57 @@
-# Apply together with the pinned deploy/synology/compose.yml. Keep database and
-# application listeners private; only the dedicated edge publishes HTTP/TLS.
+# Rust application roles. PostgreSQL and edge retain their independently managed
+# storage/network; no database volume is created or replaced by application deploy.
+name: oteryn-oracle
+x-portal: &portal
+  image: ${PLATFORM_IMAGE:?set the reviewed Rust image}
+  env_file: /opt/oteryn-oracle/platform.env
+  environment:
+    OTERYN_ENV: production
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+  volumes:
+    - /opt/oteryn-oracle/platform-secrets:/run/oteryn:ro
 services:
-  internal-proxy:
+  platform:
+    <<: *portal
+    command: [serve]
     networks:
       private:
-        ipv4_address: 172.18.0.5
-  platform:
+        ipv4_address: 172.18.0.12
     environment:
-      TRUSTED_PROXIES: 172.18.0.10,172.18.0.5
-      APP_URL: https://oteryn.com
-      SESSION_SECURE_COOKIE: 'true'
-  marketplace-scheduler:
+      OTERYN_ENV: production
+      OTERYN_BIND: 0.0.0.0:8080
+      TRUSTED_PROXIES: 172.18.0.10
+      OTERYN_PUBLIC_ORIGIN: https://oteryn.com
+      PORTAL_NATIVE_ADMISSION_BIND: 127.0.0.1:8091
+      PORTAL_GATEWAY_TOKEN_SHA256_FILE: /run/oteryn/gateway-token.sha256
+  worker:
+    <<: *portal
+    command: [worker]
+    networks: [private]
+  migrate:
+    <<: *portal
+    command: [migrate]
+    networks: [private]
+    restart: 'no'
+    profiles: [migration]
+    env_file: /opt/oteryn-oracle/platform-migrate.env
+  gateway:
+    <<: *portal
+    image: ${GATEWAY_IMAGE:?set the reviewed Rust image}
+    command: [gateway]
+    # The Rust issuer deliberately binds loopback. Share the portal's network
+    # namespace; keep gateway HTTP on a distinct port, reached by the edge there.
+    network_mode: service:platform
     environment:
-      APP_URL: https://oteryn.com
-      SESSION_SECURE_COOKIE: 'true'
+      GATEWAY_LISTEN_ADDR: 0.0.0.0:8081
+      OTERYN_PLATFORM_BASE_URL: http://127.0.0.1:8091
+      OTERYN_PLATFORM_SERVICE_TOKEN_FILE: /run/oteryn/gateway-token
+      GATEWAY_NATIVE_LOGIN_ENABLED: ${GATEWAY_NATIVE_LOGIN_ENABLED:-false}
+      GATEWAY_NATIVE_PROTOCOL3_ENABLED: ${GATEWAY_NATIVE_PROTOCOL3_ENABLED:-false}
+networks:
+  private:
+    external: true
+    name: oteryn-oracle_private

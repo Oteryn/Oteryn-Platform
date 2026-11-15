@@ -469,3 +469,18 @@ pub async fn supply(
     }
     next.run(request).await
 }
+
+#[cfg(test)]
+mod proxy_configuration_tests {
+    use super::*;
+    #[test]
+    fn proxy_configuration_rejects_malformed_allowlists() -> Result<(), Box<dyn std::error::Error>>
+    {
+        assert!(TrustedProxies::parse("")?.0.is_empty());
+        assert_eq!(TrustedProxies::parse(" 127.0.0.1, ::1 ")?.0.len(), 2);
+        for value in ["127.0.0.1,", "192.0.2.0/24", "proxy", "1.2.3.999"] {
+            assert!(TrustedProxies::parse(value).is_err());
+        }
+        Ok(())
+    }
+}

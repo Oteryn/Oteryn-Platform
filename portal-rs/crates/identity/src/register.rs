@@ -72,7 +72,7 @@ pub async fn register(
                 .fetch_optional(&mut *tx)
                 .await?;
         if let Some(id) = id {
-            let payload = serde_json::json!({"account_id":id,"locale":locale}).to_string();
+            let payload = serde_json::json!({"account_id":id,"locale":locale,"email":normalize_email(&input.email)}).to_string();
             oteryn_db::outbox::enqueue(
                 &mut tx,
                 "email.account_exists",

@@ -57,14 +57,13 @@ pub async fn serve(listener: tokio::net::TcpListener, config: rustls::ServerConf
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
     let slots = Arc::new(tokio::sync::Semaphore::new(64));
     loop {
-        let (socket, peer) = match accept_with_retry(
+        let Ok((socket, peer)) = crate::accept::accept_with_retry(
             || listener.accept(),
-            |error| eprintln!("native TLS accept failed: {error}"),
+            |error| eprintln!("native TLS listener accept failed: {error}"),
         )
         .await
-        {
-            Ok(connection) => connection,
-            Err(_) => return,
+        else {
+            return;
         };
         let Ok(permit) = slots.clone().try_acquire_owned() else {
             continue;
@@ -108,31 +107,7 @@ pub async fn serve(listener: tokio::net::TcpListener, config: rustls::ServerConf
 pub(super) mod tests;
 
 /// Retry transient accept failures with capped delay and return sustained failures.
-pub async fn accept_with_retry<T, F, Fut, Report>(
-    mut accept: F,
-    mut report: Report,
-) -> std::io::Result<T>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = std::io::Result<T>>,
-    Report: FnMut(&std::io::Error),
-{
-    let mut delay = std::time::Duration::from_millis(25);
-    for attempt in 0..8 {
-        match accept().await {
-            Ok(connection) => return Ok(connection),
-            Err(error) => {
-                report(&error);
-                if attempt == 7 {
-                    return Err(error);
-                }
-                tokio::time::sleep(delay).await;
-                delay = (delay * 2).min(std::time::Duration::from_secs(1));
-            }
-        }
-    }
-    unreachable!("accept loop returns on its final attempt")
-}
+pub use crate::accept::accept_with_retry;
 
 #[cfg(test)]
 mod accept_retry_tests {
