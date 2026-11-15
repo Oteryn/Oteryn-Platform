@@ -1,6 +1,6 @@
 use super::*;
 use axum::{
-    Router,
+    Extension, Router,
     body::to_bytes,
     extract::{ConnectInfo, Request, State},
     http::{StatusCode, header},
@@ -70,23 +70,28 @@ pub fn routes<S: Clone + Send + Sync + 'static>(pool: PgPool) -> Router<S> {
         environment: std::env::var("APP_ENV").unwrap_or_default(),
         ..Settings::default()
     };
-    let authority: Arc<dyn NativeAuthority> = if settings.enabled {
-        Arc::new(PlatformAuthority {
-            oauth: crate::oauth::Config::from_env(),
-            projection_authority: std::env::var("OTERYN_NATIVE_DEVICE_PROJECTION_AUTHORITY")
-                .unwrap_or_default(),
-        })
-    } else {
-        Arc::new(UnavailableAuthority)
-    };
-    router(Sessions::new(pool, settings, authority))
+    // The application supplies its guarded authority through the same explicit
+    // authority injection used by the OAuth ticket composition. Missing wiring denies.
+    router(Sessions::new(
+        pool,
+        settings,
+        Arc::new(UnavailableAuthority),
+    ))
 }
-async fn handle(State(sessions): State<Sessions>, request: Request) -> Response {
+async fn handle(
+    State(mut sessions): State<Sessions>,
+    authority: Option<Extension<Arc<dyn NativeAuthority>>>,
+    request: Request,
+) -> Response {
+    if let Some(Extension(authority)) = authority {
+        sessions.authority = authority;
+    }
     match dispatch(sessions, request).await {
         Ok(value) => axum::Json(value).into_response(),
         Err(error) => failure(error),
     }
 }
+
 async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Value> {
     sessions.settings.check()?;
     if request.extensions().get::<VerifiedHttps>().is_none() {

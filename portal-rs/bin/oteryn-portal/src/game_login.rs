@@ -58,6 +58,20 @@ pub fn ticket_authority(config: oauth::Config) -> Arc<dyn tickets::OAuthAuthorit
     ))
 }
 
+/// Device ticket and character operations share the OAuth route's guard wrapper.
+pub fn device_authority(
+    config: oauth::Config,
+    projection_authority: String,
+) -> Arc<dyn oteryn_gameauth::devices::NativeAuthority> {
+    Arc::new(GuardedTickets::new(
+        PlatformAuthority {
+            oauth: config,
+            projection_authority,
+        },
+        FEATURES,
+    ))
+}
+
 /// Ticket redemption, the character check and grant issuance behind the
 /// suspension guard. Without a live LCFA source the issuer answers
 /// `NATIVE_LOGIN_ROUTE_UNAVAILABLE`; without permitted issuance and a signer,

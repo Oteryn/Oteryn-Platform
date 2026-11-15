@@ -174,6 +174,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_stats::guilds::http::configured_router(db.clone()));
             let app = app.merge(oteryn_content::media::configured_router(db.clone())?);
             let app = app.merge(game_login::player_router(db.clone()));
+            let app = app.layer(axum::Extension(game_login::device_authority(
+                oteryn_gameauth::oauth::Config::from_env(),
+                std::env::var("OTERYN_NATIVE_DEVICE_PROJECTION_AUTHORITY").unwrap_or_default(),
+            )));
             let app = app.merge(oteryn_support::reports::configured_router(db.clone()));
             let app = app.merge(oteryn_admin::players::http::configured_router(db.clone())?);
             let wizard_pool = db.clone();

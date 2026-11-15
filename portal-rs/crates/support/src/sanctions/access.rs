@@ -186,6 +186,50 @@ impl<A: tickets::OAuthAuthority> tickets::OAuthAuthority for GuardedTickets<A> {
     }
 }
 
+/// The device surface uses the same injected wrapper and sanctions decision as
+/// OAuth tickets. `use_native` runs only after device authentication, inside the
+/// account-locked transaction, and refusal rolls back credential rotation too.
+impl<A: oteryn_gameauth::devices::NativeAuthority> oteryn_gameauth::devices::NativeAuthority
+    for GuardedTickets<A>
+{
+    fn deployment_ready(&self) -> Result<(), oteryn_gameauth::devices::Failure> {
+        self.authority.deployment_ready()
+    }
+    fn enroll<'a>(
+        &'a self,
+        db: &'a mut PgConnection,
+        bearer: &'a str,
+    ) -> oteryn_gameauth::devices::NativeFuture<'a, oteryn_gameauth::devices::Enrollment> {
+        self.authority.enroll(db, bearer)
+    }
+    fn verify<'a>(
+        &'a self,
+        db: &'a mut PgConnection,
+        auth: &'a oteryn_gameauth::devices::Authorization,
+    ) -> oteryn_gameauth::devices::NativeFuture<'a, ()> {
+        self.authority.verify(db, auth)
+    }
+    fn use_native<'a>(
+        &'a self,
+        db: &'a mut PgConnection,
+        auth: &'a oteryn_gameauth::devices::Authorization,
+        family: Uuid,
+        purpose: oteryn_gameauth::devices::Purpose,
+    ) -> oteryn_gameauth::devices::NativeFuture<'a, oteryn_gameauth::devices::NativeResult> {
+        Box::pin(async move {
+            require_game_access(db, auth.account_id, self.features)
+                .await
+                .map_err(|error| match error {
+                    Error::Denied | Error::InvalidInput => {
+                        oteryn_gameauth::devices::Failure::Denied
+                    }
+                    _ => oteryn_gameauth::devices::Failure::Unavailable,
+                })?;
+            self.authority.use_native(db, auth, family, purpose).await
+        })
+    }
+}
+
 /// Composes both mandatory checks using T19's existing wire/status implementation.
 /// Private ingress and service authentication remain governed by AdmissionConfig.
 pub fn admission_router<A: AdmissionAuthority + 'static>(
