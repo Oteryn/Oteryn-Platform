@@ -1777,7 +1777,7 @@ async fn restricted_payers_are_refused_before_any_provider_call() -> TestResult 
     };
     let staff = db.account().await?;
     let service = db.service(vec![]);
-    let restrictions: [(&str, &str); 8] = [
+    let restrictions: [(&str, &str); 9] = [
         (
             "UPDATE accounts SET status='suspended' WHERE id=$1",
             "account_suspended",
@@ -1809,6 +1809,10 @@ async fn restricted_payers_are_refused_before_any_provider_call() -> TestResult 
         (
             "INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','test',now()-interval '1 minute',now()+interval '1 day',$2)",
             "sanction",
+        ),
+        (
+            "WITH i AS (INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES(gen_random_uuid(),$1,'ban') RETURNING sanction_id) INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) SELECT $1,1,sanction_id,jsonb_build_object('staff',$2::uuid),true,now()-interval '1 minute',now()+interval '1 day' FROM i",
+            "ban",
         ),
     ];
     for (restrict, reason) in restrictions {
@@ -1879,12 +1883,26 @@ async fn restricted_payers_are_refused_before_any_provider_call() -> TestResult 
             "{reason}"
         );
     }
-    // A warning or an expired sanction does not restrict.
+    // A warning, an expired sanction, a lifted typed ban and an expired typed
+    // ban do not restrict.
     let payer = db.account().await?;
     let token = db.token(payer).await?;
     sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'warning','active','test',now()-interval '1 minute',now()+interval '1 day',$2),($1,'suspension','expired','test',now()-interval '2 days',now()-interval '1 day',$2)")
         .bind(payer)
         .bind(staff)
+        .execute(&db.pool)
+        .await?;
+    let (lifted, expired) = (Uuid::now_v7(), Uuid::now_v7());
+    sqlx::query("INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES($2,$1,'ban'),($3,$1,'ban')")
+        .bind(payer)
+        .bind(lifted)
+        .bind(expired)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) VALUES($1,1,$2,'{}',true,now()-interval '2 days',NULL),($1,2,$2,'{}',false,now()-interval '1 day',NULL),($1,3,$3,'{}',true,now()-interval '2 days',now()-interval '1 day')")
+        .bind(payer)
+        .bind(lifted)
+        .bind(expired)
         .execute(&db.pool)
         .await?;
     let (order, _, _) = awaiting_order(&db, &service, payer, &token).await?;
