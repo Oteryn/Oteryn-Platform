@@ -52,7 +52,8 @@ fn server_config(
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
     Ok(config)
 }
-async fn serve(listener: tokio::net::TcpListener, config: rustls::ServerConfig, app: Router) {
+/// Serve native routes on an already bound listener; request trust is established by TLS.
+pub async fn serve(listener: tokio::net::TcpListener, config: rustls::ServerConfig, app: Router) {
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
     let slots = Arc::new(tokio::sync::Semaphore::new(64));
     loop {

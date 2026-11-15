@@ -5,7 +5,7 @@ use super::{
 };
 use crate::evidence::{Witness, trust_state_namespace};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use sqlx::{PgPool, Row};
+use sqlx::{PgConnection, PgPool, Row, postgres::PgRow};
 use std::{collections::BTreeMap, path::PathBuf};
 use uuid::Uuid;
 
@@ -93,6 +93,11 @@ impl PublicTrustRegistry {
         }
         let (namespace, witness) = self.witness()?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
+        // One transaction lock for both scopes, including their first publication.
+        sqlx::query("SELECT pg_advisory_xact_lock(715110005)")
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| KeyError::Unavailable)?;
         let profile = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
             .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
         let floor = witness
@@ -126,28 +131,29 @@ impl PublicTrustRegistry {
         if reused {
             return Err(KeyError::InvalidState);
         }
-        let rows = sqlx::query("SELECT DISTINCT ON (key_id) key_id, public_key, trusted FROM native_game_signing_trust_key_versions WHERE profile_id=$1 ORDER BY key_id, key_revision DESC")
-            .bind(id).fetch_all(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
-        let mut trusted_count = 0;
-        for row in rows {
-            let kid: String = row.try_get("key_id").map_err(|_| KeyError::Unavailable)?;
+        let existing = sqlx::query("SELECT public_key, trusted FROM native_game_signing_trust_key_versions WHERE profile_id=$1 AND key_id=$2 ORDER BY key_revision DESC LIMIT 1")
+            .bind(id).bind(&key.key_id).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
+        if let Some(row) = existing {
             let encoded: String = row
                 .try_get("public_key")
                 .map_err(|_| KeyError::Unavailable)?;
-            let trusted: bool = row.try_get("trusted").map_err(|_| KeyError::Unavailable)?;
-            let public = decode_key(&encoded)?;
-            if kid == key.key_id {
-                return if trusted && public == decoded {
-                    Ok(())
-                } else {
-                    Err(KeyError::InvalidState)
-                };
-            }
-            if public == decoded {
-                return Err(KeyError::InvalidState);
-            }
-            trusted_count += usize::from(trusted);
+            return if row
+                .try_get::<bool, _>("trusted")
+                .map_err(|_| KeyError::Unavailable)?
+                && decode_key(&encoded)? == decoded
+            {
+                Ok(())
+            } else {
+                Err(KeyError::InvalidState)
+            };
         }
+        let rebound: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM native_game_signing_trust_key_versions WHERE profile_id=$1 AND public_key=$2)")
+            .bind(id).bind(&key.public_key).fetch_one(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
+        if rebound {
+            return Err(KeyError::InvalidState);
+        }
+        let trusted_count: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT DISTINCT ON (key_id) trusted FROM native_game_signing_trust_key_versions WHERE profile_id=$1 ORDER BY key_id, key_revision DESC) latest WHERE trusted")
+            .bind(id).fetch_one(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
         if trusted_count >= 2 {
             return Err(KeyError::InvalidState);
         }
@@ -211,8 +217,14 @@ impl PublicTrustRegistry {
     /// Public trust is exposed to Game by the existing ReadFreshSigningTrustV1
     /// producer, which reads these same immutable rows and retained state witness.
     pub async fn snapshot(&self) -> Result<TrustSnapshot, KeyError> {
-        let (namespace, witness) = self.witness()?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
+        self.snapshot_in(&mut tx).await
+    }
+    pub(crate) async fn snapshot_in(
+        &self,
+        tx: &mut PgConnection,
+    ) -> Result<TrustSnapshot, KeyError> {
+        let (namespace, witness) = self.witness()?;
         let row = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
             .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?.ok_or(KeyError::InvalidState)?;
         let revision: i64 = row
@@ -228,8 +240,7 @@ impl PublicTrustRegistry {
         }
         let id: Uuid = row.try_get("id").map_err(|_| KeyError::Unavailable)?;
         let revoked: bool = row.try_get("revoked").map_err(|_| KeyError::Unavailable)?;
-        let rows = sqlx::query("SELECT DISTINCT ON (key_id) key_id, public_key, trusted, ceil(extract(epoch FROM trusted_at))::bigint AS trusted_since FROM native_game_signing_trust_key_versions WHERE profile_id=$1 ORDER BY key_id, key_revision DESC")
-            .bind(id).fetch_all(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
+        let rows = latest_trusted(tx, id).await?;
         let mut keys = BTreeMap::new();
         for row in rows {
             if !revoked
@@ -260,7 +271,6 @@ impl PublicTrustRegistry {
                 .fetch_one(&mut *tx)
                 .await
                 .map_err(|_| KeyError::Unavailable)?;
-        tx.commit().await.map_err(|_| KeyError::Unavailable)?;
         Ok(TrustSnapshot {
             scope: self.scope,
             purpose: self.settings.key_purpose.clone(),
@@ -277,4 +287,13 @@ pub(super) fn decode_key(encoded: &str) -> Result<[u8; 32], KeyError> {
         return Err(KeyError::BadInput);
     }
     bytes.try_into().map_err(|_| KeyError::BadInput)
+}
+
+/// Fetch at most two trusted keys plus an overflow witness; retired history stays in SQL.
+pub(super) async fn latest_trusted(
+    tx: &mut PgConnection,
+    id: Uuid,
+) -> Result<Vec<PgRow>, KeyError> {
+    sqlx::query("SELECT key_id, public_key, trusted, trusted_since FROM (SELECT DISTINCT ON (key_id) key_id, public_key, trusted, ceil(extract(epoch FROM trusted_at))::bigint AS trusted_since FROM native_game_signing_trust_key_versions WHERE profile_id=$1 ORDER BY key_id, key_revision DESC) latest WHERE trusted LIMIT 3")
+            .bind(id).fetch_all(tx).await.map_err(|_| KeyError::Unavailable)
 }

@@ -125,6 +125,21 @@ pub(super) async fn admit(
     signer: Option<&dyn GrantSigner>,
     protocol3: Option<&protocol3::Protocol3>,
 ) -> Result<Vec<u8>, Refusal> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        admit_inner(pool, request, accounts, authority, signer, protocol3),
+    )
+    .await
+    .map_err(|_| Refusal::from(Error::Unavailable))?
+}
+async fn admit_inner(
+    pool: &PgPool,
+    request: &AdmissionRequest,
+    accounts: &dyn AccountStateLookup,
+    authority: &dyn AdmissionAuthority,
+    signer: Option<&dyn GrantSigner>,
+    protocol3: Option<&protocol3::Protocol3>,
+) -> Result<Vec<u8>, Refusal> {
     // Protocol 3 is decoded only while its switch is on (§19.1).
     let v3 = match (request.protocol, protocol3) {
         (2, _) => None,
@@ -138,7 +153,19 @@ pub(super) async fn admit(
         .map_err(|_| Error::Unavailable)?;
     // A transaction lock also covers the absent-row case across all processes.
     lock(&mut tx, request.attempt_ref.as_bytes()).await?;
-    let existing = sqlx::query("SELECT ticket_hash, request_digest, response_body, expires_at_ms FROM native_admissions WHERE attempt_ref = $1 FOR UPDATE")
+    // Locate without a row lock; account/security writers always lock the account first.
+    let located = sqlx::query_scalar::<_, Uuid>(
+        "SELECT account_id FROM native_admissions WHERE attempt_ref=$1",
+    )
+    .bind(request.attempt_ref)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| Error::Unavailable)?;
+    let account_lock = match located {
+        Some(account) => accounts.state(&mut tx, account).await.map(|_| ()),
+        None => Ok(()),
+    };
+    let existing = sqlx::query("SELECT account_id, ticket_hash, request_digest, response_body, expires_at_ms FROM native_admissions WHERE attempt_ref = $1 FOR UPDATE")
         .bind(request.attempt_ref).fetch_optional(&mut *tx).await.map_err(|_| Error::Unavailable)?;
     if let Some(row) = existing {
         let ticket: Vec<u8> = row
@@ -157,20 +184,31 @@ pub(super) async fn admit(
             .try_get("expires_at_ms")
             .map_err(|_| Error::ReconciliationRequired)?;
         let response = wire::replay(&body, expires, now(&mut tx).await?)?;
+        account_lock?;
+        if Some(
+            row.try_get::<Uuid, _>("account_id")
+                .map_err(|_| Error::ReconciliationRequired)?,
+        ) != located
+        {
+            return Err(Error::ReconciliationRequired.into());
+        }
         authority.validate_replay(&mut tx, request, &body).await?;
         // A signed grant is stored as its signing input only (contract §6.1);
         // Ed25519 is deterministic, so re-signing returns the same token.
         let input = wire::token(&body)?;
         if input.matches('.').count() != 1 {
             let response = finish_replay(&mut tx, v3, request, &body, response).await?;
+            let response = final_validity(&mut tx, request, &response, expires).await?;
             return commit_replay(tx, v3, response).await;
         }
         let signer = signer.ok_or(Error::ReconciliationRequired)?;
         signer
-            .prepare()
+            .prepare_on(&mut tx)
             .await
             .map_err(|_| Error::ReconciliationRequired)?;
-        let at = now(&mut tx).await? / 1000;
+        let at_ms = now(&mut tx).await?;
+        let response = wire::replay(&body, expires, at_ms)?;
+        let at = at_ms / 1000;
         let token = signer.resign(
             &input,
             u64::try_from(expires / 1000).map_err(|_| Error::ReconciliationRequired)?,
@@ -178,6 +216,7 @@ pub(super) async fn admit(
         )?;
         let response = wire::with_token(&response, &token)?;
         let response = finish_replay(&mut tx, v3, request, &body, response).await?;
+        let response = final_validity(&mut tx, request, &response, expires).await?;
         return commit_replay(tx, v3, response).await;
     }
     // One attempt_ref namespace with §19.4 recoveries, under the same lock.
@@ -279,10 +318,11 @@ pub(super) async fn admit(
     sqlx::query("INSERT INTO native_admissions (attempt_ref, ticket_hash, request_digest, account_id, response_body, expires_at_ms) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(request.attempt_ref).bind(request.ticket_hash()).bind(request.digest()).bind(account.id).bind(&stored).bind(material.expires_at_ms)
         .execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+    let response = final_validity(&mut tx, request, &response, material.expires_at_ms).await?;
     tx.commit()
         .await
         .map_err(|_| Error::ReconciliationRequired)?;
-    Ok(response)
+    response.finish().map_err(Into::into)
 }
 /// A protocol 3 retry recomputes `channels` and replaces the attempt's handle
 /// (§19.2.4, §19.3), committing the replacement; protocol 2 is unchanged.
@@ -314,14 +354,14 @@ async fn finish_replay(
 async fn commit_replay(
     tx: sqlx::Transaction<'_, sqlx::Postgres>,
     v3: Option<&protocol3::Protocol3>,
-    response: Vec<u8>,
+    response: PreparedResponse,
 ) -> Result<Vec<u8>, Refusal> {
     if v3.is_some() {
         tx.commit()
             .await
             .map_err(|_| Error::ReconciliationRequired)?;
     }
-    Ok(response)
+    response.finish().map_err(Into::into)
 }
 /// §19.2.5 candidates of the Character's World, read in the refused transaction
 /// after the authority's character checks passed.
@@ -351,5 +391,56 @@ pub(super) async fn budget(pool: &PgPool, credential: &[u8], limit: u32) -> Resu
         Err(Error::RateLimited)
     } else {
         Ok(())
+    }
+}
+
+async fn final_validity(
+    db: &mut PgConnection,
+    request: &AdmissionRequest,
+    response: &[u8],
+    expires: i64,
+) -> Result<PreparedResponse, Error> {
+    let recovery_expires = if request.protocol == 3 {
+        sqlx::query_scalar::<_, Option<i64>>("SELECT max(expires_at) FROM native_recovery_handles WHERE attempt_ref=$1 AND revoked_at IS NULL")
+            .bind(request.attempt_ref).fetch_one(&mut *db).await.map_err(|_| Error::Unavailable)?
+    } else {
+        None
+    };
+    let at = now(db).await?;
+    PreparedResponse::new(response, expires, at, recovery_expires)
+}
+pub(super) struct PreparedResponse {
+    response: Vec<u8>,
+    expires: i64,
+    at: i64,
+    recovery_expires: Option<i64>,
+    measured: std::time::Instant,
+}
+impl PreparedResponse {
+    pub(super) fn new(
+        response: &[u8],
+        expires: i64,
+        at: i64,
+        recovery_expires: Option<i64>,
+    ) -> Result<Self, Error> {
+        let prepared = Self {
+            response: response.to_vec(),
+            expires,
+            at,
+            recovery_expires,
+            measured: std::time::Instant::now(),
+        };
+        prepared.finish()?;
+        Ok(prepared)
+    }
+    pub(super) fn finish(&self) -> Result<Vec<u8>, Error> {
+        let elapsed =
+            i64::try_from(self.measured.elapsed().as_millis()).map_err(|_| Error::Unavailable)?;
+        wire::refresh_validity(
+            &self.response,
+            self.expires,
+            self.at.saturating_add(elapsed),
+            self.recovery_expires,
+        )
     }
 }

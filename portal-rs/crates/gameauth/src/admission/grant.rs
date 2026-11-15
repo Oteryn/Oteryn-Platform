@@ -108,6 +108,10 @@ impl Issuance {
 pub trait GrantSigner: Send + Sync + fmt::Debug {
     /// Refresh the §9.2 trust self-check. Call before reading the issuer clock.
     fn prepare(&self) -> Future<'_, ()>;
+    /// Refresh using the issuance transaction, without borrowing another pool slot.
+    fn prepare_on<'a>(&'a self, _: &'a mut PgConnection) -> Future<'a, ()> {
+        self.prepare()
+    }
     /// Sign `base64url(header) "." base64url(payload)` with the current key and
     /// return the compact token.
     fn sign(&self, payload: &[u8], expires_at: u64, now: u64) -> Result<String, Error>;
@@ -175,6 +179,27 @@ impl<S: KeyStorage + Send + 'static> GrantSigner for KeyringSigner<S> {
                 let snapshot = self
                     .registry
                     .snapshot()
+                    .await
+                    .map_err(|_| Error::Unavailable)?;
+                *self.trust.lock().map_err(|_| Error::Unavailable)? =
+                    Some((Instant::now(), snapshot));
+            }
+            Ok(())
+        })
+    }
+    fn prepare_on<'a>(&'a self, db: &'a mut PgConnection) -> Future<'a, ()> {
+        Box::pin(async move {
+            let _serial = self.refresh.lock().await;
+            let current = self
+                .trust
+                .lock()
+                .map_err(|_| Error::Unavailable)?
+                .as_ref()
+                .is_some_and(|(at, _)| at.elapsed() < TRUST_REFRESH);
+            if !current {
+                let snapshot = self
+                    .registry
+                    .snapshot_in(db)
                     .await
                     .map_err(|_| Error::Unavailable)?;
                 *self.trust.lock().map_err(|_| Error::Unavailable)? =
@@ -512,8 +537,11 @@ pub(super) async fn candidates(
     now: i64,
 ) -> Result<Vec<Candidate>, Error> {
     let rows = sqlx::query("SELECT channel_id, channel_key, native_login_enabled, native_route_host, native_route_port, native_route_tls_server_name, native_route_version, native_route_revision FROM game_channels WHERE world_id=$1 AND native_route_revision IS NOT NULL ORDER BY channel_id LIMIT $2")
-        .bind(world).bind(MAX_CHANNELS)
+        .bind(world).bind(MAX_CHANNELS + 1)
         .fetch_all(&mut *db).await.map_err(|_| Error::Unavailable)?;
+    if rows.len() > MAX_CHANNELS as usize {
+        return Err(Error::RouteUnavailable);
+    }
     let mut records = Vec::with_capacity(rows.len());
     for row in &rows {
         let Some(route) = record(world, row)? else {

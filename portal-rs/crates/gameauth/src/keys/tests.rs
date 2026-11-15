@@ -713,3 +713,108 @@ fn recovery_custody_never_opens_in_the_fresh_scope() -> TestResult {
     Keyring::open_scoped(recovery_settings(), Scope::Recovery, saved())?;
     Ok(())
 }
+
+#[tokio::test]
+async fn audit05_07_revoked_history_is_not_materialized() -> TestResult {
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let registry = db.registry()?;
+    let mut ring = ring()?;
+    registry.publish(&ring.generate_next("live-a")?).await?;
+    registry
+        .publish(&PublicKey {
+            key_id: "live-b".into(),
+            public_key: URL_SAFE_NO_PAD
+                .encode(SigningKey::from_bytes(&[19; 32]).verifying_key().to_bytes()),
+        })
+        .await?;
+    let id: Uuid = sqlx::query_scalar("SELECT id FROM native_game_signing_trust_profiles LIMIT 1")
+        .fetch_one(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO native_game_signing_trust_key_versions(profile_id,key_id,key_revision,public_key,trusted,trusted_at,revoked_at) SELECT $1,'retired-'||n,1,$2,false,clock_timestamp(),clock_timestamp() FROM generate_series(1,10000) n")
+        .bind(id).bind(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([42_u8;32])).execute(&db.pool).await?;
+    let mut tx = db.pool.begin().await?;
+    let rows = trust::latest_trusted(&mut tx, id).await?;
+    assert_eq!(rows.len(), 2, "revoked history was materialized");
+    tx.rollback().await?;
+    registry.snapshot().await?;
+    db.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn audit05_08_cross_scope_publication_is_serialized() -> TestResult {
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let fresh = db.registry()?;
+    let recovery = PublicTrustRegistry::new_scoped(
+        db.pool.clone(),
+        Settings {
+            key_purpose: RECOVERY_KEY_PURPOSE.into(),
+            ..settings()
+        },
+        Scope::Recovery,
+        db.directory.0.clone(),
+    )?;
+    let mut ring = ring()?;
+    let key = ring.generate_next("shared-scope-key")?;
+    let mut barrier = db.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(715110005)")
+        .execute(&mut *barrier)
+        .await?;
+    let other = key.clone();
+    let a = tokio::spawn(async move { fresh.publish(&key).await });
+    let b = tokio::spawn(async move { recovery.publish(&other).await });
+    // Both publishers must wait at the common gate before checking cross-scope ownership.
+    let waits = tokio::time::timeout(std::time::Duration::from_secs(2),async {
+        loop {
+            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=715110005 AND NOT granted").fetch_one(&mut *barrier).await?;
+            if count >= 2 { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        Ok::<_,sqlx::Error>(())
+    }).await;
+    // Check that both publications remain blocked while the ownership gate is held.
+    sqlx::query("SELECT pg_sleep(0.1)")
+        .execute(&mut *barrier)
+        .await?;
+    assert!(!a.is_finished() && !b.is_finished());
+    barrier.commit().await?;
+    let (a, b) = (a.await?, b.await?);
+    assert!(
+        waits.is_ok(),
+        "publishers bypassed the shared ownership gate"
+    );
+    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+    let (issuer,public): (String,String) = sqlx::query_as("SELECT p.issuer,k.public_key FROM native_game_signing_trust_profiles p JOIN native_game_signing_trust_key_versions k ON p.id=k.profile_id LIMIT 1").fetch_one(&db.pool).await?;
+    let scope = if issuer == ISSUER {
+        Scope::Recovery
+    } else {
+        Scope::Fresh
+    };
+    let purpose = if scope == Scope::Recovery {
+        RECOVERY_KEY_PURPOSE
+    } else {
+        "fresh_entry"
+    };
+    let opposite = PublicTrustRegistry::new_scoped(
+        db.pool.clone(),
+        Settings {
+            key_purpose: purpose.into(),
+            ..settings()
+        },
+        scope,
+        db.directory.0.clone(),
+    )?;
+    assert_eq!(
+        opposite
+            .publish(&PublicKey {
+                key_id: "another-kid".into(),
+                public_key: public
+            })
+            .await,
+        Err(KeyError::InvalidState)
+    );
+    db.close().await
+}

@@ -194,7 +194,11 @@ pub(super) async fn issue(
         .bind(binding.request.attempt_ref)
         .bind(device.as_ref().map(|d| d.0)).bind(device.as_ref().map(|d| d.1.clone()))
         .bind(now).bind(expires)
-        .execute(db).await.map_err(|_| Error::Unavailable)?;
+        .execute(&mut *db).await.map_err(|_| Error::Unavailable)?;
+    let now = seconds(db).await?;
+    if expires <= now {
+        return Ok(None);
+    }
     Ok(Some(wire::Recovery {
         handle,
         expires_in: u64::try_from(expires - now).map_err(|_| Error::Unavailable)?,
@@ -229,9 +233,13 @@ pub(super) async fn replace(
     sqlx::query("UPDATE native_recovery_handles SET revoked_at = $2 WHERE handle_hash = $1")
         .bind(&old_hash)
         .bind(now)
-        .execute(db)
+        .execute(&mut *db)
         .await
         .map_err(|_| Error::Unavailable)?;
+    let now = seconds(db).await?;
+    if expires <= now {
+        return Ok(None);
+    }
     Ok(Some(wire::Recovery {
         handle,
         expires_in: u64::try_from(expires - now).map_err(|_| Error::Unavailable)?,
