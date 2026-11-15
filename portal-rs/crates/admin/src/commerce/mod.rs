@@ -190,6 +190,7 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         let hash = format!("{:x}", Sha256::digest(request.reason.as_bytes()));
         let command = serde_json::to_value(&request.command).map_err(|_| Error::Invalid)?;
         let mut tx = self.pool.begin().await?;
+        rbac::lock_accounts(&mut tx, &[context.account, request.target]).await?;
         // Serialize with T10/T10b role writers. Check both staff permissions under
         // the lock, including on idempotent replays and approval requests.
         rbac::lock_mutation(&mut tx).await?;
@@ -269,6 +270,13 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        let (original, target): (Uuid, Uuid) =
+            sqlx::query_as("SELECT actor_id,target_id FROM commerce_operations WHERE id=$1")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(Error::Invalid)?;
+        rbac::lock_accounts(&mut tx, &[context.account, original, target]).await?;
         rbac::lock_mutation(&mut tx).await?;
         let row = sqlx::query("SELECT actor_id,target_id,command,reason_sha256,requires_approval,approved_by,result FROM commerce_operations WHERE id=$1 FOR UPDATE")
             .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Invalid)?;

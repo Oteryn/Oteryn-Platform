@@ -130,6 +130,7 @@ impl<A: AccountStateReader> Repository<A> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
         reserve(&mut tx, values, None).await?;
         self.authorize_in(&mut tx, context, Permission::ManageWikiArticles)
             .await?;
@@ -167,6 +168,7 @@ impl<A: AccountStateReader> Repository<A> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
         // Same lock ordering for every slug reservation, including restore.
         slug_lock(&mut tx).await?;
         let guide = lock(&mut tx, id).await?;
@@ -199,6 +201,7 @@ impl<A: AccountStateReader> Repository<A> {
     ) -> Result<(), Error> {
         self.authorize(context, Permission::PublishWiki).await?;
         let mut tx = self.pool.begin().await?;
+        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
         slug_lock(&mut tx).await?;
         let guide = lock(&mut tx, id).await?;
         self.authorize_in(&mut tx, context, Permission::PublishWiki)
@@ -239,6 +242,7 @@ impl<A: AccountStateReader> Repository<A> {
         )
         .await?;
         let mut tx = self.pool.begin().await?;
+        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
         let guide = lock(&mut tx, id).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(71010)")
             .execute(&mut *tx)

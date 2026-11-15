@@ -21,4 +21,6 @@
 <textarea class="op-input" id="edit-permissions" name="permissions"></textarea>
 <button class="op-button" name="action" value="set-permissions">{% if lang == "pl" %}Zapisz uprawnienia{% else %}Save permissions{% endif %}</button>
 </form>
-</section>{% endif %}</main></body></html>
+</section>{% endif %}
+{% if let Some(after) = next %}<a href="/admin/roles?after={{ after }}">{% if lang == "pl" %}Następna strona{% else %}Next page{% endif %}</a>{% endif %}
+</main></body></html>

@@ -1415,11 +1415,17 @@ async fn reversal_of_unavailable_coins_holds_and_freezes_purchasing() -> TestRes
     // unsettled debt) and the wallet stay as they were.
     let staff = Uuid::now_v7();
     let mut connection = db.pool.acquire().await?;
+    let hold: Uuid =
+        sqlx::query_scalar("SELECT hold_id FROM coin_purchase_holds WHERE account_id=$1")
+            .bind(payer)
+            .fetch_one(&mut *connection)
+            .await?;
     assert_eq!(
         oteryn_payments::coin_store::release_purchase_hold_in(
             &mut connection,
             payer,
             staff,
+            hold,
             "Reviewed"
         )
         .await?
@@ -1431,6 +1437,7 @@ async fn reversal_of_unavailable_coins_holds_and_freezes_purchasing() -> TestRes
             &mut connection,
             payer,
             staff,
+            hold,
             "Reviewed"
         )
         .await?,

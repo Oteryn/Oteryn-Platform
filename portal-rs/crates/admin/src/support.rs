@@ -283,6 +283,9 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
     backend
         .prepare(&mut tx, context.account, id, command)
         .await?;
+    crate::rbac::lock_accounts(&mut tx, &[context.account])
+        .await
+        .map_err(|_| Error::Unavailable)?;
     crate::rbac::lock_mutation(&mut tx)
         .await
         .map_err(|_| Error::Unavailable)?;

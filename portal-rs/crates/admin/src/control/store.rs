@@ -245,7 +245,7 @@ impl Store {
 
     /// Only a transport-authenticated hello may call this method. Epoch rollback
     /// and same-epoch scope changes are refused; competing owners deny at claim.
-    pub async fn register_agent(&self, hello: &AgentHello) -> Result<(), Error> {
+    fn validate_registration(&self, hello: &AgentHello) -> Result<(), Error> {
         self.enabled()?;
         if !bounded(&hello.agent_id, 128)
             || !bounded(&hello.build, 256)
@@ -276,8 +276,24 @@ impl Store {
         {
             return Err(Error::InvalidInput);
         }
+        Ok(())
+    }
+
+    pub async fn register_agent(&self, hello: &AgentHello) -> Result<(), Error> {
+        self.validate_registration(hello)?;
         let mut tx = self.pool.begin().await?;
-        ownership_lock(&mut tx, false).await?;
+        self.register_agent_in(&mut tx, hello).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub(crate) async fn register_agent_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        hello: &AgentHello,
+    ) -> Result<(), Error> {
+        self.validate_registration(hello)?;
+        ownership_lock(tx, false).await?;
         let changed = sqlx::query(
             "INSERT INTO admin_control_agents (agent_id, build, catalog_digest, advertised_operations,
                 served_worlds, served_nodes, owner_epoch, last_seen_at)
@@ -292,11 +308,10 @@ impl Store {
                  AND EXCLUDED.served_nodes = admin_control_agents.served_nodes)",
         ).bind(&hello.agent_id).bind(&hello.build).bind(&hello.catalog_digest)
             .bind(sqlx::types::Json(&hello.advertised_operations)).bind(&hello.served_worlds)
-            .bind(&hello.served_nodes).bind(hello.owner_epoch).execute(&mut *tx).await?.rows_affected();
+            .bind(&hello.served_nodes).bind(hello.owner_epoch).execute(&mut **tx).await?.rows_affected();
         if changed == 0 {
             return Err(Error::Unavailable);
         }
-        tx.commit().await?;
         Ok(())
     }
 
@@ -546,7 +561,7 @@ impl Store {
         Ok(requests)
     }
 
-    pub async fn record_result(&self, input: &NewResult, epoch: i64) -> Result<ResultRow, Error> {
+    fn validate_result(&self, input: &NewResult, epoch: i64) -> Result<(), Error> {
         self.enabled()?;
         if input.request_id.is_nil()
             || !bounded(&input.agent_id, 128)
@@ -565,12 +580,29 @@ impl Store {
         {
             return Err(Error::InvalidInput);
         }
+        Ok(())
+    }
+
+    pub async fn record_result(&self, input: &NewResult, epoch: i64) -> Result<ResultRow, Error> {
+        self.validate_result(input, epoch)?;
         let mut tx = self.pool.begin().await?;
-        ownership_lock(&mut tx, true).await?;
+        let result = self.record_result_in(&mut tx, input, epoch).await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+
+    pub(crate) async fn record_result_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        input: &NewResult,
+        epoch: i64,
+    ) -> Result<ResultRow, Error> {
+        self.validate_result(input, epoch)?;
+        ownership_lock(tx, true).await?;
         let request: Request =
             sqlx::query_as("SELECT * FROM admin_control_requests WHERE request_id=$1 FOR UPDATE")
                 .bind(input.request_id)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await?
                 .ok_or(Error::NotFound)?;
         if request.agent_id.as_deref() != Some(&input.agent_id) {
@@ -584,19 +616,19 @@ impl Store {
                 AND other.owner_epoch>=a.owner_epoch
                 AND ($3::text=ANY(other.served_worlds) OR $4::text=ANY(other.served_nodes))))")
             .bind(&input.agent_id).bind(epoch).bind(&request.target.world_id).bind(&request.target.node_id)
-            .fetch_one(&mut *tx).await?;
+            .fetch_one(&mut **tx).await?;
         if !owns {
             return Err(Error::Unavailable);
         }
         let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
         let mut reconcile = completed_before_expiry(&request, input, now);
         if reconcile && request.status == Status::Expired {
             // An agent's terminal expiry is authoritative. Only a local timeout,
             // with no prior terminal agent result, is ambiguous.
             let terminal: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_results WHERE request_id=$1 AND status IN ('succeeded','failed','rejected','expired','cancelled'))")
-                .bind(request.request_id).fetch_one(&mut *tx).await?;
+                .bind(request.request_id).fetch_one(&mut **tx).await?;
             reconcile = !terminal;
         }
         if request.status == Status::Delivered
@@ -612,23 +644,22 @@ impl Store {
         let result = sqlx::query_as("INSERT INTO admin_control_results
             (request_id,agent_id,game_ledger_id,error_code,status,payload,received_at) VALUES ($1,$2,$3,$4,$5,$6,clock_timestamp()) RETURNING *")
             .bind(input.request_id).bind(&input.agent_id).bind(&input.game_ledger_id)
-            .bind(&input.error_code).bind(input.status).bind(&input.payload).fetch_one(&mut *tx).await?;
+            .bind(&input.error_code).bind(input.status).bind(&input.payload).fetch_one(&mut **tx).await?;
         sqlx::query(
             "UPDATE admin_control_requests SET status=$2,updated_at=clock_timestamp() WHERE request_id=$1",
         )
         .bind(input.request_id)
         .bind(input.status)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
         audit(
-            &mut tx,
+            tx,
             input.request_id,
             None,
             Some(request.status),
             input.status,
         )
         .await?;
-        tx.commit().await?;
         Ok(result)
     }
 

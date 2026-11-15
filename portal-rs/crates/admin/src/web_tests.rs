@@ -125,6 +125,7 @@ fn localized_responsive_labelled_template() {
             csrf: "token".into(),
             roles: vec![(Uuid::now_v7(), "<unsafe>".into())],
             manage: true,
+            next: None,
         }
         .render()
         .unwrap();

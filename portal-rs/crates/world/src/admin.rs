@@ -315,6 +315,9 @@ async fn mutate<A: AccountStateReader>(
         return Err(StatusCode::NOT_FOUND);
     }
     let mut tx = s.pool.begin().await.map_err(unavailable)?;
+    oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account])
+        .await
+        .map_err(unavailable)?;
     // Never queue for a resource while holding the global authorization fence.
     sqlx::query("SET LOCAL lock_timeout = '250ms'")
         .execute(&mut *tx)

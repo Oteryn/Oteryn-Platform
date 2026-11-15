@@ -9,7 +9,7 @@ use crate::{
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Request, State},
+    extract::{Query, Request, State},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -412,17 +412,45 @@ struct Page {
     csrf: String,
     roles: Vec<(Uuid, String)>,
     manage: bool,
+    next: Option<Uuid>,
 }
 impl Page {
     fn permission_catalog(&self) -> &'static [Permission] {
         Permission::ALL
     }
 }
+const ROLE_PAGE_SIZE: i64 = 50;
+#[derive(Deserialize, Default)]
+struct RolePageQuery {
+    after: Option<Uuid>,
+}
+pub(crate) async fn role_page(
+    pool: &PgPool,
+    after: Option<Uuid>,
+) -> Result<Vec<(Uuid, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT id,key FROM roles WHERE ($1::uuid IS NULL OR id>$1) ORDER BY id LIMIT $2",
+    )
+    .bind(after)
+    .bind(ROLE_PAGE_SIZE)
+    .fetch_all(pool)
+    .await
+}
+pub(crate) async fn holder_batch(
+    pool: &PgPool,
+    role: Uuid,
+    excluded: Uuid,
+    after: Option<Uuid>,
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    sqlx::query_scalar("SELECT account_id FROM account_roles WHERE role_id=$1 AND account_id<>$2 AND ($3::uuid IS NULL OR account_id>$3) ORDER BY account_id LIMIT $4")
+        .bind(role).bind(excluded).bind(after).bind(ROLE_PAGE_SIZE).fetch_all(pool).await
+}
 async fn page<I: StaffSession, A: AccountStateReader>(
     State(s): State<Arc<Panel<I, A>>>,
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     headers: axum::http::HeaderMap,
+    Query(query): Query<RolePageQuery>,
 ) -> Response {
     let manage = match s.auth.check(context, Permission::ManageRoles).await {
         Ok(()) => true,
@@ -430,10 +458,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
     let roles = if manage {
-        match sqlx::query_as("SELECT id,key FROM roles ORDER BY key")
-            .fetch_all(&s.pool)
-            .await
-        {
+        match role_page(&s.pool, query.after).await {
             Ok(v) => v,
             Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
@@ -458,6 +483,9 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         grant: text(lang, "grant"),
         revoke: text(lang, "revoke"),
         csrf,
+        next: (roles.len() == ROLE_PAGE_SIZE as usize)
+            .then(|| roles.last().map(|r| r.0))
+            .flatten(),
         roles,
         manage,
     })
@@ -542,7 +570,30 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     if account.is_nil() || role.is_nil() {
         return Err(Error::InvalidInput);
     }
+    // Discover a potential survivor with bounded keyset batches, without holding
+    // the RBAC fence. Its state and membership are rechecked after account locks.
+    let mut cursor = None;
+    let mut survivor = None;
+    loop {
+        let batch = holder_batch(&s.pool, role, account, cursor).await?;
+        if batch.is_empty() {
+            break;
+        }
+        cursor = batch.last().copied();
+        for candidate in batch {
+            if s.auth.account_active(candidate).await {
+                survivor = Some(candidate);
+                break;
+            }
+        }
+        if survivor.is_some() {
+            break;
+        }
+    }
     let mut tx = s.pool.begin().await?;
+    let mut accounts = vec![context.account, account];
+    accounts.extend(survivor);
+    crate::rbac::lock_accounts(&mut tx, &accounts).await?;
     crate::rbac::lock_mutation(&mut tx).await?;
     for permission in [Permission::Access, Permission::ManageRoles] {
         s.auth.check_in(&mut tx, context, permission).await?;
@@ -560,16 +611,18 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     .fetch_one(&mut *tx)
     .await?;
     if assigned && matches!(key.as_str(), "owner" | "platform_admin") {
-        let candidates: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT account_id FROM account_roles WHERE role_id=$1 AND account_id<>$2 ORDER BY account_id",
-        ).bind(role).bind(account).fetch_all(&mut *tx).await?;
-        let mut others = false;
-        for candidate in candidates {
-            if s.auth.account_active_in(&mut tx, candidate).await {
-                others = true;
-                break;
-            }
-        }
+        let others = if let Some(candidate) = survivor {
+            let member: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1 AND account_id=$2)",
+            )
+            .bind(role)
+            .bind(candidate)
+            .fetch_one(&mut *tx)
+            .await?;
+            member && s.auth.account_active_in(&mut tx, candidate).await
+        } else {
+            false
+        };
         if !others {
             return Err(Error::Denied);
         }

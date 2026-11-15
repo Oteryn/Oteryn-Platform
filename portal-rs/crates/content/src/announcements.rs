@@ -119,6 +119,7 @@ impl Announcements {
         input: Input,
     ) -> Result<Uuid, Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(71010)")
             .execute(&mut *tx)
             .await?;

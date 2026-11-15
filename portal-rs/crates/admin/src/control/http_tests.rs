@@ -466,3 +466,158 @@ fn agent_identity_requires_flag_exact_cn_and_bound_san() {
             .is_none()
     );
 }
+
+#[tokio::test]
+async fn postgres_hello_uses_one_connection_under_ingress_contention() {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    let schema = db.schema.clone();
+    let pool = PgPoolOptions::new().max_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(2))
+        .after_connect(move |c, _| { let schema = schema.clone(); Box::pin(async move {
+            sqlx::query("SELECT set_config('search_path',$1,false),set_config('application_name',$1,false)").bind(schema).execute(c).await?; Ok(())
+        }) }).connect(&url).await.unwrap();
+    let app = app(pool.clone(), true);
+    // Pause hello's conflict read after ingress is exclusively locked.
+    let mut blocker = db.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE admin_control_agents IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let hello_app = app.clone();
+    let hello =
+        tokio::spawn(async move { post(hello_app, "hello", hello_body(2), true).await.status() });
+    wait_control_lock(&db, "SELECT EXISTS(SELECT 1 FROM admin_control_agents%").await;
+    let channel = tokio::spawn(async move {
+        post(
+            app,
+            "channel",
+            json!({"agent_id":"agent-a","owner_epoch":2,"wait_seconds":0}),
+            true,
+        )
+        .await
+        .status()
+    });
+    wait_control_lock(
+        &db,
+        "SELECT pg_advisory_xact_lock_shared(hashtextextended('admin-control-http'%",
+    )
+    .await;
+    blocker.commit().await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), hello)
+            .await
+            .unwrap()
+            .unwrap(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), channel)
+            .await
+            .unwrap()
+            .unwrap(),
+        StatusCode::OK
+    );
+    pool.close().await;
+    db.close().await;
+    eprintln!(
+        "postgres_hello_uses_one_connection_under_ingress_contention duration={:?}",
+        started.elapsed()
+    );
+}
+async fn wait_control_lock(db: &Database, query: &str) {
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE $2)")
+                .bind(&db.schema).bind(query).fetch_one(&db.root).await.unwrap();
+            if waiting { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+}
+
+#[tokio::test]
+async fn postgres_result_uses_one_connection_under_stream_contention() {
+    use ed25519_dalek::Signer;
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    let schema = db.schema.clone();
+    let pool=PgPoolOptions::new().max_connections(2).acquire_timeout(std::time::Duration::from_secs(2))
+        .after_connect(move |c,_| {let schema=schema.clone();Box::pin(async move {
+            sqlx::query("SELECT set_config('search_path',$1,false),set_config('application_name',$1,false)").bind(schema).execute(c).await?;Ok(())
+        })}).connect(&url).await.unwrap();
+    let app = app(pool.clone(), true);
+    assert_eq!(
+        post(app.clone(), "hello", hello_body(2), true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let r = request();
+    db.store().enqueue(&r).await.unwrap();
+    assert_eq!(
+        post(
+            app.clone(),
+            "channel",
+            json!({"agent_id":"agent-a","owner_epoch":2,"wait_seconds":0}),
+            true
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    let mut result = json!({"owner_epoch":2,"envelope":{"request_id":r.request_id,"admin_operation_id":r.admin_operation_id,"status":"accepted","error":null,"result":{},"dry_run_preview":null,"game_ledger_id":"ledger-a","audit_event_ids":[],"effective_revision":null,"progress":null,"completed_at":null,"agent_id":"agent-a","agent_build":"test-build","signature":"unsigned"}});
+    let envelope: signer::ResultEnvelope =
+        serde_json::from_value(result["envelope"].clone()).unwrap();
+    result["envelope"]["signature"] = json!(
+        URL_SAFE_NO_PAD.encode(
+            ed25519_dalek::SigningKey::from_bytes(&[9; 32])
+                .sign(&signer::adm_x1_signing_bytes(&envelope).unwrap())
+                .to_bytes()
+        )
+    );
+    let mut blocker = db.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE admin_control_results IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let result_app = app.clone();
+    let result =
+        tokio::spawn(async move { post(result_app, "results", result, true).await.status() });
+    wait_control_lock(&db, "SELECT EXISTS(SELECT 1 FROM admin_control_results%").await;
+    let stream = tokio::spawn(async move {
+        post(app,"stream",json!({"agent_id":"agent-a","owner_epoch":2,"request_id":r.request_id,"chunks":[{"index":0,"data":URL_SAFE_NO_PAD.encode(b"test") }]}),true).await.status()
+    });
+    wait_control_lock(
+        &db,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 17))",
+    )
+    .await;
+    blocker.commit().await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), result)
+            .await
+            .unwrap()
+            .unwrap(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), stream)
+            .await
+            .unwrap()
+            .unwrap(),
+        StatusCode::OK
+    );
+    pool.close().await;
+    db.close().await;
+    eprintln!(
+        "postgres_result_uses_one_connection_under_stream_contention duration={:?}",
+        started.elapsed()
+    );
+}

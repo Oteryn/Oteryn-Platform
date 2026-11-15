@@ -15,6 +15,23 @@ use sqlx::{PgConnection, PgPool};
 use std::future::Future;
 use uuid::Uuid;
 
+/// Prepare every account needed by a mutation before the RBAC fence. Exclusive
+/// locks avoid later SHARE-to-UPDATE upgrades; SQL orders and deduplicates IDs.
+/// Callers must discover immutable target/requester IDs before calling this.
+pub async fn lock_accounts(
+    connection: &mut PgConnection,
+    accounts: &[Uuid],
+) -> Result<(), sqlx::Error> {
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE")
+        .bind(accounts)
+        .execute(connection)
+        .await?;
+    Ok(())
+}
+
 /// Bound waits at the role-writer fence so blocked requests release pool capacity.
 pub async fn lock_mutation(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
     sqlx::query("SET LOCAL lock_timeout = '3s'")
@@ -141,6 +158,9 @@ impl<A: AccountStateReader> Authorizer<A> {
         Self::check_permission(&mut connection, context.account, permission).await
     }
 
+    pub(crate) async fn account_active(&self, account: Uuid) -> bool {
+        matches!(self.accounts.state(account).await, Ok(AccountState::Active))
+    }
     pub(crate) async fn account_active_in(
         &self,
         connection: &mut PgConnection,
