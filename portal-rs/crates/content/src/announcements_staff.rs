@@ -1,0 +1,234 @@
+//! Staff announcement editing through the shared panel guard and announcement service.
+use super::*;
+use axum::{
+    Extension, Form, Router,
+    extract::{Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Redirect, Response},
+    routing::get,
+};
+use oteryn_admin::web::{PanelConfig, PortalIdentity, StaffSession};
+use oteryn_web::session::BrowserSession;
+use sqlx::Row;
+
+pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
+    oteryn_admin::web::configured_guard(
+        admin_router(pool.clone()),
+        pool,
+        Permission::ManagePortalAnnouncements,
+    )
+}
+pub fn admin_router(pool: PgPool) -> Router {
+    routes(pool.clone(), PortalIdentity::configured(pool))
+}
+pub fn staff_router<I: StaffSession, A: AccountStateReader + Clone + 'static>(
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+) -> Router {
+    oteryn_admin::web::guarded(
+        routes(pool.clone(), accounts.clone()),
+        pool,
+        config,
+        identity,
+        accounts,
+        Permission::ManagePortalAnnouncements,
+    )
+}
+fn routes<A: AccountStateReader + Clone + 'static>(pool: PgPool, accounts: A) -> Router {
+    Router::new()
+        .route("/admin/announcements", get(index).post(create::<A>))
+        .route("/admin/announcements/create", get(new))
+        .route(
+            "/admin/announcements/{id}/edit",
+            get(edit).post(update::<A>),
+        )
+        .with_state(pool)
+        .layer(Extension(accounts))
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
+}
+#[derive(askama::Template)]
+#[template(path = "content/announcements.html", config = "src/pages/askama.toml")]
+struct Page {
+    csrf: String,
+    action: String,
+    version: i64,
+    fields: Vec<(String, String, String)>,
+    rows: Vec<(Uuid, String, String)>,
+}
+async fn index(State(pool): State<PgPool>) -> Result<Response, StatusCode> {
+    let rows = sqlx::query_as("SELECT id,title,publication_state FROM announcements ORDER BY updated_at DESC,id DESC LIMIT 500").fetch_all(&pool).await.map_err(unavailable)?;
+    Ok(oteryn_web::render(&Page {
+        csrf: String::new(),
+        action: String::new(),
+        version: 0,
+        fields: vec![],
+        rows,
+    }))
+}
+const FIELDS: [&str; 12] = [
+    "publication_state",
+    "severity",
+    "starts_at",
+    "ends_at",
+    "title",
+    "body",
+    "action_label",
+    "action_url",
+    "title_pl",
+    "body_pl",
+    "action_label_pl",
+    "translation_published_at",
+];
+fn field_label(name: &str) -> &str {
+    match name {
+        "publication_state" => "Publication / Publikacja",
+        "severity" => "Severity / Ważność",
+        "starts_at" => "Starts at (UTC) / Początek",
+        "ends_at" => "Ends at (UTC, optional) / Koniec (opcjonalny)",
+        "title" => "Title (English)",
+        "body" => "Body (English)",
+        "action_label" => "Action label (English)",
+        "action_url" => "Action path / Ścieżka akcji",
+        "title_pl" => "Tytuł (polski)",
+        "body_pl" => "Treść (polski)",
+        "action_label_pl" => "Etykieta akcji (polski)",
+        "translation_published_at" => "Translation approved at (UTC) / Zatwierdzenie tłumaczenia",
+        _ => name,
+    }
+}
+fn unavailable(_: impl std::fmt::Display) -> StatusCode {
+    StatusCode::SERVICE_UNAVAILABLE
+}
+async fn new(Extension(session): Extension<BrowserSession>) -> Result<Response, StatusCode> {
+    let fields = FIELDS
+        .iter()
+        .map(|name| {
+            (
+                (*name).into(),
+                field_label(name).into(),
+                match *name {
+                    "publication_state" => "draft".into(),
+                    "severity" => "info".into(),
+                    "starts_at" => OffsetDateTime::now_utc()
+                        .format(&time::format_description::well_known::Rfc3339)
+                        .unwrap_or_default(),
+                    _ => String::new(),
+                },
+            )
+        })
+        .collect();
+    Ok(oteryn_web::render(&Page {
+        csrf: session.csrf_token().await.map_err(unavailable)?,
+        action: "/admin/announcements".into(),
+        version: 0,
+        fields,
+        rows: vec![],
+    }))
+}
+async fn edit(
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+    Extension(session): Extension<BrowserSession>,
+) -> Result<Response, StatusCode> {
+    let row =
+        sqlx::query("SELECT to_jsonb(a) AS data,lock_version FROM announcements a WHERE id=$1")
+            .bind(id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(unavailable)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+    let data: serde_json::Value = row.get("data");
+    let fields = FIELDS
+        .iter()
+        .map(|name| {
+            (
+                (*name).into(),
+                field_label(name).into(),
+                data[*name].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect();
+    Ok(oteryn_web::render(&Page {
+        csrf: session.csrf_token().await.map_err(unavailable)?,
+        action: format!("/admin/announcements/{id}/edit"),
+        version: row.get("lock_version"),
+        fields,
+        rows: vec![],
+    }))
+}
+#[derive(Deserialize)]
+struct Submission {
+    lock_version: i64,
+    #[serde(flatten)]
+    fields: std::collections::HashMap<String, String>,
+}
+impl Submission {
+    fn input(&self) -> Result<Input, StatusCode> {
+        let field = |name: &str| self.fields.get(name).cloned().unwrap_or_default();
+        let optional = |name: &str| {
+            let value = field(name);
+            (!value.is_empty()).then_some(value)
+        };
+        let stamp = |name: &str| -> Result<Option<OffsetDateTime>, StatusCode> {
+            optional(name)
+                .map(|value| {
+                    OffsetDateTime::parse(&value, &time::format_description::well_known::Rfc3339)
+                        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)
+                })
+                .transpose()
+        };
+        Ok(Input {
+            publication_state: field("publication_state"),
+            severity: field("severity"),
+            starts_at: stamp("starts_at")?.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?,
+            ends_at: stamp("ends_at")?,
+            title: field("title"),
+            body: field("body"),
+            action_label: optional("action_label"),
+            action_url: optional("action_url"),
+            title_pl: optional("title_pl"),
+            body_pl: optional("body_pl"),
+            action_label_pl: optional("action_label_pl"),
+            translation_published_at: stamp("translation_published_at")?,
+        })
+    }
+}
+async fn create<A: AccountStateReader + Clone + 'static>(
+    State(pool): State<PgPool>,
+    Extension(accounts): Extension<A>,
+    Extension(context): Extension<CheckContext>,
+    Form(form): Form<Submission>,
+) -> Result<Response, StatusCode> {
+    persist(pool, accounts, context, None, form).await
+}
+async fn update<A: AccountStateReader + Clone + 'static>(
+    State(pool): State<PgPool>,
+    Extension(accounts): Extension<A>,
+    Extension(context): Extension<CheckContext>,
+    Path(id): Path<Uuid>,
+    Form(form): Form<Submission>,
+) -> Result<Response, StatusCode> {
+    persist(pool, accounts, context, Some(id), form).await
+}
+async fn persist<A: AccountStateReader>(
+    pool: PgPool,
+    accounts: A,
+    context: CheckContext,
+    id: Option<Uuid>,
+    form: Submission,
+) -> Result<Response, StatusCode> {
+    let input = form.input()?;
+    let auth = Authorizer::new(pool.clone(), accounts);
+    let id = Announcements::new(pool)
+        .save(&auth, context, id.map(|id| (id, form.lock_version)), input)
+        .await
+        .map_err(|e| match e {
+            Error::Conflict => StatusCode::CONFLICT,
+            Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
+            Error::Authorization(oteryn_admin::rbac::Error::Denied) => StatusCode::FORBIDDEN,
+            _ => StatusCode::SERVICE_UNAVAILABLE,
+        })?;
+    Ok(Redirect::to(&format!("/admin/announcements/{id}/edit")).into_response())
+}

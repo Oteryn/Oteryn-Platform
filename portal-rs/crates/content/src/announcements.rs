@@ -244,3 +244,7 @@ pub async fn banner(
     response = axum::response::Response::from_parts(parts, Body::from(html));
     response
 }
+
+#[path = "announcements_staff.rs"]
+mod staff;
+pub use staff::{admin_router, configured_router, staff_router};

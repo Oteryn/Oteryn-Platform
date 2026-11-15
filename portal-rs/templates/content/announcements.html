@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Announcements</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+<h1>Announcements / Ogłoszenia</h1>
+<a href="/admin/announcements">List / Lista</a>
+<a href="/admin/announcements/create">Create / Utwórz</a>
+{% for row in rows %}<p>
+<a href="/admin/announcements/{{ row.0 }}/edit">{{ row.1 }}</a> {{ row.2 }}</p>{% endfor %}
+
+{% if !action.is_empty() %}<form method="post" action="{{ action }}" class="op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="lock_version" value="{{ version }}">
+<p>Publication: draft = unpublished, published = public. Dates use RFC3339 (UTC). English source and Polish translation are edited together. A new translation publication timestamp approves the current translation.</p>
+{% for field in fields %}<label for="{{ field.0 }}">{{ field.1 }}</label>{% if field.0 == "publication_state" %}<select class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">
+<option value="draft"{% if field.2 == "draft" %} selected{% endif %}>Draft / Nieopublikowane</option>
+<option value="published"{% if field.2 == "published" %} selected{% endif %}>Published / Opublikowane</option>
+</select>{% else if field.0 == "severity" %}<select class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{% for severity in ["info", "maintenance", "warning"] %}<option{% if field.2.as_str() == *severity %} selected{% endif %}>{{ severity }}</option>{% endfor %}
+</select>{% else %}<textarea class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{{ field.2 }}</textarea>{% endif %}{% endfor %}
+<button class="op-button">Save / Zapisz</button>
+</form>{% endif %}</main>
+</body>
+</html>
