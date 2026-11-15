@@ -42,7 +42,7 @@ pub fn router<S: Clone + Send + Sync + 'static>(
         .route("/en/wiki/calculators", get(page))
         .with_state(Calculators { world, options })
 }
-/// Both flags accept only `true`. Optional references use `kind|key`.
+/// Calculator flag accepts `true`; world reads use shared aliases. References use `kind|key`.
 pub fn configured_router<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router<S> {
     fn reference(variable: &str) -> Option<WorldKey> {
         let value = std::env::var(variable).ok()?;
@@ -59,7 +59,7 @@ pub fn configured_router<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router
         WorldStore::new(
             db,
             WorldOptions {
-                enabled: std::env::var("PORTAL_WORLD_ENABLED").as_deref() == Ok("true"),
+                enabled: oteryn_world::configured_world_enabled(),
             },
         ),
         CalculatorOptions {
