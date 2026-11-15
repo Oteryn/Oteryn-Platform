@@ -174,10 +174,6 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         let inserted = sqlx::query("INSERT INTO payment_events (id, provider, provider_event_id, intent_id, state) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (provider,provider_event_id) DO NOTHING")
             .bind(oteryn_core::new_id()).bind(self.provider.name()).bind(&event.event_id).bind(event.intent_id).bind(event.state.as_str())
             .execute(&mut *tx).await?.rows_affected();
-        if inserted == 0 {
-            tx.commit().await?;
-            return Ok(WebhookOutcome::Replay);
-        }
         let amount: i64 = row.try_get("amount")?;
         let currency: String = row.try_get("currency")?;
         let account_id: Uuid = row.try_get("account_id")?;
@@ -186,6 +182,16 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
             || row.try_get::<String, _>("provider_reference")? != event.provider_reference
         {
             return Err(Error::InvalidInput);
+        }
+        if inserted == 0 {
+            let same: bool = sqlx::query_scalar("SELECT intent_id=$3 AND state=$4 FROM payment_events WHERE provider=$1 AND provider_event_id=$2")
+                .bind(self.provider.name()).bind(&event.event_id).bind(event.intent_id).bind(event.state.as_str())
+                .fetch_one(&mut *tx).await?;
+            if !same {
+                return Err(Error::InvalidInput);
+            }
+            tx.commit().await?;
+            return Ok(WebhookOutcome::Replay);
         }
         IntentState::parse(row.try_get("state")?)?.transition(event.state)?;
         self.eligible(account_id).await?;

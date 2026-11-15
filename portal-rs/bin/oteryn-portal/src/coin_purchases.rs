@@ -155,6 +155,31 @@ impl CoinHost for Host {
         coins: i64,
     ) -> HostFuture<'a, Result<(), CoinError>> {
         Box::pin(async move {
+            // Use the same account lock as every wallet mutation, retaining it
+            // through adjust_in and the caller's commit.
+            sqlx::query(
+                "INSERT INTO wallet_accounts (account_id) VALUES ($1) ON CONFLICT DO NOTHING",
+            )
+            .bind(payer)
+            .execute(&mut **tx)
+            .await?;
+            sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+                .bind(payer)
+                .fetch_one(&mut **tx)
+                .await?;
+            let (balance, _) = self
+                .ledger()
+                .snapshot_in(tx, payer)
+                .await
+                .map_err(|_| CoinError::Unavailable)?;
+            if balance
+                .available
+                .checked_add(balance.reserved)
+                .and_then(|total| total.checked_add(coins))
+                .is_none_or(|total| total > oteryn_payments::coin::MAX_COINS)
+            {
+                return Err(CoinError::Conflict);
+            }
             // The intent ID is the global ledger key: a replay never credits twice.
             self.ledger()
                 .with_adjustment_kind(AdjustmentKind::TopUp)
@@ -278,3 +303,7 @@ impl wallet::AuditHook for Reversal {
 #[cfg(test)]
 #[path = "coin_purchases_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "coin_ceiling_tests.rs"]
+mod ceiling_tests;
