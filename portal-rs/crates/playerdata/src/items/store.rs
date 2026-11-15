@@ -206,7 +206,6 @@ impl Projection {
             .evidence
             .authorize(&mut tx, &scope, Access::Ingest)
             .await?;
-        time_check(&r, &proof)?;
         let actor = uuid(&r.account_id)?;
         let world = uuid(&r.world_id)?;
         let character = r.character_id.as_deref().map(uuid).transpose()?;
@@ -238,6 +237,7 @@ impl Projection {
             tx.commit().await?;
             return Ok(());
         }
+        time_check(&r, &proof)?;
         if cursor.checked_add(1) != Some(revision) {
             sqlx::query("UPDATE pd_t76_streams SET fenced=true WHERE stream_key=$1")
                 .bind(&sk)

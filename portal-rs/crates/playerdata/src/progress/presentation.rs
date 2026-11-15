@@ -46,6 +46,7 @@ struct Section {
     title: String,
     rows: Vec<DisplayRow>,
     notice: String,
+    stale: bool,
 }
 #[derive(Debug)]
 struct DisplayRow {
@@ -54,7 +55,7 @@ struct DisplayRow {
 }
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{{ title }}</title></head><body><main id=\"main\"><h1>{{ title }}</h1><p>{{ observation }}</p>{% for section in sections %}<section aria-labelledby=\"section-{{ loop.index }}\"><h2 id=\"section-{{ loop.index }}\">{{ section.title }}</h2>{% if section.rows.is_empty() %}<p>{{ section.notice }}</p>{% else %}<ul>{% for row in section.rows %}<li><strong>{{ row.key }}</strong><ul>{% for detail in row.details %}<li>{{ detail }}</li>{% endfor %}</ul></li>{% endfor %}</ul>{% endif %}</section>{% endfor %}</main></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{{ title }}</title></head><body><main id=\"main\"><h1>{{ title }}</h1><p>{{ observation }}</p>{% for section in sections %}<section aria-labelledby=\"section-{{ loop.index }}\"><h2 id=\"section-{{ loop.index }}\">{{ section.title }}</h2>{% if section.stale %}<p>{{ section.notice }}</p>{% endif %}{% if section.rows.is_empty() %}<p>{{ section.notice }}</p>{% else %}<ul>{% for row in section.rows %}<li><strong>{{ row.key }}</strong><ul>{% for detail in row.details %}<li>{{ detail }}</li>{% endfor %}</ul></li>{% endfor %}</ul>{% endif %}</section>{% endfor %}</main></body></html>",
     ext = "html"
 )]
 struct Page {
@@ -162,16 +163,28 @@ impl ProgressStore {
                 character: Some(character),
                 family,
             };
-            let (rows, notice) = match self.read(actor, &scope, authority, now_ms).await {
-                Ok(payloads) => (
-                    payloads
+            let (rows, notice, stale) = match self
+                .read_observation(actor, &scope, authority, now_ms)
+                .await
+            {
+                Ok(observation) => (
+                    observation
+                        .payloads
                         .into_iter()
                         .map(|p| row(p, &bundle, now_ms))
                         .collect::<Result<Vec<_>>>()?,
-                    text(&bundle, "progress-empty")?,
+                    text(
+                        &bundle,
+                        if observation.stale {
+                            "progress-stale"
+                        } else {
+                            "progress-empty"
+                        },
+                    )?,
+                    observation.stale,
                 ),
                 Err(Error::Disabled | Error::Unavailable) => {
-                    (Vec::new(), text(&bundle, "progress-unavailable")?)
+                    (Vec::new(), text(&bundle, "progress-unavailable")?, false)
                 }
                 Err(e) => return Err(e),
             };
@@ -179,6 +192,7 @@ impl ProgressStore {
                 title: text(&bundle, family)?,
                 rows,
                 notice,
+                stale,
             });
         }
         Page {
@@ -209,6 +223,7 @@ mod tests {
                         details: vec![],
                     }],
                     notice: String::new(),
+                    stale: false,
                 }],
             }
             .render()
@@ -279,6 +294,7 @@ impl ProgressStore {
                 title: text(&bundle, "goals")?,
                 rows,
                 notice: text(&bundle, "progress-empty")?,
+                stale: false,
             }],
         }
         .render()

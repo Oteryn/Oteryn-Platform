@@ -356,6 +356,9 @@ struct TestDb {
 }
 impl TestDb {
     async fn new() -> Option<Self> {
+        Self::with_migrations(false).await
+    }
+    async fn with_migrations(all: bool) -> Option<Self> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("PostgreSQL test skipped: PORTAL_TEST_DATABASE_URL is unset");
             return None;
@@ -385,12 +388,16 @@ impl TestDb {
             .connect(&url)
             .await
             .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../../../migrations/20261105230112_t76_items.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
+        if all {
+            oteryn_db::migrate(&pool).await.unwrap();
+        } else {
+            sqlx::raw_sql(include_str!(
+                "../../../../migrations/20261105230112_t76_items.sql"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
         Some(Self {
             pool,
             admin,
@@ -900,4 +907,74 @@ async fn pg_multiple_pages_market_and_trade_are_not_wealth() {
         33
     );
     db.close().await;
+}
+
+#[tokio::test]
+async fn pg_expired_exact_replay_preserves_outcome_without_payload() {
+    let started = std::time::Instant::now();
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    let (p, e) = db.projection();
+    let r = bank();
+    ingest(&p, &r).await.unwrap();
+    e.now.store(NOW + RETENTION + 1, Ordering::SeqCst);
+    p.cleanup(NOW + RETENTION + 1).await.unwrap();
+    ingest(&p, &r).await.expect("retained exact replay");
+    let retained: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM pd_t76_records WHERE canonical_bytes IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(retained, 0);
+    db.close().await;
+    eprintln!(
+        "PG pg_expired_exact_replay_preserves_outcome_without_payload {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn pg_production_retention_erases_item_snapshots_and_event_payloads() {
+    use oteryn_db::outbox::Cleanup;
+    let started = std::time::Instant::now();
+    let Some(db) = TestDb::with_migrations(true).await else {
+        return;
+    };
+    let (p, _) = db.projection();
+    for r in snapshot(vec![item(11)]) {
+        ingest(&p, &r).await.unwrap();
+    }
+    let mut ledger = bank();
+    ledger.record_id = ident(9999);
+    ingest(&p, &ledger).await.unwrap();
+    sqlx::query("UPDATE pd_t76_streams SET snapshot_at=0 WHERE snapshot IS NOT NULL")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE pd_t76_records SET occurred_at=0")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE pd_t76_events SET occurred_at=0")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    crate::retention::Retention(db.pool.clone())
+        .clean()
+        .await
+        .unwrap();
+    let counts: (i64,i64,i64) = sqlx::query_as("SELECT (SELECT count(*) FROM pd_t76_streams WHERE snapshot IS NOT NULL),(SELECT count(*) FROM pd_t76_records WHERE canonical_bytes IS NOT NULL),(SELECT count(*) FROM pd_t76_events WHERE canonical_bytes IS NOT NULL)").fetch_one(&db.pool).await.unwrap();
+    assert_eq!(counts, (0, 0, 0));
+    let hashes: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM pd_t76_records WHERE digest IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(hashes, 4);
+    db.close().await;
+    eprintln!(
+        "PG pg_production_retention_erases_item_snapshots_and_event_payloads {:?}",
+        started.elapsed()
+    );
 }

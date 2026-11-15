@@ -317,3 +317,87 @@ fn premium_units_round_conservatively_and_unknown_stays_unknown() -> Result<()> 
     assert!(premium_deadline_ms(Some(u64::MAX)).is_err());
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_reminder_identity_includes_character_and_cut() -> Result<()> {
+    let started = std::time::Instant::now();
+    let Some(pool) = database().await? else {
+        return Ok(());
+    };
+    let service = Reminders {
+        pool: pool.clone(),
+        flags: flags(),
+    };
+    let first = intent();
+    let mut second = first.clone();
+    second.character = Some(Uuid::now_v7());
+    let p = proven();
+    let owner = actor(first.owner);
+    let one = service.schedule(owner, &first, &p, 100_000).await?;
+    let two = service.schedule(owner, &second, &p, 100_000).await?;
+    assert_ne!(one, two);
+    assert_eq!(service.schedule(owner, &first, &p, 100_000).await?, one);
+    assert_eq!(service.schedule(owner, &second, &p, 100_000).await?, two);
+    let mut next_cut = proven();
+    next_cut.cut.character_revision += 1;
+    let mut third = first.clone();
+    third.cut = Some(next_cut.cut);
+    let three = service.schedule(owner, &third, &next_cut, 100_000).await?;
+    assert_ne!(one, three);
+    let capture = Capture::default();
+    assert!(service.dispatch(one, &first, &p, &capture, 100_000).await?);
+    assert!(
+        service
+            .dispatch(two, &second, &p, &capture, 100_000)
+            .await?
+    );
+    assert!(!service.dispatch(one, &first, &p, &capture, 100_000).await?);
+    assert!(
+        !service
+            .dispatch(two, &second, &p, &capture, 100_000)
+            .await?
+    );
+    assert_eq!(capture.0.lock().map_err(|_| denied())?.len(), 2);
+    let mut account = first.clone();
+    account.kind = Kind::Premium;
+    account.character = None;
+    account.cut = None;
+    let account_id = service.schedule(owner, &account, &p, 100_000).await?;
+    assert_eq!(
+        service.schedule(owner, &account, &p, 100_000).await?,
+        account_id
+    );
+    // Old binaries retain their original table and conflict target. Their
+    // pending IDs remain dispatchable by the new scheduler during an upgrade.
+    let mut legacy = first.clone();
+    legacy.entity = "boss/legacy".into();
+    let legacy_id = Uuid::now_v7();
+    sqlx::query("INSERT INTO pd_reminders(id,account_id,character_id,kind,entity_key,channel,due_at_ms,cut) VALUES($1,$2,$3,'boss',$4,'email',$5,$6)")
+        .bind(legacy_id).bind(legacy.owner).bind(legacy.character).bind(&legacy.entity).bind(legacy.due_at_ms).bind(legacy.cut.map(serde_json::to_value).transpose()?).execute(&pool).await?;
+    assert_eq!(
+        service.schedule(owner, &legacy, &p, 100_000).await?,
+        legacy_id
+    );
+    assert!(
+        service
+            .dispatch(legacy_id, &legacy, &p, &capture, 100_000)
+            .await?
+    );
+    let legacy_state: String = sqlx::query_scalar("SELECT state FROM pd_reminders WHERE id=$1")
+        .bind(legacy_id)
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(legacy_state, "delivered");
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&pool)
+        .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&pool)
+        .await?;
+    pool.close().await;
+    eprintln!(
+        "PG postgres_reminder_identity_includes_character_and_cut {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

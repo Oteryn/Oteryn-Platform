@@ -137,7 +137,7 @@ impl Reminders {
             return Err(denied());
         }
         let cut = intent.cut.map(serde_json::to_value).transpose()?;
-        let id = sqlx::query_scalar("INSERT INTO pd_reminders(id,account_id,character_id,kind,entity_key,channel,due_at_ms,cut) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(account_id,kind,entity_key,channel,due_at_ms) DO UPDATE SET updated_at=pd_reminders.updated_at WHERE pd_reminders.character_id IS NOT DISTINCT FROM EXCLUDED.character_id AND pd_reminders.cut IS NOT DISTINCT FROM EXCLUDED.cut RETURNING id")
+        let id = sqlx::query_scalar("INSERT INTO pd_scoped_reminders(id,account_id,character_id,kind,entity_key,channel,due_at_ms,cut) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(account_id,kind,entity_key,channel,due_at_ms,character_id,cut) DO UPDATE SET updated_at=pd_scoped_reminders.updated_at WHERE pd_scoped_reminders.character_id IS NOT DISTINCT FROM EXCLUDED.character_id AND pd_scoped_reminders.cut IS NOT DISTINCT FROM EXCLUDED.cut RETURNING id")
             .bind(Uuid::now_v7()).bind(intent.owner).bind(intent.character).bind(intent.kind.key())
             .bind(&intent.entity).bind(intent.channel.key()).bind(intent.due_at_ms).bind(cut)
             .fetch_optional(&self.pool).await?.ok_or_else(denied)?;
@@ -158,7 +158,7 @@ impl Reminders {
     ) -> Result<bool> {
         intent.validate()?;
         let mut tx = self.pool.begin().await?;
-        let row: Option<(String,)> = sqlx::query_as("SELECT state FROM pd_reminders WHERE id=$1 AND account_id=$2 AND character_id IS NOT DISTINCT FROM $3 AND kind=$4 AND entity_key=$5 AND channel=$6 AND due_at_ms=$7 AND cut IS NOT DISTINCT FROM $8 FOR UPDATE")
+        let row: Option<(String,)> = sqlx::query_as("SELECT state FROM pd_scoped_reminders WHERE id=$1 AND account_id=$2 AND character_id IS NOT DISTINCT FROM $3 AND kind=$4 AND entity_key=$5 AND channel=$6 AND due_at_ms=$7 AND cut IS NOT DISTINCT FROM $8 FOR UPDATE")
             .bind(id).bind(intent.owner).bind(intent.character).bind(intent.kind.key()).bind(&intent.entity)
             .bind(intent.channel.key()).bind(intent.due_at_ms).bind(intent.cut.map(serde_json::to_value).transpose()?)
             .fetch_optional(&mut *tx).await?;
@@ -166,10 +166,12 @@ impl Reminders {
             return Ok(false);
         }
         if !eligible(self.flags, intent, authority, now)? {
-            sqlx::query("UPDATE pd_reminders SET state='cancelled',updated_at=now() WHERE id=$1")
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "UPDATE pd_scoped_reminders SET state='cancelled',updated_at=now() WHERE id=$1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
             tx.commit().await?;
             return Ok(false);
         }
@@ -177,16 +179,18 @@ impl Reminders {
             return Ok(false);
         }
         delivery.enqueue(&mut tx, id, intent).await?;
-        sqlx::query("UPDATE pd_reminders SET state='delivered',updated_at=now() WHERE id=$1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE pd_scoped_reminders SET state='delivered',updated_at=now() WHERE id=$1",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(true)
     }
     pub async fn cancel(&self, actor: Actor, owner: Uuid, id: Uuid) -> Result<bool> {
         actor.authorize(owner)?;
-        Ok(sqlx::query("UPDATE pd_reminders SET state='cancelled',updated_at=now() WHERE id=$1 AND account_id=$2 AND state='pending'").bind(id).bind(owner).execute(&self.pool).await?.rows_affected() == 1)
+        Ok(sqlx::query("UPDATE pd_scoped_reminders SET state='cancelled',updated_at=now() WHERE id=$1 AND account_id=$2 AND state='pending'").bind(id).bind(owner).execute(&self.pool).await?.rows_affected() == 1)
     }
 }
 /// Narrow seam: T36 has no reminder category or web-push API. An absent adapter

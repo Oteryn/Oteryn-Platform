@@ -124,15 +124,48 @@ async fn account(tx: &mut PgConnection, account: Uuid) -> Result<()> {
 
 /// The account's current projection epoch, from a valid snapshot only.
 pub async fn account_epoch(tx: &mut PgConnection, account: Uuid) -> Result<u64> {
-    let row = sqlx::query("SELECT projection_epoch,invalid FROM account_character_snapshots WHERE account_id=$1 FOR SHARE")
-        .bind(account)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(Error::Unavailable)?;
-    if row.try_get::<bool, _>("invalid")? {
+    let (highest, source) = live_feed(tx).await?;
+    let row = sqlx::query("SELECT projection_epoch,invalid,source_authority FROM account_character_snapshots WHERE account_id=$1 FOR SHARE")
+        .bind(account).fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
+    let epoch: String = row.try_get("projection_epoch")?;
+    if row.try_get::<bool, _>("invalid")?
+        || epoch != highest
+        || row.try_get::<String, _>("source_authority")? != source
+    {
         return Err(Error::Unavailable);
     }
-    counter(&row.try_get::<String, _>("projection_epoch")?)
+    counter(&epoch)
+}
+
+/// Locks the authoritative LCFA feed before any ownership snapshot is read.
+async fn live_feed(tx: &mut PgConnection) -> Result<(String, String)> {
+    // LCFA serializes epoch changes and snapshot replacement on this singleton.
+    // Keep its shared lock before reading any account or character snapshot.
+    let feed = sqlx::query("SELECT highest_epoch,watermark_epoch,source_authority,complete_through FROM account_character_feed WHERE id=1 FOR SHARE")
+        .fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
+    let highest: Option<String> = feed.try_get("highest_epoch")?;
+    let watermark: Option<String> = feed.try_get("watermark_epoch")?;
+    let source: Option<String> = feed.try_get("source_authority")?;
+    let complete: Option<i64> = feed.try_get("complete_through")?;
+    // Read time after obtaining the lock, including any wait for an LCFA writer.
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&mut *tx)
+            .await?;
+    // LCFA's production readers use 30 seconds with one second uncertainty.
+    if highest.is_none()
+        || highest != watermark
+        || source.as_deref().is_none_or(str::is_empty)
+        || complete.is_none_or(|cut| {
+            cut > now.saturating_add(1) || now.saturating_sub(cut).saturating_add(1) > 30
+        })
+    {
+        return Err(Error::Unavailable);
+    }
+    Ok((
+        highest.ok_or(Error::Unavailable)?,
+        source.ok_or(Error::Unavailable)?,
+    ))
 }
 
 /// A committed transfer receipt as (from account, cut); a rejection is `None`.
@@ -218,6 +251,7 @@ async fn initial_cut(tx: &mut PgConnection, character: Uuid) -> Result<Ownership
 /// Proves who owns `character` now. Pending or ambiguous evidence denies
 /// (`Unavailable`). Locks the character's commands and projection rows shared.
 pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) -> Result<Ownership> {
+    live_feed(tx).await?;
     let rows = sqlx::query("SELECT state,receipt_json FROM character_commands WHERE command='TransferCharacterOwnership' AND binding_json::jsonb->>'character_id'=$1 ORDER BY source_revision LIMIT $2 FOR SHARE")
         .bind(character.to_string())
         .bind(MAX_TRANSFERS + 1)
@@ -258,6 +292,7 @@ pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) ->
         return Err(Error::Unavailable);
     }
     let owner: Uuid = row.try_get("account_id")?;
+    account_epoch(tx, owner).await?;
     let world: Uuid = row.try_get("world_id")?;
     let epoch = counter(&row.try_get::<String, _>("projection_epoch")?)?;
     let revision = counter(&row.try_get::<String, _>("projection_revision")?)?;
