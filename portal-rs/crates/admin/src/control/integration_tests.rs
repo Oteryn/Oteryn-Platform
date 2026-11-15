@@ -425,3 +425,38 @@ pub(in crate::control::controls) fn wire(
         "nonce":URL_SAFE_NO_PAD.encode(&request.nonce),"signer_key_id":request.signer_key_id,
     }))?)
 }
+
+#[tokio::test]
+async fn lk_control_evidence_with_one_available_connection() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let (s, _) = session(&db.pool, 0).await?;
+    let id = Uuid::now_v7();
+    bound(&s, id, 0).await?;
+    enqueue(&db, &s, id).await?;
+    let service = Controls::new(db.pool.clone(), Auth, Verifier, true);
+    let mut held = Vec::new();
+    for _ in 0..4 {
+        held.push(db.pool.acquire().await?);
+    }
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        service.control_evidence(
+            &s,
+            &Submission {
+                request_id: id,
+                preview: None,
+            },
+        ),
+    )
+    .await??;
+    drop(held);
+    db.close().await?;
+    eprintln!(
+        "lk_control_evidence_with_one_available_connection duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

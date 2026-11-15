@@ -244,7 +244,15 @@ impl Tickets {
         .fetch_optional(&mut **tx)
         .await?
         .ok_or(Error::NotFound)?;
-        self.lock_account(tx, owner).await?;
+        // Include the author's implicit FK lock and RBAC's account SHARE lock.
+        // Crossed staff replies must acquire the same pair in UUID order.
+        for account in if actor < owner {
+            [actor, owner]
+        } else {
+            [owner, actor]
+        } {
+            self.lock_account(tx, account).await?;
+        }
         let mut ticket: Ticket = sqlx::query_as(
             "SELECT * FROM tickets WHERE id=$1 AND ($2 OR account_id=$3) FOR UPDATE",
         )

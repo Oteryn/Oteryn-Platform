@@ -429,7 +429,20 @@ struct Bound {
     channel: Uuid,
     security_generation: i64,
 }
-/// §19.4 step 2 against current state: account, handle,
+async fn serialize_identity(tx: &mut PgConnection) -> Result<(), RecoveryError> {
+    // Recovery locks the handle before Identity (§19.4). Fence account writers
+    // before either row lock, including writers whose triggers revoke handles.
+    // EXCLUSIVE also conflicts with SELECT FOR UPDATE/SHARE's table lock, so
+    // admission, devices and credentials cannot hold accounts and await handles.
+    // Plain readers still run. Acquire after attempt/epoch, before resource rows.
+    sqlx::query("LOCK TABLE accounts IN EXCLUSIVE MODE")
+        .execute(tx)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    Ok(())
+}
+
+/// §19.4 step 2 against current state: handle, Identity,
 /// device family (shared), play generation. A family-bound handle
 /// also needs its family live and current (§19.15.1: an expired family's
 /// handles count as revoked on every path); nothing here rotates or touches it.
@@ -442,19 +455,8 @@ async fn authenticate(
     accounts: &dyn AccountStateLookup,
     now: i64,
 ) -> Result<Bound, RecoveryError> {
+    serialize_identity(tx).await?;
     let get = |_: sqlx::Error| RecoveryError::Unavailable;
-    let located: Uuid =
-        sqlx::query_scalar("SELECT account_id FROM native_recovery_handles WHERE handle_hash=$1")
-            .bind(&request.handle_hash[..])
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(get)?
-            .ok_or(RecoveryError::HandleRejected)?;
-    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
-        .bind(located)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(get)?;
     let row = sqlx::query("SELECT account_id, character_id, world_id, channel_id, security_generation, play_generation, device_family_id, device_key_thumbprint, expires_at, revoked_at IS NULL AS live FROM native_recovery_handles WHERE handle_hash=$1 FOR UPDATE")
         .bind(&request.handle_hash[..]).fetch_optional(&mut *tx).await.map_err(get)?
         .ok_or(RecoveryError::HandleRejected)?;
@@ -464,9 +466,6 @@ async fn authenticate(
         return Err(RecoveryError::HandleRejected);
     }
     let account: Uuid = row.try_get("account_id").map_err(get)?;
-    if account != located {
-        return Err(RecoveryError::HandleRejected);
-    }
     let security_generation: i64 = row.try_get("security_generation").map_err(get)?;
     let identity = sqlx::query("SELECT status, native_security_generation::text AS native FROM accounts WHERE id=$1 FOR SHARE")
         .bind(account).fetch_optional(&mut *tx).await.map_err(get)?
@@ -632,22 +631,6 @@ async fn recover_inner(
     if fresh {
         return Err(RecoveryError::AttemptConflict.into());
     }
-    if let Some(account) = sqlx::query_scalar::<_, Uuid>(
-        "SELECT account_id FROM native_recovery_handles WHERE handle_hash=$1",
-    )
-    .bind(&request.handle_hash[..])
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| Error::Unavailable)?
-    {
-        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
-            .bind(account)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|_| Error::Unavailable)?;
-    }
-    let existing = sqlx::query("SELECT handle_hash, request_digest, response_body, expires_at_ms FROM native_recoveries WHERE attempt_ref=$1 FOR UPDATE")
-        .bind(request.attempt_ref).fetch_optional(&mut *tx).await.map_err(|_| Error::Unavailable)?;
     let epoch: Option<i16> =
         sqlx::query_scalar("SELECT id FROM native_assignment_epoch_locks WHERE id=1 FOR SHARE")
             .fetch_optional(&mut *tx)
@@ -656,6 +639,9 @@ async fn recover_inner(
     if epoch.is_none() {
         return Err(RecoveryError::Unavailable.into());
     }
+    serialize_identity(&mut tx).await?;
+    let existing = sqlx::query("SELECT handle_hash, request_digest, response_body, expires_at_ms FROM native_recoveries WHERE attempt_ref=$1 FOR UPDATE")
+        .bind(request.attempt_ref).fetch_optional(&mut *tx).await.map_err(|_| Error::Unavailable)?;
     let now_ms = store::now(&mut tx).await?;
     let now = now_ms.div_euclid(1000);
     if let Some(row) = existing {

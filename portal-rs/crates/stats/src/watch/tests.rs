@@ -24,7 +24,11 @@ impl Policy for TestPolicy {
     ) -> PolicyFuture<'a, bool> {
         Box::pin(async { Ok(self.visible.load(Ordering::SeqCst)) })
     }
-    fn locale(&self, _: Uuid) -> PolicyFuture<'_, Locale> {
+    fn locale<'a>(
+        &'a self,
+        _: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+        _: Uuid,
+    ) -> PolicyFuture<'a, Locale> {
         Box::pin(async { Ok(Locale::En) })
     }
 }

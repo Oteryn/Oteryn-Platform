@@ -10,6 +10,33 @@ type TestResult = std::result::Result<(), Box<dyn std::error::Error + Send + Syn
 #[tokio::test]
 async fn postgres_configured_staff_support_domain_actions() -> TestResult {
     let started = std::time::Instant::now();
+    // Exercise the configured production composition with an isolated, explicit
+    // fixture environment; never mutate process-global environment in the suite.
+    if std::env::var("OTERYN_LK_STAFF_SUPPORT_FIXTURE").as_deref() != Ok("1") {
+        let status = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "tickets::staff_tests::postgres_configured_staff_support_domain_actions",
+                "--nocapture",
+            ])
+            .env("OTERYN_LK_STAFF_SUPPORT_FIXTURE", "1")
+            .env("OTERYN_ADMIN_PANEL", "true")
+            .env("OTERYN_ADMIN_HOST", "staff.test")
+            .env("OTERYN_SUPPORT_TICKETS", "true")
+            .env("OTERYN_REPORTS_ENABLED", "true")
+            .env("OTERYN_MFA_KEY", "07".repeat(32))
+            .env("OTERYN_NOTIFY_UNSUBSCRIBE_KEY", "07".repeat(32))
+            .env(
+                "OTERYN_NOTIFY_UNSUBSCRIBE_URL",
+                "https://portal.example.test/unsubscribe",
+            )
+            .status()?;
+        assert!(
+            status.success(),
+            "configured staff support fixture failed: {status}"
+        );
+        return Ok(());
+    }
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let root = PgPool::connect(&url).await?;
     let schema = format!("staff_support_{}", Uuid::now_v7().simple());

@@ -1121,3 +1121,61 @@ async fn postgres_pagination_ticket_boundary() -> TestResult {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn lk_crossed_staff_replies_finish() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::with_connections(2)
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let a = db.account("en").await?;
+    let b = db.account("en").await?;
+    for actor in [a, b] {
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&db.pool).await?;
+    }
+    let tickets = db.tickets(100)?;
+    for _ in 0..16 {
+        let ta = tickets
+            .create(a, Uuid::now_v7(), "other", "subject", "body")
+            .await?;
+        let tb = tickets
+            .create(b, Uuid::now_v7(), "other", "subject", "body")
+            .await?;
+        let barrier = tokio::sync::Barrier::new(2);
+        let reply = |actor, id| {
+            let barrier = &barrier;
+            let tickets = &tickets;
+            async move {
+                barrier.wait().await;
+                tickets
+                    .change(
+                        actor,
+                        Some(CheckContext {
+                            account: actor,
+                            require_staff_mfa: true,
+                            mfa_verified: true,
+                        }),
+                        id,
+                        1,
+                        Change::Reply {
+                            body: "staff reply",
+                            internal: false,
+                        },
+                    )
+                    .await
+            }
+        };
+        let (left, right) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::join!(reply(a, tb.id), reply(b, ta.id))
+        })
+        .await?;
+        left?;
+        right?;
+    }
+    db.finish().await?;
+    eprintln!(
+        "lk_crossed_staff_replies_finish duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

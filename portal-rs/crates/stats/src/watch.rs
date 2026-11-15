@@ -74,7 +74,11 @@ pub trait Policy: std::fmt::Debug + Send + Sync {
         subscription: Subscription,
         event: Option<Event>,
     ) -> PolicyFuture<'a, bool>;
-    fn locale(&self, owner: Uuid) -> PolicyFuture<'_, Locale>;
+    fn locale<'a>(
+        &'a self,
+        tx: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+        owner: Uuid,
+    ) -> PolicyFuture<'a, Locale>;
 }
 #[derive(Debug)]
 pub struct Watches {
@@ -184,7 +188,7 @@ impl Watches {
                 if inserted.rows_affected() == 0 {
                     continue;
                 }
-                let (title, body) = message(self.policy.locale(owner).await?)?;
+                let (title, body) = message(self.policy.locale(&mut tx, owner).await?)?;
                 notify
                     .enqueue(&mut tx, owner, &EmailTemplate::News { title, body })
                     .await?;

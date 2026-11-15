@@ -173,6 +173,23 @@ impl BrowserSession {
             .map(|v| serde_json::from_str(&v).map_err(|e| sqlx::Error::Decode(Box::new(e))))
             .transpose()
     }
+    /// Read live session state without acquiring a second pool connection.
+    pub async fn get_in<T: DeserializeOwned>(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        key: SessionKey<T>,
+    ) -> Result<Option<T>, sqlx::Error> {
+        let inner = self.inner.lock().await;
+        let Some(record) = &inner.record else {
+            return Ok(None);
+        };
+        let value: Option<Option<String>> = sqlx::query_scalar("SELECT (data -> $2)::text FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
+            .bind(hash(&record.id)).bind(key.name).fetch_optional(connection).await?;
+        value
+            .flatten()
+            .map(|v| serde_json::from_str(&v).map_err(|e| sqlx::Error::Decode(Box::new(e))))
+            .transpose()
+    }
     pub async fn set<T: Serialize>(
         &self,
         key: SessionKey<T>,

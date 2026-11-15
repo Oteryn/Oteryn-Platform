@@ -70,6 +70,7 @@ impl Authority for Auth {
     }
     async fn authorize(
         &self,
+        _connection: &mut sqlx::PgConnection,
         s: &BrowserSession,
         name: &str,
     ) -> Result<(Identity, Operation), Refusal> {
@@ -94,7 +95,12 @@ impl Authority for Auth {
             },
         ))
     }
-    async fn approver(&self, _: Uuid, _: &Operation) -> Result<(), Refusal> {
+    async fn approver(
+        &self,
+        _connection: &mut sqlx::PgConnection,
+        _: Uuid,
+        _: &Operation,
+    ) -> Result<(), Refusal> {
         Ok(())
     }
 }
@@ -910,7 +916,9 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
                 return Err(Refusal::Denied);
             }
             let a = self.approval(p.id).await?;
-            self.authority.approver(a.admin_id, &op).await?;
+            self.authority
+                .approver(&mut *self.pool.acquire().await?, a.admin_id, &op)
+                .await?;
             Some(a)
         } else {
             None

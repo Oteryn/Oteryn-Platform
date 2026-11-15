@@ -10,6 +10,22 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 struct Accounts(PgPool);
 impl rbac::AccountStateReader for Accounts {
+    async fn state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> Result<rbac::AccountState, rbac::AccountStateUnavailable> {
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
+                .bind(account)
+                .fetch_optional(connection)
+                .await
+                .map_err(|_| rbac::AccountStateUnavailable)?;
+        Ok(match status.as_deref() {
+            Some("active") => rbac::AccountState::Active,
+            _ => rbac::AccountState::Unknown,
+        })
+    }
     async fn state(
         &self,
         account: Uuid,
@@ -67,7 +83,7 @@ impl Service {
         let authorizer = Authorizer::new(self.pool.clone(), Accounts(self.pool.clone()));
         tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            authorizer.check(context, Permission::ManageSupportEnforcement),
+            authorizer.check_in(tx, context, Permission::ManageSupportEnforcement),
         )
         .await
         .map_err(|_| Error::Unavailable)??;
