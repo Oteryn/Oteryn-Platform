@@ -76,10 +76,13 @@ async fn read_inner(
         return Err(Error::Unavailable);
     }
     let mut tx = db.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '2500ms'")
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         .execute(&mut *tx)
         .await?;
-    let row = sqlx::query("SELECT s.content,s.observed,w.complete_through,w.observed AS watermark_observed,r.name FROM today_snapshots s JOIN today_watermarks w ON w.authority=s.authority AND w.epoch=s.epoch JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch JOIN world_status r ON r.id=s.world_id WHERE s.authority=$1 AND s.world_id=$2 AND NOT s.conflicted AND s.content IS NOT NULL AND s.received_at >= now()-interval '30 days'")
+    let row = sqlx::query("SELECT s.epoch::text AS epoch,s.revision::text AS revision,s.content,s.observed,w.complete_through,w.observed AS watermark_observed,r.name FROM today_snapshots s JOIN today_watermarks w ON w.authority=s.authority AND w.epoch=s.epoch JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch JOIN world_status r ON r.id=s.world_id WHERE s.authority=$1 AND s.world_id=$2 AND NOT s.conflicted AND s.content IS NOT NULL AND s.received_at >= now()-interval '30 days'")
         .bind(&config.source_authority).bind(world).fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
     let complete: i64 = row.try_get("complete_through")?;
     let observed: i64 = row.try_get("observed")?;
@@ -159,6 +162,26 @@ async fn read_inner(
         raids,
     };
     tx.commit().await?;
+    // Leave the catalogue snapshot before validating the exact generation. Every
+    // publisher takes the exclusive epoch fence, including withdrawals/conflicts.
+    let mut validation = db.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '2500ms'")
+        .execute(&mut *validation)
+        .await?;
+    sqlx::query("SELECT highest_epoch FROM public_projection_state WHERE id=1 FOR SHARE")
+        .execute(&mut *validation)
+        .await?;
+    sqlx::query("SELECT 1 FROM today_snapshots WHERE authority=$1 AND world_id=ANY($2) FOR SHARE")
+        .bind(&config.source_authority)
+        .bind(&worlds)
+        .execute(&mut *validation)
+        .await?;
+    let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM today_snapshots s JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch JOIN today_watermarks w ON w.authority=s.authority AND w.epoch=s.epoch WHERE s.authority=$1 AND s.world_id=$2 AND s.epoch=$3::numeric AND s.revision=$4::numeric AND s.content=$5 AND NOT s.conflicted AND s.content IS NOT NULL AND w.complete_through >= $6 AND NOT EXISTS(SELECT 1 FROM unnest($7::uuid[]) configured(world) WHERE NOT EXISTS(SELECT 1 FROM today_snapshots b WHERE b.authority=s.authority AND b.world_id=configured.world AND b.epoch=s.epoch AND NOT b.conflicted AND b.content IS NOT NULL AND b.observed <= w.complete_through AND b.received_at >= now()-interval '30 days')))")
+        .bind(&config.source_authority).bind(world).bind(row.try_get::<String,_>("epoch")?).bind(row.try_get::<String,_>("revision")?).bind(row.try_get::<String,_>("content")?).bind(complete).bind(&worlds).fetch_one(&mut *validation).await?;
+    if !valid {
+        return Err(Error::Unavailable);
+    }
+    validation.commit().await?;
     if !result.eligible(serving_clock()) {
         return Err(Error::Unavailable);
     }

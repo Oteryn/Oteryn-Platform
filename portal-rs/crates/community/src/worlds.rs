@@ -1,4 +1,5 @@
-//! Public registry metadata and aggregate current-epoch observations only.
+//! Public registry metadata. Runtime health and population require an accepted
+//! runtime-status authority; individual presence supplies neither claim.
 //! Enable with PORTAL_WORLDS_ENABLED=true (default off). Freshness is configured
 //! by PORTAL_WORLDS_FRESHNESS_SECONDS (default 120); invalid values disable routes.
 use askama::Template;
@@ -31,7 +32,6 @@ impl Default for Config {
 #[derive(Clone, Debug)]
 struct Worlds {
     db: PgPool,
-    config: Config,
 }
 pub fn configured_router(db: PgPool) -> Router {
     let threshold = std::env::var("PORTAL_WORLDS_FRESHNESS_SECONDS")
@@ -54,7 +54,7 @@ pub fn router(db: PgPool, config: Config) -> Router {
         .route("/pl/worlds", get(page))
         .route("/en/worlds", get(page))
         .route("/api/v1/worlds", get(api))
-        .with_state(Worlds { db, config })
+        .with_state(Worlds { db })
         .layer(middleware::from_fn(response_policy))
 }
 async fn response_policy(request: Request, next: Next) -> Response {
@@ -97,39 +97,23 @@ struct World {
     as_of: Option<String>,
 }
 async fn read(state: &Worlds) -> Result<Vec<World>, sqlx::Error> {
-    // Same eligibility as ingest::latest(), with age and count read atomically.
-    // Character data never crosses the database boundary.
-    let rows = sqlx::query("SELECT w.id::text, w.name, w.pvp_type, w.location, s.watermark,
-        to_char(to_timestamp(s.watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of,
-        CASE WHEN jsonb_typeof(s.payload->'characters')='array' AND s.payload->>'world_id'=w.id::text
-        THEN jsonb_array_length(s.payload->'characters') END AS count
-        FROM world_status w LEFT JOIN public_snapshots s ON s.family='world_online' AND s.subject=w.id::text
-        AND NOT s.is_watermark AND s.epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)
-        ORDER BY w.name COLLATE \"C\", w.id LIMIT 257").fetch_all(&state.db).await?;
+    // Presence snapshots grant neither runtime health nor aggregate authority.
+    let rows = sqlx::query("SELECT id::text, name, pvp_type, location FROM world_status ORDER BY name COLLATE \"C\", id LIMIT 257").fetch_all(&state.db).await?;
     if rows.len() > 256 {
         return Err(sqlx::Error::Protocol(
             "world catalogue exceeds serving bound".into(),
         ));
     }
-    let now = self::now();
     rows.into_iter()
         .map(|row| {
-            let observed: Option<i64> = row.try_get("watermark")?;
-            let count: Option<i32> = row.try_get("count")?;
-            let fresh = observed
-                .and_then(|n| u64::try_from(n).ok())
-                .is_some_and(|n| n <= now && now - n <= state.config.freshness_seconds)
-                && count.is_some_and(|n| (0..=4096).contains(&n));
-            // Empty rosters prove zero players, never an outage. The current producer
-            // has no authoritative offline signal; stale/missing evidence is unknown.
             Ok(World {
                 id: row.try_get("id")?,
                 name: row.try_get("name")?,
                 pvp: row.try_get("pvp_type")?,
                 location: row.try_get("location")?,
-                status: if fresh { "online" } else { "unknown" },
-                count: if fresh { count } else { None },
-                as_of: row.try_get("as_of")?,
+                status: "unknown",
+                count: None,
+                as_of: None,
             })
         })
         .collect()
@@ -168,10 +152,9 @@ async fn api(State(state): State<Worlds>, headers: HeaderMap) -> Response {
     } else {
         axum::Json(json!({"schema":1,"generated_at":generated_at,"worlds":worlds})).into_response()
     };
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=30"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     if let Ok(etag) = HeaderValue::from_str(&etag) {
         response.headers_mut().insert(header::ETAG, etag);
     }
@@ -235,22 +218,19 @@ async fn page(State(state): State<Worlds>, request: Request) -> Response {
     response
 }
 
-/// Aggregate status for the home page from the same fresh evidence as the
+/// Status for the home page from the same authority as the
 /// worlds page. `None` when the module is off or its source is unavailable.
 pub async fn home_status(db: &PgPool) -> Option<oteryn_ui::HomeStatus> {
-    let threshold = std::env::var("PORTAL_WORLDS_FRESHNESS_SECONDS")
+    std::env::var("PORTAL_WORLDS_FRESHNESS_SECONDS")
         .map_or(Some(120), |s| s.parse::<u64>().ok().filter(|n| *n > 0))?;
     if std::env::var("PORTAL_WORLDS_ENABLED").as_deref() != Ok("true") {
         return None;
     }
-    let state = Worlds {
-        db: db.clone(),
-        config: Config {
-            enabled: true,
-            freshness_seconds: threshold,
-        },
-    };
-    let worlds = read(&state).await.ok()?;
+    let state = Worlds { db: db.clone() };
+    home_status_for(&state).await
+}
+async fn home_status_for(state: &Worlds) -> Option<oteryn_ui::HomeStatus> {
+    let worlds = read(state).await.ok()?;
     if worlds.is_empty() {
         return None;
     }
@@ -267,3 +247,7 @@ pub async fn home_status(db: &PgPool) -> Option<oteryn_ui::HomeStatus> {
         as_of: fresh.iter().filter_map(|w| w.as_of.clone()).max(),
     })
 }
+
+#[cfg(test)]
+#[path = "worlds_audit_tests.rs"]
+mod audit_tests;

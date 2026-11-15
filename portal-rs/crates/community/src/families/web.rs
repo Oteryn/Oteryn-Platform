@@ -254,7 +254,13 @@ async fn skills(
         return StatusCode::BAD_REQUEST.into_response();
     }
     let en = uri.path().starts_with("/en/");
-    match public_skills(&s, &name, en).await {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        public_skills(&s, &name, en),
+    )
+    .await
+    .unwrap_or(Err(Refusal::Unavailable))
+    {
         Ok(rows) => render(en, Family::Skills, &name, rows),
         Err(refusal) => refusal.into_response(),
     }
@@ -265,7 +271,10 @@ async fn public_skills(
     en: bool,
 ) -> Result<Vec<(String, String)>, Refusal> {
     let authority = &s.config.source_authority;
-    let mut db = s.db.acquire().await?;
+    let mut db = s.db.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '2500ms'")
+        .execute(&mut *db)
+        .await?;
     let (epoch, through) = storage::fresh(&mut db, Family::Skills, authority, now()).await?;
     // The one current eligible profile of this name on the same epoch, with a fresh
     // profile watermark. Unknown, hidden and ambiguous names share one not-found.
@@ -278,7 +287,7 @@ async fn public_skills(
         return Err(Refusal::NotFound);
     };
     let character = Uuid::parse_str(subject).map_err(|_| Refusal::Unavailable)?;
-    let body = storage::body(
+    let (body, revision) = storage::body(
         &mut db,
         Family::Skills,
         character,
@@ -289,25 +298,48 @@ async fn public_skills(
     .await?
     .ok_or(Refusal::Unavailable)?;
     let records: Vec<wire::Skills> =
-        serde_json::from_value(body).map_err(|_| Refusal::Unavailable)?;
+        serde_json::from_value(body.clone()).map_err(|_| Refusal::Unavailable)?;
     let Some(r) = records.first() else {
         return Err(Refusal::NotFound);
     };
     if &r.world_id != world {
         return Err(Refusal::Unavailable);
     }
+    db.commit().await?;
     if !s.privacy.allows_skills(subject, &epoch).await? {
         return Err(Refusal::NotFound);
     }
-    // Recheck after the asynchronous privacy decision: an epoch raise or elapsed
-    // freshness must not publish the cut read above.
-    if storage::fresh(&mut db, Family::Skills, authority, now())
+    // Reacquire only after privacy; serialize the final evidence cut with publication.
+    let mut tx = s.db.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '2500ms'")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SELECT highest_epoch FROM public_projection_state WHERE id=1 FOR SHARE")
+        .execute(&mut *tx)
+        .await?;
+    let (current_epoch, current_through) =
+        storage::fresh(&mut tx, Family::Skills, authority, now()).await?;
+    if current_epoch != epoch
+        || storage::body(
+            &mut tx,
+            Family::Skills,
+            character,
+            authority,
+            &epoch,
+            current_through,
+        )
         .await?
-        .0
-        != epoch
+        .as_ref()
+            != Some(&(body.clone(), revision))
     {
         return Err(Refusal::Unavailable);
     }
+    let profile_current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots s WHERE s.family='character_profile' AND s.subject=$1 AND NOT s.is_watermark AND s.epoch=$2::numeric AND jsonb_array_length(s.payload->'profile')=1 AND s.payload->'profile'->0->>'name'=$3 AND s.payload->'profile'->0->>'world_id'=$4 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM clock_timestamp()))::bigint-29 AND floor(extract(epoch FROM clock_timestamp()))::bigint+1))")
+        .bind(subject).bind(&epoch).bind(name).bind(world).fetch_one(&mut *tx).await?;
+    if !profile_current {
+        return Err(Refusal::Unavailable);
+    }
+    tx.commit().await?;
     Ok([
         ("level", r.level.clone()),
         ("experience", r.total_experience.clone()),
@@ -351,7 +383,13 @@ async fn owned(
         return StatusCode::BAD_REQUEST.into_response();
     }
     let en = path.starts_with("/en/");
-    match owner_rows(&s, family, actor, &name, en).await {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        owner_rows(&s, family, actor, &name, en),
+    )
+    .await
+    .unwrap_or(Err(Refusal::Unavailable))
+    {
         Ok(rows) => render(en, family, &name, rows),
         Err(refusal) => refusal.into_response(),
     }
@@ -378,15 +416,31 @@ async fn owner_rows(
     };
     // Ownership proof and snapshot read share one transaction and its row locks.
     let mut tx = s.db.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '2500ms'")
+        .execute(&mut *tx)
+        .await?;
     let cut = match ownership(&mut tx, actor, *character).await {
         Ok(Ownership::Owner(cut)) => cut,
         Ok(Ownership::Former | Ownership::Stranger) => return Err(Refusal::Forbidden),
         Err(_) => return Err(Refusal::Unavailable),
     };
     let (epoch, through) = storage::fresh(&mut tx, family, authority, now()).await?;
-    let body = storage::body(&mut tx, family, *character, authority, &epoch, through)
+    let evidence = storage::body(&mut tx, family, *character, authority, &epoch, through)
         .await?
         .ok_or(Refusal::Unavailable)?;
+    sqlx::query("SELECT highest_epoch FROM public_projection_state WHERE id=1 FOR SHARE")
+        .execute(&mut *tx)
+        .await?;
+    let (current_epoch, through) = storage::fresh(&mut tx, family, authority, now()).await?;
+    if current_epoch != epoch
+        || storage::body(&mut tx, family, *character, authority, &epoch, through)
+            .await?
+            .as_ref()
+            != Some(&evidence)
+    {
+        return Err(Refusal::Unavailable);
+    }
+    let (body, _) = evidence;
     tx.commit().await?;
     // The snapshot must be bound to the current ownership relation: same World and a
     // character revision at or above the ownership-transition floor. An older

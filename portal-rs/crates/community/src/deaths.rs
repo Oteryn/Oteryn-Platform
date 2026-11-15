@@ -9,7 +9,7 @@ use axum::{
 };
 use oteryn_internal_api::{
     canonical::{self, Value},
-    guard::{self, IdentityMap, JsonRule, RoutePolicy},
+    guard::{self, IdentityMap, JsonRule, PublisherKey, RoutePolicy},
 };
 use sqlx::PgPool;
 use std::{
@@ -146,6 +146,7 @@ fn decode<T: serde::de::DeserializeOwned + serde::Serialize>(
 async fn snapshot(
     State(s): State<Ingest>,
     Extension(v): Extension<Value>,
+    Extension(publisher): Extension<PublisherKey>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
@@ -164,7 +165,14 @@ async fn snapshot(
     if value.source_authority != s.config.source_authority {
         return guard::failure(StatusCode::UNAUTHORIZED);
     }
-    if let Err(response) = rate(&s, "character-deaths").await {
+    if let Err(response) = crate::ingest::budget::check(
+        &s.db,
+        &publisher,
+        "v2/character-deaths",
+        s.config.requests_per_minute,
+    )
+    .await
+    {
         return response;
     }
     result(storage::snapshot(&s.db, &value).await)
@@ -172,6 +180,7 @@ async fn snapshot(
 async fn watermark(
     State(s): State<Ingest>,
     Extension(v): Extension<Value>,
+    Extension(publisher): Extension<PublisherKey>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
@@ -190,24 +199,17 @@ async fn watermark(
     if value.source_authority != s.config.source_authority {
         return guard::failure(StatusCode::UNAUTHORIZED);
     }
-    if let Err(response) = rate(&s, "watermark").await {
+    if let Err(response) = crate::ingest::budget::check(
+        &s.db,
+        &publisher,
+        "v2/watermark",
+        s.config.requests_per_minute,
+    )
+    .await
+    {
         return response;
     }
     result(storage::watermark(&s.db, &value).await)
-}
-async fn rate(s: &Ingest, route: &str) -> Result<(), Response> {
-    let count: Result<i32, sqlx::Error> = sqlx::query_scalar("INSERT INTO public_deaths_v2_rate_limits (route,window_start,requests) VALUES ($1,(extract(epoch FROM statement_timestamp())::bigint/60)*60,1) ON CONFLICT (route) DO UPDATE SET window_start=EXCLUDED.window_start, requests=CASE WHEN public_deaths_v2_rate_limits.window_start=EXCLUDED.window_start THEN least(public_deaths_v2_rate_limits.requests+1,6001) ELSE 1 END RETURNING requests").bind(route).fetch_one(&s.db).await;
-    match count {
-        Ok(n) if n <= i32::from(s.config.requests_per_minute) => Ok(()),
-        Ok(_) => {
-            let mut response = guard::failure(StatusCode::TOO_MANY_REQUESTS);
-            response
-                .headers_mut()
-                .insert("retry-after", axum::http::HeaderValue::from_static("60"));
-            Err(response)
-        }
-        Err(_) => Err(guard::failure(StatusCode::SERVICE_UNAVAILABLE)),
-    }
 }
 fn result(result: Result<&'static str, storage::Error>) -> Response {
     match result {

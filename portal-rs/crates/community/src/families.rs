@@ -11,13 +11,12 @@ use axum::{
 };
 use oteryn_internal_api::{
     canonical::{self, Value},
-    guard::{self, IdentityMap, JsonRule, RoutePolicy},
+    guard::{self, IdentityMap, JsonRule, PublisherKey, RoutePolicy},
 };
 use sqlx::PgPool;
 use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 mod storage;
 mod web;
@@ -127,7 +126,6 @@ struct Ingest {
     db: PgPool,
     config: IngestConfig,
     family: Option<Family>,
-    requests: Arc<Mutex<VecDeque<Instant>>>,
 }
 fn now() -> u64 {
     SystemTime::now()
@@ -151,7 +149,6 @@ pub fn ingest_router(db: PgPool, identities: Arc<IdentityMap>, config: IngestCon
                 db: db.clone(),
                 config: config.clone(),
                 family,
-                requests: Arc::new(Mutex::new(VecDeque::new())),
             });
         app = app.merge(guard::protect(
             route,
@@ -199,31 +196,10 @@ fn decode<T: serde::de::DeserializeOwned + serde::Serialize>(
     }
     Ok(decoded)
 }
-/// `Some` refusal when the per-route budget or its lock is unavailable.
-fn rate(state: &Ingest) -> Option<Response> {
-    let Ok(mut requests) = state.requests.lock() else {
-        return Some(guard::failure(StatusCode::SERVICE_UNAVAILABLE));
-    };
-    let now = Instant::now();
-    while requests
-        .front()
-        .is_some_and(|v| now.duration_since(*v).as_secs() >= 60)
-    {
-        requests.pop_front();
-    }
-    if requests.len() >= usize::from(state.config.requests_per_minute) {
-        let mut response = guard::failure(StatusCode::TOO_MANY_REQUESTS);
-        response
-            .headers_mut()
-            .insert("retry-after", axum::http::HeaderValue::from_static("60"));
-        return Some(response);
-    }
-    requests.push_back(now);
-    None
-}
 async fn handle(
     State(state): State<Ingest>,
     Extension(value): Extension<Value>,
+    Extension(publisher): Extension<PublisherKey>,
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
@@ -245,7 +221,14 @@ async fn handle(
             if snapshot.source_authority != state.config.source_authority {
                 return guard::failure(StatusCode::UNAUTHORIZED);
             }
-            if let Some(response) = rate(&state) {
+            if let Err(response) = crate::ingest::budget::check(
+                &state.db,
+                &publisher,
+                &format!("v2/{}", family.path()),
+                state.config.requests_per_minute,
+            )
+            .await
+            {
                 return response;
             }
             let body = match family {
@@ -288,7 +271,14 @@ async fn handle(
             if mark.source_authority != state.config.source_authority {
                 return guard::failure(StatusCode::UNAUTHORIZED);
             }
-            if let Some(response) = rate(&state) {
+            if let Err(response) = crate::ingest::budget::check(
+                &state.db,
+                &publisher,
+                "v2/watermark",
+                state.config.requests_per_minute,
+            )
+            .await
+            {
                 return response;
             }
             let Ok(through) =
