@@ -345,7 +345,7 @@ impl Service {
         if !self.ready() {
             return Ok(0);
         }
-        let ids: Vec<(Uuid,Uuid)> = sqlx::query_as("SELECT id,account_id FROM account_email_changes WHERE kind='primary' AND confirmed_at IS NOT NULL AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND apply_after<=clock_timestamp() AND expires_at>clock_timestamp() ORDER BY next_attempt_at,apply_after,id LIMIT 100").fetch_all(&self.pool).await?;
+        let ids: Vec<(Uuid,Uuid)> = sqlx::query_as("SELECT c.id,c.account_id FROM account_email_changes c JOIN accounts a ON a.id=c.account_id WHERE a.status='active' AND a.email_verified_at IS NOT NULL AND a.email_change_blocked_until<=clock_timestamp() AND a.email=c.old_email AND kind='primary' AND confirmed_at IS NOT NULL AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND apply_after<=clock_timestamp() AND expires_at>clock_timestamp() ORDER BY next_attempt_at,apply_after,c.id LIMIT 100").fetch_all(&self.pool).await?;
         let mut count = 0;
         for (id, account) in ids {
             let mut tx = self.pool.begin().await?;

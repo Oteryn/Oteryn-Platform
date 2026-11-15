@@ -2353,3 +2353,52 @@ async fn nwave_session_contention_aborts_login_before_first_purchase() {
     assert_eq!(db.count("outfit").await, 1);
     db.close().await;
 }
+
+#[derive(Debug)]
+struct RejectFirst;
+impl oteryn_notify::EmailSender for RejectFirst {
+    fn send<'a>(&'a self, email: &'a oteryn_notify::Email) -> oteryn_notify::NotifyFuture<'a, ()> {
+        Box::pin(async move {
+            if email.recipient == "fail@example.test" {
+                Err("recipient refused".into())
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+#[tokio::test]
+async fn bzb_referral_delivery_rotates_failed_recipient() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    for recipient in ["fail@example.test", "ready@example.test"] {
+        db.campaign
+            .email(owner, recipient, Kind::New)
+            .await
+            .unwrap();
+    }
+    sqlx::query("UPDATE referral_email_attempts SET created_at=now()-interval '1 day' WHERE invitation_id IN (SELECT id FROM referral_email_invitations WHERE recipient='fail@example.test')").execute(&db.pool).await.unwrap();
+    Worker {
+        campaign: db.campaign.clone(),
+        sender: Some(Arc::new(RejectFirst)),
+    }
+    .process()
+    .await
+    .unwrap();
+    let rows: Vec<(String,bool,i32,bool)> = sqlx::query_as("SELECT i.recipient,a.delivered_at IS NOT NULL,a.delivery_attempts,a.next_attempt_at>clock_timestamp() FROM referral_email_attempts a JOIN referral_email_invitations i ON i.id=a.invitation_id ORDER BY i.recipient").fetch_all(&db.pool).await.unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            ("fail@example.test".into(), false, 1, true),
+            ("ready@example.test".into(), true, 0, false)
+        ]
+    );
+    db.close().await;
+    eprintln!(
+        "bzb_referral_delivery_rotates_failed_recipient: {:?}",
+        started.elapsed()
+    );
+}

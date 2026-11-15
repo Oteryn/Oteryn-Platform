@@ -95,7 +95,7 @@ impl Worker {
                 .begin()
                 .await
                 .map_err(|_| "email delivery unavailable".to_owned())?;
-            let row:Option<(Uuid,String,String,String)>=sqlx::query_as("SELECT m.id,m.recipient,m.subject,m.body FROM account_email_change_mail m JOIN account_email_changes c ON c.id=m.change_id WHERE m.delivered_at IS NULL AND c.revert_until>now() AND c.cancelled_at IS NULL AND c.reverted_at IS NULL ORDER BY m.created_at LIMIT 1 FOR UPDATE OF m SKIP LOCKED").fetch_optional(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;
+            let row:Option<(Uuid,String,String,String)>=sqlx::query_as("SELECT m.id,m.recipient,m.subject,m.body FROM account_email_change_mail m JOIN account_email_changes c ON c.id=m.change_id WHERE m.delivered_at IS NULL AND m.next_attempt_at<=clock_timestamp() AND c.revert_until>now() AND c.cancelled_at IS NULL AND c.reverted_at IS NULL ORDER BY m.created_at LIMIT 1 FOR UPDATE OF m SKIP LOCKED").fetch_optional(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;
             let Some((id, recipient, subject, text)) = row else {
                 break;
             };
@@ -113,7 +113,8 @@ impl Worker {
                     .replace('"', "&quot;")
             };
             let html = format!("<p><a href=\"{}\">{}</a></p>", escape(url), escape(message));
-            self.sender
+            let sent = self
+                .sender
                 .send(&oteryn_notify::Email {
                     id,
                     recipient,
@@ -122,8 +123,14 @@ impl Worker {
                     html,
                     unsubscribe: None,
                 })
-                .await
-                .map_err(|_| "email delivery failed".to_owned())?;
+                .await;
+            if sent.is_err() {
+                sqlx::query("UPDATE account_email_change_mail SET delivery_attempts=delivery_attempts+1,next_attempt_at=clock_timestamp()+make_interval(secs=>LEAST(3600,30*power(2,LEAST(delivery_attempts,7)))::double precision),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await.map_err(|_| "email delivery unavailable".to_owned())?;
+                tx.commit()
+                    .await
+                    .map_err(|_| "email delivery unavailable".to_owned())?;
+                continue;
+            }
             sqlx::query("UPDATE account_email_change_mail SET delivered_at=now(),body='',updated_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;
             tx.commit()
                 .await
