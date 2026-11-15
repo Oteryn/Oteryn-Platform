@@ -510,11 +510,21 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(oteryn_gameauth::devices::routes(state.db.clone()))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
-        .layer(TraceLayer::new_for_http());
+        .layer(TraceLayer::new_for_http().make_span_with(request_span));
     let router = router.layer(axum::middleware::from_fn(verify::protect_token));
     security_headers(router)
         // OAuth keeps its protocol envelopes outside the site error renderer.
         .merge(oauth_routes)
+}
+
+// Raw query strings and compatibility path segments can carry bearer credentials.
+// Unmatched routes deliberately have no path field.
+fn request_span(request: &axum::http::Request<axum::body::Body>) -> tracing::Span {
+    let route = request
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map_or("<unmatched>", axum::extract::MatchedPath::as_str);
+    tracing::debug_span!("request", method = %request.method(), route, version = ?request.version())
 }
 
 #[cfg(test)]
@@ -621,3 +631,6 @@ pub async fn internal_character_services_router(
 pub mod chrome;
 
 pub mod favicon;
+
+#[cfg(test)]
+mod trace_tests;
