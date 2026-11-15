@@ -734,6 +734,7 @@ async fn postgres_projection_conflict_epoch_invalidation_and_removal_deny() {
 }
 #[tokio::test]
 async fn postgres_restore_reopens_and_grants_lost_rename_for_free() {
+    let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -791,9 +792,85 @@ async fn postgres_restore_reopens_and_grants_lost_rename_for_free() {
     request.accepted_price = Some(0);
     let free = s.request(a, request).await.unwrap();
     assert_eq!(balance(&s, a).await, (30, 0));
-    s.receive(receipt(&free, true, new_generation).as_bytes())
+    // Rejection returns A's credit, but a later restore can reopen B.
+    s.receive(receipt(&free, false, new_generation).as_bytes())
         .await
         .unwrap();
+    let mut competing_request = rename(c);
+    competing_request.accepted_price = Some(0);
+    let competing = s.request(a, competing_request).await.unwrap();
+    let second_notice = notice
+        .replace(&event.to_string(), &Uuid::now_v7().to_string())
+        .replace(
+            "\"restored_generation\":\"3\"",
+            "\"restored_generation\":\"4\"",
+        )
+        .replace(
+            "\"new_recovery_generation\":\"4\"",
+            "\"new_recovery_generation\":\"5\"",
+        );
+    restore.notice(second_notice.as_bytes()).await.unwrap();
+    s.receive(receipt(&cmd, false, 5).as_bytes()).await.unwrap();
+    // B cannot steal the credit now claimed by a different replacement.
+    assert!(matches!(
+        s.receive(receipt(&free, true, 5).as_bytes()).await,
+        Err(Error::Conflict)
+    ));
+    let saved: Option<String> =
+        sqlx::query_scalar("SELECT receipt_json FROM character_commands WHERE id=$1")
+            .bind(free.operation_id)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert!(saved.is_none());
+    s.receive(receipt(&competing, false, 5).as_bytes())
+        .await
+        .unwrap();
+    // An unused credit is still invalid if its originating rename recovered.
+    sqlx::query(
+        "UPDATE character_service_orders SET financial_state='SETTLED' WHERE operation_id=$1",
+    )
+    .bind(cmd.operation_id)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        s.receive(receipt(&free, true, 5).as_bytes()).await,
+        Err(Error::Conflict)
+    ));
+    sqlx::query("UPDATE character_service_orders SET financial_state='RECOVERY_REQUIRED' WHERE operation_id=$1")
+        .bind(cmd.operation_id).execute(&db.pool).await.unwrap();
+    s.receive(receipt(&free, true, 5).as_bytes()).await.unwrap();
+    s.receive(receipt(&free, true, 5).as_bytes()).await.unwrap();
+    restore.notice(second_notice.as_bytes()).await.unwrap();
+    let used: Option<Uuid> = sqlx::query_scalar(
+        "SELECT credit_used_by FROM character_service_orders WHERE operation_id=$1",
+    )
+    .bind(cmd.operation_id)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(used, Some(free.operation_id));
+    // Acknowledge and resync so the next request reaches credit selection.
+    sqlx::query("UPDATE character_service_feed SET updated_at=clock_timestamp()")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE account_character_feed SET updated_at=clock_timestamp()")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    s.ingest(
+        snapshot(a, c, 2, 9, "ACTIVE", None, current(&db.pool).await).as_bytes(),
+        false,
+    )
+    .await
+    .unwrap();
+    let mut another = rename(c);
+    another.accepted_price = Some(0);
+    assert!(matches!(s.request(a, another).await, Err(Error::Conflict)));
+    // With only 30 coins left, even accepting the paid price cannot rename again.
+    assert!(matches!(s.request(a, rename(c)).await, Err(Error::Denied)));
     assert_eq!(balance(&s, a).await, (30, 0));
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM wallet_reservations")
@@ -803,6 +880,10 @@ async fn postgres_restore_reopens_and_grants_lost_rename_for_free() {
         1
     );
     db.close().await;
+    eprintln!(
+        "postgres_restore_reopens_and_grants_lost_rename_for_free duration={:?}",
+        started.elapsed()
+    );
 }
 #[tokio::test]
 async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
