@@ -13,17 +13,22 @@ fn ambiguous_cookies_deny() {
 async fn disabled_and_bad_input() -> TestResult {
     let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
     assert_eq!(
-        download(&pool, &ExportConfig::default(), "").await,
-        Err(StatusCode::NOT_FOUND)
+        stream_download(&pool, &ExportConfig::default(), "")
+            .await
+            .err(),
+        Some(StatusCode::NOT_FOUND)
     );
     assert_eq!(
-        download(&pool, &ExportConfig { enabled: true }, "bad").await,
-        Err(StatusCode::UNAUTHORIZED)
+        stream_download(&pool, &ExportConfig { enabled: true }, "bad")
+            .await
+            .err(),
+        Some(StatusCode::UNAUTHORIZED)
     );
     Ok(())
 }
 #[tokio::test]
 async fn postgres_owner_export_and_refusals() -> TestResult {
+    let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIPPED export PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(());
@@ -56,10 +61,12 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) SELECT $1,id,$2,'other-private-device',now()+interval '1 hour',now()+interval '1 day' FROM accounts WHERE email='other@example.invalid'")
         .bind(Sha256::digest("b".repeat(64).as_bytes()).to_vec()).bind("d".repeat(64)).execute(&pool).await?;
     sqlx::query("INSERT INTO account_consents(account_id,document_kind,document_version) VALUES ($1,'terms','v1')").bind(id).execute(&pool).await?;
+    sqlx::query("INSERT INTO account_consents(account_id,document_kind,document_version) SELECT $1,'privacy','batch-' || n FROM generate_series(1,193) n").bind(id).execute(&pool).await?;
     let config = ExportConfig { enabled: true };
-    let data = download(&pool, &config, &token)
+    let body = stream_download(&pool, &config, &token)
         .await
         .map_err(|s| s.to_string())?;
+    let data: Value = serde_json::from_slice(&axum::body::to_bytes(body, usize::MAX).await?)?;
     assert_eq!(data["account"]["id"], id.to_string());
     assert_eq!(data["sessions"].as_array().map(Vec::len), Some(1));
     use tower::ServiceExt;
@@ -84,7 +91,8 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
         let exported: Value = serde_json::from_slice(&body)?;
         assert_eq!(exported, data);
     }
-    assert_eq!(data["consents"][0]["document_version"], "v1");
+    assert_eq!(data["consents"].as_array().map(Vec::len), Some(194));
+    assert!(include_str!("export.rs").contains("FETCH FORWARD 64"));
     let encoded = data.to_string();
     for forbidden in [
         "private-password-hash",
@@ -106,10 +114,14 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
             .execute(&pool)
             .await?;
         assert_eq!(
-            download(&pool, &config, &token).await,
-            Err(StatusCode::FORBIDDEN)
+            stream_download(&pool, &config, &token).await.err(),
+            Some(StatusCode::FORBIDDEN)
         );
     }
+    eprintln!(
+        "postgres_owner_export_and_refusals duration: {:?}",
+        started.elapsed()
+    );
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)
