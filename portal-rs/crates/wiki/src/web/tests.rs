@@ -284,7 +284,7 @@ async fn database_editorial_lifecycle_and_restore() {
         repo.transition(c, id, 7, Action::Publish).await,
         Err(Error::Conflict)
     ));
-    assert_eq!(repo.history(c, id).await.unwrap().len(), 6);
+    assert_eq!(repo.history(c, id, None).await.unwrap().len(), 6);
     repo.transition(c, id, 7, Action::Submit).await.unwrap();
     repo.transition(c, id, 8, Action::Publish).await.unwrap();
     repo.transition(c, id, 9, Action::Archive).await.unwrap();
@@ -430,7 +430,7 @@ async fn database_history_immutable_and_audit_atomic() {
     assert!(repo.transition(c, id, 2, Action::Publish).await.is_err());
     assert_eq!(repo.get(c, id).await.unwrap().0.status, "in_review");
     assert!(repo.edit(c, id, 2, &input(), "").await.is_err());
-    assert_eq!(repo.history(c, id).await.unwrap().len(), 2);
+    assert_eq!(repo.history(c, id, None).await.unwrap().len(), 2);
     db.close().await;
 }
 #[tokio::test]
@@ -639,6 +639,7 @@ fn revision_source_scroll_region_is_keyboard_reachable() -> Result<(), askama::E
             lang,
             id: Uuid::now_v7(),
             version: 1,
+            older: 0,
             rows: vec![Revision {
                 version: 1,
                 locale: lang.into(),
@@ -656,4 +657,65 @@ fn revision_source_scroll_region_is_keyboard_reachable() -> Result<(), askama::E
         assert!(html.contains("<pre class=\"op-table-wrap\" tabindex=\"0\">"));
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn database_history_pages_bound_response_and_retain_older_revisions() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let repo = db.repo();
+    let context = db.context();
+    let mut values = input();
+    for value in &mut values {
+        value.markdown = "history source ".repeat(1000);
+    }
+    let id = repo
+        .create(context, &values, None, "initial")
+        .await
+        .unwrap();
+    // Vary locale counts to ensure page boundaries never split a snapshot.
+    for version in 1..24 {
+        let count = if version % 3 == 0 { 1 } else { 2 };
+        repo.edit(context, id, version, &values[..count], "edit")
+            .await
+            .unwrap();
+    }
+    let mut uri = format!("/admin/wiki/articles/{id}/revisions");
+    let mut seen = std::collections::BTreeSet::new();
+    loop {
+        let response = get(db.app(), &uri).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body(response).await;
+        assert!(html.matches("<article ").count() <= 20);
+        assert!(
+            html.len() < 400_000,
+            "history page must have bounded source bytes"
+        );
+        let before = uri
+            .split("?before=")
+            .nth(1)
+            .map(|v| v.parse::<i64>().unwrap());
+        let rows = repo.history(context, id, before).await.unwrap();
+        for row in rows {
+            assert!(seen.insert((row.version, row.locale)), "duplicate revision");
+        }
+        let Some(next) = html.split("rel=\"next\" href=\"").nth(1) else {
+            break;
+        };
+        uri = next.split('"').next().unwrap().replace("&amp;", "&");
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM wiki_revisions WHERE guide_id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(seen.len() as i64, count);
+    assert!(seen.contains(&(1, "en".into())));
+    db.close().await;
+    eprintln!(
+        "database_history_pages_bound_response_and_retain_older_revisions duration: {:?}",
+        started.elapsed()
+    );
 }

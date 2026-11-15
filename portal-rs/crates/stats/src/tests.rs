@@ -2,7 +2,7 @@
 use crate::{store::*, worker::StatisticsJob};
 use serde_json::json;
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use time::{Date, Month};
+use time::{Date, Month, OffsetDateTime};
 use uuid::Uuid;
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 async fn database() -> Result<Option<PgPool>> {
@@ -28,6 +28,11 @@ async fn database() -> Result<Option<PgPool>> {
     .await?;
     sqlx::raw_sql(include_str!(
         "../../../migrations/20261105210000_t65_statistics.sql"
+    ))
+    .execute(&pool)
+    .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261105231101_t24d_deaths.sql"
     ))
     .execute(&pool)
     .await?;
@@ -252,18 +257,21 @@ async fn poll_watermark_replay_and_same_timestamp_revision() -> Result {
     };
     let c = Uuid::now_v7();
     let world = Uuid::now_v7();
-    let timestamp = 1793491200_i64;
+    let timestamp = OffsetDateTime::now_utc().unix_timestamp() - 10;
     sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
         .execute(&db)
         .await?;
     let payload = json!({"character_id":c.to_string(),"profile":[{"name":"First","level":"10","world_id":world.to_string(),"guild":[],"guild_visible":true}]});
     sqlx::query("INSERT INTO public_snapshots (family,subject,epoch,version,watermark,payload) VALUES ('character_profile',$1,1,1,$2,$3),('world_online',$4,1,1,$2,$5),('character_deaths',$1,1,1,$2,$6)").bind(c.to_string()).bind(timestamp).bind(payload).bind(world.to_string()).bind(json!({"characters":[{}]})).bind(json!({"deaths":[{"occurred_at":timestamp.to_string(),"level":"10"}]})).execute(&db).await?;
+    sqlx::query("INSERT INTO public_deaths_v2(subject,authority,epoch,revision,digest,deaths) VALUES($1,'oteryn:game:primary',1,1,$2,$3)")
+        .bind(c.to_string()).bind(vec![1_u8;32]).bind(json!([{"death_occurrence_id":Uuid::now_v7().to_string(),"occurred_at":timestamp.to_string(),"level":"10","pvp":false,"killers":[]}])).execute(&db).await?;
     let job = StatisticsJob {
         pool: db.clone(),
         enabled: true,
     };
     assert_eq!(job.run().await?, 0);
     sqlx::query("INSERT INTO public_snapshots (family,subject,is_watermark,epoch,version,watermark,payload) SELECT family,'',true,1,1,$1,'{}' FROM public_snapshots").bind(timestamp).execute(&db).await?;
+    sqlx::query("INSERT INTO public_deaths_v2_watermark(id,authority,epoch,complete_through) VALUES(1,'oteryn:game:primary',1,$1)").bind(timestamp).execute(&db).await?;
     assert_eq!(job.run().await?, 3);
     assert_eq!(job.run().await?, 0);
     sqlx::query("UPDATE public_snapshots SET version=2,payload=jsonb_set(payload,'{profile,0,level}','\"11\"') WHERE family='character_profile' AND NOT is_watermark").execute(&db).await?;
@@ -316,5 +324,371 @@ async fn malformed_projection_rolls_back_cursor_and_effects() -> Result {
         .fetch_one(&db)
         .await?;
     assert_eq!(n, 0);
+    dispose(db).await
+}
+
+#[tokio::test]
+async fn postgres_snapshot_corrections_replace_derived_events() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let mut original = sample();
+    let mut tx = db.begin().await?;
+    partitions(&mut tx, original.day).await?;
+    snapshot(&mut tx, &original).await?;
+    original.day = original.day.next_day().unwrap();
+    original.observed_at = 3;
+    let mut changed = original.clone();
+    changed.name = "Changed".into();
+    changed.world = Uuid::now_v7();
+    changed.guild = Some(Uuid::now_v7());
+    changed.level += 1;
+    changed.observed_at = 2;
+    snapshot(&mut tx, &changed).await?;
+    source_event(
+        &mut tx,
+        original.character_ref,
+        original.day,
+        "death",
+        "independent",
+        &json!({"level":10}),
+    )
+    .await?;
+    snapshot(&mut tx, &original).await?;
+    let kinds: Vec<String> = sqlx::query_scalar(
+        "SELECT kind FROM stats_character_events WHERE character_ref=$1 AND day=$2 ORDER BY kind",
+    )
+    .bind(original.character_ref)
+    .bind(original.day)
+    .fetch_all(&mut *tx)
+    .await?;
+    assert_eq!(kinds, vec!["death"]);
+    tx.commit().await?;
+    dispose(db).await
+}
+
+#[tokio::test]
+async fn postgres_rollup_rejects_finalized_replay() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let world = Uuid::now_v7();
+    let observed: i64 =
+        sqlx::query_scalar("SELECT extract(epoch FROM now()-interval '100 days')::bigint")
+            .fetch_one(&db)
+            .await?;
+    sqlx::query("INSERT INTO stats_world_samples(world,sampled_at,players_online) VALUES($1,to_timestamp(($2::bigint/300)*300),7)").bind(world).bind(observed).execute(&db).await?;
+    let job = StatisticsJob {
+        pool: db.clone(),
+        enabled: true,
+    };
+    job.retention().await?;
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=2")
+        .execute(&db)
+        .await?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('world_online',$1,false,2,1,$2,$3),('world_online','',true,2,1,$2,'{}')").bind(world.to_string()).bind(observed).bind(json!({"characters":[{},{}]})).execute(&db).await?;
+    assert_eq!(job.run().await?, 1);
+    let totals: (i64, String) =
+        sqlx::query_as("SELECT samples,players_sum::text FROM stats_world_daily WHERE world=$1")
+            .bind(world)
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(totals, (1, "7".into()));
+    dispose(db).await
+}
+
+#[tokio::test]
+async fn postgres_worker_batches_cover_backlog_once() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
+        .execute(&db)
+        .await?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) SELECT 'world_online',uuidv7()::text,false,1,1,extract(epoch FROM now())::bigint,'{\"characters\":[]}' FROM generate_series(1,205)").execute(&db).await?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('world_online','',true,1,1,extract(epoch FROM now())::bigint,'{}')").execute(&db).await?;
+    let job = StatisticsJob {
+        pool: db.clone(),
+        enabled: true,
+    };
+    assert_eq!(job.run().await?, 100);
+    assert_eq!(job.run().await?, 100);
+    assert_eq!(job.run().await?, 5);
+    assert_eq!(job.run().await?, 0);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM stats_projection_cursors")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(count, 205);
+    dispose(db).await
+}
+
+#[tokio::test]
+async fn postgres_history_refuses_oversized_events() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let s = sample();
+    let mut tx = db.begin().await?;
+    partitions(&mut tx, s.day).await?;
+    snapshot(&mut tx, &s).await?;
+    for n in 0..1001 {
+        source_event(
+            &mut tx,
+            s.character_ref,
+            s.day,
+            "death",
+            &n.to_string(),
+            &json!({"level":10}),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    assert!(
+        history(
+            &db,
+            s.character_ref,
+            s.day,
+            s.day,
+            &Policy {
+                hidden: None,
+                fields: true
+            }
+        )
+        .await
+        .is_err()
+    );
+    let hidden = history(
+        &db,
+        s.character_ref,
+        s.day,
+        s.day,
+        &Policy {
+            hidden: None,
+            fields: false,
+        },
+    )
+    .await?;
+    assert!(hidden.events.is_empty());
+    dispose(db).await
+}
+
+struct OnlyVisible(Uuid);
+impl Visibility for OnlyVisible {
+    fn permissions(&self, id: Uuid) -> Permissions {
+        Permissions {
+            visible: id == self.0,
+            ..Permissions::default()
+        }
+    }
+}
+#[tokio::test]
+async fn postgres_growth_privacy_crosses_multiple_batches() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let mut s = sample();
+    s.day = s.day.next_day().unwrap();
+    let mut tx = db.begin().await?;
+    partitions(&mut tx, s.day).await?;
+    sqlx::query("INSERT INTO stats_character_daily(character_ref,day,level,experience,name,world,observed_at) SELECT uuidv7(),$1,10,n,'Observed', $2,1 FROM generate_series(1,205) n").bind(s.day).bind(s.world).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO stats_character_daily(character_ref,day,level,experience,name,world,observed_at) SELECT character_ref,$1,level,0,name,world,0 FROM stats_character_daily").bind(s.day.previous_day().unwrap()).execute(&mut *tx).await?;
+    let visible: Uuid =
+        sqlx::query_scalar("SELECT character_ref FROM stats_character_daily WHERE experience=1")
+            .fetch_one(&mut *tx)
+            .await?;
+    tx.commit().await?;
+    let result = top_growth(
+        &db,
+        s.day.previous_day().unwrap(),
+        s.day,
+        1,
+        &OnlyVisible(visible),
+    )
+    .await?;
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].character_ref, visible);
+    assert_eq!(result[0].experience_gain, "1");
+    dispose(db).await
+}
+
+struct DeathsVisible;
+impl crate::character::Current for DeathsVisible {
+    fn character(&self, _: Uuid) -> crate::character::CurrentFuture<'_> {
+        Box::pin(async {
+            Ok(crate::character::PublicCharacter {
+                name: "Observed".into(),
+                permissions: Permissions {
+                    visible: true,
+                    deaths: true,
+                    ..Permissions::default()
+                },
+                ranks: None,
+            })
+        })
+    }
+}
+#[tokio::test]
+async fn postgres_v2_deaths_occurrences_replay_suppression_and_fences() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let character = Uuid::now_v7();
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let occurrence_a = Uuid::now_v7();
+    let occurrence_b = Uuid::now_v7();
+    let deaths = json!([
+        {"death_occurrence_id":occurrence_a.to_string(),"occurred_at":(now-10).to_string(),"level":"413","pvp":true,"killers":["Beren"]},
+        {"death_occurrence_id":occurrence_b.to_string(),"occurred_at":(now-10).to_string(),"level":"412","pvp":false,"killers":[]},
+        {"death_occurrence_id":Uuid::now_v7().to_string(),"occurred_at":(now-31*86400).to_string(),"level":"410","pvp":false,"killers":[]},
+        {"death_occurrence_id":Uuid::now_v7().to_string(),"occurred_at":(now+3600).to_string(),"level":"414","pvp":false,"killers":[]}
+    ]);
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
+        .execute(&db)
+        .await?;
+    // This is the normalized persistence shape written by PublishCharacterDeathsV2.
+    sqlx::query("INSERT INTO public_deaths_v2(subject,authority,epoch,revision,digest,deaths) VALUES($1,'oteryn:game:primary',1,1,$2,$3)")
+        .bind(character.to_string()).bind(vec![1_u8;32]).bind(&deaths).execute(&db).await?;
+    let job = StatisticsJob {
+        pool: db.clone(),
+        enabled: true,
+    };
+    assert_eq!(job.run().await?, 0); // No completeness evidence.
+    sqlx::query("INSERT INTO public_deaths_v2_watermark(id,authority,epoch,complete_through) VALUES(1,'oteryn:game:other',1,$1)").bind(now).execute(&db).await?;
+    assert_eq!(job.run().await?, 0); // Authority mismatch.
+    sqlx::query("UPDATE public_deaths_v2_watermark SET authority='oteryn:game:primary',epoch=2")
+        .execute(&db)
+        .await?;
+    assert_eq!(job.run().await?, 0); // Epoch mismatch.
+    sqlx::query("UPDATE public_deaths_v2_watermark SET epoch=1,complete_through=$1")
+        .bind(now - 20)
+        .execute(&db)
+        .await?;
+    assert_eq!(job.run().await?, 1);
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM stats_character_events WHERE kind='death'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(count, 0); // Neither same-second occurrence is complete yet.
+    sqlx::query("UPDATE public_deaths_v2_watermark SET complete_through=$1")
+        .bind(now)
+        .execute(&db)
+        .await?;
+    assert_eq!(job.run().await?, 1);
+    assert_eq!(job.run().await?, 0);
+    let keys: Vec<String> = sqlx::query_scalar(
+        "SELECT event_key FROM stats_character_events WHERE kind='death' ORDER BY event_key",
+    )
+    .fetch_all(&db)
+    .await?;
+    let mut expected = vec![occurrence_a.to_string(), occurrence_b.to_string()];
+    expected.sort();
+    assert_eq!(keys, expected);
+    let service = crate::character::Characters {
+        db: db.clone(),
+        enabled: true,
+        current: std::sync::Arc::new(DeathsVisible),
+    };
+    let day = OffsetDateTime::from_unix_timestamp(now - 10)?.date();
+    let report = service
+        .load(character, day, day, None)
+        .await
+        .map_err(|e| format!("report unavailable: {e:?}"))?;
+    assert_eq!(
+        report
+            .history
+            .events
+            .iter()
+            .filter(|e| e.kind == "death")
+            .count(),
+        2
+    );
+    // Higher-epoch replay replaces the derived set rather than duplicating it.
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=2")
+        .execute(&db)
+        .await?;
+    sqlx::query("UPDATE public_deaths_v2 SET epoch=2")
+        .execute(&db)
+        .await?;
+    sqlx::query("UPDATE public_deaths_v2_watermark SET epoch=2")
+        .execute(&db)
+        .await?;
+    assert_eq!(job.run().await?, 1);
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM stats_character_events WHERE kind='death'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(count, 2);
+    sqlx::query("UPDATE public_deaths_v2 SET revision=2,deaths=$1")
+        .bind(json!([deaths[0].clone()]))
+        .execute(&db)
+        .await?;
+    assert_eq!(job.run().await?, 1);
+    let keys: Vec<String> =
+        sqlx::query_scalar("SELECT event_key FROM stats_character_events WHERE kind='death'")
+            .fetch_all(&db)
+            .await?;
+    assert_eq!(keys, vec![occurrence_a.to_string()]);
+    sqlx::query("UPDATE public_deaths_v2 SET revision=3,deaths='[]'")
+        .execute(&db)
+        .await?;
+    assert_eq!(job.run().await?, 1);
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM stats_character_events WHERE kind='death'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(count, 0);
+    sqlx::query("UPDATE public_deaths_v2 SET revision=4,deaths=$1")
+        .bind(&deaths)
+        .execute(&db)
+        .await?;
+    assert_eq!(job.run().await?, 1);
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=3")
+        .execute(&db)
+        .await?;
+    assert_eq!(job.run().await?, 0);
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM stats_character_events WHERE kind='death'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(count, 0); // Fenced bodies disappear even before epoch 3 is populated.
+    dispose(db).await
+}
+
+#[tokio::test]
+async fn postgres_v2_deaths_expire_without_projection_updates() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let character = Uuid::now_v7();
+    let occurred = OffsetDateTime::now_utc() - time::Duration::days(31);
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
+        .execute(&db)
+        .await?;
+    let mut tx = db.begin().await?;
+    let occurrence = Uuid::now_v7().to_string();
+    source_event(&mut tx, character, occurred.date(), "death", &occurrence,
+        &json!({"death_occurrence_id":occurrence,"occurred_at":occurred.unix_timestamp().to_string(),"level":"10","_statistics_epoch":"1"})).await?;
+    source_event(
+        &mut tx,
+        character,
+        occurred.date(),
+        "bazaar_sale",
+        "settled-sale",
+        &json!({"sale_ref":"settled-sale"}),
+    )
+    .await?;
+    tx.commit().await?;
+    let job = StatisticsJob {
+        pool: db.clone(),
+        enabled: true,
+    };
+    assert_eq!(job.run().await?, 0);
+    let kinds: Vec<String> = sqlx::query_scalar(
+        "SELECT kind FROM stats_character_events WHERE character_ref=$1 ORDER BY kind",
+    )
+    .bind(character)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(kinds, vec!["bazaar_sale"]);
     dispose(db).await
 }

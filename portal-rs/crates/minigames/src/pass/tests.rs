@@ -663,3 +663,61 @@ async fn postgres_browser_session_csrf_purchase_and_claim() -> TestResult {
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_store_wallet_receipt_cannot_buy_a_pass() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let ledger = oteryn_wallet::Ledger::new(
+        db.pool.clone(),
+        oteryn_wallet::WalletFlags { enabled: true },
+        WalletAuthority,
+        WalletAuthority,
+        WalletAuthority,
+    );
+    ledger
+        .adjust(
+            Uuid::now_v7(),
+            db.account,
+            200,
+            db.account,
+            "synthetic test credit",
+        )
+        .await?;
+    let operation = Uuid::now_v7();
+    // Exact debit produced by Store, without a pass purchase receipt.
+    let mut store_tx = db.pool.begin().await?;
+    let receipt = ledger
+        .clone()
+        .with_adjustment_kind(oteryn_wallet::AdjustmentKind::StorePurchase)
+        .adjust_in(
+            &mut store_tx,
+            operation,
+            db.account,
+            -100,
+            db.account,
+            &format!("store-purchase:{operation}"),
+        )
+        .await?;
+    assert!(!receipt.replayed);
+    store_tx.commit().await?;
+    let service = Passes::new(
+        db.pool.clone(),
+        Flags {
+            enabled: true,
+            paid: true,
+            rewards: true,
+        },
+        Trusted,
+        Wallet::new(ledger.clone()),
+        Wire,
+    );
+    assert!(matches!(
+        service.buy(db.account, db.season.id, operation).await,
+        Err(Error::Denied)
+    ));
+    assert!(!service.progress(db.account, db.season.id).await?.paid);
+    assert_eq!(ledger.balance(db.account).await?.available, 100);
+    db.close().await
+}

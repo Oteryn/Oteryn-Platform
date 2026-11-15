@@ -11,6 +11,24 @@ fn status(row: sqlx::postgres::PgRow) -> Result<CommandStatus, Error> {
     })
 }
 impl Commands {
+    pub(crate) async fn replay(
+        &self,
+        decision: Uuid,
+        key: &str,
+        intent: &Intent,
+    ) -> Result<Option<CommandStatus>, Error> {
+        let row = sqlx::query("SELECT id,command,intent_json,receipt_json,binding_json,issuer_decision_id FROM character_commands WHERE request_key=$1").bind(key).fetch_optional(&self.pool).await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        if row.try_get::<String, _>("command")? != intent.command()
+            || row.try_get::<String, _>("binding_json")? != encode(&binding(intent))?
+            || row.try_get::<Uuid, _>("issuer_decision_id")? != decision
+        {
+            return Err(Error::Conflict);
+        }
+        Ok(Some(status(row)?))
+    }
     pub(super) async fn load(&self, id: Uuid) -> Result<CommandStatus, Error> {
         status(
             sqlx::query(

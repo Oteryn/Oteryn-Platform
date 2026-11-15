@@ -550,6 +550,7 @@ async fn db_unavailable_exchange_rolls_back_but_empty_notices_acknowledge() {
 }
 #[tokio::test]
 async fn db_unknown_history_is_denied_and_queued_without_notice() {
+    let started = std::time::Instant::now();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -565,6 +566,8 @@ async fn db_unknown_history_is_denied_and_queued_without_notice() {
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,binding_json,intent_json,state,receipt_json) SELECT gen_random_uuid(),issuer_decision_id,'ambiguous-'||n,command,account_id,binding_json,intent_json,'TERMINAL',receipt_json FROM character_commands CROSS JOIN generate_series(1,64) n WHERE id=$1")
+        .bind(Uuid::parse_str(OP).unwrap()).execute(&pool).await.unwrap();
     for _ in 0..2 {
         assert_eq!(
             response(app.clone(), PATH, NOTICE, Some(1)).await.0,
@@ -573,7 +576,7 @@ async fn db_unknown_history_is_denied_and_queued_without_notice() {
     }
     let restore = Restore::new(pool.clone(), settings());
     let queued = restore.queue().await.unwrap();
-    assert_eq!(queued.len(), 1);
+    assert_eq!(queued.len(), 32);
     assert_eq!(
         queued[0].reason,
         "character_authority.restore_state_ambiguous"
@@ -584,6 +587,10 @@ async fn db_unknown_history_is_denied_and_queued_without_notice() {
         .await
         .unwrap();
     assert_eq!(count, 0);
+    eprintln!(
+        "db_unknown_history_is_denied_and_queued_without_notice duration={:?}",
+        started.elapsed()
+    );
     cleanup(pool, admin, schema).await;
 }
 #[tokio::test]

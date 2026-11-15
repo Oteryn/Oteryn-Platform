@@ -56,6 +56,22 @@ impl CoinHost for Host {
         coins: i64,
     ) -> HostFuture<'a, Result<(), CoinError>> {
         Box::pin(async move {
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 90101))")
+                .bind(payer)
+                .execute(&mut **tx)
+                .await?;
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(sum(delta),0)::bigint FROM test_coins WHERE payer=$1",
+            )
+            .bind(payer)
+            .fetch_one(&mut **tx)
+            .await?;
+            if total
+                .checked_add(coins)
+                .is_none_or(|n| n > oteryn_payments::coin::MAX_COINS)
+            {
+                return Err(CoinError::Conflict);
+            }
             sqlx::query("INSERT INTO test_coins (key,payer,delta) VALUES ($1,$2,$3) ON CONFLICT (key) DO NOTHING")
                 .bind(key).bind(payer).bind(coins)
                 .execute(&mut **tx).await?;
@@ -838,4 +854,176 @@ async fn failure_after_the_event_insert_rolls_back_the_reversal_and_a_retry_appl
         1
     );
     h.finish().await
+}
+
+#[tokio::test]
+async fn audit_09_01_ceiling_settlement_is_held_and_balance_readable() -> TestResult {
+    let started = std::time::Instant::now();
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
+    let payer = Uuid::now_v7();
+    let mut settings = h.settings(true);
+    settings.packages[0].coins = 1;
+    let coins = CoinPurchases::new(
+        h.pool.clone(),
+        settings,
+        h.provider.clone(),
+        Arc::new(Host {
+            pool: h.pool.clone(),
+        }),
+    );
+    sqlx::query("INSERT INTO test_coins(key,payer,delta) VALUES ($1,$2,$3)")
+        .bind(Uuid::now_v7())
+        .bind(payer)
+        .bind(oteryn_payments::coin::MAX_COINS)
+        .execute(&h.pool)
+        .await?;
+    let catalogue = coins.catalogue(payer, None).await?;
+    let package = &catalogue.packages[0];
+    let order = coins
+        .create_order(
+            payer,
+            &CoinOrderRequest {
+                request_id: Uuid::now_v7(),
+                package_id: package.id,
+                quote_id: package.quote_id,
+                character_id: None,
+            },
+        )
+        .await?;
+    let held = coins.sandbox_complete(payer, order.order_id, true).await?;
+    assert_eq!(held.state, OrderState::Processing);
+    assert!(held.review_required);
+    assert!(held.receipt_id.is_none());
+    let balance = coins.balance(payer).await?;
+    assert_eq!(balance.total_coins, oteryn_payments::coin::MAX_COINS);
+    assert!(balance.review_required);
+    assert_eq!(h.count("SELECT count(*) FROM invoices").await, 0);
+    assert_eq!(
+        h.count("SELECT count(*) FROM payment_intents WHERE state='succeeded'")
+            .await,
+        1
+    );
+    h.finish().await?;
+    eprintln!(
+        "PG audit_09_01_ceiling_settlement_is_held_and_balance_readable: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn audit_09_05_catalogue_reuses_caps_and_prunes_quotes() -> TestResult {
+    const LIMIT: i64 = 100;
+    const PRUNE_BATCH: i64 = 100;
+    let started = std::time::Instant::now();
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
+    let coins = h.coins(true);
+    let payer = Uuid::now_v7();
+    let mut issued = std::collections::HashSet::new();
+    for _ in 0..LIMIT {
+        assert!(issued.insert(coins.catalogue(payer, None).await?.packages[0].quote_id));
+    }
+    for _ in 0..110 {
+        assert!(issued.contains(&coins.catalogue(payer, None).await?.packages[0].quote_id));
+    }
+    assert_eq!(
+        coins
+            .catalogue(payer, Some(Uuid::now_v7()))
+            .await
+            .unwrap_err(),
+        CoinError::Unavailable
+    );
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM coin_purchase_quotes WHERE payer_account_id=$1")
+            .bind(payer)
+            .fetch_one(&h.pool)
+            .await?;
+    assert_eq!(count, LIMIT);
+    let concurrent_payer = Uuid::now_v7();
+    for _ in 0..LIMIT - 1 {
+        coins
+            .catalogue(concurrent_payer, Some(Uuid::now_v7()))
+            .await?;
+    }
+    let (a, b, c, d) = tokio::join!(
+        coins.catalogue(concurrent_payer, Some(Uuid::now_v7())),
+        coins.catalogue(concurrent_payer, Some(Uuid::now_v7())),
+        coins.catalogue(concurrent_payer, Some(Uuid::now_v7())),
+        coins.catalogue(concurrent_payer, Some(Uuid::now_v7())),
+    );
+    let outcomes = [a, b, c, d];
+    assert_eq!(outcomes.iter().filter(|r| r.is_ok()).count(), 1);
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|r| matches!(r, Err(CoinError::Unavailable)))
+            .count(),
+        3
+    );
+    // A multi-package catalogue cannot leave a partial issuance at the cap.
+    let partial_payer = Uuid::now_v7();
+    for _ in 0..LIMIT - 1 {
+        coins.catalogue(partial_payer, None).await?;
+    }
+    let mut settings = h.settings(true);
+    let mut extra = settings.packages[0].clone();
+    extra.id = Uuid::now_v7();
+    settings.packages.push(extra);
+    let two_packages = CoinPurchases::new(
+        h.pool.clone(),
+        settings,
+        h.provider.clone(),
+        Arc::new(Host {
+            pool: h.pool.clone(),
+        }),
+    );
+    assert_eq!(
+        two_packages
+            .catalogue(partial_payer, None)
+            .await
+            .unwrap_err(),
+        CoinError::Unavailable
+    );
+    let partial_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM coin_purchase_quotes WHERE payer_account_id=$1")
+            .bind(partial_payer)
+            .fetch_one(&h.pool)
+            .await?;
+    assert_eq!(partial_count, LIMIT - 1);
+    let (paid_payer, _, _) = h.paid_order().await;
+    sqlx::query("UPDATE coin_purchase_quotes SET expires_at=clock_timestamp()-interval '1 second'")
+        .execute(&h.pool)
+        .await?;
+    // Even an unconsumed flag cannot make an order-referenced quote deletable.
+    sqlx::query("UPDATE coin_purchase_quotes SET consumed_at=NULL WHERE payer_account_id=$1")
+        .bind(paid_payer)
+        .execute(&h.pool)
+        .await?;
+    coins.catalogue(payer, None).await?;
+    coins.catalogue(concurrent_payer, None).await?;
+    coins.catalogue(paid_payer, None).await?;
+    assert_eq!(h.count("SELECT count(*) FROM coin_purchase_quotes q JOIN coin_purchase_orders o ON o.quote_id=q.id").await, 1);
+    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) SELECT gen_random_uuid(),$1,$2,1,1,'EUR',2,'testing',clock_timestamp()-interval '1 second' FROM generate_series(1,250)")
+        .bind(payer).bind(Uuid::now_v7()).execute(&h.pool).await?;
+    assert_eq!(
+        coins
+            .catalogue(payer, Some(Uuid::now_v7()))
+            .await
+            .unwrap_err(),
+        CoinError::Unavailable
+    );
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM coin_purchase_quotes WHERE payer_account_id=$1 AND expires_at<=clock_timestamp()")
+        .bind(payer).fetch_one(&h.pool).await?;
+    assert_eq!(remaining, 250 - PRUNE_BATCH);
+    coins.catalogue(payer, Some(Uuid::now_v7())).await?;
+    coins.catalogue(payer, None).await?;
+    let expired: i64 = sqlx::query_scalar("SELECT count(*) FROM coin_purchase_quotes WHERE payer_account_id=$1 AND expires_at<=clock_timestamp()")
+        .bind(payer).fetch_one(&h.pool).await?;
+    assert_eq!(expired, 0);
+    h.finish().await?;
+    eprintln!(
+        "PG audit_09_05_catalogue_reuses_caps_and_prunes_quotes: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
 }

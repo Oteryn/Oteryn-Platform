@@ -212,7 +212,8 @@ impl<
         if amount <= 0 {
             return Err(Error::Invalid);
         }
-        self.0
+        let receipt = self
+            .0
             .adjust_in(
                 tx,
                 operation,
@@ -223,6 +224,9 @@ impl<
             )
             .await
             .map_err(|_| Error::Denied)?;
+        if receipt.replayed {
+            return Err(Error::Denied);
+        }
         Ok(())
     }
 }

@@ -556,3 +556,74 @@ async fn db_release_identity_support_floor_and_revocations_cannot_be_rewritten()
 
     db.close().await;
 }
+
+#[tokio::test]
+async fn audit_09_04_history_reads_are_bounded_and_oldest_identity_is_checked() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL is required");
+    let signer = SignerFixture::new();
+    let downloads = Downloads::new(db.pool.clone(), ON, signer.roots());
+    for revision in 1..=48 {
+        downloads
+            .publish(
+                &ALLOW,
+                Uuid::now_v7(),
+                signer.upload(signer.policy(revision, &format!("rel-{revision}"), revision)),
+            )
+            .await
+            .unwrap();
+    }
+    // Instrument real SQL reads, refusing any history materialization without
+    // the one-bundle page bound. The view remains automatically insertable.
+    sqlx::raw_sql(
+        "ALTER TABLE client_releases RENAME TO history_records;
+        CREATE TABLE history_reads (statement text NOT NULL);
+        CREATE FUNCTION bounded_history_read() RETURNS boolean LANGUAGE plpgsql VOLATILE AS $$
+        BEGIN
+            IF position('LIMIT 1' in current_query()) = 0 THEN
+                RAISE EXCEPTION 'unbounded history read';
+            END IF;
+            INSERT INTO history_reads VALUES (current_query());
+            RETURN true;
+        END; $$;
+        CREATE VIEW client_releases AS SELECT * FROM history_records WHERE bounded_history_read();",
+    )
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    downloads
+        .publish(
+            &ALLOW,
+            Uuid::now_v7(),
+            signer.upload(signer.policy(49, "rel-49", 49)),
+        )
+        .await
+        .unwrap();
+    let pages: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM history_reads WHERE statement LIKE '%policy_revision>$2%'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(pages, 48);
+    let mut rewrite = signer.policy(50, "rel-1", 1);
+    rewrite.rollback_authorization = RollbackAuthorization::Explicit;
+    let result = downloads
+        .publish(
+            &ALLOW,
+            Uuid::now_v7(),
+            signer.upload_artifact(rewrite, "2099-01-01T00:00:00Z", false, b"changed package"),
+        )
+        .await;
+    assert!(matches!(result, Err(Error::Conflict)), "{result:?}");
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM history_records")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 49);
+    db.close().await;
+    eprintln!(
+        "PG audit_09_04_history_reads_are_bounded_and_oldest_identity_is_checked: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

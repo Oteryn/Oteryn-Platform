@@ -169,12 +169,11 @@ impl Creation {
             return Err(Error::Unavailable);
         }
         self.eligible(account).await?;
-        self.limit(account, "create").await?;
         // Serialize with identity changes. Keep this lock until the command is durable.
         // The public command API owns its transaction and idempotency lock.
         let mut tx = self.pool.begin().await?;
         let found: Option<Uuid> =
-            sqlx::query_scalar("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            sqlx::query_scalar("SELECT id FROM accounts WHERE id=$1 FOR NO KEY UPDATE")
                 .bind(account)
                 .fetch_optional(&mut *tx)
                 .await?;
@@ -182,6 +181,16 @@ impl Creation {
             return Err(Error::Denied);
         }
         self.eligible(account).await?;
+        let intent = Intent::Create {
+            account_id: account,
+            world_id: input.world,
+            name: name.clone(),
+        };
+        let key = format!("web-create:{account}:{}", input.id);
+        if let Some(status) = self.commands.replay(input.id, &key, &intent).await? {
+            return Ok(status.operation_id);
+        }
+        self.limit(account, "create").await?;
         if !self
             .worlds()
             .await?

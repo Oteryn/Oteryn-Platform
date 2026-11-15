@@ -52,6 +52,7 @@ impl std::fmt::Debug for Characters {
 #[derive(Debug)]
 pub struct Report {
     pub id: Uuid,
+    disclosure: Permissions,
     pub name: String,
     pub history: History,
     /// Exact endpoint differences; missing dates remain missing.
@@ -241,6 +242,7 @@ impl Characters {
         }
         Ok(Report {
             id,
+            disclosure: public.permissions,
             name: public.name,
             history,
             gains,
@@ -273,7 +275,10 @@ impl Characters {
             if !current.permissions.visible {
                 return Err(Error::NotFound);
             }
-            if current.name != report.name
+            if current.permissions.skills != report.disclosure.skills
+                || current.permissions.guild != report.disclosure.guild
+                || current.permissions.deaths != report.disclosure.deaths
+                || current.name != report.name
                 || (!current.permissions.skills
                     && report.history.daily.iter().any(|d| d.skills.is_some()))
             {

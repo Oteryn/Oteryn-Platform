@@ -105,6 +105,9 @@ pub struct Stream {
     accounts: Arc<dyn Accounts>,
     enabled: bool,
 }
+// Each observed account can add at most one inviter to the lock set.
+const PUBLICATION_BATCH: i64 = 64;
+
 impl Stream {
     pub fn new(pool: PgPool, accounts: Arc<dyn Accounts>, enabled: bool) -> Self {
         Self {
@@ -143,16 +146,23 @@ impl Stream {
         }
         // A continuation reads only its immutable window, without recomputation.
         // A tail poll recomputes even when no Premium mutation has occurred: time
-        // alone can advance a consumed-day total. One SQL snapshot covers all Premium consumption totals.
+        // alone can advance a consumed-day total. Each poll publishes one bounded
+        // batch; one SQL snapshot covers that batch's Premium consumption totals.
         if cursor.through == 0 {
-            let totals: Vec<(Uuid, i32)> = sqlx::query_as(
-                "WITH instant AS MATERIALIZED (SELECT date_trunc('second', clock_timestamp()) AS now), intervals AS (SELECT DISTINCT ON (account_id,entitlement_id,effective_from) account_id,effective_from,effective_until FROM premium_ledger ORDER BY account_id,entitlement_id,effective_from,lifecycle_revision DESC) SELECT days.account_id,days.spent FROM (SELECT a.account_id, LEAST(2147483647, FLOOR(COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM LEAST(i.effective_until,t.now)-i.effective_from))),0)/86400))::integer AS spent FROM (SELECT account_id FROM premium_authority UNION SELECT account_id FROM referral_loyalty_credits) a CROSS JOIN instant t LEFT JOIN intervals i ON i.account_id=a.account_id AND i.effective_from<t.now GROUP BY a.account_id) days ORDER BY days.account_id"
-            ).fetch_all(&mut *tx).await?;
-            // Capture and lock the full authority set before qualification takes
-            // advisory lock 5600. Purchases lock account rows before that lock.
-            // Include potential credit-only inviters so publication never needs
-            // to acquire a new account lock while holding 5600.
-            let candidates: Vec<Uuid> = totals.iter().map(|(account, _)| *account).collect();
+            let publication_after: Option<Uuid> = sqlx::query_scalar(
+                "SELECT publication_after FROM loyalty_stream_head WHERE singleton",
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            let candidates: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT account_id FROM ((SELECT account_id FROM premium_authority WHERE account_id>COALESCE($1::uuid,'00000000-0000-0000-0000-000000000000'::uuid) ORDER BY account_id LIMIT $2) UNION (SELECT DISTINCT account_id FROM referral_loyalty_credits WHERE account_id>COALESCE($1::uuid,'00000000-0000-0000-0000-000000000000'::uuid) ORDER BY account_id LIMIT $2)) a ORDER BY account_id LIMIT $2",
+            ).bind(publication_after).bind(PUBLICATION_BATCH).fetch_all(&mut *tx).await?;
+            let next_account = if candidates.len() == PUBLICATION_BATCH as usize {
+                candidates.last().copied()
+            } else {
+                None
+            };
+            let observed = candidates.clone();
             let inviters: Vec<Uuid> = sqlx::query_scalar("SELECT DISTINCT inviter_id FROM referral_campaign_invitations WHERE kind='new' AND invitee_id=ANY($1)")
                 .bind(&candidates).fetch_all(&mut *tx).await?;
             let candidates: std::collections::BTreeSet<_> =
@@ -204,8 +214,15 @@ impl Stream {
                 .bind(&locked_accounts)
                 .execute(&mut *tx)
                 .await?;
-            // Award from Premium consumption only, before reading credit totals.
+            // Include inviters' own days so a credit never zeroes their total.
+            let totals: Vec<(Uuid, i32)> = sqlx::query_as(
+                "WITH instant AS MATERIALIZED (SELECT date_trunc('second', clock_timestamp()) AS now), intervals AS (SELECT DISTINCT ON (account_id,entitlement_id,effective_from) account_id,effective_from,effective_until FROM premium_ledger WHERE account_id=ANY($1) ORDER BY account_id,entitlement_id,effective_from,lifecycle_revision DESC) SELECT a.account_id, LEAST(2147483647,FLOOR(COALESCE(SUM(GREATEST(0,EXTRACT(EPOCH FROM LEAST(i.effective_until,t.now)-i.effective_from))),0)/86400))::integer FROM unnest($1::uuid[]) a(account_id) CROSS JOIN instant t LEFT JOIN intervals i ON i.account_id=a.account_id AND i.effective_from<t.now GROUP BY a.account_id ORDER BY a.account_id",
+            ).bind(&locked_accounts).fetch_all(&mut *tx).await?;
+            // Never expand the lock set for an inviter's inviter mid-batch.
             for &(account, days) in &totals {
+                if !observed.contains(&account) {
+                    continue;
+                }
                 if !known.contains(&account) {
                     continue;
                 }
@@ -247,10 +264,13 @@ impl Stream {
                 sqlx::query("INSERT INTO loyalty_stream_events(position,account_id,spent_premium_days,loyalty_points,platform_revision) VALUES ($1,$2,$3,$4,$5)")
                     .bind(head).bind(account).bind(days).bind(points).bind(revision).execute(&mut *tx).await?;
             }
-            sqlx::query("UPDATE loyalty_stream_head SET position=$1 WHERE singleton")
-                .bind(head)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "UPDATE loyalty_stream_head SET position=$1,publication_after=$2 WHERE singleton",
+            )
+            .bind(head)
+            .bind(next_account)
+            .execute(&mut *tx)
+            .await?;
         }
         let through = if cursor.through == 0 {
             head

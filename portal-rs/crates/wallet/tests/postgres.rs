@@ -946,3 +946,68 @@ async fn market_refusals_and_key_validation_are_atomic() {
 
 #[path = "coin_http/mod.rs"]
 mod coin_http;
+
+#[tokio::test]
+async fn postgres_credit_debt_selection_has_enforced_cardinality_bound() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = Uuid::now_v7();
+    let ids: Vec<_> = (0..129).map(|_| Uuid::now_v7()).collect();
+    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) SELECT id,$2,id,1,1,'PLN',2,'testing',now()+interval '1 hour' FROM unnest($1::uuid[]) id")
+        .bind(&ids).bind(account).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code) SELECT id,$2,id,id,id,1,1,'PLN',2,'testing',id,'processing','test' FROM unnest($1::uuid[]) id")
+        .bind(&ids).bind(account).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) SELECT id,id,$2,'refund','test',id::text,1,0,'held' FROM unnest($1::uuid[]) id")
+        .bind(&ids).bind(account).execute(&db.pool).await.unwrap();
+    let key = Uuid::now_v7();
+    let result = db
+        .ledger(&[account])
+        .adjust(key, account, 200, Uuid::now_v7(), "bounded credit")
+        .await;
+    assert!(matches!(
+        result,
+        Err(Error::Refused(Refusal::TransferStateUnknown))
+    ));
+    let counts: (i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM wallet_operations),(SELECT count(*) FROM coin_debt_settlements)").fetch_one(&db.pool).await.unwrap();
+    assert_eq!(counts, (0, 0));
+    // Small credits can make progress through a large debt set. After one
+    // repayment the remaining 128 debts fit a single larger credit.
+    let ledger = db.ledger(&[account]);
+    ledger
+        .adjust(
+            Uuid::now_v7(),
+            account,
+            1,
+            Uuid::now_v7(),
+            "small repayment",
+        )
+        .await
+        .unwrap();
+    ledger
+        .adjust(
+            Uuid::now_v7(),
+            account,
+            200,
+            Uuid::now_v7(),
+            "remaining repayment",
+        )
+        .await
+        .unwrap();
+    assert_eq!(ledger.balance(account).await.unwrap().available, 72);
+    let mut connection = db.pool.acquire().await.unwrap();
+    assert_eq!(outstanding_debt(&mut connection, account).await.unwrap(), 0);
+    drop(connection);
+    // A different account can still receive a credit; the bound is per account.
+    let other = Uuid::now_v7();
+    db.ledger(&[other])
+        .adjust(Uuid::now_v7(), other, 1, Uuid::now_v7(), "unrelated credit")
+        .await
+        .unwrap();
+    db.close().await;
+    eprintln!(
+        "PG postgres_credit_debt_selection_has_enforced_cardinality_bound {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

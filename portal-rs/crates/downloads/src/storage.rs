@@ -92,19 +92,29 @@ impl Downloads {
         if verified.expires_at <= OffsetDateTime::now_utc() {
             return Err(Error::Verification);
         }
-        let rows = sqlx::query("SELECT id, policy, metadata, versions, artifacts FROM client_releases WHERE channel_id = $1 ORDER BY policy_revision")
-            .bind(channel_id).fetch_all(&mut *tx).await?;
-        let mut history = Vec::with_capacity(rows.len());
-        for row in rows {
-            let policy_bytes: Vec<u8> = row.try_get("policy")?;
-            history.push(History {
-                policy: serde_json::from_slice(&policy_bytes).map_err(|_| Error::Verification)?,
-                metadata: row.try_get::<Json<Metadata>, _>("metadata")?.0,
-                versions: row.try_get::<Json<Versions>, _>("versions")?.0,
-                artifacts: row.try_get::<Json<Artifacts>, _>("artifacts")?.0,
-            });
+        // Latest generation checks are independent of historical identity checks.
+        {
+            let head = sqlx::query("SELECT policy, metadata, versions, artifacts FROM client_releases WHERE channel_id=$1 ORDER BY policy_revision DESC LIMIT 1")
+            .bind(channel_id).fetch_optional(&mut *tx).await?;
+            let head = head.as_ref().map(history_row).transpose()?;
+            check_head(head.as_ref(), &verified)?;
         }
-        check_history(&history, &verified)?;
+        // Keyset pages use the existing (channel_id, policy_revision) index.
+        // A single bundle per page bounds memory even for 8 MiB generations.
+        let mut revision = 0_i64;
+        let mut known = false;
+        let mut highest_sequence = 0;
+        loop {
+            let row = sqlx::query("SELECT policy_revision, policy, metadata, versions, artifacts FROM client_releases WHERE channel_id=$1 AND policy_revision>$2 ORDER BY policy_revision LIMIT 1")
+                .bind(channel_id).bind(revision).fetch_optional(&mut *tx).await?;
+            let Some(row) = row else { break };
+            revision = row.try_get("policy_revision")?;
+            let old = history_row(&row)?;
+            check_identity(&old, &verified, &mut known, &mut highest_sequence)?;
+        }
+        if !known && verified.policy.current_release_sequence <= highest_sequence {
+            return Err(Error::Conflict);
+        }
         let id = Uuid::now_v7();
         sqlx::query("INSERT INTO client_releases (id, channel_id, policy_revision, release_id, release_sequence, version_display, policy, policy_file, metadata, versions, artifacts, expires_at, published_by, previous_publication_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
             .bind(id).bind(channel_id).bind(verified.policy.policy_revision)
@@ -177,9 +187,19 @@ struct History {
     artifacts: Artifacts,
 }
 
-fn check_history(history: &[History], new: &verification::Verified) -> Result<(), Error> {
+fn history_row(row: &sqlx::postgres::PgRow) -> Result<History, Error> {
+    let policy: Vec<u8> = row.try_get("policy")?;
+    Ok(History {
+        policy: serde_json::from_slice(&policy).map_err(|_| Error::Verification)?,
+        metadata: row.try_get::<Json<Metadata>, _>("metadata")?.0,
+        versions: row.try_get::<Json<Versions>, _>("versions")?.0,
+        artifacts: row.try_get::<Json<Artifacts>, _>("artifacts")?.0,
+    })
+}
+
+fn check_head(head: Option<&History>, new: &verification::Verified) -> Result<(), Error> {
     let policy = &new.policy;
-    if let Some(old) = history.last() {
+    if let Some(old) = head {
         let v = &new.versions;
         let p = &old.versions;
         let rollback = policy.current_release_sequence < old.policy.current_release_sequence;
@@ -208,35 +228,38 @@ fn check_history(history: &[History], new: &verification::Verified) -> Result<()
     } else if policy.rollback_authorization != RollbackAuthorization::None {
         return Err(Error::Conflict);
     }
-    let mut known = false;
-    let mut highest_sequence = 0;
-    for old in history {
-        highest_sequence = highest_sequence.max(old.policy.current_release_sequence);
-        // Immutable filenames cannot be repointed even if they are absent from the current head.
-        for (name, bytes) in &new.upload.metadata {
-            if name != "timestamp.json" && old.metadata.get(name).is_some_and(|old| old != bytes) {
-                return Err(Error::Conflict);
-            }
-        }
-        for (path, target) in &new.artifacts {
-            if old.artifacts.get(path).is_some_and(|old| old != target) {
-                return Err(Error::Conflict);
-            }
-        }
-        if policy.current_release_id == old.policy.current_release_id {
-            known = true;
-            if policy.current_release_sequence != old.policy.current_release_sequence
-                || policy.current_version_display != old.policy.current_version_display
-                || policy.artifacts != old.policy.artifacts
-                || new.artifacts != old.artifacts
-            {
-                return Err(Error::Conflict);
-            }
-        } else if policy.current_release_sequence == old.policy.current_release_sequence {
+    Ok(())
+}
+
+fn check_identity(
+    old: &History,
+    new: &verification::Verified,
+    known: &mut bool,
+    highest_sequence: &mut i64,
+) -> Result<(), Error> {
+    let policy = &new.policy;
+    *highest_sequence = (*highest_sequence).max(old.policy.current_release_sequence);
+    // Immutable filenames cannot be repointed even if they are absent from the current head.
+    for (name, bytes) in &new.upload.metadata {
+        if name != "timestamp.json" && old.metadata.get(name).is_some_and(|old| old != bytes) {
             return Err(Error::Conflict);
         }
     }
-    if !known && policy.current_release_sequence <= highest_sequence {
+    for (path, target) in &new.artifacts {
+        if old.artifacts.get(path).is_some_and(|old| old != target) {
+            return Err(Error::Conflict);
+        }
+    }
+    if policy.current_release_id == old.policy.current_release_id {
+        *known = true;
+        if policy.current_release_sequence != old.policy.current_release_sequence
+            || policy.current_version_display != old.policy.current_version_display
+            || policy.artifacts != old.policy.artifacts
+            || new.artifacts != old.artifacts
+        {
+            return Err(Error::Conflict);
+        }
+    } else if policy.current_release_sequence == old.policy.current_release_sequence {
         return Err(Error::Conflict);
     }
     Ok(())

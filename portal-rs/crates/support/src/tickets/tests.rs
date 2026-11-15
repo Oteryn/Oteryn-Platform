@@ -154,12 +154,11 @@ async fn postgres_creation_idempotency_limit_and_validation() -> TestResult {
         .await?;
     assert_eq!(ticket.subject, "Subject");
     assert_eq!(ticket.lock_version, 1);
-    assert_eq!(
+    assert!(matches!(
         t.create(account, key, "technical", "different", "different")
-            .await?
-            .id,
-        ticket.id
-    );
+            .await,
+        Err(Error::Conflict)
+    ));
     assert!(matches!(
         t.create(account, Uuid::now_v7(), "other", "subject", "body")
             .await,
@@ -728,5 +727,52 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
         assert_eq!(response.status(), expected);
     }
     assert_eq!(t.list(owner, false, 0).await?[0].status, "waiting_user");
+    db.finish().await
+}
+
+#[tokio::test]
+async fn postgres_message_pages_and_payload_binding() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = db.account("en").await?;
+    let service = db.tickets(10)?;
+    let key = Uuid::now_v7();
+    let ticket = service
+        .create(account, key, "technical", " Subject ", " Body ")
+        .await?;
+    assert_eq!(
+        service
+            .create(account, key, "technical", "Subject", "Body")
+            .await?
+            .id,
+        ticket.id
+    );
+    sqlx::query("INSERT INTO ticket_messages(ticket_id,author_account_id,author_kind,internal,body) SELECT $1,$2,'user',false,'Message '||n FROM generate_series(1,105) n").bind(ticket.id).bind(account).execute(&db.pool).await?;
+    let mut after = None;
+    let mut seen = std::collections::BTreeSet::new();
+    loop {
+        let (_, messages) = service.show_page(account, false, ticket.id, after).await?;
+        assert!(messages.len() <= 50);
+        if messages.is_empty() {
+            break;
+        }
+        for message in &messages {
+            assert!(seen.insert(message.id));
+        }
+        after = messages.last().map(|m| m.id);
+    }
+    assert_eq!(seen.len(), 106);
+    for (category, subject, body) in [
+        ("other", "Subject", "Body"),
+        ("technical", "Changed", "Body"),
+        ("technical", "Subject", "Changed"),
+    ] {
+        assert!(matches!(
+            service.create(account, key, category, subject, body).await,
+            Err(Error::Conflict)
+        ));
+    }
+
     db.finish().await
 }

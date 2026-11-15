@@ -390,3 +390,35 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
     assert!(result?.success());
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_reserved_page_destinations() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    sqlx::raw_sql("INSERT INTO pages(id,slug) VALUES(uuidv7(),'support'),(uuidv7(),'getting-started'); INSERT INTO editorial_pages(page_id,locale,title,body,published_at) SELECT id,'en','Dragon help','help body',now() FROM pages").execute(&db.pool).await?;
+    let hits = editorial(&db.pool, "en", &filters("dragon")).await?;
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].href, "/en/support");
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_world_visible_pagination() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    sqlx::raw_sql("INSERT INTO world_versions(id,source_commit,status) VALUES ('00000000-0000-0000-0000-000000000049',repeat('a',40),'ready'); UPDATE world_active_version SET version_id='00000000-0000-0000-0000-000000000049'; INSERT INTO world_entities(version_id,kind,key,data,publishable) SELECT '00000000-0000-0000-0000-000000000049','Item','dragon-' || lpad(n::text,2,'0'),'{}',true FROM generate_series(1,22) n; INSERT INTO world_visibility(kind,key,allowed) SELECT kind,key,true FROM world_entities").execute(&db.pool).await?;
+    let reader: WorldReader =
+        Arc::new(|_, key| Box::pin(async move { Ok((key != "dragon-01").then_some(key)) }));
+    let first = world_search(&db.pool, "en", "dragon", 1, reader.clone())
+        .await
+        .map_err(|_| "search failed")?;
+    assert_eq!(first.len(), 21);
+    let second = world_search(&db.pool, "en", "dragon", 2, reader)
+        .await
+        .map_err(|_| "search failed")?;
+    assert_eq!(second.len(), 1);
+    assert!(second[0].href.ends_with("dragon-22"));
+    db.close().await
+}

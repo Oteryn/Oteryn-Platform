@@ -44,6 +44,7 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
         include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
         include_str!("../../../../migrations/20261105170000_t10_rbac_audit.sql"),
         include_str!("../../../../migrations/20261105220204_t11b_pages.sql"),
+        include_str!("../../../../migrations/20261115110014_fix_14_revisions.sql"),
     ] {
         sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
             .execute(&pool)
@@ -144,6 +145,30 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
     persist(&pool, ctx, &slug, "en", &form).await?;
     let remaining:i64=sqlx::query_scalar("SELECT count(*) FROM editorial_pages e JOIN pages p ON p.id=e.page_id WHERE p.slug=$1 AND e.locale='en'").bind(&slug).fetch_one(&pool).await?;
     assert_eq!(remaining, 0);
+    form.action = "save".into();
+    form.published_at = "2020-01-01T00:00:00Z".into();
+    persist(&pool, ctx, &slug, "en", &form).await?;
+    assert_eq!(
+        router(pool.clone())
+            .oneshot(Request::get(format!("/pl/pages/{slug}")).body(Body::empty())?)
+            .await?
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert!(
+        persist(&pool, ctx, "orphan-translation", "pl", &form)
+            .await
+            .is_err()
+    );
+    persist(&pool, ctx, "support", "en", &form).await?;
+    assert_eq!(
+        router(pool.clone())
+            .oneshot(Request::get("/en/support").body(Body::empty())?)
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+
     form.action = "save".into();
     form.title = "Legal title".into();
     form.body = "Legal text".into();

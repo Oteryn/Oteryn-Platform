@@ -123,3 +123,16 @@ refusal, canonical parsing, conflicts, recovery, unknown retained subjects,
 retention and staleness. Database tests use `PORTAL_TEST_DATABASE_URL` and isolated
 schemas; absence emits a skip notice. Run formatting, workspace Clippy with
 warnings denied, workspace tests and `e2e/specs/league.spec.mjs`.
+
+## Serving and work bounds
+
+The public page serves at most 128 retained subjects in stable authority/family/
+world/subject order. Feed-wide fence, watermark, quarantine and audit availability
+checks run independently of this serving projection. Per-subject wire and admission
+verification runs only for these 128 subjects. No deployment setting raises this bound.
+League transactions wait at most 100 ms for database locks and 2 s per statement;
+pool admission waits at most 250 ms. Public reads, initialization and private
+publication receipt each have a 3 s overall deadline.
+Contention returns unavailable. Each retention run removes at most 256 audits and
+256 expired inbox entries and clears at most 256 expired subject wires; subsequent
+scheduler runs continue cleanup.

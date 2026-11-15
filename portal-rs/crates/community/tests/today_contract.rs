@@ -41,12 +41,13 @@ fn at() -> i64 {
 }
 fn snapshot(now: i64, epoch: u64, revision: u64) -> String {
     format!(
-        r#"{{"contract_version":2,"operation":"PublishWorldDailyV2","source_authority":"oteryn:game:primary","world_id":"{WORLD}","projection_epoch":"{epoch}","projection_revision":"{revision}","source_observed_at":"{now}","daily":[{{"reset_epoch":"1","effective_from":"{}","effective_until":"{}","creature_key":"rat","boss_key":"boss","history_complete_from":"{}","history":[{{"reset_epoch":"0","effective_from":"{}","effective_until":"{}","creature_key":"rat","boss_key":"boss"}}],"raids":[{{"raid_key":"raid:badger","scheduled_at":"{}","state":"running"}}]}}]}}"#,
+        r#"{{"contract_version":2,"operation":"PublishWorldDailyV2","source_authority":"oteryn:game:primary","world_id":"{WORLD}","projection_epoch":"{epoch}","projection_revision":"{revision}","source_observed_at":"{now}","daily":[{{"reset_epoch":"1","effective_from":"{}","effective_until":"{}","creature_key":"rat","boss_key":"boss","history_complete_from":"{}","history":[{{"reset_epoch":"0","effective_from":"{}","effective_until":"{}","creature_key":"rat","boss_key":"boss"}}],"raids":[{{"raid_key":"raid:badger","started_at":"{}","scheduled_at":"{}","state":"running"}}]}}]}}"#,
         now - 100,
         now + 100,
         now - 200,
         now - 200,
         now - 100,
+        now - 10,
         now - 10
     )
 }
@@ -363,6 +364,10 @@ async fn today_postgres_freshness_interval_and_privacy_fences() -> Result {
             &format!("\"scheduled_at\":\"{}\"", now - 10),
             &format!("\"scheduled_at\":\"{now}\""),
         );
+    let edge = edge.replace(
+        &format!("\"started_at\":\"{}\"", now - 10),
+        &format!("\"started_at\":\"{now}\""),
+    );
     ack(app(d.db.clone(), config()), "world-daily", edge, "accepted").await;
     assert_eq!(d.view(now).await.unwrap_err(), Error::Unavailable);
     assert!(d.view(now + 1).await.is_ok());
@@ -598,5 +603,170 @@ async fn today_postgres_complete_world_baseline_and_concurrent_conflict() -> Res
     assert!(statuses.contains(&StatusCode::OK));
     assert!(statuses.contains(&StatusCode::CONFLICT));
     assert_eq!(d.view(now).await.unwrap_err(), Error::Unavailable);
+    d.close().await
+}
+
+#[tokio::test]
+async fn audit06_raid_contract_golden_dispatch_and_unknown_slot() -> Result {
+    let d = Database::new().await?.ok_or("PostgreSQL required")?;
+    let contract = include_str!(
+        "../../../../docs/contracts/OTERYN_V2_WORLD_DAILY_FAMILY_CONTRACT_PROPOSAL.md"
+    );
+    let golden = contract
+        .lines()
+        .find(|line| {
+            line.starts_with("{\"contract_version\":2,\"operation\":\"PublishWorldDailyV2\"")
+        })
+        .ok_or("golden missing")?;
+    ack(
+        app(d.db.clone(), config()),
+        "world-daily",
+        golden.into(),
+        "accepted",
+    )
+    .await;
+    let now = at();
+    let raw = snapshot(now, 2, 18).replace(
+        &format!("\"scheduled_at\":\"{}\"", now - 10),
+        "\"scheduled_at\":\"unavailable\"",
+    );
+    ack(
+        app(d.db.clone(), config()),
+        "world-daily",
+        raw.clone(),
+        "accepted",
+    )
+    .await;
+    ack(
+        app(d.db.clone(), config()),
+        "watermark",
+        watermark(now, 2),
+        "accepted",
+    )
+    .await;
+    assert_eq!(
+        d.view(now).await.map_err(|_| "view unavailable")?.raids[0].scheduled_at,
+        None
+    );
+    let data = today::mount(Router::new(), d.db.clone(), config())
+        .oneshot(Request::get("/en/today/data").body(Body::empty())?)
+        .await?;
+    assert_eq!(data.status(), StatusCode::OK);
+    let data: serde_json::Value =
+        serde_json::from_slice(&to_bytes(data.into_body(), 100000).await?)?;
+    assert_eq!(data["raids"][0]["scheduled_at"], "unavailable");
+    let mounted = today::mount(
+        Router::new().route(
+            "/en/today",
+            get(|| async { axum::response::Html("<html><main></main></html>") }),
+        ),
+        d.db.clone(),
+        config(),
+    );
+    let response = mounted
+        .oneshot(Request::get("/en/today").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?
+            .contains("Unknown time")
+    );
+    let missing = raw.replace(&format!("\"started_at\":\"{}\",", now - 10), "");
+    empty(
+        send(
+            app(d.db.clone(), config()),
+            "world-daily",
+            missing,
+            Some("daily-test"),
+        )
+        .await,
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+    d.close().await
+}
+
+#[tokio::test]
+async fn audit06_retained_fingerprint_accepts_purged_replay() -> Result {
+    use oteryn_db::outbox::Cleanup;
+    let d = Database::new().await?.ok_or("PostgreSQL required")?;
+    let now = at();
+    let a = app(d.db.clone(), config());
+    let raw = snapshot(now, 2, 17);
+    ack(a.clone(), "world-daily", raw.clone(), "accepted").await;
+    sqlx::query("UPDATE today_snapshots SET received_at=now()-interval '31 days'")
+        .execute(&d.db)
+        .await?;
+    let before: (i64, Vec<u8>, time::OffsetDateTime) =
+        sqlx::query_as("SELECT observed,fingerprint,received_at FROM today_snapshots")
+            .fetch_one(&d.db)
+            .await?;
+    today::Retention(d.db.clone())
+        .clean()
+        .await
+        .map_err(|_| "retention failed")?;
+    ack(a.clone(), "world-daily", raw, "accepted").await;
+    let after: (i64, Vec<u8>, time::OffsetDateTime, bool, bool) = sqlx::query_as(
+        "SELECT observed,fingerprint,received_at,content IS NULL,conflicted FROM today_snapshots",
+    )
+    .fetch_one(&d.db)
+    .await?;
+    assert_eq!((after.0, after.1, after.2), before);
+    assert!(after.3);
+    assert!(!after.4);
+    ack(a.clone(), "world-daily", snapshot(now, 2, 18), "accepted").await;
+    ack(a, "watermark", watermark(now, 2), "accepted").await;
+    assert!(d.view(now).await.is_ok());
+    d.close().await
+}
+
+#[tokio::test]
+async fn audit06_wait_past_interval_refuses_boost_data() -> Result {
+    let d = Database::new().await?.ok_or("PostgreSQL required")?;
+    let now = at();
+    let raw = snapshot(now, 2, 17).replace(
+        &format!("\"effective_until\":\"{}\"", now + 100),
+        &format!("\"effective_until\":\"{}\"", now + 2),
+    );
+    ack(app(d.db.clone(), config()), "world-daily", raw, "accepted").await;
+    ack(
+        app(d.db.clone(), config()),
+        "watermark",
+        watermark(now, 2),
+        "accepted",
+    )
+    .await;
+    let mut lock = d.db.begin().await?;
+    sqlx::query("LOCK TABLE world_admin_names IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *lock)
+        .await?;
+    let mounted = today::mount(Router::new(), d.db.clone(), config());
+    let read = tokio::spawn(async move {
+        mounted
+            .oneshot(Request::get("/en/today/data").body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+    });
+    // Confirm the real catalogue lookup is blocked, rather than delaying before dispatch.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT e.kind,e.key,%')").fetch_one(&d.root).await?;
+        if waiting {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "catalogue lookup did not block"
+        );
+        tokio::task::yield_now().await;
+    }
+    while at() < now + 1 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    lock.commit().await?;
+    let response = read.await?;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = String::from_utf8(to_bytes(response.into_body(), 10000).await?.to_vec())?;
+    assert!(!body.contains("creature"));
     d.close().await
 }

@@ -3,7 +3,10 @@ use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 /// Each API operation commits atomically or rolls back. Adapters are required;
-/// there is no permissive production default.
+/// there is no permissive production default. Identity adapters run before any
+/// wallet row is locked. Multi-account operations prepare the entire identity
+/// set in UUID order before acquiring the wallet set in the same order. Callers
+/// of transaction-owned APIs must follow that order for any locks they take.
 #[derive(Debug, Clone)]
 pub struct Ledger<A, B, H> {
     pub(crate) pool: PgPool,
@@ -41,7 +44,10 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         Ok(())
     }
     async fn active(&self, connection: &mut PgConnection, account: Uuid) -> Result<(), Error> {
-        match self.accounts.state(connection, account).await {
+        Self::active_state(self.accounts.state(connection, account).await)
+    }
+    fn active_state(state: AccountState) -> Result<(), Error> {
+        match state {
             AccountState::Active => Ok(()),
             AccountState::Inactive => Err(Refusal::AccountDenied.into()),
             AccountState::Unknown => Err(Refusal::AccountDenied.into()),
@@ -60,8 +66,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         self.enabled()?;
         valid_id(account)?;
         let mut tx = self.pool.begin().await?;
-        lock(&mut tx, account).await?;
         self.active(&mut tx, account).await?;
+        lock(&mut tx, account).await?;
         let result = balance(&mut tx, account).await?;
         tx.commit().await?;
         Ok(result)
@@ -82,11 +88,20 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             return Err(Refusal::SameAccount.into());
         }
         let mut tx = self.pool.begin().await?;
+        let [first, second] = lock_order(sender, recipient);
+        let first_state = self.accounts.state(&mut tx, first).await;
+        let second_state = self.accounts.state(&mut tx, second).await;
+        let (sender_state, recipient_state) = if sender == first {
+            (first_state, second_state)
+        } else {
+            (second_state, first_state)
+        };
+        // Identity locks are ordered, but sender refusal still precedes recipient.
+        Self::active_state(sender_state)?;
+        Self::active_state(recipient_state)?;
         for account in lock_order(sender, recipient) {
             lock(&mut tx, account).await?;
         }
-        self.active(&mut tx, sender).await?;
-        self.active(&mut tx, recipient).await?;
         let operation = Operation {
             key,
             kind: "transfer",
@@ -133,8 +148,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             return Err(Refusal::InvalidReason.into());
         }
         let mut tx = self.pool.begin().await?;
-        lock(&mut tx, account).await?;
         self.active(&mut tx, account).await?;
+        lock(&mut tx, account).await?;
         let operation = Operation {
             key,
             kind: "adjustment",
@@ -201,8 +216,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         {
             return Err(Refusal::InvalidReason.into());
         }
-        lock(tx, account).await?;
         self.active(tx, account).await?;
+        lock(tx, account).await?;
         let operation = Operation {
             key,
             kind: self.adjustment_kind.name(),
@@ -241,8 +256,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         valid_id(account)?;
         positive(amount)?;
         let mut tx = self.pool.begin().await?;
-        lock(&mut tx, account).await?;
         self.active(&mut tx, account).await?;
+        lock(&mut tx, account).await?;
         let operation = Operation {
             key,
             kind: "reserve",
@@ -299,8 +314,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         valid_id(account)?;
         valid_key(reservation)?;
         let mut tx = self.pool.begin().await?;
-        lock(&mut tx, account).await?;
         self.active(&mut tx, account).await?;
+        lock(&mut tx, account).await?;
         let row = sqlx::query("SELECT amount-COALESCE((to_jsonb(wallet_reservations)->>'consumed')::bigint,0) AS amount, status FROM wallet_reservations WHERE id=$1 AND account_id=$2 FOR UPDATE")
             .bind(reservation).bind(account).fetch_optional(&mut *tx).await?.ok_or(Refusal::ReservationMissing)?;
         let amount: i64 = row.try_get("amount")?;
@@ -580,8 +595,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         valid_key(key)?;
         valid_id(account)?;
         positive(amount)?;
-        lock(tx, account).await?;
         self.active(tx, account).await?;
+        lock(tx, account).await?;
         let operation = Operation {
             key,
             kind: "reserve",
@@ -617,8 +632,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         valid_key(key)?;
         valid_id(account)?;
         valid_key(reservation)?;
-        lock(tx, account).await?;
         self.active(tx, account).await?;
+        lock(tx, account).await?;
         let row = sqlx::query("SELECT amount-COALESCE((to_jsonb(wallet_reservations)->>'consumed')::bigint,0) AS amount, status FROM wallet_reservations WHERE id=$1 AND account_id=$2 FOR UPDATE")
             .bind(reservation).bind(account).fetch_optional(&mut **tx).await?.ok_or(Refusal::ReservationMissing)?;
         let amount: i64 = row.try_get("amount")?;
@@ -690,8 +705,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             return Err(Refusal::InvalidReason.into());
         }
         let mut tx = self.pool.begin().await?;
-        lock(&mut tx, account).await?;
         self.active(&mut tx, account).await?;
+        lock(&mut tx, account).await?;
         let op = Operation {
             key,
             kind: kind.name(),
@@ -744,8 +759,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         positive(gold_price)?;
         let reason = format!("gold-price:{gold_price}");
         let mut tx = self.pool.begin().await?;
-        lock(&mut tx, account).await?;
         self.active(&mut tx, account).await?;
+        lock(&mut tx, account).await?;
         let replayed = claim(
             &mut tx,
             &Operation {
@@ -808,8 +823,10 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             return Err(Refusal::SameAccount.into());
         }
         for account in lock_order(seller, buyer) {
-            lock(&mut tx, account).await?;
             self.active(&mut tx, account).await?;
+        }
+        for account in lock_order(seller, buyer) {
+            lock(&mut tx, account).await?;
         }
         let replayed = claim(
             &mut tx,

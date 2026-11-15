@@ -277,3 +277,89 @@ async fn home_top_skips_hidden_and_fails_closed() -> TestResult {
     );
     cleanup(pool, db, schema).await
 }
+
+#[tokio::test]
+async fn audit06_home_scans_past_fifty_hidden_entries() -> TestResult {
+    struct HiddenFifty;
+    impl PublicVisibility for HiddenFifty {
+        fn is_hidden<'a>(&'a self, id: &'a str) -> VisibilityFuture<'a, bool> {
+            Box::pin(async move {
+                Ok(id
+                    .rsplit('-')
+                    .next()
+                    .and_then(|n| n.parse::<u32>().ok())
+                    .is_some_and(|n| n <= 50))
+            })
+        }
+    }
+    let (root, db, schema) = seeded().await?.ok_or("PostgreSQL required")?;
+    let (rows, _) = rankings::home_top(&db, &HiddenFifty, oteryn_web::Language::En, 5, false)
+        .await
+        .map_err(|_| "ranking unavailable")?;
+    assert_eq!(
+        rows.iter().map(|r| r.rank.as_str()).collect::<Vec<_>>(),
+        ["51", "52", "53", "54", "55"]
+    );
+    cleanup(root, db, schema).await
+}
+
+#[tokio::test]
+async fn audit06_rankings_recheck_epoch_and_same_epoch_suppression() -> TestResult {
+    struct Invalidating {
+        db: PgPool,
+        epoch: bool,
+    }
+    impl PublicVisibility for Invalidating {
+        fn is_hidden<'a>(&'a self, _: &'a str) -> VisibilityFuture<'a, bool> {
+            Box::pin(async { Ok(false) })
+        }
+        fn batch<'a>(&'a self, refs: &'a [String]) -> VisibilityFuture<'a, Vec<bool>> {
+            Box::pin(async move {
+                let query = if self.epoch {
+                    "UPDATE public_projection_state SET highest_epoch=2"
+                } else {
+                    "UPDATE public_snapshots SET payload=jsonb_set(payload,'{rows}','[]') WHERE family='highscores'"
+                };
+                sqlx::query(query)
+                    .execute(&self.db)
+                    .await
+                    .map_err(|_| rankings::VisibilityUnavailable)?;
+                Ok(vec![false; refs.len()])
+            })
+        }
+    }
+    for epoch in [false, true] {
+        for home in [false, true] {
+            let (root, db, schema) = seeded().await?.ok_or("PostgreSQL required")?;
+            let visibility = Arc::new(Invalidating {
+                db: db.clone(),
+                epoch,
+            });
+            if home {
+                assert!(
+                    rankings::home_top(
+                        &db,
+                        visibility.as_ref(),
+                        oteryn_web::Language::En,
+                        5,
+                        false
+                    )
+                    .await
+                    .is_err()
+                );
+            } else {
+                assert_eq!(
+                    send(
+                        rankings::router(db.clone(), true, visibility),
+                        "/en/rankings/level"
+                    )
+                    .await?
+                    .0,
+                    StatusCode::SERVICE_UNAVAILABLE
+                );
+            }
+            cleanup(root, db, schema).await?;
+        }
+    }
+    Ok(())
+}

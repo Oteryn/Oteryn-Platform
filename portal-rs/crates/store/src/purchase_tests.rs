@@ -1571,3 +1571,160 @@ async fn db_wallet_upgrade_preserves_existing_rows_and_uuid_history() {
         .unwrap();
     admin.close().await;
 }
+
+#[derive(Debug, Clone)]
+struct PurchaseIdentityBarrier {
+    entered: Arc<tokio::sync::Barrier>,
+    release: Arc<tokio::sync::Barrier>,
+    pid: Arc<std::sync::atomic::AtomicI32>,
+}
+impl Accounts for PurchaseIdentityBarrier {
+    async fn state(
+        &self,
+        connection: &mut PgConnection,
+        account: Uuid,
+    ) -> Result<AccountState, Error> {
+        let state = Accounts::state(&DatabaseAccounts, connection, account).await?;
+        // Keep deadlock detection later than the refusal deadline. A broken
+        // order must fail deterministically, independent of victim selection.
+        sqlx::query("SET LOCAL deadlock_timeout='10s'")
+            .execute(&mut *connection)
+            .await?;
+        sqlx::query("SET LOCAL lock_timeout='500ms'")
+            .execute(&mut *connection)
+            .await?;
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(connection)
+            .await?;
+        self.pid.store(pid, std::sync::atomic::Ordering::SeqCst);
+        self.entered.wait().await;
+        self.release.wait().await;
+        Ok(state)
+    }
+}
+
+#[tokio::test]
+async fn postgres_shop_balance_and_production_purchase_identity_lock_order() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    let account = uuid(ACCOUNT).unwrap();
+    sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'lock-order@example.invalid',now(),'test','active','en')").bind(account).execute(&db.pool).await.unwrap();
+    db.fund(ACCOUNT, 1000).await;
+    let barrier = PurchaseIdentityBarrier {
+        entered: Arc::new(tokio::sync::Barrier::new(2)),
+        release: Arc::new(tokio::sync::Barrier::new(2)),
+        pid: Arc::new(std::sync::atomic::AtomicI32::new(0)),
+    };
+    let wallet = Ledger::new(
+        db.pool.clone(),
+        WalletFlags { enabled: true },
+        DatabaseAccounts,
+        DatabaseAccounts,
+        DatabaseAccounts,
+    );
+    let purchases = Purchases::new(db.pool.clone(), settings(), wallet, barrier.clone());
+    let raw = request(&db.revision);
+    let purchase = tokio::spawn(async move { purchases.purchase(&raw).await });
+    barrier.entered.wait().await;
+    let backend = crate::web::configured_backend(db.pool.clone(), None);
+    let shop = tokio::spawn(async move { backend.balance(account).await });
+    // Observe the shop's first blocking lock with production adapters. The
+    // purchase holds identity; the shop must not hold wallet while waiting.
+    let pid = barrier.pid.load(std::sync::atomic::Ordering::SeqCst);
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    barrier.release.wait().await;
+    let (purchase, shop) = tokio::join!(purchase, shop);
+    assert!(
+        purchase.unwrap().is_ok(),
+        "purchase refused after identity/wallet inversion"
+    );
+    assert!(
+        shop.unwrap().is_ok(),
+        "shop refused after identity/wallet inversion"
+    );
+    db.finish().await;
+    eprintln!(
+        "PG postgres_shop_balance_and_production_purchase_identity_lock_order {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
+
+#[tokio::test]
+async fn postgres_transfer_prepares_complete_identity_set_before_wallets() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    let first = uuid(ACCOUNT).unwrap();
+    let second = Uuid::now_v7();
+    for (account, email) in [
+        (first, "first@example.invalid"),
+        (second, "second@example.invalid"),
+    ] {
+        sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,$2,now(),'test','active','en')").bind(account).bind(email).execute(&db.pool).await.unwrap();
+    }
+    db.fund(ACCOUNT, 1000).await;
+    let mut identity = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *identity)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(second)
+        .execute(&mut *identity)
+        .await
+        .unwrap();
+    let backend = crate::web::configured_backend(db.pool.clone(), None);
+    let transfer =
+        tokio::spawn(async move { backend.transfer(first, Uuid::now_v7(), second, 1).await });
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let mut observer = db.pool.begin().await.unwrap();
+    let wallet =
+        sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE NOWAIT")
+            .bind(first)
+            .execute(&mut *observer)
+            .await;
+    observer.rollback().await.unwrap();
+    identity.commit().await.unwrap();
+    assert!(transfer.await.unwrap().is_ok());
+    assert!(wallet.is_ok(), "first wallet locked before second identity");
+    db.finish().await;
+    eprintln!(
+        "PG postgres_transfer_prepares_complete_identity_set_before_wallets {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

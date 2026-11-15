@@ -2,6 +2,7 @@ use super::*;
 #[tokio::test]
 async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dyn std::error::Error>>
 {
+    let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL profile test: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(());
@@ -191,6 +192,17 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         .execute(&pool)
         .await?;
     sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(other).bind(one).bind(Uuid::now_v7()).execute(&pool).await?;
+    // Many historical associations must still fail closed with bounded owner results.
+    for _ in 0..64 {
+        let historical = Uuid::now_v7();
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,$2,'test-hash','active','en')").bind(historical).bind(format!("history-{historical}@example.invalid")).execute(&pool).await?;
+        sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'oteryn:character-authority:primary','1','1',1000,$2)").bind(historical).bind(vec![0u8;32]).execute(&pool).await?;
+        sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(historical).bind(one).bind(Uuid::now_v7()).execute(&pool).await?;
+    }
+    assert!(service.public_preferences(one, 1000).await.is_none());
+    sqlx::query("DELETE FROM accounts WHERE email LIKE 'history-%@example.invalid'")
+        .execute(&pool)
+        .await?;
     assert!(!service.guild_visible(one, true, 1000).await);
     assert_eq!(
         service.edit(account, "Aldric", 1000).await,
@@ -331,5 +343,9 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)
         .await?;
+    eprintln!(
+        "postgres_preferences_ownership_privacy_and_audit duration={:?}",
+        started.elapsed()
+    );
     Ok(())
 }

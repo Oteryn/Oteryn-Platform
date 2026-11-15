@@ -269,3 +269,96 @@ async fn postgres_character_history_privacy_and_comparison()
     db.close().await;
     Ok(())
 }
+
+struct RevokingSource {
+    calls: std::sync::atomic::AtomicUsize,
+    guild: bool,
+}
+impl Current for RevokingSource {
+    fn character(&self, _: Uuid) -> CurrentFuture<'_> {
+        let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move {
+            Ok(PublicCharacter {
+                name: "<Public>".into(),
+                permissions: Permissions {
+                    visible: true,
+                    skills: true,
+                    guild: !self.guild || call < 4,
+                    deaths: self.guild || call < 4,
+                    online: true,
+                },
+                ranks: None,
+            })
+        })
+    }
+}
+#[tokio::test]
+async fn postgres_comparison_rejects_revoked_disclosures() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        return Ok(());
+    };
+    let db = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await?;
+    let schema = format!("comparison_revoke_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&db)
+        .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
+        .execute(&db)
+        .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261105210000_t65_statistics.sql"
+    ))
+    .execute(&db)
+    .await?;
+    let ids = [Uuid::now_v7(), Uuid::now_v7()];
+    let mut tx = db.begin().await?;
+    store::partitions(&mut tx, day()).await?;
+    for id in ids {
+        for i in 0..2 {
+            store::snapshot(
+                &mut tx,
+                &store::Snapshot {
+                    character_ref: id,
+                    day: day() + Duration::days(i),
+                    level: 10,
+                    experience: None,
+                    skills: None,
+                    achievement_points: None,
+                    minutes_online: None,
+                    name: "Observed".into(),
+                    world: Uuid::now_v7(),
+                    guild: Some(Uuid::now_v7()),
+                    observed_at: i,
+                },
+            )
+            .await?;
+        }
+        store::source_event(&mut tx,id,day(),"death",&Uuid::now_v7().to_string(),&json!({"death_occurrence_id":Uuid::now_v7().to_string(),"level":"10","occurred_at":time::OffsetDateTime::now_utc().unix_timestamp().to_string()})).await?;
+    }
+    tx.commit().await?;
+    for guild in [false, true] {
+        let service = Characters {
+            db: db.clone(),
+            enabled: true,
+            current: Arc::new(RevokingSource {
+                calls: std::sync::atomic::AtomicUsize::new(0),
+                guild,
+            }),
+        };
+        assert!(matches!(
+            service
+                .compare(&ids, day(), day() + Duration::days(1))
+                .await,
+            Err(Error::Unavailable)
+        ));
+    }
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&db)
+        .await?;
+    db.close().await;
+    Ok(())
+}

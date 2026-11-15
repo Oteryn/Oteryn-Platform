@@ -1025,3 +1025,99 @@ async fn postgres_service_and_ownership_transfer_cannot_queue_together() {
     );
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_v2_oversize_all_routes_empty_bad_request() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    for (path, peer, limit) in [
+        ("/internal/v2/game-auth/character-commands/pending", 1, 512),
+        ("/internal/v2/game-auth/character-commands/read", 1, 512),
+        ("/internal/v2/game-auth/character-commands/receipt", 1, 1024),
+        ("/internal/v2/game-auth/character-services/state", 2, 2048),
+        (
+            "/internal/v2/game-auth/character-services/watermark",
+            2,
+            512,
+        ),
+    ] {
+        for declared in [false, true] {
+            let app = router(Services::new(db.pool.clone(), settings()), identities());
+            let mut builder = HttpRequest::post(path).header("content-type", "application/json");
+            if declared {
+                builder = builder.header("content-length", limit + 1);
+            }
+            let mut request = builder
+                .body(Body::from(if declared {
+                    "{}".to_owned()
+                } else {
+                    " ".repeat(limit + 1)
+                }))
+                .unwrap();
+            request
+                .extensions_mut()
+                .insert(VerifiedClient::from_verified_tls13_http11(
+                    Identity::spki_sha256([peer; 32]),
+                ));
+            let response = app.oneshot(request).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::BAD_REQUEST,
+                "{path} declared={declared}"
+            );
+            assert_eq!(response.headers()["cache-control"], "no-store, private");
+            assert!(
+                to_bytes(response.into_body(), 8192)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
+    db.close().await;
+    eprintln!(
+        "postgres_v2_oversize_all_routes_empty_bad_request duration={:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_replay_after_terminal_deleted_projection() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let s = Services::new(db.pool.clone(), settings());
+    let a = Uuid::now_v7();
+    let c = Uuid::now_v7();
+    seed(&s, a, c, 200).await;
+    let request = rename(c);
+    let command = s.request(a, request.clone()).await.unwrap();
+    s.receive(receipt(&command, true, 3).as_bytes())
+        .await
+        .unwrap();
+    let expected = s.request(a, request.clone()).await.unwrap();
+    s.ingest(
+        snapshot(
+            a,
+            c,
+            2,
+            10,
+            "DELETED",
+            Some((Uuid::now_v7(), 1790000000, 1790000100)),
+            current(&s.pool).await,
+        )
+        .as_bytes(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(s.request(a, request).await.unwrap(), expected);
+    db.close().await;
+    eprintln!(
+        "postgres_replay_after_terminal_deleted_projection duration={:?}",
+        started.elapsed()
+    );
+}

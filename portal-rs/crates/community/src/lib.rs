@@ -22,3 +22,6 @@ pub mod v2_watermark;
 pub mod navigation;
 
 pub mod privacy;
+
+#[cfg(test)]
+mod audit06_test_db;

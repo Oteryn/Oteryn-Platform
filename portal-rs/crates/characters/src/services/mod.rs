@@ -145,13 +145,13 @@ impl Services {
         if Authority.state(&mut tx, actor).await != oteryn_wallet::AccountState::Active {
             return Err(Error::Denied);
         }
-        let state = self
-            .owner_state(&mut tx, actor, request.character_id)
-            .await?;
         if let Some(row)=sqlx::query("SELECT o.account_id,o.character_id,o.action_json,c.id,c.command,c.intent_json,c.receipt_json FROM character_service_orders o JOIN character_commands c ON c.id=o.operation_id WHERE o.request_id=$1").bind(request.request_id).fetch_optional(&mut *tx).await? {
             if row.try_get::<Uuid,_>("account_id")?!=actor || row.try_get::<Uuid,_>("character_id")?!=request.character_id || row.try_get::<String,_>("action_json")?!=binding { return Err(Error::Conflict); }
             return Ok(commands::CommandStatus{operation_id:row.try_get("id")?,command:row.try_get("command")?,intent_json:row.try_get("intent_json")?,receipt_json:row.try_get("receipt_json")?});
         }
+        let state = self
+            .owner_state(&mut tx, actor, request.character_id)
+            .await?;
         let rapid: bool = sqlx::query_scalar("SELECT count(*) >= 10 FROM character_service_orders WHERE account_id=$1 AND created_at>clock_timestamp()-interval '1 minute'").bind(actor).fetch_one(&mut *tx).await?;
         if rapid {
             return Err(Error::BacklogFull);

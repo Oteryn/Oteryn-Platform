@@ -189,3 +189,119 @@ db_test!(bad_query_400, "bad");
 
 db_test!(fresh_snapshot, "fresh");
 db_test!(old_epoch_excluded, "epoch");
+
+#[tokio::test]
+async fn audit06_two_connection_requests_and_serving_age() -> TestResult {
+    struct Resolving {
+        db: PgPool,
+        barrier: tokio::sync::Barrier,
+        calls: AtomicUsize,
+    }
+    impl PublicVisibility for Resolving {
+        fn hidden_batch<'a>(&'a self, refs: &'a [CharacterRef]) -> VisibilityResult<'a> {
+            Box::pin(async move {
+                if self.calls.fetch_add(1, Ordering::SeqCst) < 2 {
+                    self.barrier.wait().await;
+                    sqlx::query("SELECT pg_sleep(0.1)")
+                        .execute(&self.db)
+                        .await
+                        .map_err(|_| online::Unavailable)?;
+                }
+                Ok(vec![false; refs.len()])
+            })
+        }
+    }
+    let (root, db, schema) = database().await?.ok_or("PostgreSQL required")?;
+    let small = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_millis(500))
+        .connect_with(db.connect_options().as_ref().clone())
+        .await?;
+    let app = online::router(
+        small.clone(),
+        Arc::new(Resolving {
+            db: small.clone(),
+            barrier: tokio::sync::Barrier::new(2),
+            calls: AtomicUsize::new(0),
+        }),
+        Config {
+            enabled: true,
+            stale_after: Duration::from_secs(600),
+        },
+    );
+    let (a, b) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            request(app.clone(), "/en/online"),
+            request(app, "/pl/online")
+        )
+    })
+    .await?;
+    assert_eq!(a?.0, StatusCode::OK);
+    assert_eq!(b?.0, StatusCode::OK);
+    small.close().await;
+    db.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn audit06_online_catalogue_overflow_refused() -> TestResult {
+    let (root, db, schema) = database().await?.ok_or("PostgreSQL required")?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) SELECT 'world_online',i::text,1,1,1,jsonb_build_object('characters','[]'::jsonb) FROM generate_series(1,10000) i").execute(&db).await?;
+    let app = online::router(
+        db.clone(),
+        Arc::new(Visibility),
+        Config {
+            enabled: true,
+            ..Config::default()
+        },
+    );
+    assert_eq!(
+        request(app, "/en/online").await?.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    db.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn audit06_online_age_rechecked_after_privacy_wait() -> TestResult {
+    struct Slow;
+    impl PublicVisibility for Slow {
+        fn hidden_batch<'a>(&'a self, refs: &'a [CharacterRef]) -> VisibilityResult<'a> {
+            Box::pin(async move {
+                if !refs.is_empty() {
+                    tokio::time::sleep(Duration::from_millis(600)).await;
+                }
+                Ok(vec![false; refs.len()])
+            })
+        }
+    }
+    let (root, db, schema) = database().await?.ok_or("PostgreSQL required")?;
+    // Start near a second boundary so the pre-wait snapshot is certainly fresh.
+    while time::OffsetDateTime::now_utc().nanosecond() > 100_000_000 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    sqlx::query("UPDATE public_snapshots SET watermark=floor(extract(epoch FROM clock_timestamp()))::bigint").execute(&db).await?;
+    let app = online::router(
+        db.clone(),
+        Arc::new(Slow),
+        Config {
+            enabled: true,
+            stale_after: Duration::ZERO,
+        },
+    );
+    let (status, html) = request(app, "/en/online").await?;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Data is stale"));
+    db.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await?;
+    Ok(())
+}

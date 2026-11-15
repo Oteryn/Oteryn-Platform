@@ -54,6 +54,7 @@ impl Default for Config {
 #[derive(Clone)]
 struct Online {
     db: PgPool,
+    fences: PgPool,
     visibility: Arc<dyn PublicVisibility>,
     config: Config,
 }
@@ -68,6 +69,13 @@ pub fn router<S: Clone + Send + Sync + 'static>(
         .route("/en/online", get(page))
         .layer(axum::middleware::from_fn(response_policy))
         .with_state(Online {
+            // Fence transactions have separate bounded capacity. Privacy adapters
+            // can use every ordinary pool connection without deadlocking readers.
+            fences: sqlx::postgres::PgPoolOptions::new()
+                .max_connections(2)
+                .min_connections(0)
+                .acquire_timeout(std::time::Duration::from_secs(2))
+                .connect_lazy_with(db.connect_options().as_ref().clone()),
             db,
             visibility,
             config,
@@ -100,6 +108,7 @@ struct Character {
     vocation: u64,
 }
 struct World {
+    observed: u64,
     id: String,
     as_of: String,
     stale: bool,
@@ -154,15 +163,23 @@ fn labels(en: bool) -> Vec<String> {
     })
     .collect()
 }
-async fn load(state: &Online, query: &Query) -> Result<(Vec<String>, Vec<World>), Unavailable> {
+async fn load_inner(
+    state: &Online,
+    query: &Query,
+) -> Result<(Vec<String>, Vec<World>), Unavailable> {
     // The existing publisher takes this fence exclusively, including suppression.
-    let mut fence = state.db.begin().await.map_err(|_| Unavailable)?;
+    let mut fence = state.fences.begin().await.map_err(|_| Unavailable)?;
+    sqlx::query("SELECT set_config('statement_timeout','2500ms',true),set_config('idle_in_transaction_session_timeout','3s',true)")
+        .execute(&mut *fence).await.map_err(|_| Unavailable)?;
     sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
         .fetch_one(&mut *fence)
         .await
         .map_err(|_| Unavailable)?;
     let mut visible_refs = Vec::new();
-    let rows = sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject").fetch_all(&state.db).await.map_err(|_| Unavailable)?;
+    let rows = sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 257").fetch_all(&mut *fence).await.map_err(|_| Unavailable)?;
+    if rows.len() > 256 {
+        return Err(Unavailable);
+    }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| Unavailable)?
@@ -226,6 +243,7 @@ async fn load(state: &Online, query: &Query) -> Result<(Vec<String>, Vec<World>)
             return Err(Unavailable);
         }
         worlds.push(World {
+            observed: u64::try_from(watermark).map_err(|_| Unavailable)?,
             id,
             as_of: row.try_get("as_of").map_err(|_| Unavailable)?,
             stale: now.saturating_sub(u64::try_from(watermark).map_err(|_| Unavailable)?)
@@ -239,6 +257,13 @@ async fn load(state: &Online, query: &Query) -> Result<(Vec<String>, Vec<World>)
         return Err(Unavailable);
     }
     fence.commit().await.map_err(|_| Unavailable)?;
+    let serving = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| Unavailable)?
+        .as_secs();
+    for world in &mut worlds {
+        world.stale = serving.saturating_sub(world.observed) > state.config.stale_after.as_secs();
+    }
     Ok((ids, worlds))
 }
 async fn page(
@@ -330,4 +355,10 @@ async fn response_policy(
         );
     }
     response
+}
+
+async fn load(state: &Online, query: &Query) -> Result<(Vec<String>, Vec<World>), Unavailable> {
+    tokio::time::timeout(Duration::from_secs(3), load_inner(state, query))
+        .await
+        .map_err(|_| Unavailable)?
 }

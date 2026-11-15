@@ -170,7 +170,12 @@ fn date(s: &str) -> Result<String, Unavailable> {
 fn encoded(s: &str) -> String {
     percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).to_string()
 }
-async fn load(state: &Guilds, lang: &str, labels: &[String]) -> Result<Vec<Guild>, Unavailable> {
+async fn load(
+    state: &Guilds,
+    lang: &str,
+    labels: &[String],
+    selected: Option<&str>,
+) -> Result<Vec<Guild>, Unavailable> {
     if !state.contract_accepted {
         return Err(Unavailable::Evidence);
     }
@@ -197,13 +202,18 @@ async fn load(state: &Guilds, lang: &str, labels: &[String]) -> Result<Vec<Guild
     {
         return Err(Unavailable::Evidence);
     }
-    let subjects:Vec<String>=sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='guild' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject").fetch_all(&state.db).await.map_err(|_|Unavailable::Database)?;
+    let subjects:Vec<String>=sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='guild' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND ($1::text IS NULL OR payload->'guild'->0->>'name'=$1) ORDER BY subject LIMIT 257").bind(selected).fetch_all(&state.db).await.map_err(|_|Unavailable::Database)?;
+    if subjects.len() > 256 {
+        return Err(Unavailable::Evidence);
+    }
+    let mut identities = vec![];
     let mut result = vec![];
     for subject in subjects {
         let payload = crate::ingest::latest(&state.db, "guild", &subject)
             .await
             .map_err(|_| Unavailable::Database)?
             .ok_or(Unavailable::Evidence)?;
+        identities.push((subject.clone(), payload.clone()));
         if payload["contract_version"] != 2
             || payload["source_authority"].as_str() != Some(state.config.source_authority.as_str())
         {
@@ -290,17 +300,35 @@ async fn load(state: &Guilds, lang: &str, labels: &[String]) -> Result<Vec<Guild
             });
         }
     }
-    let fence: Option<String> =
-        sqlx::query_scalar("SELECT highest_epoch::text FROM public_projection_state WHERE id=1")
-            .fetch_one(&state.db)
-            .await
-            .map_err(|_| Unavailable::Database)?;
-    if fence.as_deref() != Some(&epoch)
+    let mut fence = state.db.begin().await.map_err(|_| Unavailable::Database)?;
+    let epoch_now: Option<String> = sqlx::query_scalar(
+        "SELECT highest_epoch::text FROM public_projection_state WHERE id=1 FOR SHARE",
+    )
+    .fetch_one(&mut *fence)
+    .await
+    .map_err(|_| Unavailable::Database)?;
+    if epoch_now.as_deref() != Some(&epoch)
         || i64::try_from(now())
             .map_err(|_| Unavailable::Evidence)?
             .saturating_sub(through.min(profile_through))
             .saturating_add(1)
             > 30
+    {
+        return Err(Unavailable::Evidence);
+    }
+    for (subject, payload) in identities {
+        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='guild' AND subject=$1 AND NOT is_watermark AND epoch=$2::numeric AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND payload=$3)").bind(subject).bind(&epoch).bind(payload).fetch_one(&mut *fence).await.map_err(|_| Unavailable::Database)?;
+        if !current {
+            return Err(Unavailable::Evidence);
+        }
+    }
+    fence.commit().await.map_err(|_| Unavailable::Database)?;
+    if now()
+        .saturating_sub(
+            u64::try_from(through.min(profile_through)).map_err(|_| Unavailable::Evidence)?,
+        )
+        .saturating_add(1)
+        > 30
     {
         return Err(Unavailable::Evidence);
     }
@@ -354,7 +382,7 @@ async fn page(
         None
     };
     let result = if state.config.enabled {
-        load(&state, lang, &labels).await
+        load(&state, lang, &labels, name.as_deref()).await
     } else {
         Err(Unavailable::Evidence)
     };

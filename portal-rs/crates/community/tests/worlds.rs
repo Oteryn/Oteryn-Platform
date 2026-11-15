@@ -296,3 +296,44 @@ async fn worlds_bad_registry_input_and_malformed_observations_fail_closed() -> T
     }
     db.finish().await
 }
+
+#[tokio::test]
+async fn audit06_world_catalogue_overflow_is_unavailable() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    sqlx::query("INSERT INTO world_status(id,name) SELECT uuidv7(),'World '||i FROM generate_series(1,10000) i").execute(&db.db).await?;
+    assert_eq!(
+        send(db.app(true, 120), "/api/v1/worlds", None)
+            .await?
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        send(db.app(true, 120), "/en/worlds", None).await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    db.finish().await
+}
+
+#[tokio::test]
+async fn audit06_world_database_wait_rechecks_serving_clock() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    db.registry().await?;
+    db.snapshot(0, roster()).await?;
+    let mut lock = db.db.begin().await?;
+    sqlx::query("LOCK TABLE public_snapshots IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *lock)
+        .await?;
+    let app = db.app(true, 1);
+    let read = tokio::spawn(async move {
+        send(app, "/api/v1/worlds", None)
+            .await
+            .map_err(|e| e.to_string())
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
+    lock.commit().await?;
+    let response = read.await?.map_err(|_| "world request failed")?;
+    let v: Value = serde_json::from_str(&body(response).await?)?;
+    assert_eq!(v["worlds"][0]["status"], "unknown");
+    assert!(v["worlds"][0]["players_online"].is_null());
+    db.finish().await
+}

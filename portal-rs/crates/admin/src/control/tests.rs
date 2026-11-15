@@ -789,3 +789,36 @@ async fn pg_claim_checks_live_expiry_after_waiting_for_an_agent_lock() {
     assert_eq!(store.expire_due().await.unwrap(), 1);
     db.close().await;
 }
+
+#[tokio::test]
+async fn pg_expiry_bounds_each_ordered_batch() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let store = db.store();
+    let mut ids = Vec::new();
+    for _ in 0..105 {
+        let input = request();
+        store.enqueue(&input).await.unwrap();
+        ids.push(input.request_id);
+    }
+    sqlx::query("UPDATE admin_control_requests SET issued_at=statement_timestamp()-interval '2 minutes',expires_at=statement_timestamp()-interval '1 minute'")
+        .execute(&db.pool).await.unwrap();
+    assert_eq!(store.expire_due().await.unwrap(), 100);
+    let expired: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT request_id FROM admin_control_requests WHERE status='expired' ORDER BY request_id",
+    )
+    .fetch_all(&db.pool)
+    .await
+    .unwrap();
+    ids.sort();
+    assert_eq!(expired, ids[..100]);
+    assert_eq!(store.expire_due().await.unwrap(), 5);
+    assert_eq!(store.expire_due().await.unwrap(), 0);
+    db.close().await;
+    eprintln!(
+        "pg_expiry_bounds_each_ordered_batch duration={:?}",
+        started.elapsed()
+    );
+}

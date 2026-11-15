@@ -40,6 +40,11 @@ impl From<sqlx::Error> for CoinError {
     }
 }
 
+/// Payer-wide allowance for independent unconsumed quotes across all contexts.
+pub const MAX_OUTSTANDING_QUOTES: i64 = 100;
+/// Maximum expired, unconsumed quotes pruned by one catalogue request.
+pub const QUOTE_PRUNE_BATCH: i64 = 100;
+
 pub type HostFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +85,9 @@ pub trait CoinHost: Send + Sync {
         connection: &'a mut PgConnection,
         payer: Uuid,
     ) -> HostFuture<'a, Result<Option<String>, CoinError>>;
-    /// Credit the payer's coin balance once, keyed by `key`, in the caller's transaction.
+    /// Credit once under the wallet lock, enforcing MAX_COINS on the total.
+    /// Return Conflict without a credit when the ceiling would be exceeded;
+    /// the caller then retains the paid settlement for reconciliation.
     fn credit_in<'a>(
         &'a self,
         tx: &'a mut Transaction<'static, Postgres>,
@@ -339,7 +346,8 @@ impl CoinPurchases {
         }
     }
 
-    /// Issues one fresh quote per configured package for this payer and context.
+    /// Issues independent quotes within a bounded payer-wide allowance, then
+    /// reuses matching live quotes. Expired unused quotes are pruned in batches.
     pub async fn catalogue(
         &self,
         payer: Uuid,
@@ -350,21 +358,53 @@ impl CoinPurchases {
             self.owned(payer, character).await?;
         }
         let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 90105))")
+            .bind(payer)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM coin_purchase_quotes WHERE id IN (SELECT q.id FROM coin_purchase_quotes q WHERE q.payer_account_id=$1 AND q.consumed_at IS NULL AND q.expires_at<=clock_timestamp() AND NOT EXISTS (SELECT 1 FROM coin_purchase_orders o WHERE o.quote_id=q.id) ORDER BY q.created_at,q.id LIMIT $2 FOR UPDATE OF q)")
+            .bind(payer).bind(QUOTE_PRUNE_BATCH).execute(&mut *tx).await?;
+        let mut outstanding: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM coin_purchase_quotes WHERE payer_account_id=$1 AND consumed_at IS NULL LIMIT $2) q")
+            .bind(payer).bind(MAX_OUTSTANDING_QUOTES).fetch_one(&mut *tx).await?;
+        // A refused catalogue retains cleanup but issues no partial catalogue.
+        sqlx::query("SAVEPOINT quote_issuance")
+            .execute(&mut *tx)
+            .await?;
         let mut packages = Vec::with_capacity(self.settings.packages.len());
         for package in &self.settings.packages {
-            let quote = oteryn_core::new_id();
-            sqlx::query("INSERT INTO coin_purchase_quotes (id,payer_account_id,character_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp()+make_interval(secs=>$10))")
-                .bind(quote).bind(payer).bind(character).bind(package.id).bind(package.coins)
-                .bind(package.price.minor_units).bind(&package.price.currency).bind(i16::from(package.price.exponent))
-                .bind(&self.settings.environment).bind(f64::from(package.valid_for_seconds))
-                .execute(&mut *tx).await?;
+            let (quote, valid_for_seconds) = if outstanding >= MAX_OUTSTANDING_QUOTES {
+                let existing: Option<(Uuid, i32)> = sqlx::query_as("SELECT id, greatest(1, floor(extract(epoch FROM expires_at-clock_timestamp())))::integer FROM coin_purchase_quotes WHERE payer_account_id=$1 AND character_id IS NOT DISTINCT FROM $2 AND package_id=$3 AND coins=$4 AND minor_units=$5 AND currency=$6 AND exponent=$7 AND environment=$8 AND consumed_at IS NULL AND expires_at>=clock_timestamp()+interval '1 second' ORDER BY created_at DESC LIMIT 1")
+                    .bind(payer).bind(character).bind(package.id).bind(package.coins)
+                    .bind(package.price.minor_units).bind(&package.price.currency).bind(i16::from(package.price.exponent))
+                    .bind(&self.settings.environment).fetch_optional(&mut *tx).await?;
+                let Some((id, seconds)) = existing else {
+                    sqlx::query("ROLLBACK TO SAVEPOINT quote_issuance")
+                        .execute(&mut *tx)
+                        .await?;
+                    tx.commit().await?;
+                    return Err(CoinError::Unavailable);
+                };
+                (
+                    id,
+                    u16::try_from(seconds).map_err(|_| CoinError::Unavailable)?,
+                )
+            } else {
+                let quote = oteryn_core::new_id();
+                sqlx::query("INSERT INTO coin_purchase_quotes (id,payer_account_id,character_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp()+make_interval(secs=>$10))")
+                    .bind(quote).bind(payer).bind(character).bind(package.id).bind(package.coins)
+                    .bind(package.price.minor_units).bind(&package.price.currency).bind(i16::from(package.price.exponent))
+                    .bind(&self.settings.environment).bind(f64::from(package.valid_for_seconds))
+                    .execute(&mut *tx).await?;
+                outstanding += 1;
+                (quote, package.valid_for_seconds)
+            };
             packages.push(CoinPackage {
                 id: package.id,
                 quote_id: quote,
                 title: package.title.clone(),
                 coins: package.coins,
                 price: package.price.clone(),
-                valid_for_seconds: package.valid_for_seconds,
+                valid_for_seconds,
             });
         }
         let rows = sqlx::query(concat!(
@@ -808,10 +848,21 @@ impl CoinPurchases {
         IntentState::parse(current)?.transition(state)?;
         let mut review = false;
         if next == OrderState::Paid {
-            let restriction = self
+            let mut restriction = self
                 .restriction(tx, order.payer)
                 .await
                 .map_err(|_| Error::AccountDenied)?;
+            if restriction.is_none() {
+                match self
+                    .host
+                    .credit_in(tx, event.intent_id, order.payer, order.order.coins)
+                    .await
+                {
+                    Ok(()) => {}
+                    Err(CoinError::Conflict) => restriction = Some("balance_ceiling".to_owned()),
+                    Err(_) => return Err(Error::AccountDenied),
+                }
+            }
             if let Some(reason) = restriction {
                 next = OrderState::Processing;
                 review = true;
@@ -841,10 +892,6 @@ impl CoinPurchases {
                 .bind(receipt).bind(event.intent_id).bind(order.payer)
                 .bind(order.order.price.minor_units).bind(&order.order.price.currency)
                 .execute(&mut **tx).await?;
-            self.host
-                .credit_in(tx, event.intent_id, order.payer, order.order.coins)
-                .await
-                .map_err(|_| Error::AccountDenied)?;
             Some(receipt)
         } else {
             None

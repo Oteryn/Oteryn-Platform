@@ -49,7 +49,7 @@ pub(super) async fn apply(
             let id = schema::world_id(&s.world_id)?;
             let content = s.content()?;
             let fingerprint = Sha256::digest(content.as_bytes()).to_vec();
-            let old = sqlx::query("SELECT epoch::text,revision::text,content,conflicted FROM today_snapshots WHERE authority=$1 AND world_id=$2")
+            let old = sqlx::query("SELECT epoch::text,revision::text,content,fingerprint,conflicted FROM today_snapshots WHERE authority=$1 AND world_id=$2")
                 .bind(authority).bind(id).fetch_optional(&mut *tx).await?;
             if let Some(old) = old {
                 let old_epoch: String = old.try_get("epoch")?;
@@ -60,7 +60,7 @@ pub(super) async fn apply(
                     return Ok("superseded");
                 }
                 if order.is_eq() {
-                    if old.try_get::<Option<String>, _>("content")?.as_deref() == Some(&content) {
+                    if old.try_get::<Vec<u8>, _>("fingerprint")? == fingerprint {
                         tx.commit().await?;
                         return Ok("accepted");
                     }

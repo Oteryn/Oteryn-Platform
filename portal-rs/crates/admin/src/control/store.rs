@@ -614,12 +614,14 @@ impl Store {
 
     /// Accepted work is agent-owned. Only undelivered or unacknowledged requests
     /// expire locally; neither class is ever automatically re-enqueued.
+    /// Each invocation handles at most 100 rows; later worker runs drain the backlog.
     pub async fn expire_due(&self) -> Result<u64, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(
             "SELECT request_id,status FROM admin_control_requests
-            WHERE status IN ('queued','delivered') AND expires_at<=clock_timestamp() FOR UPDATE SKIP LOCKED",
+            WHERE status IN ('queued','delivered') AND expires_at<=clock_timestamp()
+            ORDER BY expires_at,request_id LIMIT 100 FOR UPDATE SKIP LOCKED",
         )
         .fetch_all(&mut *tx)
         .await?;

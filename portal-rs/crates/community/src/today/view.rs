@@ -17,16 +17,40 @@ pub struct Boost {
 #[derive(Debug, Clone, Serialize)]
 pub struct Raid {
     pub name: String,
-    pub scheduled_at: i64,
+    pub started_at: i64,
+    #[serde(serialize_with = "slot")]
+    pub scheduled_at: Option<i64>,
     pub state: String,
+}
+fn slot<S: serde::Serializer>(value: &Option<i64>, serializer: S) -> Result<S::Ok, S::Error> {
+    match value {
+        Some(seconds) => serializer.serialize_i64(*seconds),
+        None => serializer.serialize_str("unavailable"),
+    }
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct DailyView {
+    #[serde(skip)]
+    complete_through: i64,
+    #[serde(skip)]
+    watermark_observed: i64,
+    #[serde(skip)]
+    observed: i64,
     pub world: String,
     pub current: Boost,
     pub history_complete_from: i64,
     pub history: Vec<Boost>,
     pub raids: Vec<Raid>,
+}
+impl DailyView {
+    pub(super) fn eligible(&self, now: i64) -> bool {
+        now.saturating_sub(self.complete_through).saturating_add(1) <= 30
+            && self.complete_through <= now.saturating_add(1)
+            && self.watermark_observed <= now.saturating_add(1)
+            && self.observed <= now.saturating_add(1)
+            && now.saturating_sub(1) >= self.current.from
+            && now.saturating_add(1) < self.current.until
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,12 +61,13 @@ struct Content {
 
 /// One repeatable-read transaction fences the snapshot, watermark and current
 /// catalogue visibility/names. No network provider participates in rendering.
-pub async fn read(
+async fn read_inner(
     db: &PgPool,
     config: &Config,
     world: Uuid,
     lang: &str,
     now: i64,
+    serving_clock: impl Fn() -> i64,
 ) -> Result<DailyView, Error> {
     if !matches!(lang, "pl" | "en") {
         return Err(Error::BadInput);
@@ -116,11 +141,17 @@ pub async fn read(
     for r in &d.raids {
         raids.push(Raid {
             name: name(&names, "Raid", &r.raid_key)?,
-            scheduled_at: schema::seconds(&r.scheduled_at)?,
+            started_at: schema::seconds(&r.started_at)?,
+            scheduled_at: (r.scheduled_at != "unavailable")
+                .then(|| schema::seconds(&r.scheduled_at))
+                .transpose()?,
             state: r.state.clone(),
         });
     }
     let result = DailyView {
+        complete_through: complete,
+        watermark_observed,
+        observed,
         world: row.try_get("name")?,
         current,
         history_complete_from: schema::seconds(&d.history_complete_from)?,
@@ -128,6 +159,9 @@ pub async fn read(
         raids,
     };
     tx.commit().await?;
+    if !result.eligible(serving_clock()) {
+        return Err(Error::Unavailable);
+    }
     Ok(result)
 }
 fn boost(
@@ -156,4 +190,44 @@ fn name(
         return Err(Error::Unavailable);
     }
     Ok(name.clone())
+}
+
+/// Read at a caller-supplied clock origin, advancing it across database waits.
+/// HTTP serving uses `read_current` so both clock samples use the actual wall clock.
+pub async fn read(
+    db: &PgPool,
+    config: &Config,
+    world: Uuid,
+    lang: &str,
+    now: i64,
+) -> Result<DailyView, Error> {
+    let started = time::OffsetDateTime::now_utc().unix_timestamp();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        read_inner(db, config, world, lang, now, || {
+            now.saturating_add(
+                time::OffsetDateTime::now_utc()
+                    .unix_timestamp()
+                    .saturating_sub(started),
+            )
+        }),
+    )
+    .await
+    .map_err(|_| Error::Unavailable)?
+}
+
+/// Production reads sample the wall clock again after the last database await.
+pub(super) async fn read_current(
+    db: &PgPool,
+    config: &Config,
+    world: Uuid,
+    lang: &str,
+) -> Result<DailyView, Error> {
+    let clock = || time::OffsetDateTime::now_utc().unix_timestamp();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        read_inner(db, config, world, lang, clock(), clock),
+    )
+    .await
+    .map_err(|_| Error::Unavailable)?
 }
