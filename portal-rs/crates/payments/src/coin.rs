@@ -9,7 +9,7 @@ use uuid::Uuid;
 /// Exactly the contract's `version`.
 pub const VERSION: u8 = 1;
 /// Largest coin value on the wire (0..999999999999).
-pub const MAX_COINS: i64 = 999_999_999_999;
+pub const MAX_COINS: i64 = oteryn_wallet::MAX_BALANCE;
 /// Largest price in minor units (1..9999999999).
 pub const MAX_MINOR_UNITS: i64 = 9_999_999_999;
 /// Request bodies above this many bytes are refused.

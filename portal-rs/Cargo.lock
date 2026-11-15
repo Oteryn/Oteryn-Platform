@@ -3083,6 +3083,7 @@ dependencies = [
  "oteryn-db",
  "oteryn-store",
  "oteryn-ui",
+ "oteryn-wallet",
  "oteryn-web",
  "serde",
  "serde_json",
