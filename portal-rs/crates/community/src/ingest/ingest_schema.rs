@@ -97,8 +97,14 @@ fn content<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
         Err(())
     }
 }
+pub(crate) fn valid_projection_name(s: &str) -> bool {
+    projection_name(s).is_ok()
+}
 fn name_value(v: &Value) -> Result<&str> {
     let Value::String(s) = v else { return Err(()) };
+    projection_name(s)
+}
+fn projection_name(s: &str) -> Result<&str> {
     static FORBIDDEN: std::sync::OnceLock<std::result::Result<regex::Regex, regex::Error>> =
         std::sync::OnceLock::new();
     let forbidden = FORBIDDEN
@@ -107,10 +113,10 @@ fn name_value(v: &Value) -> Result<&str> {
         .map_err(|_| ())?;
     if s.is_empty()
         || s.len() > 64
-        || [".", ".."].contains(&s.as_str())
+        || [".", ".."].contains(&s)
         || s.contains(['"', '\\', '/'])
         || forbidden.is_match(s)
-        || s.nfc().collect::<String>() != *s
+        || s.nfc().collect::<String>() != s
     {
         Err(())
     } else {

@@ -329,3 +329,5 @@ pub(crate) async fn conflict(
     tracing::error!(family, "contradictory public projection quarantined");
     Ok(())
 }
+
+pub(crate) use ingest_schema::valid_projection_name;

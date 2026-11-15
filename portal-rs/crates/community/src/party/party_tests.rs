@@ -16,6 +16,39 @@ struct Trusted {
     character: Character,
 }
 impl Authority for Trusted {
+    fn active_in<'a>(
+        &'a self,
+        _: &'a mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> CheckFuture<'a, ()> {
+        self.active(account)
+    }
+
+    fn reporting_allowed_in<'a>(
+        &'a self,
+        _: &'a mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> CheckFuture<'a, ()> {
+        self.reporting_allowed(account)
+    }
+
+    fn character_in<'a>(
+        &'a self,
+        _: &'a mut sqlx::PgConnection,
+        account: Uuid,
+        character: Uuid,
+    ) -> CheckFuture<'a, Character> {
+        self.character(account, character)
+    }
+
+    fn moderator_in<'a>(
+        &'a self,
+        _: &'a mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> CheckFuture<'a, ()> {
+        self.moderator(account)
+    }
+
     fn reporting_allowed(&self, account: Uuid) -> CheckFuture<'_, ()> {
         self.active(account)
     }
@@ -693,6 +726,232 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
     db.close().await;
     eprintln!(
         "audit_w2_c05_production_authority_owner_report_and_staff_flow {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn w3_c06_003_party_rechecks_authority_after_mutation_wait() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let owner = db.trusted.owner;
+    let reporter = db.trusted.reporter;
+    let staff = db.trusted.staff;
+    let character = db.trusted.character.id;
+    let world = db.trusted.character.world;
+    for account in [owner, reporter, staff] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test','active',now(),'en')").bind(account).bind(format!("{account}@example.test")).execute(&db.pool).await.unwrap();
+    }
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1").execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'test','1','1',0,decode(repeat('00',32),'hex'))").bind(owner).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(owner).bind(character).bind(world).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,from_projection_revision,to_projection_revision,projection_epoch,recovery_generation) VALUES($1,$2,$3,1,1,1,1,1)").bind(character).bind(owner).bind(world).execute(&db.pool).await.unwrap();
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1 WHERE id=1")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let profile = serde_json::json!({"profile":[{"world_id":world.to_string(),"name":"Aldric","level":"120","vocation":2}]});
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile',$1,false,1,1,0,$2),('character_profile','',true,1,1,floor(extract(epoch FROM clock_timestamp()))::bigint,'{}')").bind(character.to_string()).bind(profile).execute(&db.pool).await.unwrap();
+    let board = production_board(db.pool.clone());
+    assert!(
+        board
+            .authority
+            .character(reporter, character)
+            .await
+            .is_none()
+    );
+
+    let draft = db.draft().await;
+    let mut blocker = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
+        .bind(owner.to_string())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let pending = tokio::spawn(async move { board.create(owner, draft).await });
+    wait_party_blocked(&db.pool, pid).await;
+    sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'test','1','2',0,decode(repeat('00',32),'hex'))").bind(reporter).execute(&db.pool).await.unwrap();
+    sqlx::query("UPDATE account_characters SET account_id=$1 WHERE character_id=$2")
+        .bind(reporter)
+        .bind(character)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    blocker.commit().await.unwrap();
+    assert!(matches!(pending.await.unwrap(), Err(Error::Denied)));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_party_posts")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    db.close().await;
+    eprintln!(
+        "w3_c06_003_party_rechecks_authority_after_mutation_wait {:?}",
+        started.elapsed()
+    );
+}
+
+async fn wait_party_blocked(pool: &PgPool, pid: i32) {
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            if blocked {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("party mutation must reach lock wait");
+}
+
+#[tokio::test]
+async fn w3_c06_012_party_uses_post_wait_expiry() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let owner = db.trusted.owner;
+    let reporter = db.trusted.reporter;
+    let mut draft = db.draft().await;
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    draft.starts_at = now + 1;
+    draft.expires_at = now + 2;
+    let mut blocker = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
+        .bind(owner.to_string())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let board = db.board.clone();
+    let create = tokio::spawn(async move { board.create(owner, draft).await });
+    wait_party_blocked(&db.pool, pid).await;
+    while time::OffsetDateTime::now_utc().unix_timestamp() <= now + 1 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    blocker.commit().await.unwrap();
+    assert!(matches!(create.await.unwrap(), Err(Error::Invalid)));
+    let id = db.board.create(owner, db.draft().await).await.unwrap();
+    sqlx::query("UPDATE pd_party_posts SET starts_at=clock_timestamp()-interval '1 minute',expires_at=clock_timestamp()+interval '1 second' WHERE id=$1").bind(id).execute(&db.pool).await.unwrap();
+    let mut blocker = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
+        .bind(reporter.to_string())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let board = db.board.clone();
+    let report = tokio::spawn(async move { board.report(reporter, id, "expired").await });
+    wait_party_blocked(&db.pool, pid).await;
+    loop {
+        let expired: bool = sqlx::query_scalar(
+            "SELECT expires_at<=clock_timestamp() FROM pd_party_posts WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        if expired {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    blocker.commit().await.unwrap();
+    assert!(matches!(report.await.unwrap(), Err(Error::Missing)));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_party_reports")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    db.close().await;
+    eprintln!(
+        "w3_c06_012_party_uses_post_wait_expiry {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn w3_c06_012_party_admission_timestamps_follow_lock_wait() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let owner = db.trusted.owner;
+    let reporter = db.trusted.reporter;
+    let draft = db.draft().await;
+    let mut blocker = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
+        .bind(owner.to_string())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let board = db.board.clone();
+    let pending = tokio::spawn(async move { board.create(owner, draft).await });
+    wait_party_blocked(&db.pool, pid).await;
+    let before = time::OffsetDateTime::now_utc().unix_timestamp();
+    while time::OffsetDateTime::now_utc().unix_timestamp() == before {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let admitted = time::OffsetDateTime::now_utc().unix_timestamp();
+    blocker.commit().await.unwrap();
+    let id = pending.await.unwrap().unwrap();
+    let current: bool =
+        sqlx::query_scalar("SELECT created_at>=to_timestamp($2) FROM pd_party_posts WHERE id=$1")
+            .bind(id)
+            .bind(admitted as f64)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert!(current);
+    let mut blocker = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
+        .bind(reporter.to_string())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let board = db.board.clone();
+    let pending = tokio::spawn(async move { board.report(reporter, id, "report").await });
+    wait_party_blocked(&db.pool, pid).await;
+    let before = time::OffsetDateTime::now_utc().unix_timestamp();
+    while time::OffsetDateTime::now_utc().unix_timestamp() == before {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let admitted = time::OffsetDateTime::now_utc().unix_timestamp();
+    blocker.commit().await.unwrap();
+    pending.await.unwrap().unwrap();
+    let current: bool = sqlx::query_scalar(
+        "SELECT created_at>=to_timestamp($2) FROM pd_party_reports WHERE post_id=$1",
+    )
+    .bind(id)
+    .bind(admitted as f64)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(current);
+    db.close().await;
+    eprintln!(
+        "w3_c06_012_party_admission_timestamps_follow_lock_wait {:?}",
         started.elapsed()
     );
 }

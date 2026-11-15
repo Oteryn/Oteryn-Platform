@@ -13,8 +13,20 @@ use sqlx::PgPool;
 use std::{collections::BTreeSet, future::Future, pin::Pin, sync::Arc};
 
 /// Decisions must be current at serving time; errors must never reuse an earlier allow.
+#[derive(Debug)]
+pub struct CharacterRef {
+    pub id: String,
+    pub world: String,
+    pub name: String,
+}
 pub trait PublicVisibility: Send + Sync {
     fn is_hidden<'a>(&'a self, character_ref: &'a str) -> VisibilityFuture<'a, bool>;
+    fn references<'a>(&'a self, characters: &'a [CharacterRef]) -> VisibilityFuture<'a, Vec<bool>> {
+        Box::pin(async move {
+            let ids: Vec<_> = characters.iter().map(|c| c.id.clone()).collect();
+            self.batch(&ids).await
+        })
+    }
     /// Results correspond exactly to the supplied references, in order.
     fn batch<'a>(&'a self, characters: &'a [String]) -> VisibilityFuture<'a, Vec<bool>> {
         Box::pin(async move {
@@ -275,6 +287,9 @@ async fn load(
     vocation: &str,
     number: usize,
 ) -> Result<Page, StatusCode> {
+    let privacy_cut = crate::privacy::Cut::read(&state.db)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let unavailable = StatusCode::SERVICE_UNAVAILABLE;
     // Read one subject snapshot only; never combine different ranking revisions/worlds.
     let worlds: BTreeSet<String> = sqlx::query_scalar::<_, String>("SELECT DISTINCT split_part(subject,':',1) AS world FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY world LIMIT 257").fetch_all(&state.db).await.map_err(|_| unavailable)?.into_iter().collect();
@@ -298,14 +313,18 @@ async fn load(
     {
         return Err(unavailable);
     }
-    let refs: Vec<String> = snapshot
+    let refs: Vec<CharacterRef> = snapshot
         .rows
         .iter()
-        .map(|r| r.character_id.clone())
+        .map(|r| CharacterRef {
+            id: r.character_id.clone(),
+            world: world.to_owned(),
+            name: r.name.clone(),
+        })
         .collect();
     let hidden = state
         .visibility
-        .batch(&refs)
+        .references(&refs)
         .await
         .map_err(|_| unavailable)?;
     if hidden.len() != refs.len() {
@@ -376,6 +395,7 @@ async fn load(
         &epoch,
         &revision,
         &payload,
+        &privacy_cut,
     )
     .await
     .map_err(|_| unavailable)?
@@ -398,6 +418,7 @@ pub async fn home_top(
     fn fail(_: impl std::fmt::Display) -> VisibilityUnavailable {
         VisibilityUnavailable
     }
+    let privacy_cut = crate::privacy::Cut::read(db).await.map_err(fail)?;
     let world: Option<String> = sqlx::query_scalar("SELECT min(split_part(subject,':',1)) FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_one(db).await.map_err(fail)?;
     let world = world.ok_or(VisibilityUnavailable)?;
     let (payload, watermark, epoch, revision): (serde_json::Value, i64, String, String) = sqlx::query_as(
@@ -423,8 +444,15 @@ pub async fn home_top(
     let mut shown = Vec::with_capacity(limit);
     // Bounded scan: privacy checks stop once enough visible rows are found.
     for chunk in snapshot.rows.chunks(10) {
-        let refs: Vec<String> = chunk.iter().map(|r| r.character_id.clone()).collect();
-        let hidden = visibility.batch(&refs).await?;
+        let refs: Vec<CharacterRef> = chunk
+            .iter()
+            .map(|r| CharacterRef {
+                id: r.character_id.clone(),
+                world: world.to_owned(),
+                name: r.name.clone(),
+            })
+            .collect();
+        let hidden = visibility.references(&refs).await?;
         if hidden.len() != refs.len() {
             return Err(VisibilityUnavailable);
         }
@@ -451,7 +479,16 @@ pub async fn home_top(
             break;
         }
     }
-    if !eligible(db, &format!("{world}:1:0"), &epoch, &revision, &payload).await? {
+    if !eligible(
+        db,
+        &format!("{world}:1:0"),
+        &epoch,
+        &revision,
+        &payload,
+        &privacy_cut,
+    )
+    .await?
+    {
         return Err(VisibilityUnavailable);
     }
     Ok((shown, as_of))
@@ -463,7 +500,19 @@ async fn eligible(
     epoch: &str,
     revision: &str,
     payload: &serde_json::Value,
+    privacy_cut: &crate::privacy::Cut,
 ) -> Result<bool, VisibilityUnavailable> {
-    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots s JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch WHERE s.family='highscores' AND NOT public_projection_conflicted('highscores') AND s.subject=$1 AND NOT s.is_watermark AND s.epoch=$2::numeric AND s.version=$3::numeric AND s.payload=$4)")
-        .bind(subject).bind(epoch).bind(revision).bind(payload).fetch_one(db).await.map_err(|_| VisibilityUnavailable)
+    let mut tx = db.begin().await.map_err(|_| VisibilityUnavailable)?;
+    sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| VisibilityUnavailable)?;
+    let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots s JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch WHERE s.family='highscores' AND NOT public_projection_conflicted('highscores') AND s.subject=$1 AND NOT s.is_watermark AND s.epoch=$2::numeric AND s.version=$3::numeric AND s.payload=$4)")
+        .bind(subject).bind(epoch).bind(revision).bind(payload).fetch_one(&mut *tx).await.map_err(|_| VisibilityUnavailable)?;
+    let privacy_current = privacy_cut
+        .validate(&mut tx)
+        .await
+        .map_err(|_| VisibilityUnavailable)?;
+    tx.commit().await.map_err(|_| VisibilityUnavailable)?;
+    Ok(valid && privacy_current)
 }

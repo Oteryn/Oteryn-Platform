@@ -228,6 +228,33 @@ impl guilds::PublicVisibility for Authority {
     }
 }
 impl rankings::PublicVisibility for Authority {
+    fn references<'a>(
+        &'a self,
+        characters: &'a [rankings::CharacterRef],
+    ) -> rankings::VisibilityFuture<'a, Vec<bool>> {
+        Box::pin(async move {
+            self.privacy
+                .ready()
+                .await
+                .map_err(|_| rankings::VisibilityUnavailable)?;
+            let mut hidden = Vec::with_capacity(characters.len());
+            for c in characters {
+                let current = self
+                    .current(&c.id)
+                    .await
+                    .map_err(|_| rankings::VisibilityUnavailable)?;
+                hidden.push(
+                    !current.is_some_and(|p| !p.hidden)
+                        || !self
+                            .reference(&c.id, &c.world, &c.name)
+                            .await
+                            .map_err(|_| rankings::VisibilityUnavailable)?
+                            .is_some_and(|p| !p.hidden),
+                );
+            }
+            Ok(hidden)
+        })
+    }
     fn is_hidden<'a>(&'a self, character_ref: &'a str) -> rankings::VisibilityFuture<'a, bool> {
         Box::pin(async move {
             self.privacy
@@ -240,5 +267,26 @@ impl rankings::PublicVisibility for Authority {
                 .map_err(|_| rankings::VisibilityUnavailable)?
                 .is_some_and(|p| !p.hidden))
         })
+    }
+}
+
+/// Revision evidence spans every asynchronous permission lookup in a response.
+/// Validation holds a shared revision fence until the caller's final commit.
+#[derive(Debug)]
+pub(crate) struct Cut(i64);
+impl Cut {
+    pub(crate) async fn read(db: &PgPool) -> Result<Self, sqlx::Error> {
+        sqlx::query_scalar("SELECT revision FROM community_privacy_revision WHERE id=1")
+            .fetch_one(db)
+            .await
+            .map(Self)
+    }
+    pub(crate) async fn validate(&self, db: &mut sqlx::PgConnection) -> Result<bool, sqlx::Error> {
+        let current: i64 = sqlx::query_scalar(
+            "SELECT revision FROM community_privacy_revision WHERE id=1 FOR SHARE",
+        )
+        .fetch_one(db)
+        .await?;
+        Ok(current == self.0)
     }
 }

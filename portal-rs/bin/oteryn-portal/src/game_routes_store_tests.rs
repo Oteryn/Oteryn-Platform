@@ -1002,3 +1002,95 @@ async fn db_g9_revision3_goldens_through_binary_router() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn w3_c06_001_production_watermark_dispatch_shared_publisher_budget() {
+    let started = std::time::Instant::now();
+    let db = Database::new().await.expect("PostgreSQL required");
+    let mut config = values();
+    for (key, value) in [
+        ("PORTAL_PUBLIC_PROJECTIONS_ENABLED", "true"),
+        ("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY", "oteryn:game:primary"),
+        ("PORTAL_STATS_WORLD_TOTALS_ENABLED", "true"),
+        ("PORTAL_G4_SKILLS_INGEST_ENABLED", "true"),
+        (PUBLIC_IDENTITY, "public.oteryn.internal"),
+    ] {
+        config.insert(key.into(), value.into());
+    }
+    config.insert("APP_ENV".into(), "testing".into());
+    let routes =
+        Routes::configured(db.pool.clone(), &config, super::tests::environment(&config)).await;
+    let identities = Arc::new(
+        IdentityMap::new(vec![Binding {
+            identity: Identity::san("public.oteryn.internal").unwrap(),
+            group: "game-public".into(),
+        }])
+        .unwrap(),
+    );
+    let guild = oteryn_community::guilds::ingest_router(
+        db.pool.clone(),
+        identities.clone(),
+        oteryn_community::guilds::IngestConfig {
+            enabled: true,
+            source_authority: "oteryn:game:primary".into(),
+        },
+    );
+    let house = oteryn_community::houses::router(
+        db.pool.clone(),
+        identities.clone(),
+        Arc::new(oteryn_community::houses::DenyOwners),
+        oteryn_community::houses::Config {
+            ingest: oteryn_community::ingest::Config {
+                enabled: true,
+                source_authority: "oteryn:game:primary".into(),
+            },
+            serving_enabled: false,
+        },
+    );
+    let deaths = oteryn_community::deaths::ingest_router(
+        db.pool.clone(),
+        identities.clone(),
+        oteryn_community::deaths::IngestConfig {
+            enabled: true,
+            source_authority: "oteryn:game:primary".into(),
+            requests_per_minute: 6000,
+        },
+    );
+    let daily = oteryn_community::today::router(
+        db.pool.clone(),
+        identities,
+        oteryn_community::today::Config::default(),
+    );
+    let app = routes.mount(oteryn_community::v2_watermark::router(
+        deaths, guild, house, daily,
+    ));
+    // Fill all but the last slot, then consume the last slot through the guild dispatcher.
+    let mut publisher = vec![1, u8::try_from("public.oteryn.internal".len()).unwrap()];
+    publisher.extend_from_slice("public.oteryn.internal".as_bytes());
+    sqlx::query("INSERT INTO community_ingest_budgets(publisher,route,admitted_at) SELECT $1,'v2/watermark',array_fill(extract(epoch FROM clock_timestamp())::double precision,ARRAY[5999])").bind(publisher).execute(&db.pool).await.unwrap();
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    for (family, expected) in [
+        ("guild", StatusCode::OK),
+        ("house", StatusCode::TOO_MANY_REQUESTS),
+        ("character_deaths", StatusCode::TOO_MANY_REQUESTS),
+        ("character_skills", StatusCode::TOO_MANY_REQUESTS),
+        ("world_daily_kills", StatusCode::TOO_MANY_REQUESTS),
+    ] {
+        let body = format!(
+            r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"oteryn:game:primary","family":"{family}","projection_epoch":"1","complete_through":"{now}","observed_at":"{now}"}}"#
+        );
+        let (status, _) = call(
+            &app,
+            "public.oteryn.internal",
+            oteryn_community::v2_watermark::PATH,
+            body.as_bytes(),
+        )
+        .await;
+        assert_eq!(status, expected, "{family}");
+    }
+    db.finish().await;
+    eprintln!(
+        "w3_c06_001_production_watermark_dispatch_shared_publisher_budget {:?}",
+        started.elapsed()
+    );
+}
