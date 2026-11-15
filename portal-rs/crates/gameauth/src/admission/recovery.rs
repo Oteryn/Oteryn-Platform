@@ -799,3 +799,35 @@ pub(super) async fn revoke(pool: &PgPool, hash: &[u8; 32]) -> Result<(), Recover
 #[cfg(test)]
 #[path = "recovery_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(super) async fn test_target(
+    db: &mut PgConnection,
+    runtime: &runtime::Settings,
+    account: Uuid,
+    world: Uuid,
+    channel: Uuid,
+    character: Uuid,
+    now: i64,
+) -> Result<Uuid, RecoveryError> {
+    let raw = include_bytes!(
+        "../../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/recover-request.json"
+    );
+    let mut request = RecoveryRequest::decode(raw, false)?;
+    request.character_id = character;
+    let issuer = RecoveryIssuer {
+        signer: None,
+        projection_authority: "game".into(),
+        ttl_seconds: 20,
+        clock_uncertainty_seconds: 0,
+    };
+    let bound = Bound {
+        account,
+        world,
+        channel,
+        security_generation: 1,
+    };
+    target(db, &issuer, runtime, &request, &bound, now)
+        .await
+        .map(|c| c.route.channel)
+}
