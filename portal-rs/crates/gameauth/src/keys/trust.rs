@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct PublicTrustRegistry {
+    deadline: Option<tokio::time::Instant>,
     pool: PgPool,
     settings: Settings,
     scope: Scope,
@@ -72,11 +73,31 @@ impl PublicTrustRegistry {
             return Err(KeyError::BadInput);
         }
         Ok(Self {
+            deadline: None,
             pool,
             settings,
             scope,
             witness_directory,
         })
+    }
+    /// Applies the caller's single deadline to server-side statement and lock
+    /// waits too; transaction-local settings never leak into pooled sessions.
+    pub fn with_deadline(mut self, deadline: tokio::time::Instant) -> Self {
+        self.deadline = Some(deadline);
+        self
+    }
+    async fn bound_waits(&self, connection: &mut PgConnection) -> Result<(), KeyError> {
+        if let Some(deadline) = self.deadline {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return Err(KeyError::Unavailable);
+            }
+            let milliseconds = remaining.as_millis().saturating_add(1);
+            sqlx::query("SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $1, true)")
+                .bind(format!("{milliseconds}ms"))
+                .execute(connection).await.map_err(|_| KeyError::Unavailable)?;
+        }
+        Ok(())
     }
     async fn witness(&self) -> Result<(String, AsyncWitness), KeyError> {
         check_settings(&self.settings)?;
@@ -100,6 +121,7 @@ impl PublicTrustRegistry {
         }
         let (namespace, witness) = self.witness().await?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
+        self.bound_waits(&mut tx).await?;
         // One transaction lock for both scopes, including their first publication.
         sqlx::query("SELECT pg_advisory_xact_lock(715110005)")
             .execute(&mut *tx)
@@ -183,6 +205,7 @@ impl PublicTrustRegistry {
         }
         let (namespace, witness) = self.witness().await?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
+        self.bound_waits(&mut tx).await?;
         let row = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
             .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?.ok_or(KeyError::InvalidState)?;
         let id: Uuid = row.try_get("id").map_err(|_| KeyError::Unavailable)?;
@@ -236,6 +259,7 @@ impl PublicTrustRegistry {
         tx: &mut PgConnection,
     ) -> Result<TrustSnapshot, KeyError> {
         let (namespace, witness) = self.witness().await?;
+        self.bound_waits(tx).await?;
         let row = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
             .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?.ok_or(KeyError::InvalidState)?;
         let revision: i64 = row

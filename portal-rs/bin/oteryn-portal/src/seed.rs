@@ -637,6 +637,15 @@ async fn signing_custody(
     settings: &Settings,
     args: &Args<'_>,
 ) -> Result<Value, SeedError> {
+    signing_custody_with_budget(pool, settings, args, ACTIVATION_DEADLINE).await
+}
+#[cfg(unix)]
+async fn signing_custody_with_budget(
+    pool: &PgPool,
+    settings: &Settings,
+    args: &Args<'_>,
+    budget: std::time::Duration,
+) -> Result<Value, SeedError> {
     use keys::{EncryptedFileStorage, KeyState, Keyring, SigningTrust};
     use std::path::Path;
     args.only(&["directory", "purpose", "keyId"])?;
@@ -687,8 +696,10 @@ async fn signing_custody(
         key_purpose: purpose.clone(),
         clock_uncertainty_seconds: CUSTODY_CLOCK_UNCERTAINTY,
     };
+    let deadline = tokio::time::Instant::now() + budget;
     let registry = PublicTrustRegistry::new(pool.clone(), key_settings.clone(), witness.clone())
-        .map_err(trust_error)?;
+        .map_err(trust_error)?
+        .with_deadline(deadline);
     // The storage holds the custody lock from here on: one writer at a time.
     let storage =
         EncryptedFileStorage::from_key_file(&custody, &wrapping).map_err(custody_error)?;
@@ -720,34 +731,58 @@ async fn signing_custody(
             ring.generate_next(&kid).map_err(custody_error)?
         }
     };
-    registry.publish(&key).await.map_err(trust_error)?;
+    activation_stage(deadline, "signing custody publication timeout", async {
+        registry.publish(&key).await.map_err(trust_error)
+    })
+    .await?;
     if ring.state(&key.key_id) != Some(KeyState::Active) {
-        let deadline = std::time::Instant::now() + ACTIVATION_DEADLINE;
         loop {
-            let snapshot = registry.snapshot().await.map_err(trust_error)?;
-            match ring.activate(&key.key_id, database_now(pool).await?, &snapshot) {
+            let snapshot = activation_stage(
+                deadline,
+                "signing custody activation snapshot timeout",
+                async { registry.snapshot().await.map_err(trust_error) },
+            )
+            .await?;
+            let now = activation_stage(
+                deadline,
+                "signing custody activation clock timeout",
+                database_now(pool),
+            )
+            .await?;
+            match ring.activate(&key.key_id, now, &snapshot) {
                 Ok(()) => break,
                 // Untrusted until the clock passes the (rounded-up) publication
                 // second, then too early until the overlap has elapsed.
-                Err(keys::KeyError::TooEarly | keys::KeyError::Untrusted)
-                    if std::time::Instant::now() < deadline =>
-                {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                Err(keys::KeyError::TooEarly | keys::KeyError::Untrusted) => {
+                    activation_stage(
+                        deadline,
+                        "signing custody activation retry timeout",
+                        async {
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            Ok(())
+                        },
+                    )
+                    .await?;
                 }
                 Err(error) => return Err(custody_error(error)),
             }
         }
     }
     // The §9.2 self-check the issuer runs before signing.
-    let snapshot = registry.snapshot().await.map_err(trust_error)?;
+    let snapshot = activation_stage(
+        deadline,
+        "signing custody validation snapshot timeout",
+        async { registry.snapshot().await.map_err(trust_error) },
+    )
+    .await?;
+    let now = activation_stage(
+        deadline,
+        "signing custody validation clock timeout",
+        database_now(pool),
+    )
+    .await?;
     let trusted = snapshot
-        .trusted_key(
-            keys::ISSUER,
-            keys::PROFILE,
-            &purpose,
-            &key.key_id,
-            database_now(pool).await?,
-        )
+        .trusted_key(keys::ISSUER, keys::PROFILE, &purpose, &key.key_id, now)
         .map_err(trust_error)?;
     let expected = URL_SAFE_NO_PAD
         .decode(&key.public_key)
@@ -800,6 +835,23 @@ fn private_directory(dir: &std::path::Path) -> Result<(), SeedError> {
         Ok(meta) if meta.is_dir() && meta.mode() & 0o077 == 0 => Ok(()),
         _ => Err(refused()),
     }
+}
+
+async fn activation_stage<T>(
+    deadline: tokio::time::Instant,
+    stage: &'static str,
+    future: impl std::future::Future<Output = Result<T, SeedError>>,
+) -> Result<T, SeedError> {
+    if tokio::time::Instant::now() >= deadline {
+        return Err(SeedError::Unavailable(stage));
+    }
+    let result = tokio::time::timeout_at(deadline, future).await;
+    // A ready database error can race the timer (including the registry's
+    // server-side timeout). Preserve the stage name when the budget expired.
+    if tokio::time::Instant::now() >= deadline {
+        return Err(SeedError::Unavailable(stage));
+    }
+    result.map_err(|_| SeedError::Unavailable(stage))?
 }
 
 async fn database_now(pool: &PgPool) -> Result<u64, SeedError> {

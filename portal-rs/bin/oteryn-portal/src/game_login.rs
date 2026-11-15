@@ -213,7 +213,7 @@ pub fn player_router(pool: PgPool) -> Router {
 /// Loopback `native-admissions` listener for the login gateway.
 pub async fn start_admission_listener(
     pool: PgPool,
-) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
+) -> Result<tokio::task::JoinHandle<std::io::Result<()>>, Box<dyn std::error::Error>> {
     let issuance = issuance(pool.clone(), |key| std::env::var(key).ok());
     let signer = issuance.signer.clone();
     let protocol3 = protocol3(&issuance, |key| std::env::var(key).ok());
