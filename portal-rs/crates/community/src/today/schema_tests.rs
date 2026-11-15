@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::panic)]
 use super::*;
-const GOLDEN: &str = r#"{"contract_version":2,"operation":"PublishWorldDailyV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":"17","source_observed_at":"1790003610","daily":[{"reset_epoch":"42","effective_from":"1790000000","effective_until":"1790086400","creature_key":"rat","boss_key":"ferumbras","history_complete_from":"1789913600","history":[{"reset_epoch":"41","effective_from":"1789913600","effective_until":"1790000000","creature_key":"dragon","boss_key":"orshabaal"}],"raids":[{"raid_key":"raid:badger","scheduled_at":"1790003600","state":"running"}]}]}"#;
+const GOLDEN: &str = r#"{"contract_version":2,"operation":"PublishWorldDailyV2","source_authority":"oteryn:game:primary","world_id":"01934f10-7c02-7001-805b-3b1122334401","projection_epoch":"2","projection_revision":"17","source_observed_at":"1790003610","daily":[{"reset_epoch":"42","effective_from":"1790000000","effective_until":"1790086400","creature_key":"rat","boss_key":"ferumbras","history_complete_from":"1789913600","history":[{"reset_epoch":"41","effective_from":"1789913600","effective_until":"1790000000","creature_key":"dragon","boss_key":"orshabaal"}],"raids":[{"raid_key":"raid:orc_camp","started_at":"1790001800","scheduled_at":"unavailable","state":"done"},{"raid_key":"raid:badger","started_at":"1790003600","scheduled_at":"1790003600","state":"running"}]}]}"#;
 fn snapshot() -> Snapshot {
     match decode(GOLDEN.as_bytes(), false, 1790003610).unwrap() {
         Publication::Snapshot(s) => s,
@@ -76,6 +76,7 @@ fn key_integer_and_schedule_bounds() {
     d.raids = (0..256)
         .map(|i| Raid {
             raid_key: format!("raid:{i:03}"),
+            started_at: "1790003600".into(),
             scheduled_at: "1790003600".into(),
             state: "done".into(),
         })
@@ -89,6 +90,7 @@ fn key_integer_and_schedule_bounds() {
     assert!(decode(&bytes, false, 1790003610).is_ok());
     d.raids.push(Raid {
         raid_key: "raid:256".into(),
+        started_at: "1790003600".into(),
         scheduled_at: "1790003600".into(),
         state: "done".into(),
     });
@@ -100,5 +102,18 @@ fn key_integer_and_schedule_bounds() {
     }
     let mut d = snapshot().daily.remove(0);
     d.raids.push(d.raids[0].clone());
+    assert!(d.validate(1790003610).is_err());
+}
+
+#[test]
+fn audit06_raid_start_required_and_slots_do_not_define_order() {
+    let missing = GOLDEN.replace("\"started_at\":\"1790001800\",", "");
+    assert!(decode(missing.as_bytes(), false, 1790003610).is_err());
+    let mut d = snapshot().daily.remove(0);
+    // Slots may run in the opposite order to committed occurrences.
+    d.raids[0].scheduled_at = "1790001700".into();
+    d.raids[1].scheduled_at = "1790001000".into();
+    assert!(d.validate(1790003610).is_ok());
+    d.raids.swap(0, 1);
     assert!(d.validate(1790003610).is_err());
 }

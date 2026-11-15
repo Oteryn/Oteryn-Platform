@@ -186,3 +186,103 @@ async fn online_real_privacy_owner_mutations_and_missing_state() -> Result {
         .await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn audit06_configured_rankings_uses_authority() -> Result {
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+    if let Ok(schema) = std::env::var("AUDIT06_RANKINGS_SCHEMA") {
+        let db = PgPool::connect_with(
+            url.parse::<sqlx::postgres::PgConnectOptions>()?
+                .options([("search_path", schema.as_str())]),
+        )
+        .await?;
+        let response = oteryn_community::rankings::configured_router(db.clone())
+            .oneshot(Request::get("/en/rankings/level").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+        assert!(html.contains("Aldric"));
+        assert!(!html.contains("HiddenSecret"));
+        db.close().await;
+        return Ok(());
+    }
+    let admin = PgPool::connect(&url).await?;
+    let schema = format!("ranking_config06_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&admin)
+        .await?;
+    let db = PgPool::connect_with(
+        admin
+            .connect_options()
+            .as_ref()
+            .clone()
+            .options([("search_path", schema.as_str())]),
+    )
+    .await?;
+    oteryn_db::migrate(&db).await?;
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let owner = Uuid::now_v7();
+    let character = Uuid::now_v7();
+    let hidden = Uuid::now_v7();
+    let world = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at,public_status_visible) VALUES($1,'rank@example.invalid','test','active','en',now(),true)").bind(owner).execute(&db).await?;
+    sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'privacy-test','1','1',$2,$3)").bind(owner).bind(now).bind(vec![0u8;32]).execute(&db).await?;
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='privacy-test',complete_through=$1,observed_at=$1 WHERE id=1").bind(now).execute(&db).await?;
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
+        .execute(&db)
+        .await?;
+    let service = Service::new(
+        db.clone(),
+        Settings {
+            enabled: true,
+            environment: oteryn_core::Environment::Testing,
+            source_authority: "privacy-test".into(),
+            ..Settings::default()
+        },
+        true,
+    );
+    let mut rows = vec![];
+    for (i, id, name, hidden) in [
+        (1, character, "Aldric", false),
+        (2, hidden, "HiddenSecret", true),
+    ] {
+        sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,$4,'AVAILABLE')").bind(owner).bind(id).bind(world).bind(name).execute(&db).await?;
+        service
+            .update(
+                owner,
+                name,
+                Preferences {
+                    hidden,
+                    ..Preferences::default()
+                },
+                now,
+            )
+            .await
+            .map_err(|_| "privacy save failed")?;
+        sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('character_profile',$1,1,1,$2,$3)").bind(id.to_string()).bind(now).bind(serde_json::json!({"profile":[{"world_id":world,"name":name}]})).execute(&db).await?;
+        rows.push(serde_json::json!({"rank":i.to_string(),"character_id":id,"name":name,"vocation":1,"level":"100","value":"1000"}));
+    }
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,1,1,$1,'null')").bind(now).execute(&db).await?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('highscores',$1,1,1,$2,$3)").bind(format!("{world}:1:0")).bind(now).bind(serde_json::json!({"world_id":world,"category":1,"filter":0,"rows":rows})).execute(&db).await?;
+    // Configure only the child test process; other tests never observe these flags.
+    let status = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "audit06_configured_rankings_uses_authority",
+            "--nocapture",
+        ])
+        .env("AUDIT06_RANKINGS_SCHEMA", &schema)
+        .env("PORTAL_PUBLIC_RANKINGS_ENABLED", "true")
+        .env("OTERYN_CHARACTER_PROFILES_ENABLED", "true")
+        .env("OTERYN_LCFA_ENABLED", "true")
+        .env("OTERYN_ENV", "testing")
+        .env("OTERYN_LCFA_SOURCE_AUTHORITY", "privacy-test")
+        .status()?;
+    assert!(status.success());
+    db.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    Ok(())
+}

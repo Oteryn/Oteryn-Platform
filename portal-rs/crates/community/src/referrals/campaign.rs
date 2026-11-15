@@ -314,8 +314,13 @@ impl<P: Policy> Campaign<P> {
                 Err(Error::Denied.into())
             };
         }
-        let cycle: bool=sqlx::query_scalar("WITH RECURSIVE edges AS (SELECT inviter_id,invitee_id FROM referral_invitations UNION SELECT inviter_id,invitee_id FROM referral_campaign_invitations), ancestors(id) AS (SELECT $1::uuid UNION SELECT e.inviter_id FROM edges e JOIN ancestors a ON e.invitee_id=a.id) SELECT EXISTS(SELECT 1 FROM ancestors WHERE id=$2) OR EXISTS(SELECT 1 FROM referral_invitations WHERE invitee_id=$2)")
-            .bind(inviter).bind(invitee).fetch_one(&mut *conn).await?;
+        let cycle = super::ancestry_denied(conn, inviter, invitee, true).await?
+            || sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM referral_invitations WHERE invitee_id=$1)",
+            )
+            .bind(invitee)
+            .fetch_one(&mut *conn)
+            .await?;
         if cycle {
             return Err(Error::Denied.into());
         }

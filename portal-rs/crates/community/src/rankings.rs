@@ -50,9 +50,9 @@ struct Rankings {
 /// Off by default; enabling this flag cannot bypass the privacy adapter.
 pub fn configured_router(db: PgPool) -> Router {
     router(
-        db,
+        db.clone(),
         std::env::var("PORTAL_PUBLIC_RANKINGS_ENABLED").as_deref() == Ok("true"),
-        Arc::new(UnavailableVisibility),
+        Arc::new(crate::privacy::Authority::configured(db)),
     )
 }
 pub fn router(db: PgPool, enabled: bool, visibility: Arc<dyn PublicVisibility>) -> Router {
@@ -291,10 +291,10 @@ async fn load(
         None => worlds.first().map(String::as_str).ok_or(unavailable)?,
     };
     // Payload and observation watermark must come from the same accepted snapshot.
-    let (payload, watermark): (serde_json::Value, i64) = sqlx::query_as(
-        "SELECT payload, watermark FROM public_snapshots WHERE family='highscores' AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
+    let (payload, watermark, epoch, revision): (serde_json::Value, i64, String, String) = sqlx::query_as(
+        "SELECT payload, watermark, epoch::text, version::text FROM public_snapshots WHERE family='highscores' AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
     ).bind(format!("{world}:{category}:{vocation}")).fetch_optional(&state.db).await.map_err(|_| unavailable)?.ok_or(unavailable)?;
-    let snapshot: Snapshot = serde_json::from_value(payload).map_err(|_| unavailable)?;
+    let snapshot: Snapshot = serde_json::from_value(payload.clone()).map_err(|_| unavailable)?;
     if snapshot.world_id != world
         || snapshot.category != category
         || snapshot.filter.to_string() != vocation
@@ -374,6 +374,18 @@ async fn load(
     if page.rows.is_empty() {
         page.message = lang.text("rankings-empty");
     }
+    if !eligible(
+        &state.db,
+        &format!("{world}:{category}:{vocation}"),
+        &epoch,
+        &revision,
+        &payload,
+    )
+    .await
+    .map_err(|_| unavailable)?
+    {
+        return Err(unavailable);
+    }
     Ok(page)
 }
 
@@ -392,10 +404,10 @@ pub async fn home_top(
     }
     let world: Option<String> = sqlx::query_scalar("SELECT min(split_part(subject,':',1)) FROM public_snapshots WHERE family='highscores' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_one(db).await.map_err(fail)?;
     let world = world.ok_or(VisibilityUnavailable)?;
-    let (payload, watermark): (serde_json::Value, i64) = sqlx::query_as(
-        "SELECT payload, watermark FROM public_snapshots WHERE family='highscores' AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
+    let (payload, watermark, epoch, revision): (serde_json::Value, i64, String, String) = sqlx::query_as(
+        "SELECT payload, watermark, epoch::text, version::text FROM public_snapshots WHERE family='highscores' AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
     ).bind(format!("{world}:1:0")).fetch_optional(db).await.map_err(fail)?.ok_or(VisibilityUnavailable)?;
-    let snapshot: Snapshot = serde_json::from_value(payload).map_err(fail)?;
+    let snapshot: Snapshot = serde_json::from_value(payload.clone()).map_err(fail)?;
     if snapshot.world_id != world
         || snapshot.category != 1
         || snapshot.filter != 0
@@ -414,7 +426,7 @@ pub async fn home_top(
         .ok_or(VisibilityUnavailable)?;
     let mut shown = Vec::with_capacity(limit);
     // Bounded scan: privacy checks stop once enough visible rows are found.
-    for chunk in snapshot.rows.chunks(10).take(5) {
+    for chunk in snapshot.rows.chunks(10) {
         let refs: Vec<String> = chunk.iter().map(|r| r.character_id.clone()).collect();
         let hidden = visibility.batch(&refs).await?;
         if hidden.len() != refs.len() {
@@ -443,5 +455,19 @@ pub async fn home_top(
             break;
         }
     }
+    if !eligible(db, &format!("{world}:1:0"), &epoch, &revision, &payload).await? {
+        return Err(VisibilityUnavailable);
+    }
     Ok((shown, as_of))
+}
+
+async fn eligible(
+    db: &PgPool,
+    subject: &str,
+    epoch: &str,
+    revision: &str,
+    payload: &serde_json::Value,
+) -> Result<bool, VisibilityUnavailable> {
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots s JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch WHERE s.family='highscores' AND s.subject=$1 AND NOT s.is_watermark AND s.epoch=$2::numeric AND s.version=$3::numeric AND s.payload=$4)")
+        .bind(subject).bind(epoch).bind(revision).bind(payload).fetch_one(db).await.map_err(|_| VisibilityUnavailable)
 }

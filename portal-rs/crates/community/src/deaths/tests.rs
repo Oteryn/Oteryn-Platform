@@ -245,6 +245,8 @@ impl Database {
             include_str!("../../../../migrations/20261105180000_t24_public_snapshots.sql"),
             include_str!("../../../../migrations/20261105190000_t25_world_registry.sql"),
             include_str!("../../../../migrations/20261105231101_t24d_deaths.sql"),
+            include_str!("../../../../migrations/20261105231103_t24f_houses.sql"),
+            include_str!("../../../../migrations/20261115110006_fix_06_projection_read_bounds.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&db).await?;
         }
@@ -600,5 +602,101 @@ async fn postgres_suppression_waits_for_inflight_profile_read() -> TestResult {
     let response = get(pages(d.db.clone(), true), "/en/deaths").await;
     assert_eq!(response.status(), StatusCode::OK);
     assert!(!text(response).await.contains("Beren"));
+    d.close().await
+}
+
+#[tokio::test]
+async fn audit06_deaths_replay_excludes_observation_time() -> TestResult {
+    let d = Database::open().await?.ok_or("PostgreSQL required")?;
+    let a = app(d.db.clone(), true);
+    let mut s = snapshot();
+    let response = post(
+        a.clone(),
+        "character-deaths",
+        serde_json::to_vec(&s)?,
+        "deaths-test",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let before: (Vec<u8>, serde_json::Value, Option<i64>) =
+        sqlx::query_as("SELECT digest,deaths,observed FROM public_deaths_v2")
+            .fetch_one(&d.db)
+            .await?;
+    assert_eq!(before.2, Some(s.source_observed_at.parse::<i64>()?));
+    s.source_observed_at = (s.source_observed_at.parse::<u64>()? - 1).to_string();
+    let response = post(
+        a.clone(),
+        "character-deaths",
+        serde_json::to_vec(&s)?,
+        "deaths-test",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let after: (Vec<u8>, serde_json::Value, Option<i64>) =
+        sqlx::query_as("SELECT digest,deaths,observed FROM public_deaths_v2")
+            .fetch_one(&d.db)
+            .await?;
+    assert_eq!(before, after);
+    s.deaths[0].level = "999".into();
+    assert_eq!(
+        post(
+            a,
+            "character-deaths",
+            serde_json::to_vec(&s)?,
+            "deaths-test"
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    d.close().await
+}
+
+#[tokio::test]
+async fn audit06_deaths_two_connection_pool_with_nested_privacy() -> TestResult {
+    struct Resolving {
+        db: PgPool,
+        barrier: tokio::sync::Barrier,
+    }
+    impl Privacy for Resolving {
+        fn ready(&self) -> PrivacyFuture<'_> {
+            Box::pin(async { Ok(true) })
+        }
+        fn allows_deaths<'a>(&'a self, _: &'a str, _: &'a str) -> PrivacyFuture<'a> {
+            Box::pin(async {
+                self.barrier.wait().await;
+                sqlx::query("SELECT pg_sleep(0.1)")
+                    .execute(&self.db)
+                    .await
+                    .map_err(|_| Unavailable)?;
+                Ok(true)
+            })
+        }
+    }
+    let d = Database::open().await?.ok_or("PostgreSQL required")?;
+    seed(&d.db).await?;
+    let small = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(std::time::Duration::from_millis(500))
+        .connect_with(d.db.connect_options().as_ref().clone())
+        .await?;
+    let a = router(
+        small.clone(),
+        Arc::new(Resolving {
+            db: small.clone(),
+            barrier: tokio::sync::Barrier::new(2),
+        }),
+        Config {
+            enabled: true,
+            source_authority: AUTHORITY.into(),
+        },
+    );
+    let (a, b) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(get(a.clone(), "/en/deaths"), get(a, "/pl/deaths"))
+    })
+    .await?;
+    assert_eq!(a.status(), StatusCode::OK);
+    assert_eq!(b.status(), StatusCode::OK);
+    small.close().await;
     d.close().await
 }

@@ -43,7 +43,12 @@ pub(super) async fn snapshot(db: &PgPool, s: &Snapshot) -> Result<&'static str, 
     if !fence(&mut tx, &s.projection_epoch).await? {
         return Ok("superseded");
     }
-    let hash = digest(s)?;
+    let mut identity = serde_json::to_value(s).map_err(|_| Error::Database)?;
+    identity
+        .as_object_mut()
+        .ok_or(Error::Database)?
+        .remove("source_observed_at");
+    let hash = digest(&identity)?;
     let current = sqlx::query(
         "SELECT epoch::text, revision::text, digest FROM public_deaths_v2 WHERE subject=$1",
     )
@@ -60,11 +65,26 @@ pub(super) async fn snapshot(db: &PgPool, s: &Snapshot) -> Result<&'static str, 
         }
         if order.is_eq() {
             let old: Vec<u8> = row.try_get("digest")?;
-            return if old == hash {
-                Ok("accepted")
-            } else {
-                Err(Error::Conflict)
-            };
+            if old == hash {
+                return Ok("accepted");
+            }
+            // A byte-identical legacy envelope proves its original observation.
+            // Upgrade that evidence once; never infer it from a retained body.
+            if old == digest(s)? {
+                sqlx::query("UPDATE public_deaths_v2 SET digest=$2,observed=$3 WHERE subject=$1")
+                    .bind(&s.character_id)
+                    .bind(&hash)
+                    .bind(
+                        s.source_observed_at
+                            .parse::<i64>()
+                            .map_err(|_| Error::Database)?,
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                tx.commit().await?;
+                return Ok("accepted");
+            }
+            return Err(Error::Conflict);
         }
     }
     for death in &s.deaths {
@@ -88,7 +108,7 @@ pub(super) async fn snapshot(db: &PgPool, s: &Snapshot) -> Result<&'static str, 
         .filter(|d| d.occurred_at.parse::<u64>().is_ok_and(|t| t >= cutoff))
         .collect();
     let payload = serde_json::to_value(deaths).map_err(|_| Error::Database)?;
-    sqlx::query("INSERT INTO public_deaths_v2 (subject,authority,epoch,revision,digest,deaths) VALUES ($1,$2,$3::numeric,$4::numeric,$5,$6) ON CONFLICT (subject) DO UPDATE SET authority=EXCLUDED.authority, epoch=EXCLUDED.epoch,revision=EXCLUDED.revision,digest=EXCLUDED.digest,deaths=EXCLUDED.deaths").bind(&s.character_id).bind(&s.source_authority).bind(&s.projection_epoch).bind(&s.projection_revision).bind(hash).bind(payload).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO public_deaths_v2 (subject,authority,epoch,revision,digest,deaths,observed) VALUES ($1,$2,$3::numeric,$4::numeric,$5,$6,$7) ON CONFLICT (subject) DO UPDATE SET authority=EXCLUDED.authority, epoch=EXCLUDED.epoch,revision=EXCLUDED.revision,digest=EXCLUDED.digest,deaths=EXCLUDED.deaths,observed=EXCLUDED.observed").bind(&s.character_id).bind(&s.source_authority).bind(&s.projection_epoch).bind(&s.projection_revision).bind(hash).bind(payload).bind(s.source_observed_at.parse::<i64>().map_err(|_| Error::Database)?).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok("accepted")
 }
