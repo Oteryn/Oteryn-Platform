@@ -98,8 +98,8 @@ impl Database {
         Ok(())
     }
 }
-#[test]
-fn normalization_and_input() {
+#[tokio::test]
+async fn normalization_and_input() -> Result {
     assert_eq!(normalize(" oteryn-ab cd_12! "), "OTERYNABCD12");
     assert!(matches!(validate_key(""), Err(Error::InvalidInput)));
     assert!(matches!(
@@ -107,7 +107,8 @@ fn normalization_and_input() {
         Err(Error::InvalidInput)
     ));
     assert!(matches!(validate_key("---"), Err(Error::Rejected)));
-    assert!(!matches_digest(None, "anything"));
+    assert!(!matches_digest(None, "anything").await?);
+    Ok(())
 }
 #[tokio::test]
 async fn disabled_by_default() -> Result {
@@ -548,4 +549,110 @@ async fn audit02_varied_email_recovery_exhausts_aggregate_source_budget() -> Res
         );
     }
     db.close().await
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn recovery_argon2_keeps_single_worker_heartbeat_alive() -> Result {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let ticks = Arc::new(AtomicUsize::new(0));
+    let observed = ticks.clone();
+    let heartbeat = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            observed.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    let raw = "OTERYN-12345678-12345678-12345678-12345678-12345678";
+    let normalized = normalize(raw);
+    let digest = expensive(move || password::hash(&normalized)).await??;
+    let before = ticks.load(Ordering::SeqCst);
+    assert!(before > 2, "hashing blocked executor heartbeat");
+    assert!(matches_digest(Some(digest.clone()), raw).await?);
+    assert!(
+        ticks.load(Ordering::SeqCst) > before + 2,
+        "verification blocked executor heartbeat"
+    );
+    let (a, b, c) = tokio::join!(
+        matches_digest(Some(digest.clone()), raw),
+        matches_digest(Some(digest.clone()), raw),
+        matches_digest(Some(digest), raw)
+    );
+    assert!(a? && b? && c?);
+    heartbeat.abort();
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn pg_recovery_requests_keep_single_worker_timers_responsive() -> Result {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    };
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let hash = expensive(|| password::hash(CURRENT)).await??;
+    let mut ids = Vec::new();
+    for index in 0..3 {
+        let mut conn = db.pool.acquire().await?;
+        let account = crate::accounts::Accounts::create(
+            &mut conn,
+            &format!("heartbeat-{index}@example.test"),
+            &hash,
+            "en",
+        )
+        .await?
+        .ok_or("account missing")?;
+        ids.push(account.id);
+    }
+    let max_gap = Arc::new(AtomicU64::new(0));
+    let observed = max_gap.clone();
+    let heartbeat = tokio::spawn(async move {
+        let mut last = std::time::Instant::now();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            observed.fetch_max(last.elapsed().as_millis() as u64, Ordering::SeqCst);
+            last = std::time::Instant::now();
+        }
+    });
+    tokio::task::yield_now().await;
+    let keys = db.keys();
+    let (a, b, c) = tokio::join!(
+        keys.generate(ids[0], CURRENT),
+        keys.generate(ids[1], CURRENT),
+        keys.generate(ids[2], CURRENT)
+    );
+    let raw = [a?, b?, c?];
+    let (a, b, c) = tokio::join!(
+        keys.confirm(ids[0], CURRENT, &raw[0]),
+        keys.confirm(ids[1], CURRENT, &raw[1]),
+        keys.confirm(ids[2], CURRENT, &raw[2])
+    );
+    a?;
+    b?;
+    c?;
+    let (a, b, c) = tokio::join!(
+        keys.recover("heartbeat-0@example.test", &raw[0], NEW, NEW),
+        keys.recover("heartbeat-1@example.test", &raw[1], NEW, NEW),
+        keys.recover("heartbeat-2@example.test", &raw[2], NEW, NEW)
+    );
+    assert_eq!([a?, b?, c?], [ids[0], ids[1], ids[2]]);
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    heartbeat.abort();
+    assert!(
+        max_gap.load(Ordering::SeqCst) < 100,
+        "Argon2 stalled single-worker timers: {}ms",
+        max_gap.load(Ordering::SeqCst)
+    );
+    db.close().await?;
+    eprintln!(
+        "PG pg_recovery_requests_keep_single_worker_timers_responsive duration={:.3}s max_heartbeat_gap={}ms",
+        started.elapsed().as_secs_f64(),
+        max_gap.load(Ordering::SeqCst)
+    );
+    Ok(())
 }

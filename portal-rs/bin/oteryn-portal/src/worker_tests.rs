@@ -782,3 +782,140 @@ async fn shutdown_budget_cancels_locked_topup_and_leaves_retryable_lease() -> Te
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn sixteen_locked_topups_finish_after_heartbeat_with_exhausted_handler_pool() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let (intent, lock) = locked_topup(&db).await?;
+    let payload: String =
+        query_scalar("SELECT payload::text FROM outbox WHERE kind='wallet.top_up'")
+            .fetch_one(&db.pool)
+            .await?;
+    for index in 1..16 {
+        let mut tx = db.pool.begin().await?;
+        outbox::enqueue(
+            &mut tx,
+            "wallet.top_up",
+            &payload,
+            &format!("saturation-{index}"),
+            OffsetDateTime::now_utc(),
+            5,
+        )
+        .await?;
+        tx.commit().await?;
+    }
+    let handlers = db
+        .pool
+        .options()
+        .clone()
+        .max_connections(16)
+        .min_connections(0)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect_with((*db.pool.connect_options()).clone())
+        .await?;
+    let mut registry = Registry {
+        heartbeat_interval: Duration::from_millis(100),
+        ..Default::default()
+    };
+    registry.register(
+        "wallet.top_up",
+        Arc::new(crate::wallet_topup::Delivery {
+            pool: handlers.clone(),
+            payments_enabled: true,
+            wallet_enabled: true,
+        }),
+    )?;
+    let unlock = async {
+        loop {
+            let waiting: i64 = query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT account_id,amount,currency,state FROM payment_intents%'")
+                .bind(&db.schema).fetch_one(&db.pool).await?;
+            if waiting == 16 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        lock.rollback().await?;
+        Ok::<_, Box<dyn std::error::Error>>(())
+    };
+    let (batch, unlock) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(registry.batch(&handlers), unlock)
+    })
+    .await?;
+    unlock?;
+    assert_eq!(batch?, 16);
+    assert_eq!(outbox::counts(&db.pool).await?.done, 16);
+    let entries: i64 = query_scalar("SELECT count(*) FROM wallet_entries WHERE operation_id=$1")
+        .bind(intent)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(entries, 1);
+    db.enqueue("wallet.top_up", "later", 1).await?;
+    assert_eq!(registry.batch(&handlers).await?, 1);
+    handlers.close().await;
+    db.close().await?;
+    eprintln!(
+        "PG sixteen_locked_topups_finish_after_heartbeat_with_exhausted_handler_pool duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn handler_finishes_while_renewal_waits_for_capacity() -> TestResult {
+    let started_at = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    db.enqueue("gated", "renewal-pending", 5).await?;
+    let job = outbox::claim(&db.pool, 1, 60)
+        .await?
+        .pop()
+        .ok_or("job missing")?;
+    let leases = db
+        .pool
+        .options()
+        .clone()
+        .max_connections(1)
+        .min_connections(0)
+        .connect_with((*db.pool.connect_options()).clone())
+        .await?;
+    let held = leases.acquire().await?;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let handler = Arc::new(GatedHandler {
+        started: started.clone(),
+        release: release.clone(),
+    });
+    let control = async {
+        started.notified().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        release.notify_one();
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::join!(
+            execute(
+                &db.pool,
+                &leases,
+                job,
+                Some(handler),
+                Duration::from_secs(15)
+            ),
+            control
+        )
+    })
+    .await?;
+    result?;
+    assert_eq!(outbox::counts(&db.pool).await?.done, 1);
+    drop(held);
+    leases.close().await;
+    db.close().await?;
+    eprintln!(
+        "PG handler_finishes_while_renewal_waits_for_capacity duration={:.3}s",
+        started_at.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
