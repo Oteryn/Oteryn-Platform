@@ -228,7 +228,7 @@ impl Runtime {
         tx.commit().await?;
         Ok(())
     }
-    async fn gold_release(
+    pub(super) async fn gold_release(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         l: &Listing,
