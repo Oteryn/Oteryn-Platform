@@ -1134,3 +1134,86 @@ async fn credentials_only_delivery() -> TestResult {
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn scheduling_conflict_has_a_deadline_and_closes_blocked_session() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let mut blocker = db.pool.begin().await?;
+    // A long slot avoids crossing the schedule boundary during this test.
+    query("INSERT INTO outbox(kind,payload,idempotency_key) VALUES('blocked','{}','schedule:' || floor(extract(epoch FROM now()) / 2000000000)::text)")
+        .execute(&mut *blocker).await?;
+    let mut registry = Registry {
+        execution_budget: Duration::from_millis(150),
+        ..Registry::default()
+    };
+    registry.cleanup("blocked", 2_000_000_000, Arc::new(NoopCleanup))?;
+    let start = std::time::Instant::now();
+    let error = tokio::time::timeout(Duration::from_secs(2), registry.schedule(&db.pool))
+        .await?
+        .err()
+        .ok_or("conflicting schedule must time out")?;
+    assert!(error.to_string().contains("scheduling deadline"));
+    assert!(start.elapsed() >= Duration::from_millis(150));
+    // Cancellation must terminate the database session while its blocker is
+    // still held, rather than leave a query waiting in a pooled connection.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let waiting: i64 = query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'")
+                .bind(&db.schema).fetch_one(&db.admin).await?;
+            if waiting == 0 { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<_, outbox::Error>(())
+    }).await??;
+    blocker.rollback().await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM outbox WHERE kind='blocked'")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn claiming_table_lock_has_a_deadline_and_closes_blocked_session() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let mut blocker = db.pool.begin().await?;
+    query("LOCK TABLE outbox IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await?;
+    let registry = Registry {
+        execution_budget: Duration::from_millis(150),
+        ..Registry::default()
+    };
+    let start = std::time::Instant::now();
+    let error = tokio::time::timeout(Duration::from_secs(2), registry.batch(&db.pool))
+        .await?
+        .err()
+        .ok_or("table lock must time out")?;
+    assert!(error.to_string().contains("claiming deadline"));
+    assert!(start.elapsed() >= Duration::from_millis(150));
+    // Cancellation must terminate the database session while its blocker is
+    // still held, rather than leave a query waiting in a pooled connection.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let waiting: i64 = query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'")
+                .bind(&db.schema).fetch_one(&db.admin).await?;
+            if waiting == 0 { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<_, outbox::Error>(())
+    }).await??;
+    blocker.rollback().await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM outbox WHERE state='running'")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await
+}

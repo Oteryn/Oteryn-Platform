@@ -179,8 +179,14 @@ pub async fn serve(
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
     let slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
     loop {
-        let Ok((socket, peer)) = listener.accept().await else {
-            continue;
+        let (socket, peer) = match oteryn_gameauth::devices::tls::accept_with_retry(
+            || listener.accept(),
+            |error| tracing::error!(%error, "internal TLS accept failed"),
+        )
+        .await
+        {
+            Ok(connection) => connection,
+            Err(_) => return,
         };
         let Ok(permit) = slots.clone().try_acquire_owned() else {
             continue;

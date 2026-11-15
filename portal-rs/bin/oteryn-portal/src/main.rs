@@ -398,12 +398,14 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app =
                 game_routes::mount(app, db.clone(), config.environment, internal_configuration)
                     .await;
-            let _internal_listener = internal_tls::start(app.clone()).await?;
+            let internal_listener = internal_tls::start(app.clone()).await?;
             let app = public_app;
-            let _native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
+            let native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             let mut private_listeners = tokio::task::JoinSet::new();
             for (name, handle) in [
+                ("internal TLS", internal_listener),
+                ("native TLS", native_listener),
                 ("league", league_listener),
                 ("bazaar", bazaar_listener),
                 ("account-closure", closure_listener),
@@ -455,7 +457,13 @@ mod tests {
     #[tokio::test]
     async fn all_private_listener_completions_are_supervised()
     -> Result<(), Box<dyn std::error::Error>> {
-        for name in ["league", "bazaar", "account-closure"] {
+        for name in [
+            "league",
+            "bazaar",
+            "account-closure",
+            "internal TLS",
+            "native TLS",
+        ] {
             let handle = tokio::spawn(async {});
             let mut tasks = tokio::task::JoinSet::new();
             tasks.spawn(async move { (name, handle.await) });

@@ -78,7 +78,7 @@ impl Registry {
     }
     async fn schedule(&self, pool: &PgPool) -> Result<(), outbox::Error> {
         for (kind, seconds) in &self.schedules {
-            outbox::schedule(pool, kind, *seconds).await?;
+            outbox::schedule_with_deadline(pool, kind, *seconds, self.execution_budget).await?;
         }
         Ok(())
     }
@@ -94,7 +94,7 @@ impl Registry {
             .acquire_timeout(Duration::from_secs(5))
             .connect_with((*pool.connect_options()).clone())
             .await?;
-        let jobs = outbox::claim(pool, 16, 60).await?;
+        let jobs = outbox::claim_with_deadline(pool, 16, 60, self.execution_budget).await?;
         let count = jobs.len();
         let mut tasks = tokio::task::JoinSet::new();
         for job in jobs {
