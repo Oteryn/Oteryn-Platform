@@ -786,9 +786,43 @@ async fn db_binary_refuses_restore_with_committed_store_generation_seven() {
     assert_eq!(generation, "7");
     values.insert("PORTAL_GAME_RESTORE_NOTICE_ENABLED".into(), "true".into());
     values.insert(RESTORE_IDENTITY.into(), "restore.oteryn.internal".into());
-    assert!(
-        Configuration::new(values).is_err(),
-        "binary must refuse before accepting a restore notice"
+    assert!(Configuration::new(values.clone()).is_err());
+    values.insert(
+        "PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED".into(),
+        "false".into(),
+    );
+    values.insert(
+        "PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED".into(),
+        "false".into(),
+    );
+    values.insert(
+        "PORTAL_GAME_RESTORE_NOTICE_SOURCE_AUTHORITY".into(),
+        "oteryn-game-eu1".into(),
+    );
+    Configuration::new(values.clone()).unwrap();
+    let app = db.app(&values).await;
+    let notice = include_bytes!("../../../crates/characters/src/restore/fixtures/notice.json");
+    let (status, _) = call(
+        &app,
+        "restore.oteryn.internal",
+        "/internal/v1/game-auth/game-restore/notice",
+        notice,
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        db.count(
+            "SELECT count(*) FROM character_restore_notices WHERE acknowledged_at IS NOT NULL"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        db.count(
+            "SELECT count(*) FROM store_receipts WHERE superseded_by_restore_event_id IS NULL"
+        )
+        .await,
+        1
     );
     db.finish().await;
     eprintln!(

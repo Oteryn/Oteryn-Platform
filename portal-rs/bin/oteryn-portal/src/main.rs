@@ -374,6 +374,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);
+            let app = app.merge(code_routes::configured(db.clone())?);
             let public_app = app.clone();
             let app = app.merge(oteryn_support::sanctions::export::configured_router(
                 db.clone(),
@@ -523,6 +524,7 @@ mod account_lifecycle_http;
 mod account_closure;
 
 mod catalog_cli;
+mod code_routes;
 
 #[cfg(test)]
 mod browser_configuration_tests {

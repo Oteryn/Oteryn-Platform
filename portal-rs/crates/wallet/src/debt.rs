@@ -83,7 +83,7 @@ pub(crate) async fn settle(
     sqlx::query("INSERT INTO wallet_operations (id,kind,account_id,amount,reference_id) VALUES ($1,'debt_settlement',$2,$3,$4)")
         .bind(settlement).bind(account).bind(total).bind(credit)
         .execute(&mut *tx).await?;
-    crate::ledger::entry(tx, settlement, account, -total, 0).await?;
+    crate::ledger::insert_entry(tx, settlement, account, -total, 0).await?;
     for (reversal, order, owed, applied) in steps {
         sqlx::query("INSERT INTO coin_debt_settlements (id,reversal_id,account_id,credit_operation_id,settlement_operation_id,coins,owed_before) VALUES ($1,$2,$3,$4,$5,$6,$7)")
             .bind(Uuid::now_v7()).bind(reversal).bind(account).bind(credit).bind(settlement).bind(applied).bind(owed)

@@ -637,3 +637,39 @@ async fn db_audit_failure_rolls_back_and_invalid_durable_state_denies() {
     assert_eq!(revision, 0);
     db.close().await;
 }
+
+#[tokio::test]
+async fn malformed_authenticated_premium_requests_consume_budget_before_validation() {
+    use tower::ServiceExt;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/unused")
+        .unwrap();
+    for bytes in [
+        b"{".to_vec(),
+        br#"{"schema":1,"schema":2}"#.to_vec(),
+        vec![b' '; 257],
+    ] {
+        let app = http::router(
+            repository::Ledger::new(pool.clone(), std::sync::Arc::new(TestAccounts), true),
+            settings(),
+            identity_map(),
+        );
+        for _ in 0..1200 {
+            assert_eq!(
+                app.clone()
+                    .oneshot(request(bytes.clone(), Some("premium.test")))
+                    .await
+                    .unwrap()
+                    .status()
+                    .as_u16(),
+                400
+            );
+        }
+        let response = app
+            .oneshot(request(bytes, Some("premium.test")))
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 429);
+        assert_eq!(response.headers()["retry-after"], "60");
+    }
+}

@@ -563,3 +563,121 @@ async fn flags_transport_and_peer_provenance_fail_closed_without_database() {
     );
     pool.close().await;
 }
+
+#[tokio::test]
+async fn non_rfc_v7_identifiers_refuse_every_coin_route_before_writes() {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let (a, b, _, _) = ids();
+    let router = app(db.ledger(&[a, b]), enabled());
+    for variant in ["0000", "c000", "e000"] {
+        let invalid = format!("019a65f0-0000-7000-{variant}-000000000003");
+        for route in ["transfers", "offers", "settlements", "cancellations"] {
+            let original = parse(&fixture(&format!("{route}-request.json")));
+            for field in ["operation_id", "reservation_id"] {
+                if original.get(field).is_none() {
+                    continue;
+                }
+                let mut value = original.clone();
+                set(&mut value, field, Value::String(invalid.clone()));
+                let path = format!(
+                    "/internal/v1/coins/{}{route}",
+                    if route == "transfers" { "" } else { "market/" }
+                );
+                let (status, bytes) = call(
+                    router.clone(),
+                    &path,
+                    Some(canonical::encode(&value).unwrap()),
+                    true,
+                )
+                .await;
+                assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+                assert_eq!(bytes, fixture("invalid.json"));
+            }
+        }
+        assert_eq!(
+            call(
+                router.clone(),
+                &format!("/internal/v1/coins/operations/{invalid}"),
+                None,
+                true
+            )
+            .await
+            .0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+    for table in ["wallet_operations", "wallet_reservations", "wallet_entries"] {
+        let count: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 0);
+    }
+    db.close().await;
+    eprintln!(
+        "PG non_rfc_v7_identifiers_refuse_every_coin_route_before_writes duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
+
+#[tokio::test]
+async fn legacy_excess_balance_is_readable_and_reducible_through_coin_dispatch() {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let (a, b, _, _) = ids();
+    let ledger = db.ledger(&[a, b]);
+    let key = id();
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+        .bind(a)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,$3)",
+    )
+    .bind(key)
+    .bind(a)
+    .bind(MAX_BALANCE + 1)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,$4,0)").bind(id()).bind(key).bind(a).bind(MAX_BALANCE + 1).execute(&db.pool).await.unwrap();
+    let router = app(ledger.clone(), enabled());
+    let (status, bytes) = call(
+        router.clone(),
+        &format!("/internal/v1/coins/accounts/{a}/balance"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        member(&parse(&bytes), "transferable"),
+        (MAX_BALANCE + 1).to_string()
+    );
+    let mut value = parse(&fixture("transfers-request.json"));
+    set(&mut value, "amount", Value::String("1".into()));
+    assert_eq!(
+        call(
+            router,
+            "/internal/v1/coins/transfers",
+            Some(canonical::encode(&value).unwrap()),
+            true
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(ledger.balance(a).await.unwrap().available, MAX_BALANCE);
+    db.close().await;
+    eprintln!(
+        "PG legacy_excess_balance_is_readable_and_reducible_through_coin_dispatch duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

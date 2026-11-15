@@ -547,7 +547,12 @@ fn named_policies_match_the_existing_portal_limits() -> TestResult {
         assert_eq!(policy.window_seconds(), *period, "{name}");
         found += 1;
     }
-    assert_eq!(found, NamedPolicy::ALL.len());
+    // Gift-code redemption is a new account budget, not a historical portal limit.
+    let codes = NamedPolicy::StoreCodeRedeem;
+    assert_eq!(codes.name(), "store-code-redeem");
+    assert_eq!(codes.limit(), 5);
+    assert_eq!(codes.window_seconds(), 60);
+    assert_eq!(found + 1, NamedPolicy::ALL.len());
     Ok(())
 }
 

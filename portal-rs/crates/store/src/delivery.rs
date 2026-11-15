@@ -235,7 +235,11 @@ impl Delivery {
         generation: u64,
     ) -> Result<u64, Error> {
         self.check()?;
-        if event.get_version_num() != 7 || restored == 0 || generation <= restored {
+        if event.get_version_num() != 7
+            || event.get_variant() != uuid::Variant::RFC4122
+            || restored == 0
+            || generation <= restored
+        {
             return Err(Error::Invalid);
         }
         lock_restore(tx, true).await?;

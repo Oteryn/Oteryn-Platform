@@ -87,6 +87,7 @@ policies! {
     SupportEnforcementAppeal, "support-enforcement-appeal", 3, 60, AccountSource;
     GameAuthTicketIssue, "game-auth-ticket-issue", 5, 60, CredentialSource;
     GameAuthNativeCharacters, "game-auth-native-characters", 10, 60, Credential;
+    StoreCodeRedeem, "store-code-redeem", 5, 60, Pending;
     WikiSearch, "wiki-search", 30, 60, LocaleSource;
 }
 /// Sensitive material is deliberately omitted from Debug, logs and SQL.

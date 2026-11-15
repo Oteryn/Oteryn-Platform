@@ -106,19 +106,19 @@ pub fn router(ledger: Ledger, settings: Settings, identities: Arc<IdentityMap>) 
         settings,
         rate: Mutex::new((Instant::now(), 0)),
     });
-    let routes = Router::new().route(PATH, post(read)).with_state(state);
-    guard::protect(
-        routes,
-        identities,
-        RoutePolicy {
-            enabled,
-            group: GROUP.into(),
-            max_body_bytes: 256,
-            max_json_depth: 4,
-            json: JsonRule::Object,
-        },
-    )
-    .layer(middleware::from_fn(contract_response))
+    let policy = RoutePolicy {
+        enabled,
+        group: GROUP.into(),
+        max_body_bytes: 256,
+        max_json_depth: 4,
+        json: JsonRule::Object,
+    };
+    let routes = Router::new()
+        .route(PATH, post(read))
+        .with_state(state.clone());
+    let routes = guard::validate_body(routes, policy.clone())
+        .route_layer(middleware::from_fn_with_state(state, budget));
+    guard::protect_peer(routes, identities, policy).layer(middleware::from_fn(contract_response))
 }
 pub(super) async fn contract_response(mut request: Request, next: Next) -> Response {
     // Laravel accepts media-type parameters and case-insensitive identity encoding.
@@ -152,7 +152,7 @@ pub(super) async fn contract_response(mut request: Request, next: Next) -> Respo
     );
     response
 }
-async fn read(State(state): State<Arc<StateData>>, request: Request) -> Response {
+async fn budget(State(state): State<Arc<StateData>>, request: Request, next: Next) -> Response {
     let allowed = match state.rate.lock() {
         Ok(mut rate) => {
             if rate.0.elapsed() >= Duration::from_secs(60) {
@@ -174,6 +174,9 @@ async fn read(State(state): State<Arc<StateData>>, request: Request) -> Response
             .insert(header::RETRY_AFTER, http::HeaderValue::from_static("60"));
         return response;
     }
+    next.run(request).await
+}
+async fn read(State(state): State<Arc<StateData>>, request: Request) -> Response {
     let parsed = request
         .extensions()
         .get::<Value>()

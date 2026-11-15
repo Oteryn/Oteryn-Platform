@@ -4,8 +4,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 /// Shared available-plus-reserved ceiling, matching the native coin wire.
-/// All ledger credits (including caller-owned transactions) enforce this under
-/// the account lock before entering a delta.
+/// Credits enforce this on their final balance after debt absorption, under
+/// the account lock. Historical excess remains readable and may be reduced.
 pub const MAX_BALANCE: i64 = 999_999_999_999;
 
 /// Runtime money flag. All APIs refuse while disabled.
@@ -60,6 +60,16 @@ pub struct Balance {
     pub reserved: i64,
 }
 impl Balance {
+    pub(crate) fn existing(available: i64, reserved: i64) -> Result<Self, Error> {
+        if available < 0 || reserved < 0 {
+            return Err(Refusal::InsufficientFunds.into());
+        }
+        available.checked_add(reserved).ok_or(Refusal::Overflow)?;
+        Ok(Self {
+            available,
+            reserved,
+        })
+    }
     pub(crate) fn apply(self, available: i64, reserved: i64) -> Result<Self, Error> {
         let available = self
             .available
@@ -73,7 +83,13 @@ impl Balance {
             return Err(Refusal::InsufficientFunds.into());
         }
         let total = available.checked_add(reserved).ok_or(Refusal::Overflow)?;
-        if total > MAX_BALANCE {
+        if total > MAX_BALANCE
+            && total
+                > self
+                    .available
+                    .checked_add(self.reserved)
+                    .ok_or(Refusal::Overflow)?
+        {
             return Err(Refusal::Overflow.into());
         }
         Ok(Self {

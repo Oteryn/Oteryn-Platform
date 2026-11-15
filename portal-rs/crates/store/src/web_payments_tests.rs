@@ -658,3 +658,52 @@ async fn postgres_checkout_replays_after_package_change_and_removal() -> TestRes
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_non_rfc_v7_checkout_keys_never_claim_payments() -> TestResult {
+    let started = std::time::Instant::now();
+    let (pool, admin, schema) = database()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let topups = PaymentTopUps {
+        signer: TestProvider::new(&[5; 32])?,
+        pool: pool.clone(),
+        payments: Payments::new(
+            pool.clone(),
+            TestProvider::new(&[5; 32])?,
+            Accounts(pool.clone()),
+            PaymentFlags { enabled: true },
+        ),
+        packages: vec![Package {
+            key: "regression".into(),
+            coins: 100,
+            minor_units: 250,
+            currency: "PLN".into(),
+        }],
+    };
+    for variant in ["0000", "c000", "e000"] {
+        let key = format!("019a65f0-0000-7000-{variant}-000000000003").parse()?;
+        assert!(matches!(
+            topups
+                .create(Uuid::now_v7(), key, "regression".into())
+                .await,
+            Err(Error::Invalid)
+        ));
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM store_web_topups")
+            .fetch_one(&pool)
+            .await?,
+        0
+    );
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    eprintln!(
+        "PG postgres_non_rfc_v7_checkout_keys_never_claim_payments duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
