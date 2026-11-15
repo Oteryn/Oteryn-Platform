@@ -81,14 +81,17 @@ pub(super) async fn run(
     policy: RetryPolicy,
     ready: &AtomicBool,
 ) -> Result<String> {
-    if publish {
-        source.reserve_publication(db).await?;
-    }
+    let mut reserved = false;
     for attempt in 0..policy.max_attempts {
-        let result =
-            tokio::time::timeout(Duration::from_secs(60), read_source(db, source, publish))
-                .await
-                .unwrap_or(Err(Error::Unavailable));
+        let result = tokio::time::timeout(Duration::from_secs(60), async {
+            if publish && !reserved {
+                source.reserve_publication(db).await?;
+                reserved = true;
+            }
+            read_source(db, source, publish).await
+        })
+        .await
+        .unwrap_or(Err(Error::Unavailable));
         match result {
             Ok(snapshot) => {
                 ready.store(true, Ordering::Release);
