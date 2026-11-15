@@ -165,7 +165,7 @@ pub fn configured_guard(
 }
 
 /// [`configured_guard`] reading its configuration through `lookup`.
-pub(crate) fn configured_guard_from(
+pub fn configured_guard_from(
     routes: Router,
     pool: PgPool,
     permission: Permission,

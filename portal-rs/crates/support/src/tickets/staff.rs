@@ -17,22 +17,31 @@ pub struct StaffSupport {
 }
 impl StaffSupport {
     pub fn configured(pool: PgPool) -> std::result::Result<Self, Box<dyn std::error::Error>> {
-        let tickets_enabled = std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() == Ok("true");
+        Self::configured_from(pool, &|key| std::env::var(key).ok())
+    }
+    /// [`Self::configured`] reading its configuration through `lookup`.
+    pub fn configured_from(
+        pool: PgPool,
+        lookup: &dyn Fn(&str) -> Option<String>,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
+        let tickets_enabled = lookup("OTERYN_SUPPORT_TICKETS").as_deref() == Some("true");
         let pending_limit =
-            std::env::var("OTERYN_REPORTS_PENDING_LIMIT").map_or(5, |v| v.parse().unwrap_or(0));
+            lookup("OTERYN_REPORTS_PENDING_LIMIT").map_or(5, |v| v.parse().unwrap_or(0));
         let unjustified_limit =
-            std::env::var("OTERYN_REPORTS_UNJUSTIFIED_LIMIT").map_or(3, |v| v.parse().unwrap_or(0));
-        let reports_enabled = std::env::var("OTERYN_REPORTS_ENABLED").as_deref() == Ok("true")
+            lookup("OTERYN_REPORTS_UNJUSTIFIED_LIMIT").map_or(3, |v| v.parse().unwrap_or(0));
+        let reports_enabled = lookup("OTERYN_REPORTS_ENABLED").as_deref() == Some("true")
             && (1..=20).contains(&pending_limit)
             && unjustified_limit > 0;
-        let sanctions_enabled = std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true");
+        let sanctions_enabled = lookup("OTERYN_ADMIN_PANEL").as_deref() == Some("true");
         let notifications = if tickets_enabled || reports_enabled || sanctions_enabled {
             Some(Arc::new(Notifications {
                 pool: pool.clone(),
                 accounts: Arc::new(web::NotifyAccounts(pool.clone())),
                 unsubscribe: oteryn_notify::Unsubscribe::new(
-                    std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_KEY")?.into_bytes(),
-                    std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_URL")?,
+                    lookup("OTERYN_NOTIFY_UNSUBSCRIBE_KEY")
+                        .ok_or("missing unsubscribe key")?
+                        .into_bytes(),
+                    lookup("OTERYN_NOTIFY_UNSUBSCRIBE_URL").ok_or("missing unsubscribe url")?,
                 )
                 .map_err(|_| "invalid notification configuration")?,
             }))
@@ -88,7 +97,18 @@ impl StaffSupport {
 pub fn configured_staff_router(
     pool: PgPool,
 ) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
-    oteryn_admin::support::web::configured_router(pool.clone(), StaffSupport::configured(pool)?)
+    configured_staff_router_from(pool, &|key| std::env::var(key).ok())
+}
+/// [`configured_staff_router`] reading its configuration through `lookup`.
+pub fn configured_staff_router_from(
+    pool: PgPool,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
+    oteryn_admin::support::web::configured_router_from(
+        pool.clone(),
+        StaffSupport::configured_from(pool, lookup)?,
+        lookup,
+    )
 }
 impl Backend for StaffSupport {
     async fn list(&self, area: Area, page: u32) -> std::result::Result<Vec<Record>, StaffError> {

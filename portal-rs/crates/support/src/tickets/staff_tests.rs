@@ -53,8 +53,20 @@ async fn postgres_configured_staff_support_domain_actions() -> TestResult {
     let sanction: Uuid = sqlx::query_scalar("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'warning','active','Existing sanction',to_timestamp(1794000000),to_timestamp(1894000000),$2) RETURNING id").bind(owner).bind(staff).fetch_one(&pool).await?;
     sqlx::query("INSERT INTO support_appeal_workflows(sanction_id,owner_id,status,message) VALUES($1,$2,'requested','Please review')").bind(sanction).bind(owner).execute(&pool).await?;
     sqlx::query("INSERT INTO account_notification_prefs(account_id,category,email_enabled,portal_enabled) VALUES($1,'support',true,true)").bind(owner).execute(&pool).await?;
-    let app = configured_staff_router(pool.clone()).map_err(|error| error.to_string())?;
-    let host = std::env::var("OTERYN_ADMIN_HOST")?;
+    let host = "staff.test".to_owned();
+    let lookup = |key: &str| match key {
+        "OTERYN_SUPPORT_TICKETS" | "OTERYN_REPORTS_ENABLED" | "OTERYN_ADMIN_PANEL" => {
+            Some("true".to_owned())
+        }
+        "OTERYN_ADMIN_HOST" => Some(host.clone()),
+        // Synthetic test keys; grant checks never decrypt the fixture secret.
+        "OTERYN_MFA_KEY" => Some("ab".repeat(32)),
+        "OTERYN_NOTIFY_UNSUBSCRIBE_KEY" => Some("k".repeat(32)),
+        "OTERYN_NOTIFY_UNSUBSCRIBE_URL" => Some("https://portal.test/unsubscribe".to_owned()),
+        _ => None,
+    };
+    let app =
+        configured_staff_router_from(pool.clone(), &lookup).map_err(|error| error.to_string())?;
     for (area, id, title) in [
         ("support/tickets", ticket, "Existing ticket"),
         ("moderation/reports", report, "Existing report"),

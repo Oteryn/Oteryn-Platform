@@ -35,17 +35,29 @@ pub fn configured_router<B: Backend>(
     pool: PgPool,
     backend: B,
 ) -> Result<Router, Box<dyn std::error::Error>> {
+    configured_router_from(pool, backend, &|key| std::env::var(key).ok())
+}
+/// [`configured_router`] reading its configuration through `lookup`.
+pub fn configured_router_from<B: Backend>(
+    pool: PgPool,
+    backend: B,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
     let mut routes = Router::new();
     for area in [Area::Tickets, Area::Reports, Area::Enforcement] {
         let state = Arc::new(Panel {
             pool: pool.clone(),
-            auth: Authorizer::new(pool.clone(), web::PortalIdentity::configured(pool.clone())),
+            auth: Authorizer::new(
+                pool.clone(),
+                web::PortalIdentity::configured_from(pool.clone(), lookup),
+            ),
             backend: backend.clone(),
         });
-        routes = routes.merge(web::configured_guard(
+        routes = routes.merge(web::configured_guard_from(
             area_routes(area, state),
             pool.clone(),
             area.permission(),
+            lookup,
         )?);
     }
     Ok(routes)

@@ -279,6 +279,16 @@ async fn postgres_source_limit_bad_input_and_missing_transport() -> TestResult {
         app.clone().oneshot(no_peer).await?.status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+    // The source budget uses fixed 60-second windows on the database clock.
+    // Start the 21 requests early in a window so a boundary cannot reset it.
+    let remaining: f64 = sqlx::query_scalar(
+        "SELECT (60 - mod(extract(epoch FROM statement_timestamp()), 60))::float8",
+    )
+    .fetch_one(&database.pool)
+    .await?;
+    if remaining < 30.0 {
+        tokio::time::sleep(std::time::Duration::from_secs_f64(remaining + 0.2)).await;
+    }
     for _ in 0..20 {
         let response = app
             .clone()
