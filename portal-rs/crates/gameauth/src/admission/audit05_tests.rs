@@ -266,7 +266,16 @@ async fn audit05_09_overflow_refuses_entire_world() -> TestResult {
             .bind(world).bind(channel).bind(format!("channel-{index}")).bind(host).bind(revision).execute(&f.db.pool).await?;
     }
     let mut tx = f.db.pool.begin().await?;
-    let result = grant::candidates(&mut tx, &f.authority.issuance.runtime, world, 2000000000).await;
+    // Every route lacks fresh evidence at this time; preserve the fail-closed
+    // selection assertion without imposing an undocumented World capacity.
+    let result = grant::select3(
+        &mut tx,
+        &f.authority.issuance.runtime,
+        world,
+        None,
+        2000000000,
+    )
+    .await;
     assert_eq!(result.err(), Some(Error::RouteUnavailable));
     tx.rollback().await?;
     f.close().await
@@ -308,6 +317,10 @@ async fn audit05_04_replay_waits_for_account_before_attempt() -> TestResult {
     });
     tokio::time::timeout(Duration::from_secs(2),async {
         loop {
+            // PostgreSQL caches activity observations for this transaction.
+            // Refresh them so the barrier can observe a waiter arriving later.
+            sqlx::query("SELECT pg_stat_clear_snapshot()")
+                .execute(&mut *writer).await?;
             let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%accounts WHERE id=%' AND pid<>pg_backend_pid())").fetch_one(&mut *writer).await?;
             if waiting { break; }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -404,5 +417,90 @@ async fn audit05_05_handle_replacement_rechecks_expiry_after_lock_wait() -> Test
         task.await??.is_none(),
         "expired handle was returned after its lock wait"
     );
+    f.close().await
+}
+
+/// Invalid rows before a live route must not hide it from listing, admission or recovery.
+#[tokio::test]
+async fn gaa_14_complete_candidates_admission_listing_and_recovery() -> TestResult {
+    let f = Fixture::new().await?;
+    let world: Uuid = runtime::tests::WORLD.parse()?;
+    let channel: Uuid = runtime::tests::CHANNEL.parse()?;
+    for index in 0..64_u128 {
+        let id = Uuid::from_u128(0x019b0000000070008000000000000000 + index);
+        let host = format!("earlier-{index}.example.test");
+        let revision = grant::route_revision(1, world, id, &host, 7172, &host)?;
+        sqlx::query("INSERT INTO game_channels(world_id,channel_id,channel_key,native_login_enabled,native_route_host,native_route_port,native_route_tls_server_name,native_route_version,native_route_revision) VALUES($1,$2,$3,$4,$5,7172,$5,1,$6)")
+            .bind(world).bind(id).bind(if index % 3 == 0 { None } else { Some(format!("earlier-{index}")) }).bind(index % 3 != 1).bind(host).bind(if index % 3 == 2 { "invalid".to_owned() } else { revision }).execute(&f.db.pool).await?;
+    }
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&f.db.pool)
+            .await?;
+    let mut tx = f.db.pool.begin().await?;
+    let runtime = &f.authority.issuance.runtime;
+    let found = grant::candidates(&mut tx, runtime, world, now).await?;
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].route.channel, channel);
+    assert_eq!(
+        grant::select3(&mut tx, runtime, world, Some(channel), now)
+            .await?
+            .0
+            .channel,
+        channel
+    );
+    assert_eq!(
+        recovery::test_target(
+            &mut tx,
+            runtime,
+            f.account,
+            world,
+            channel,
+            f.request.character_id,
+            now
+        )
+        .await
+        .map_err(|e| format!("recovery target: {e:?}"))?,
+        channel
+    );
+    tx.rollback().await?;
+    // A valid duplicate after the old cutoff excludes both endpoints, even when disabled.
+    let duplicate = Uuid::now_v7();
+    let revision = grant::route_revision(
+        1,
+        world,
+        duplicate,
+        "node.example.test",
+        7172,
+        "node.example.test",
+    )?;
+    sqlx::query("INSERT INTO game_channels(world_id,channel_id,channel_key,native_login_enabled,native_route_host,native_route_port,native_route_tls_server_name,native_route_version,native_route_revision) VALUES($1,$2,'duplicate',false,'node.example.test',7172,'node.example.test',1,$3)").bind(world).bind(duplicate).bind(revision).execute(&f.db.pool).await?;
+    let mut tx = f.db.pool.begin().await?;
+    assert!(
+        grant::candidates(&mut tx, runtime, world, now)
+            .await?
+            .is_empty()
+    );
+    assert_eq!(
+        grant::select3(&mut tx, runtime, world, Some(channel), now)
+            .await
+            .err(),
+        Some(Error::RouteUnavailable)
+    );
+    assert_eq!(
+        recovery::test_target(
+            &mut tx,
+            runtime,
+            f.account,
+            world,
+            channel,
+            f.request.character_id,
+            now
+        )
+        .await
+        .err(),
+        Some(recovery::RecoveryError::RouteUnavailable)
+    );
+    tx.rollback().await?;
     f.close().await
 }

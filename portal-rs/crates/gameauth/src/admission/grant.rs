@@ -46,8 +46,8 @@ const TYPE: &str = "oteryn-admission+jwt";
 /// §19.4 step 6: the recovery grant header type.
 pub(super) const RECOVERY_TYPE: &str = "oteryn-recovery+jwt";
 const PURPOSE: &str = "fresh_entry";
-/// Bounded read of one World's route records; v1 Worlds have few channels.
-const MAX_CHANNELS: i64 = 64;
+/// Query page size, never a limit on a World's candidate set.
+const ROUTE_PAGE_SIZE: i64 = 64;
 /// The §9.2 self-check result is cached for less than its 5 s bound.
 const TRUST_REFRESH: Duration = Duration::from_secs(2);
 
@@ -481,8 +481,32 @@ fn record(world: Uuid, row: &sqlx::postgres::PgRow) -> Result<Option<Route>, Err
     }))
 }
 
+/// Read the complete World's route records in canonical order. Qualification
+/// and endpoint collision checks must see every page, including disabled and
+/// keyless records whose otherwise valid endpoints can collide (§19.2.1 M1).
+async fn route_rows(
+    db: &mut PgConnection,
+    world: Uuid,
+) -> Result<Vec<sqlx::postgres::PgRow>, Error> {
+    let mut rows = Vec::new();
+    let mut after: Option<Uuid> = None;
+    loop {
+        let page = sqlx::query("SELECT channel_id, channel_key, native_login_enabled, native_route_host, native_route_port, native_route_tls_server_name, native_route_version, native_route_revision FROM game_channels WHERE world_id=$1 AND native_route_revision IS NOT NULL AND ($2::uuid IS NULL OR channel_id>$2) ORDER BY channel_id LIMIT $3")
+            .bind(world).bind(after).bind(ROUTE_PAGE_SIZE)
+            .fetch_all(&mut *db).await.map_err(|_| Error::Unavailable)?;
+        let complete = page.len() < ROUTE_PAGE_SIZE as usize;
+        if let Some(last) = page.last() {
+            after = Some(last.try_get("channel_id").map_err(|_| Error::Unavailable)?);
+        }
+        rows.extend(page);
+        if complete {
+            return Ok(rows);
+        }
+    }
+}
+
 /// §7.4 candidate set and selection. The requested channel is filtered before
-/// the bound; only the selected route record is share-locked, re-read and kept
+/// qualification; only the selected route record is share-locked, re-read and kept
 /// locked until commit so it cannot change under the grant.
 pub(super) async fn select(
     db: &mut PgConnection,
@@ -491,10 +515,15 @@ pub(super) async fn select(
     requested: Option<Uuid>,
     now: i64,
 ) -> Result<(Route, Value), Error> {
-    let rows = sqlx::query("SELECT channel_id, native_route_host, native_route_port, native_route_tls_server_name, native_route_version, native_route_revision FROM game_channels WHERE world_id=$1 AND native_login_enabled AND native_route_revision IS NOT NULL AND ($2::uuid IS NULL OR channel_id=$2) ORDER BY channel_id LIMIT $3")
-        .bind(world).bind(requested).bind(MAX_CHANNELS)
-        .fetch_all(&mut *db).await.map_err(|_| Error::Unavailable)?;
+    let rows = route_rows(db, world).await?;
     for row in &rows {
+        let enabled: bool = row
+            .try_get("native_login_enabled")
+            .map_err(|_| Error::Unavailable)?;
+        let channel: Uuid = row.try_get("channel_id").map_err(|_| Error::Unavailable)?;
+        if !enabled || requested.is_some_and(|id| id != channel) {
+            continue;
+        }
         let Some(route) = record(world, row)? else {
             continue;
         };
@@ -536,12 +565,7 @@ pub(super) async fn candidates(
     world: Uuid,
     now: i64,
 ) -> Result<Vec<Candidate>, Error> {
-    let rows = sqlx::query("SELECT channel_id, channel_key, native_login_enabled, native_route_host, native_route_port, native_route_tls_server_name, native_route_version, native_route_revision FROM game_channels WHERE world_id=$1 AND native_route_revision IS NOT NULL ORDER BY channel_id LIMIT $2")
-        .bind(world).bind(MAX_CHANNELS + 1)
-        .fetch_all(&mut *db).await.map_err(|_| Error::Unavailable)?;
-    if rows.len() > MAX_CHANNELS as usize {
-        return Err(Error::RouteUnavailable);
-    }
+    let rows = route_rows(db, world).await?;
     let mut records = Vec::with_capacity(rows.len());
     for row in &rows {
         let Some(route) = record(world, row)? else {
@@ -553,16 +577,23 @@ pub(super) async fn candidates(
         let key: Option<String> = row.try_get("channel_key").map_err(|_| Error::Unavailable)?;
         records.push((route, enabled, key));
     }
+    let mut endpoints = std::collections::HashSet::new();
+    let mut collisions = std::collections::HashSet::new();
+    for (route, _, _) in &records {
+        let endpoint = (
+            route.endpoint.host.to_ascii_lowercase(),
+            route.endpoint.port,
+        );
+        if !endpoints.insert(endpoint.clone()) {
+            collisions.insert(endpoint);
+        }
+    }
     let mut found = Vec::new();
     for (route, enabled, key) in &records {
-        let shared = records.iter().any(|(other, _, _)| {
-            other.channel != route.channel
-                && other
-                    .endpoint
-                    .host
-                    .eq_ignore_ascii_case(&route.endpoint.host)
-                && other.endpoint.port == route.endpoint.port
-        });
+        let shared = collisions.contains(&(
+            route.endpoint.host.to_ascii_lowercase(),
+            route.endpoint.port,
+        ));
         let Some(key) = key.as_ref().filter(|k| super::wire::channel_key_valid(k)) else {
             continue;
         };

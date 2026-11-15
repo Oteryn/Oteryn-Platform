@@ -13,9 +13,10 @@ use std::net::SocketAddr;
 const BASE: &str = "/api/v1/game-auth/device-sessions";
 fn failure(error: Failure) -> Response {
     let (status, message) = match error {
-        Failure::Forbidden => (StatusCode::FORBIDDEN, "device_authorization_unavailable"),
-        Failure::Conflict => (StatusCode::CONFLICT, "device_authorization_unavailable"),
-        Failure::Denied => (StatusCode::UNAUTHORIZED, "device_authorization_unavailable"),
+        // The accepted session contract supersedes the proposed 403/409 table.
+        Failure::Forbidden | Failure::Conflict | Failure::Denied => {
+            (StatusCode::UNAUTHORIZED, "device_authorization_unavailable")
+        }
         Failure::Unavailable | Failure::Retryable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "device_authorization_unavailable",

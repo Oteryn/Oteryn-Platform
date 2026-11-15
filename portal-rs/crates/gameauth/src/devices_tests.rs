@@ -265,7 +265,7 @@ async fn database_http_success_bad_input_and_source_limit()
     let Some((s, a)) = setup().await? else {
         return Ok(());
     };
-    let server = tls::tests::Harness::new(router(s)).await;
+    let server = tls::tests::Harness::new(router(s.clone())).await;
     let (status, _) = server
         .post_body(
             "",
@@ -277,10 +277,14 @@ async fn database_http_success_bad_input_and_source_limit()
     let body = enrollment_body("valid", a.client_id, true);
     let mut wrong = body.clone();
     wrong["enrollment_proof"] = URL_SAFE_NO_PAD.encode([0_u8; 64]).into();
-    assert_eq!(server.post("", "Bearer valid", &wrong).await.0, 403);
+    assert_eq!(server.post("", "Bearer valid", &wrong).await.0, 401);
     let (status, _) = server.post("", "Bearer valid", &body).await;
     assert_eq!(status, 200);
-    assert_eq!(server.post("", "Bearer valid", &body).await.0, 409);
+    assert_eq!(server.post("", "Bearer valid", &body).await.0, 401);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM device_sessions")
+        .fetch_one(&s.pool)
+        .await?;
+    assert_eq!(count, 1);
     for _ in 0..26 {
         server.post_body("", "Bearer valid", "{}").await;
     }
@@ -869,6 +873,12 @@ async fn database_device_key_reuse_refuses_without_family()
         s.enroll_class(&bearer, false, Some(key)).await,
         Err(Failure::Conflict)
     ));
+    let server = tls::tests::Harness::new(router(s.clone())).await;
+    let body = enrollment_body(&bearer, client, false);
+    assert_eq!(
+        server.post("", &format!("Bearer {bearer}"), &body).await.0,
+        401
+    );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM device_sessions")
         .fetch_one(&s.pool)
         .await?;
@@ -1119,7 +1129,7 @@ async fn devices_e2e_unbound_lifecycle_with_game_client_bytes()
     let (status, conflict) = server
         .post_body("", &bearer_header, GAME_UNBOUND_ENROLLMENT)
         .await;
-    assert_eq!(status, 409, "{conflict}");
+    assert_eq!(status, 401, "{conflict}");
     let operation = game_operation(client);
     let mut current = enrolled;
     for suffix in ["/native-characters", "/tickets", "/native-characters"] {

@@ -157,6 +157,11 @@ null, is invalid. A known predecessor is sufficient for idempotent revocation.
 
 ## Errors and limits
 
+This proposed table is historical. The accepted
+[session contract](OTERYN_V2_NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT.md#http-protocol-1)
+governs enrollment and rotation refusals: enrollment proof, token replay and key
+reuse return generic 401, superseding the 403/409 rows below.
+
 All errors contain exactly one string member, `error`. No input, key, credential,
 account detail, or exception is echoed.
 
