@@ -306,3 +306,348 @@ async fn identity_approval_intentionally_survives_legacy_to_catalogue_switch()
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn retired_epoch_delayed_refresh_cannot_replace_publication()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let a = catalog_fixture::supported();
+    let sa = source(&a);
+    let a = oteryn_world::catalog::verify(&a.bytes, &a.sidecar, &sa.fence)?;
+    a.persist_inactive(&db.pool).await?;
+    a.publish(&db.pool).await?;
+    // A refresh has verified its candidate but is paused before publication.
+    let release = Arc::new(tokio::sync::Notify::new());
+    let signal = release.clone();
+    let pool = db.pool.clone();
+    let delayed = tokio::spawn(async move {
+        signal.notified().await;
+        a.publish(&pool).await
+    });
+    let mut input = catalog_fixture::supported_source();
+    input["authority_epoch"] = "native-epoch-2".into();
+    let b = catalog_fixture::emit(input);
+    let sb = source(&b);
+    let b = oteryn_world::catalog::verify(&b.bytes, &b.sidecar, &sb.fence)?;
+    b.persist_inactive(&db.pool).await?;
+    b.publish(&db.pool).await?;
+    release.notify_one();
+    assert_eq!(delayed.await?, Err(Error::ProvenanceConflict));
+    assert!(
+        CatalogStore::new(db.pool.clone(), Some(sb))
+            .active_version_id()
+            .await?
+            .is_some()
+    );
+    assert_eq!(
+        CatalogStore::new(db.pool.clone(), Some(sa))
+            .active_version_id()
+            .await?,
+        None
+    );
+    db.close().await?;
+    eprintln!(
+        "retired_epoch_delayed_refresh_cannot_replace_publication: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+#[tokio::test]
+async fn nul_opaque_category_does_not_poison_valid_npc_publication()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let mut input = catalog_fixture::supported_source();
+    input["entities"][0]["data"]["opaque"] = "opaque\0carrier".into();
+    input["capability_manifest"][1]["support"] = "supported".into();
+    input["completeness_manifest"][1]["state"] = "complete".into();
+    input["entities"].as_array_mut().ok_or("entities")?.push(serde_json::json!({"type":"npc","content_key":"oteryn:npc.test","capability_id":"npc","data":{"name":"Guide"}}));
+    let fixture = catalog_fixture::emit(input);
+    let configured = source(&fixture);
+    let candidate =
+        oteryn_world::catalog::verify(&fixture.bytes, &fixture.sidecar, &configured.fence)?;
+    candidate.persist_inactive(&db.pool).await?;
+    candidate.publish(&db.pool).await?;
+    let store = CatalogStore::new(db.pool.clone(), Some(configured));
+    assert!(!store.available("Item").await?);
+    assert!(store.available("NPC").await?);
+    let original: Vec<u8> =
+        sqlx::query_scalar("SELECT artifact FROM world_catalog_candidates WHERE snapshot_id=$1")
+            .bind(candidate.snapshot_id())
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(original, fixture.bytes);
+    db.close().await?;
+    eprintln!(
+        "nul_opaque_category_does_not_poison_valid_npc_publication: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn paused_first_epoch_refresh_is_fenced_before_its_first_publication()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let a = catalog_fixture::supported();
+    let mut sa = source(&a);
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    sa.file = PathBuf::new();
+    sa.url = Some(url::Url::parse(&format!(
+        "http://{}/catalog",
+        listener.local_addr()?
+    ))?);
+    let (arrived, paused) = tokio::sync::oneshot::channel();
+    let (release, resume) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await?;
+        let mut buffer = [0; 4096];
+        let received = socket.read(&mut buffer).await?;
+        assert!(received > 0);
+        let _ = arrived.send(());
+        let _ = resume.await;
+        socket
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    a.bytes.len()
+                )
+                .as_bytes(),
+            )
+            .await?;
+        socket.write_all(&a.bytes).await?;
+        Ok::<_, std::io::Error>(())
+    });
+    let policy = RetryPolicy::new(1, 1, 1)?;
+    let delayed = refresh_source_in_background(
+        db.pool.clone(),
+        sa,
+        true,
+        policy,
+        Arc::new(AtomicBool::new(false)),
+    );
+    tokio::time::timeout(Duration::from_secs(3), paused).await??;
+    let mut input = catalog_fixture::supported_source();
+    input["authority_epoch"] = "native-epoch-2".into();
+    let b = catalog_fixture::emit(input);
+    let producer = producer(b.bytes.clone(), 0).await?;
+    let mut sb = source(&b);
+    sb.file = PathBuf::new();
+    sb.url = Some(producer.url.clone());
+    refresh_source_in_background(
+        db.pool.clone(),
+        sb.clone(),
+        true,
+        policy,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .await??;
+    let _ = release.send(());
+    assert_eq!(delayed.await?, Err(Error::ProvenanceConflict));
+    server.await??;
+    assert!(
+        CatalogStore::new(db.pool.clone(), Some(sb))
+            .active_version_id()
+            .await?
+            .is_some()
+    );
+    db.close().await?;
+    eprintln!(
+        "paused_first_epoch_refresh_is_fenced_before_its_first_publication: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn migration_copies_aliases_and_denies_conflicting_approvals()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        return Err("PORTAL_TEST_DATABASE_URL required".into());
+    };
+    let root = PgPool::connect(&url).await?;
+    let schema = format!("alias_migration_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&root)
+        .await?;
+    let path = schema.clone();
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .after_connect(move |c, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(c)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await?;
+    let preceding = sqlx::migrate::Migrator {
+        migrations: std::borrow::Cow::Owned(
+            oteryn_db::MIGRATOR
+                .iter()
+                .filter(|m| m.version < 20261115120014)
+                .cloned()
+                .collect(),
+        ),
+        ..sqlx::migrate::Migrator::DEFAULT
+    };
+    preceding.run(&pool).await?;
+    let version = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO world_versions(id,source_commit,status) VALUES($1,repeat('a',40),'ready')",
+    )
+    .bind(version)
+    .execute(&pool)
+    .await?;
+    sqlx::query("UPDATE world_active_version SET version_id=$1")
+        .bind(version)
+        .execute(&pool)
+        .await?;
+    sqlx::query("INSERT INTO world_entities(version_id,kind,key,data,publishable) VALUES($1,'creatures','rat','{}',true),($1,'npcs','guide','{}',true)").bind(version).execute(&pool).await?;
+    sqlx::query("INSERT INTO world_visibility(kind,key,allowed) VALUES('creatures','rat',true),('npcs','guide',true),('NPC','guide',false)").execute(&pool).await?;
+    sqlx::query(
+        "INSERT INTO world_admin_names(kind,key,pl,en) VALUES('creatures','rat','Szczur','Rat')",
+    )
+    .execute(&pool)
+    .await?;
+    // Populate the predecessor schema with two previously accepted epochs.
+    let old = catalog_fixture::supported();
+    let old_source = source(&old);
+    let old = oteryn_world::catalog::verify(&old.bytes, &old.sidecar, &old_source.fence)?;
+    old.persist_inactive(&pool).await?;
+    let mut current_input = catalog_fixture::supported_source();
+    current_input["authority_epoch"] = "migration-current-epoch".into();
+    let current = catalog_fixture::emit(current_input);
+    let current_source = source(&current);
+    let current =
+        oteryn_world::catalog::verify(&current.bytes, &current.sidecar, &current_source.fence)?;
+    current.persist_inactive(&pool).await?;
+    for candidate in [&old, &current] {
+        let id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO world_versions(id,source_commit,status) VALUES($1,repeat('a',40),'ready')",
+        )
+        .bind(id)
+        .execute(&pool)
+        .await?;
+        sqlx::query("INSERT INTO world_catalog_versions(snapshot_id,version_id,capabilities) VALUES($1,$2,ARRAY['item'])").bind(candidate.snapshot_id()).bind(id).execute(&pool).await?;
+    }
+    sqlx::query("UPDATE world_catalog_publication SET snapshot_id=$1")
+        .bind(current.snapshot_id())
+        .execute(&pool)
+        .await?;
+    oteryn_db::migrate(&pool).await?;
+    assert_eq!(old.publish(&pool).await, Err(Error::ProvenanceConflict));
+    assert!(
+        CatalogStore::new(pool.clone(), Some(current_source))
+            .active_version_id()
+            .await?
+            .is_some()
+    );
+    let world = WorldStore::new(pool.clone(), WorldOptions { enabled: true });
+    assert!(world.get_entity("Creature", "rat").await?.is_some());
+    assert!(world.get_entity("creatures", "rat").await?.is_some());
+    assert!(world.get_entity("NPC", "guide").await?.is_none());
+    let name: String =
+        sqlx::query_scalar("SELECT en FROM world_admin_names WHERE kind='Creature' AND key='rat'")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(name, "Rat");
+    world.allow("npcs", "guide").await?;
+    assert!(world.get_entity("NPC", "guide").await?.is_some());
+    let db = Database { root, pool, schema };
+    db.close().await?;
+    eprintln!(
+        "migration_copies_aliases_and_denies_conflicting_approvals: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn retired_epoch_requires_exact_audited_recovery() -> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let a = catalog_fixture::supported();
+    let sa = source(&a);
+    let a = oteryn_world::catalog::verify(&a.bytes, &a.sidecar, &sa.fence)?;
+    a.persist_inactive(&db.pool).await?;
+    a.publish(&db.pool).await?;
+    let mut input = catalog_fixture::supported_source();
+    input["authority_epoch"] = "recovery-epoch-2".into();
+    let b = catalog_fixture::emit(input);
+    let sb = source(&b);
+    let b = oteryn_world::catalog::verify(&b.bytes, &b.sidecar, &sb.fence)?;
+    b.persist_inactive(&db.pool).await?;
+    b.publish(&db.pool).await?;
+    assert_eq!(a.publish(&db.pool).await, Err(Error::ProvenanceConflict));
+    for (ruleset, evidence) in [
+        ("wrong", "operator evidence"),
+        (sa.fence.ruleset_id.as_str(), " "),
+    ] {
+        assert!(
+            sqlx::query("SELECT world_catalog_recover_authority($1,$2,$3,$4,$5,$6)")
+                .bind(Uuid::now_v7())
+                .bind(a.snapshot_id())
+                .bind(ruleset)
+                .bind(&sa.fence.content_profile_id)
+                .bind(evidence)
+                .bind("Restore current epoch if validation fails")
+                .execute(&db.pool)
+                .await
+                .is_err()
+        );
+    }
+    assert!(
+        CatalogStore::new(db.pool.clone(), Some(sb))
+            .active_version_id()
+            .await?
+            .is_some()
+    );
+    let recovery: i64 =
+        sqlx::query_scalar("SELECT world_catalog_recover_authority($1,$2,$3,$4,$5,$6)")
+            .bind(Uuid::now_v7())
+            .bind(a.snapshot_id())
+            .bind(&sa.fence.ruleset_id)
+            .bind(&sa.fence.content_profile_id)
+            .bind("Explicit operator authority evidence for retained test snapshot")
+            .bind("Restore epoch 2 after verifying authority")
+            .fetch_one(&db.pool)
+            .await?;
+    assert!(recovery > 0);
+    a.publish(&db.pool).await?;
+    assert!(
+        CatalogStore::new(db.pool.clone(), Some(sa))
+            .active_version_id()
+            .await?
+            .is_some()
+    );
+    assert_eq!(b.publish(&db.pool).await, Err(Error::ProvenanceConflict));
+    assert!(
+        sqlx::query("DELETE FROM world_catalog_authority_recoveries")
+            .execute(&db.pool)
+            .await
+            .is_err()
+    );
+    db.close().await?;
+    eprintln!(
+        "retired_epoch_requires_exact_audited_recovery: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

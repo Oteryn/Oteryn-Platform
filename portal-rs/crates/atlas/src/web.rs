@@ -199,7 +199,7 @@ async fn page(
                 continue;
             };
             if v.world
-                .get_entity("npcs", &marker.entity_key)
+                .get_entity("NPC", &marker.entity_key)
                 .await
                 .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
                 .is_some_and(|e| e.version_id == placement.version_id)

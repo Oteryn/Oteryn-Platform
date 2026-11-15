@@ -26,6 +26,7 @@ unic-langid = "0.9"
 oteryn-admin.workspace = true
 oteryn-web.workspace = true
 oteryn-world.workspace = true
+oteryn-atlas.workspace = true
 
 [dev-dependencies]
 sha2 = "0.10"

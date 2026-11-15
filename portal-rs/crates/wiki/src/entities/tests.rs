@@ -697,3 +697,210 @@ async fn postgres_native_export_cache_refuses_unknown_and_proves_synthetic_200()
 
 #[path = "../../../world/tests/support/catalog.rs"]
 mod catalog_fixture;
+
+#[tokio::test]
+async fn entity_router_exact_twelve_guides_has_no_next_page() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    for i in 0..12 {
+        let id = Uuid::now_v7();
+        sqlx::query("INSERT INTO wiki_guides(id,status,published_at) VALUES($1,'published',now())")
+            .bind(id)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO wiki_revisions(id,guide_id,version,locale,title,slug,summary,markdown,editor,change_note) VALUES($1,$2,1,'en','Matching guide',$3,'Matching','Matching',$4,'')").bind(Uuid::now_v7()).bind(id).bind(format!("guide-{i}")).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    }
+    for uri in ["/en/wiki", "/en/wiki/search?q=Matching"] {
+        let (status, html) = db.get(uri, true).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !html.contains("name=\"page\" value=\"2\""),
+            "{uri} advertises an empty page"
+        );
+        assert!(html.contains("guide-11"));
+    }
+    db.close().await;
+    eprintln!(
+        "entity_router_exact_twelve_guides_has_no_next_page: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn wiki_item_creature_map_actions_follow_delivery_selectors() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    for kind in ["items", "creatures"] {
+        db.entity(
+            kind,
+            "test:key/with space",
+            json!({"name":"Visible entity"}),
+            true,
+            true,
+        )
+        .await;
+        let mut state = EntityState::new(db.pool.clone(), true);
+        state.delivery = true;
+        let app = mount(crate::web::public_router(db.pool.clone()), state).merge(
+            oteryn_atlas::delivery::router(
+                db.pool.clone(),
+                oteryn_atlas::delivery::Options { enabled: true },
+                WorldOptions { enabled: true },
+            ),
+        );
+        let uri = format!("/en/wiki/{kind}/test%3Akey%2Fwith%20space");
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(&uri)
+                    .extension(ConnectInfo(
+                        "127.0.0.1:12345".parse::<std::net::SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), 1_000_000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        let link =
+            oteryn_atlas::delivery::wiki_map_link("en", kind, "test:key/with space").unwrap();
+        assert!(
+            html.contains(&format!("href=\"{link}\"")),
+            "missing map action"
+        );
+        let response = app
+            .oneshot(Request::get(link).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), 1_000_000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        let selector = if kind == "items" { "item" } else { "creature" };
+        assert!(html.contains(&format!("name=\"{selector}\"")));
+        assert!(html.contains("value=\"test:key/with space\""));
+        // Default-off state does not expose a map action.
+        let (_, html) = db.get(&uri, true).await;
+        assert!(!html.contains("Show on map"));
+    }
+    db.close().await;
+    eprintln!(
+        "wiki_item_creature_map_actions_follow_delivery_selectors: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn canonical_atlas_markers_follow_wiki_through_merged_router() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    db.entity("creatures", "rat", json!({"name":"Rat"}), true, true)
+        .await;
+    db.entity("npcs", "guide", json!({"name":"Guide"}), true, true)
+        .await;
+    sqlx::query("INSERT INTO world_entities(version_id,kind,key,data,publishable) VALUES($1,'Spawn.Source','spawn',$2,true),($1,'npc-placements','placement',$3,true)")
+        .bind(db.version)
+        .bind(json!({"declaration":{"points":[{"cell":{"x":100,"y":200,"floor":7},"creature":"rat","respawn_ms":1000}]}}))
+        .bind(json!({"declaration":{"npc":"guide","cell":{"x":100,"y":200,"floor":7}}}))
+        .execute(&db.pool).await.unwrap();
+    db.world().allow("Spawn.Source", "spawn").await.unwrap();
+    db.world()
+        .allow("npc-placements", "placement")
+        .await
+        .unwrap();
+    let directory = std::env::temp_dir().join(format!("wiki_atlas_{}", Uuid::now_v7()));
+    let version = "a".repeat(40);
+    let floor = directory.join(&version).join("7");
+    std::fs::create_dir_all(&floor).unwrap();
+    std::fs::write(
+        floor.join("manifest.json"),
+        serde_json::to_vec(&json!({
+            "format_version":1,"world_version":version,"floor":7,"tile_size":256,
+            "bounds":{"min_x":100,"min_y":200,"max_x":356,"max_y":456},
+            "levels":[{"z":0,"width":256,"height":256,"columns":1,"rows":1}],"tiles":[]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let app = db
+        .app(true)
+        .merge(oteryn_atlas::spawns::router(db.pool.clone(), true, true))
+        .merge(oteryn_atlas::web::router(oteryn_atlas::web::Viewer {
+            enabled: true,
+            directory: directory.clone(),
+            world: db.world(),
+        }));
+    for (uri, marker) in [
+        (
+            format!(
+                "/atlas/spawns?version={version}&floor=7&min_x=100&min_y=200&max_x=101&max_y=201"
+            ),
+            "rat",
+        ),
+        ("/en/atlas?x=100&y=200&z=7&zoom=0".into(), "guide"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(uri)
+                    .extension(ConnectInfo(
+                        "127.0.0.1:12345".parse::<std::net::SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), 1_000_000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            html.contains(marker),
+            "missing canonical marker {marker}: {html}"
+        );
+    }
+    for uri in ["/en/wiki/creatures/rat", "/en/wiki/npcs/guide"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(uri)
+                    .extension(ConnectInfo(
+                        "127.0.0.1:12345".parse::<std::net::SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+    db.close().await;
+    eprintln!(
+        "canonical_atlas_markers_follow_wiki_through_merged_router: {:?}",
+        started.elapsed()
+    );
+}

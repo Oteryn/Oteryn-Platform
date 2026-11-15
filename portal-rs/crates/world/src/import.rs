@@ -360,7 +360,10 @@ fn validate_inner(root: PathBuf, config: ImportConfig) -> Result<Vec<Document>, 
                 }
             };
             validate_label(&key, "key").map_err(|e| issue(&file, &key_pointer, e))?;
-            let identity = (mapping.mapping.kind.clone(), key.clone());
+            let identity = (
+                crate::canonical_kind(&mapping.mapping.kind).to_owned(),
+                key.clone(),
+            );
             if let Some(first_file) = key_sources.insert(identity, file.clone()) {
                 return Err(issue(
                     &file,
@@ -383,7 +386,7 @@ fn validate_inner(root: PathBuf, config: ImportConfig) -> Result<Vec<Document>, 
                 }
             }
             documents.push(Document {
-                kind: mapping.mapping.kind.clone(),
+                kind: crate::canonical_kind(&mapping.mapping.kind).to_owned(),
                 key,
                 data: record.clone(),
                 publishable,

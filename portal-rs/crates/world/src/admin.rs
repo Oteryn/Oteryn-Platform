@@ -315,22 +315,11 @@ async fn mutate<A: AccountStateReader>(
         return Err(StatusCode::NOT_FOUND);
     }
     let mut tx = s.pool.begin().await.map_err(unavailable)?;
-    // Serialize with role writers, then recheck current grants before any change.
-    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+    // Never queue for a resource while holding the global authorization fence.
+    sqlx::query("SET LOCAL lock_timeout = '250ms'")
         .execute(&mut *tx)
         .await
         .map_err(unavailable)?;
-    for required in [
-        Permission::Access,
-        Permission::GameCatalogAccess,
-        Permission::ViewGameCatalogSnapshots,
-        permission,
-    ] {
-        s.auth
-            .check_in(&mut tx, context, required)
-            .await
-            .map_err(|_| StatusCode::FORBIDDEN)?;
-    }
     let (active,): (Option<Uuid>,) =
         sqlx::query_as("SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE")
             .fetch_one(&mut *tx)
@@ -360,6 +349,26 @@ async fn mutate<A: AccountStateReader>(
     .fetch_one(&mut *tx)
     .await
     .map_err(unavailable)?;
+    sqlx::query("SET LOCAL lock_timeout = '0'")
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+    // Serialize with role writers, then recheck current grants before any change.
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+    for required in [
+        Permission::Access,
+        Permission::GameCatalogAccess,
+        Permission::ViewGameCatalogSnapshots,
+        permission,
+    ] {
+        s.auth
+            .check_in(&mut tx, context, required)
+            .await
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+    }
     // Native publication belongs exclusively to verified background refresh. Staff
     // may approve its records, but cannot route it through the legacy/map pointer
     // or author replacement Game names.
@@ -385,6 +394,7 @@ async fn mutate<A: AccountStateReader>(
             .kind
             .as_deref()
             .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+        let kind = crate::canonical_kind(kind);
         let key = form
             .key
             .as_deref()

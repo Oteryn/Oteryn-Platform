@@ -215,6 +215,7 @@ impl WorldStore {
 
     async fn set_visibility(&self, kind: &str, key: &str, allowed: bool) -> Result<(), WorldError> {
         self.check_enabled()?;
+        let kind = crate::canonical_kind(kind);
         validate_label(kind, "kind")?;
         validate_label(key, "key")?;
         sqlx::query("INSERT INTO world_visibility (kind, key, allowed) VALUES ($1, $2, $3) ON CONFLICT (kind, key) DO UPDATE SET allowed = EXCLUDED.allowed, updated_at = now()")
@@ -226,6 +227,7 @@ impl WorldStore {
     /// the active pointer and allow-list in the same database statement.
     pub async fn get_entity(&self, kind: &str, key: &str) -> Result<Option<Entity>, WorldError> {
         self.check_enabled()?;
+        let kind = crate::canonical_kind(kind);
         validate_label(kind, "kind")?;
         validate_label(key, "key")?;
         Ok(sqlx::query_as(
@@ -248,6 +250,7 @@ impl WorldStore {
         limit: u32,
     ) -> Result<Vec<Entity>, WorldError> {
         self.check_enabled()?;
+        let kind = crate::canonical_kind(kind);
         validate_label(kind, "kind")?;
         if let Some(key) = after_key {
             validate_label(key, "after_key")?;

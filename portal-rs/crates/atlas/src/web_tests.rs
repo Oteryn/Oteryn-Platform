@@ -79,10 +79,10 @@ async fn postgres_viewer_routes() -> TestResult {
         ("npcs", "public-npc", serde_json::json!({})),
         ("npcs", "hidden-npc", serde_json::json!({})),
     ] {
-        sqlx::query("INSERT INTO world_entities(version_id,kind,key,data,publishable) VALUES ('01900000-0000-7000-8000-000000000001',$1,$2,$3,true)").bind(kind).bind(key).bind(data).execute(&pool).await?;
+        sqlx::query("INSERT INTO world_entities(version_id,kind,key,data,publishable) VALUES ('01900000-0000-7000-8000-000000000001',$1,$2,$3,true)").bind(oteryn_world::canonical_kind(kind)).bind(key).bind(data).execute(&pool).await?;
         if key != "hidden-npc" {
             sqlx::query("INSERT INTO world_visibility(kind,key,allowed) VALUES ($1,$2,true)")
-                .bind(kind)
+                .bind(oteryn_world::canonical_kind(kind))
                 .bind(key)
                 .execute(&pool)
                 .await?;

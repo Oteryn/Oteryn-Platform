@@ -809,3 +809,31 @@ async fn postgres_pagination_wiki_ceiling() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn history_exact_ten_snapshots_has_no_older_control() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let repo = db.repo();
+    let context = db.context();
+    let values = input();
+    let id = repo
+        .create(context, &values, None, "initial")
+        .await
+        .unwrap();
+    for version in 1..10 {
+        repo.edit(context, id, version, &values, "edit")
+            .await
+            .unwrap();
+    }
+    let response = get(db.app(), &format!("/admin/wiki/articles/{id}/revisions")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!body(response).await.contains("rel=\"next\""));
+    db.close().await;
+    eprintln!(
+        "history_exact_ten_snapshots_has_no_older_control: {:?}",
+        started.elapsed()
+    );
+}
