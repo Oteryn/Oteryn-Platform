@@ -161,8 +161,44 @@ impl ProgressStore {
     ) -> Result<Observation> {
         self.enabled(scope.family, false)?;
         actor.check(scope.account)?;
+        let mut connection = self.pool.acquire().await?;
+        self.read_on(&mut connection, actor, scope, authority, now_ms)
+            .await
+    }
+    /// Ownership fence and stream share lock precede reading unlock evidence.
+    pub async fn read_locked(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        actor: Actor,
+        scope: &ReadScope<'_>,
+        authority: &impl Authority,
+        now_ms: u64,
+    ) -> Result<Vec<Payload>> {
+        self.enabled(scope.family, false)?;
+        actor.check(scope.account)?;
+        authority
+            .lock_mutation(tx, scope.account, scope.character.ok_or(Error::Denied)?)
+            .await?;
+        sqlx::query("SELECT account_id FROM pd_progress_streams WHERE account_id=$1 AND family=$2 FOR SHARE")
+            .bind(scope.account).bind(scope.family).fetch_optional(&mut **tx).await?.ok_or(Error::Unavailable)?;
+        let observation = self.read_on(tx, actor, scope, authority, now_ms).await?;
+        if observation.stale {
+            return Err(Error::Unavailable);
+        }
+        Ok(observation.payloads)
+    }
+    async fn read_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        actor: Actor,
+        scope: &ReadScope<'_>,
+        authority: &impl Authority,
+        now_ms: u64,
+    ) -> Result<Observation> {
+        self.enabled(scope.family, false)?;
+        actor.check(scope.account)?;
         let stream = sqlx::query("SELECT epoch,recovery,authority,baseline_complete,observed_at FROM pd_progress_streams WHERE account_id=$1 AND family=$2")
-            .bind(scope.account).bind(scope.family).fetch_optional(&self.pool).await?.ok_or(Error::Unavailable)?;
+            .bind(scope.account).bind(scope.family).fetch_optional(&mut *connection).await?.ok_or(Error::Unavailable)?;
         let observed = stream.try_get::<i64, _>("observed_at")?;
         if !stream.try_get::<bool, _>("baseline_complete")?
             || observed < 0
@@ -183,7 +219,7 @@ impl ProgressStore {
             return Err(Error::Unavailable);
         }
         let rows: Vec<Vec<u8>> = sqlx::query_scalar("SELECT canonical FROM (SELECT DISTINCT ON (r.entity_key) r.entity_key,r.canonical FROM pd_progress_records r JOIN pd_progress_streams s USING (account_id,family) WHERE r.account_id=$1 AND r.family=$2 AND r.character_id IS NOT DISTINCT FROM $3 AND r.source_revision <= s.complete_through ORDER BY r.entity_key,r.source_revision DESC) p ORDER BY entity_key LIMIT 4097")
-            .bind(scope.account).bind(scope.family).bind(scope.character).fetch_all(&self.pool).await?;
+            .bind(scope.account).bind(scope.family).bind(scope.character).fetch_all(&mut *connection).await?;
         if rows.len() > 4096 {
             return Err(Error::Unavailable);
         }

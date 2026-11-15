@@ -129,6 +129,7 @@ async fn all_go_handler_vectors_are_byte_identical() {
             .or_insert_with(|| {
                 (
                     StateData {
+                        trusted_proxies: Vec::new(),
                         issuer: IssuerClient::new(
                             "http://127.0.0.1:1",
                             "synthetic".into(),

@@ -3,6 +3,7 @@ use std::{fmt, net::IpAddr, path::PathBuf, time::Duration};
 #[derive(Clone)]
 pub struct Config {
     pub listen: String,
+    pub trusted_proxies: Vec<IpAddr>,
     pub base_url: String,
     pub token_file: PathBuf,
     pub enabled: bool,
@@ -50,6 +51,15 @@ impl Config {
             return Err("GATEWAY_LISTEN_ADDR is empty".into());
         }
         Ok(Self {
+            trusted_proxies: value("GATEWAY_TRUSTED_PROXIES", "")
+                .split(',')
+                .filter(|v| !v.trim().is_empty())
+                .map(|v| {
+                    v.trim()
+                        .parse()
+                        .map_err(|_| "invalid GATEWAY_TRUSTED_PROXIES".to_owned())
+                })
+                .collect::<Result<Vec<IpAddr>, String>>()?,
             listen,
             base_url,
             token_file: token_file.into(),

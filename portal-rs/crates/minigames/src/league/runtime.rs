@@ -192,7 +192,7 @@ async fn question(pool: &PgPool, s: &schema::Snapshot, c: &Config, m: &Meta) -> 
     identity.evidence_sha256.clear();
     let digest = schema::hash(&serde_json::to_vec(&identity).map_err(|_| Error::Invalid)?);
     let mut tx = super::store::begin(pool).await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
+    sqlx::query("SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)")
         .execute(&mut *tx)
         .await?;
     context(&mut tx, c, m).await?;
@@ -255,7 +255,7 @@ pub(super) async fn initialize(pool: &PgPool, c: &Config) -> Result<()> {
 async fn initialize_inner(pool: &PgPool, c: &Config) -> Result<()> {
     let f = c.recovery()?;
     let mut tx = super::store::begin(pool).await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
+    sqlx::query("SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)")
         .execute(&mut *tx)
         .await?;
     let old:Option<(String,String)>=sqlx::query_as("SELECT epoch::text,recovery_generation::text FROM league_feed_state WHERE authority=$1 FOR UPDATE").bind(&c.authority).fetch_optional(&mut *tx).await?;
@@ -302,7 +302,7 @@ async fn receive_inner(
     let fingerprint = schema::hash(&[path.as_bytes(), meta, body].concat());
     let id = schema::id(&m.request_id)?;
     let mut tx = super::store::begin(pool).await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
+    sqlx::query("SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)")
         .execute(&mut *tx)
         .await?;
     let existing: Option<(String, String)> = sqlx::query_as(
@@ -415,9 +415,11 @@ impl FeedJob {
         // Close-on-drop makes cancellation release the session leadership lock.
         let mut leader = self.pool.acquire().await?;
         leader.close_on_drop();
-        let owns: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(94000004)")
-            .fetch_one(&mut *leader)
-            .await?;
+        let owns: bool = sqlx::query_scalar(
+            "SELECT pg_try_advisory_lock('league_subjects'::regclass::oid::int, 94000004)",
+        )
+        .fetch_one(&mut *leader)
+        .await?;
         if !owns {
             return Ok(());
         }
@@ -463,9 +465,11 @@ impl FeedJob {
                 Err(Error::Unavailable) | Err(Error::Database(_)) => break,
                 Err(_) => {
                     let mut tx = super::store::begin(&self.pool).await?;
-                    sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
-                        .execute(&mut *tx)
-                        .await?;
+                    sqlx::query(
+                        "SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)",
+                    )
+                    .execute(&mut *tx)
+                    .await?;
                     sqlx::query("WITH updated AS (UPDATE league_feed_inbox SET state='refused' WHERE request_id=$1 RETURNING request_id) UPDATE league_feed_requests SET state='refused' WHERE request_id IN (SELECT request_id FROM updated)")
                         .bind(id)
                         .execute(&mut *tx)
@@ -531,9 +535,11 @@ impl FeedJob {
                     .await?;
             }
             let mut tx = super::store::begin(&self.pool).await?;
-            sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)",
+            )
+            .execute(&mut *tx)
+            .await?;
             context(&mut tx, c, &m).await?;
             if withdrawn {
                 registered_world(&mut tx, s.world()).await?;
@@ -568,9 +574,11 @@ impl FeedJob {
             tx.commit().await?;
         } else if path == admission::WATERMARK {
             let mut tx = super::store::begin(&self.pool).await?;
-            sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)",
+            )
+            .execute(&mut *tx)
+            .await?;
             context(&mut tx, c, &m).await?;
             let w: Watermark = admission::json(body)?;
             let previous: i64 = sqlx::query_scalar(if w.family == "world_event_outcome" {
@@ -600,9 +608,11 @@ impl FeedJob {
     }
     async fn install(&self, c: &Config) -> Result<()> {
         let mut tx = super::store::begin(&self.pool).await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)",
+        )
+        .execute(&mut *tx)
+        .await?;
         let r = sqlx::query("SELECT conflicted,event_complete,season_complete FROM league_feed_state WHERE authority=$1 FOR UPDATE").bind(&c.authority).fetch_one(&mut *tx).await?;
         if r.try_get::<bool, _>("conflicted")? {
             return Err(Error::Unavailable);
@@ -648,9 +658,11 @@ impl oteryn_db::outbox::Cleanup for Retention {
 impl Retention {
     pub async fn run(&self) -> Result<()> {
         let mut tx = super::store::begin(&self.pool).await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)",
+        )
+        .execute(&mut *tx)
+        .await?;
         let clock: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
                 .fetch_one(&mut *tx)

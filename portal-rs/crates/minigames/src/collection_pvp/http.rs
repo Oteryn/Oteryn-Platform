@@ -51,6 +51,7 @@ pub fn router<C: Collection + 'static, P: SetPayment + 'static>(
         .layer(DefaultBodyLimit::max(8192))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(8192))
         .layer(middleware::from_fn(response_policy))
+        .layer(axum::middleware::from_fn(crate::browser::deadline))
         .with_state(Arc::new(service))
 }
 fn text(lang: &str, key: &str) -> String {

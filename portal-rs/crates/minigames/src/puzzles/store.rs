@@ -50,6 +50,25 @@ impl Puzzles {
         }
         Ok(())
     }
+    async fn visible_locked(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        definition: &Definition,
+    ) -> Result<(), Error> {
+        definition.validate()?;
+        for choice in &definition.choices {
+            let entity = self
+                .world
+                .get_entity_locked(tx, &choice.source.kind, &choice.source.key)
+                .await
+                .map_err(|_| Error::Unavailable)?
+                .ok_or(Error::Unavailable)?;
+            if entity.version_id != definition.world_version {
+                return Err(Error::Unavailable);
+            }
+        }
+        Ok(())
+    }
     /// Caller is a trusted editorial service with publication authority. Definitions
     /// cannot be replaced, including after a wrong answer or before their day.
     pub async fn publish(
@@ -83,14 +102,17 @@ impl Puzzles {
             }
             _ => return Err(Error::Invalid),
         }
+        let mut tx = crate::browser::begin(&self.pool).await?;
+        self.visible_locked(&mut tx, &definition).await?;
         let id = Uuid::now_v7();
         let result = sqlx::query("INSERT INTO puzzles_daily (id,day,kind,world_version,definition,image) SELECT $1,$2,$3,$4,$5,$6 WHERE $2 >= (clock_timestamp() AT TIME ZONE 'UTC')::date ON CONFLICT (day,kind) DO NOTHING")
             .bind(id).bind(day).bind(definition.kind.key()).bind(definition.world_version)
             .bind(sqlx::types::Json(&definition)).bind(media.map(|media| media.bytes))
-            .execute(&self.pool).await?;
+            .execute(&mut *tx).await?;
         if result.rows_affected() == 0 {
             return Err(Error::Conflict);
         }
+        tx.commit().await?;
         Ok(id)
     }
     pub async fn today(&self, account: Uuid) -> Result<Vec<Daily>, Error> {
@@ -148,7 +170,7 @@ impl Puzzles {
         // Public source APIs acquire their own pool connections. Finish those
         // reads before the transaction, then recheck account eligibility under lock.
         self.eligible(account).await?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         // Account before domain rows: suspension and answering serialize at commit.
         let state: Option<(String, bool)> = sqlx::query_as(
             "SELECT status,email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR UPDATE",
@@ -159,6 +181,8 @@ impl Puzzles {
         if !state.is_some_and(|(status, verified)| status == "active" && verified) {
             return Err(Error::Forbidden);
         }
+
+        self.visible_locked(&mut tx, &definition).await?;
 
         // Serialize all three kinds for an account, including first-use races.
         sqlx::query("INSERT INTO puzzles_streaks (account_id) VALUES ($1) ON CONFLICT DO NOTHING")

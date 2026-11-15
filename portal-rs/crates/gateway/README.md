@@ -13,6 +13,7 @@ Configuration:
 | `OTERYN_PLATFORM_BASE_URL` | Required; HTTPS, or HTTP on loopback only; optional path prefix |
 | `OTERYN_PLATFORM_SERVICE_TOKEN_FILE` | Required; externally supplied bearer token file, optional final newline |
 | `GATEWAY_NATIVE_LOGIN_ENABLED` | `false`; accepts only `true` or `false` |
+| `GATEWAY_TRUSTED_PROXIES` | Empty by default; comma-separated exact proxy IP addresses |
 | `GATEWAY_LISTEN_ADDR` | `0.0.0.0:8080` |
 | `GATEWAY_NATIVE_ADMISSION_TIMEOUT` | `5s`, positive and at most `8s` |
 | `GATEWAY_REQUEST_TIMEOUT` | `5s`, positive and at most `30s` (readiness) |
@@ -64,3 +65,13 @@ GATEWAY_RUST_BINARY=/absolute/path/to/oteryn-portal go test -v -count=1 ./...
 coordinator's client fixtures. There are no database integration tests in this
 stateless role. No SQL or offline query metadata is added. Deployment, production
 activation and future protocol changes remain outside T52.
+
+Public login and both recovery routes resolve rate-limit identity from the socket
+peer unless it is in `GATEWAY_TRUSTED_PROXIES`. A trusted peer may supply exactly
+one IP in `X-Forwarded-For`; malformed or missing headers use the peer budget.
+The Oracle Caddy route overwrites this header with its resolved `{client_ip}` and
+the gateway trusts only the edge container address. Direct callers cannot select
+their budget through forwarding headers. Uncertain issuer outcomes consume the
+same credential-lifetime total budget as confirmed outcomes; definitive
+unauthenticated rejections can reclaim reservations only without another pending
+or uncertain exchange.

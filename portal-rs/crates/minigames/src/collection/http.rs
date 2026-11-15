@@ -27,6 +27,17 @@ impl std::fmt::Debug for Ownership {
     }
 }
 impl Authority for Ownership {
+    fn lock_mutation<'a>(
+        &'a self,
+        tx: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+        account: Uuid,
+        character: Uuid,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = oteryn_playerdata::progress::Result<()>> + Send + 'a>,
+    > {
+        self.0.lock_mutation(tx, account, character)
+    }
+
     fn permits(&self, subject: Subject<'_>) -> bool {
         self.0.permits(subject)
     }
@@ -91,6 +102,7 @@ pub fn router(
         .layer(DefaultBodyLimit::max(4096))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(4096))
         .layer(middleware::from_fn(response_policy))
+        .layer(axum::middleware::from_fn(crate::browser::deadline))
         .with_state(HttpState { service, authority })
 }
 pub fn configured_router(pool: PgPool) -> Router {

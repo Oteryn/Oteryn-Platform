@@ -17,6 +17,27 @@ struct Trust {
     allow: Arc<AtomicBool>,
 }
 impl Authority for Trust {
+    fn lock_mutation<'a>(
+        &'a self,
+        tx: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+        account: Uuid,
+        character: Uuid,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = progress::Result<()>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+                .bind(account)
+                .fetch_one(&mut **tx)
+                .await?;
+            if account != self.account
+                || character != self.character
+                || !self.allow.load(Ordering::SeqCst)
+            {
+                return Err(progress::Error::Denied);
+            }
+            Ok(())
+        })
+    }
     fn source(&self) -> &str {
         "synthetic:journal"
     }
@@ -710,6 +731,67 @@ async fn postgres_collection_rechecks_account_after_wait() {
     db.close().await;
     eprintln!(
         "postgres_collection_rechecks_account_after_wait duration={:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_collection_rechecks_source_and_unlock_after_account_wait() {
+    let started = std::time::Instant::now();
+    for revoked in ["visibility", "version", "unlock", "ownership"] {
+        let db = Database::new().await.unwrap();
+        let deck = db.deck();
+        let mut blocker = db.pool.begin().await.unwrap();
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(db.trust.account)
+            .execute(&mut *blocker)
+            .await
+            .unwrap();
+        let service = db.service.clone();
+        let trust = db.trust.clone();
+        let save =
+            tokio::spawn(
+                async move { service.save_deck(trust.account, deck, &trust, now()).await },
+            );
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.wait_event_type='Lock' AND EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND l.relation='accounts'::regclass))").fetch_one(&db.pool).await.unwrap();
+                if waiting { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        match revoked {
+            "visibility" => {
+                sqlx::query("UPDATE world_visibility SET allowed=false")
+                    .execute(&db.pool)
+                    .await
+                    .unwrap();
+            }
+            "version" => {
+                sqlx::query("UPDATE world_active_version SET version_id=NULL")
+                    .execute(&db.pool)
+                    .await
+                    .unwrap();
+            }
+            "unlock" => {
+                sqlx::query("UPDATE pd_progress_streams SET baseline_complete=false")
+                    .execute(&db.pool)
+                    .await
+                    .unwrap();
+            }
+            _ => db.trust.allow.store(false, Ordering::SeqCst),
+        }
+        blocker.commit().await.unwrap();
+        assert!(save.await.unwrap().is_err(), "{revoked}");
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_decks")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        db.close().await;
+    }
+    eprintln!(
+        "postgres_collection_rechecks_source_and_unlock_after_account_wait duration={:?}",
         started.elapsed()
     );
 }

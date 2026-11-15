@@ -389,6 +389,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = with_proxy_policy(app, db.clone(), proxies);
             let (public_app, app) =
                 coin_listener_apps(app, oteryn_wallet::wire::configured_router(db.clone()));
+            let public_app = oteryn_minigames::with_browser_deadlines(public_app);
             let app = app.merge(oteryn_support::sanctions::export::configured_router(
                 db.clone(),
             ));

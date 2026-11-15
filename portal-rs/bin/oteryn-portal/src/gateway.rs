@@ -8,13 +8,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         config.timeout,
         config.ready_timeout,
     )?;
-    let app = oteryn_gateway::router_with(
+    let app = oteryn_gateway::router_with_proxies(
         issuer,
         oteryn_gateway::Options {
             enabled: config.enabled,
             protocol3: config.protocol3,
             version: config.version,
         },
+        config.trusted_proxies,
     );
     let listener = tokio::net::TcpListener::bind(&config.listen).await?;
     tracing::info!(
