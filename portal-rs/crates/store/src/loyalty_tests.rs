@@ -482,3 +482,36 @@ fn settings_fail_closed_and_identity_is_dedicated() {
         .is_err()
     );
 }
+
+#[tokio::test]
+async fn malformed_authenticated_snapshot_requests_consume_budget_before_validation() {
+    use tower::ServiceExt;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/unused")
+        .unwrap();
+    for bytes in [
+        b"{".to_vec(),
+        br#"{"schema":1,"schema":2}"#.to_vec(),
+        vec![b' '; 257],
+    ] {
+        let app = http::router(
+            Ledger::new(pool.clone(), Arc::new(TestAccounts), true),
+            http::Settings {
+                requests_per_minute: 1,
+                ..settings()
+            },
+            identity_map(),
+        );
+        for expected in [400, 429] {
+            let response = app
+                .clone()
+                .oneshot(request(bytes.clone(), Some("loyalty.test")))
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), expected);
+            if expected == 429 {
+                assert_eq!(response.headers()["retry-after"], "60");
+            }
+        }
+    }
+}

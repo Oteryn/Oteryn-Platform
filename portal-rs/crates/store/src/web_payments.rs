@@ -130,7 +130,8 @@ impl TopUps for PaymentTopUps {
         key: String,
     ) -> Pin<Box<dyn Future<Output = Result<Uuid, Error>> + Send + '_>> {
         Box::pin(async move {
-            if operation.get_version_num() != 7 {
+            if operation.get_version_num() != 7 || operation.get_variant() != uuid::Variant::RFC4122
+            {
                 return Err(Error::Invalid);
             }
             // Resolve durable browser operations before consulting mutable packages.

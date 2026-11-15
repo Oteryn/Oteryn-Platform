@@ -1079,3 +1079,47 @@ async fn stream_does_not_export_or_retain_authority_for_uncredited_inviter() {
     );
     db.close().await;
 }
+
+#[tokio::test]
+async fn malformed_authenticated_stream_requests_consume_budget_before_validation() {
+    for bytes in [
+        b"{".to_vec(),
+        br#"{"schema":1,"schema":2}"#.to_vec(),
+        vec![b' '; 257],
+    ] {
+        let app = http::router(
+            lazy_stream(true),
+            http::Settings {
+                enabled: true,
+                requests_per_minute: 1,
+            },
+            identities(),
+        );
+        for expected in [400, 429] {
+            let response = app
+                .clone()
+                .oneshot(request(bytes.clone(), Some("loyalty-stream.test")))
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), expected);
+            if expected == 429 {
+                assert_eq!(response.headers()["retry-after"], "60");
+            }
+        }
+    }
+    let app = http::router(
+        lazy_stream(true),
+        http::Settings {
+            enabled: true,
+            requests_per_minute: 1,
+        },
+        identities(),
+    );
+    for expected in [400, 429] {
+        let mut req = request(body(), Some("loyalty-stream.test"));
+        req.headers_mut()
+            .insert("content-encoding", "gzip".parse().unwrap());
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status().as_u16(), expected);
+    }
+}

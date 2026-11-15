@@ -177,33 +177,35 @@ impl CoinHost for Host {
                 .bind(payer)
                 .fetch_one(&mut **tx)
                 .await?;
-            let (balance, _) = self
+            // Payments may hold the order and commit after a refusal. Keep the
+            // operation, gross credit and debt effects inside a savepoint so a
+            // final-balance refusal cannot leak any of them into that commit.
+            let mut attempt = (&mut **tx).begin().await?;
+            let credited = self
                 .ledger()
-                .snapshot_in(tx, payer)
-                .await
-                .map_err(|_| CoinError::Unavailable)?;
-            if balance
-                .available
-                .checked_add(balance.reserved)
-                .and_then(|total| total.checked_add(coins))
-                .is_none_or(|total| total > oteryn_payments::coin::MAX_COINS)
-            {
-                return Err(CoinError::Conflict);
-            }
-            // The intent ID is the global ledger key: a replay never credits twice.
-            self.ledger()
                 .with_adjustment_kind(AdjustmentKind::TopUp)
                 .adjust_in(
-                    tx,
+                    &mut attempt,
                     key,
                     payer,
                     coins,
                     payer,
                     &format!("wallet-top-up:{key}"),
                 )
-                .await
-                .map(|_| ())
-                .map_err(|_| CoinError::Unavailable)
+                .await;
+            match credited {
+                Ok(_) => {
+                    attempt.commit().await?;
+                    Ok(())
+                }
+                Err(error) => {
+                    attempt.rollback().await?;
+                    Err(match error {
+                        wallet::Error::Refused(wallet::Refusal::Overflow) => CoinError::Conflict,
+                        _ => CoinError::Unavailable,
+                    })
+                }
+            }
         })
     }
     fn reverse_in<'a>(

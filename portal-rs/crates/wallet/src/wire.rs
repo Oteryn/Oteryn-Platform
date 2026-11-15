@@ -185,7 +185,10 @@ fn string<'a>(v: &'a Value, k: &str) -> Result<&'a str, Error> {
 }
 fn uuid(s: &str, key: bool) -> Result<uuid::Uuid, Error> {
     let id = uuid::Uuid::parse_str(s).map_err(|_| Refusal::InvalidIdentifier)?;
-    if id.is_nil() || id.to_string() != s || (key && id.get_version_num() != 7) {
+    if id.is_nil()
+        || id.to_string() != s
+        || (key && (id.get_version_num() != 7 || id.get_variant() != uuid::Variant::RFC4122))
+    {
         return Err(Refusal::InvalidIdentifier.into());
     }
     Ok(id)
@@ -603,6 +606,16 @@ pub fn identities(vars: Vec<(String, String)>) -> Result<IdentityMap, guard::Con
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn operation_keys_require_rfc_variant() {
+        for variant in ["0000", "c000", "e000"] {
+            assert!(
+                super::uuid(&format!("019a65f0-0000-7000-{variant}-000000000003"), true).is_err()
+            );
+        }
+        assert!(super::uuid("019a65f0-0000-7000-8000-000000000003", true).is_ok());
+    }
+
     #[test]
     fn nwave_coins_refuse_sanction_identity_overlap() {
         for key in [

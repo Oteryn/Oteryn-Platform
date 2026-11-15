@@ -75,6 +75,7 @@ pub enum Permission {
     ReleaseCoinPurchaseHold,
     ImportStoreCatalog,
     ActivateStoreCatalog,
+    GenerateStoreCodes,
 }
 
 impl Permission {
@@ -158,6 +159,7 @@ impl Permission {
         Self::ReleaseCoinPurchaseHold,
         Self::ImportStoreCatalog,
         Self::ActivateStoreCatalog,
+        Self::GenerateStoreCodes,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -229,6 +231,7 @@ impl Permission {
             Self::KickAccountSessions => "account.security.kick",
             Self::ImportStoreCatalog => "store.catalog.import",
             Self::ActivateStoreCatalog => "store.catalog.activate",
+            Self::GenerateStoreCodes => "store.codes.generate",
             Self::ReleaseCoinPurchaseHold => "payments.coin_hold.release",
         }
     }
@@ -344,6 +347,7 @@ impl BuiltInRole {
                 Permission::ReleaseCoinPurchaseHold,
                 Permission::ImportStoreCatalog,
                 Permission::ActivateStoreCatalog,
+                Permission::GenerateStoreCodes,
             ],
             Self::SecurityAdmin => &[
                 Permission::Access,

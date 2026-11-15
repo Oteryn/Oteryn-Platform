@@ -487,3 +487,123 @@ async fn balance_and_debt_never_go_negative() {
     }
     db.close().await;
 }
+
+#[tokio::test]
+async fn incoming_credit_at_ceiling_repays_debt_and_legacy_excess_remains_reducible() {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let ledger = db.ledger();
+    let (sender, recipient, legacy) = (id(), id(), id());
+    grant(&ledger, sender, 20).await;
+    grant(&ledger, recipient, MAX_BALANCE - 1).await;
+    db.debt(recipient, 20, 1).await;
+    ledger.transfer(id(), sender, recipient, 2).await.unwrap();
+    assert_eq!(db.available(recipient).await, MAX_BALANCE - 1);
+    assert_eq!(db.owed(recipient).await, 18);
+    assert_eq!(
+        top_up(&db, recipient, 2).await.available_after,
+        MAX_BALANCE - 1
+    );
+    grant(&ledger, recipient, 2).await;
+    ledger
+        .adjust(id(), recipient, 2, id(), "Debt repayment")
+        .await
+        .unwrap();
+    assert_eq!(db.available(recipient).await, MAX_BALANCE - 1);
+    assert_eq!(db.owed(recipient).await, 12);
+    let sender_before = db.available(sender).await;
+    refused(
+        ledger.transfer(id(), sender, recipient, 14).await,
+        Refusal::Overflow,
+    );
+    assert_eq!(db.available(sender).await, sender_before);
+    assert_eq!(db.available(recipient).await, MAX_BALANCE - 1);
+    assert_eq!(db.owed(recipient).await, 12);
+    // Seed history allowed before the ceiling was introduced, without rewriting value.
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+        .bind(legacy)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let key = id();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,$3)",
+    )
+    .bind(key)
+    .bind(legacy)
+    .bind(MAX_BALANCE + 1)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,$4,0)").bind(id()).bind(key).bind(legacy).bind(MAX_BALANCE + 1).execute(&db.pool).await.unwrap();
+    assert_eq!(db.available(legacy).await, MAX_BALANCE + 1);
+    ledger.transfer(id(), legacy, sender, 1).await.unwrap();
+    assert_eq!(db.available(legacy).await, MAX_BALANCE);
+    ledger
+        .adjust(id(), legacy, -1, id(), "Reduce legacy balance")
+        .await
+        .unwrap();
+    assert_eq!(db.available(legacy).await, MAX_BALANCE - 1);
+    db.close().await;
+    eprintln!(
+        "PG incoming_credit_at_ceiling_repays_debt_and_legacy_excess_remains_reducible duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
+
+#[tokio::test]
+async fn non_rfc_v7_keys_never_write_wallet_state() {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let ledger = db.ledger();
+    let (sender, recipient) = (id(), id());
+    grant(&ledger, sender, 20).await;
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_operations")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    for variant in ["0000", "c000", "e000"] {
+        let key: Uuid = format!("019a65f0-0000-7000-{variant}-000000000003")
+            .parse()
+            .unwrap();
+        refused(
+            ledger.transfer(key, sender, recipient, 2).await,
+            Refusal::InvalidIdentifier,
+        );
+        refused(
+            ledger.reserve(key, sender, 2).await,
+            Refusal::InvalidIdentifier,
+        );
+        refused(ledger.operation(key).await, Refusal::InvalidIdentifier);
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM wallet_operations")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM wallet_reservations")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM wallet_entries")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap(),
+        1
+    );
+    db.close().await;
+    eprintln!(
+        "PG non_rfc_v7_keys_never_write_wallet_state duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
