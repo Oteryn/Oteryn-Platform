@@ -531,6 +531,8 @@ const LEGACY_PORTAL_LIMITS: &[(&str, i64, i64)] = &[
     ("game-auth-ticket-issue", 5, 60),
     ("game-auth-native-characters", 10, 60),
     ("wiki-search", 30, 60),
+    ("identity-anonymous-source", 10, 60),
+    ("identity-verification-source", 10, 60),
 ];
 
 #[test]
@@ -546,5 +548,57 @@ fn named_policies_match_the_existing_portal_limits() -> TestResult {
         found += 1;
     }
     assert_eq!(found, NamedPolicy::ALL.len());
+    Ok(())
+}
+
+#[tokio::test]
+async fn anonymous_source_budget_survives_rotating_identifiers() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let limiter = RateLimiter::new(db.pool.clone());
+    for policy in [
+        NamedPolicy::IdentityEmailToken,
+        NamedPolicy::IdentityRecoveryKeyUse,
+    ] {
+        let ip = if policy == NamedPolicy::IdentityEmailToken {
+            "192.0.2.221"
+        } else {
+            "192.0.2.222"
+        };
+        for index in 0..10 {
+            let mut key = keys(ip)?;
+            key.email = Some(format!("unknown{index}@example.test"));
+            key.token = Some(format!("token-{index}"));
+            limiter.check(policy, &[key]).await?;
+        }
+        let mut key = keys(ip)?;
+        key.email = Some("another@example.test".into());
+        key.token = Some("another-token".into());
+        assert!(limiter.check(policy, &[key]).await.is_err());
+    }
+    for _ in 0..10 {
+        limiter
+            .check(
+                NamedPolicy::IdentityVerificationSource,
+                &[keys("192.0.2.223")?],
+            )
+            .await?;
+    }
+    assert!(
+        limiter
+            .check(
+                NamedPolicy::IdentityVerificationSource,
+                &[keys("192.0.2.223")?]
+            )
+            .await
+            .is_err()
+    );
+    db.close().await?;
+    eprintln!(
+        "anonymous_source_budget_survives_rotating_identifiers duration: {:?}",
+        started.elapsed()
+    );
     Ok(())
 }

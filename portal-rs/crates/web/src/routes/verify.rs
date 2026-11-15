@@ -72,7 +72,26 @@ async fn consume(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     Extension(query): Extension<Token>,
+    peer: Option<Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Response, StatusCode> {
+    let limiter = crate::ratelimit::RateLimiter::new(state.db.clone());
+    let Some(Extension(axum::extract::ConnectInfo(peer))) = peer else {
+        return Ok(crate::ratelimit::Denial::Unavailable.response(language, false));
+    };
+    let source = match limiter.trusted_proxies.client_ip(peer, &headers) {
+        Ok(source) => source,
+        Err(error) => return Ok(error.response(language, false)),
+    };
+    if let Err(error) = limiter
+        .check(
+            crate::ratelimit::NamedPolicy::IdentityVerificationSource,
+            &[crate::ratelimit::Keys::source(source)],
+        )
+        .await
+    {
+        return Ok(error.response(language, false));
+    }
     let valid = verify::consume(&state.db, query.token.as_deref().unwrap_or_default())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
