@@ -181,6 +181,7 @@ impl AdmissionAuthority for NativeTickets {
             // The trust self-check is refreshed before the issuer clock is read.
             signer.prepare_on(db).await?;
             let iat = u64::try_from(seconds(db).await?).map_err(|_| Error::Unavailable)?;
+            grant::revalidate(db, runtime, world, &route, &report, iat as i64).await?;
             let ttl = self.issuance.ttl_seconds;
             let payload = grant::payload(&grant::Claims {
                 iat,
@@ -193,7 +194,9 @@ impl AdmissionAuthority for NativeTickets {
                 report: &report,
             })?;
             let expires_at = iat + u64::from(ttl);
-            let token = signer.sign(&payload, expires_at, iat)?;
+            let token = signer.sign_async(&payload, expires_at, iat).await?;
+            let signed_at = seconds(db).await?;
+            grant::revalidate(db, runtime, world, &route, &report, signed_at).await?;
             Ok(Material {
                 world_id: world,
                 channel_id: route.channel,

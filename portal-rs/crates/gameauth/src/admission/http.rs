@@ -176,9 +176,12 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
         Ok(hash) => hash,
         Err(refused) => return *refused,
     };
-    let raw = match to_bytes(request.into_body(), wire::MAX_BODY).await {
-        Ok(raw) => raw,
-        Err(_) => return refusal(Error::Malformed, None),
+    let raw = match tokio::time::timeout_at(deadline, to_bytes(request.into_body(), wire::MAX_BODY))
+        .await
+    {
+        Ok(Ok(raw)) => raw,
+        Ok(Err(_)) => return refusal(Error::Malformed, None),
+        Err(_) => return refusal(Error::Unavailable, None),
     };
     let attempt = wire::attempt(&raw);
     // A protocol 3 request answers in protocol 3 only while its switch is on.
@@ -255,8 +258,9 @@ async fn recovery_front(
     deadline: tokio::time::Instant,
 ) -> Result<(axum::body::Bytes, &Protocol3, Option<String>), Box<Response>> {
     let hash = authenticate(app, &request)?;
-    let raw = to_bytes(request.into_body(), wire::MAX_BODY)
+    let raw = tokio::time::timeout_at(deadline, to_bytes(request.into_body(), wire::MAX_BODY))
         .await
+        .map_err(|_| Box::new(recovery_refusal(RecoveryError::Unavailable, None, 3, None)))?
         .map_err(|_| Box::new(recovery_refusal(RecoveryError::Malformed, None, 3, None)))?;
     let attempt = attempt_of(&raw);
     let Some(settings) = app.config.protocol3.as_ref() else {
@@ -349,7 +353,10 @@ async fn revoke(State(app): State<App>, request: Request) -> Response {
         Ok(hash) => hash,
         Err(error) => return recovery_refusal(error, None, 3, None),
     };
-    match recovery::revoke(&app.db, &hash).await {
+    match tokio::time::timeout_at(deadline, recovery::revoke(&app.db, &hash, deadline))
+        .await
+        .unwrap_or(Err(RecoveryError::Unavailable))
+    {
         Ok(()) => response(StatusCode::OK, recovery::REVOKED.to_vec()),
         Err(error) => recovery_refusal(error, None, 3, None),
     }

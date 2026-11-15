@@ -271,27 +271,40 @@ async fn db_runtime_replay_refresh_conflict_recovery_and_freshness() -> TestResu
         return Ok(());
     };
     db.assignments().await?;
-    let report = Report::decode(&value("1", 20)?)?;
+    let epoch = now()? - 20;
+    let report = Report::decode(&value("1", epoch + 20)?)?;
     assert_eq!(ingest(&db.pool, "node", &report).await?, "accepted");
     assert_eq!(ingest(&db.pool, "node", &report).await?, "superseded");
     assert_eq!(
-        ingest(&db.pool, "node", &Report::decode(&value("1", 21)?)?).await?,
+        ingest(&db.pool, "node", &Report::decode(&value("1", epoch + 21)?)?).await?,
         "refreshed"
     );
     let options = settings()?;
     assert_eq!(
-        read(&db.pool, &options, report.world_id, report.channel_id, 30)
-            .await?
-            .state,
+        read(
+            &db.pool,
+            &options,
+            report.world_id,
+            report.channel_id,
+            epoch + 30
+        )
+        .await?
+        .state,
         EvidenceState::Fresh
     );
     assert_eq!(
-        read(&db.pool, &options, report.world_id, report.channel_id, 40)
-            .await?
-            .state,
+        read(
+            &db.pool,
+            &options,
+            report.world_id,
+            report.channel_id,
+            epoch + 40
+        )
+        .await?
+        .state,
         EvidenceState::Stale
     );
-    let mut conflict = value("1", 22)?;
+    let mut conflict = value("1", epoch + 22)?;
     if let Value::Object(members) = &mut conflict {
         members
             .iter_mut()
@@ -308,20 +321,32 @@ async fn db_runtime_replay_refresh_conflict_recovery_and_freshness() -> TestResu
         Err(StatusCode::CONFLICT)
     );
     assert_eq!(
-        read(&db.pool, &options, report.world_id, report.channel_id, 23)
-            .await?
-            .state,
+        read(
+            &db.pool,
+            &options,
+            report.world_id,
+            report.channel_id,
+            epoch + 23
+        )
+        .await?
+        .state,
         EvidenceState::Invalid
     );
     assert_eq!(
-        ingest(&db.pool, "node", &Report::decode(&value("2", 24)?)?).await?,
+        ingest(&db.pool, "node", &Report::decode(&value("2", epoch + 24)?)?).await?,
         "accepted"
     );
     assert_eq!(ingest(&db.pool, "node", &report).await?, "superseded");
     assert_eq!(
-        read(&db.pool, &options, report.world_id, report.channel_id, 25)
-            .await?
-            .state,
+        read(
+            &db.pool,
+            &options,
+            report.world_id,
+            report.channel_id,
+            epoch + 25
+        )
+        .await?
+        .state,
         EvidenceState::Fresh
     );
     db.close().await
@@ -527,14 +552,15 @@ async fn db_runtime_readers_in_open_transactions_share_the_assignment_lock() -> 
         return Ok(());
     };
     db.assignments().await?;
-    let report = Report::decode(&value("1", 20)?)?;
+    let at = now()?;
+    let report = Report::decode(&value("1", at)?)?;
     assert_eq!(ingest(&db.pool, "node", &report).await?, "accepted");
     let options = settings()?;
     let (world, channel) = (report.world_id, report.channel_id);
     // An issuer holds its read open until commit; a second reader must not queue.
     let mut first = db.pool.begin().await?;
     assert_eq!(
-        read_in(&mut first, &options, world, channel, 30)
+        read_in(&mut first, &options, world, channel, at)
             .await?
             .state,
         EvidenceState::Fresh
@@ -544,7 +570,7 @@ async fn db_runtime_readers_in_open_transactions_share_the_assignment_lock() -> 
         .execute(&mut *second)
         .await?;
     assert_eq!(
-        read_in(&mut second, &options, world, channel, 30)
+        read_in(&mut second, &options, world, channel, at)
             .await?
             .state,
         EvidenceState::Fresh

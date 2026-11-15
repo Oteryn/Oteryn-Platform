@@ -364,3 +364,31 @@ fn configuration_refuses_ambiguous_identity_and_bad_scope() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn wave2_04_locator_authority_overlap_refuses_both_builders() {
+    let peers = format!(
+        r#"{{"shared.example.test":["{}/{}"]}}"#,
+        crate::runtime::tests::WORLD,
+        crate::runtime::tests::CHANNEL
+    );
+    let lookup = |key: &str| match key {
+        "GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES"
+        | "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES" => Some(peers.clone()),
+        "GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES" => {
+            Some(peers.replace("shared.example.test", "node.example.test"))
+        }
+        _ => None,
+    };
+    let isolated = |key: &str| {
+        if key == "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES" {
+            Some(peers.replace("shared.example.test", "locator.example.test"))
+        } else {
+            lookup(key)
+        }
+    };
+    assert!(configuration(isolated).is_some());
+    assert!(crate::runtime::configuration(isolated).is_some());
+    assert!(configuration(lookup).is_none());
+    assert!(crate::runtime::configuration(lookup).is_none());
+}

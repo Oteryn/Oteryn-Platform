@@ -408,6 +408,7 @@ pub fn configured_routes<S: Clone + Send + Sync + 'static>(
     router(pool, settings, Arc::new(identities), Arc::new(NoAudit))
 }
 fn configuration(lookup: impl Fn(&str) -> Option<String>) -> Option<(Settings, IdentityMap)> {
+    crate::runtime::purpose_isolated(&lookup)?;
     use oteryn_internal_api::{canonical, guard::Identity};
     let parse = |key: &str| -> Option<Vec<Peer>> {
         let raw = lookup(key)?;

@@ -280,19 +280,26 @@ impl Witness {
     async fn provenance(&self, pool: &PgPool) -> Result<(), Failure> {
         let store_path = self.directory.join("witness-store.id");
         let lock_path = self.directory.join("witness-store.lock");
-        reject_symlink(&lock_path)?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(lock_path)
-            .map_err(|_| unavailable())?;
-        lock.try_lock().map_err(|_| unavailable())?;
-        let marker = read_small(&store_path)?.map(|s| s.trim().to_owned());
-        if marker.as_ref().is_some_and(|s| valid_namespace(s).is_err()) {
-            return Err(unavailable());
-        }
+        let read_path = store_path.clone();
+        let (lock, marker) = crate::blocking::run(move || {
+            reject_symlink(&lock_path)?;
+            let lock = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(lock_path)
+                .map_err(|_| unavailable())?;
+            lock.try_lock().map_err(|_| unavailable())?;
+            let marker = read_small(&read_path)?.map(|s| s.trim().to_owned());
+            if marker.as_ref().is_some_and(|s| valid_namespace(s).is_err()) {
+                return Err(unavailable());
+            }
+            Ok((Arc::new(lock), marker))
+        })
+        .await
+        .map_err(|_| unavailable())??;
+        // Keep the provenance lock across SQL, without occupying a blocking worker.
         let db: Option<String> =
             sqlx::query_scalar("SELECT store_id FROM native_evidence_witness_stores WHERE id=1")
                 .fetch_optional(pool)
@@ -303,10 +310,7 @@ impl Witness {
             (_, Some(_)) => Err(unavailable()),
             (marker, None) => {
                 let id = match marker {
-                    Some(marker) => {
-                        durable_write(&store_path, format!("{marker}\n").as_bytes())?;
-                        marker
-                    }
+                    Some(marker) => marker,
                     None => {
                         let history: bool =
                             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM native_evidence)")
@@ -318,11 +322,18 @@ impl Witness {
                         }
                         let mut bytes = [0; 32];
                         getrandom::fill(&mut bytes).map_err(|_| unavailable())?;
-                        let id = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
-                        durable_write(&store_path, format!("{id}\n").as_bytes())?;
-                        id
+                        bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
                     }
                 };
+                let bytes = format!("{id}\n");
+                let retained_lock = lock.clone();
+                crate::blocking::run(move || {
+                    // Cancellation cannot release the single-writer lock mid-fsync.
+                    let _lock = retained_lock;
+                    durable_write(&store_path, bytes.as_bytes())
+                })
+                .await
+                .map_err(|_| unavailable())??;
                 sqlx::query(
                     "INSERT INTO native_evidence_witness_stores (id,store_id) VALUES (1,$1)",
                 )
@@ -416,10 +427,42 @@ pub fn trust_state_namespace(
 /// account schema, unknown status or absent native generation is unavailable.
 /// Trust comes only from the current immutable public trust profile/key versions;
 /// OAuth keys and admission private signing material are never consulted.
+/// Retains the namespace lock across SQL; filesystem work uses bounded workers.
+#[derive(Clone)]
+pub(crate) struct AsyncWitness(Arc<Witness>);
+impl AsyncWitness {
+    pub(crate) async fn lock(directory: &Path, namespace: &str) -> Result<Self, Failure> {
+        let directory = directory.to_owned();
+        let namespace = namespace.to_owned();
+        crate::blocking::run(move || {
+            Witness::lock(&directory, &namespace).map(|w| Self(Arc::new(w)))
+        })
+        .await
+        .map_err(|_| unavailable())?
+    }
+    pub(crate) async fn floor(&self, namespace: &str) -> Result<Option<i64>, Failure> {
+        let witness = self.0.clone();
+        let namespace = namespace.to_owned();
+        crate::blocking::run(move || witness.floor(&namespace))
+            .await
+            .map_err(|_| unavailable())?
+    }
+    pub(crate) async fn advance(&self, namespace: &str, revision: i64) -> Result<(), Failure> {
+        let witness = self.0.clone();
+        let namespace = namespace.to_owned();
+        crate::blocking::run(move || witness.advance(&namespace, revision))
+            .await
+            .map_err(|_| unavailable())?
+    }
+    async fn provenance(&self, pool: &PgPool) -> Result<(), Failure> {
+        self.0.provenance(pool).await
+    }
+}
+
 async fn source(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     request: &EvidenceRequest,
-    witness: &Witness,
+    witness: &AsyncWitness,
     history: i64,
 ) -> Result<Option<Vec<(&'static str, Value)>>, Failure> {
     let value = &request.value;
@@ -432,7 +475,7 @@ async fn source(
         .await
         .map_err(|_| unavailable())?;
         let Some(row) = row else {
-            if history > 0 || witness.floor(&request.state_namespace)?.is_some() {
+            if history > 0 || witness.floor(&request.state_namespace).await?.is_some() {
                 return Err(unavailable());
             }
             return Ok(None);
@@ -443,16 +486,22 @@ async fn source(
         if generation <= 0 {
             return Err(unavailable());
         }
-        match witness.floor(&request.state_namespace)? {
+        match witness.floor(&request.state_namespace).await? {
             Some(floor) if floor <= generation => {
                 // The account row and retained state are both locked. Committed
                 // forward mutations (including SQL triggers) may reconcile up;
                 // restored SQL state below retained authority remains unavailable.
                 if floor < generation {
-                    witness.advance(&request.state_namespace, generation)?;
+                    witness
+                        .advance(&request.state_namespace, generation)
+                        .await?;
                 }
             }
-            None if history == 0 => witness.advance(&request.state_namespace, generation)?,
+            None if history == 0 => {
+                witness
+                    .advance(&request.state_namespace, generation)
+                    .await?
+            }
             _ => return Err(unavailable()),
         }
         let status: String = row.try_get("status").map_err(|_| unavailable())?;
@@ -471,7 +520,7 @@ async fn source(
     } else {
         let profile = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE").bind(text(value,"issuer")?).bind(text(value,"profile")?).bind(text(value,"key_purpose")?).fetch_optional(&mut **tx).await.map_err(|_| unavailable())?;
         let Some(profile) = profile else {
-            if history > 0 || witness.floor(&request.state_namespace)?.is_some() {
+            if history > 0 || witness.floor(&request.state_namespace).await?.is_some() {
                 return Err(unavailable());
             }
             return Ok(None);
@@ -479,7 +528,7 @@ async fn source(
         let revision: i64 = profile
             .try_get("issuer_revision")
             .map_err(|_| unavailable())?;
-        if revision <= 0 || witness.floor(&request.state_namespace)? != Some(revision) {
+        if revision <= 0 || witness.floor(&request.state_namespace).await? != Some(revision) {
             return Err(unavailable());
         }
         let id: sqlx::types::Uuid = profile.try_get("id").map_err(|_| unavailable())?;
@@ -510,9 +559,14 @@ async fn source(
 /// Returns exact response bytes only after both relational and retained durability.
 /// A database failure after decode becomes the bounded wire result `unavailable`.
 pub async fn observe(pool: &PgPool, settings: &Settings, request: &EvidenceRequest) -> Value {
-    match observe_inner(pool, settings, request).await {
-        Ok(value) => value,
-        Err(_) => request.failure("unavailable"),
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        observe_inner(pool, settings, request),
+    )
+    .await
+    {
+        Ok(Ok(value)) => value,
+        _ => request.failure("unavailable"),
     }
 }
 async fn observe_inner(
@@ -526,16 +580,16 @@ async fn observe_inner(
     if !request.supported(settings)? {
         return Ok(request.failure("unsupported"));
     }
-    let witness = Witness::lock(&settings.witness_directory, &request.namespace)?;
+    let witness = AsyncWitness::lock(&settings.witness_directory, &request.namespace).await?;
     witness.provenance(pool).await?;
-    let state = Witness::lock(&settings.witness_directory, &request.state_namespace)?;
+    let state = AsyncWitness::lock(&settings.witness_directory, &request.state_namespace).await?;
     let mut tx = pool.begin().await.map_err(|_| unavailable())?;
     let high: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(source_revision),0)::bigint FROM native_evidence WHERE namespace_hash=$1").bind(&request.namespace).fetch_one(&mut *tx).await.map_err(|_| unavailable())?;
-    match witness.floor(&request.namespace)? {
+    match witness.floor(&request.namespace).await? {
         None if high == 0 => {}
         Some(floor) if floor <= high => {
             if floor < high {
-                witness.advance(&request.namespace, high)?;
+                witness.advance(&request.namespace, high).await?;
             }
         }
         _ => return Err(unavailable()),
@@ -566,7 +620,7 @@ async fn observe_inner(
     let wire = String::from_utf8(bytes).map_err(|_| unavailable())?;
     sqlx::query("INSERT INTO native_evidence(namespace_hash,source_revision,response_json) VALUES ($1,$2,$3)").bind(&request.namespace).bind(next).bind(wire).execute(&mut *tx).await.map_err(|_| unavailable())?;
     tx.commit().await.map_err(|_| unavailable())?;
-    witness.advance(&request.namespace, next)?;
+    witness.advance(&request.namespace, next).await?;
     Ok(response)
 }
 
