@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
+#[path = "../../../test-support/clock.rs"]
+mod test_clock;
 use time::OffsetDateTime;
 use tower::ServiceExt;
 const ACCOUNT: &str = "01890f4e-7c00-7000-8000-000000000001";
@@ -45,7 +47,7 @@ impl Database {
             .execute(&admin)
             .await
             .unwrap();
-        let options = schema.clone();
+        let options = format!("{schema},pg_catalog");
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(12)
             .after_connect(move |conn, _| {
@@ -617,10 +619,8 @@ async fn loyalty_stream_time_growth_and_lifecycle_computation() {
     };
     let account = Uuid::parse_str(ACCOUNT).unwrap();
     db.account(account).await;
-    let now: OffsetDateTime = sqlx::query_scalar("SELECT date_trunc('second',clock_timestamp())")
-        .fetch_one(&db.pool)
-        .await
-        .unwrap();
+    let now = OffsetDateTime::from_unix_timestamp(1_790_000_000).unwrap();
+    test_clock::install(&db.pool, now).await.unwrap();
     let entitlement = Uuid::now_v7();
     db.interval(
         account,
@@ -667,10 +667,6 @@ async fn loyalty_stream_time_growth_and_lifecycle_computation() {
     );
     let timed = Uuid::now_v7();
     db.account(timed).await;
-    let now: OffsetDateTime = sqlx::query_scalar("SELECT date_trunc('second',clock_timestamp())")
-        .fetch_one(&db.pool)
-        .await
-        .unwrap();
     db.interval(
         timed,
         Uuid::now_v7(),
@@ -679,17 +675,13 @@ async fn loyalty_stream_time_growth_and_lifecycle_computation() {
         now + time::Duration::days(1),
     )
     .await;
-    let before = db.stream().read(Some(first.next), 500).await.unwrap();
-    assert_eq!(
-        before
-            .items
-            .iter()
-            .find(|i| i.account_id == timed)
-            .unwrap()
-            .spent_premium_days,
-        0
-    );
     tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    let before = db.stream().read(Some(first.next), 500).await.unwrap();
+    let item = before.items.iter().find(|i| i.account_id == timed).unwrap();
+    assert_eq!((item.spent_premium_days, item.platform_revision), (0, 1));
+    test_clock::set(&db.pool, now + time::Duration::seconds(4))
+        .await
+        .unwrap();
     let after = db.stream().read(Some(before.next), 500).await.unwrap();
     let item = after.items.iter().find(|i| i.account_id == timed).unwrap();
     assert_eq!((item.spent_premium_days, item.platform_revision), (1, 2));

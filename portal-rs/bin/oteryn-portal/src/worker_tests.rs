@@ -341,6 +341,16 @@ async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
     // Empty reversible migration preserves all history through rollback/reapply.
     oteryn_db::MIGRATOR.undo(&db.pool, 20261107170001).await?;
     oteryn_db::migrate(&db.pool).await?;
+    // Financial aggregation uses a closed fixture day, independent of UTC now.
+    let day = 1_789_948_800_u64;
+    let credited_at = OffsetDateTime::from_unix_timestamp(i64::try_from(day + 3600)?)?;
+    // Set a literal default in this disposable schema before the real worker writes.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "ALTER TABLE wallet_entries ALTER COLUMN created_at SET DEFAULT to_timestamp({})",
+        credited_at.unix_timestamp()
+    )))
+    .execute(&db.pool)
+    .await?;
     let account = Uuid::now_v7();
     query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'topup@example.invalid',now(),'unused','active','en')").bind(account).execute(&db.pool).await?;
     let provider = TestProvider::new(&[5; 32])?;
@@ -440,7 +450,6 @@ async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
             .await?;
     assert_eq!(audit, 1);
     let mut tx = db.pool.begin().await?;
-    let day = OffsetDateTime::now_utc().unix_timestamp() as u64 / 86400 * 86400;
     let aggregate = oteryn_admin::analytics::purchased::read_in(&mut tx, day, day + 86400).await?;
     assert_eq!(aggregate.count, "1");
     assert_eq!(aggregate.coins, "1234");
