@@ -62,7 +62,7 @@ pub fn deny_unintegrated_security(conn: &mut PgConnection, _id: AccountId) -> Re
     })
 }
 /// Unconditional base revocation; extensions cannot omit these effects.
-async fn reset_base(conn: &mut PgConnection, id: AccountId) -> Result<(), Error> {
+pub(crate) async fn reset_base(conn: &mut PgConnection, id: AccountId) -> Result<(), Error> {
     sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
         .bind(id)
         .execute(&mut *conn)
@@ -208,6 +208,12 @@ impl RecoveryKeys {
             .await?;
         sqlx::query(
             "UPDATE account_recovery_keys SET used_at=now(),updated_at=now() WHERE account_id=$1",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO credential_security_events(account_id,kind) VALUES($1,'password_changed')",
         )
         .bind(id)
         .execute(&mut *tx)

@@ -1042,3 +1042,95 @@ async fn postgres_journal_registry_expires_and_erases_lifecycle_payloads() -> Te
     );
     Ok(())
 }
+
+#[test]
+fn audit02_credentials_only_delivers_password_notification() -> TestResult {
+    if std::env::var_os("A2_CREDENTIALS_ONLY_CHILD").is_some() {
+        return tokio::runtime::Runtime::new()?.block_on(credentials_only_delivery());
+    }
+    for credentials_enabled in ["true", "false"] {
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "worker::tests::audit02_credentials_only_delivers_password_notification",
+                "--nocapture",
+            ])
+            .env("A2_CREDENTIALS_ONLY_CHILD", "1")
+            .env("OTERYN_ACCOUNT_CREDENTIALS", credentials_enabled)
+            .env("OTERYN_ACCOUNT_LOGIN", "false")
+            .env("OTERYN_ACCOUNT_SESSIONS", "false")
+            .env("OTERYN_ACCOUNT_PASSKEYS", "false")
+            .env("OTERYN_SMTP_HOST", "localhost")
+            .env("OTERYN_SMTP_USERNAME", "test-sender")
+            .env("OTERYN_SMTP_PASSWORD", "test-smtp-password")
+            .env("OTERYN_SMTP_FROM", "security@example.test")
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    }
+    Ok(())
+}
+async fn credentials_only_delivery() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let id: Uuid = query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('credential-notify@example.test',$1,'active','en',now()) RETURNING id")
+        .bind(oteryn_identity::password::hash("current test password")?).fetch_one(&db.pool).await?;
+    let session = vec![21u8; 32];
+    query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,repeat('c',64),'test',now()+interval '1 hour',now()+interval '1 day')").bind(&session).bind(id).execute(&db.pool).await?;
+    let credentials = oteryn_identity::credentials::Credentials {
+        pool: db.pool.clone(),
+        enabled: true,
+        revoker: Arc::new(oteryn_identity::credentials::TransactionalRevoker),
+        notifications: Arc::new(
+            oteryn_identity::sessions::security_notifications(db.pool.clone())
+                .map_err(|e| e.to_string())?,
+        ),
+    };
+    assert_eq!(
+        credentials
+            .change(
+                &session,
+                oteryn_identity::credentials::PasswordChange {
+                    current_password: "current test password".into(),
+                    password: "replacement test password".into(),
+                    password_confirmation: "replacement test password".into(),
+                }
+            )
+            .await?,
+        oteryn_identity::credentials::Outcome::Changed
+    );
+    let mut delivery = crate::sessions_http::delivery(db.pool.clone())?
+        .ok_or("credentials producer has no notification consumer")?;
+    let sender = Arc::new(oteryn_notify::CaptureSender::default());
+    delivery.sender = sender.clone();
+    let mut registry = Registry::default();
+    register_security_notifications(&mut registry, db.pool.clone())?;
+    *registry
+        .handlers
+        .get_mut(oteryn_notify::EMAIL_JOB)
+        .ok_or("production registry omitted notify.email")? = Arc::new(delivery);
+    assert_eq!(registry.batch(&db.pool).await?, 1);
+    {
+        let emails = sender.emails.lock().map_err(|e| e.to_string())?;
+        assert_eq!(emails.len(), 1);
+        assert_eq!(emails[0].recipient, "credential-notify@example.test");
+        assert!(emails[0].subject.to_lowercase().contains("password"));
+    }
+    let failed: i64 =
+        query_scalar("SELECT count(*) FROM outbox WHERE state<>'done' OR last_error IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(failed, 0);
+    eprintln!(
+        "audit02_credentials_only_delivers_password_notification duration: {:?}",
+        started.elapsed()
+    );
+    db.close().await
+}

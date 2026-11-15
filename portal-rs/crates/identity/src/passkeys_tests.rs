@@ -13,6 +13,44 @@ async fn account(pool: &PgPool) -> Uuid {
     sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,email_verified_at,locale) VALUES ($1,'unused','active',now(),'en') RETURNING id")
         .bind(format!("{}@example.test",Uuid::now_v7())).fetch_one(pool).await.unwrap()
 }
+impl Passkeys {
+    async fn fixture_proof(&self, binding: &str, account: Uuid) -> crate::login::Authorization {
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'test',now()+interval '1 hour',now()+interval '1 day') ON CONFLICT(id_hash) DO UPDATE SET account_id=EXCLUDED.account_id,csrf_token=EXCLUDED.csrf_token")
+            .bind(hash(binding)).bind(account).bind(binding).execute(&self.pool).await.unwrap();
+        let generation =
+            sqlx::query_scalar("SELECT native_security_generation FROM accounts WHERE id=$1")
+                .bind(account)
+                .fetch_one(&self.pool)
+                .await
+                .unwrap();
+        crate::login::Authorization {
+            account,
+            generation,
+        }
+    }
+    async fn begin_registration(&self, binding: &str, account: Uuid) -> Result<Challenge, Error> {
+        if !sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1)")
+            .bind(account)
+            .fetch_one(&self.pool)
+            .await?
+        {
+            return Err(Error::Refused);
+        }
+        self.begin_registration_authorized(binding, self.fixture_proof(binding, account).await)
+            .await
+    }
+    async fn remove(&self, account: Uuid, id: Uuid) -> Result<(), Error> {
+        if !sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1)")
+            .bind(account)
+            .fetch_one(&self.pool)
+            .await?
+        {
+            return Err(Error::Refused);
+        }
+        self.remove_authorized(BINDING, self.fixture_proof(BINDING, account).await, id)
+            .await
+    }
+}
 #[tokio::test]
 async fn invalid_configuration_is_refused() {
     let pool = oteryn_db::lazy_pool("postgres://localhost/unused").unwrap();
@@ -32,6 +70,9 @@ async fn registration_input(
     auth: &mut SoftPasskey,
 ) -> Completion {
     let start = service.begin_registration(BINDING, account).await.unwrap();
+    registration_completion(start, auth)
+}
+fn registration_completion(start: Challenge, auth: &mut SoftPasskey) -> Completion {
     let mut options = start.options;
     // The software test authenticator is not resident-capable. It still signs genuine proofs.
     options["publicKey"]["authenticatorSelection"]["residentKey"] = "discouraged".into();
@@ -551,4 +592,147 @@ async fn audit02_removing_another_passkey_invalidates_earlier_authentication()
             .map_err(|_| "proof")?
     );
     db.close().await
+}
+
+#[tokio::test]
+async fn audit02_registration_and_removal_refuse_revoked_authorization() {
+    let started = std::time::Instant::now();
+    let Some(db) = database::Database::open().await.unwrap() else {
+        return;
+    };
+    let service = service(db.pool.clone());
+    let id = account(&db.pool).await;
+    sqlx::query("UPDATE accounts SET password_hash=$2 WHERE id=$1")
+        .bind(id)
+        .bind(crate::password::hash("compromised owner password").unwrap())
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let _ = service.fixture_proof(BINDING, id).await;
+    let proof = service
+        .confirm_password(id, "compromised owner password".into())
+        .await
+        .unwrap();
+    let start = service
+        .begin_registration_authorized(BINDING, proof)
+        .await
+        .unwrap();
+    let input = registration_completion(start, &mut SoftPasskey::new(true));
+    let mut recovery = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .execute(&mut *recovery)
+        .await
+        .unwrap();
+    let recovery_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *recovery)
+        .await
+        .unwrap();
+    let task = tokio::spawn({
+        let service = service.clone();
+        async move { service.finish_registration(BINDING, id, input).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let count: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM passkey_ceremonies WHERE account_id=$1")
+                    .bind(id)
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap();
+            if count == 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(recovery_pid)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if blocked {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    crate::recovery_key::reset_base(&mut recovery, id)
+        .await
+        .unwrap();
+    crate::recovery_key::integrated_security(&mut recovery, id)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE accounts SET password_hash=$2 WHERE id=$1")
+        .bind(id)
+        .bind(crate::password::hash("recovered owner password").unwrap())
+        .execute(&mut *recovery)
+        .await
+        .unwrap();
+    recovery.commit().await.unwrap();
+    assert!(matches!(task.await.unwrap(), Err(Error::Refused)));
+    assert!(service.list(id).await.unwrap().is_empty());
+    let _ = service.fixture_proof(BINDING, id).await;
+    let proof = service
+        .confirm_password(id, "recovered owner password".into())
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1",
+    )
+    .bind(id)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        service.begin_registration_authorized(BINDING, proof).await,
+        Err(Error::Refused)
+    ));
+    registered(&service, id, &mut SoftPasskey::new(true)).await;
+    let key = service.list(id).await.unwrap()[0];
+    let _ = service.fixture_proof(BINDING, id).await;
+    let proof = service
+        .confirm_password(id, "recovered owner password".into())
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1",
+    )
+    .bind(id)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        service.remove_authorized(BINDING, proof, key).await,
+        Err(Error::Refused)
+    ));
+    assert_eq!(service.list(id).await.unwrap(), vec![key]);
+    let proof = service
+        .confirm_password(id, "recovered owner password".into())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
+        .bind(id)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        service.remove_authorized(BINDING, proof, key).await,
+        Err(Error::Refused)
+    ));
+    assert_eq!(service.list(id).await.unwrap(), vec![key]);
+
+    eprintln!(
+        "audit02_registration_and_removal_refuse_revoked_authorization duration: {:?}",
+        started.elapsed()
+    );
+    db.close().await.unwrap();
 }

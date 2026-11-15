@@ -255,20 +255,21 @@ impl Receipt {
         Ok(value)
     }
     pub fn bind(&self, intent: &Intent, current_recovery: u64) -> Result<()> {
-        if self.command != intent.command
-            || self.operation_id != intent.operation_id
-            || number(&self.recovery_generation, true)? != current_recovery
+        if self.command != intent.command || self.operation_id != intent.operation_id {
+            return Err(Error::InvalidInput);
+        }
+        if number(&self.recovery_generation, true)? != current_recovery
             || (self.outcome == "COMMITTED"
                 && number(&intent.expected_recovery_generation, true)? != current_recovery)
         {
-            return Err(Error::UnknownState);
+            return Err(Error::Conflict);
         }
         // Attempt expiry bounds the start of unexecuted work. A signed terminal
         // receipt may follow a durable resumable detach that outlives that TTL.
         let decided = number(&self.decided_at, true)?;
         let issued = number(&intent.issued_at_source, true)?;
         if decided.saturating_add(5) < issued {
-            return Err(Error::UnknownState);
+            return Err(Error::InvalidInput);
         }
         if let Some(result) = &self.result_data
             && (result.account_id != intent.account_id
@@ -282,7 +283,7 @@ impl Receipt {
                             "FINALIZED"
                         }))
         {
-            return Err(Error::UnknownState);
+            return Err(Error::InvalidInput);
         }
         Ok(())
     }
