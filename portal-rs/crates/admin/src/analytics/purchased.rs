@@ -34,11 +34,21 @@ pub async fn read_in(
     let end = timestamp(end)?;
     // The intent ID is the deterministic top-up wallet operation key. Entry
     // uniqueness and the classified operation exclude requests and replays.
+    // Native orders and browser top-ups both bind the intent. Prefer the native
+    // binding if both exist, so each committed purchase is counted exactly once.
     let rows: Vec<(String, String, String, String, String, String)> = sqlx::query_as(
         "SELECT t.currency,count(*)::text,sum(e.available_delta)::text,sum(t.minor_units)::text,
                 sum(count(*)) OVER ()::text, sum(sum(e.available_delta)) OVER ()::text
          FROM wallet_entries e JOIN wallet_operations o ON o.id=e.operation_id
-         JOIN store_web_topups t ON t.payment_intent_id=o.id
+         JOIN (
+             SELECT payment_intent_id,payer_account_id AS account_id,coins,minor_units,currency
+             FROM coin_purchase_orders
+             UNION ALL
+             SELECT b.payment_intent_id,b.account_id,b.coins,b.minor_units,b.currency
+             FROM store_web_topups b
+             WHERE NOT EXISTS (SELECT 1 FROM coin_purchase_orders n
+                               WHERE n.payment_intent_id=b.payment_intent_id)
+         ) t ON t.payment_intent_id=o.id
          WHERE o.kind='top_up' AND e.account_id=t.account_id AND o.account_id=t.account_id
            AND e.available_delta=t.coins AND o.amount=t.coins AND e.reserved_delta=0
            AND e.created_at >= $1

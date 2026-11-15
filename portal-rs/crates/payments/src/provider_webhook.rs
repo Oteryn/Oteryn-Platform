@@ -173,6 +173,11 @@ struct Reversal {
 fn event_id_valid(value: &str) -> bool {
     (1..=128).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_graphic())
 }
+/// Printable ASCII, 1..=128 bytes, including spaces. Never normalize a
+/// provider reference: lookup and replay bind its original bytes.
+fn order_reference_valid(value: &str) -> bool {
+    (1..=128).contains(&value.len()) && value.bytes().all(|b| (b' '..=b'~').contains(&b))
+}
 fn type_valid(value: &str) -> bool {
     (1..=64).contains(&value.len())
         && value
@@ -300,7 +305,8 @@ impl ProviderWebhook {
                 let Ok(reversal) = serde_json::from_slice::<Reversal>(body) else {
                     return Delivery::Invalid;
                 };
-                if !event_id_valid(&reversal.order_reference) || reversal.amount.validate().is_err()
+                if !order_reference_valid(&reversal.order_reference)
+                    || reversal.amount.validate().is_err()
                 {
                     return Delivery::Invalid;
                 }

@@ -3,6 +3,11 @@ use std::future::Future;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+/// Shared available-plus-reserved ceiling, matching the native coin wire.
+/// All ledger credits (including caller-owned transactions) enforce this under
+/// the account lock before entering a delta.
+pub const MAX_BALANCE: i64 = 999_999_999_999;
+
 /// Runtime money flag. All APIs refuse while disabled.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct WalletFlags {
@@ -67,7 +72,10 @@ impl Balance {
         if available < 0 || reserved < 0 {
             return Err(Refusal::InsufficientFunds.into());
         }
-        available.checked_add(reserved).ok_or(Refusal::Overflow)?;
+        let total = available.checked_add(reserved).ok_or(Refusal::Overflow)?;
+        if total > MAX_BALANCE {
+            return Err(Refusal::Overflow.into());
+        }
         Ok(Self {
             available,
             reserved,
@@ -204,6 +212,20 @@ mod tests {
             Balance::default().apply(i64::MAX, 1),
             Err(Error::Refused(Refusal::Overflow))
         ));
+        Ok(())
+    }
+    #[test]
+    fn shared_ceiling_includes_reserved_coins() -> Result<(), Error> {
+        let balance = Balance::default().apply(MAX_BALANCE - 1, 1)?;
+        assert!(matches!(
+            balance.apply(1, 0),
+            Err(Error::Refused(Refusal::Overflow))
+        ));
+        assert!(matches!(
+            balance.apply(0, 1),
+            Err(Error::Refused(Refusal::Overflow))
+        ));
+        assert_eq!(balance.apply(1, -1)?.available, MAX_BALANCE);
         Ok(())
     }
     #[test]
