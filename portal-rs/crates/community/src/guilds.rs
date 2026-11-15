@@ -154,6 +154,14 @@ async fn apply(db: &PgPool, p: &Publication) -> Result<&'static str, StatusCode>
     {
         return Ok("superseded");
     }
+    if p.watermark
+        && sqlx::query_scalar::<_, bool>("SELECT public_projection_conflicted('guild')")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(unavailable)?
+    {
+        return Err(StatusCode::CONFLICT);
+    }
     let row=sqlx::query("SELECT epoch::text,version::text,watermark,payload FROM public_snapshots WHERE family='guild' AND subject=$1 AND is_watermark=$2").bind(&p.subject).bind(p.watermark).fetch_optional(&mut *tx).await.map_err(unavailable)?;
     if let Some(r) = row {
         let epoch: String = r.try_get("epoch").map_err(unavailable)?;
@@ -174,6 +182,10 @@ async fn apply(db: &PgPool, p: &Publication) -> Result<&'static str, StatusCode>
                 return if payload == p.payload {
                     Ok("accepted")
                 } else {
+                    crate::ingest::conflict(&mut tx, "guild", &p.subject, &p.epoch, &p.revision)
+                        .await
+                        .map_err(unavailable)?;
+                    tx.commit().await.map_err(unavailable)?;
                     Err(StatusCode::CONFLICT)
                 };
             }
@@ -198,12 +210,11 @@ pub fn configured_watermark_router(db: PgPool) -> Router {
     configured(db, Part::Watermark)
 }
 fn configured(db: PgPool, part: Part) -> Router {
-    let environment = matches!(
-        std::env::var("APP_ENV").as_deref(),
-        Ok("testing" | "preproduction")
-    );
-    let identities = std::env::var("PORTAL_PUBLIC_PROJECTIONS_SAN")
-        .ok()
+    configured_with(db, part, |key| std::env::var(key).ok())
+}
+fn configured_with(db: PgPool, part: Part, get: impl Fn(&str) -> Option<String>) -> Router {
+    let environment = matches!(get("APP_ENV").as_deref(), Some("testing" | "preproduction"));
+    let identities = get("PORTAL_PUBLIC_PROJECTIONS_SAN")
         .and_then(|s| guard::Identity::san(&s).ok())
         .and_then(|identity| {
             IdentityMap::new(vec![guard::Binding {
@@ -213,13 +224,14 @@ fn configured(db: PgPool, part: Part) -> Router {
             .ok()
         })
         .unwrap_or_default();
-    let source_authority = std::env::var("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY").unwrap_or_default();
+    let source_authority = get("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY").unwrap_or_default();
     let ingest = ingest_routes(
         db.clone(),
         Arc::new(identities),
         IngestConfig {
             enabled: environment
-                && std::env::var("PORTAL_GUILDS_INGEST_ENABLED").as_deref() == Ok("true"),
+                && get("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Some("true")
+                && get("PORTAL_GUILDS_INGEST_ENABLED").as_deref() == Some("true"),
             source_authority: source_authority.clone(),
         },
         part,
@@ -232,7 +244,7 @@ fn configured(db: PgPool, part: Part) -> Router {
         Arc::new(crate::privacy::Authority::configured(db)),
         Config {
             source_authority,
-            enabled: environment && std::env::var("PORTAL_GUILDS_ENABLED").as_deref() == Ok("true"),
+            enabled: environment && get("PORTAL_GUILDS_ENABLED").as_deref() == Some("true"),
         },
         false, // G-4 rev 1 is CANDIDATE, without a Game producer.
     )

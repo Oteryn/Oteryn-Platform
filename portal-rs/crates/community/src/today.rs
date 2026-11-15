@@ -26,12 +26,11 @@ impl Config {
             && self.worlds.iter().all(|id| id.get_version_num() == 7)
     }
     pub fn configured() -> Self {
-        let environment = matches!(
-            std::env::var("APP_ENV").as_deref(),
-            Ok("testing" | "preproduction")
-        );
-        let worlds = std::env::var("PORTAL_WORLD_DAILY_WORLDS")
-            .ok()
+        Self::from_lookup(|key| std::env::var(key).ok())
+    }
+    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
+        let environment = matches!(get("APP_ENV").as_deref(), Some("testing" | "preproduction"));
+        let worlds = get("PORTAL_WORLD_DAILY_WORLDS")
             .and_then(|s| {
                 let values = s
                     .split(',')
@@ -44,12 +43,12 @@ impl Config {
             .unwrap_or_default();
         Self {
             ingest_enabled: environment
-                && std::env::var("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Ok("true")
-                && std::env::var("PORTAL_WORLD_DAILY_INGEST_ENABLED").as_deref() == Ok("true"),
+                && get("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Some("true")
+                && get("PORTAL_WORLD_DAILY_INGEST_ENABLED").as_deref() == Some("true"),
             public_enabled: environment
-                && std::env::var("PORTAL_WORLD_DAILY_PUBLIC_ENABLED").as_deref() == Ok("true"),
-            source_authority: std::env::var("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY")
-                .unwrap_or_default(),
+                && get("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Some("true")
+                && get("PORTAL_WORLD_DAILY_PUBLIC_ENABLED").as_deref() == Some("true"),
+            source_authority: get("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY").unwrap_or_default(),
             worlds,
         }
     }

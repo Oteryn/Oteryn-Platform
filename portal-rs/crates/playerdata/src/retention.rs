@@ -20,6 +20,7 @@ impl Retention {
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
                 .fetch_one(&mut *tx)
                 .await?;
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=COALESCE(purged_at,$1) WHERE ctid IN (SELECT ctid FROM pd_g9_records WHERE expires_at<=$1 AND canonical_bytes IS NOT NULL LIMIT 512 FOR UPDATE SKIP LOCKED)").bind(now/1000).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_records SET payload=NULL WHERE ctid IN (SELECT ctid FROM pd_records WHERE payload IS NOT NULL AND expires_ms<=$1 ORDER BY expires_ms LIMIT 512 FOR UPDATE SKIP LOCKED)")
             .bind(now).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_t76_streams SET snapshot=NULL,snapshot_at=NULL WHERE ctid IN (SELECT ctid FROM pd_t76_streams WHERE snapshot IS NOT NULL AND snapshot_at<=$1 LIMIT 512 FOR UPDATE SKIP LOCKED)")

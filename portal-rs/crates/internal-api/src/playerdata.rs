@@ -1,5 +1,6 @@
 //! Closed private journal codecs. No request can establish its own authority.
 use crate::canonical::{self, Value};
+pub mod sessions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -553,8 +554,8 @@ pub fn cursor(raw: &[u8]) -> Result<Scope> {
 }
 pub fn items(raw: &[u8]) -> Result<Record> {
     let v = decode(raw, 65536)?;
-    // G-9 revision 2 has not yet supplied a closed replacement schema. Never
-    // reinterpret its revision-1 ownership/session fields as revision-2 evidence.
+    // G-9 revision 3 has its own codec and purpose-bound transport. Never
+    // reinterpret a G-9 envelope as G-10 ownership/custody evidence.
     if v.get("stream_generation").is_some() {
         return Err(Error::Unavailable);
     }

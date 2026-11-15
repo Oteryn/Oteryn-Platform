@@ -84,6 +84,15 @@ pub(super) async fn snapshot(db: &PgPool, s: &Snapshot) -> Result<&'static str, 
                 tx.commit().await?;
                 return Ok("accepted");
             }
+            crate::ingest::conflict(
+                &mut tx,
+                "character_deaths",
+                &s.character_id,
+                &s.projection_epoch,
+                &s.projection_revision,
+            )
+            .await?;
+            tx.commit().await?;
             return Err(Error::Conflict);
         }
     }
@@ -97,6 +106,15 @@ pub(super) async fn snapshot(db: &PgPool, s: &Snapshot) -> Result<&'static str, 
         .fetch_optional(&mut *tx)
         .await?;
         if old.is_some_and(|old| old != hash) {
+            crate::ingest::conflict(
+                &mut tx,
+                "character_deaths",
+                &s.character_id,
+                &s.projection_epoch,
+                &s.projection_revision,
+            )
+            .await?;
+            tx.commit().await?;
             return Err(Error::Conflict);
         }
         sqlx::query("INSERT INTO public_deaths_v2_occurrences (subject,occurrence,digest) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING").bind(&s.character_id).bind(&death.death_occurrence_id).bind(hash).execute(&mut *tx).await?;
@@ -116,6 +134,12 @@ pub(super) async fn watermark(db: &PgPool, w: &Watermark) -> Result<&'static str
     let mut tx = db.begin().await?;
     if !fence(&mut tx, &w.projection_epoch).await? {
         return Ok("superseded");
+    }
+    if sqlx::query_scalar::<_, bool>("SELECT public_projection_conflicted('character_deaths')")
+        .fetch_one(&mut *tx)
+        .await?
+    {
+        return Err(Error::Conflict);
     }
     let through: i64 = w.complete_through.parse().map_err(|_| Error::Database)?;
     let old = sqlx::query(

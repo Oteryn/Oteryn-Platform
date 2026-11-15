@@ -197,6 +197,11 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
     .execute(&db)
     .await?;
     sqlx::raw_sql(include_str!(
+        "../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
         "../../../migrations/20261115110016_fix_w2a_ingest_budget.sql"
     ))
     .execute(&db)
@@ -230,6 +235,22 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
         .status(),
         StatusCode::CONFLICT
     );
+    assert_eq!(
+        send(
+            app(db.clone(), true),
+            "watermark",
+            watermark(1, now()),
+            true
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    // Authoritative reconciliation is explicit fixture setup, never a retry.
+    sqlx::query("DELETE FROM public_projection_conflicts WHERE family='house'")
+        .execute(&db)
+        .await?;
+
     assert_eq!(
         get(app(db.clone(), true), "/en/houses").await.status(),
         StatusCode::SERVICE_UNAVAILABLE
@@ -409,6 +430,17 @@ async fn audit06_house_replay_observation_and_bounded_detail() -> TestResult {
         .status(),
         StatusCode::CONFLICT
     );
+    assert_eq!(
+        send(a.clone(), "watermark", watermark(1, now()), true)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    // Authoritative reconciliation is explicit fixture setup, never a retry.
+    sqlx::query("DELETE FROM public_projection_conflicts WHERE family='house'")
+        .execute(&d.db)
+        .await?;
+
     assert_eq!(
         send(a.clone(), "watermark", watermark(1, now()), true)
             .await

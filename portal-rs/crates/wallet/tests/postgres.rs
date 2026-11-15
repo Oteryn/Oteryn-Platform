@@ -1011,3 +1011,68 @@ async fn postgres_credit_debt_selection_has_enforced_cardinality_bound() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn exact_replays_revalidate_current_transfer_permission() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("real PostgreSQL is required");
+    let (a, b) = (id(), id());
+    let ledger = db.ledger(&[a, b]);
+    fund(&ledger, a, 100).await;
+    let (transfer, offer, trade) = (id(), id(), id());
+    ledger.transfer(transfer, a, b, 10).await.unwrap();
+    ledger.reserve_offer(offer, a, 50, 100).await.unwrap();
+    ledger.settle(trade, offer, b, 10).await.unwrap();
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_entries")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    for party in [a, b] {
+        for unknown in [false, true] {
+            let denied = Ledger::new(
+                db.pool.clone(),
+                WalletFlags { enabled: true },
+                Accounts(vec![a, b]),
+                Blocks {
+                    blocked: Some(party),
+                    unknown,
+                },
+                Audit(true),
+            );
+            let refusal = if unknown {
+                Refusal::TransferStateUnknown
+            } else {
+                Refusal::TransferBlocked
+            };
+            refused(denied.transfer(transfer, a, b, 10).await, refusal);
+            if party == a {
+                refused(denied.reserve_offer(offer, a, 50, 100).await, refusal);
+            }
+            refused(denied.settle(trade, offer, b, 10).await, refusal);
+            refused(
+                denied.transfer(transfer, a, b, 11).await,
+                Refusal::IdempotencyConflict,
+            );
+            refused(
+                denied.reserve_offer(offer, a, 50, 101).await,
+                Refusal::IdempotencyConflict,
+            );
+            refused(
+                denied.settle(trade, offer, b, 11).await,
+                Refusal::IdempotencyConflict,
+            );
+        }
+    }
+    assert_eq!(
+        before,
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM wallet_entries")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap()
+    );
+    db.close().await;
+    eprintln!(
+        "PG exact_replays_revalidate_current_transfer_permission {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

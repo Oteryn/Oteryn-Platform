@@ -277,7 +277,7 @@ async fn load(
 ) -> Result<Page, StatusCode> {
     let unavailable = StatusCode::SERVICE_UNAVAILABLE;
     // Read one subject snapshot only; never combine different ranking revisions/worlds.
-    let subjects: Vec<String> = sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='highscores' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 1101").fetch_all(&state.db).await.map_err(|_| unavailable)?;
+    let subjects: Vec<String> = sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 1101").fetch_all(&state.db).await.map_err(|_| unavailable)?;
     if subjects.len() > 1100 {
         return Err(unavailable);
     }
@@ -292,7 +292,7 @@ async fn load(
     };
     // Payload and observation watermark must come from the same accepted snapshot.
     let (payload, watermark, epoch, revision): (serde_json::Value, i64, String, String) = sqlx::query_as(
-        "SELECT payload, watermark, epoch::text, version::text FROM public_snapshots WHERE family='highscores' AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
+        "SELECT payload, watermark, epoch::text, version::text FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
     ).bind(format!("{world}:{category}:{vocation}")).fetch_optional(&state.db).await.map_err(|_| unavailable)?.ok_or(unavailable)?;
     let snapshot: Snapshot = serde_json::from_value(payload.clone()).map_err(|_| unavailable)?;
     if snapshot.world_id != world
@@ -402,10 +402,10 @@ pub async fn home_top(
     fn fail(_: impl std::fmt::Display) -> VisibilityUnavailable {
         VisibilityUnavailable
     }
-    let world: Option<String> = sqlx::query_scalar("SELECT min(split_part(subject,':',1)) FROM public_snapshots WHERE family='highscores' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_one(db).await.map_err(fail)?;
+    let world: Option<String> = sqlx::query_scalar("SELECT min(split_part(subject,':',1)) FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_one(db).await.map_err(fail)?;
     let world = world.ok_or(VisibilityUnavailable)?;
     let (payload, watermark, epoch, revision): (serde_json::Value, i64, String, String) = sqlx::query_as(
-        "SELECT payload, watermark, epoch::text, version::text FROM public_snapshots WHERE family='highscores' AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
+        "SELECT payload, watermark, epoch::text, version::text FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
     ).bind(format!("{world}:1:0")).fetch_optional(db).await.map_err(fail)?.ok_or(VisibilityUnavailable)?;
     let snapshot: Snapshot = serde_json::from_value(payload.clone()).map_err(fail)?;
     if snapshot.world_id != world
@@ -468,6 +468,6 @@ async fn eligible(
     revision: &str,
     payload: &serde_json::Value,
 ) -> Result<bool, VisibilityUnavailable> {
-    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots s JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch WHERE s.family='highscores' AND s.subject=$1 AND NOT s.is_watermark AND s.epoch=$2::numeric AND s.version=$3::numeric AND s.payload=$4)")
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots s JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch WHERE s.family='highscores' AND NOT public_projection_conflicted('highscores') AND s.subject=$1 AND NOT s.is_watermark AND s.epoch=$2::numeric AND s.version=$3::numeric AND s.payload=$4)")
         .bind(subject).bind(epoch).bind(revision).bind(payload).fetch_one(db).await.map_err(|_| VisibilityUnavailable)
 }

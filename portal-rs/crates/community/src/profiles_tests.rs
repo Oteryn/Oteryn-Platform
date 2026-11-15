@@ -134,6 +134,11 @@ async fn postgres_profile_success_privacy_fences_and_name_handoff() -> TestResul
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+    ))
+    .execute(&db)
+    .await?;
     sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
         .execute(&db)
         .await?;

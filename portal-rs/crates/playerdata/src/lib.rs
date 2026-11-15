@@ -17,3 +17,5 @@ pub mod store;
 pub mod navigation;
 
 pub mod retention;
+
+pub mod sessions;

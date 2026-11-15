@@ -1,12 +1,17 @@
-//! T72 production composition of the private game journal ingest (G-10 items,
+//! T72 composition of the private game journal ingest (G-10 items,
 //! G-11 progress, both ACCEPTED revision 3) for the internal mTLS listener.
 //!
 //! | routes | flag | identity | source |
 //! |---|---|---|---|
+//! | G-9 `journal/records` and `journal/commands/{pending,read,receipt}` | `PORTAL_PLAYERDATA_G9_{INGEST,REPLAY_COMMANDS}_ENABLED` | `PORTAL_PLAYERDATA_JOURNAL_SESSIONS_SAN` | `PORTAL_PLAYERDATA_G9_SOURCE_AUTHORITY` |
 //! | `journal/{records,cursor}` (G-10) | `PORTAL_PLAYERDATA_G10_INGEST_ENABLED` | `PORTAL_PLAYERDATA_JOURNAL_ITEMS_SAN` | `PORTAL_PLAYERDATA_G10_SOURCE_AUTHORITY` |
 //! | `progress/{record,watermark}` (G-11) | `PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED` | `PORTAL_PLAYERDATA_JOURNAL_PROGRESS_SAN` | `PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY` |
 //!
-//! Both also need the family in `PORTAL_PLAYERDATA_JOURNAL_FAMILIES` (comma
+//! G-9 uses the separate accepted revision-3 codec and durable store in
+//! [`crate::sessions`]; the binary selects G-9 versus G-10 records by verified
+//! peer purpose before collecting a body. No G-10 schema is widened.
+//!
+//! G-10 and G-11 also need the family in `PORTAL_PLAYERDATA_JOURNAL_FAMILIES` (comma
 //! separated, default empty). Every flag defaults to false; the caller adds its
 //! environment and identity checks. With both ingest flags off the adapters are
 //! the fail-closed defaults of [`crate::store`]. With an ingest flag on, the

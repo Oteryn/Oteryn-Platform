@@ -111,13 +111,14 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             reference: None,
             reason: None,
         };
-        if claim(&mut tx, &operation).await? {
+        let replayed = claim(&mut tx, &operation).await?;
+        self.allowed(&mut tx, sender).await?;
+        self.allowed(&mut tx, recipient).await?;
+        if replayed {
             let result = receipt(&mut tx, key, true).await?;
             tx.commit().await?;
             return Ok(result);
         }
-        self.allowed(&mut tx, sender).await?;
-        self.allowed(&mut tx, recipient).await?;
         crate::debt::unlocked(&mut tx, sender).await?;
         entry(&mut tx, key, sender, -amount, 0).await?;
         credit(&mut tx, key, recipient, amount).await?;
@@ -774,8 +775,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             },
         )
         .await?;
+        self.allowed(&mut tx, account).await?;
         if !replayed {
-            self.allowed(&mut tx, account).await?;
             crate::debt::unlocked(&mut tx, account).await?;
             entry(&mut tx, key, account, -amount, amount).await?;
             sqlx::query("INSERT INTO wallet_reservations (id,account_id,amount) VALUES ($1,$2,$3)")
@@ -841,9 +842,9 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             },
         )
         .await?;
+        self.allowed(&mut tx, seller).await?;
+        self.allowed(&mut tx, buyer).await?;
         if !replayed {
-            self.allowed(&mut tx, seller).await?;
-            self.allowed(&mut tx, buyer).await?;
             let row = sqlx::query("SELECT amount-consumed AS remaining,status FROM wallet_reservations WHERE id=$1 FOR UPDATE").bind(reservation).fetch_one(&mut *tx).await?;
             let remaining: i64 = row.try_get("remaining")?;
             let status: String = row.try_get("status")?;

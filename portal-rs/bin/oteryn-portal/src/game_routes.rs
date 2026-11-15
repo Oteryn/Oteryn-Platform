@@ -44,7 +44,7 @@ use axum::{
     extract::{Request, State},
     http::{Method, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::Response,
     routing::post_service,
 };
 use base64::Engine;
@@ -54,7 +54,7 @@ use oteryn_internal_api::{
     canonical::{self, Value},
     guard::{Binding, ConfigError, Identity, IdentityMap},
 };
-use oteryn_playerdata::journal;
+use oteryn_playerdata::{journal, sessions};
 use oteryn_store::{delivery, loyalty, premium, premium::profile_b, purchase};
 use oteryn_support::sanctions::enforcement;
 use sqlx::PgPool;
@@ -144,6 +144,10 @@ pub struct Routes {
 struct Diverted {
     stats: Router,
     families: Router,
+    sessions: Router,
+    journal: Router,
+    identities: Arc<IdentityMap>,
+    community: Router,
 }
 
 impl Routes {
@@ -297,6 +301,14 @@ impl Routes {
             others,
         );
 
+        let mut sessions_settings = sessions::Settings::from_lookup(get);
+        sessions_settings.ingest &= valid && qualified;
+        sessions_settings.commands &= valid && qualified;
+        let sessions = sessions::router(pool.clone(), sessions_settings, identities.clone());
+        let mut replay_commands = Router::new();
+        for path in sessions::COMMANDS {
+            replay_commands = replay_commands.route(path, post_service(sessions.clone()));
+        }
         let mut journal_settings = journal::Settings::from_lookup(get);
         journal_settings.items_ingest &= valid && qualified;
         journal_settings.progress_ingest &= valid && qualified;
@@ -325,8 +337,8 @@ impl Routes {
         }
 
         let stats = oteryn_stats::online::router(
-            pool,
-            identities,
+            pool.clone(),
+            identities.clone(),
             oteryn_stats::online::Config {
                 enabled: valid
                     && on("PORTAL_PUBLIC_PROJECTIONS_ENABLED")
@@ -353,7 +365,8 @@ impl Routes {
                 .merge(loyalty)
                 .merge(profile_b)
                 .merge(delivery)
-                .merge(journal)
+                .merge(journal.clone())
+                .merge(replay_commands)
                 .merge(purchase)
                 .merge(enforcement)
                 .merge(online)
@@ -361,6 +374,10 @@ impl Routes {
             diverted: Diverted {
                 stats,
                 families: g4,
+                sessions,
+                journal,
+                identities,
+                community: oteryn_community::v2_watermark::configured_router(pool.clone()),
             },
             identities_valid: valid,
         }
@@ -421,6 +438,7 @@ fn bindings(values: &Values) -> Result<Vec<Binding>, ConfigError> {
                 profile_b::http::CHANGES_IDENTITY => profile_b::http::CHANGES_GROUP,
                 STORE_IDENTITY => delivery::http::GROUP,
                 PUBLIC_IDENTITY => PUBLIC_GROUP,
+                sessions::IDENTITY => sessions::GROUP,
                 journal::ITEMS_IDENTITY => journal::ITEMS_GROUP,
                 journal::PROGRESS_IDENTITY => journal::PROGRESS_GROUP,
                 enforcement::READER_IDENTITY => enforcement::READER_GROUP,
@@ -491,14 +509,53 @@ struct Peek {
 /// a G-4 character family to the families router; every other request, including
 /// other families, continues unchanged.
 async fn watermark(State(diverted): State<Diverted>, request: Request, next: Next) -> Response {
+    if request.method() == Method::POST && request.uri().path() == sessions::RECORDS {
+        let probe = oteryn_community::v2_watermark::probe(
+            &diverted.sessions,
+            oteryn_community::v2_watermark::probe_request(&request),
+        )
+        .await;
+        let own_peer = request
+            .extensions()
+            .get::<oteryn_internal_api::guard::VerifiedClient>()
+            .is_some_and(|peer| diverted.identities.peer_in_group(peer, sessions::GROUP));
+        let g10 = oteryn_community::v2_watermark::probe(
+            &diverted.journal,
+            oteryn_community::v2_watermark::probe_request(&request),
+        )
+        .await;
+        if own_peer
+            || probe.status() == StatusCode::NO_CONTENT
+            || (probe.status() == StatusCode::UNAUTHORIZED
+                && g10.status() != StatusCode::NO_CONTENT)
+        {
+            return match diverted.sessions.oneshot(request).await {
+                Ok(response) => response,
+                Err(never) => match never {},
+            };
+        }
+        return next.run(request).await;
+    }
     if request.method() != Method::POST
         || request.uri().path() != oteryn_community::v2_watermark::PATH
     {
         return next.run(request).await;
     }
+    if let Some(response) = oteryn_community::v2_watermark::admission(
+        &[
+            diverted.stats.clone(),
+            diverted.families.clone(),
+            diverted.community.clone(),
+        ],
+        oteryn_community::v2_watermark::probe_request(&request),
+    )
+    .await
+    {
+        return response;
+    }
     let (parts, body) = request.into_parts();
     let Ok(bytes) = to_bytes(body, WATERMARK_BUFFER).await else {
-        return StatusCode::BAD_REQUEST.into_response();
+        return oteryn_community::v2_watermark::dispatch_failure(StatusCode::BAD_REQUEST);
     };
     let family = serde_json::from_slice::<Peek>(&bytes)
         .ok()

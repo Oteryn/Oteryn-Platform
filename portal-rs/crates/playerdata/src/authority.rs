@@ -480,3 +480,11 @@ pub use reads::{JournalEvidence, JournalLoginAuthority, LoginPromoter};
 
 #[cfg(test)]
 mod tests;
+
+/// G-9 uses the same issuance, closure and restore fence as the other private
+/// journals; UUID stream admission alone cannot prove a reconciled restore.
+pub(crate) async fn session_fence(tx: &mut PgConnection, subject: Uuid) -> Result<u64> {
+    shared_fences(tx).await?;
+    account(tx, subject).await?;
+    restore_generation(tx).await
+}

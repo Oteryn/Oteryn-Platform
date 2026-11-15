@@ -179,7 +179,7 @@ async fn load(
     if !state.contract_accepted {
         return Err(Unavailable::Evidence);
     }
-    let wm=sqlx::query("SELECT epoch::text,watermark,payload FROM public_snapshots WHERE family='guild' AND subject='v2' AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_optional(&state.db).await.map_err(|_|Unavailable::Database)?.ok_or(Unavailable::Evidence)?;
+    let wm=sqlx::query("SELECT epoch::text,watermark,payload FROM public_snapshots WHERE family='guild' AND NOT public_projection_conflicted('guild') AND NOT public_projection_conflicted('character_profile') AND subject='v2' AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_optional(&state.db).await.map_err(|_|Unavailable::Database)?.ok_or(Unavailable::Evidence)?;
     let watermark_payload: serde_json::Value =
         wm.try_get("payload").map_err(|_| Unavailable::Evidence)?;
     if !wire::authority(&state.config.source_authority)
@@ -195,14 +195,14 @@ async fn load(
     {
         return Err(Unavailable::Evidence);
     }
-    let profile_through: Option<i64> = sqlx::query_scalar("SELECT watermark FROM public_snapshots WHERE family='character_profile' AND subject='' AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_optional(&state.db).await.map_err(|_|Unavailable::Database)?;
+    let profile_through: Option<i64> = sqlx::query_scalar("SELECT watermark FROM public_snapshots WHERE family='character_profile' AND NOT public_projection_conflicted('character_profile') AND subject='' AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_optional(&state.db).await.map_err(|_|Unavailable::Database)?;
     let profile_through = profile_through.ok_or(Unavailable::Evidence)?;
     if profile_through > current.saturating_add(1)
         || current.saturating_sub(profile_through).saturating_add(1) > 30
     {
         return Err(Unavailable::Evidence);
     }
-    let subjects:Vec<String>=sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='guild' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND ($1::text IS NULL OR payload->'guild'->0->>'name'=$1) ORDER BY subject LIMIT 257").bind(selected).fetch_all(&state.db).await.map_err(|_|Unavailable::Database)?;
+    let subjects:Vec<String>=sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='guild' AND NOT public_projection_conflicted('guild') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND ($1::text IS NULL OR payload->'guild'->0->>'name'=$1) ORDER BY subject LIMIT 257").bind(selected).fetch_all(&state.db).await.map_err(|_|Unavailable::Database)?;
     if subjects.len() > 256 {
         return Err(Unavailable::Evidence);
     }
@@ -317,7 +317,7 @@ async fn load(
         return Err(Unavailable::Evidence);
     }
     for (subject, payload) in identities {
-        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='guild' AND subject=$1 AND NOT is_watermark AND epoch=$2::numeric AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND payload=$3)").bind(subject).bind(&epoch).bind(payload).fetch_one(&mut *fence).await.map_err(|_| Unavailable::Database)?;
+        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='guild' AND NOT public_projection_conflicted('guild') AND subject=$1 AND NOT is_watermark AND epoch=$2::numeric AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND payload=$3)").bind(subject).bind(&epoch).bind(payload).fetch_one(&mut *fence).await.map_err(|_| Unavailable::Database)?;
         if !current {
             return Err(Unavailable::Evidence);
         }

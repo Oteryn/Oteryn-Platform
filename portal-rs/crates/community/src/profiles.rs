@@ -225,15 +225,15 @@ async fn load(state: &Profiles, name: &str) -> Result<Option<Character>, Unavail
         .execute(&mut *tx)
         .await
         .map_err(|_| Unavailable)?;
-    let fresh: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='character_profile' AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND watermark BETWEEN floor(extract(epoch FROM now()))::bigint-29 AND floor(extract(epoch FROM now()))::bigint+1)").fetch_one(&mut *tx).await.map_err(|_|Unavailable)?;
+    let fresh: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='character_profile' AND NOT public_projection_conflicted('character_profile') AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND watermark BETWEEN floor(extract(epoch FROM now()))::bigint-29 AND floor(extract(epoch FROM now()))::bigint+1)").fetch_one(&mut *tx).await.map_err(|_|Unavailable)?;
     if !fresh {
         return Err(Unavailable);
     }
-    let worlds: Vec<String> = sqlx::query_scalar("SELECT DISTINCT payload->'profile'->0->>'world_id' FROM public_snapshots WHERE family='character_profile' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND jsonb_array_length(payload->'profile')=1 LIMIT 2").fetch_all(&mut *tx).await.map_err(|_|Unavailable)?;
+    let worlds: Vec<String> = sqlx::query_scalar("SELECT DISTINCT payload->'profile'->0->>'world_id' FROM public_snapshots WHERE family='character_profile' AND NOT public_projection_conflicted('character_profile') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND jsonb_array_length(payload->'profile')=1 LIMIT 2").fetch_all(&mut *tx).await.map_err(|_|Unavailable)?;
     if worlds.len() != 1 {
         return Err(Unavailable);
     }
-    let rows: Vec<(String,serde_json::Value,String)> = sqlx::query_as("SELECT subject,payload,epoch::text FROM public_snapshots WHERE family='character_profile' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND lower(payload->'profile'->0->>'name')=lower($1) LIMIT 2").bind(name).fetch_all(&mut *tx).await.map_err(|_|Unavailable)?;
+    let rows: Vec<(String,serde_json::Value,String)> = sqlx::query_as("SELECT subject,payload,epoch::text FROM public_snapshots WHERE family='character_profile' AND NOT public_projection_conflicted('character_profile') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND lower(payload->'profile'->0->>'name')=lower($1) LIMIT 2").bind(name).fetch_all(&mut *tx).await.map_err(|_|Unavailable)?;
     tx.commit().await.map_err(|_| Unavailable)?;
     if rows.len() != 1 {
         // Exercise the same authority boundary for negative lookups. An empty
@@ -316,7 +316,7 @@ async fn load(state: &Profiles, name: &str) -> Result<Option<Character>, Unavail
     }
     // External readers may await I/O. Recheck source eligibility at serving time,
     // so an epoch raise or expired watermark during those waits cannot disclose facts.
-    let eligible: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='character_profile' AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND epoch::text=$1 AND watermark BETWEEN floor(extract(epoch FROM statement_timestamp()))::bigint-29 AND floor(extract(epoch FROM statement_timestamp()))::bigint+1 AND EXISTS(SELECT 1 FROM public_snapshots current_profile WHERE current_profile.family='character_profile' AND current_profile.subject=$2 AND NOT current_profile.is_watermark AND current_profile.epoch=public_snapshots.epoch AND current_profile.payload=$3))")
+    let eligible: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='character_profile' AND NOT public_projection_conflicted('character_profile') AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND epoch::text=$1 AND watermark BETWEEN floor(extract(epoch FROM statement_timestamp()))::bigint-29 AND floor(extract(epoch FROM statement_timestamp()))::bigint+1 AND EXISTS(SELECT 1 FROM public_snapshots current_profile WHERE current_profile.family='character_profile' AND NOT public_projection_conflicted('character_profile') AND current_profile.subject=$2 AND NOT current_profile.is_watermark AND current_profile.epoch=public_snapshots.epoch AND current_profile.payload=$3))")
         .bind(epoch).bind(id).bind(payload).fetch_one(&state.db).await.map_err(|_|Unavailable)?;
     if !eligible {
         return Err(Unavailable);

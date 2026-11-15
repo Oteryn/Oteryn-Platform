@@ -14,7 +14,7 @@ use axum::{
 };
 use oteryn_playerdata::authority::{Ownership, ownership};
 use oteryn_web::session::{self, BrowserSession, SessionLayer};
-use sqlx::PgPool;
+use sqlx::{Acquire, PgPool};
 use std::{future::Future, pin::Pin, sync::Arc};
 use uuid::Uuid;
 
@@ -269,7 +269,7 @@ async fn public_skills(
     let (epoch, through) = storage::fresh(&mut db, Family::Skills, authority, now()).await?;
     // The one current eligible profile of this name on the same epoch, with a fresh
     // profile watermark. Unknown, hidden and ambiguous names share one not-found.
-    let profiles: Vec<(String, String)> = sqlx::query_as("SELECT s.subject,s.payload->'profile'->0->>'world_id' FROM public_snapshots s WHERE s.family='character_profile' AND NOT s.is_watermark AND s.epoch=$1::numeric AND jsonb_array_length(s.payload->'profile')=1 AND s.payload->'profile'->0->>'name'=$2 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM now()))::bigint-29 AND floor(extract(epoch FROM now()))::bigint+1) LIMIT 2")
+    let profiles: Vec<(String, String)> = sqlx::query_as("SELECT s.subject,s.payload->'profile'->0->>'world_id' FROM public_snapshots s WHERE s.family='character_profile' AND NOT public_projection_conflicted('character_profile') AND NOT s.is_watermark AND s.epoch=$1::numeric AND jsonb_array_length(s.payload->'profile')=1 AND s.payload->'profile'->0->>'name'=$2 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM now()))::bigint-29 AND floor(extract(epoch FROM now()))::bigint+1) LIMIT 2")
         .bind(&epoch)
         .bind(name)
         .fetch_all(&mut *db)
@@ -289,7 +289,7 @@ async fn public_skills(
     .await?
     .ok_or(Refusal::Unavailable)?;
     let records: Vec<wire::Skills> =
-        serde_json::from_value(body).map_err(|_| Refusal::Unavailable)?;
+        serde_json::from_value(body.clone()).map_err(|_| Refusal::Unavailable)?;
     let Some(r) = records.first() else {
         return Err(Refusal::NotFound);
     };
@@ -299,16 +299,34 @@ async fn public_skills(
     if !s.privacy.allows_skills(subject, &epoch).await? {
         return Err(Refusal::NotFound);
     }
-    // Recheck after the asynchronous privacy decision: an epoch raise or elapsed
-    // freshness must not publish the cut read above.
-    if storage::fresh(&mut db, Family::Skills, authority, now())
+    // Privacy awaits external work. Revalidate both the body and the current
+    // eligible profile after it, including same-epoch suppression/replacement.
+    let mut current = db.begin().await?;
+    sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
+        .fetch_one(&mut *current)
+        .await?;
+    let (current_epoch, current_through) =
+        storage::fresh(&mut current, Family::Skills, authority, now()).await?;
+    if current_epoch != epoch
+        || storage::body(
+            &mut current,
+            Family::Skills,
+            character,
+            authority,
+            &epoch,
+            current_through,
+        )
         .await?
-        .0
-        != epoch
+            != Some(body)
     {
         return Err(Refusal::Unavailable);
     }
-    Ok([
+    let current_profiles: Vec<(String, String)> = sqlx::query_as("SELECT s.subject,s.payload->'profile'->0->>'world_id' FROM public_snapshots s WHERE s.family='character_profile' AND NOT public_projection_conflicted('character_profile') AND NOT s.is_watermark AND s.epoch=$1::numeric AND jsonb_array_length(s.payload->'profile')=1 AND s.payload->'profile'->0->>'name'=$2 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM now()))::bigint-29 AND floor(extract(epoch FROM now()))::bigint+1) LIMIT 2")
+        .bind(&epoch).bind(name).fetch_all(&mut *current).await?;
+    if current_profiles != profiles {
+        return Err(Refusal::NotFound);
+    }
+    let rows = [
         ("level", r.level.clone()),
         ("experience", r.total_experience.clone()),
         ("magic", r.magic_level.to_string()),
@@ -322,7 +340,9 @@ async fn public_skills(
     ]
     .into_iter()
     .map(|(k, v)| (label(en, k), v))
-    .collect())
+    .collect();
+    current.commit().await?;
+    Ok(rows)
 }
 
 async fn owned(

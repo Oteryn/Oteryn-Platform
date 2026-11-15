@@ -1,4 +1,8 @@
-//! Private listener composition. Production remains disabled until callers provide
+//! G-10/G-11 private listener composition. G-9 revision 3 has its own
+//! purpose-bound codec and durable transport in [`crate::sessions`]. The binary
+//! selects that records route by authenticated peer before reading the body;
+//! its larger limit never widens the G-10 record codec or guard.
+//! Production remains disabled until callers provide
 //! accepted private authority, restore, trusted-clock and TLS purpose adapters.
 use super::*;
 use axum::{

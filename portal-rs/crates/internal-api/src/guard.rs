@@ -100,6 +100,11 @@ impl IdentityMap {
         }
         Ok(Self(bindings))
     }
+    /// Routing hint only. The destination guard must still check configuration
+    /// and authorize the peer before consuming a body or invoking a handler.
+    pub fn peer_in_group(&self, client: &VerifiedClient, group: &str) -> bool {
+        self.permits(&client.0, group)
+    }
     fn has_group(&self, group: &str) -> bool {
         self.0.iter().any(|binding| binding.group == group)
     }

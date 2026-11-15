@@ -53,6 +53,7 @@ async fn database() -> Result<Option<PgPool>, Box<dyn std::error::Error>> {
         .await?;
     for migration in [
         include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
+        include_str!("../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"),
         include_str!("../../../migrations/20261105210000_t65_statistics.sql"),
         include_str!("../../../migrations/20261105231301_t67b_statistics_v2.sql"),
     ] {
@@ -986,6 +987,76 @@ async fn postgres_committed_watermark_fixture_uses_real_route() -> TestResult {
     eprintln!(
         "postgres_committed_watermark_fixture_uses_real_route duration={:?}",
         started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_projection_conflict_stalls_statistics_and_preserves_other_family() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = database().await?.expect("real PostgreSQL is required");
+    let world = Uuid::parse_str(WORLD_ID)?;
+    assert_eq!(
+        apply(&db, Some(Family::WorldDailyKills), WORLD, NOW).await,
+        Ok(Receipt::Accepted)
+    );
+    apply(
+        &db,
+        None,
+        &watermark(Family::WorldDailyKills, "1", NOW, NOW),
+        NOW,
+    )
+    .await
+    .unwrap();
+    assert!(
+        online::world_total(&db, &config(), world, 1789948800, NOW, &baseline())
+            .await
+            .is_ok()
+    );
+    assert_eq!(
+        apply(
+            &db,
+            Some(Family::WorldDailyKills),
+            include_str!("fixtures/conflict.json"),
+            NOW
+        )
+        .await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(
+        apply(
+            &db,
+            None,
+            &watermark(Family::WorldDailyKills, "1", NOW + 1, NOW + 1),
+            NOW + 1
+        )
+        .await,
+        Err(Error::Conflict)
+    );
+    let through: i64 = sqlx::query_scalar(
+        "SELECT complete_through FROM stats_v2_watermarks WHERE family='world_daily_kills'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(through, NOW);
+    assert_eq!(
+        online::world_total(&db, &config(), world, 1789948800, NOW, &baseline()).await,
+        Err(Error::Unavailable)
+    );
+    assert_eq!(
+        apply(
+            &db,
+            None,
+            &watermark(Family::CharacterOnlineSessions, "1", NOW, NOW),
+            NOW
+        )
+        .await,
+        Ok(Receipt::Accepted)
+    );
+    dispose(db).await?;
+    eprintln!(
+        "PG postgres_projection_conflict_stalls_statistics_and_preserves_other_family {:.3}s",
+        started.elapsed().as_secs_f64()
     );
     Ok(())
 }

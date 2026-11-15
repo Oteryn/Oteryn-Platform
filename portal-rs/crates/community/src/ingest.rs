@@ -226,6 +226,14 @@ async fn apply(db: &PgPool, p: &Publication) -> Result<&'static str, ApplyError>
         .bind(&p.epoch)
         .execute(&mut *tx)
         .await?;
+    if p.watermark
+        && sqlx::query_scalar::<_, bool>("SELECT public_projection_conflicted($1)")
+            .bind(&p.family)
+            .fetch_one(&mut *tx)
+            .await?
+    {
+        return Err(ApplyError::Conflict);
+    }
     let current = sqlx::query("SELECT version::text, epoch::text, watermark, payload FROM public_snapshots WHERE family=$1 AND subject=$2 AND is_watermark=$3").bind(&p.family).bind(&p.subject).bind(p.watermark).fetch_optional(&mut *tx).await?;
     if let Some(row) = current {
         let epoch: String = row.try_get("epoch")?;
@@ -245,6 +253,8 @@ async fn apply(db: &PgPool, p: &Publication) -> Result<&'static str, ApplyError>
                 return if payload == p.payload {
                     Ok("accepted")
                 } else {
+                    conflict(&mut tx, &p.family, &p.subject, &p.epoch, &p.revision).await?;
+                    tx.commit().await?;
                     Err(ApplyError::Conflict)
                 };
             }
@@ -265,7 +275,7 @@ pub async fn latest(
     family: &str,
     subject: &str,
 ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-    sqlx::query_scalar("SELECT payload FROM public_snapshots WHERE family=$1 AND subject=$2 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").bind(family).bind(subject).fetch_optional(db).await
+    sqlx::query_scalar("SELECT payload FROM public_snapshots WHERE family=$1 AND subject=$2 AND NOT public_projection_conflicted(family,subject) AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").bind(family).bind(subject).fetch_optional(db).await
 }
 #[cfg(test)]
 #[path = "ingest/ingest_tests.rs"]
@@ -299,4 +309,23 @@ pub fn configured_router(db: PgPool) -> Router {
             source_authority,
         },
     )
+}
+
+/// Persist only the first contradictory ordered reference, under the shared epoch
+/// write lock. Callers commit this fence before returning the conflict refusal.
+pub(crate) async fn conflict(
+    db: &mut sqlx::PgConnection,
+    family: &str,
+    subject: &str,
+    epoch: &str,
+    revision: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO public_projection_conflicts(family,subject,epoch,revision) VALUES($1,$2,$3::numeric,$4::numeric) ON CONFLICT DO NOTHING")
+        .bind(family).bind(subject).bind(epoch).bind(revision).execute(&mut *db).await?;
+    sqlx::query("DELETE FROM public_snapshots WHERE family=$1 AND is_watermark")
+        .bind(family)
+        .execute(db)
+        .await?;
+    tracing::error!(family, "contradictory public projection quarantined");
+    Ok(())
 }
