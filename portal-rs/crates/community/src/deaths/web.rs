@@ -37,6 +37,7 @@ pub struct Config {
 struct StateData {
     contract_accepted: bool,
     db: PgPool,
+    fences: PgPool,
     privacy: Arc<dyn Privacy>,
     config: Config,
 }
@@ -58,6 +59,13 @@ pub(crate) fn router_with_contract(
         .route("/en/characters/{name}/deaths", get(character))
         .with_state(StateData {
             contract_accepted,
+            // Fence transactions have separate bounded capacity. Privacy adapters
+            // can use every ordinary pool connection without deadlocking readers.
+            fences: sqlx::postgres::PgPoolOptions::new()
+                .max_connections(2)
+                .min_connections(0)
+                .acquire_timeout(std::time::Duration::from_secs(2))
+                .connect_lazy_with(db.connect_options().as_ref().clone()),
             db,
             privacy,
             config,
@@ -157,7 +165,7 @@ async fn evidence(s: &StateData) -> Result<String, Unavailable> {
     }
     row.try_get("epoch").map_err(|_| Unavailable)
 }
-async fn load(
+async fn load_inner(
     s: &StateData,
     query: &Query,
     name: Option<&str>,
@@ -169,13 +177,10 @@ async fn load(
     if !wire::authority(&s.config.source_authority) {
         return Err(Unavailable);
     }
-    // T24 takes this fence exclusively on every publication. Keep a shared lock
-    // until presentation has read all profile/suppression evidence. Its public
-    // latest API uses the pool, so a second connection must be available.
-    if s.db.options().get_max_connections() < 2 {
-        return Err(Unavailable);
-    }
-    let mut fence = s.db.begin().await.map_err(|_| Unavailable)?;
+    // Fence capacity is separate from the pool used by privacy and projection reads.
+    let mut fence = s.fences.begin().await.map_err(|_| Unavailable)?;
+    sqlx::query("SELECT set_config('statement_timeout','2500ms',true),set_config('idle_in_transaction_session_timeout','3s',true)")
+        .execute(&mut *fence).await.map_err(|_| Unavailable)?;
     let locked_epoch: Option<String> = sqlx::query_scalar(
         "SELECT highest_epoch::text FROM public_projection_state WHERE id=1 FOR SHARE",
     )
@@ -376,4 +381,18 @@ async fn policy(request: axum::extract::Request, next: axum::middleware::Next) -
         );
     }
     response
+}
+
+async fn load(
+    s: &StateData,
+    query: &Query,
+    name: Option<&str>,
+    en: bool,
+) -> Result<Option<Vec<Entry>>, Unavailable> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        load_inner(s, query, name, en),
+    )
+    .await
+    .map_err(|_| Unavailable)?
 }

@@ -258,3 +258,69 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
     eprintln!("Guild PostgreSQL tests ran: 1");
     Ok(())
 }
+
+async fn audit06_guild_scenario(oversized: bool) -> TestResult {
+    struct Visible {
+        db: PgPool,
+        suppress: bool,
+    }
+    impl PublicVisibility for Visible {
+        fn visible_batch<'a>(&'a self, _: &'a str, refs: &'a [MemberRef]) -> VisibilityResult<'a> {
+            Box::pin(async move {
+                if self.suppress {
+                    sqlx::query("UPDATE public_snapshots SET payload=jsonb_set(payload,'{guild}','[]'),version=version+1 WHERE family='guild' AND NOT is_watermark").execute(&self.db).await.map_err(|_| Unavailable::Database)?;
+                }
+                Ok(vec![true; refs.len()])
+            })
+        }
+    }
+    let d = crate::audit06_test_db::Database::new().await?;
+    apply(&d.db, &publication(GOLDEN, false))
+        .await
+        .map_err(|_| "guild publication failed")?;
+    let wm = format!(
+        r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"oteryn:game:primary","family":"guild","projection_epoch":"1","complete_through":"{}","observed_at":"{}"}}"#,
+        now(),
+        now()
+    );
+    apply(&d.db, &publication(&wm, true))
+        .await
+        .map_err(|_| "watermark failed")?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,1,1,$1,'null')").bind(i64::try_from(now())?).execute(&d.db).await?;
+    if oversized {
+        sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) SELECT 'guild','unrelated:'||i,1,1,$1,jsonb_build_object('guild',jsonb_build_array(jsonb_build_object('name','Unrelated'))) FROM generate_series(1,10000) i").bind(i64::try_from(now())?).execute(&d.db).await?;
+    }
+    for suppress in [false, true] {
+        let a = router(
+            d.db.clone(),
+            Arc::new(Visible {
+                db: d.db.clone(),
+                suppress,
+            }),
+            Config {
+                enabled: true,
+                source_authority: "oteryn:game:primary".into(),
+            },
+        );
+        let response = a
+            .oneshot(Request::get("/en/guilds/Red%20Rose").body(Body::empty())?)
+            .await?;
+        let body = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+        if suppress {
+            assert!(body.contains("unavailable"));
+            assert!(!body.contains("Red Rose</"));
+        } else {
+            assert!(body.contains("Red Rose</"));
+        }
+    }
+    d.close().await
+}
+
+#[tokio::test]
+async fn audit06_guild_detail_bounds_and_same_epoch_suppression() -> TestResult {
+    audit06_guild_scenario(true).await
+}
+#[tokio::test]
+async fn audit06_guild_same_epoch_suppression_after_privacy() -> TestResult {
+    audit06_guild_scenario(false).await
+}

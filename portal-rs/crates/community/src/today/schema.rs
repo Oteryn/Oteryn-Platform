@@ -41,6 +41,7 @@ pub(super) struct History {
 #[serde(deny_unknown_fields)]
 pub(super) struct Raid {
     pub raid_key: String,
+    pub started_at: String,
     pub scheduled_at: String,
     pub state: String,
 }
@@ -171,16 +172,22 @@ impl Daily {
         let mut previous = None;
         for r in &self.raids {
             key(&r.raid_key, 128)?;
-            let scheduled = seconds(&r.scheduled_at)?;
-            if scheduled < start
-                || scheduled >= end
-                || scheduled > observed
+            let started = seconds(&r.started_at)?;
+            if r.scheduled_at != "unavailable" {
+                let scheduled = seconds(&r.scheduled_at)?;
+                if scheduled < start || scheduled > started {
+                    return Err(Error::BadInput);
+                }
+            }
+            if started < start
+                || started >= end
+                || started > observed
                 || !matches!(r.state.as_str(), "running" | "done" | "cancelled")
-                || previous.is_some_and(|p| p >= (scheduled, r.raid_key.as_str()))
+                || previous.is_some_and(|p| p >= (started, r.raid_key.as_str()))
             {
                 return Err(Error::BadInput);
             }
-            previous = Some((scheduled, r.raid_key.as_str()));
+            previous = Some((started, r.raid_key.as_str()));
         }
         Ok(())
     }

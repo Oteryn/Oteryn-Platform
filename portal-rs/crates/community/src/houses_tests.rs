@@ -364,3 +364,111 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
     eprintln!("houses: 1 PostgreSQL integration test ran");
     Ok(())
 }
+
+#[tokio::test]
+async fn audit06_house_replay_observation_and_bounded_detail() -> TestResult {
+    let d = crate::audit06_test_db::Database::new().await?;
+    let a = app(d.db.clone(), true);
+    let raw = snapshot(1, 1, VACANT);
+    assert_eq!(
+        send(a.clone(), "house", raw.clone(), true).await.status(),
+        StatusCode::OK
+    );
+    let before: (i64, serde_json::Value) =
+        sqlx::query_as("SELECT observed,payload FROM public_houses_v2")
+            .fetch_one(&d.db)
+            .await?;
+    let replay = raw.replace(
+        &format!("\"source_observed_at\":\"{}\"", before.0),
+        &format!("\"source_observed_at\":\"{}\"", before.0 - 1),
+    );
+    assert_eq!(
+        send(a.clone(), "house", replay.clone(), true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let after: (i64, serde_json::Value) =
+        sqlx::query_as("SELECT observed,payload FROM public_houses_v2")
+            .fetch_one(&d.db)
+            .await?;
+    assert_eq!(before, after);
+    assert_eq!(
+        send(
+            a.clone(),
+            "house",
+            replay.replace("Example Shop", "Changed"),
+            true
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        send(a.clone(), "watermark", watermark(1, now()), true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    // Invalid unrelated bodies expose any accidental full-catalogue processing.
+    sqlx::query("INSERT INTO public_houses_v2(subject,source_authority,epoch,revision,observed,payload) SELECT 'unrelated:'||i,'oteryn:game:primary',1,1,$1,jsonb_build_object('world_id','other','house_key',i::text,'house',jsonb_build_array(jsonb_build_object('status','OWNED'))) FROM generate_series(1,10000) i").bind(i64::try_from(now())?).execute(&d.db).await?;
+    assert_eq!(
+        get(
+            a.clone(),
+            &format!("/en/houses/oteryn:content.house.example_shop?world={WORLD}")
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        get(a, "/en/houses").await.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    d.close().await
+}
+
+#[tokio::test]
+async fn audit06_house_same_epoch_suppression_during_privacy() -> TestResult {
+    struct Suppress(PgPool);
+    impl OwnerVisibility for Suppress {
+        fn visible<'a>(
+            &'a self,
+            _: &'a str,
+            _: &'a str,
+            _: &'a str,
+        ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async {
+                sqlx::query("UPDATE public_houses_v2 SET payload=jsonb_set(payload,'{house}','[]'),revision=revision+1").execute(&self.0).await.unwrap();
+                true
+            })
+        }
+    }
+    let d = crate::audit06_test_db::Database::new().await?;
+    let owned=VACANT.replace("\"status\":\"VACANT\"","\"status\":\"OWNED\",\"owner_kind\":\"CHARACTER\",\"owner_name\":\"Private Owner\",\"paid_until\":\"1799999999\"");
+    let raw = snapshot(1, 1, &owned);
+    let a = app(d.db.clone(), true);
+    assert_eq!(
+        send(a.clone(), "house", raw, true).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(a, "watermark", watermark(1, now()), true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let a = router(
+        d.db.clone(),
+        Arc::new(IdentityMap::default()),
+        Arc::new(Suppress(d.db.clone())),
+        config(true),
+    );
+    let response = get(a, "/en/houses").await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        !String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?
+            .contains("Private Owner")
+    );
+    d.close().await
+}

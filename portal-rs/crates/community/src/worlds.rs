@@ -96,7 +96,7 @@ struct World {
     count: Option<i32>,
     as_of: Option<String>,
 }
-async fn read(state: &Worlds, now: u64) -> Result<Vec<World>, sqlx::Error> {
+async fn read(state: &Worlds) -> Result<Vec<World>, sqlx::Error> {
     // Same eligibility as ingest::latest(), with age and count read atomically.
     // Character data never crosses the database boundary.
     let rows = sqlx::query("SELECT w.id::text, w.name, w.pvp_type, w.location, s.watermark,
@@ -105,7 +105,13 @@ async fn read(state: &Worlds, now: u64) -> Result<Vec<World>, sqlx::Error> {
         THEN jsonb_array_length(s.payload->'characters') END AS count
         FROM world_status w LEFT JOIN public_snapshots s ON s.family='world_online' AND s.subject=w.id::text
         AND NOT s.is_watermark AND s.epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)
-        ORDER BY w.name COLLATE \"C\", w.id").fetch_all(&state.db).await?;
+        ORDER BY w.name COLLATE \"C\", w.id LIMIT 257").fetch_all(&state.db).await?;
+    if rows.len() > 256 {
+        return Err(sqlx::Error::Protocol(
+            "world catalogue exceeds serving bound".into(),
+        ));
+    }
+    let now = self::now();
     rows.into_iter()
         .map(|row| {
             let observed: Option<i64> = row.try_get("watermark")?;
@@ -134,10 +140,10 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 async fn api(State(state): State<Worlds>, headers: HeaderMap) -> Response {
-    let generated_at = now();
-    let Ok(worlds) = read(&state, generated_at).await else {
+    let Ok(worlds) = read(&state).await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
+    let generated_at = now();
     let worlds: Vec<Value> = worlds
         .iter()
         .map(|w| json!({"id":w.id,"name":w.name,"status":w.status,"players_online":w.count}))
@@ -210,7 +216,7 @@ fn language(path: &str, headers: &HeaderMap) -> Language {
 }
 async fn page(State(state): State<Worlds>, request: Request) -> Response {
     let language = language(request.uri().path(), request.headers());
-    let Ok(worlds) = read(&state, now()).await else {
+    let Ok(worlds) = read(&state).await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let mut response = oteryn_web::render(&Page {
@@ -244,7 +250,7 @@ pub async fn home_status(db: &PgPool) -> Option<oteryn_ui::HomeStatus> {
             freshness_seconds: threshold,
         },
     };
-    let worlds = read(&state, now()).await.ok()?;
+    let worlds = read(&state).await.ok()?;
     if worlds.is_empty() {
         return None;
     }

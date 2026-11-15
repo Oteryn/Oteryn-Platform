@@ -361,3 +361,24 @@ async fn postgres_transitive_cycle_and_email_replay() {
     assert_eq!(db.count("notifications").await, 3);
     db.close().await;
 }
+
+#[tokio::test]
+async fn audit06_ancestry_work_bound_with_unrelated_graph() {
+    let d = Database::create().await.expect("PostgreSQL required");
+    let checks = Checks::new();
+    let svc = service(d.pool.clone(), checks, true);
+    let mut chain = Vec::new();
+    for _ in 0..258 {
+        chain.push(Uuid::now_v7());
+    }
+    for pair in chain.windows(2) {
+        sqlx::query("INSERT INTO referral_invitations(id,inviter_id,invitee_id,kind,expires_at,reward_amount,reward_actor,reward_key) VALUES($1,$2,$3,'new',now()+interval '7 days',1,$4,$5)").bind(Uuid::now_v7()).bind(pair[0]).bind(pair[1]).bind(Uuid::now_v7()).bind(Uuid::now_v7()).execute(&d.pool).await.unwrap();
+    }
+    // Real unrelated invitations must not join the traversed cut.
+    sqlx::query("INSERT INTO referral_invitations(id,inviter_id,invitee_id,kind,expires_at,reward_amount,reward_actor,reward_key) SELECT uuidv7(),uuidv7(),uuidv7(),'new',now()+interval '7 days',1,uuidv7(),uuidv7() FROM generate_series(1,20000)").execute(&d.pool).await.unwrap();
+    let mut request = invitation(Kind::Returning);
+    request.inviter = chain[257];
+    assert!(matches!(svc.invite(&request).await, Err(Error::Denied)));
+    assert!(svc.invite(&invitation(Kind::Returning)).await.is_ok());
+    d.close().await;
+}
