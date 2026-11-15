@@ -538,3 +538,6 @@ mod browser_configuration_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod large_pages_tests;

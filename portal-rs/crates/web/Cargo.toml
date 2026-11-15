@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+http-body = "1"
 oteryn-ui = { path = "../ui" }
 askama = "0.16.1"
 axum = "0.8.9"
