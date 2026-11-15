@@ -268,12 +268,34 @@ pub async fn world_search(
     page: i64,
     reader: WorldReader,
 ) -> Result<Vec<Hit>, StatusCode> {
+    let pool_for_selection = pool.clone();
+    world_search_selected(pool, lang, query, page, reader, Arc::new(move || {
+        let pool = pool_for_selection.clone();
+        Box::pin(async move {
+            sqlx::query_scalar("SELECT version_id::text FROM world_active_version WHERE version_id IS NOT NULL")
+                .fetch_optional(&pool).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+        })
+    })).await
+}
+
+pub type SelectionReader = Arc<dyn Fn() -> VisibilityFuture + Send + Sync>;
+
+/// Select and recheck the owning catalogue fence, including for empty searches.
+pub async fn world_search_selected(
+    pool: &PgPool,
+    lang: &str,
+    query: &str,
+    page: i64,
+    reader: WorldReader,
+    selection: SelectionReader,
+) -> Result<Vec<Hit>, StatusCode> {
     if !["pl", "en"].contains(&lang)
         || !(1..=1000).contains(&page)
         || !(2..=80).contains(&query.chars().count())
     {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    let version = selection().await?.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let mut offset = 0i64;
     let mut visible = 0i64;
     let mut hits = vec![];
@@ -282,6 +304,7 @@ pub async fn world_search(
             .bind(query)
             .bind(offset)
             .bind(lang)
+            .bind(&version)
             .fetch_all(pool)
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -327,11 +350,17 @@ pub async fn world_search(
                     kind: "world".into(),
                 });
                 if hits.len() == 21 {
+                    if selection().await?.as_deref() != Some(version.as_str()) {
+                        return Err(StatusCode::SERVICE_UNAVAILABLE);
+                    }
                     return Ok(hits);
                 }
             }
         }
         if exhausted {
+            if selection().await?.as_deref() != Some(version.as_str()) {
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
             return Ok(hits);
         }
         if offset >= 21000 {
