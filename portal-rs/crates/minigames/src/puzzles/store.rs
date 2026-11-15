@@ -145,10 +145,21 @@ impl Puzzles {
         if usize::from(choice) >= definition.choices.len() {
             return Err(Error::Invalid);
         }
-        // Public source/account APIs acquire their own pool connections. Finish
-        // authorization before opening a transaction to avoid pool starvation.
+        // Public source APIs acquire their own pool connections. Finish those
+        // reads before the transaction, then recheck account eligibility under lock.
         self.eligible(account).await?;
         let mut tx = self.pool.begin().await?;
+        // Account before domain rows: suspension and answering serialize at commit.
+        let state: Option<(String, bool)> = sqlx::query_as(
+            "SELECT status,email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR UPDATE",
+        )
+        .bind(account)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if !state.is_some_and(|(status, verified)| status == "active" && verified) {
+            return Err(Error::Forbidden);
+        }
+
         // Serialize all three kinds for an account, including first-use races.
         sqlx::query("INSERT INTO puzzles_streaks (account_id) VALUES ($1) ON CONFLICT DO NOTHING")
             .bind(account)

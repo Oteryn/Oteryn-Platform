@@ -584,3 +584,132 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_retired_catalogue_does_not_exhaust_active_limit() {
+    let started = std::time::Instant::now();
+    let db = Database::new().await.unwrap();
+    let retired = Uuid::now_v7();
+    sqlx::query("INSERT INTO world_versions(id,source_commit,status) VALUES($1,$2,'ready')")
+        .bind(retired)
+        .bind("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    for _ in 0..1000 {
+        let mut c = db.card.clone();
+        c.id = Uuid::now_v7();
+        c.world_version = retired;
+        sqlx::query("INSERT INTO collection_cards(id,definition,sprite) SELECT $1,$2,sprite FROM collection_cards WHERE id=$3")
+            .bind(c.id)
+            .bind(sqlx::types::Json(c))
+            .bind(db.card.id)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let cards = db
+        .service
+        .cards(db.trust.account, db.trust.character, &db.trust, now())
+        .await
+        .unwrap();
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].card.id, db.card.id);
+    db.service
+        .save_deck(db.trust.account, db.deck(), &db.trust, now())
+        .await
+        .unwrap();
+    db.close().await;
+    eprintln!(
+        "postgres_retired_catalogue_does_not_exhaust_active_limit duration={:?}",
+        started.elapsed()
+    );
+}
+#[tokio::test]
+async fn postgres_collection_rechecks_account_after_wait() {
+    let started = std::time::Instant::now();
+    let db = Database::new().await.unwrap();
+    let account = db.trust.account;
+    let deck = db.deck();
+    let id = deck.id;
+    db.service
+        .save_deck(account, deck, &db.trust, now())
+        .await
+        .unwrap();
+    let battle = db
+        .service
+        .start(account, id, &db.trust, now())
+        .await
+        .unwrap();
+    for operation in 0..5 {
+        let mut suspension = db.pool.begin().await.unwrap();
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(account)
+            .execute(&mut *suspension)
+            .await
+            .unwrap();
+        {
+            let mutation = async {
+                match operation {
+                    0 => {
+                        let mut replacement = db.deck();
+                        replacement.id = id;
+                        replacement.name = "Changed".into();
+                        db.service
+                            .save_deck(account, replacement, &db.trust, now())
+                            .await
+                    }
+                    1 => db
+                        .service
+                        .start(account, id, &db.trust, now())
+                        .await
+                        .map(|_| ()),
+                    2 => {
+                        db.service
+                            .turn(account, battle, 0, Action::Strike, &db.trust, now())
+                            .await
+                    }
+                    3 => db.service.forfeit(account, battle).await.map(|_| ()),
+                    _ => db.service.delete_deck(account, id).await.map(|_| ()),
+                }
+            };
+            tokio::pin!(mutation);
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    tokio::select! {
+                        result = &mut mutation => panic!("operation {operation} passed suspension: {result:?}"),
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {}
+                    }
+                    let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.wait_event_type='Lock' AND EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND l.relation='accounts'::regclass))")
+                        .fetch_one(&db.pool).await.unwrap();
+                    if waiting { break; }
+                }
+            }).await.unwrap();
+            suspension.commit().await.unwrap();
+            assert!(
+                matches!(mutation.await, Err(Error::Denied)),
+                "operation {operation}"
+            );
+        }
+        sqlx::query("UPDATE accounts SET status='active' WHERE id=$1")
+            .bind(account)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let decks = db.service.decks(account).await.unwrap();
+    assert_eq!(decks.len(), 1);
+    assert_eq!(decks[0].name, "My deck");
+    let state = db
+        .service
+        .battle(account, battle, &db.trust, now())
+        .await
+        .unwrap();
+    assert_eq!(state.turn, 0);
+    assert_eq!(state.outcome, Outcome::Active);
+    db.close().await;
+    eprintln!(
+        "postgres_collection_rechecks_account_after_wait duration={:?}",
+        started.elapsed()
+    );
+}

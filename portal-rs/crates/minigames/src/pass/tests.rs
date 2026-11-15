@@ -721,3 +721,68 @@ async fn postgres_store_wallet_receipt_cannot_buy_a_pass() -> TestResult {
     assert_eq!(ledger.balance(db.account).await?.available, 100);
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_expired_season_reconciles_receipts() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Db::new().await?.ok_or("PostgreSQL required")?;
+    let s = db.service();
+    let event = db.event(0);
+    s.record(&event).await?;
+    s.record(&db.event(1)).await?;
+    let buy = Uuid::now_v7();
+    s.buy(db.account, db.season.id, buy).await?;
+    let claim = Uuid::now_v7();
+    let reward = db.season.rewards[0].id;
+    let receipt = s.claim(db.account, db.season.id, reward, claim).await?;
+    sqlx::query("UPDATE pass_seasons SET starts_at=starts_at-interval '42 days',ends_at=clock_timestamp()-interval '1 second'")
+        .execute(&db.pool)
+        .await?;
+    assert!(s.buy(db.account, db.season.id, buy).await?.paid);
+    assert_eq!(
+        s.claim(db.account, db.season.id, reward, claim)
+            .await?
+            .delivery,
+        receipt.delivery
+    );
+    assert_eq!(s.record(&event).await?.xp, 15);
+    let fresh_event = Event {
+        id: Uuid::now_v7(),
+        ..event.clone()
+    };
+    assert!(matches!(s.record(&fresh_event).await, Err(Error::Denied)));
+    assert!(
+        s.buy(db.account, db.season.id, Uuid::now_v7())
+            .await
+            .is_err()
+    );
+    assert!(
+        s.claim(
+            db.account,
+            db.season.id,
+            db.season.rewards[1].id,
+            Uuid::now_v7()
+        )
+        .await
+        .is_err()
+    );
+    let fresh_account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'pass-fresh@example.invalid','unused','active',now(),'en')")
+        .bind(fresh_account).execute(&db.pool).await?;
+    sqlx::query("INSERT INTO synthetic_wallet VALUES($1,200)")
+        .bind(fresh_account)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        s.buy(fresh_account, db.season.id, Uuid::now_v7()).await,
+        Err(Error::Denied)
+    ));
+    let counts:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM synthetic_debits),(SELECT count(*) FROM synthetic_deliveries)").fetch_one(&db.pool).await?;
+    assert_eq!(counts, (1, 1));
+    db.close().await?;
+    eprintln!(
+        "postgres_expired_season_reconciles_receipts duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
