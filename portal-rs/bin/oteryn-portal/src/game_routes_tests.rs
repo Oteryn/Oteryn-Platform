@@ -609,3 +609,110 @@ async fn store_purchases_stay_off_outside_testing_and_preproduction() -> TestRes
     }
     Ok(())
 }
+
+const ENFORCEMENT_READER: &str = "enforcement-reader.oteryn.internal";
+const ENFORCEMENT_RESULTS: &str = "enforcement-results.oteryn.internal";
+const ENFORCEMENT_READER_PATHS: [&str; 3] = [
+    "/internal/v1/support/enforcement-commands/stream/read",
+    "/internal/v1/support/enforcement-commands/commands/read",
+    "/internal/v1/support/enforcement-commands/reconcile/read",
+];
+const ENFORCEMENT_RESULTS_PATH: &str = "/internal/v1/support/enforcement-commands/results";
+
+fn enforcement_on(restore_notice: bool) -> Values {
+    let mut values = enabled();
+    if !restore_notice {
+        values.remove("PORTAL_GAME_RESTORE_NOTICE_ENABLED");
+    }
+    for (key, value) in [
+        ("PORTAL_GAME_ENFORCEMENT_ENABLED", "true"),
+        ("PORTAL_GAME_ENFORCEMENT_PROFILES", r#"["MUTE","JAIL"]"#),
+        (enforcement::READER_IDENTITY, ENFORCEMENT_READER),
+        (enforcement::RESULTS_IDENTITY, ENFORCEMENT_RESULTS),
+    ] {
+        values.insert(key.into(), value.into());
+    }
+    values
+}
+
+#[tokio::test]
+async fn enforcement_routes_bind_their_two_identities_behind_their_flag() -> TestResult {
+    let app = app_without_lcfa(&enforcement_on(false)).await?;
+    let all = ENFORCEMENT_READER_PATHS
+        .iter()
+        .map(|path| (*path, ENFORCEMENT_READER, ENFORCEMENT_RESULTS))
+        .chain([(
+            ENFORCEMENT_RESULTS_PATH,
+            ENFORCEMENT_RESULTS,
+            ENFORCEMENT_READER,
+        )]);
+    for (path, own, foreign) in all.clone() {
+        assert_eq!(
+            status(&app, own, path).await?,
+            StatusCode::BAD_REQUEST,
+            "{path}"
+        );
+        for identity in [foreign, STRANGER, PREMIUM, STORE] {
+            assert_eq!(
+                status(&app, identity, path).await?,
+                StatusCode::UNAUTHORIZED,
+                "{identity} on {path}"
+            );
+        }
+    }
+    // Neither enforcement identity reaches another purpose's route.
+    for path in [PREMIUM_PATH, LOYALTY_PATH, STORE_PATHS[0]] {
+        for identity in [ENFORCEMENT_READER, ENFORCEMENT_RESULTS] {
+            assert_eq!(
+                status(&app, identity, path).await?,
+                StatusCode::UNAUTHORIZED,
+                "{identity} on {path}"
+            );
+        }
+    }
+    // Off by default, off without the flag, and off for a bad or reused identity.
+    let mut cases = vec![Values::new(), enabled()];
+    let mut flag_off = enforcement_on(false);
+    flag_off.insert("PORTAL_GAME_ENFORCEMENT_ENABLED".into(), "1".into());
+    cases.push(flag_off);
+    let mut unknown = enforcement_on(false);
+    unknown.insert(
+        "PORTAL_GAME_ENFORCEMENT_PROFILES".into(),
+        r#"["BAN"]"#.into(),
+    );
+    cases.push(unknown);
+    for (key, value) in [
+        (enforcement::RESULTS_IDENTITY, ENFORCEMENT_READER),
+        (enforcement::READER_IDENTITY, PREMIUM),
+        (
+            enforcement::READER_IDENTITY,
+            "Enforcement-Reader.oteryn.internal",
+        ),
+    ] {
+        let mut values = enforcement_on(false);
+        values.insert(key.into(), value.into());
+        assert!(bindings(&values).is_err(), "{key}={value}");
+        cases.push(values);
+    }
+    for values in cases {
+        let app = app_without_lcfa(&values).await?;
+        for (path, own, _) in all.clone() {
+            assert_eq!(
+                status(&app, own, path).await?,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{path}"
+            );
+        }
+    }
+    // Results stay off while the restore notice cannot reopen them (§6.4).
+    let app = app_without_lcfa(&enforcement_on(true)).await?;
+    assert_eq!(
+        status(&app, ENFORCEMENT_RESULTS, ENFORCEMENT_RESULTS_PATH).await?,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        status(&app, ENFORCEMENT_READER, ENFORCEMENT_READER_PATHS[0]).await?,
+        StatusCode::BAD_REQUEST
+    );
+    Ok(())
+}
