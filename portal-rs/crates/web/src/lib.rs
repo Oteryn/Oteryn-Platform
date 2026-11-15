@@ -149,16 +149,26 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                     Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
                 };
                 let account = session.account_id().await;
+                let mut mfa_grant_hash = None;
                 if let (Some(account), Some(mfa)) = (account, &oauth_mfa) {
                     let key =
                         session::SessionKey::<String>::new(oteryn_identity::mfa::SESSION_GRANT_KEY);
                     if let Ok(Some(grant)) = session.get(key).await
                         && mfa.satisfied(account, &grant).await.unwrap_or(false)
                     {
+                        mfa_grant_hash = Some(oteryn_identity::mfa::digest(&grant));
                         request
                             .extensions_mut()
                             .insert(oteryn_gameauth::oauth::MfaSession { account });
                     }
+                }
+                if let Some(session_hash) = session.identity_hash().await {
+                    request
+                        .extensions_mut()
+                        .insert(oteryn_gameauth::oauth::BrowserProof {
+                            session_hash,
+                            mfa_grant_hash,
+                        });
                 }
                 request
                     .extensions_mut()

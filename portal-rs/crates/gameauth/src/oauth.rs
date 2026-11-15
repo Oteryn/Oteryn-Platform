@@ -4,7 +4,7 @@ mod oauth_fixture_tests;
 mod oauth_http;
 #[cfg(test)]
 mod oauth_tests;
-pub use oauth_http::{Browser, MfaSession, browser_routes, token_routes};
+pub use oauth_http::{Browser, BrowserProof, MfaSession, browser_routes, token_routes};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
@@ -225,10 +225,52 @@ pub(crate) async fn approve(
     mfa: bool,
     request: &Authorization,
 ) -> Result<Option<String>, Error> {
+    approve_inner(pool, config, account, mfa, None, request).await
+}
+async fn approve_browser(
+    pool: &PgPool,
+    config: &Config,
+    account: Uuid,
+    proof: &BrowserProof,
+    request: &Authorization,
+) -> Result<Option<String>, Error> {
+    approve_inner(pool, config, account, false, Some(proof), request).await
+}
+async fn approve_inner(
+    pool: &PgPool,
+    config: &Config,
+    account: Uuid,
+    mfa: bool,
+    proof: Option<&BrowserProof>,
+    request: &Authorization,
+) -> Result<Option<String>, Error> {
     if !request.valid(config) {
         return Err(Error::InvalidRequest);
     }
     let mut tx = pool.begin().await?;
+    // Lock before reading either the session or grant; credential revocation uses
+    // this same account lock and cannot slip between validation and code commit.
+    credentials(&mut tx, account).await?;
+    let mfa = if let Some(proof) = proof {
+        let grant: Option<Option<String>> = sqlx::query_scalar("SELECT s.data->>'mfa_grant' FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.account_id=$2 AND (s.authorization_generation IS NULL OR s.authorization_generation=a.native_security_generation) AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() FOR UPDATE OF s")
+            .bind(&proof.session_hash).bind(account).fetch_optional(&mut *tx).await?;
+        let grant = grant.ok_or(Error::InvalidGrant)?;
+        if let Some(grant) =
+            grant.filter(|grant| proof.mfa_grant_hash.as_ref() == Some(&hash(grant)))
+        {
+            let password: String =
+                sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+                    .bind(account)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_mfa_tokens t JOIN account_mfa_totp m ON m.account_id=t.account_id WHERE t.token_hash=$1 AND t.account_id=$2 AND t.purpose='grant' AND t.generation=m.generation AND m.confirmed AND t.credential_hash=$3 AND t.expires_at>clock_timestamp() AND t.created_at<=clock_timestamp())")
+                .bind(hash(&grant)).bind(account).bind(hash(&password)).fetch_one(&mut *tx).await?
+        } else {
+            false
+        }
+    } else {
+        mfa
+    };
     let Some(stamp) = step_up(&mut tx, account, mfa).await? else {
         tx.commit().await?;
         return Ok(None);
@@ -481,7 +523,14 @@ macro_rules! redacted_debug {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(concat!(stringify!($kind), "([redacted])")) }
     })+ };
 }
-redacted_debug!(Authorization, TokenRequest, Tokens, Browser, MfaSession);
+redacted_debug!(
+    Authorization,
+    TokenRequest,
+    Tokens,
+    Browser,
+    BrowserProof,
+    MfaSession
+);
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
