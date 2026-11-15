@@ -38,6 +38,16 @@ impl Accounts {
             .fetch_optional(&self.pool)
             .await
     }
+    /// Resolve an account using the caller's transaction connection.
+    pub async fn find_by_id_in(
+        conn: &mut PgConnection,
+        id: AccountId,
+    ) -> Result<Option<Account>, sqlx::Error> {
+        sqlx::query_as("SELECT * FROM accounts WHERE id=$1")
+            .bind(id)
+            .fetch_optional(conn)
+            .await
+    }
     pub async fn find_by_email(&self, email: &str) -> Result<Option<Account>, sqlx::Error> {
         sqlx::query_as("SELECT * FROM accounts WHERE lower(email)=$1")
             .bind(normalize_email(email))
