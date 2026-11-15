@@ -408,6 +408,7 @@ async fn audit02_registration_respects_pending_and_backup_claims() -> TestResult
 
 #[tokio::test]
 async fn audit02_worker_pages_past_hundred_blocked_changes() -> TestResult {
+    let started = std::time::Instant::now();
     let Some((db, s, id)) = setup().await? else {
         return Ok(());
     };
@@ -425,9 +426,14 @@ async fn audit02_worker_pages_past_hundred_blocked_changes() -> TestResult {
     .bind(id)
     .execute(&db.pool)
     .await?;
-    assert_eq!(s.apply_due().await?, 0);
     assert_eq!(s.apply_due().await?, 1);
-    db.close().await
+    assert_eq!(s.apply_due().await?, 0);
+    db.close().await?;
+    eprintln!(
+        "audit02_worker_pages_past_hundred_blocked_changes: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }
 
 #[tokio::test]
@@ -546,4 +552,45 @@ async fn audit02_reversion_rechecks_deadline_after_normalized_address_lock_wait(
     claim.commit().await?;
     assert_eq!(task.await??, Outcome::Refused);
     db.close().await
+}
+
+#[derive(Debug)]
+struct RejectOld;
+impl oteryn_notify::EmailSender for RejectOld {
+    fn send<'a>(&'a self, email: &'a oteryn_notify::Email) -> oteryn_notify::NotifyFuture<'a, ()> {
+        Box::pin(async move {
+            if email.recipient == "old@example.invalid" {
+                Err("recipient refused".into())
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+#[tokio::test]
+async fn bzb_failed_email_does_not_starve_later_delivery() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some((db, service, account)) = setup().await? else {
+        return Ok(());
+    };
+    service.request(account, input(false, false)).await?;
+    sqlx::query("UPDATE account_email_change_mail SET created_at=now()-interval '1 day' WHERE recipient='old@example.invalid'").execute(&db.pool).await?;
+    let worker = super::mail::Worker {
+        service,
+        sender: Arc::new(RejectOld),
+    };
+    worker.tick().await?;
+    let rows: Vec<(String, bool, i32, bool)> = sqlx::query_as("SELECT recipient,delivered_at IS NOT NULL,delivery_attempts,next_attempt_at>clock_timestamp() FROM account_email_change_mail ORDER BY recipient").fetch_all(&db.pool).await?;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0], ("new@example.invalid".into(), true, 0, false));
+    assert_eq!(rows[1], ("old@example.invalid".into(), false, 1, true));
+    worker.tick().await?;
+    let attempts: i32 = sqlx::query_scalar("SELECT delivery_attempts FROM account_email_change_mail WHERE recipient='old@example.invalid'").fetch_one(&db.pool).await?;
+    assert_eq!(attempts, 1);
+    db.close().await?;
+    eprintln!(
+        "bzb_failed_email_does_not_starve_later_delivery: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

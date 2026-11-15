@@ -2013,3 +2013,92 @@ async fn postgres_resync_advances_only_a_bounded_fence_scoped_operation_batch() 
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn bzb_receipt_admission_precedes_oversized_version_selection() {
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode},
+        routing::post,
+    };
+    use oteryn_internal_api::guard::{
+        self, Binding, Identity, IdentityMap, JsonRule, RoutePolicy, VerifiedClient,
+    };
+    use std::sync::Arc;
+    use tower::ServiceExt;
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/unused")
+        .unwrap();
+    let identities = Arc::new(
+        IdentityMap::new(vec![Binding {
+            identity: Identity::spki_sha256([1; 32]),
+            group: authority_http::RECEIPT_GROUP.into(),
+        }])
+        .unwrap(),
+    );
+    for enabled in [true, false] {
+        let policy = RoutePolicy {
+            enabled,
+            group: authority_http::RECEIPT_GROUP.into(),
+            max_body_bytes: 8192,
+            max_json_depth: 12,
+            json: JsonRule::Object,
+        };
+        let legacy = guard::protect(
+            Router::new().route(
+                "/internal/v1/game-auth/character-commands/receipt",
+                post(|| async { StatusCode::OK }),
+            ),
+            identities.clone(),
+            policy,
+        );
+        let mut a = authority();
+        a.config.enabled = enabled;
+        let app =
+            authority_http::extend_receipt_facility(legacy, a, pool.clone(), identities.clone());
+        let request = Request::post("/internal/v1/game-auth/character-commands/receipt")
+            .header("content-type", "application/json")
+            .extension(VerifiedClient::from_verified_tls13_http11(
+                Identity::spki_sha256([2; 32]),
+            ))
+            .body(Body::from("x".repeat(270337)))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(request).await.unwrap().status(),
+            if enabled {
+                StatusCode::UNAUTHORIZED
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+        );
+        if enabled {
+            for _ in 0..120 {
+                let request = Request::post("/internal/v1/game-auth/character-commands/receipt")
+                    .header("content-type", "application/json")
+                    .extension(VerifiedClient::from_verified_tls13_http11(
+                        Identity::spki_sha256([1; 32]),
+                    ))
+                    .body(Body::from("{"))
+                    .unwrap();
+                assert_eq!(
+                    app.clone().oneshot(request).await.unwrap().status(),
+                    StatusCode::BAD_REQUEST
+                );
+            }
+            for body in ["{".to_owned(), "x".repeat(270337)] {
+                let request = Request::post("/internal/v1/game-auth/character-commands/receipt")
+                    .header("content-type", "application/json")
+                    .extension(VerifiedClient::from_verified_tls13_http11(
+                        Identity::spki_sha256([1; 32]),
+                    ))
+                    .body(Body::from(body))
+                    .unwrap();
+                assert_eq!(
+                    app.clone().oneshot(request).await.unwrap().status(),
+                    StatusCode::TOO_MANY_REQUESTS
+                );
+            }
+        }
+    }
+}

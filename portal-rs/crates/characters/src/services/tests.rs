@@ -1121,3 +1121,24 @@ async fn postgres_replay_after_terminal_deleted_projection() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn bzb_rate_refusal_precedes_malformed_and_oversized_bodies() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/unused")
+        .unwrap();
+    let app = router(Services::new(pool, settings()), identities());
+    let path = "/internal/v2/game-auth/character-commands/pending";
+    for _ in 0..120 {
+        assert_eq!(
+            http(app.clone(), path, "{", 1).await.0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    for body in ["{".to_owned(), "x".repeat(4096)] {
+        assert_eq!(
+            http(app.clone(), path, &body, 1).await.0,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+}
