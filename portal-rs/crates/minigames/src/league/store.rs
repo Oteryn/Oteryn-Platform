@@ -6,6 +6,26 @@ use prost::Message;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 
+/// Bound pool admission and each transaction's database waits.
+pub(super) async fn begin(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
+    let mut tx = tokio::time::timeout(std::time::Duration::from_millis(250), pool.begin())
+        .await
+        .map_err(|_| Error::Unavailable)??;
+    tokio::time::timeout(std::time::Duration::from_millis(250), async {
+        sqlx::query("SET LOCAL lock_timeout = '100ms'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SET LOCAL statement_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
+        Ok::<(), sqlx::Error>(())
+    })
+    .await
+    .map_err(|_| Error::Unavailable)??;
+    Ok(tx)
+}
+pub(super) const SERVING_LIMIT: usize = 128;
+
 #[derive(Debug)]
 pub struct League<A> {
     pub(super) pool: PgPool,
@@ -64,7 +84,7 @@ impl<A: Authority> League<A> {
         h.update(Sha256::digest(d.payload));
         h.update(Sha256::digest(d.wire));
         let fingerprint = schema::hash(&h.finalize());
-        let mut tx = self.pool.begin().await?;
+        let mut tx = begin(&self.pool).await?;
         // One lock order for all league writes, receipt identities and final controls.
         sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
             .execute(&mut *tx)
@@ -172,10 +192,15 @@ impl<A: Authority> League<A> {
         Ok(())
     }
     pub async fn read(&self, now: u64) -> Result<Vec<Snapshot>> {
+        tokio::time::timeout(std::time::Duration::from_secs(3), self.read_inner(now))
+            .await
+            .map_err(|_| Error::Unavailable)?
+    }
+    async fn read_inner(&self, now: u64) -> Result<Vec<Snapshot>> {
         if !self.flags.ready() || !self.flags.public {
             return Err(Error::Unavailable);
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = begin(&self.pool).await?;
         sqlx::query("SELECT pg_advisory_xact_lock_shared(94000003)")
             .execute(&mut *tx)
             .await?;
@@ -183,8 +208,15 @@ impl<A: Authority> League<A> {
         if !fence.valid(now) {
             return Err(Error::Unavailable);
         }
-        let rows = sqlx::query("SELECT family,wire,quarantined,epoch::text,recovery_generation::text,content_hash,record_hash,EXISTS(SELECT 1 FROM league_audit a WHERE a.authority=league_subjects.authority AND a.family=league_subjects.family AND a.world_id=league_subjects.world_id AND a.subject_id=league_subjects.subject_id AND a.epoch=league_subjects.epoch AND a.revision=league_subjects.revision AND octet_length(a.signature)>0 AND a.occurred_at_unix_ms / 1000 > $1) AS audit_available FROM league_subjects WHERE (finalized_at IS NULL OR finalized_at > $1) AND NOT EXISTS(SELECT 1 FROM league_feed_withdrawals w WHERE w.authority=league_subjects.authority AND w.family=league_subjects.family AND w.world_id=league_subjects.world_id AND w.subject_id=league_subjects.subject_id AND w.withdrawn)")
-            .bind(i64::try_from(now.saturating_sub(90*86400)).map_err(|_| Error::Invalid)?).fetch_all(&mut *tx).await?;
+        // Check feed-wide completeness independently of the serving bound.
+        let incomplete: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM league_subjects s WHERE (s.finalized_at IS NULL OR s.finalized_at>$1) AND NOT EXISTS(SELECT 1 FROM league_feed_withdrawals w WHERE w.authority=s.authority AND w.family=s.family AND w.world_id=s.world_id AND w.subject_id=s.subject_id AND w.withdrawn) AND (s.quarantined OR s.epoch<>$2::numeric OR s.recovery_generation<>$3::numeric OR (convert_from(s.wire,'UTF8')::jsonb->>'source_observed_at')::numeric>$4::numeric OR NOT EXISTS(SELECT 1 FROM league_audit a WHERE a.authority=s.authority AND a.family=s.family AND a.world_id=s.world_id AND a.subject_id=s.subject_id AND a.epoch=s.epoch AND a.revision=s.revision AND octet_length(a.signature)>0 AND a.occurred_at_unix_ms/1000>$1)))")
+            .bind(i64::try_from(now.saturating_sub(90*86400)).map_err(|_| Error::Invalid)?)
+            .bind(fence.epoch.to_string()).bind(fence.recovery_generation.to_string()).bind(fence.complete_through.to_string()).fetch_one(&mut *tx).await?;
+        if incomplete {
+            return Err(Error::Unavailable);
+        }
+        let rows = sqlx::query("SELECT family,wire,quarantined,epoch::text,recovery_generation::text,content_hash,record_hash,EXISTS(SELECT 1 FROM league_audit a WHERE a.authority=league_subjects.authority AND a.family=league_subjects.family AND a.world_id=league_subjects.world_id AND a.subject_id=league_subjects.subject_id AND a.epoch=league_subjects.epoch AND a.revision=league_subjects.revision AND octet_length(a.signature)>0 AND a.occurred_at_unix_ms / 1000 > $1) AS audit_available FROM league_subjects WHERE (finalized_at IS NULL OR finalized_at > $1) AND NOT EXISTS(SELECT 1 FROM league_feed_withdrawals w WHERE w.authority=league_subjects.authority AND w.family=league_subjects.family AND w.world_id=league_subjects.world_id AND w.subject_id=league_subjects.subject_id AND w.withdrawn) ORDER BY authority,family,world_id,subject_id LIMIT $2")
+            .bind(i64::try_from(now.saturating_sub(90*86400)).map_err(|_| Error::Invalid)?).bind(SERVING_LIMIT as i64).fetch_all(&mut *tx).await?;
         let mut out = vec![];
         for row in rows {
             if !row.try_get::<bool, _>("audit_available")?
@@ -229,15 +261,15 @@ impl<A: Authority> League<A> {
             return Err(Error::Unavailable);
         }
         let cutoff = i64::try_from(now.saturating_sub(90 * 86400)).map_err(|_| Error::Invalid)?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = begin(&self.pool).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM league_audit WHERE occurred_at_unix_ms / 1000 <= $1")
+        sqlx::query("DELETE FROM league_audit WHERE ctid IN (SELECT ctid FROM league_audit WHERE occurred_at_unix_ms / 1000 <= $1 LIMIT 256)")
             .bind(cutoff)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE league_subjects SET wire=''::bytea WHERE finalized_at <= $1")
+        sqlx::query("UPDATE league_subjects SET wire=''::bytea WHERE ctid IN (SELECT ctid FROM league_subjects WHERE finalized_at <= $1 AND octet_length(wire)>0 LIMIT 256)")
             .bind(cutoff)
             .execute(&mut *tx)
             .await?;

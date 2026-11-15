@@ -458,3 +458,123 @@ async fn postgres_browser_success_refusal_csrf_and_bad_input()
     cleanup(pool).await?;
     Ok(())
 }
+
+#[derive(Debug, Clone, Copy)]
+struct WalletAuthority;
+impl oteryn_wallet::AccountStateReader for WalletAuthority {
+    async fn state(&self, _: &mut sqlx::PgConnection, _: Uuid) -> oteryn_wallet::AccountState {
+        oteryn_wallet::AccountState::Active
+    }
+}
+impl oteryn_wallet::TransferBlockCheck for WalletAuthority {
+    async fn permission(
+        &self,
+        _: &mut sqlx::PgConnection,
+        _: Uuid,
+    ) -> oteryn_wallet::TransferPermission {
+        oteryn_wallet::TransferPermission::Allowed
+    }
+}
+impl oteryn_wallet::AuditHook for WalletAuthority {
+    async fn adjustment(
+        &self,
+        _: &mut sqlx::PgConnection,
+        _: &oteryn_wallet::AdjustmentAudit,
+    ) -> bool {
+        true
+    }
+}
+
+#[tokio::test]
+async fn postgres_store_wallet_receipt_cannot_buy_a_set()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        eprintln!("PostgreSQL test skipped: PORTAL_TEST_DATABASE_URL is unset");
+        return Ok(());
+    };
+    let admin = PgPool::connect(&url).await?;
+    let schema = format!("t91_wallet_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(move |c, _| {
+            let search = schema.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(search)
+                    .execute(c)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await?;
+    oteryn_db::migrate(&pool).await?;
+    sqlx::query("CREATE TABLE t91_test_grants(owner uuid,cards jsonb)")
+        .execute(&pool)
+        .await?;
+    let owner = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'set@example.invalid','unused','active',now(),'en')").bind(owner).execute(&pool).await?;
+    let ledger = oteryn_wallet::Ledger::new(
+        pool.clone(),
+        oteryn_wallet::WalletFlags { enabled: true },
+        WalletAuthority,
+        WalletAuthority,
+        WalletAuthority,
+    );
+    ledger
+        .adjust(Uuid::now_v7(), owner, 200, owner, "synthetic test credit")
+        .await?;
+    let operation = Uuid::now_v7();
+    let mut store_tx = pool.begin().await?;
+    let receipt = ledger
+        .clone()
+        .with_adjustment_kind(oteryn_wallet::AdjustmentKind::StorePurchase)
+        .adjust_in(
+            &mut store_tx,
+            operation,
+            owner,
+            -10,
+            owner,
+            &format!("store-purchase:{operation}"),
+        )
+        .await?;
+    assert!(!receipt.replayed);
+    store_tx.commit().await?;
+    let set = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO collection_pvp_sets(id,version,price,cards,published) VALUES($1,1,10,$2,true)",
+    )
+    .bind(set)
+    .bind(json!({"monster-a":2}))
+    .execute(&pool)
+    .await?;
+    let service = Service::new(
+        pool.clone(),
+        Flags {
+            pvp: false,
+            sets: true,
+        },
+        Rules,
+        WalletPayment::new(ledger.clone()),
+    );
+    assert!(matches!(
+        service.buy_set(owner, set, 1, 10, operation).await,
+        Err(Error::Refused)
+    ));
+    let grants: i64 = sqlx::query_scalar("SELECT count(*) FROM t91_test_grants")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(grants, 0);
+    assert_eq!(ledger.balance(owner).await?.available, 190);
+    // A fresh local purchase and its own retry remain valid.
+    let fresh = Uuid::now_v7();
+    service.buy_set(owner, set, 1, 10, fresh).await?;
+    service.buy_set(owner, set, 1, 10, fresh).await?;
+    assert_eq!(ledger.balance(owner).await?.available, 180);
+    cleanup(pool).await?;
+    Ok(())
+}

@@ -877,3 +877,506 @@ async fn equal_pair_conflict_in_nonterminal_game_snapshot_quarantines_feed() -> 
     ));
     db.close().await
 }
+
+async fn advance_watermarks(db: &Db, c: &config::Config, epoch: &str) -> TestResult {
+    for family in ["world_event_outcome", "guild_season"] {
+        let clock = runtime::now()?.to_string();
+        let w = admission::Watermark {
+            contract_version: 1,
+            operation: "PublishLeagueWatermarkV1".into(),
+            source_authority: c.authority.clone(),
+            family: family.into(),
+            projection_epoch: epoch.into(),
+            complete_through: clock.clone(),
+            observed_at: clock,
+        };
+        enqueue_publication(
+            db,
+            c,
+            &publication(c, admission::WATERMARK, serde_json::to_vec(&w)?)?,
+        )
+        .await?;
+    }
+    runtime::FeedJob {
+        pool: db.pool.clone(),
+    }
+    .run_config(c.clone())
+    .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_withdrawal_replay_and_new_epoch_revision_one() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let job = runtime::FeedJob {
+        pool: db.pool.clone(),
+    };
+    for (path, name) in [
+        (admission::EVENT, "settlement"),
+        (admission::SEASON, "tied_guilds_frozen"),
+    ] {
+        enqueue_publication(&db, &c, &publication(&c, path, wire(name)?)?).await?;
+    }
+    job.run_config(c.clone()).await?;
+    for (path, name) in [
+        (admission::EVENT, "settlement"),
+        (admission::SEASON, "tied_guilds_frozen"),
+    ] {
+        let s = schema::Snapshot::decode(&wire(name)?, path == admission::SEASON, runtime::now()?)?;
+        let body = match s {
+            schema::Snapshot::Event(mut e) => {
+                e.event.clear();
+                e.projection_revision = "3".into();
+                serde_json::to_vec(&e)?
+            }
+            schema::Snapshot::Season(mut e) => {
+                e.season.clear();
+                e.projection_revision = "3".into();
+                serde_json::to_vec(&e)?
+            }
+        };
+        enqueue_publication(&db, &c, &publication(&c, path, body)?).await?;
+    }
+    // A failed acknowledgement must roll back the withdrawal projection too.
+    sqlx::raw_sql("CREATE FUNCTION reject_withdrawal_ack() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.state='done' THEN RAISE EXCEPTION 'synthetic acknowledgement failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_withdrawal_ack BEFORE UPDATE ON league_feed_requests FOR EACH ROW EXECUTE FUNCTION reject_withdrawal_ack();").execute(&db.pool).await?;
+    job.run_config(c.clone()).await?;
+    let committed: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM league_feed_withdrawals WHERE withdrawn")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(committed, 0);
+    let revisions: Vec<String> = sqlx::query_scalar("SELECT revision::text FROM league_subjects")
+        .fetch_all(&db.pool)
+        .await?;
+    assert!(revisions.iter().all(|r| r == "2"));
+    sqlx::query("DROP TRIGGER reject_withdrawal_ack ON league_feed_requests")
+        .execute(&db.pool)
+        .await?;
+    job.run_config(c.clone()).await?;
+    // Restore only committed withdrawals to pending, as after the old crash window.
+    sqlx::query("UPDATE league_feed_inbox SET state='pending' WHERE convert_from(body,'UTF8')::jsonb->'event'='[]'::jsonb OR convert_from(body,'UTF8')::jsonb->'season'='[]'::jsonb").execute(&db.pool).await?;
+    sqlx::query("UPDATE league_feed_requests SET state='pending' WHERE request_id IN (SELECT request_id FROM league_feed_inbox WHERE state='pending')").execute(&db.pool).await?;
+    job.run_config(c.clone()).await?;
+    advance_watermarks(&db, &c, "3").await?;
+    let league = League::new(
+        db.pool.clone(),
+        flags(),
+        runtime::GameAuthority::new(c.clone()),
+    );
+    assert!(league.read(runtime::now()?).await?.is_empty());
+    let pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM league_feed_inbox WHERE state<>'done'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(pending, 0);
+    let recovery = config::Recovery {
+        source_authority: c.authority.clone(),
+        projection_epoch: "4".into(),
+        recovery_generation: "2".into(),
+    };
+    std::fs::write(&c.recovery_file, serde_json::to_vec(&recovery)?)?;
+    for (path, name) in [
+        (admission::EVENT, "settlement"),
+        (admission::SEASON, "tied_guilds_frozen"),
+    ] {
+        let text = String::from_utf8(wire(name)?)?
+            .replace("\"projection_epoch\":\"3\"", "\"projection_epoch\":\"4\"")
+            .replace(
+                "\"projection_revision\":\"2\"",
+                "\"projection_revision\":\"1\"",
+            );
+        let s =
+            schema::Snapshot::decode(text.as_bytes(), path == admission::SEASON, runtime::now()?)?;
+        let body = match s {
+            schema::Snapshot::Event(mut e) => {
+                e.event.clear();
+                serde_json::to_vec(&e)?
+            }
+            schema::Snapshot::Season(mut e) => {
+                e.season.clear();
+                serde_json::to_vec(&e)?
+            }
+        };
+        enqueue_publication(&db, &c, &publication(&c, path, body)?).await?;
+    }
+    job.run_config(c.clone()).await?;
+    advance_watermarks(&db, &c, "4").await?;
+    assert!(league.read(runtime::now()?).await?.is_empty());
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_refresh_and_generation_recovery_preserve_serving_evidence() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let league = League::new(
+        db.pool.clone(),
+        flags(),
+        runtime::GameAuthority::new(c.clone()),
+    );
+    for generation in ["1", "2"] {
+        write_recovery(&c, generation)?;
+        for refresh in [false, true] {
+            for (path, name) in [
+                (admission::EVENT, "settlement"),
+                (admission::SEASON, "tied_guilds_frozen"),
+            ] {
+                let raw = String::from_utf8(wire(name)?)?;
+                let raw = if refresh {
+                    raw.replace(
+                        "\"source_observed_at\":\"1790000200\"",
+                        "\"source_observed_at\":\"1790000201\"",
+                    )
+                } else {
+                    raw
+                };
+                enqueue_publication(&db, &c, &publication(&c, path, raw.into_bytes())?).await?;
+            }
+            advance_watermarks(&db, &c, "3").await?;
+            assert_eq!(league.read(runtime::now()?).await?.len(), 2);
+            use tower::ServiceExt;
+            let app = web::router(League::new(
+                db.pool.clone(),
+                flags(),
+                runtime::GameAuthority::new(c.clone()),
+            ));
+            for lang in ["pl", "en"] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        axum::http::Request::builder()
+                            .uri(format!("/{lang}/league"))
+                            .body(axum::body::Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), axum::http::StatusCode::OK);
+            }
+        }
+    }
+    let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM league_audit")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(audits, 2);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_queued_old_fences_retire_without_quarantine() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let job = runtime::FeedJob {
+        pool: db.pool.clone(),
+    };
+    for (stage, (epoch, generation)) in [("3", "1"), ("4", "1"), ("4", "2")].into_iter().enumerate()
+    {
+        std::fs::write(
+            &c.recovery_file,
+            serde_json::to_vec(&config::Recovery {
+                source_authority: c.authority.clone(),
+                projection_epoch: epoch.into(),
+                recovery_generation: generation.into(),
+            })?,
+        )?;
+        for (path, name) in [
+            (admission::EVENT, "settlement"),
+            (admission::SEASON, "tied_guilds_frozen"),
+        ] {
+            let raw = String::from_utf8(wire(name)?)?.replace(
+                "\"projection_epoch\":\"3\"",
+                &format!("\"projection_epoch\":\"{epoch}\""),
+            );
+            enqueue_publication(&db, &c, &publication(&c, path, raw.into_bytes())?).await?;
+        }
+        // Leave publications and watermarks pending across both fence advances.
+        for family in ["world_event_outcome", "guild_season"] {
+            let clock = runtime::now()?.to_string();
+            let w = admission::Watermark {
+                contract_version: 1,
+                operation: "PublishLeagueWatermarkV1".into(),
+                source_authority: c.authority.clone(),
+                family: family.into(),
+                projection_epoch: epoch.into(),
+                complete_through: clock.clone(),
+                observed_at: clock,
+            };
+            enqueue_publication(
+                &db,
+                &c,
+                &publication(&c, admission::WATERMARK, serde_json::to_vec(&w)?)?,
+            )
+            .await?;
+        }
+        if stage > 0 {
+            job.run_config(c.clone()).await?;
+            let league = League::new(
+                db.pool.clone(),
+                flags(),
+                runtime::GameAuthority::new(c.clone()),
+            );
+            assert_eq!(league.read(runtime::now()?).await?.len(), 2);
+            // Queue another old-generation observation before advancing again.
+            if stage == 1 {
+                let raw = String::from_utf8(wire("settlement")?)?
+                    .replace("\"projection_epoch\":\"3\"", "\"projection_epoch\":\"4\"")
+                    .replace(
+                        "\"source_observed_at\":\"1790000200\"",
+                        "\"source_observed_at\":\"1790000201\"",
+                    );
+                enqueue_publication(
+                    &db,
+                    &c,
+                    &publication(&c, admission::EVENT, raw.into_bytes())?,
+                )
+                .await?;
+            }
+        }
+    }
+    let refused: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM league_feed_inbox WHERE state<>'done'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(refused, 0);
+    db.close().await
+}
+
+#[derive(Debug)]
+struct CountedAuthority(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+impl Authority for CountedAuthority {
+    async fn fence(&self, _: &mut Transaction<'_, Postgres>, _: u64) -> Result<Fence> {
+        Ok(Fence {
+            epoch: 3,
+            recovery_generation: 1,
+            complete_through: NOW,
+        })
+    }
+    async fn verify(
+        &self,
+        _: &mut Transaction<'_, Postgres>,
+        d: &Delivery<'_>,
+        _: &schema::Snapshot,
+    ) -> Result<()> {
+        verify_ed25519(
+            SigningKey::from_bytes(&[42; 32]).verifying_key().as_bytes(),
+            d.wire,
+            d.signature,
+        )
+    }
+    async fn verify_served(
+        &self,
+        _: &mut Transaction<'_, Postgres>,
+        _: &schema::Snapshot,
+        _: &[u8],
+    ) -> Result<()> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+#[tokio::test]
+async fn postgres_serving_projection_bounds_rows_bytes_and_verification() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let league = League::new(db.pool.clone(), flags(), CountedAuthority(count.clone()));
+    let mut last = Uuid::nil();
+    let mut wire_size = 0;
+    for _ in 0..(128 + 135) {
+        let raw = String::from_utf8(wire("settlement")?)?
+            .replace(
+                "0192a000-0000-7000-8000-000000000040",
+                &Uuid::now_v7().to_string(),
+            )
+            .replace(
+                "0192a000-0000-7000-8000-000000000041",
+                &Uuid::now_v7().to_string(),
+            )
+            .into_bytes();
+        last = schema::id(schema::Snapshot::decode(&raw, false, NOW)?.subject())?;
+        wire_size = raw.len();
+        let p = payload(&raw, false)?;
+        league
+            .ingest(
+                delivery(
+                    &raw,
+                    &p,
+                    &SigningKey::from_bytes(&[42; 32]).sign(&raw).to_bytes(),
+                    Uuid::now_v7(),
+                    false,
+                ),
+                NOW,
+            )
+            .await?;
+    }
+    let rows = league.read(NOW).await?;
+    assert_eq!(rows.len(), 128);
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 128);
+    let bytes: usize = rows
+        .iter()
+        .map(|s| match s {
+            schema::Snapshot::Event(e) => serde_json::to_vec(e).map(|v| v.len()),
+            schema::Snapshot::Season(e) => serde_json::to_vec(e).map(|v| v.len()),
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?
+        .iter()
+        .sum();
+    assert!(bytes <= 128 * wire_size);
+    count.store(0, std::sync::atomic::Ordering::SeqCst);
+    use tower::ServiceExt;
+    let app = web::router_with_clock(
+        League::new(db.pool.clone(), flags(), CountedAuthority(count.clone())),
+        || NOW as i64,
+    );
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/en/league")
+                .body(axum::body::Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let page = axum::body::to_bytes(response.into_body(), 2 * 1024 * 1024).await?;
+    assert!(page.len() <= 128 * wire_size * 4 + 65536);
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 128);
+    // An incomplete subject outside the served slice must still refuse the feed.
+    sqlx::query("UPDATE league_subjects SET quarantined=true WHERE subject_id=$1")
+        .bind(last)
+        .execute(&db.pool)
+        .await?;
+    assert!(league.read(NOW).await.is_err());
+    // Cleanup also has a bounded batch when all retained admission evidence expires.
+    league.expire(NOW + 90 * 86400).await?;
+    let retained: i64 = sqlx::query_scalar("SELECT count(*) FROM league_audit")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(retained, 7);
+    league.expire(NOW + 90 * 86400).await?;
+    let retained: i64 = sqlx::query_scalar("SELECT count(*) FROM league_audit")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(retained, 0);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let league = League::new(
+        db.pool.clone(),
+        flags(),
+        CountedAuthority(Default::default()),
+    );
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
+        .execute(&mut *blocker)
+        .await?;
+    let started = std::time::Instant::now();
+    let mut requests = tokio::task::JoinSet::new();
+    for _ in 0..8 {
+        let pool = db.pool.clone();
+        requests.spawn(async move {
+            League::new(pool, flags(), CountedAuthority(Default::default()))
+                .read(NOW)
+                .await
+        });
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while let Some(result) = requests.join_next().await {
+            assert!(result?.is_err());
+        }
+        Ok::<(), tokio::task::JoinError>(())
+    })
+    .await??;
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let p = publication(&c, admission::EVENT, wire("settlement")?)?;
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            enqueue_publication(&db, &c, &p)
+        )
+        .await?
+        .is_err()
+    );
+    blocker.rollback().await?;
+    assert!(league.read(NOW).await?.is_empty());
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_obsolete_fence_still_refuses_forged_admission_metadata() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let p = publication(&c, admission::EVENT, wire("settlement")?)?;
+    enqueue_publication(&db, &c, &p).await?;
+    write_recovery(&c, "2")?;
+    let meta = admission::prepare(&c, p.path, &p.body, &c.client_spki_sha256)?;
+    sqlx::query("UPDATE league_feed_inbox SET meta=$1")
+        .bind(serde_json::to_vec(&meta)?)
+        .execute(&db.pool)
+        .await?;
+    write_recovery(&c, "3")?;
+    assert!(
+        runtime::FeedJob {
+            pool: db.pool.clone()
+        }
+        .run_config(c)
+        .await
+        .is_err()
+    );
+    let conflicted: bool = sqlx::query_scalar("SELECT conflicted FROM league_feed_state")
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(conflicted);
+    db.close().await
+}
+
+#[derive(Debug)]
+struct StalledAuthority;
+impl Authority for StalledAuthority {
+    async fn fence(&self, tx: &mut Transaction<'_, Postgres>, _: u64) -> Result<Fence> {
+        sqlx::query("SELECT pg_sleep(10)")
+            .execute(&mut **tx)
+            .await?;
+        Err(Error::Unavailable)
+    }
+    async fn verify(
+        &self,
+        _: &mut Transaction<'_, Postgres>,
+        _: &Delivery<'_>,
+        _: &schema::Snapshot,
+    ) -> Result<()> {
+        Err(Error::Unavailable)
+    }
+}
+#[tokio::test]
+async fn postgres_league_database_execution_has_a_deadline() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let league = League::new(db.pool.clone(), flags(), StalledAuthority);
+    let started = std::time::Instant::now();
+    assert!(league.read(NOW).await.is_err());
+    assert!(started.elapsed() < std::time::Duration::from_secs(4));
+    db.close().await
+}

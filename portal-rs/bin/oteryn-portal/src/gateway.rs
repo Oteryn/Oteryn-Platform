@@ -23,11 +23,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         native_protocol3_enabled = config.protocol3,
         "gateway serving"
     );
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(async {
+    oteryn_gateway::serve_until(listener, app, async {
         let _ = tokio::signal::ctrl_c().await;
     })
     .await?;

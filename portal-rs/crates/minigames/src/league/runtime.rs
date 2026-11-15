@@ -71,8 +71,15 @@ impl Authority for GameAuthority {
         wire: &[u8],
     ) -> Result<()> {
         let c = self.config.as_ref().ok_or(Error::Unavailable)?;
-        let row=sqlx::query("SELECT i.meta,i.signature,i.body,a.signature AS audit_signature,a.payload AS audit_payload FROM league_audit a JOIN league_feed_inbox i ON i.request_id=a.envelope_id WHERE a.authority=$1 AND a.family=$2 AND a.world_id=$3 AND a.subject_id=$4 AND a.epoch=$5::numeric AND a.revision=$6::numeric")
-            .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).fetch_optional(&mut **tx).await?.ok_or(Error::Unavailable)?;
+        let path = if matches!(s, schema::Snapshot::Event(_)) {
+            admission::EVENT
+        } else {
+            admission::SEASON
+        };
+        let generation = c.recovery()?.recovery_generation;
+        let id = admission::receipt(path, wire, &generation);
+        let row=sqlx::query("SELECT j.meta AS original_meta,j.body AS original_body,j.signature AS original_signature,j.peer_certificate_sha256 AS original_peer,a.wire AS original_wire,i.meta,i.signature,i.body,a.signature AS audit_signature,a.payload AS audit_payload FROM league_audit a JOIN league_feed_inbox j ON j.request_id=a.envelope_id JOIN league_feed_inbox i ON i.request_id=$7 WHERE a.authority=$1 AND a.family=$2 AND a.world_id=$3 AND a.subject_id=$4 AND a.epoch=$5::numeric AND a.revision=$6::numeric")
+            .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(id).fetch_optional(&mut **tx).await?.ok_or(Error::Unavailable)?;
         let meta: Vec<u8> = row.try_get("meta")?;
         let signature: Vec<u8> = row.try_get("signature")?;
         let body: Vec<u8> = row.try_get("body")?;
@@ -88,12 +95,31 @@ impl Authority for GameAuthority {
             &body,
             &signature,
         )?;
-        let proof = admission::Decision::decode(&m, s)?;
+        schema::ensure(m.recovery_generation == generation)?;
+        let original_wire: Vec<u8> = row.try_get("original_wire")?;
+        let original_signature: Vec<u8> = row.try_get("original_signature")?;
         schema::ensure(
-            signature == row.try_get::<Vec<u8>, _>("audit_signature")?
-                && proof.delivery(&body, &signature, s)?.payload
+            original_wire == row.try_get::<Vec<u8>, _>("original_body")?
+                && row.try_get::<String, _>("original_peer")? == c.client_spki_sha256,
+        )?;
+        let original = schema::Snapshot::decode(&original_wire, path == admission::SEASON, now()?)?;
+        let original_meta = admission::authenticate_persisted(
+            c,
+            path,
+            &row.try_get::<Vec<u8>, _>("original_meta")?,
+            &original_wire,
+            &original_signature,
+        )?;
+        let original_proof = admission::Decision::decode(&original_meta, &original)?;
+        schema::ensure(
+            original.content()? == s.content()?
+                && original_signature == row.try_get::<Vec<u8>, _>("audit_signature")?
+                && original_proof
+                    .delivery(&original_wire, &original_signature, &original)?
+                    .payload
                     == row.try_get::<Vec<u8>, _>("audit_payload")?,
         )?;
+        let proof = admission::Decision::decode(&m, s)?;
         self.verify(tx, &proof.delivery(&body, &signature, s)?, s)
             .await
     }
@@ -165,7 +191,7 @@ async fn question(pool: &PgPool, s: &schema::Snapshot, c: &Config, m: &Meta) -> 
     identity.reason_code.clear();
     identity.evidence_sha256.clear();
     let digest = schema::hash(&serde_json::to_vec(&identity).map_err(|_| Error::Invalid)?);
-    let mut tx = pool.begin().await?;
+    let mut tx = super::store::begin(pool).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
         .execute(&mut *tx)
         .await?;
@@ -222,8 +248,13 @@ async fn registered_world(tx: &mut Transaction<'_, Postgres>, world: &str) -> Re
     Ok(())
 }
 pub(super) async fn initialize(pool: &PgPool, c: &Config) -> Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(3), initialize_inner(pool, c))
+        .await
+        .map_err(|_| Error::Unavailable)?
+}
+async fn initialize_inner(pool: &PgPool, c: &Config) -> Result<()> {
     let f = c.recovery()?;
-    let mut tx = pool.begin().await?;
+    let mut tx = super::store::begin(pool).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
         .execute(&mut *tx)
         .await?;
@@ -251,11 +282,26 @@ pub(super) async fn receive(
     meta: &[u8],
     signature: &[u8],
 ) -> Result<bool> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        receive_inner(pool, c, path, body, meta, signature),
+    )
+    .await
+    .map_err(|_| Error::Unavailable)?
+}
+async fn receive_inner(
+    pool: &PgPool,
+    c: &Config,
+    path: &str,
+    body: &[u8],
+    meta: &[u8],
+    signature: &[u8],
+) -> Result<bool> {
     let m = admission::authenticate(c, path, meta, body, signature)?;
     initialize(pool, c).await?;
     let fingerprint = schema::hash(&[path.as_bytes(), meta, body].concat());
     let id = schema::id(&m.request_id)?;
-    let mut tx = pool.begin().await?;
+    let mut tx = super::store::begin(pool).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
         .execute(&mut *tx)
         .await?;
@@ -378,7 +424,7 @@ impl FeedJob {
         let authority = GameAuthority::new(c.clone());
         let league = League::new(self.pool.clone(), config::owner_flags(true), authority);
         for _ in 0..c.batch_limit()? {
-            let row=sqlx::query("SELECT request_id,path,body,meta,signature FROM league_feed_inbox WHERE state='pending' ORDER BY sequence LIMIT 1").fetch_optional(&self.pool).await?;
+            let row=sqlx::query("SELECT request_id,path,body,meta,signature,peer_certificate_sha256 FROM league_feed_inbox WHERE state='pending' ORDER BY sequence LIMIT 1").fetch_optional(&self.pool).await?;
             let Some(row) = row else {
                 break;
             };
@@ -387,9 +433,26 @@ impl FeedJob {
             let body: Vec<u8> = row.try_get("body")?;
             let meta: Vec<u8> = row.try_get("meta")?;
             let signature: Vec<u8> = row.try_get("signature")?;
-            let result = self
-                .apply(&c, &league, &path, &body, &meta, &signature)
-                .await;
+            let result = async {
+                let m = admission::authenticate_persisted(&c, &path, &meta, &body, &signature)?;
+                schema::ensure(
+                    schema::id(&m.request_id)? == id
+                        && row.try_get::<String, _>("peer_certificate_sha256")?
+                            == c.client_spki_sha256,
+                )?;
+                let fingerprint: String = sqlx::query_scalar(
+                    "SELECT fingerprint FROM league_feed_requests WHERE request_id=$1",
+                )
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await?;
+                schema::ensure(
+                    fingerprint == schema::hash(&[path.as_bytes(), &meta, &body].concat()),
+                )?;
+                self.apply(&c, &league, &path, &body, &meta, &signature)
+                    .await
+            }
+            .await;
             match result {
                 Ok(()) | Err(Error::Superseded) => {
                     sqlx::query("WITH updated AS (UPDATE league_feed_inbox SET state='done' WHERE request_id=$1 RETURNING request_id) UPDATE league_feed_requests SET state='done' WHERE request_id IN (SELECT request_id FROM updated)")
@@ -399,7 +462,7 @@ impl FeedJob {
                 }
                 Err(Error::Unavailable) | Err(Error::Database(_)) => break,
                 Err(_) => {
-                    let mut tx = self.pool.begin().await?;
+                    let mut tx = super::store::begin(&self.pool).await?;
                     sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
                         .execute(&mut *tx)
                         .await?;
@@ -425,8 +488,21 @@ impl FeedJob {
         meta: &[u8],
         signature: &[u8],
     ) -> Result<()> {
-        let m = admission::authenticate(c, path, meta, body, signature)?;
+        let m = admission::authenticate_persisted(c, path, meta, body, signature)?;
         validate(c, path, body, &m, now()?)?;
+        let fence = c.recovery()?;
+        let original = (
+            schema::number(&m.projection_epoch, false)?,
+            schema::number(&m.recovery_generation, false)?,
+        );
+        let current = (
+            schema::number(&fence.projection_epoch, false)?,
+            schema::number(&fence.recovery_generation, false)?,
+        );
+        if original.0 <= current.0 && original.1 <= current.1 && original != current {
+            return Err(Error::Superseded);
+        }
+        schema::ensure(original == current)?;
         if path == admission::EVENT || path == admission::SEASON {
             let s = schema::Snapshot::decode(body, path == admission::SEASON, now()?)?;
             let withdrawn = s.record()?.is_empty();
@@ -454,28 +530,44 @@ impl FeedJob {
                     .ingest(proof.delivery(body, signature, &s)?, now()?)
                     .await?;
             }
-            let mut tx = self.pool.begin().await?;
+            let mut tx = super::store::begin(&self.pool).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
                 .execute(&mut *tx)
                 .await?;
             context(&mut tx, c, &m).await?;
             if withdrawn {
                 registered_world(&mut tx, s.world()).await?;
-                let old:Option<String>=sqlx::query_scalar("SELECT revision::text FROM league_subjects WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4 FOR UPDATE").bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).fetch_optional(&mut *tx).await?;
-                if old.as_ref().is_some_and(|r| {
-                    schema::number(r, false)
-                        .is_ok_and(|r| r >= schema::number(s.revision(), false).unwrap_or(0))
-                }) {
-                    return Err(Error::Conflict);
+                let old: Option<(String, String)> = sqlx::query_as("SELECT epoch::text,revision::text FROM league_subjects WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4 FOR UPDATE").bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).fetch_optional(&mut *tx).await?;
+                if let Some((epoch, revision)) = old {
+                    let old = (
+                        schema::number(&epoch, false)?,
+                        schema::number(&revision, false)?,
+                    );
+                    let next = (
+                        schema::number(s.epoch(), false)?,
+                        schema::number(s.revision(), false)?,
+                    );
+                    if old > next {
+                        return Err(Error::Conflict);
+                    }
+                    if old == next {
+                        let identical: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM league_feed_withdrawals WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4 AND epoch=$5::numeric AND revision=$6::numeric AND withdrawn AND record_hash=$7)")
+                            .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(schema::hash(&s.record()?)).fetch_one(&mut *tx).await?;
+                        if !identical {
+                            return Err(Error::Conflict);
+                        }
+                    }
                 }
-                sqlx::query("UPDATE league_subjects SET revision=$5::numeric WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4")
-                    .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.revision()).execute(&mut *tx).await?;
+                sqlx::query("UPDATE league_subjects SET epoch=$5::numeric,revision=$6::numeric,recovery_generation=$7::numeric WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4")
+                    .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(&m.recovery_generation).execute(&mut *tx).await?;
             }
             sqlx::query("INSERT INTO league_feed_withdrawals(authority,family,world_id,subject_id,epoch,revision,withdrawn,record_hash) VALUES($1,$2,$3,$4,$5::numeric,$6::numeric,$7,$8) ON CONFLICT(authority,family,world_id,subject_id) DO UPDATE SET epoch=EXCLUDED.epoch,revision=EXCLUDED.revision,withdrawn=EXCLUDED.withdrawn,record_hash=EXCLUDED.record_hash")
                 .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(withdrawn).bind(schema::hash(&s.record()?)).execute(&mut *tx).await?;
+            sqlx::query("WITH updated AS (UPDATE league_feed_inbox SET state='done' WHERE request_id=$1 RETURNING request_id) UPDATE league_feed_requests SET state='done' WHERE request_id IN (SELECT request_id FROM updated)")
+                .bind(schema::id(&m.request_id)?).execute(&mut *tx).await?;
             tx.commit().await?;
         } else if path == admission::WATERMARK {
-            let mut tx = self.pool.begin().await?;
+            let mut tx = super::store::begin(&self.pool).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
                 .execute(&mut *tx)
                 .await?;
@@ -507,7 +599,7 @@ impl FeedJob {
         Ok(())
     }
     async fn install(&self, c: &Config) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = super::store::begin(&self.pool).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
             .execute(&mut *tx)
             .await?;
@@ -555,7 +647,7 @@ impl oteryn_db::outbox::Cleanup for Retention {
 }
 impl Retention {
     pub async fn run(&self) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = super::store::begin(&self.pool).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
             .execute(&mut *tx)
             .await?;
@@ -564,12 +656,12 @@ impl Retention {
                 .fetch_one(&mut *tx)
                 .await?;
         schema::ensure(clock > 0)?;
-        sqlx::query("DELETE FROM league_audit WHERE occurred_at_unix_ms/1000 <= $1")
+        sqlx::query("DELETE FROM league_audit WHERE ctid IN (SELECT ctid FROM league_audit WHERE occurred_at_unix_ms/1000 <= $1 LIMIT 256)")
             .bind(clock.saturating_sub(90 * 86400))
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE league_subjects SET wire=''::bytea WHERE finalized_at <= $1 AND octet_length(wire)>0").bind(clock.saturating_sub(90*86400)).execute(&mut *tx).await?;
-        sqlx::query("WITH deleted AS (DELETE FROM league_feed_inbox WHERE expires_at <= $1 RETURNING request_id) UPDATE league_feed_requests SET state=CASE WHEN state='pending' THEN 'gone' ELSE state END WHERE request_id IN (SELECT request_id FROM deleted)").bind(clock).execute(&mut *tx).await?;
+        sqlx::query("UPDATE league_subjects SET wire=''::bytea WHERE ctid IN (SELECT ctid FROM league_subjects WHERE finalized_at <= $1 AND octet_length(wire)>0 LIMIT 256)").bind(clock.saturating_sub(90*86400)).execute(&mut *tx).await?;
+        sqlx::query("WITH deleted AS (DELETE FROM league_feed_inbox WHERE request_id IN (SELECT request_id FROM league_feed_inbox WHERE expires_at <= $1 ORDER BY expires_at,request_id LIMIT 256) RETURNING request_id) UPDATE league_feed_requests SET state=CASE WHEN state='pending' THEN 'gone' ELSE state END WHERE request_id IN (SELECT request_id FROM deleted)").bind(clock).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
     }
