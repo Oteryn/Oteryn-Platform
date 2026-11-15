@@ -78,7 +78,10 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
         "unread export retained its transaction past deadline"
     );
     drop(released??);
-    drop(unread);
+    assert!(
+        axum::body::to_bytes(unread, usize::MAX).await.is_err(),
+        "deadline must produce a body error after queued data"
+    );
     let cancelled = stream_download(&pool, &config, &token)
         .await
         .map_err(|s| s.to_string())?;
@@ -147,5 +150,36 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)
         .await?;
+    Ok(())
+}
+
+use crate::privacy::test_support as deadline_database;
+
+#[tokio::test]
+async fn audit3_unread_export_delivers_terminal_error() -> TestResult {
+    let started = std::time::Instant::now();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+    let (pool, admin, schema) = deadline_database::database(&url).await?;
+    let id: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('deadline@example.test',$1,'active','en',now()) RETURNING id")
+        .bind(crate::password::hash("deadline test password")?).fetch_one(&pool).await?;
+    let raw = "e".repeat(64);
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at,sudo_until) VALUES($1,$2,$3,'deadline test',now()+interval '1 hour',now()+interval '1 day',now()+interval '5 minutes')")
+        .bind(Sha256::digest(raw.as_bytes()).to_vec()).bind(id).bind("f".repeat(64)).execute(&pool).await?;
+    // Exercise the real producer with a bounded test deadline; the owner-export
+    // regression above also exercises the production 30-second deadline.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(200);
+    let body = prepare_download(&pool, &ExportConfig { enabled: true }, &raw, deadline)
+        .await
+        .map_err(|s| s.to_string())?;
+    tokio::time::sleep_until(deadline + std::time::Duration::from_millis(50)).await;
+    assert!(
+        axum::body::to_bytes(body, usize::MAX).await.is_err(),
+        "unread export ended successfully after producer timeout"
+    );
+    deadline_database::close(pool, admin, schema).await?;
+    eprintln!(
+        "PG audit3_unread_export_delivers_terminal_error: {:?}",
+        started.elapsed()
+    );
     Ok(())
 }

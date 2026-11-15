@@ -39,15 +39,25 @@ impl Privacy {
     pub async fn update(
         &self,
         pool: &PgPool,
-        account: AccountId,
+        account: impl Into<crate::mutation_actor::MutationActor>,
         association: bool,
         status: bool,
         locale: &str,
     ) -> Result<Option<Preferences>, sqlx::Error> {
+        let actor = account.into();
+        let account = actor.account;
         if !self.enabled || !matches!(locale, "pl" | "en") {
             return Ok(None);
         }
         let mut tx = pool.begin().await?;
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(account)
+            .execute(&mut *tx)
+            .await?;
+        if !actor.live(&mut tx).await? {
+            return Ok(None);
+        }
+
         let saved: Option<Preferences> = sqlx::query_as("UPDATE accounts SET public_account_association=$2,public_status_visible=$3,locale=$4,privacy_revision=privacy_revision+1,updated_at=now() WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL RETURNING public_account_association,public_status_visible,locale,privacy_revision")
             .bind(account).bind(association).bind(status).bind(locale).fetch_optional(&mut *tx).await?;
         if let Some(ref prefs) = saved {
@@ -134,4 +144,4 @@ mod tests {
 
 #[cfg(test)]
 #[path = "privacy_test_support.rs"]
-mod test_support;
+pub(crate) mod test_support;

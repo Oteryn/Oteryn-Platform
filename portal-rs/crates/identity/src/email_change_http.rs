@@ -238,7 +238,15 @@ async fn request(
     }
     let outcome = match form {
         Ok(Form(input)) => service
-            .request(account, input)
+            .request(
+                oteryn_identity::mutation_actor::MutationActor::browser(
+                    account,
+                    s.csrf_token()
+                        .await
+                        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+                ),
+                input,
+            )
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
         Err(_) => Outcome::Refused,

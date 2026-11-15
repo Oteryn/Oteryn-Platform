@@ -247,6 +247,7 @@ async fn check(
     limiter: &RateLimiter,
     session: &BrowserSession,
     peer: SocketAddr,
+    headers: &HeaderMap,
     policy: NamedPolicy,
     language: Language,
 ) -> Result<(), Box<Response>> {
@@ -254,7 +255,11 @@ async fn check(
         .account_id()
         .await
         .ok_or_else(|| Box::new(StatusCode::UNAUTHORIZED.into_response()))?;
-    let mut keys = Keys::source(peer.ip());
+    let source = limiter
+        .trusted_proxies
+        .client_ip(peer, headers)
+        .map_err(|e| Box::new(e.response(language, false)))?;
+    let mut keys = Keys::source(source);
     keys.account = Some(id.to_string());
     limiter
         .check(policy, &[keys])
@@ -274,6 +279,7 @@ async fn change(
         &limiter,
         &session,
         peer,
+        &headers,
         NamedPolicy::IdentityPasswordChange,
         lang,
     )
@@ -316,6 +322,7 @@ async fn sudo(
         &limiter,
         &session,
         peer,
+        &headers,
         NamedPolicy::IdentitySecurityMutation,
         lang,
     )

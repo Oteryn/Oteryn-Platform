@@ -51,12 +51,21 @@ pub async fn consume(pool: &PgPool, token: &str) -> Result<bool, sqlx::Error> {
     tx.commit().await?;
     Ok(true)
 }
-pub async fn resend(pool: &PgPool, id: AccountId) -> Result<bool, sqlx::Error> {
+pub async fn resend(
+    pool: &PgPool,
+    id: impl Into<crate::mutation_actor::MutationActor>,
+) -> Result<bool, sqlx::Error> {
+    let actor = id.into();
+    let id = actor.account;
     let mut tx = pool.begin().await?;
     let locale:Option<String>=sqlx::query_scalar("SELECT locale FROM accounts WHERE id=$1 AND status='pending_verification' AND email_verified_at IS NULL FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?;
     let Some(locale) = locale else {
         return Ok(false);
     };
+    if !actor.live(&mut tx).await? {
+        return Ok(false);
+    }
+
     let recent: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_email_tokens WHERE account_id=$1 AND purpose='verify_email' AND created_at>clock_timestamp()-interval '60 seconds')").bind(id).fetch_one(&mut *tx).await?;
     if recent {
         return Ok(false);

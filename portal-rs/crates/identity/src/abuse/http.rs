@@ -80,6 +80,11 @@ fn source(request: &Request) -> Option<String> {
 }
 
 async fn challenge(State(pool): State<PgPool>, request: Request) -> Response {
+    let language = if request.uri().path().starts_with("/en/") {
+        "en"
+    } else {
+        "pl"
+    };
     let Some(source) = source(&request) else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
@@ -97,7 +102,7 @@ async fn challenge(State(pool): State<PgPool>, request: Request) -> Response {
             axum::Json(serde_json::json!({"token":token,"bits":super::DIFFICULTY})),
         )
             .into_response(),
-        Err(error) => refusal(error, "pl"),
+        Err(error) => refusal(error, language),
     }
 }
 
