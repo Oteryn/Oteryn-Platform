@@ -918,3 +918,87 @@ fn loyalty_stream_identity_shared_with_sanction_export_is_refused() {
     ]);
     assert!(http::identity_map(&values).is_err());
 }
+
+#[derive(Debug)]
+struct PublicationBarrier {
+    entered: Arc<tokio::sync::Barrier>,
+    release: Arc<tokio::sync::Barrier>,
+    calls: std::sync::atomic::AtomicUsize,
+}
+impl Accounts for PublicationBarrier {
+    fn state<'a>(
+        &'a self,
+        account: Uuid,
+        connection: &'a mut sqlx::PgConnection,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AccountState, Error>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            if self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                self.entered.wait().await;
+                self.release.wait().await;
+            }
+            TestAccounts.state(account, connection).await
+        })
+    }
+}
+
+#[tokio::test]
+async fn postgres_loyalty_publication_bounded_and_eventually_complete() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let ids: Vec<_> = (0..PUBLICATION_BATCH + 3).map(|_| Uuid::now_v7()).collect();
+    for &id in &ids {
+        db.days(id, 1, 2).await;
+    }
+    let unrelated = *ids.last().unwrap();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'unrelated@example.invalid','test','active','en')").bind(unrelated).execute(&db.pool).await.unwrap();
+    let authority = Arc::new(PublicationBarrier {
+        entered: Arc::new(tokio::sync::Barrier::new(2)),
+        release: Arc::new(tokio::sync::Barrier::new(2)),
+        calls: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let publisher = Stream::new(db.pool.clone(), authority.clone(), true);
+    let task = tokio::spawn(async move { publisher.read(None, 1).await });
+    authority.entered.wait().await;
+    // Publication has prepared its entire identity set. A one-entry poll must
+    // leave accounts outside that set free to mutate before it commits.
+    let mutation = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        sqlx::query("UPDATE accounts SET locale='pl' WHERE id=$1")
+            .bind(unrelated)
+            .execute(&db.pool),
+    )
+    .await;
+    authority.release.wait().await;
+    let first = task.await.unwrap().unwrap();
+    assert!(mutation.is_ok(), "publication locked an unrelated account");
+    mutation.unwrap().unwrap();
+    assert_eq!(
+        authority.calls.load(std::sync::atomic::Ordering::SeqCst),
+        PUBLICATION_BATCH as usize
+    );
+    assert_eq!(first.items.len(), 1);
+    let published: i64 = sqlx::query_scalar("SELECT count(*) FROM loyalty_stream_state")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(published, PUBLICATION_BATCH);
+    let mut seen = std::collections::BTreeSet::from([first.items[0].account_id]);
+    let mut cursor = first.next;
+    for _ in 0..ids.len() + 4 {
+        let page = db.stream().read(Some(cursor), 1).await.unwrap();
+        seen.extend(page.items.iter().map(|item| item.account_id));
+        cursor = page.next;
+        if seen.len() == ids.len() {
+            break;
+        }
+    }
+    assert_eq!(seen, ids.into_iter().collect());
+    db.close().await;
+    eprintln!(
+        "PG postgres_loyalty_publication_bounded_and_eventually_complete {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
