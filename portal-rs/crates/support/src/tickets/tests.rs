@@ -42,6 +42,8 @@ impl Database {
             include_str!("../../../../migrations/20261105130000_t36_notifications.sql"),
             include_str!("../../../../migrations/20261105160300_t04a_rate_limits.sql"),
             include_str!("../../../../migrations/20261105170000_t10_rbac_audit.sql"),
+            include_str!("../../../../migrations/20261105220209_accounts_native_security_generation.sql"),
+            include_str!("../../../../migrations/20261105220222_t08b_email_change.sql"),
             include_str!("../../../../migrations/20261105220218_t33_tickets.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
