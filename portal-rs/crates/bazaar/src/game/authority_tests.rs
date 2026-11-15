@@ -626,6 +626,19 @@ async fn store_intent(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, intent: &P
 }
 #[tokio::test]
 async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
+    item_wallet_scenario(false).await;
+}
+#[tokio::test]
+async fn postgres_delivery_refusal_allows_return_and_refunds_fenced_coins() {
+    let started = std::time::Instant::now();
+    std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    item_wallet_scenario(true).await;
+    eprintln!(
+        "postgres_delivery_refusal_allows_return_and_refunds_fenced_coins: {:?}",
+        started.elapsed()
+    );
+}
+async fn item_wallet_scenario(compensate: bool) {
     use crate::{Currency, Evidence, Listing, Reservation, Reservations, Settlement};
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIP PostgreSQL PLAT3: PORTAL_TEST_DATABASE_URL unset");
@@ -808,6 +821,192 @@ async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
     a.publish_intent(&mut tx, &QualifiedAccounts, uid("4"))
         .await
         .unwrap();
+    if compensate {
+        sqlx::query("UPDATE bazaar_listings SET state='active' WHERE id=$1")
+            .bind(listing.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE bazaar_listings SET state='awaiting_delivery' WHERE id=$1")
+            .bind(listing.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let return_wire = include_str!("fixtures/return.json")
+            .replace(
+                &"1".repeat(64),
+                &digest(vector("escrow_receipt").as_bytes()),
+            )
+            .replace("1790000020", &(now - 1).to_string())
+            .replace("1790000320", &(now + 299).to_string());
+        let returning = PreparedIntent::parse(&return_wire).unwrap();
+        store_intent(&mut tx, &returning).await;
+        assert!(matches!(
+            a.publish_intent(&mut tx, &QualifiedAccounts, uid("5"))
+                .await,
+            Err(Error::Conflict)
+        ));
+        let refused = format!(
+            "{{\"contract_version\":2,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"DeliverBazaarItem\",\"operation_id\":\"{}\",\"outcome\":\"REJECTED\",\"result_code\":\"CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE\",\"result_data\":null,\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}",
+            uid("4")
+        );
+        a.receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            refused.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+        assert!(
+            a.publish_intent(&mut tx, &QualifiedAccounts, uid("5"))
+                .await
+                .is_err()
+        );
+        audit(&a, &mut tx, &delivery, &refused, now).await;
+        a.publish_intent(&mut tx, &QualifiedAccounts, uid("5"))
+            .await
+            .unwrap();
+        assert!(funds.release(&mut tx, hold.id, hold.account).await.is_err());
+        let returned = vector("delivery_receipt")
+            .replace("DeliverBazaarItem", "ReturnBazaarItem")
+            .replace("000000000004", "000000000005")
+            .replace("000000000013", "000000000011")
+            .replace("000000000014", "000000000021")
+            .replace("1790000002", &now.to_string());
+        a.receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            returned.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+        audit(&a, &mut tx, &returning, &returned, now).await;
+        let returned_status = vector("delivered_status")
+            .replace("DELIVERED", "RETURNED")
+            .replace("000000000004", "000000000005")
+            .replace("1790000002", &now.to_string());
+        outbox
+            .ingest(
+                &mut tx,
+                &a.config.projection_authority,
+                returned_status.as_bytes(),
+                now,
+            )
+            .await
+            .unwrap();
+        assert!(a.finish_compensation(&mut tx, &listing).await.is_err());
+        funds.release(&mut tx, hold.id, hold.account).await.unwrap();
+        funds.release(&mut tx, hold.id, hold.account).await.unwrap();
+        a.finish_compensation(&mut tx, &listing).await.unwrap();
+        a.finish_compensation(&mut tx, &listing).await.unwrap();
+        let disposition: (String,i64) = sqlx::query_as("SELECT l.state::text,(SELECT count(*) FROM bazaar_authority_compensations c WHERE c.listing_id=l.id) FROM bazaar_listings l WHERE l.id=$1")
+            .bind(listing.id).fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(disposition, ("cancelled".into(), 1));
+        assert!(funds.complete(&mut tx, &sale).await.is_err());
+        let balances: (i64,i64) = sqlx::query_as("SELECT sum(available_delta)::bigint,sum(reserved_delta)::bigint FROM wallet_entries WHERE account_id=$1").bind(sale.buyer).fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(balances, (20000, 0));
+        let captures: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM wallet_operations WHERE kind='capture' AND account_id=$1",
+        )
+        .bind(sale.buyer)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(captures, 0);
+        // The same returned-custody proof releases a Gold settlement fence,
+        // while ordinary releases remain denied until payout.
+        let gold_hold = Uuid::now_v7();
+        gold_fact(
+            &mut tx,
+            Command::Hold,
+            30,
+            Uuid::now_v7(),
+            gold_hold,
+            (0, 1, 12000),
+        )
+        .await;
+        sqlx::query("INSERT INTO bazaar_authority_gold_sales(id,listing_id,buyer,seller,gross_amount,fee_amount,seller_amount,hold_id,hold_revision) VALUES($1,$2,$3,$4,10000,250,9750,$5,1)")
+            .bind(Uuid::now_v7()).bind(sale.listing_id).bind(sale.buyer).bind(sale.seller).bind(gold_hold).execute(&mut *tx).await.unwrap();
+        let Value::Object(common) = decode(delivery.bytes(), 4096).unwrap() else {
+            panic!("intent fixture");
+        };
+        let mut fields = common[..10].to_vec();
+        let release_operation = Uuid::now_v7();
+        for (name, value) in &mut fields {
+            *value = match name.as_str() {
+                "command" => Value::String(Command::Release.wire().into()),
+                "operation_id" | "issuer_decision_id" => {
+                    Value::String(release_operation.to_string())
+                }
+                "source_revision" => Value::String("31".into()),
+                _ => value.clone(),
+            };
+        }
+        for (key, value) in [
+            ("buyer_account_id", sale.buyer.to_string()),
+            ("hold_id", gold_hold.to_string()),
+            ("expected_hold_revision", "1".into()),
+            ("release_reason", "TERMINAL_REFUSAL".into()),
+            ("amount", "12000".into()),
+        ] {
+            fields.push((key.into(), Value::String(value)));
+        }
+        fields.extend_from_slice(&common[common.len() - 3..]);
+        let raw = String::from_utf8(canonical::encode(&Value::Object(fields)).unwrap()).unwrap();
+        let releasing = PreparedIntent::parse(&raw).unwrap();
+        assert!(
+            runtime::gold::validate_release(&a, &mut tx, &releasing, None)
+                .await
+                .is_ok()
+        );
+        let ordinary = PreparedIntent::parse(&raw.replace("TERMINAL_REFUSAL", "OUTBID")).unwrap();
+        assert!(
+            runtime::gold::validate_release(&a, &mut tx, &ordinary, None)
+                .await
+                .is_err()
+        );
+        // A late contradictory/ambiguous delivery decision reinstates the fence.
+        savepoint(&mut tx, "SAVEPOINT ambiguous_delivery").await;
+        sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'RECEIPT')").bind(uid("4")).bind("0".repeat(64)).execute(&mut *tx).await.unwrap();
+        assert!(
+            runtime::gold::validate_release(&a, &mut tx, &releasing, None)
+                .await
+                .is_err()
+        );
+        savepoint(&mut tx, "ROLLBACK TO SAVEPOINT ambiguous_delivery").await;
+        store_intent(&mut tx, &releasing).await;
+        a.publish_intent(&mut tx, &QualifiedAccounts, release_operation)
+            .await
+            .unwrap();
+        let release_receipt = format!(
+            "{{\"contract_version\":2,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"ReleaseBazaarGold\",\"operation_id\":\"{release_operation}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"result_data\":{{\"hold_id\":\"{gold_hold}\",\"hold_revision\":\"2\",\"released_amount\":\"12000\",\"remaining_held\":\"0\",\"hold_state\":\"RELEASED\"}},\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}"
+        );
+        a.receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            release_receipt.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+        audit(&a, &mut tx, &releasing, &release_receipt, now).await;
+        assert_eq!(
+            runtime::gold::current_hold(&a, &mut tx, listing.id, sale.buyer, None)
+                .await
+                .unwrap()
+                .unwrap()
+                .amount,
+            0
+        );
+        assert_eq!(
+            a.retained(&mut tx, uid("4")).await.unwrap().unwrap().1.raw,
+            refused
+        );
+        tx.rollback().await.unwrap();
+        return;
+    }
     let delivered = vector("delivered_status").replace("1790000002", &now.to_string());
     outbox
         .ingest(
@@ -1498,6 +1697,14 @@ async fn postgres_legacy_staged_transfer_publishes_exact_bytes_after_newer_revis
 #[tokio::test]
 async fn postgres_transfer_expiry_requires_terminal_no_commit_before_replacement() {
     let started = std::time::Instant::now();
+    transfer_rejection_scenario("CHAR_CMD_INTENT_EXPIRED").await;
+    eprintln!(
+        "postgres_transfer_expiry_requires_terminal_no_commit_before_replacement: {:?}",
+        started.elapsed()
+    );
+}
+async fn transfer_rejection_scenario(code: &str) {
+    let started = std::time::Instant::now();
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&std::env::var("PORTAL_TEST_DATABASE_URL").unwrap())
@@ -1506,6 +1713,16 @@ async fn postgres_transfer_expiry_requires_terminal_no_commit_before_replacement
     oteryn_db::migrate(&pool).await.unwrap();
     let mut tx = pool.begin().await.unwrap();
     let listing = transfer_listing(&mut tx).await;
+    sqlx::query("UPDATE bazaar_listings SET state='active' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE bazaar_listings SET state='awaiting_delivery' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     let revision: i64 = sqlx::query_scalar(
         "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
     )
@@ -1529,7 +1746,24 @@ async fn postgres_transfer_expiry_requires_terminal_no_commit_before_replacement
         .await
         .unwrap();
     let receipt = format!(
-        "{{\"contract_version\":1,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"TransferCharacterOwnership\",\"operation_id\":\"{operation}\",\"outcome\":\"REJECTED\",\"result_code\":\"CHAR_CMD_INTENT_EXPIRED\",\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}"
+        "{{\"contract_version\":1,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"TransferCharacterOwnership\",\"operation_id\":\"{operation}\",\"outcome\":\"REJECTED\",\"result_code\":\"{code}\",\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}"
+    );
+    sqlx::query("UPDATE character_commands SET state='TERMINAL',receipt_json=$2 WHERE id=$1")
+        .bind(operation)
+        .bind(&receipt)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE character_commands SET state='PENDING',receipt_json=NULL WHERE id=$1")
+        .bind(operation)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime::characters::reconcile_transfer(&authority(), &mut tx, listing, purpose)
+            .await
+            .unwrap(),
+        Some(operation)
     );
     sqlx::query("UPDATE character_commands SET state='TERMINAL',receipt_json=$2 WHERE id=$1")
         .bind(operation)
@@ -1580,7 +1814,31 @@ async fn postgres_transfer_expiry_requires_terminal_no_commit_before_replacement
     assert_eq!(old_receipt, receipt);
     tx.rollback().await.unwrap();
     eprintln!(
-        "postgres_transfer_expiry_requires_terminal_no_commit_before_replacement: {:?}",
+        "transfer_rejection_scenario({code}): {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_transfer_session_rejection_requires_terminal_no_commit_before_replacement() {
+    let started = std::time::Instant::now();
+    for code in [
+        "CHAR_CMD_CHARACTER_IN_SESSION",
+        "CHAR_CMD_OWNER_MISMATCH",
+        "CHAR_CMD_CHARACTER_NOT_FOUND",
+        "CHAR_CMD_CHARACTER_NOT_TRANSFERABLE",
+        "CHAR_CMD_HOUSING_NOT_PREPARED",
+        "CHAR_CMD_SAME_ACCOUNT",
+        "CHAR_CMD_ACCOUNT_CHARACTER_LIMIT",
+        "CHAR_CMD_ACCOUNT_NOT_ELIGIBLE",
+        "CHAR_CMD_INTENT_INVALID",
+        "CHAR_CMD_OPERATION_CONFLICT",
+        "CHAR_CMD_UNSUPPORTED",
+    ] {
+        transfer_rejection_scenario(code).await;
+    }
+    eprintln!(
+        "postgres_transfer_session_rejection_requires_terminal_no_commit_before_replacement: {:?}",
         started.elapsed()
     );
 }

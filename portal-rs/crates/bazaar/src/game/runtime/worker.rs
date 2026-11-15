@@ -166,6 +166,9 @@ impl Runtime {
                 .bind(text(&receipt.value, "result_code")?)
                 .execute(&mut *tx)
                 .await?;
+                if receipt.command == Command::Deliver && l.state == State::AwaitingDelivery {
+                    self.compensate_delivery(&mut tx, &l).await?;
+                }
                 tx.commit().await?;
                 return Ok(());
             }
@@ -278,6 +281,71 @@ impl Runtime {
             _ => {}
         }
         Ok(())
+    }
+    async fn compensate_delivery(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        l: &Listing,
+    ) -> Result<(), Error> {
+        if l.kind != Kind::Item || !self.authority().delivery_refused(tx, l.id).await? {
+            return Err(Error::Unavailable);
+        }
+        let Some((_, escrow)) = self.latest(tx, l.id, Command::Escrow).await? else {
+            return Err(Error::Unavailable);
+        };
+        let d = escrow.value.get("result_data").ok_or(Error::Invalid)?;
+        self.issue(
+            tx,
+            l,
+            l.owner,
+            None,
+            Command::Return,
+            l.id,
+            vec![
+                (
+                    "escrow_id",
+                    d.get("escrow_id").ok_or(Error::Invalid)?.clone(),
+                ),
+                (
+                    "expected_escrow_revision",
+                    d.get("escrow_revision").ok_or(Error::Invalid)?.clone(),
+                ),
+                (
+                    "seller_character_id",
+                    d.get("seller_character_id").ok_or(Error::Invalid)?.clone(),
+                ),
+                ("escrow_receipt_digest", string(escrow.digest())),
+            ],
+        )
+        .await?;
+        if !self.authority().compensation_ready(tx, l).await? {
+            return Ok(());
+        }
+        if l.currency == Currency::Gold {
+            let sale = super::gold::sale(tx, l.id).await?;
+            let hold = super::gold::current_hold(self.authority(), tx, l.id, sale.buyer, None)
+                .await?
+                .ok_or(Error::Unavailable)?;
+            if hold.amount != 0 {
+                self.gold_release(tx, l, sale.buyer, hold.amount, "TERMINAL_REFUSAL", sale.id)
+                    .await?;
+                return Ok(());
+            }
+        } else {
+            let sale: Settlement =
+                sqlx::query_as("SELECT * FROM bazaar_settlements WHERE listing_id=$1")
+                    .bind(l.id)
+                    .fetch_one(&mut **tx)
+                    .await?;
+            use crate::Reservations;
+            CoinReservations {
+                authority: self.authority().clone(),
+            }
+            .release(tx, sale.reservation, sale.buyer)
+            .await
+            .map_err(core_error)?;
+        }
+        self.authority().finish_compensation(tx, l).await
     }
     pub(super) async fn transfer(
         &self,
@@ -570,7 +638,7 @@ fn funding(s: &Settlement) -> Value {
 
 pub(super) async fn listing_batch(pool: &PgPool, generation: u64) -> Result<Vec<Uuid>, Error> {
     let cursor = crate::scheduling::cursor(pool, "listings").await?;
-    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE a.refusal_code IS NULL AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state='completed' AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric))) ORDER BY (l.id <= $2),l.id LIMIT 24").bind(generation.to_string()).bind(cursor).fetch_all(pool).await?;
+    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE (a.refusal_code IS NULL OR (l.kind='item' AND l.state='awaiting_delivery')) AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state='completed' AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric))) ORDER BY (l.id <= $2),l.id LIMIT 24").bind(generation.to_string()).bind(cursor).fetch_all(pool).await?;
     if let Some(last) = ids.last() {
         crate::scheduling::advance(pool, "listings", *last).await?;
     }
@@ -652,6 +720,9 @@ mod fairness_tests {
             sqlx::query("INSERT INTO bazaar_authority_gold_bids(request_id,listing_id,buyer,character_id,maximum,hold_operation_id) VALUES($1,$1,$1,$1,100,$1)")
                 .bind(ready).execute(&pool).await?;
         }
+        // A definitive delivery refusal remains schedulable for safe compensation.
+        sqlx::query("UPDATE bazaar_authority_assets SET refusal_code='CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE' WHERE listing_id=$1")
+            .bind(ready).execute(&pool).await?;
         assert_eq!(listing_batch(&pool, 3).await?.len(), 24);
         assert!(listing_batch(&pool, 3).await?.contains(&ready));
         assert_eq!(

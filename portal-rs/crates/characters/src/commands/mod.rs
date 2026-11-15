@@ -6,6 +6,12 @@
 mod http;
 mod storage;
 mod wire;
+
+/// Validate the unchanged CC1 receipt contract for durable saga reconciliation.
+pub fn parse_receipt(raw: &[u8]) -> Result<oteryn_internal_api::canonical::Value, Error> {
+    wire::receipt(raw)
+}
+
 pub use http::router;
 use sqlx::PgPool;
 use std::{future::Future, sync::Arc};

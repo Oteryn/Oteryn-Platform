@@ -212,8 +212,31 @@ impl Reservations for CoinReservations {
             }
             return Ok(());
         };
-        if row.try_get::<Option<Uuid>, _>("settlement_id")?.is_some() {
-            return Err(Error::Denied);
+        let settlement = row.try_get::<Option<Uuid>, _>("settlement_id")?;
+        if let Some(sale) = settlement {
+            let listing: crate::Listing = sqlx::query_as("SELECT l.* FROM bazaar_listings l JOIN bazaar_settlements s ON s.listing_id=l.id WHERE s.id=$1 AND s.buyer=$2 AND s.reservation=$3")
+                .bind(sale).bind(account).bind(id).fetch_one(&mut *db).await?;
+            let completed: bool = sqlx::query_scalar(
+                "SELECT completed FROM bazaar_coin_dispositions WHERE settlement_id=$1 FOR UPDATE",
+            )
+            .bind(sale)
+            .fetch_one(&mut *db)
+            .await?;
+            if !self
+                .authority
+                .compensation_ready(db, &listing)
+                .await
+                .map_err(gold_error)?
+            {
+                return Err(Error::Denied);
+            }
+            if completed {
+                return if row.try_get::<i64, _>("amount")? == 0 {
+                    Ok(())
+                } else {
+                    Err(Error::Denied)
+                };
+            }
         }
         let amount: i64 = row.try_get("amount")?;
         if amount == 0 {
@@ -221,16 +244,39 @@ impl Reservations for CoinReservations {
         }
         // Any executable handoff prevents release; timeout is not a refusal.
         let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE intent::jsonb->'funding'->>'reservation_id'=$1)").bind(id.to_string()).fetch_one(&mut *db).await?;
-        if pending {
+        if pending && settlement.is_none() {
             return Err(Error::Denied);
         }
-        let op = Self::operation(db, "release", account, amount, id, None).await?;
+        let op = Self::operation(
+            db,
+            "release",
+            account,
+            amount,
+            settlement.unwrap_or(id),
+            None,
+        )
+        .await?;
         Self::entry(db, op, account, amount, -amount).await?;
         sqlx::query("UPDATE bazaar_coin_holds SET amount=0 WHERE id=$1 AND account_id=$2")
             .bind(id)
             .bind(account)
             .execute(&mut *db)
             .await?;
+        if let Some(sale) = settlement {
+            sqlx::query(
+                "UPDATE bazaar_coin_holds SET completed=true WHERE id=$1 AND account_id=$2",
+            )
+            .bind(id)
+            .bind(account)
+            .execute(&mut *db)
+            .await?;
+            sqlx::query(
+                "UPDATE bazaar_coin_dispositions SET completed=true WHERE settlement_id=$1",
+            )
+            .bind(sale)
+            .execute(&mut *db)
+            .await?;
+        }
         Ok(())
     }
     async fn settle(&self, db: &mut PgConnection, s: &Settlement) -> Result<(), Error> {

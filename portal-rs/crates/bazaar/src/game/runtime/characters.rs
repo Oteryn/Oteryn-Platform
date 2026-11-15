@@ -206,7 +206,7 @@ pub(crate) async fn proof(
     }
     let receipt: String = row.try_get("receipt_json")?;
     let r = decode(receipt.as_bytes(), 1024)?;
-    if expired_receipt(a, &r, operation, now(db).await?)? {
+    if rejected_receipt(a, &r, &intent, now(db).await?)? {
         return Ok(None);
     }
     ordered(
@@ -473,39 +473,30 @@ pub(crate) async fn verify_unlock(
     Ok(())
 }
 
-fn expired_receipt(
+fn rejected_receipt(
     a: &Authority,
     receipt: &Value,
-    operation: Uuid,
+    intent: &Value,
     now: u64,
 ) -> Result<bool, Error> {
-    if text(receipt, "outcome")? != "REJECTED"
-        || text(receipt, "result_code")? != "CHAR_CMD_INTENT_EXPIRED"
-    {
+    if text(receipt, "outcome")? != "REJECTED" {
         return Ok(false);
     }
-    ordered(
-        receipt,
-        &[
-            "contract_version",
-            "operation",
-            "source_authority",
-            "command",
-            "operation_id",
-            "outcome",
-            "result_code",
-            "recovery_generation",
-            "decided_at",
-        ],
-    )?;
-    Ok(receipt.get("contract_version") == Some(&Value::Unsigned(1))
-        && text(receipt, "operation")? == "PublishCharacterCommandReceiptV1"
-        && text(receipt, "source_authority")? == a.config.receipt_authority
-        && text(receipt, "command")? == "TransferCharacterOwnership"
-        && id(text(receipt, "operation_id")?)? == operation
-        && number(receipt, "recovery_generation")? == a.fence.recovery_generation
-        && number(receipt, "decided_at")? <= now.saturating_add(1))
+    // Use the owning parser's closed code set; unknown or malformed refusals
+    // cannot retire an operation. A terminal CC1 rejection is immutable no-effect
+    // evidence, not a timeout or an ownership projection.
+    let raw = canonical::encode(receipt).map_err(|_| Error::Invalid)?;
+    oteryn_characters::commands::parse_receipt(&raw).map_err(|_| Error::Invalid)?;
+    Ok(
+        text(receipt, "source_authority")? == a.config.receipt_authority
+            && text(receipt, "command")? == "TransferCharacterOwnership"
+            && text(receipt, "operation_id")? == text(intent, "operation_id")?
+            && number(receipt, "recovery_generation")? == a.fence.recovery_generation
+            && number(receipt, "decided_at")? >= number(intent, "issued_at_source")?
+            && number(receipt, "decided_at")? <= now.saturating_add(1),
+    )
 }
+
 pub(crate) async fn reconcile_transfer(
     a: &Authority,
     db: &mut PgConnection,
@@ -515,7 +506,7 @@ pub(crate) async fn reconcile_transfer(
     sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
         .execute(&mut *db)
         .await?;
-    let row=sqlx::query("SELECT t.operation_id,t.intent,c.intent_json,c.receipt_json FROM bazaar_current_transfers t LEFT JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND t.purpose=$2 ORDER BY t.source_revision DESC LIMIT 1").bind(listing).bind(purpose).fetch_optional(&mut *db).await?;
+    let row=sqlx::query("SELECT t.operation_id,t.intent,c.intent_json,c.receipt_json,c.state FROM bazaar_current_transfers t LEFT JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND t.purpose=$2 ORDER BY t.source_revision DESC LIMIT 1").bind(listing).bind(purpose).fetch_optional(&mut *db).await?;
     let Some(row) = row else {
         return Ok(None);
     };
@@ -528,7 +519,9 @@ pub(crate) async fn reconcile_transfer(
         }
         if let Some(raw) = row.try_get::<Option<String>, _>("receipt_json")? {
             let receipt = decode(raw.as_bytes(), 1024)?;
-            if expired_receipt(a, &receipt, operation, now(db).await?)? {
+            if row.try_get::<String, _>("state")? == "TERMINAL"
+                && rejected_receipt(a, &receipt, &transfer, now(db).await?)?
+            {
                 Some(operation)
             } else {
                 None

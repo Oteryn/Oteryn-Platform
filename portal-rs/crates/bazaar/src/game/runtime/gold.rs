@@ -202,11 +202,19 @@ pub(crate) async fn validate_release(
     .fetch_one(&mut *db)
     .await?;
     if fenced {
-        let Some((_, payout)) = record(a, db, listing, Command::Payout).await? else {
-            return Err(Error::Unavailable);
-        };
-        if !payout.committed || text(&i.value, "release_reason")? != "EXCESS" {
-            return Err(Error::Denied);
+        let listing_row: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
+            .bind(listing)
+            .fetch_one(&mut *db)
+            .await?;
+        let compensation = text(&i.value, "release_reason")? == "TERMINAL_REFUSAL"
+            && a.compensation_ready(db, &listing_row).await?;
+        if !compensation {
+            let Some((_, payout)) = record(a, db, listing, Command::Payout).await? else {
+                return Err(Error::Unavailable);
+            };
+            if !payout.committed || text(&i.value, "release_reason")? != "EXCESS" {
+                return Err(Error::Denied);
+            }
         }
     }
     if let Some(facts) = facts
