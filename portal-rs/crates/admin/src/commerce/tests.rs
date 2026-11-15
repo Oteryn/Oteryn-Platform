@@ -843,3 +843,214 @@ async fn a2_commerce_role_writer_waits_are_bounded() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn a3_commerce_queue_pagination_and_terminal_disposition() {
+    let started = std::time::Instant::now();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let service = h.service();
+    let mut blocked = Vec::new();
+    for _ in 0..100 {
+        blocked.push(
+            service
+                .submit(
+                    context(h.actor),
+                    request(h.target, Command::Adjust { amount: 1 }),
+                )
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(h.actor)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        service.approve(context(h.second), blocked[0]).await,
+        Err(Error::Denied)
+    ));
+    sqlx::query("UPDATE commerce_operations SET created_at='2026-01-01T00:00:00Z'")
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    let valid = service
+        .submit(
+            context(h.second),
+            request(h.target, Command::Adjust { amount: 50 }),
+        )
+        .await
+        .unwrap()
+        .id;
+    // A third currently authorized staff member reviews the newer request.
+    let reviewer = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'reviewer@example.test','test-only','active',now(),'en')").bind(reviewer).execute(&h.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(reviewer).execute(&h.pool).await.unwrap();
+    let app = router(
+        h.pool.clone(),
+        crate::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Session(reviewer),
+        Authority(h.pool.clone()),
+        h.effects(),
+        flags(),
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::get("/admin/commerce")
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(!html.contains(&valid.to_string()));
+    let next = html
+        .split("rel=\"next\" href=\"")
+        .nth(1)
+        .expect("next page must be reachable")
+        .split('"')
+        .next()
+        .unwrap()
+        .replace("&amp;", "&");
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::get(&next)
+                .header("host", "staff.test")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let second = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(second.contains(&valid.to_string()));
+    // An audit failure must leave the intent pending and produce no money effect.
+    sqlx::raw_sql("CREATE FUNCTION reject_cancellation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='commerce.cancelled' THEN RAISE EXCEPTION 'test audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_cancellation BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_cancellation()")
+        .execute(&h.pool).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::post(format!("/admin/commerce/cancellations/{}", blocked[0]))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let pending: bool =
+        sqlx::query_scalar("SELECT result IS NULL FROM commerce_operations WHERE id=$1")
+            .bind(blocked[0])
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert!(pending);
+    sqlx::query("DROP TRIGGER reject_cancellation ON audit_log")
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    for (path, token, expected) in [
+        (
+            format!("/admin/commerce/cancellations/{}", blocked[0]),
+            "bad",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            format!("/admin/commerce/cancellations/{}", blocked[0]),
+            csrf,
+            StatusCode::SEE_OTHER,
+        ),
+        (
+            format!("/admin/commerce/cancellations/{}", blocked[0]),
+            csrf,
+            StatusCode::SEE_OTHER,
+        ),
+        (
+            format!("/admin/commerce/approvals/{valid}"),
+            csrf,
+            StatusCode::SEE_OTHER,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::post(path)
+                    .header("host", "staff.test")
+                    .header("origin", "https://staff.test")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={token}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::post(format!("/admin/commerce/cancellations/{valid}"))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let cancelled: Value = sqlx::query_scalar("SELECT result FROM commerce_operations WHERE id=$1")
+        .bind(blocked[0])
+        .fetch_one(&h.pool)
+        .await
+        .unwrap();
+    assert_eq!(cancelled, json!({"status":"cancelled"}));
+    let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE request_id=$1 AND actor=$2 AND action='commerce.cancelled'").bind(blocked[0]).bind(reviewer).fetch_one(&h.pool).await.unwrap();
+    assert_eq!(audits, 1);
+    assert_eq!(h.count("wallet_operations").await, 1);
+    h.close().await;
+    eprintln!(
+        "a3_commerce_queue_pagination_and_terminal_disposition duration: {:?}",
+        started.elapsed()
+    );
+}

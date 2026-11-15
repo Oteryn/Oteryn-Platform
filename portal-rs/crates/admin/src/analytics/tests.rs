@@ -1601,3 +1601,119 @@ async fn a2_blocked_purge_refuses_browser_reads_without_pool_exhaustion() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn a3_obsolete_epochs_do_not_block_staging() {
+    let started = std::time::Instant::now();
+    for same_bucket in [false, true] {
+        let (pool, root, name) = database().await.expect("PostgreSQL required");
+        let s = store(pool.clone()).await;
+        let mut obsolete = page();
+        obsolete.world_id = Uuid::now_v7().to_string();
+        obsolete.page_count = "2".into();
+        for revision in ["1", "2"] {
+            obsolete.snapshot_revision = revision.into();
+            publish(&s, &obsolete).await.unwrap();
+        }
+        let mut current = obsolete.clone();
+        current.source_observed_at = NOW.to_string();
+        current.analytics_epoch = "2".into();
+        current.snapshot_revision = "1".into();
+        current.page_count = "1".into();
+        if !same_bucket {
+            current.bucket_start = (wire::uint(&current.bucket_start).unwrap() + 86400).to_string();
+            current.bucket_end = (wire::uint(&current.bucket_end).unwrap() + 86400).to_string();
+        }
+        assert_eq!(publish(&s, &current).await.unwrap(), "accepted");
+        assert_eq!(apply(&s, &commit(&current)).await.unwrap(), "accepted");
+        let receipts: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM admin_analytics.page_receipts WHERE world=$1 AND epoch=1",
+        )
+        .bind(Uuid::parse_str(&obsolete.world_id).unwrap())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(receipts, 2);
+        clean(pool, root, name).await;
+    }
+    eprintln!(
+        "a3_obsolete_epochs_do_not_block_staging duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a3_superseded_commit_replays_original_outcome() {
+    let started = std::time::Instant::now();
+    let (pool, root, name) = database().await.expect("PostgreSQL required");
+    let s = store(pool.clone()).await;
+    let mut p = page();
+    p.snapshot_revision = "3".into();
+    publish(&s, &p).await.unwrap();
+    apply(&s, &commit(&p)).await.unwrap();
+    let before: Vec<(String, serde_json::Value)> =
+        sqlx::query_as("SELECT revision::text,values FROM admin_analytics.rows ORDER BY key")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    p.snapshot_revision = "2".into();
+    let c = commit(&p);
+    assert_eq!(apply(&s, &c).await.unwrap(), "superseded");
+    assert_eq!(apply(&s, &c).await.unwrap(), "superseded");
+    let after: Vec<(String, serde_json::Value)> =
+        sqlx::query_as("SELECT revision::text,values FROM admin_analytics.rows ORDER BY key")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(before, after);
+    clean(pool, root, name).await;
+    eprintln!(
+        "a3_superseded_commit_replays_original_outcome duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a3_receipt_outcome_migration_preserves_existing_receipts() {
+    let started = std::time::Instant::now();
+    let (pool, root, name) = database().await.expect("PostgreSQL required");
+    let s = store(pool.clone()).await;
+    let p = page();
+    publish(&s, &p).await.unwrap();
+    apply(&s, &commit(&p)).await.unwrap();
+    let before: String = sqlx::query_scalar("SELECT digest FROM admin_analytics.receipts")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    // Reconstruct the legacy receipt schema with a real previously accepted row.
+    sqlx::query("ALTER TABLE admin_analytics.receipts DROP COLUMN outcome")
+        .execute(&pool)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261115211000_fix_a3-01a-admin_receipt_outcome.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let after: (String, String) =
+        sqlx::query_as("SELECT digest,outcome FROM admin_analytics.receipts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after, (before, "accepted".into()));
+    assert_eq!(apply(&s, &commit(&p)).await.unwrap(), "accepted");
+    assert!(
+        sqlx::query("UPDATE admin_analytics.receipts SET outcome='unknown'")
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    clean(pool, root, name).await;
+    eprintln!(
+        "a3_receipt_outcome_migration_preserves_existing_receipts duration: {:?}",
+        started.elapsed()
+    );
+}

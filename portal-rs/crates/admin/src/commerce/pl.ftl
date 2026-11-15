@@ -20,3 +20,6 @@ empty = Brak oczekujących żądań.
 note = Korekty i zwroty wymagają zatwierdzenia przez inną osobę z zespołu. Zwrot oczekuje na potwierdzenie dostawcy; sprawdzenie płatności nie zmienia jej stanu.
 back = Wróć do handlu
 pending = Oczekuje na drugą osobę z zespołu
+
+cancel = Anuluj wniosek
+next = Następna strona

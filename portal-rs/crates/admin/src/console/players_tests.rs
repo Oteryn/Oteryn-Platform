@@ -41,18 +41,22 @@ impl Backend for Fake {
         &self,
         actor: CheckContext,
         _: &super::super::audit::Filter,
-    ) -> Result<Option<Vec<super::super::audit::LedgerRow>>, Error> {
-        Ok(self.snapshot.as_ref().map(|snapshot| {
-            vec![super::super::audit::LedgerRow {
-                request_id: snapshot.request_id,
-                ledger_id: "test-ledger".into(),
-                admin: actor.account.to_string(),
-                operation: "player.character.get".into(),
-                target: "c-1".into(),
-                status: "succeeded".into(),
-                observed_at: snapshot.observed_at.clone(),
-            }]
-        }))
+    ) -> Result<Option<super::super::audit::LedgerSnapshot>, Error> {
+        Ok(self
+            .snapshot
+            .as_ref()
+            .map(|snapshot| super::super::audit::LedgerSnapshot {
+                query_id: snapshot.request_id,
+                rows: vec![super::super::audit::LedgerRow {
+                    request_id: snapshot.request_id,
+                    ledger_id: "test-ledger".into(),
+                    admin: actor.account.to_string(),
+                    operation: "player.character.get".into(),
+                    target: "c-1".into(),
+                    status: "succeeded".into(),
+                    observed_at: snapshot.observed_at.clone(),
+                }],
+            }))
     }
     async fn access(&self) -> Result<AccessSnapshot, Error> {
         Ok(AccessSnapshot {
