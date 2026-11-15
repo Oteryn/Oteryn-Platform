@@ -2477,3 +2477,54 @@ async fn l6_01_pending_termination_refuses_campaign_rewards() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn a3_l6_05_legacy_claim_without_qualification_denied() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let owner = db.account().await;
+    let invitee = db.account().await;
+    let reward_actor = db.account().await;
+    let service = super::super::Referrals::new(
+        db.pool.clone(),
+        Flags { enabled: true },
+        DatabasePolicy,
+        db.wallet(),
+        oteryn_notify::Notifications {
+            pool: db.pool.clone(),
+            accounts: Arc::new(Checks),
+            unsubscribe: oteryn_notify::Unsubscribe::new(
+                vec![7; 32],
+                "https://portal.example.test/unsubscribe".into(),
+            )
+            .unwrap(),
+        },
+        super::super::Reward {
+            actor: reward_actor,
+            amount: 25,
+        },
+    );
+
+    let invitation = super::super::Invitation {
+        id: Uuid::now_v7(),
+        inviter: owner,
+        invitee,
+        kind: Kind::New,
+        expires_at: time::OffsetDateTime::now_utc() + time::Duration::days(7),
+    };
+    service.invite(&invitation).await.unwrap();
+    assert_eq!(
+        service.claim(invitee, invitation.id).await,
+        Err(Error::Denied)
+    );
+    let entries: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_entries")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(entries, 0);
+    db.close().await;
+    eprintln!(
+        "PG a3_l6_05_legacy_claim_without_qualification_denied {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

@@ -482,7 +482,9 @@ pub(crate) async fn credit(
     // Validate only their net effect; even a historical bigint balance may repay debt.
     insert_entry(tx, key, account, amount, 0).await?;
     let repaid = crate::debt::settle(tx, key, account, amount).await?;
-    before.apply(amount - repaid, 0)?;
+    let after = before.apply(amount - repaid, 0)?;
+    let incoming = incoming_capacity_in(tx, account).await?;
+    after.apply(incoming, 0)?;
     Ok(())
 }
 pub(crate) async fn entry(
@@ -928,10 +930,28 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
     /// Wire preflight distinguishes absent identity from inactive and unavailable
     /// authority. Every mutation repeats authorization in its own transaction.
     pub async fn coin_account(&self, account: Uuid) -> Result<(), Error> {
+        self.coin_account_preflight(account, false).await
+    }
+
+    /// Cancellation preflight preserves unknown identity mapping while allowing
+    /// the same restricted holders as the transaction-local release policy.
+    pub async fn coin_return_account(&self, account: Uuid) -> Result<(), Error> {
+        self.coin_account_preflight(account, true).await
+    }
+
+    async fn coin_account_preflight(&self, account: Uuid, returning: bool) -> Result<(), Error> {
         self.enabled()?;
         valid_id(account)?;
         let mut tx = self.pool.begin().await?;
-        let result = match self.accounts.state(&mut tx, account).await {
+        let state = self.accounts.state(&mut tx, account).await;
+        // Safe-return adapters can collapse absent and denied holders. Preserve
+        // the ordinary identity lookup's unknown/unavailable wire refusals.
+        let state = if returning && matches!(state, AccountState::Active | AccountState::Inactive) {
+            self.accounts.safe_return(&mut tx, account).await
+        } else {
+            state
+        };
+        let result = match state {
             AccountState::Active => Ok(()),
             AccountState::Inactive => Err(Refusal::AccountDenied.into()),
             AccountState::Unknown => Err(Refusal::UnknownAccount.into()),
@@ -940,4 +960,40 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         tx.commit().await?;
         result
     }
+}
+
+/// Capacity promised to irreversible incoming payouts. Caller holds the wallet
+/// row lock, as do all credits and reservation writers.
+pub async fn incoming_capacity_in(db: &mut PgConnection, account: Uuid) -> Result<i64, Error> {
+    Ok(sqlx::query_scalar(
+        "SELECT COALESCE(sum(amount),0)::bigint FROM wallet_incoming_capacity WHERE account_id=$1",
+    )
+    .bind(account)
+    .fetch_one(db)
+    .await?)
+}
+
+/// Reserve the gross payout conservatively: competing debt repayments cannot
+/// increase this obligation's eventual balance effect beyond the promise.
+pub async fn reserve_incoming_in(
+    db: &mut PgConnection,
+    id: Uuid,
+    account: Uuid,
+    amount: i64,
+) -> Result<(), Error> {
+    if amount <= 0 {
+        return Err(Refusal::InvalidAmount.into());
+    }
+    let incoming = incoming_capacity_in(db, account).await?;
+    balance(db, account)
+        .await?
+        .apply(incoming, 0)?
+        .apply(amount, 0)?;
+    sqlx::query("INSERT INTO wallet_incoming_capacity(id,account_id,amount) VALUES($1,$2,$3)")
+        .bind(id)
+        .bind(account)
+        .bind(amount)
+        .execute(db)
+        .await?;
+    Ok(())
 }

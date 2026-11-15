@@ -238,6 +238,14 @@ impl Runtime {
                         .bind(id)
                         .fetch_one(&mut *tx)
                         .await?;
+                if sale.currency == Currency::Coins {
+                    CoinReservations {
+                        authority: self.authority().clone(),
+                    }
+                    .handoff_capacity(&mut tx, &sale)
+                    .await
+                    .map_err(core_error)?;
+                }
                 if l.kind == Kind::Character {
                     self.transfer(&mut tx, &l, "BAZAAR_SETTLEMENT", Some(&sale))
                         .await?;

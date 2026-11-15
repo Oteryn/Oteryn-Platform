@@ -21,6 +21,11 @@ impl Policy for DatabasePolicy {
         kind: Kind,
         stage: Stage,
     ) -> Result<bool, sqlx::Error> {
+        // Campaign purchase rewards have their own authoritative evidence. This
+        // adapter has no qualification source for the legacy coin claim service.
+        if matches!(stage, Stage::Claim) {
+            return Ok(false);
+        }
         let active = sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM accounts WHERE id=ANY($1) AND account_value_eligible(id)",
         )
