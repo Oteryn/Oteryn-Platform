@@ -33,7 +33,7 @@ pub(super) fn json<T: for<'a> Deserialize<'a> + Serialize>(bytes: &[u8]) -> Resu
     Ok(value)
 }
 /// Stable local receipt identity for retained retries; not a Game EventId.
-fn receipt(path: &str, body: &[u8], generation: &str) -> Uuid {
+pub(super) fn receipt(path: &str, body: &[u8], generation: &str) -> Uuid {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();
     hash.update(path);
@@ -72,8 +72,7 @@ pub(super) fn prepare(c: &config::Config, path: &str, body: &[u8], peer: &str) -
         recovery_generation: recovery.recovery_generation,
     })
 }
-/// Recheck the persisted mTLS admission record against current operator trust.
-/// Historical SQL columns named signature contain the SPKI identity, not a signature.
+/// New admissions and current serving evidence must match the live operator fence.
 pub(super) fn authenticate(
     c: &config::Config,
     path: &str,
@@ -81,10 +80,51 @@ pub(super) fn authenticate(
     body: &[u8],
     identity: &[u8],
 ) -> Result<Meta> {
+    let m = authenticate_persisted(c, path, meta, body, identity)?;
+    let expected = prepare(
+        c,
+        path,
+        body,
+        std::str::from_utf8(identity).map_err(|_| Error::Invalid)?,
+    )?;
+    schema::ensure(m == expected)?;
+    Ok(m)
+}
+
+/// Recheck the persisted mTLS admission record against current operator trust.
+/// Historical SQL columns named signature contain the SPKI identity, not a signature.
+pub(super) fn authenticate_persisted(
+    c: &config::Config,
+    path: &str,
+    meta: &[u8],
+    body: &[u8],
+    identity: &[u8],
+) -> Result<Meta> {
     let peer = std::str::from_utf8(identity).map_err(|_| Error::Invalid)?;
-    let expected = prepare(c, path, body, peer)?;
-    schema::ensure(json::<Meta>(meta)? == expected)?;
-    Ok(expected)
+    // Authenticate the durable admission using its original fence. Comparing to
+    // the live fence here would confuse obsolete authentic work with corruption.
+    let m: Meta = json(meta)?;
+    schema::ensure(peer == c.client_spki_sha256 && c.authority == "oteryn:game:primary")?;
+    schema::number(&m.projection_epoch, false)?;
+    schema::number(&m.recovery_generation, false)?;
+    let (authority, epoch) = match path {
+        EVENT | SEASON => {
+            let s = schema::Snapshot::decode(body, path == SEASON, runtime::now()?)?;
+            (s.authority().to_owned(), s.epoch().to_owned())
+        }
+        WATERMARK => {
+            let w: Watermark = json(body)?;
+            (w.source_authority, w.projection_epoch)
+        }
+        _ => return Err(Error::Invalid),
+    };
+    schema::ensure(
+        authority == c.authority
+            && m.source_authority == authority
+            && m.projection_epoch == epoch
+            && m.request_id == receipt(path, body, &m.recovery_generation).to_string(),
+    )?;
+    Ok(m)
 }
 #[derive(Debug)]
 pub(super) struct Decision {

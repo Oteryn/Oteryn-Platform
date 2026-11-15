@@ -98,8 +98,76 @@ pub fn router_with(issuer: IssuerClient, options: Options) -> Router {
         .route("/v1/recover", post(recover_route))
         .route("/v1/recover/revoke", post(revoke_route))
         .layer(middleware::from_fn(request_log))
+        .layer(middleware::from_fn(request_deadline))
         .with_state(state)
 }
+pub const BODY_DEADLINE: Duration = Duration::from_secs(5);
+// Allow the complete body budget plus the issuer's maximum 8 s exchange so its
+// existing typed refusals still win for completed requests.
+pub const REQUEST_DEADLINE: Duration = Duration::from_secs(14);
+pub const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(6);
+
+async fn request_deadline(req: Request, next: Next) -> Response {
+    match tokio::time::timeout(REQUEST_DEADLINE, next.run(req)).await {
+        Ok(response) => response,
+        Err(_) => request_timeout(),
+    }
+}
+fn request_timeout() -> Response {
+    let mut response = StatusCode::REQUEST_TIMEOUT.into_response();
+    response
+        .headers_mut()
+        .insert("connection", HeaderValue::from_static("close"));
+    no_store(&mut response);
+    response
+}
+/// Bound header reads, then drain or abort tracked connections on shutdown.
+pub async fn serve_until(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> std::io::Result<()> {
+    let (drain, draining) = tokio::sync::watch::channel(false);
+    let mut connections = tokio::task::JoinSet::new();
+    tokio::pin!(shutdown);
+    loop {
+        tokio::select! {
+            () = &mut shutdown => break,
+            accepted = listener.accept() => {
+                let (stream, peer) = accepted?;
+                let app = app.clone().layer(axum::Extension(ConnectInfo(peer)));
+                let mut draining = draining.clone();
+                connections.spawn(async move {
+                    let service = hyper_util::service::TowerToHyperService::new(app);
+                    let mut builder = hyper::server::conn::http1::Builder::new();
+                    builder.timer(hyper_util::rt::TokioTimer::new()).header_read_timeout(BODY_DEADLINE);
+                    let connection = builder.serve_connection(hyper_util::rt::TokioIo::new(stream), service);
+                    tokio::pin!(connection);
+                    tokio::select! {
+                        _ = &mut connection => {},
+                        _ = draining.changed() => {
+                            connection.as_mut().graceful_shutdown();
+                            let _ = connection.await;
+                        }
+                    }
+                });
+            }
+            _ = connections.join_next(), if !connections.is_empty() => {}
+        }
+    }
+    let _ = drain.send(true);
+    if tokio::time::timeout(SHUTDOWN_DEADLINE, async {
+        while connections.join_next().await.is_some() {}
+    })
+    .await
+    .is_err()
+    {
+        connections.abort_all();
+        while connections.join_next().await.is_some() {}
+    }
+    Ok(())
+}
+
 async fn ready(State(s): State<Arc<StateData>>) -> Response {
     if s.issuer.ready().await {
         json(200, &serde_json::json!({"status":"ready"}))
@@ -126,7 +194,12 @@ async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
     let mut response = if query {
         invalid()
     } else {
-        match to_bytes(req.into_body(), 16 * 1024).await {
+        let body =
+            match tokio::time::timeout(BODY_DEADLINE, to_bytes(req.into_body(), 16 * 1024)).await {
+                Ok(body) => body,
+                Err(_) => return request_timeout(),
+            };
+        match body {
             Ok(b) if s.enabled && wire::is_native(&b) => native(&s, &source, &b).await,
             // §19.1: with the protocol 3 switch off every protocol 3 request is
             // NATIVE_LOGIN_UNSUPPORTED_VERSION, in the protocol 2 body.
@@ -169,8 +242,9 @@ async fn recovery_front(
     }
     let source = source_of(&req);
     let query = req.uri().query().is_some_and(|q| !q.is_empty());
-    let body = to_bytes(req.into_body(), 16 * 1024)
+    let body = tokio::time::timeout(BODY_DEADLINE, to_bytes(req.into_body(), 16 * 1024))
         .await
+        .map_err(|_| request_timeout())?
         .map(|b| b.to_vec())
         .unwrap_or_default();
     let echo = echo_of(&body);
