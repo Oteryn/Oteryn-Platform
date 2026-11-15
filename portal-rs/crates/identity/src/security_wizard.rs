@@ -1,8 +1,7 @@
 //! Read-only account security assessment (plan §5.5, T53).
 //!
 //! No wizard route exists in the Laravel reference or the published contracts.
-//! T05b, T06 and T08b are absent from the base. Their adapter must return verified,
-//! current facts; missing evidence never earns credit. Password age is informative,
+//! Assessment composes authoritative, current identity facts; missing evidence never earns credit. Password age is informative,
 //! not a reason to demand periodic password changes. This is not an authorization grant.
 
 use std::{future::Future, pin::Pin, sync::Arc};
@@ -111,14 +110,20 @@ impl std::fmt::Debug for Wizard {
 /// Off unless the exact configuration value is true. Never infers dependency facts
 /// from account updated_at, password hashes, pending enrollments or address presence.
 pub fn configured(pool: PgPool) -> Router {
+    production(
+        pool,
+        std::env::var("OTERYN_SECURITY_WIZARD_ENABLED").is_ok_and(|v| v == "true"),
+    )
+}
+fn production(pool: PgPool, enabled: bool) -> Router {
     router(Wizard {
         pool: pool.clone(),
-        enabled: std::env::var("OTERYN_SECURITY_WIZARD_ENABLED").is_ok_and(|v| v == "true"),
-        facts: Arc::new(RecoveryFacts(pool.clone())),
+        enabled,
+        facts: Arc::new(RecoveryFacts(pool)),
     })
 }
 
-/// Reads only the non-secret state owned by the recovery-key module.
+/// Compose non-secret facts from their authoritative identity owners.
 #[derive(Debug)]
 struct RecoveryFacts(PgPool);
 impl FactsSource for RecoveryFacts {
@@ -126,13 +131,26 @@ impl FactsSource for RecoveryFacts {
         Box::pin(async move {
             let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_recovery_keys WHERE account_id=$1 AND confirmed_at IS NOT NULL AND revoked_at IS NULL AND used_at IS NULL)")
                 .bind(account).fetch_one(&self.0).await?;
+            let mfa = crate::mfa::confirmed(&self.0, account).await?;
+            let backup = crate::email_change::confirmed_backup(&self.0, account).await?;
+            let password_changed_at = sqlx::query_scalar("SELECT max(created_at) FROM credential_security_events WHERE account_id=$1 AND kind='password_changed'").bind(account).fetch_one(&self.0).await?;
             Ok(Facts {
+                mfa: if mfa {
+                    Evidence::Complete
+                } else {
+                    Evidence::Missing
+                },
+                backup_email: if backup {
+                    Evidence::Complete
+                } else {
+                    Evidence::Missing
+                },
+                password_changed_at,
                 recovery_key: if active {
                     Evidence::Complete
                 } else {
                     Evidence::Missing
                 },
-                ..Facts::default()
             })
         })
     }

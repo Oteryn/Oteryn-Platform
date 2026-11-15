@@ -60,7 +60,7 @@ impl termination::Boundary for TerminationBoundary {
         proof: &'a ActorProof,
     ) -> BoundaryFuture<'a> {
         Box::pin(async move {
-            let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND idle_expires_at>now() AND absolute_expires_at>now() AND sudo_until>now() AND sudo_until<=now()+interval '15 minutes')").bind(Sha256::digest(proof.0.as_bytes()).to_vec()).bind(account).fetch_one(&mut **tx).await?;
+            let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp() AND sudo_until>clock_timestamp() AND sudo_until<=clock_timestamp()+interval '15 minutes')").bind(Sha256::digest(proof.0.as_bytes()).to_vec()).bind(account).fetch_one(&mut **tx).await?;
             if valid {
                 Ok(())
             } else {
@@ -79,7 +79,7 @@ impl termination::Boundary for TerminationBoundary {
                 .bind(account)
                 .execute(&mut **tx)
                 .await?;
-            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active') OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery')) OR EXISTS(SELECT 1 FROM account_email_changes WHERE account_id=$1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>now()) OR EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1)").bind(account).fetch_one(&mut **tx).await?;
+            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active') OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery')) OR EXISTS(SELECT 1 FROM account_email_changes WHERE account_id=$1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp()) OR EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1)").bind(account).fetch_one(&mut **tx).await?;
             if blocked {
                 Err(termination::Error::UnknownState)
             } else {

@@ -222,3 +222,54 @@ async fn postgres_login_observer_commits_before_cookie_and_denies_enqueue_failur
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn audit02_shared_login_completion_deduplicates_history_and_email() -> TestResult {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let (account, cookie, _, _) = fixture(&db.pool, "Audit completion browser").await;
+    let app =
+        Router::new()
+            .route(
+                "/complete",
+                get(
+                    move |State(pool): State<PgPool>,
+                          Extension(session): Extension<BrowserSession>| async move {
+                        complete_login(&pool, &session, account).await?;
+                        complete_login(&pool, &session, account).await?;
+                        Ok::<_, StatusCode>(StatusCode::OK)
+                    },
+                ),
+            )
+            .route_layer(axum::middleware::from_fn_with_state(
+                SessionLayer::new(db.pool.clone()),
+                session::middleware,
+            ))
+            .with_state(db.pool.clone());
+    assert_eq!(
+        app.oneshot(request("GET", "/complete", &cookie, ""))
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM security_events WHERE account_id=$1 AND kind='login_succeeded'"
+        )
+        .bind(account)
+        .fetch_one(&db.pool)
+        .await?,
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM email_outbox WHERE account_id=$1 AND category='security'"
+        )
+        .bind(account)
+        .fetch_one(&db.pool)
+        .await?,
+        1
+    );
+    db.close().await
+}

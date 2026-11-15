@@ -519,3 +519,35 @@ async fn postgres_transactional_totp_proof_rolls_back_and_refuses_replay()
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn audit02_trusted_device_list_is_bounded() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let id = account(&db.pool, "device-cap@example.test").await?;
+    sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) SELECT sha256(convert_to(n::text,'UTF8')),$1,uuidv7(),decode(repeat('ab',32),'hex'),'trusted',now()+interval '1 day' FROM generate_series(1,101) n").bind(id).execute(&db.pool).await?;
+    assert_eq!(
+        Mfa::new(db.pool.clone(), [7; 32]).devices(id).await?.len(),
+        50
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_mfa_password_snapshot_refuses_email_security_generation_change()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let id = account(&db.pool, "mfa-generation@example.test").await?;
+    let mfa = Mfa::new(db.pool.clone(), [7; 32]);
+    let proof = mfa
+        .password_session(credentials("mfa-generation@example.test", "test password"))
+        .await?
+        .ok_or("password proof")?;
+    assert!(proof.current(&mfa).await?);
+    sqlx::query("UPDATE accounts SET email='new-mfa@example.test',native_security_generation=native_security_generation+1 WHERE id=$1").bind(id).execute(&db.pool).await?;
+    assert!(!proof.current(&mfa).await?);
+    db.close().await
+}

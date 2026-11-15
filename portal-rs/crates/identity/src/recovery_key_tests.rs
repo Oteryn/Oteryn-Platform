@@ -518,3 +518,34 @@ async fn postgres_browser_generate_confirm_and_revoke() -> Result {
     ));
     db.close().await
 }
+
+#[tokio::test]
+async fn audit02_varied_email_recovery_exhausts_aggregate_source_budget() -> Result {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let cookie = db.session(None).await?;
+    let app = db.app();
+    for n in 0..7 {
+        let form = serde_urlencoded::to_string([
+            ("_csrf", "b".repeat(64)),
+            ("email", format!("varied-{n}@example.test")),
+            ("recovery_key", "unknown-key".into()),
+            ("password", NEW.into()),
+            ("password_confirmation", NEW.into()),
+        ])?;
+        let response = app
+            .clone()
+            .oneshot(post("/en/recovery-key", &cookie, &form)?)
+            .await?;
+        assert_eq!(
+            response.status(),
+            if n < 5 {
+                StatusCode::FOUND
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            }
+        );
+    }
+    db.close().await
+}

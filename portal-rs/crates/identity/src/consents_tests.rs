@@ -414,3 +414,30 @@ async fn consents_legal_acceptance_unchanged() -> TestResult {
     drop(conn);
     f.close().await
 }
+
+#[tokio::test]
+async fn audit02_consent_dispatch_budget_stops_durable_writes() -> TestResult {
+    let Some(f) = Fixture::new().await? else {
+        return Ok(());
+    };
+    let app = f.app();
+    for n in 0..12 {
+        let response = app
+            .clone()
+            .oneshot(f.post(format!(
+                "kind=play_session&version=2026-11-11.1&_csrf={}&granted=true",
+                f.csrf
+            ))?)
+            .await?;
+        assert_eq!(
+            response.status(),
+            if n < 10 {
+                StatusCode::SEE_OTHER
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            }
+        );
+    }
+    assert_eq!(f.count().await?, 10);
+    f.close().await
+}

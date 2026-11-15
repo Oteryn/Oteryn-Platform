@@ -150,6 +150,17 @@ pub async fn submit(
         Ok(id) => id,
         Err(response) => return *response,
     };
+    if let Err(response) = crate::abuse::http::budget(
+        pool,
+        "identity-consent-mutation",
+        &account.to_string(),
+        10,
+        60,
+    )
+    .await
+    {
+        return *response;
+    }
     let Some(kind) = Kind::parse(&input.kind) else {
         return StatusCode::BAD_REQUEST.into_response();
     };

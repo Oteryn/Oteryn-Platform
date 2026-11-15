@@ -66,20 +66,23 @@ pub async fn register(
         tx.commit().await?;
         Ok(Some(account.id))
     } else {
-        let id: AccountId = sqlx::query_scalar("SELECT id FROM accounts WHERE lower(email)=$1")
-            .bind(normalize_email(&input.email))
-            .fetch_one(&mut *tx)
+        let id: Option<AccountId> =
+            sqlx::query_scalar("SELECT id FROM accounts WHERE lower(email)=$1")
+                .bind(normalize_email(&input.email))
+                .fetch_optional(&mut *tx)
+                .await?;
+        if let Some(id) = id {
+            let payload = serde_json::json!({"account_id":id,"locale":locale}).to_string();
+            oteryn_db::outbox::enqueue(
+                &mut tx,
+                "email.account_exists",
+                &payload,
+                &uuid::Uuid::now_v7().to_string(),
+                sqlx::types::time::OffsetDateTime::now_utc(),
+                5,
+            )
             .await?;
-        let payload = serde_json::json!({"account_id":id,"locale":locale}).to_string();
-        oteryn_db::outbox::enqueue(
-            &mut tx,
-            "email.account_exists",
-            &payload,
-            &uuid::Uuid::now_v7().to_string(),
-            sqlx::types::time::OffsetDateTime::now_utc(),
-            5,
-        )
-        .await?;
+        }
         tx.commit().await?;
         Ok(None)
     }

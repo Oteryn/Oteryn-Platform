@@ -267,6 +267,7 @@ pub async fn revoke_authorizations(
     id: AccountId,
 ) -> Result<(), sqlx::Error> {
     for statement in [
+        "UPDATE account_password_resets SET used_at=clock_timestamp(),updated_at=clock_timestamp() WHERE account_id=$1 AND used_at IS NULL",
         "UPDATE oauth_authorization_codes SET revoked_at=now(),updated_at=now() WHERE account_id=$1 AND revoked_at IS NULL",
         "UPDATE oauth_token_families SET revoked_at=now(),updated_at=now() WHERE account_id=$1 AND revoked_at IS NULL",
         "UPDATE device_sessions SET revoked_at=coalesce(revoked_at,floor(extract(epoch FROM clock_timestamp()))::bigint),updated_at=now() WHERE account_id=$1",

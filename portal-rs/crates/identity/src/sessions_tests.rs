@@ -153,3 +153,34 @@ async fn postgres_new_device_transaction_deduplication_and_delivery() -> TestRes
     db.close().await.map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[tokio::test]
+async fn audit02_bulk_revocation_reports_current_session_without_identifier_collection()
+-> TestResult {
+    let Some(db) = database::Database::open()
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let id = account(&db.pool).await;
+    let actor = browser(&db.pool, id, "audit bulk").await;
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at) SELECT sha256(convert_to(n::text,'UTF8')),$1,'bulk',repeat('a',64),now()+interval '1 hour',now()+interval '1 day' FROM generate_series(1,1001) n").bind(id).execute(&db.pool).await?;
+    let s = Sessions {
+        pool: db.pool.clone(),
+    };
+    assert_eq!(
+        s.revoke(&actor, Revocation::Others).await?,
+        Outcome::Revoked
+    );
+    assert_eq!(s.revoke(&actor, Revocation::All).await?, Outcome::SignedOut);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM web_sessions WHERE account_id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await.map_err(|e| e.to_string())?;
+    Ok(())
+}

@@ -350,7 +350,14 @@ async fn observe_login(State(pool): State<PgPool>, request: Request, next: Next)
 pub fn delivery(
     pool: PgPool,
 ) -> Result<Option<oteryn_notify::Delivery>, Box<dyn std::error::Error>> {
-    if !std::env::var("OTERYN_ACCOUNT_SESSIONS").is_ok_and(|v| v == "true") {
+    if ![
+        "OTERYN_ACCOUNT_SESSIONS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_PASSKEYS",
+    ]
+    .iter()
+    .any(|flag| std::env::var(flag).is_ok_and(|v| v == "true"))
+    {
         return Ok(None);
     }
     let notifications = oteryn_identity::sessions::security_notifications(pool)
@@ -371,3 +378,26 @@ pub fn delivery(
 #[cfg(test)]
 #[path = "sessions_http_tests.rs"]
 mod tests;
+
+/// Shared completion boundary, called before any authenticated cookie is released.
+pub(crate) async fn complete_login(
+    pool: &PgPool,
+    session: &BrowserSession,
+    account: uuid::Uuid,
+) -> Result<(), StatusCode> {
+    let hash = session
+        .identity_hash()
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if (Sessions { pool: pool.clone() })
+        .record_login(&Actor { account, hash })
+        .await
+        .is_err()
+    {
+        session::rotate(session, session::PrivilegeChange::Logout)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    Ok(())
+}
