@@ -4,7 +4,7 @@
 //! trusted authenticated staff context, never actor/MFA values from request bodies.
 //! All times at this boundary are Unix milliseconds, stored as UTC timestamptz.
 mod access;
-mod store;
+pub(crate) mod store;
 
 pub use access::{
     AdmissionAccounts, GuardedAdmission, GuardedTickets, require_game_access, ticket_transaction,

@@ -317,8 +317,8 @@ impl Tickets {
                 (status.to_owned(), is_staff, false)
             }
         };
-        ticket = sqlx::query_as("UPDATE tickets SET status=$2,lock_version=lock_version+1,unread_reply=CASE WHEN $3 THEN true WHEN NOT $4 THEN false ELSE unread_reply END,last_message_at=CASE WHEN $5 THEN now() ELSE last_message_at END,closed_at=CASE WHEN $2 IN ('resolved','closed') THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 RETURNING *")
-            .bind(id).bind(status).bind(notify && reply).bind(is_staff).bind(reply).fetch_one(&mut **tx).await?;
+        ticket = sqlx::query_as("UPDATE tickets SET status=$2,lock_version=lock_version+1,unread_reply=CASE WHEN $3 THEN true ELSE unread_reply END,last_message_at=CASE WHEN $4 THEN now() ELSE last_message_at END,closed_at=CASE WHEN $2 IN ('resolved','closed') THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 RETURNING *")
+            .bind(id).bind(status).bind(notify && reply).bind(reply).fetch_one(&mut **tx).await?;
         if is_staff && audit_staff {
             audit::append(tx,audit::Entry {context:audit::AuditContext {actor:Some(actor),request_id:Uuid::now_v7()},action:match change { Change::Reply {internal:true,..}=>"support.ticket_internal_note_added",Change::Reply {..}=>"support.ticket_replied",Change::Status(_)=>"support.ticket_status_changed"},target:&id.to_string(),before:serde_json::json!({"status":before,"lock_version":version}),after:serde_json::json!({"status":ticket.status,"lock_version":ticket.lock_version})}).await.map_err(|_|Error::Denied)?;
         }
@@ -387,7 +387,7 @@ impl Tickets {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(Error::NotFound)?;
-        let messages = sqlx::query_as(
+        let messages: Vec<Message> = sqlx::query_as(
             "SELECT * FROM ticket_messages WHERE ticket_id=$1 AND ($2 OR NOT internal) AND ($3::uuid IS NULL OR id>$3) ORDER BY id LIMIT 50",
         )
         .bind(id)
@@ -396,11 +396,15 @@ impl Tickets {
         .fetch_all(&mut *tx)
         .await?;
         if !staff {
-            sqlx::query("UPDATE tickets SET unread_reply=false WHERE id=$1 AND account_id=$2")
-                .bind(id)
-                .bind(account)
-                .execute(&mut *tx)
-                .await?;
+            // The ticket lock fences concurrent replies. A durable message ID
+            // identifies the newest public reply; only its displayed page may
+            // acknowledge it. Owner mutations establish no viewing boundary.
+            let boundary: Option<Uuid> = sqlx::query_scalar("SELECT id FROM ticket_messages WHERE ticket_id=$1 AND author_kind='staff' AND NOT internal ORDER BY id DESC LIMIT 1")
+                .bind(id).fetch_optional(&mut *tx).await?;
+            if let Some(boundary) = boundary.filter(|id| messages.iter().any(|m| m.id == *id)) {
+                sqlx::query("UPDATE tickets SET unread_reply=false WHERE id=$1 AND account_id=$2 AND NOT EXISTS (SELECT 1 FROM ticket_messages WHERE ticket_id=$1 AND author_kind='staff' AND NOT internal AND id>$3)")
+                    .bind(id).bind(account).bind(boundary).execute(&mut *tx).await?;
+            }
         }
         tx.commit().await?;
         Ok((ticket, messages))

@@ -692,3 +692,68 @@ async fn postgres_v2_deaths_expire_without_projection_updates() -> Result {
     assert_eq!(kinds, vec!["bazaar_sale"]);
     dispose(db).await
 }
+
+#[tokio::test]
+async fn postgres_death_batches_progress_with_advancing_watermark() -> Result {
+    let started = std::time::Instant::now();
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
+        .execute(&db)
+        .await?;
+    let mut subjects = Vec::new();
+    for _ in 0..205 {
+        let subject = Uuid::now_v7();
+        subjects.push(subject);
+        sqlx::query("INSERT INTO public_deaths_v2(subject,authority,epoch,revision,digest,deaths) VALUES($1,'oteryn:game:primary',1,1,$2,$3)")
+            .bind(subject.to_string()).bind(vec![1_u8;32]).bind(json!([{"death_occurrence_id":Uuid::now_v7().to_string(),"occurred_at":(now-10).to_string(),"level":"10"}])).execute(&db).await?;
+    }
+    sqlx::query("INSERT INTO public_deaths_v2_watermark(id,authority,epoch,complete_through) VALUES(1,'oteryn:game:primary',1,$1)").bind(now-20).execute(&db).await?;
+    let job = StatisticsJob {
+        pool: db.clone(),
+        enabled: true,
+    };
+    // First batch is withheld by completeness, and must be revisited later.
+    assert_eq!(job.run().await?, 100);
+    for step in 0..6 {
+        sqlx::query("UPDATE public_deaths_v2_watermark SET complete_through=$1")
+            .bind(now - 9 + step)
+            .execute(&db)
+            .await?;
+        job.run().await?;
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM stats_character_events WHERE kind='death'"
+        )
+        .fetch_one(&db)
+        .await?,
+        205
+    );
+    sqlx::query("UPDATE public_deaths_v2 SET revision=2,deaths='[]' WHERE subject=$1")
+        .bind(subjects[204].to_string())
+        .execute(&db)
+        .await?;
+    sqlx::query("UPDATE public_deaths_v2_watermark SET complete_through=$1")
+        .bind(now - 2)
+        .execute(&db)
+        .await?;
+    job.run().await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM stats_character_events WHERE character_ref=$1"
+        )
+        .bind(subjects[204])
+        .fetch_one(&db)
+        .await?,
+        0
+    );
+    dispose(db).await?;
+    eprintln!(
+        "postgres_death_batches_progress_with_advancing_watermark duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
