@@ -229,7 +229,19 @@ async fn update(
     };
     state
         .policy
-        .update(&state.pool, id, association, status, &input.locale)
+        .update(
+            &state.pool,
+            oteryn_identity::mutation_actor::MutationActor::browser(
+                id,
+                session
+                    .csrf_token()
+                    .await
+                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+            ),
+            association,
+            status,
+            &input.locale,
+        )
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
         .ok_or(StatusCode::FORBIDDEN)?;

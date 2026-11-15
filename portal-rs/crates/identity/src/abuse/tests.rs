@@ -494,3 +494,66 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn audit3_english_challenge_refusal_uses_requested_language() -> TestResult {
+    use tower::ServiceExt;
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for this regression")?;
+    db.enable().await?;
+    let (app, cookie, csrf) = browser_form(&db).await?;
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=false")
+        .execute(&db.pool)
+        .await?;
+    let request = || {
+        axum::http::Request::post("/en/register/abuse/challenge")
+            .header(axum::http::header::COOKIE, &cookie)
+            .header("x-csrf-token", &csrf)
+            .body(axum::body::Body::empty())
+    };
+    let response = app.oneshot(request()?).await?;
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), 65536)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(body.contains("Registration is currently unavailable."));
+    assert!(!body.contains("Rejestracja jest obecnie"));
+
+    // The shared application error shell replaces module links. Exercise the
+    // adapter with the same real session/CSRF middleware to inspect its retry link.
+    let adapter = http::routes::<()>(db.pool.clone())
+        .route_layer(axum::middleware::from_fn_with_state(
+            oteryn_web::session::SessionLayer::new(db.pool.clone()),
+            oteryn_web::session::middleware,
+        ))
+        .layer(axum::Extension(axum::extract::ConnectInfo(
+            "192.0.2.50:1234".parse::<std::net::SocketAddr>()?,
+        )));
+    let response = adapter.oneshot(request()?).await?;
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), 65536)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(body.contains("/en/register"));
+    assert!(body.contains("lang=\"en\""));
+    assert!(body.contains("Registration is currently unavailable."));
+    assert!(!body.contains("/pl/register"));
+    db.close().await?;
+    eprintln!(
+        "PG audit3_english_challenge_refusal_uses_requested_language: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
