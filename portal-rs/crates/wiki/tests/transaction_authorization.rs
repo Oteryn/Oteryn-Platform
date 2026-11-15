@@ -8,6 +8,19 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 #[derive(Clone)]
 struct Active;
 impl AccountStateReader for Active {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         Ok(AccountState::Active)
     }
@@ -36,7 +49,10 @@ impl Fixture {
             .after_connect(move |c, _| {
                 let path = path.clone();
                 Box::pin(async move {
-                    sqlx::query(AssertSqlSafe(path)).execute(c).await?;
+                    sqlx::query(AssertSqlSafe(path)).execute(&mut *c).await?;
+                    sqlx::query("SELECT set_config('application_name',current_schema(),false)")
+                        .execute(c)
+                        .await?;
                     Ok(())
                 })
             })
@@ -47,6 +63,7 @@ impl Fixture {
             account: Uuid::now_v7(),
             require_staff_mfa: true,
             mfa_verified: true,
+            session_proof: None,
         };
         sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor.account).execute(&pool).await?;
         Ok(Self {
@@ -121,7 +138,7 @@ async fn publish_refuses_permission_revoked_while_waiting_on_guide() -> TestResu
     let task = tokio::spawn(async move { repo.transition(actor, id, 2, Action::Publish).await });
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
-            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT id,status,version,revision_version,entity_key FROM wiki_guides%')").fetch_one(&db.pool).await?;
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND wait_event_type='Lock' AND query LIKE 'SELECT id,status,version,revision_version,entity_key FROM wiki_guides%')").bind(&db.schema).fetch_one(&db.pool).await?;
             if waiting { return Ok::<_, sqlx::Error>(()); }
             tokio::task::yield_now().await;
         }

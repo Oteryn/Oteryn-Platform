@@ -15,6 +15,19 @@ use tower::ServiceExt;
 #[derive(Clone)]
 struct Staff;
 impl AccountStateReader for Staff {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         Ok(AccountState::Active)
     }
@@ -81,6 +94,7 @@ fn context(id: Uuid) -> CheckContext {
         account: id,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     }
 }
 struct Db {
@@ -632,6 +646,7 @@ async fn postgres_kick_permission_mfa_bad_input_audit_and_stream() {
             account: kicker,
             require_staff_mfa: true,
             mfa_verified: false,
+            session_proof: None,
         },
     ] {
         assert!(matches!(
@@ -925,6 +940,7 @@ async fn postgres_coin_hold_release_permission_reason_audit_and_idempotent() {
             account: db.approver,
             require_staff_mfa: true,
             mfa_verified: false,
+            session_proof: None,
         },
     ] {
         assert!(matches!(
@@ -1718,7 +1734,7 @@ async fn staff_security_cookie(pool: &PgPool, account: Uuid, marker: char) -> St
     let grant = oteryn_identity::mfa::random_token().unwrap();
     let generation: Uuid = sqlx::query_scalar("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,decode('01','hex'),true) RETURNING generation").bind(account).fetch_one(pool).await.unwrap();
     sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '1 hour')").bind(oteryn_identity::mfa::digest(&grant)).bind(account).bind(generation).bind(oteryn_identity::mfa::digest("synthetic-hash")).execute(pool).await.unwrap();
-    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 hour','test',repeat('a',64),$3)").bind(oteryn_identity::mfa::digest(&bearer)).bind(account).bind(json!({"mfa_grant":grant})).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 hour','test',repeat('a',64),$3,(SELECT native_security_generation FROM accounts WHERE id=$2))").bind(oteryn_identity::mfa::digest(&bearer)).bind(account).bind(json!({"mfa_grant":grant})).execute(pool).await.unwrap();
     format!("__Host-oteryn_session={bearer}")
 }
 async fn staff_security_post(

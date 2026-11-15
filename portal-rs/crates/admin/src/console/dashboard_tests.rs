@@ -21,6 +21,19 @@ impl web::StaffSession for Staff {
     }
 }
 impl AccountStateReader for Staff {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<rbac::AccountState, rbac::AccountStateUnavailable> {
         Ok(rbac::AccountState::Active)
     }
@@ -454,6 +467,7 @@ async fn postgres_platform_metrics_and_closed_permission_catalog() {
         account: actor,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     };
     for op in [
         Operation::Overview,

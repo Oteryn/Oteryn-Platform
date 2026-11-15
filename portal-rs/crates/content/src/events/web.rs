@@ -115,16 +115,24 @@ struct PublicPage<'a> {
     empty: String,
     events: Vec<PublicEvent>,
     detail: bool,
+    next: u64,
+    more: bool,
 }
-async fn index(State(events): State<Events>, Path(lang): Path<String>) -> Response {
+async fn index(
+    State(events): State<Events>,
+    Path(lang): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<crate::Pagination>,
+) -> Response {
     if let Err(e) = locale(&lang) {
         return response(e);
     }
-    match events.public(&lang, None).await {
+    match events.public_page(&lang, None, q.offset(200)).await {
         Ok(rows) => oteryn_web::render(&PublicPage {
             lang: &lang,
             title: text(&lang, "events"),
             empty: text(&lang, "empty"),
+            more: rows.len() == 200,
+            next: q.next(),
             events: rows,
             detail: false,
         }),
@@ -145,6 +153,8 @@ async fn show(
             empty: String::new(),
             events: rows,
             detail: true,
+            more: false,
+            next: 0,
         }),
         Ok(_) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => response(e),
@@ -203,6 +213,8 @@ fn lang(h: &axum::http::HeaderMap) -> &'static str {
 #[derive(Template)]
 #[template(path = "admin/events/index.html", config = "src/events/askama.toml")]
 struct AdminList {
+    next: u64,
+    more: bool,
     lang: &'static str,
     title: String,
     create: String,
@@ -211,10 +223,13 @@ struct AdminList {
 async fn admin_index<A: AccountStateReader>(
     State(s): State<Arc<Staff<A>>>,
     h: axum::http::HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<crate::Pagination>,
 ) -> Response {
     let lang = lang(&h);
-    match s.events.list().await {
+    match s.events.list_page(q.offset(200)).await {
         Ok(rows) => oteryn_web::render(&AdminList {
+            next: q.next(),
+            more: rows.len() == 200,
             lang,
             title: text(lang, "events"),
             create: text(lang, "create"),

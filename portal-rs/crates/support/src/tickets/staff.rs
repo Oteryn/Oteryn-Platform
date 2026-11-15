@@ -114,10 +114,11 @@ impl Backend for StaffSupport {
     async fn prepare(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        actor: Uuid,
+        context: oteryn_admin::rbac::CheckContext,
         id: Uuid,
         command: &Command,
     ) -> std::result::Result<(), StaffError> {
+        let actor = context.account;
         self.available(command.area())?;
         let owner: Uuid = match command {
             Command::Reply { .. } | Command::TicketStatus { .. } => {
@@ -148,6 +149,25 @@ impl Backend for StaffSupport {
                 .map_err(|_| StaffError::Unavailable)?
                 .ok_or(StaffError::NotFound)?,
         };
+        let auth = oteryn_admin::rbac::Authorizer::new(
+            self.pool.clone(),
+            oteryn_admin::web::PortalIdentity::configured(self.pool.clone()),
+        );
+        oteryn_admin::rbac::authorize_mutation(
+            tx,
+            &[actor, owner],
+            &auth,
+            context,
+            &[
+                oteryn_admin::rbac::Permission::Access,
+                command.area().permission(),
+            ],
+        )
+        .await
+        .map_err(|error| match error {
+            oteryn_admin::rbac::Error::Storage(_) => StaffError::Unavailable,
+            _ => StaffError::Denied,
+        })?;
         // Include implicit author FK locks and RBAC's actor SHARE lock. Every
         // domain uses the same UUID order before joining the role-writer fence.
         if matches!(
@@ -165,10 +185,6 @@ impl Backend for StaffSupport {
                     .await
                     .map_err(ticket_error)?;
             }
-        } else {
-            crate::sanctions::store::lock_staff_accounts(tx, actor, owner)
-                .await
-                .map_err(|_| StaffError::Unavailable)?;
         }
         Ok(())
     }
@@ -274,11 +290,12 @@ impl Backend for StaffSupport {
     async fn apply(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        actor: Uuid,
+        context: CheckContext,
         id: Uuid,
         version: i64,
         command: &Command,
     ) -> std::result::Result<(serde_json::Value, serde_json::Value), StaffError> {
+        let actor = context.account;
         self.available(command.area())?;
         let notifications = self.notifications.as_ref().ok_or(StaffError::Unavailable)?;
         match command {
@@ -292,18 +309,7 @@ impl Backend for StaffSupport {
                     _ => Change::Status(body),
                 };
                 let (ticket, before_status) = tickets
-                    .change_in(
-                        tx,
-                        actor,
-                        Some(CheckContext {
-                            account: actor,
-                            require_staff_mfa: true,
-                            mfa_verified: true,
-                        }),
-                        (id, version),
-                        change,
-                        false,
-                    )
+                    .change_in(tx, actor, Some(context), (id, version), change, false)
                     .await
                     .map_err(ticket_error)?;
                 Ok((
@@ -318,7 +324,7 @@ impl Backend for StaffSupport {
             }
             _ => {
                 self.sanctions
-                    .staff_apply(tx, actor, (id, version), command, notifications)
+                    .staff_apply(tx, context, (id, version), command, notifications)
                     .await
             }
         }

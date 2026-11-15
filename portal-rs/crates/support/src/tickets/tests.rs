@@ -45,21 +45,7 @@ impl Database {
             })
             .connect(&url)
             .await?;
-        for migration in [
-            include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
-            include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
-            include_str!("../../../../migrations/20261105120000_t37_outbox.sql"),
-            include_str!("../../../../migrations/20261105130000_t36_notifications.sql"),
-            include_str!("../../../../migrations/20261105160300_t04a_rate_limits.sql"),
-            include_str!("../../../../migrations/20261105170000_t10_rbac_audit.sql"),
-            include_str!(
-                "../../../../migrations/20261105220209_accounts_native_security_generation.sql"
-            ),
-            include_str!("../../../../migrations/20261105220222_t08b_email_change.sql"),
-            include_str!("../../../../migrations/20261105220218_t33_tickets.sql"),
-        ] {
-            sqlx::raw_sql(migration).execute(&pool).await?;
-        }
+        oteryn_db::migrate(&pool).await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -109,17 +95,17 @@ impl Database {
         let token = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
         let csrf = "a".repeat(64);
         sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')").bind(Sha256::digest(token.as_bytes()).to_vec()).bind(account).bind(&csrf).execute(&self.pool).await?;
-        Ok((
-            format!("{}={token}", oteryn_web::session::COOKIE_NAME),
-            csrf,
-        ))
+        let cookie = format!("{}={token}", oteryn_web::session::COOKIE_NAME);
+        crate::test_staff::browser(&self.pool, account, &cookie).await?;
+        Ok((cookie, csrf))
     }
 }
-fn staff(id: Uuid) -> Option<CheckContext> {
+async fn staff(pool: &PgPool, id: Uuid) -> Option<CheckContext> {
     Some(CheckContext {
         account: id,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: crate::test_staff::proof(pool, id).await.ok(),
     })
 }
 
@@ -276,7 +262,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
     let note = t
         .change(
             actor,
-            staff(actor),
+            staff(&db.pool, actor).await,
             ticket.id,
             1,
             Change::Reply {
@@ -291,7 +277,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
     let reply = t
         .change(
             actor,
-            staff(actor),
+            staff(&db.pool, actor).await,
             ticket.id,
             2,
             Change::Reply {
@@ -347,7 +333,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
     ));
     t.change(
         actor,
-        staff(actor),
+        staff(&db.pool, actor).await,
         ticket.id,
         4,
         Change::Status("resolved"),
@@ -356,7 +342,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
     assert!(matches!(
         t.change(
             actor,
-            staff(actor),
+            staff(&db.pool, actor).await,
             ticket.id,
             5,
             Change::Reply {
@@ -408,7 +394,7 @@ async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> Tes
     assert!(matches!(
         t.change(
             actor,
-            staff(actor),
+            staff(&db.pool, actor).await,
             ticket.id,
             1,
             Change::Reply {
@@ -428,7 +414,7 @@ async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> Tes
     sqlx::query("INSERT INTO account_notification_prefs(account_id,category,email_enabled,portal_enabled) VALUES($1,'support',true,false)").bind(owner).execute(&db.pool).await?;
     t.change(
         actor,
-        staff(actor),
+        staff(&db.pool, actor).await,
         ticket.id,
         1,
         Change::Status("waiting_user"),
@@ -633,6 +619,19 @@ impl oteryn_admin::web::StaffSession for StaffAdapter {
     }
 }
 impl oteryn_admin::rbac::AccountStateReader for StaffAdapter {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(
         &self,
         _: Uuid,
@@ -930,7 +929,7 @@ async fn staff_waiting_mutation_rechecks_authority(
     // shared guard and pre-lock actor read have completed.
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
-            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT status,locale FROM accounts%')").bind(&db.schema).fetch_one(&db.pool).await?;
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query='SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE')").bind(&db.schema).fetch_one(&db.pool).await?;
             if waiting { break; }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
@@ -1133,6 +1132,8 @@ async fn lk_crossed_staff_replies_finish() -> TestResult {
     for actor in [a, b] {
         sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&db.pool).await?;
     }
+    let proof_a = crate::test_staff::proof(&db.pool, a).await?;
+    let proof_b = crate::test_staff::proof(&db.pool, b).await?;
     let tickets = db.tickets(100)?;
     for _ in 0..16 {
         let ta = tickets
@@ -1154,6 +1155,7 @@ async fn lk_crossed_staff_replies_finish() -> TestResult {
                             account: actor,
                             require_staff_mfa: true,
                             mfa_verified: true,
+                            session_proof: Some(if actor == a { proof_a } else { proof_b }),
                         }),
                         id,
                         1,
@@ -1234,6 +1236,62 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
     db.finish().await?;
     eprintln!(
         "postgres_read_acknowledgement_requires_displayed_reply duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_a3_support_refuses_session_revoked_during_account_wait() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let actor = db.account("en").await?;
+    let owner = db.account("en").await?;
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'",
+    )
+    .bind(actor)
+    .execute(&db.pool)
+    .await?;
+    let tickets = db.tickets(10)?;
+    let ticket = tickets
+        .create(
+            owner,
+            Uuid::now_v7(),
+            "other",
+            "Session check",
+            "Initial message",
+        )
+        .await?;
+    let context = staff(&db.pool, actor)
+        .await
+        .ok_or("missing staff context")?;
+    let result = crate::test_staff::race_session_revocation(&db.pool, actor, async move {
+        tickets
+            .change(
+                actor,
+                Some(context),
+                ticket.id,
+                1,
+                Change::Reply {
+                    body: "Privileged reply",
+                    internal: false,
+                },
+            )
+            .await
+    })
+    .await?;
+    assert!(matches!(result, Err(Error::Denied)));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM ticket_messages WHERE ticket_id=$1")
+            .bind(ticket.id)
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    db.finish().await?;
+    eprintln!(
+        "postgres_a3_support_refuses_session_revoked_during_account_wait duration: {:?}",
         started.elapsed()
     );
     Ok(())

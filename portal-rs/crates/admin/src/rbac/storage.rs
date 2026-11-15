@@ -65,8 +65,14 @@ impl<A: AccountStateReader> Authorizer<A> {
             Change::Grant { account, .. } | Change::Revoke { account, .. } => *account,
             _ => context.account,
         };
-        super::lock_accounts(&mut tx, &[context.account, target]).await?;
-        super::lock_mutation(&mut tx).await?;
+        super::authorize_mutation(
+            &mut tx,
+            &[context.account, target],
+            self,
+            context,
+            &[Permission::ManageRoles],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ManageRoles)
             .await?;
         if panel {

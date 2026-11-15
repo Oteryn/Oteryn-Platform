@@ -219,7 +219,7 @@ async fn account(pool: &sqlx::PgPool, email: &str) -> Result<uuid::Uuid> {
 async fn browser(pool: &sqlx::PgPool, id: Option<uuid::Uuid>) -> Result<(String, String)> {
     let raw = uuid::Uuid::now_v7().simple().to_string().repeat(2);
     let csrf = "b".repeat(64);
-    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'audit',now()+interval '1 hour',now()+interval '1 day')")
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at,authorization_generation) VALUES($1,$2,$3,'audit',now()+interval '1 hour',now()+interval '1 day',(SELECT native_security_generation FROM accounts WHERE id=$2))")
         .bind(Sha256::digest(raw.as_bytes()).to_vec()).bind(id).bind(&csrf).execute(pool).await?;
     Ok((format!("{}={raw}", oteryn_web::session::COOKIE_NAME), csrf))
 }

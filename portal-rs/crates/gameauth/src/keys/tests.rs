@@ -769,7 +769,7 @@ async fn audit05_08_cross_scope_publication_is_serialized() -> TestResult {
     // Both publishers must wait at the common gate before checking cross-scope ownership.
     let waits = tokio::time::timeout(std::time::Duration::from_secs(2),async {
         loop {
-            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=715110005 AND NOT granted").fetch_one(&mut *barrier).await?;
+            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pg_backend_pid()=ANY(pg_blocking_pids(pid)) AND locktype='advisory' AND objid=715110005 AND NOT granted").fetch_one(&mut *barrier).await?;
             if count >= 2 { break; }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }

@@ -1,8 +1,8 @@
 //! Deny-by-default authorization and transactional role storage.
 //!
-//! The identity adapter must return current authoritative account state on every call.
-//! No accounts table is assumed. The authentication layer supplies the trusted check
-//! context; clients must never be allowed to set it or its MFA flags directly.
+//! Mutations retain canonical account/resource/fence locks while durable session,
+//! MFA and permission checks run on the same transaction connection. Authentication
+//! context and proof hashes are supplied only by trusted session middleware.
 
 mod catalog;
 pub mod guard;
@@ -15,54 +15,89 @@ use sqlx::{PgConnection, PgPool};
 use std::future::Future;
 use uuid::Uuid;
 
-/// Prepare every account needed by a mutation before the RBAC fence. Exclusive
-/// locks avoid later SHARE-to-UPDATE upgrades; SQL orders and deduplicates IDs.
-/// Callers must discover immutable target/requester IDs before calling this.
-pub async fn lock_accounts(
-    connection: &mut PgConnection,
-    accounts: &[Uuid],
-) -> Result<(), sqlx::Error> {
-    sqlx::query("SET LOCAL lock_timeout = '3s'")
-        .execute(&mut *connection)
-        .await?;
-    sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE")
-        .bind(accounts)
-        .execute(connection)
-        .await?;
+/// Establish a transaction-wide three second acquisition deadline before the
+/// first lock. Repeated calls retain the original deadline.
+pub async fn mutation_budget(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT set_config('oteryn.mutation_deadline', coalesce(nullif(current_setting('oteryn.mutation_deadline',true),''),(extract(epoch FROM clock_timestamp())+3)::text),true)")
+        .execute(&mut *connection).await?;
+    sqlx::query("SELECT set_config('lock_timeout', greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint::text || 'ms',true), set_config('statement_timeout', greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint::text || 'ms',true)")
+        .execute(connection).await?;
     Ok(())
 }
 
-/// Bound waits at the role-writer fence so blocked requests release pool capacity.
-pub async fn lock_mutation(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
-    sqlx::query("SET LOCAL lock_timeout = '3s'")
-        .execute(&mut *connection)
-        .await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-        .execute(connection)
-        .await?;
-    Ok(())
-}
-
-/// Lock accounts, then the RBAC fence, within one shared wait budget, so a
-/// writer queued behind a fence holder cannot wait for each lock in turn.
+/// The canonical staff lock protocol: ordered account rows, then RBAC. All
+/// callers use their existing transaction and share one acquisition deadline.
 pub async fn lock_accounts_and_mutation(
     connection: &mut PgConnection,
     accounts: &[Uuid],
 ) -> Result<(), sqlx::Error> {
-    const BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
-    let started = std::time::Instant::now();
-    lock_accounts(&mut *connection, accounts).await?;
-    let remaining = BUDGET
-        .saturating_sub(started.elapsed())
-        .max(std::time::Duration::from_millis(1));
-    sqlx::query("SELECT set_config('lock_timeout', $1, true)")
-        .bind(format!("{}ms", remaining.as_millis()))
+    lock_accounts_resources_and_mutation(connection, accounts, |connection| {
+        Box::pin(async move {
+            let _ = connection;
+            Ok(())
+        })
+    })
+    .await
+}
+
+/// Acquire domain resources after accounts and before the global fence. The
+/// callback must only acquire bounded database resources on this connection.
+pub async fn lock_accounts_resources_and_mutation<F>(
+    connection: &mut PgConnection,
+    accounts: &[Uuid],
+    resources: F,
+) -> Result<(), sqlx::Error>
+where
+    F: for<'a> FnOnce(
+        &'a mut PgConnection,
+    ) -> std::pin::Pin<
+        Box<dyn Future<Output = Result<(), sqlx::Error>> + Send + 'a>,
+    >,
+{
+    lock_accounts_resources_and_mutation_with(connection, accounts, resources).await
+}
+
+/// The same protocol preserving an owning domain's refusal error type.
+pub async fn lock_accounts_resources_and_mutation_with<E, F>(
+    connection: &mut PgConnection,
+    accounts: &[Uuid],
+    resources: F,
+) -> Result<(), E>
+where
+    E: From<sqlx::Error>,
+    F: for<'a> FnOnce(
+        &'a mut PgConnection,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), E>> + Send + 'a>>,
+{
+    mutation_budget(&mut *connection).await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE")
+        .bind(accounts)
         .execute(&mut *connection)
         .await?;
+    mutation_budget(&mut *connection).await?;
+    let remaining: i64 = sqlx::query_scalar("SELECT greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint")
+        .fetch_one(&mut *connection).await?;
+    tokio::time::timeout(
+        std::time::Duration::from_millis(remaining as u64),
+        resources(&mut *connection),
+    )
+    .await
+    .map_err(|_| {
+        E::from(sqlx::Error::Io(std::io::Error::from(
+            std::io::ErrorKind::TimedOut,
+        )))
+    })??;
+    mutation_budget(&mut *connection).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-        .execute(connection)
+        .execute(&mut *connection)
         .await?;
+    mutation_budget(connection).await?;
     Ok(())
+}
+
+/// Fence-only callers (including tests) still use the same deadline protocol.
+pub async fn lock_mutation(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
+    lock_accounts_and_mutation(connection, &[]).await
 }
 
 /// Unavailable, missing and conflicting identity state all deny access.
@@ -77,12 +112,25 @@ pub enum AccountState {
 #[derive(Debug, Clone, Copy)]
 pub struct AccountStateUnavailable;
 
-/// Implemented by the future identity crate, or a deterministic adapter in tests.
+/// Current account and session authority, supplied by identity or an explicit test adapter.
 pub trait AccountStateReader: Send + Sync {
     fn state(
         &self,
         account: Uuid,
     ) -> impl Future<Output = Result<AccountState, AccountStateUnavailable>> + Send;
+    fn authenticated_in(
+        &self,
+        connection: &mut PgConnection,
+        context: CheckContext,
+    ) -> impl Future<Output = Result<bool, AccountStateUnavailable>> + Send {
+        async move {
+            if let Some(proof) = context.session_proof {
+                durable_session_in(connection, context.account, proof).await
+            } else {
+                Ok(false)
+            }
+        }
+    }
     /// Database-backed adapters must read through this connection and must not
     /// acquire another pool connection while the caller holds a transaction.
     fn state_in(
@@ -94,12 +142,55 @@ pub trait AccountStateReader: Send + Sync {
     }
 }
 
+/// Revalidate session lifetime, security generation, MFA enrollment and the
+/// current password-bound grant on the caller's connection.
+pub async fn durable_session_in(
+    connection: &mut PgConnection,
+    account: Uuid,
+    proof: SessionProof,
+) -> Result<bool, AccountStateUnavailable> {
+    use sha2::{Digest, Sha256};
+    let password: Option<String> =
+        sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+            .bind(account)
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(|_| AccountStateUnavailable)?;
+    let Some(password) = password else {
+        return Ok(false);
+    };
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id JOIN account_mfa_totp m ON m.account_id=a.id JOIN account_mfa_tokens t ON t.account_id=a.id AND t.generation=m.generation WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND s.id_hash=$2 AND sha256(convert_to(s.data->>'mfa_grant','UTF8'))=$3 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() AND s.authorization_generation=a.native_security_generation AND m.confirmed AND t.token_hash=$3 AND t.purpose='grant' AND t.expires_at>clock_timestamp() AND t.created_at<=clock_timestamp() AND t.credential_hash=$4 FOR UPDATE OF s,m,t)")
+        .bind(account).bind(proof.session_hash.as_slice()).bind(proof.grant_hash.as_slice())
+        .bind(Sha256::digest(password.as_bytes()).to_vec()).fetch_one(connection).await.map_err(|_| AccountStateUnavailable)
+}
+
 /// Trusted, per-request authentication state. Staff MFA is required by default.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct CheckContext {
     pub account: Uuid,
     pub require_staff_mfa: bool,
     pub mfa_verified: bool,
+    pub session_proof: Option<SessionProof>,
+}
+
+/// Durable identities captured by trusted session middleware, rechecked under
+/// the actor account lock. Debug deliberately omits proof material.
+#[derive(Clone, Copy)]
+pub struct SessionProof {
+    pub session_hash: [u8; 32],
+    pub grant_hash: [u8; 32],
+}
+impl std::fmt::Debug for SessionProof {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionProof").finish_non_exhaustive()
+    }
+}
+impl std::fmt::Debug for CheckContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CheckContext")
+            .field("account", &self.account)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CheckContext {
@@ -108,6 +199,7 @@ impl CheckContext {
             account,
             require_staff_mfa: true,
             mfa_verified: false,
+            session_proof: None,
         }
     }
 }
@@ -210,7 +302,11 @@ impl<A: AccountStateReader> Authorizer<A> {
             return Err(Error::Denied);
         }
         if context.account.is_nil()
-            || (context.require_staff_mfa && !context.mfa_verified)
+            || !self
+                .accounts
+                .authenticated_in(&mut *connection, context)
+                .await
+                .unwrap_or(false)
             || !matches!(
                 self.accounts.state_in(connection, context.account).await,
                 Ok(AccountState::Active)
@@ -219,6 +315,20 @@ impl<A: AccountStateReader> Authorizer<A> {
             return Err(Error::Denied);
         }
         Self::check_permission(connection, context.account, permission).await
+    }
+
+    /// Recheck a workflow proposer's current account and grants. The proposer
+    /// is a subject of approval, never the authenticated actor of this request.
+    pub(crate) async fn check_subject_in(
+        &self,
+        connection: &mut PgConnection,
+        account: Uuid,
+        permission: Permission,
+    ) -> Result<(), Error> {
+        if !self.account_active_in(&mut *connection, account).await {
+            return Err(Error::Denied);
+        }
+        Self::check_permission(connection, account, permission).await
     }
 
     async fn check_permission(
@@ -258,7 +368,8 @@ impl std::fmt::Debug for MutationAuthorization {
             .finish_non_exhaustive()
     }
 }
-trait MutationCheck: Send + Sync {
+/// Trusted transaction-local authority used by the canonical mutation protocol.
+pub trait MutationCheck: Send + Sync {
     fn check<'a>(
         &'a self,
         connection: &'a mut PgConnection,
@@ -273,25 +384,115 @@ impl<A: AccountStateReader> MutationCheck for Authorizer<A> {
         context: CheckContext,
         permission: Permission,
     ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>> {
-        Box::pin(async move {
-            self.check_in(connection, context, Permission::Access)
-                .await?;
-            self.check_in(connection, context, permission).await
-        })
+        Box::pin(async move { self.check_in(connection, context, permission).await })
     }
 }
 impl MutationAuthorization {
     pub fn new<A: AccountStateReader + 'static>(auth: std::sync::Arc<Authorizer<A>>) -> Self {
         Self(auth)
     }
-    /// Acquire after resource locks, then retain the transaction through commit.
+    /// Acquire actor/fence locks and revalidate before mutation. Domain resources
+    /// must first be prepared through the canonical resource-lock helper; retain
+    /// the caller transaction through domain and audit commit.
     pub async fn check_in(
         &self,
         connection: &mut PgConnection,
         context: CheckContext,
         permission: Permission,
     ) -> Result<(), Error> {
-        lock_mutation(connection).await?;
-        self.0.check(connection, context, permission).await
+        authorize_mutation(
+            connection,
+            &[context.account],
+            self,
+            context,
+            &[Permission::Access, permission],
+        )
+        .await
     }
+}
+
+impl MutationCheck for MutationAuthorization {
+    fn check<'a>(
+        &'a self,
+        connection: &'a mut PgConnection,
+        context: CheckContext,
+        permission: Permission,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>> {
+        self.0.check(connection, context, permission)
+    }
+}
+
+/// Lock all accounts and revalidate durable authority before any domain write.
+pub async fn authorize_mutation(
+    connection: &mut PgConnection,
+    accounts: &[Uuid],
+    authority: &dyn MutationCheck,
+    context: CheckContext,
+    permissions: &[Permission],
+) -> Result<(), Error> {
+    authorize_mutation_with_resources(
+        connection,
+        accounts,
+        |_| Box::pin(async { Ok(()) }),
+        authority,
+        context,
+        permissions,
+    )
+    .await
+}
+
+/// Lock accounts, domain resources and the fence, then revalidate live authority.
+pub async fn authorize_mutation_with_resources<F>(
+    connection: &mut PgConnection,
+    accounts: &[Uuid],
+    resources: F,
+    authority: &dyn MutationCheck,
+    context: CheckContext,
+    permissions: &[Permission],
+) -> Result<(), Error>
+where
+    F: for<'a> FnOnce(
+        &'a mut PgConnection,
+    )
+        -> std::pin::Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>,
+{
+    authorize_mutation_with_resources_domain(
+        connection,
+        accounts,
+        resources,
+        authority,
+        context,
+        permissions,
+    )
+    .await
+}
+
+/// The canonical protocol preserving a domain's refusal error type.
+pub async fn authorize_mutation_with_resources_domain<E, F>(
+    connection: &mut PgConnection,
+    accounts: &[Uuid],
+    resources: F,
+    authority: &dyn MutationCheck,
+    context: CheckContext,
+    permissions: &[Permission],
+) -> Result<(), E>
+where
+    E: From<sqlx::Error> + From<Error>,
+    F: for<'a> FnOnce(
+        &'a mut PgConnection,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), E>> + Send + 'a>>,
+{
+    if permissions.is_empty() {
+        return Err(Error::InvalidInput.into());
+    }
+    let mut accounts = accounts.to_vec();
+    accounts.push(context.account);
+    lock_accounts_resources_and_mutation_with(connection, &accounts, resources).await?;
+    for permission in permissions {
+        authority
+            .check(connection, context, *permission)
+            .await
+            .map_err(E::from)?;
+    }
+    Ok(())
 }

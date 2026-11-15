@@ -303,9 +303,11 @@ async fn a2_stored_console_browser_query_verified_result_and_ownership()
     sqlx::query("UPDATE web_sessions SET account_id=$1,data=jsonb_build_object('mfa_grant','test-mfa-grant')").bind(actor).execute(&pool).await?;
     sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '1 hour')")
         .bind(token_hash).bind(actor).bind(Uuid::now_v7()).bind(vec![0_u8;32]).execute(&pool).await?;
-    let response = app
-        .clone()
-        .oneshot(
+    crate::test_staff::browser(&pool, actor, &cookie).await?;
+    let response = crate::test_staff::race_account_before_fence(
+        &pool,
+        actor,
+        app.clone().oneshot(
             Request::post("/console/worlds")
                 .header("host", "staff.test")
                 .header("origin", "https://staff.test")
@@ -314,8 +316,10 @@ async fn a2_stored_console_browser_query_verified_result_and_ownership()
                 .body(Body::from(format!(
                     "_csrf={csrf}&agent=agent-a&operation=world.list&lang=en"
                 )))?,
-        )
-        .await?;
+        ),
+    )
+    .await
+    .map_err(|e| e as Box<dyn std::error::Error>)??;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let location = response
         .headers()

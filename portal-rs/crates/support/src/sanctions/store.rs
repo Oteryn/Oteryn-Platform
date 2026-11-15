@@ -91,13 +91,8 @@ impl Service {
         request: Uuid,
     ) -> Result<(), Error> {
         self.staff_input(context, request)?;
-        sqlx::query("SET LOCAL lock_timeout = '2s'")
-            .execute(&mut **tx)
-            .await?;
+        rbac::mutation_budget(tx).await?;
         // Same lock as the public RBAC mutation API: permission revocation cannot race approval.
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut **tx)
-            .await?;
         let status: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
                 .bind(context.account)
@@ -125,10 +120,16 @@ impl Service {
         decision.validate()?;
         self.staff_preflight(context, request).await?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SET LOCAL lock_timeout = '2s'")
-            .execute(&mut *tx)
-            .await?;
-        lock_staff_accounts(&mut tx, context.account, decision.account).await?;
+        rbac::mutation_budget(&mut tx).await?;
+        let auth = Authorizer::new(self.pool.clone(), Accounts(self.pool.clone()));
+        rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, decision.account],
+            &auth,
+            context,
+            &[Permission::ManageSupportEnforcement],
+        )
+        .await?;
         self.staff(&mut tx, context, request).await?;
         let status: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
@@ -197,16 +198,22 @@ impl Service {
         }
         self.staff_preflight(context, request).await?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SET LOCAL lock_timeout = '2s'")
-            .execute(&mut *tx)
-            .await?;
+        rbac::mutation_budget(&mut tx).await?;
         // Lock target before the RBAC fence and sanction, matching ticket writes.
         let target: Uuid = sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
             .bind(id)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
-        lock_staff_accounts(&mut tx, context.account, target).await?;
+        let auth = Authorizer::new(self.pool.clone(), Accounts(self.pool.clone()));
+        rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, target],
+            &auth,
+            context,
+            &[Permission::ManageSupportEnforcement],
+        )
+        .await?;
         self.staff(&mut tx, context, request).await?;
         let target_status: String =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
@@ -492,11 +499,12 @@ impl Service {
     pub async fn staff_apply(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        actor: Uuid,
+        context: CheckContext,
         binding: (Uuid, i64),
         command: &oteryn_admin::support::Command,
         notifications: &oteryn_notify::Notifications,
     ) -> Result<(Value, Value), oteryn_admin::support::Error> {
+        let actor = context.account;
         use oteryn_admin::support::{Command, Error as StaffError};
         let (id, version) = binding;
         valid_id(id).map_err(|_| StaffError::Invalid)?;
@@ -512,8 +520,7 @@ impl Service {
         if !self.features.sanctions {
             return Err(StaffError::NotFound);
         }
-        sqlx::query("SET LOCAL lock_timeout = '2s'")
-            .execute(&mut **tx)
+        rbac::mutation_budget(tx)
             .await
             .map_err(|_| StaffError::Unavailable)?;
         let target = match command {
@@ -529,21 +536,22 @@ impl Service {
                 .map_err(|_| StaffError::Unavailable)?
                 .ok_or(StaffError::NotFound)?,
         };
-        lock_staff_accounts(tx, actor, target)
-            .await
-            .map_err(|_| StaffError::Unavailable)?;
-        rbac::lock_mutation(tx)
-            .await
-            .map_err(|_| StaffError::Unavailable)?;
         let authorizer = Authorizer::new(
             self.pool.clone(),
             oteryn_admin::web::PortalIdentity::configured(self.pool.clone()),
         );
-        let context = CheckContext {
-            account: actor,
-            require_staff_mfa: true,
-            mfa_verified: true,
-        };
+        rbac::authorize_mutation(
+            tx,
+            &[actor, target],
+            &authorizer,
+            context,
+            &[Permission::Access, Permission::ManageSupportEnforcement],
+        )
+        .await
+        .map_err(|error| match error {
+            rbac::Error::Storage(_) => StaffError::Unavailable,
+            _ => StaffError::Denied,
+        })?;
         for permission in [Permission::Access, Permission::ManageSupportEnforcement] {
             authorizer
                 .check_in(tx, context, permission)
@@ -719,23 +727,4 @@ impl Service {
             json!({"status":next,"account_id":target,"category":category,"effective_at_ms":effective_at_ms,"expires_at_ms":expires_at_ms,"appeal_status":appeal_status,"lock_version":if current.is_none(){1}else{version+1+i64::from(matches!(command,Command::Appeal{..}))}}),
         ))
     }
-}
-
-/// All staff domain mutations acquire actor/target accounts before RBAC (71010).
-pub(crate) async fn lock_staff_accounts(
-    tx: &mut Transaction<'_, Postgres>,
-    actor: Uuid,
-    target: Uuid,
-) -> Result<(), sqlx::Error> {
-    for account in if actor < target {
-        [actor, target]
-    } else {
-        [target, actor]
-    } {
-        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
-            .bind(account)
-            .fetch_optional(&mut **tx)
-            .await?;
-    }
-    Ok(())
 }

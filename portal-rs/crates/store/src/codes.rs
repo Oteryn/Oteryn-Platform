@@ -33,6 +33,15 @@ impl From<sqlx::Error> for Error {
         Self::Unavailable
     }
 }
+/// Application-owned authorization boundary; implementations acquire the shared
+/// staff account/fence protocol and revalidate the live session in this connection.
+pub trait StaffAuthorization: Send + Sync {
+    fn authorize(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        actor: Uuid,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send;
+}
 /// Internal issuance capability. Production issuance uses `generate_staff`,
 /// which checks current permissions in the issuance transaction.
 #[derive(Debug)]
@@ -142,21 +151,13 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
     pub async fn generate_staff(
         &self,
         actor: Uuid,
+        authorization: &impl StaffAuthorization,
         batch: &Batch,
         count: usize,
     ) -> Result<Generated, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock_shared(71010)")
-            .execute(&mut *tx)
-            .await?;
-        let active: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE")
-            .bind(actor).fetch_optional(&mut *tx).await?;
-        let permitted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id WHERE ar.account_id=$1 AND rp.permission='store.codes.generate')")
-            .bind(actor).fetch_one(&mut *tx).await?;
-        if active != Some(true) || !permitted {
-            return Err(Error::Denied);
-        }
+        authorization.authorize(&mut tx, actor).await?;
         if batch.kind == Kind::ItemGrant {
             return Err(Error::Disabled);
         }
@@ -238,7 +239,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
     pub async fn redeem_player(&self, request: &Redemption) -> Result<Receipt, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
-        let active: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE")
+        let active: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR UPDATE")
             .bind(request.account).fetch_optional(&mut *tx).await?;
         if active != Some(true) {
             return Err(Error::Denied);
@@ -251,7 +252,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
         if item || request.character_ref.is_some() {
             return Err(Error::Disabled);
         }
-        let result = self.redeem_impl(request, false).await?;
+        let result = self.redeem_in(&mut tx, request, true).await?;
         tx.commit().await?;
         Ok(result)
     }
@@ -263,6 +264,17 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
         if charge {
             self.attempts.check(request.account).await?;
         }
+        let mut tx = self.pool.begin().await?;
+        let result = self.redeem_in(&mut tx, request, false).await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+    async fn redeem_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        request: &Redemption,
+        browser: bool,
+    ) -> Result<Receipt, Error> {
         if !valid_id(request.account)
             || !valid_id(request.key)
             || request.character_ref.is_some_and(|id| !valid_id(id))
@@ -270,14 +282,13 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
             return Err(Error::Invalid);
         }
         let hash = normalized_hash(&request.code)?;
-        let mut tx = self.pool.begin().await?;
         // Global key lock handles concurrent reuse across unrelated code rows.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,55))")
             .bind(request.key.to_string())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         let row = sqlx::query("SELECT c.id,c.code_hash,c.batch_id,b.kind,b.amount,b.max_per_code,b.max_per_account,b.created_by,b.valid_from,b.valid_until FROM gift_codes c JOIN code_batches b ON b.id=c.batch_id WHERE c.code_hash=$1 FOR UPDATE OF c")
-            .bind(hash.as_slice()).fetch_optional(&mut *tx).await?;
+            .bind(hash.as_slice()).fetch_optional(&mut **tx).await?;
         // Index lookup is bounded; hash equality is additionally checked in constant
         // time. PostgreSQL index traversal itself has no timing guarantee.
         let stored = row
@@ -298,17 +309,31 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
             _ => return Err(Error::Unavailable),
         };
         let amount: i64 = row.try_get("amount")?;
-        if let Some(previous) = sqlx::query("SELECT id,code_id,account_id,character_ref FROM code_redemptions WHERE idempotency_key=$1").bind(request.key).fetch_optional(&mut *tx).await? {
+        if let Some(previous) = sqlx::query("SELECT id,code_id,account_id,character_ref FROM code_redemptions WHERE idempotency_key=$1").bind(request.key).fetch_optional(&mut **tx).await? {
             if previous.try_get::<Uuid,_>("code_id")? != code_id || previous.try_get::<Uuid,_>("account_id")? != request.account || previous.try_get::<Option<Uuid>,_>("character_ref")? != request.character_ref { return Err(Error::Conflict); }
             return Ok(Receipt { redemption_id: previous.try_get("id")?, kind, amount });
+        }
+        if browser {
+            // Exact replays above remain valid; new value requires the shared gate.
+            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+                .bind(request.account)
+                .execute(&mut **tx)
+                .await?;
+            let eligible: bool = sqlx::query_scalar("SELECT account_value_eligible($1)")
+                .bind(request.account)
+                .fetch_one(&mut **tx)
+                .await?;
+            if !eligible {
+                return Err(Error::Denied);
+            }
         }
         // Serialize all codes of the same batch for this account before counting.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,56))")
             .bind(format!("{batch_id}:{}", request.account))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
         if now < row.try_get::<OffsetDateTime, _>("valid_from")?
             || now >= row.try_get::<OffsetDateTime, _>("valid_until")?
@@ -318,9 +343,9 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
         let used: i64 =
             sqlx::query_scalar("SELECT count(*) FROM code_redemptions WHERE code_id=$1")
                 .bind(code_id)
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut **tx)
                 .await?;
-        let by_account: i64 = sqlx::query_scalar("SELECT count(*) FROM code_redemptions r JOIN gift_codes c ON c.id=r.code_id WHERE c.batch_id=$1 AND r.account_id=$2").bind(batch_id).bind(request.account).fetch_one(&mut *tx).await?;
+        let by_account: i64 = sqlx::query_scalar("SELECT count(*) FROM code_redemptions r JOIN gift_codes c ON c.id=r.code_id WHERE c.batch_id=$1 AND r.account_id=$2").bind(batch_id).bind(request.account).fetch_one(&mut **tx).await?;
         if used >= i64::from(row.try_get::<i32, _>("max_per_code")?)
             || by_account >= i64::from(row.try_get::<i32, _>("max_per_account")?)
         {
@@ -330,13 +355,13 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
             return Err(Error::Invalid);
         }
         let id = Uuid::now_v7();
-        sqlx::query("INSERT INTO code_redemptions(id,code_id,account_id,character_ref,idempotency_key) VALUES ($1,$2,$3,$4,$5)").bind(id).bind(code_id).bind(request.account).bind(request.character_ref).bind(request.key).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO code_redemptions(id,code_id,account_id,character_ref,idempotency_key) VALUES ($1,$2,$3,$4,$5)").bind(id).bind(code_id).bind(request.account).bind(request.character_ref).bind(request.key).execute(&mut **tx).await?;
         let actor = row.try_get("created_by")?;
         match kind {
             Kind::Coins => {
                 self.wallet
                     .adjust_in(
-                        &mut tx,
+                        tx,
                         request.key,
                         request.account,
                         amount,
@@ -349,7 +374,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
             Kind::PremiumDays => {
                 self.premium
                     .mutate_in(
-                        &mut tx,
+                        tx,
                         &premium::Operator {
                             actor,
                             confirmed_mfa: true,
@@ -368,10 +393,9 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
                     .map_err(|_| Error::Refused)?;
             }
             Kind::ItemGrant => {
-                sqlx::query("INSERT INTO code_game_commands(redemption_id,character_ref,amount) VALUES ($1,$2,$3)").bind(id).bind(request.character_ref).bind(amount).execute(&mut *tx).await?;
+                sqlx::query("INSERT INTO code_game_commands(redemption_id,character_ref,amount) VALUES ($1,$2,$3)").bind(id).bind(request.character_ref).bind(amount).execute(&mut **tx).await?;
             }
         }
-        tx.commit().await?;
         Ok(Receipt {
             redemption_id: id,
             kind,

@@ -47,15 +47,25 @@ async fn postgres_news_lifecycle() {
         .unwrap();
     oteryn_db::migrate(&pool).await.unwrap();
     let slug = format!("news-{}", Uuid::now_v7());
-    let context = CheckContext {
+    let mut context = CheckContext {
         account: Uuid::now_v7(),
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     };
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='content_editor'").bind(context.account).execute(&pool).await.unwrap();
-    let auth = MutationAuthorization::new(std::sync::Arc::new(
-        oteryn_admin::rbac::Authorizer::new(pool.clone(), Identity(context.account)),
-    ));
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'editor-test-password','active','en',now())")
+        .bind(context.account).bind(format!("{}@example.invalid",context.account)).execute(&pool).await.unwrap();
+    context.session_proof = Some(
+        crate::test_staff::proof(&pool, context.account)
+            .await
+            .unwrap(),
+    );
+    let auth =
+        MutationAuthorization::new(std::sync::Arc::new(oteryn_admin::rbac::Authorizer::new(
+            pool.clone(),
+            oteryn_admin::web::PortalIdentity::configured(pool.clone()),
+        )));
     let make = || Input {
         slug: slug.clone(),
         title: "<script>Title</script>".into(),
@@ -63,12 +73,37 @@ async fn postgres_news_lifecycle() {
         published_at: "2020-01-01T00:00:00Z".into(),
         ..Input::default()
     };
-    let _ = save(&pool, &auth, context, None, make()).await.unwrap();
+    let op_pool = pool.clone();
+    let op_auth = auth.clone();
+    let input = make();
+    crate::test_staff::race_account_before_fence(&pool, context.account, async move {
+        save(&op_pool, &op_auth, context, None, input).await
+    })
+    .await
+    .unwrap()
+    .unwrap();
     let id: Uuid = sqlx::query_scalar("SELECT id FROM news WHERE slug=$1")
         .bind(&slug)
         .fetch_one(&pool)
         .await
         .unwrap();
+    let revision: String = sqlx::query_scalar("SELECT updated_at::text FROM news WHERE id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let mut first = make();
+    first.expected_revision = revision.clone();
+    save(&pool, &auth, context, Some(id), first).await.unwrap();
+    let mut stale = make();
+    stale.expected_revision = revision;
+    stale.title = "Stale editor overwrite".into();
+    assert_eq!(
+        save(&pool, &auth, context, Some(id), stale)
+            .await
+            .unwrap_err(),
+        StatusCode::CONFLICT
+    );
     assert_eq!(
         article(&pool, "pl", &slug).await.unwrap_err(),
         StatusCode::NOT_FOUND
@@ -81,7 +116,9 @@ async fn postgres_news_lifecycle() {
     input.title_pl = "Tytuł".into();
     input.body_pl = "Treść".into();
     input.translation_published_at = "2020-01-01T00:00:00Z".into();
-    let _ = save(&pool, &auth, context, Some(id), input).await.unwrap();
+    let _ = save_current(&pool, &auth, context, Some(id), input)
+        .await
+        .unwrap();
     assert!(
         article(&pool, "pl", &slug)
             .await
@@ -90,7 +127,9 @@ async fn postgres_news_lifecycle() {
             .contains("Treść")
     );
     assert_eq!(
-        save(&pool, &auth, context, None, make()).await.unwrap_err(),
+        save_current(&pool, &auth, context, None, make())
+            .await
+            .unwrap_err(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
     let mut changed = make();
@@ -98,7 +137,7 @@ async fn postgres_news_lifecycle() {
     changed.title_pl = "Tytuł".into();
     changed.body_pl = "Treść".into();
     changed.translation_published_at = "2020-01-01T00:00:00Z".into();
-    let _ = save(&pool, &auth, context, Some(id), changed)
+    let _ = save_current(&pool, &auth, context, Some(id), changed)
         .await
         .unwrap();
     let mut unchanged = make();
@@ -106,7 +145,7 @@ async fn postgres_news_lifecycle() {
     unchanged.title_pl = "Tytuł".into();
     unchanged.body_pl = "Treść".into();
     unchanged.translation_published_at = "2020-01-01T00:00:00Z".into();
-    let _ = save(&pool, &auth, context, Some(id), unchanged)
+    let _ = save_current(&pool, &auth, context, Some(id), unchanged)
         .await
         .unwrap();
     assert_eq!(
@@ -119,7 +158,7 @@ async fn postgres_news_lifecycle() {
     renewed.title_pl = "Tytuł".into();
     renewed.body_pl = "Treść".into();
     renewed.translation_published_at = "2020-01-02T00:00:00Z".into();
-    save(&pool, &auth, context, Some(id), renewed)
+    save_current(&pool, &auth, context, Some(id), renewed)
         .await
         .unwrap();
     assert!(article(&pool, "pl", &slug).await.is_ok());
@@ -128,7 +167,9 @@ async fn postgres_news_lifecycle() {
     reused.title_pl = "Tytuł".into();
     reused.body_pl = "Treść".into();
     reused.translation_published_at = "2020-01-02T00:00:00Z".into();
-    save(&pool, &auth, context, Some(id), reused).await.unwrap();
+    save_current(&pool, &auth, context, Some(id), reused)
+        .await
+        .unwrap();
     assert_eq!(
         article(&pool, "pl", &slug).await.unwrap_err(),
         StatusCode::NOT_FOUND
@@ -136,7 +177,7 @@ async fn postgres_news_lifecycle() {
     let mut invalid = make();
     invalid.published_at = "invalid".into();
     assert_eq!(
-        save(&pool, &auth, context, Some(id), invalid)
+        save_current(&pool, &auth, context, Some(id), invalid)
             .await
             .unwrap_err(),
         StatusCode::UNPROCESSABLE_ENTITY
@@ -184,6 +225,13 @@ async fn postgres_news_lifecycle() {
         Extension(context),
         Extension(auth.clone()),
         Path(id),
+        Form(Revision {
+            expected_revision: sqlx::query_scalar("SELECT updated_at::text FROM news WHERE id=$1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+        }),
     )
     .await
     .unwrap();
@@ -196,7 +244,10 @@ async fn postgres_news_lifecycle() {
             State(pool.clone()),
             Extension(context),
             Extension(auth.clone()),
-            Path(id)
+            Path(id),
+            Form(Revision {
+                expected_revision: String::new()
+            })
         )
         .await
         .unwrap_err(),
@@ -243,7 +294,7 @@ async fn postgres_news_lifecycle() {
                 host: "staff.test".into(),
             },
             Identity(context.account),
-            Identity(context.account),
+            oteryn_admin::web::PortalIdentity::configured(pool.clone()),
             Permission::ManageNews,
         )
     };
@@ -287,6 +338,9 @@ async fn postgres_news_lifecycle() {
         .split('"')
         .next()
         .unwrap();
+    crate::test_staff::browser(&pool, context.account, &cookie)
+        .await
+        .unwrap();
     let mutation = |token: &str| {
         Request::builder()
             .method("POST")
@@ -308,6 +362,70 @@ async fn postgres_news_lifecycle() {
         guarded().oneshot(mutation(token)).await.unwrap().status(),
         StatusCode::FOUND
     );
+    let browser_id: Uuid = sqlx::query_scalar("SELECT id FROM news WHERE slug='browser-news'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let edit_path = format!("/admin/news/{browser_id}/edit");
+    let update_path = format!("/admin/news/{browser_id}");
+    let stale = browser_news_revision(guarded(), &cookie, &edit_path).await;
+    assert_eq!(
+        browser_news_submit(
+            guarded(),
+            &cookie,
+            token,
+            &update_path,
+            &stale,
+            "First editor"
+        )
+        .await,
+        StatusCode::FOUND
+    );
+    assert_eq!(
+        browser_news_submit(
+            guarded(),
+            &cookie,
+            token,
+            &update_path,
+            &stale,
+            "Stale overwrite"
+        )
+        .await,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        browser_news_submit(
+            guarded(),
+            &cookie,
+            token,
+            &format!("{update_path}/delete"),
+            &stale,
+            "Stale delete"
+        )
+        .await,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT title FROM news WHERE id=$1")
+            .bind(browser_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        "First editor"
+    );
+    let current = browser_news_revision(guarded(), &cookie, &edit_path).await;
+    assert_eq!(
+        browser_news_submit(
+            guarded(),
+            &cookie,
+            token,
+            &format!("{update_path}/delete"),
+            &current,
+            "Reviewed delete"
+        )
+        .await,
+        StatusCode::FOUND
+    );
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&root)
@@ -327,6 +445,19 @@ impl oteryn_admin::web::StaffSession for Identity {
     }
 }
 impl oteryn_admin::rbac::AccountStateReader for Identity {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(
         &self,
         _: Uuid,
@@ -416,6 +547,7 @@ async fn postgres_pagination_language_and_caps() {
         account: Uuid::now_v7(),
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     };
     for number in [100000, 4] {
         let q = Options {
@@ -440,4 +572,62 @@ async fn postgres_pagination_language_and_caps() {
         "postgres_pagination_language_and_caps duration: {:?}",
         started.elapsed()
     );
+}
+
+async fn save_current(
+    pool: &PgPool,
+    auth: &MutationAuthorization,
+    context: CheckContext,
+    id: Option<Uuid>,
+    mut input: Input,
+) -> Result<Response, StatusCode> {
+    if let Some(id) = id {
+        input.expected_revision =
+            sqlx::query_scalar("SELECT updated_at::text FROM news WHERE id=$1")
+                .bind(id)
+                .fetch_one(pool)
+                .await
+                .map_err(unavailable)?;
+    }
+    save(pool, auth, context, id, input).await
+}
+
+async fn browser_news_revision(app: Router, cookie: &str, path: &str) -> String {
+    let response = app
+        .oneshot(
+            Request::get(path)
+                .header("host", "staff.test")
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    html.split("name=\"expected_revision\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .to_owned()
+}
+async fn browser_news_submit(
+    app: Router,
+    cookie: &str,
+    csrf: &str,
+    path: &str,
+    version: &str,
+    title: &str,
+) -> StatusCode {
+    let version = version.replace('+', "%2B").replace(' ', "%20");
+    app.oneshot(Request::post(path).header("host","staff.test").header("origin","https://staff.test").header("cookie",cookie).header("content-type","application/x-www-form-urlencoded")
+        .body(Body::from(format!("_csrf={csrf}&expected_revision={version}&slug=browser-news&title={title}&body=Reviewed+body&published_at="))).unwrap()).await.unwrap().status()
 }

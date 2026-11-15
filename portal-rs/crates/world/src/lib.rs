@@ -36,3 +36,7 @@ pub fn canonical_kind(kind: &str) -> &str {
         _ => kind,
     }
 }
+
+#[cfg(test)]
+#[path = "../../admin/src/test_staff.rs"]
+pub mod test_staff;

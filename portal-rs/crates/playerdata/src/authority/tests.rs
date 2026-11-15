@@ -1070,6 +1070,10 @@ async fn postgres_login_baseline_batches_are_complete_atomic_and_allow_other_acc
         .execute(&mut *gate)
         .await
         .unwrap();
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *gate)
+        .await
+        .unwrap();
     let watermark = progress("watermark-baseline.valid.json")
         .replace("\"family\":\"stamina\"", "\"family\":\"game_login\"")
         .replace("\"complete_through\":\"1\"", "\"complete_through\":\"257\"")
@@ -1088,7 +1092,7 @@ async fn postgres_login_baseline_batches_are_complete_atomic_and_allow_other_acc
     };
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
-            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND objid=326787645 AND NOT granted)").fetch_one(&db.pool).await.unwrap();
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND $1=ANY(pg_blocking_pids(pid)) AND locktype='advisory' AND objid=326787645 AND NOT granted)").bind(blocker_pid).fetch_one(&db.pool).await.unwrap();
             if waiting { break; }
             tokio::task::yield_now().await;
         }

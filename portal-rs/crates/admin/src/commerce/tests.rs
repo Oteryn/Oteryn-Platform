@@ -13,6 +13,19 @@ use tower::ServiceExt;
 #[derive(Debug, Clone)]
 struct Authority(PgPool);
 impl rbac::AccountStateReader for Authority {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state_in(
         &self,
         connection: &mut PgConnection,
@@ -84,12 +97,15 @@ impl premium::Accounts for Authority {
     }
 }
 #[derive(Clone)]
-struct Session(Uuid);
+struct Session(Uuid, PgPool);
 impl crate::web::StaffSession for Session {
     async fn resolve(
         &self,
-        _: &oteryn_web::session::BrowserSession,
+        session: &oteryn_web::session::BrowserSession,
     ) -> Option<crate::web::StaffIdentity> {
+        crate::test_staff_authenticate(&self.1, session, self.0)
+            .await
+            .ok()?;
         Some(crate::web::StaffIdentity {
             account: self.0,
             mfa_satisfied: true,
@@ -115,11 +131,12 @@ fn flags() -> Flags {
         refunds: true,
     }
 }
-fn context(account: Uuid) -> rbac::CheckContext {
+async fn context(pool: &PgPool, account: Uuid) -> rbac::CheckContext {
     rbac::CheckContext {
         account,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: crate::test_staff::proof(pool, account).await.ok(),
     }
 }
 fn request(target: Uuid, command: Command) -> Request {
@@ -227,9 +244,10 @@ async fn postgres_premium_success_replay_refusal_and_bad_input() {
         return;
     };
     let service = h.service();
-    let ctx = context(h.actor);
+    let ctx = context(&h.pool, h.actor).await;
     let no_mfa = rbac::CheckContext {
         mfa_verified: false,
+        session_proof: None,
         require_staff_mfa: false,
         ..ctx
     };
@@ -257,7 +275,10 @@ async fn postgres_premium_success_replay_refusal_and_bad_input() {
     ));
     assert!(matches!(
         service
-            .submit(context(h.target), request(h.target, Command::Revoke))
+            .submit(
+                context(&h.pool, h.target).await,
+                request(h.target, Command::Revoke)
+            )
             .await,
         Err(Error::Denied)
     ));
@@ -293,8 +314,8 @@ async fn postgres_wallet_four_eyes_atomicity_concurrency_and_revocation() {
         return;
     };
     let s = h.service();
-    let ctx = context(h.actor);
-    let approver = context(h.second);
+    let ctx = context(&h.pool, h.actor).await;
+    let approver = context(&h.pool, h.second).await;
     assert!(matches!(
         s.submit(ctx, request(Uuid::now_v7(), Command::Adjust { amount: 1 }))
             .await,
@@ -355,8 +376,8 @@ async fn postgres_payments_review_and_refund_queue_without_forged_settlement() {
         return;
     };
     let s = h.service();
-    let ctx = context(h.actor);
-    let approver = context(h.second);
+    let ctx = context(&h.pool, h.actor).await;
+    let approver = context(&h.pool, h.second).await;
     let payment = Uuid::now_v7();
     sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,100,'PLN','succeeded')").bind(payment).bind(h.target).bind(format!("test:{payment}")).execute(&h.pool).await.unwrap();
     let review = request(payment, Command::Reconcile);
@@ -424,7 +445,7 @@ async fn default_flags_and_host_deny_without_database() {
             admin_panel: true,
             host: "staff.test".into(),
         },
-        Session(Uuid::now_v7()),
+        Session(Uuid::now_v7(), pool.clone()),
         Authority(pool.clone()),
         PendingEffects,
         Flags::default(),
@@ -447,7 +468,10 @@ async fn default_flags_and_host_deny_without_database() {
     );
     assert!(matches!(
         s.submit(
-            context(Uuid::now_v7()),
+            rbac::CheckContext {
+                mfa_verified: true,
+                ..rbac::CheckContext::new(Uuid::now_v7())
+            },
             request(Uuid::now_v7(), Command::Refund)
         )
         .await,
@@ -466,7 +490,7 @@ async fn postgres_http_forms_localization_csrf_permissions_and_input() {
             admin_panel: true,
             host: "staff.test".into(),
         },
-        Session(h.actor),
+        Session(h.actor, h.pool.clone()),
         Authority(h.pool.clone()),
         h.effects(),
         flags(),
@@ -574,7 +598,7 @@ async fn postgres_audit_failure_rolls_back_domain_effect_and_request() {
     assert!(matches!(
         h.service()
             .submit(
-                context(h.actor),
+                context(&h.pool, h.actor).await,
                 request(h.target, Command::Grant { days: 1 })
             )
             .await,
@@ -600,14 +624,14 @@ async fn lk_commerce_single_connection_and_sixteen_mutations() {
             flags(),
         ));
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            let adjustment = service.submit(context(h.actor), request(h.target, Command::Adjust { amount: 50 })).await.unwrap();
-            service.approve(context(h.second), adjustment.id).await.unwrap();
+            let adjustment = service.submit(context(&h.pool, h.actor).await, request(h.target, Command::Adjust { amount: 50 })).await.unwrap();
+            service.approve(context(&h.pool, h.second).await, adjustment.id).await.unwrap();
             let payment = Uuid::now_v7();
             sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,100,'PLN','succeeded')")
                 .bind(payment).bind(h.target).bind(format!("test:{payment}")).execute(&h.pool).await.unwrap();
-            service.submit(context(h.actor), request(payment, Command::Reconcile)).await.unwrap();
-            let refund = service.submit(context(h.actor), request(payment, Command::Refund)).await.unwrap();
-            service.approve(context(h.second), refund.id).await.unwrap();
+            service.submit(context(&h.pool, h.actor).await, request(payment, Command::Reconcile)).await.unwrap();
+            let refund = service.submit(context(&h.pool, h.actor).await, request(payment, Command::Refund)).await.unwrap();
+            service.approve(context(&h.pool, h.second).await, refund.id).await.unwrap();
             let delivery = RefundDelivery { pool: h.pool.clone(), adapter: TestPaymentAdapter::new(h.pool.clone(), oteryn_payments::TestProvider::new(&[7;32]).unwrap(), oteryn_payments::PaymentFlags { enabled: true }) };
             delivery.adapter.deliver_refund(&h.pool, refund.id).await.unwrap();
         }).await.unwrap();
@@ -618,10 +642,11 @@ async fn lk_commerce_single_connection_and_sixteen_mutations() {
             let barrier = barrier.clone();
             let actor = h.actor;
             let target = h.target;
+            let context = context(&h.pool, actor).await;
             tasks.spawn(async move {
                 barrier.wait().await;
                 service
-                    .submit(context(actor), request(target, Command::Grant { days: 1 }))
+                    .submit(context, request(target, Command::Grant { days: 1 }))
                     .await
             });
         }
@@ -682,7 +707,7 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
                 admin_panel: true,
                 host: "staff.test".into(),
             },
-            Session(actor),
+            Session(actor, h.pool.clone()),
             Authority(h.pool.clone()),
             rbac::Permission::Access,
         )
@@ -811,7 +836,7 @@ async fn a2_commerce_role_writer_waits_are_bounded() {
     let service = h.service();
     let pending = service
         .submit(
-            context(h.actor),
+            context(&h.pool, h.actor).await,
             request(h.target, Command::Adjust { amount: 1 }),
         )
         .await
@@ -825,13 +850,13 @@ async fn a2_commerce_role_writer_waits_are_bounded() {
         tokio::time::timeout(
             std::time::Duration::from_secs(4),
             service.submit(
-                context(h.actor),
+                context(&h.pool, h.actor).await,
                 request(h.target, Command::Grant { days: 1 })
             )
         ),
         tokio::time::timeout(
             std::time::Duration::from_secs(4),
-            service.approve(context(h.second), pending.id)
+            service.approve(context(&h.pool, h.second).await, pending.id)
         )
     );
     assert!(matches!(submit.unwrap(), Err(Error::Storage(_))));
@@ -840,6 +865,34 @@ async fn a2_commerce_role_writer_waits_are_bounded() {
     h.close().await;
     eprintln!(
         "a2_commerce_role_writer_waits_are_bounded duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_a3_commerce_locks_payment_owner_before_role_fence() {
+    let started = std::time::Instant::now();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let payment = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,100,'PLN','succeeded')").bind(payment).bind(h.target).bind(payment.to_string()).execute(&h.pool).await.unwrap();
+    let service = Commerce::new(
+        h.pool.clone(),
+        crate::web::PortalIdentity::configured(h.pool.clone()),
+        h.effects(),
+        flags(),
+    );
+    let actor = context(&h.pool, h.actor).await;
+    crate::test_staff::race_account_before_fence(&h.pool, h.target, async move {
+        service
+            .submit(actor, request(payment, Command::Reconcile))
+            .await
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    h.close().await;
+    eprintln!(
+        "postgres_a3_commerce_locks_payment_owner_before_role_fence duration: {:?}",
         started.elapsed()
     );
 }

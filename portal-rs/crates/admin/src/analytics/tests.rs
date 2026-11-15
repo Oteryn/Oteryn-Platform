@@ -302,6 +302,19 @@ impl crate::web::StaffSession for Identity {
     }
 }
 impl crate::rbac::AccountStateReader for Identity {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(
         &self,
         _: Uuid,
@@ -455,6 +468,7 @@ async fn postgres_audit_before_read_outage_and_rbac_denials() {
         account: admin.account,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     };
     let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='custom_analytics'")
         .fetch_one(&pool)
@@ -1558,12 +1572,16 @@ async fn a2_blocked_purge_refuses_browser_reads_without_pool_exhaustion() {
         .fetch_all(&mut *blocker)
         .await
         .unwrap();
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
     let purge_pool = pool.clone();
     let purge = tokio::spawn(async move { store::purge(&purge_pool, NOW).await });
     // Observe the purge's advisory lock before issuing foreground reads.
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            let held: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND objid=71140001 AND granted)").fetch_one(&pool).await.unwrap();
+            let held: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND $1=ANY(pg_blocking_pids(pid)) AND locktype='advisory' AND objid=71140001 AND granted)").bind(blocker_pid).fetch_one(&pool).await.unwrap();
             if held { break; } tokio::task::yield_now().await;
         }
     }).await.unwrap();

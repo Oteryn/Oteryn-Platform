@@ -246,12 +246,31 @@ impl Tickets {
         .ok_or(Error::NotFound)?;
         // Include the author's implicit FK lock and RBAC's account SHARE lock.
         // Crossed staff replies must acquire the same pair in UUID order.
-        for account in if actor < owner {
-            [actor, owner]
+        if let Some(context) = staff {
+            let auth = Authorizer::new(
+                self.pool.clone(),
+                PortalIdentity::configured(self.pool.clone()),
+            );
+            rbac::authorize_mutation(
+                tx,
+                &[actor, owner],
+                &auth,
+                context,
+                &[Permission::Access, Permission::ManageSupportTickets],
+            )
+            .await
+            .map_err(|error| match error {
+                rbac::Error::Storage(error) => Error::Database(error),
+                _ => Error::Denied,
+            })?;
         } else {
-            [owner, actor]
-        } {
-            self.lock_account(tx, account).await?;
+            for account in if actor < owner {
+                [actor, owner]
+            } else {
+                [owner, actor]
+            } {
+                self.lock_account(tx, account).await?;
+            }
         }
         let mut ticket: Ticket = sqlx::query_as(
             "SELECT * FROM tickets WHERE id=$1 AND ($2 OR account_id=$3) FOR UPDATE",
@@ -266,7 +285,7 @@ impl Tickets {
             // The owner lock may have waited behind a revocation. Join the
             // role-writer fence only after the domain locks, then keep current
             // grants and the actor's account state valid through commit.
-            rbac::lock_mutation(&mut *tx).await?;
+
             let auth = Authorizer::new(
                 self.pool.clone(),
                 PortalIdentity::configured(self.pool.clone()),

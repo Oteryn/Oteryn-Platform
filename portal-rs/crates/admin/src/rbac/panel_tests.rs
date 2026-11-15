@@ -1,5 +1,6 @@
 use crate::rbac::{Authorizer, CheckContext, Permission};
 use sqlx::{AssertSqlSafe, PgPool, postgres::PgPoolOptions};
+use std::sync::Arc;
 use uuid::Uuid;
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 struct Fixture {
@@ -26,7 +27,10 @@ impl Fixture {
             .after_connect(move |c, _| {
                 let path = path.clone();
                 Box::pin(async move {
-                    sqlx::query(AssertSqlSafe(path)).execute(c).await?;
+                    sqlx::query(AssertSqlSafe(path)).execute(&mut *c).await?;
+                    sqlx::query("SELECT set_config('application_name',current_schema(),false)")
+                        .execute(c)
+                        .await?;
                     Ok(())
                 })
             })
@@ -37,6 +41,7 @@ impl Fixture {
             account: Uuid::now_v7(),
             require_staff_mfa: true,
             mfa_verified: true,
+            session_proof: None,
         };
         sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor.account).execute(&pool).await?;
         Ok(Self {
@@ -67,9 +72,12 @@ use axum::{
 use oteryn_web::session::BrowserSession;
 use tower::ServiceExt;
 #[derive(Clone)]
-struct Session(Uuid);
+struct Session(Uuid, PgPool);
 impl StaffSession for Session {
-    async fn resolve(&self, _: &BrowserSession) -> Option<StaffIdentity> {
+    async fn resolve(&self, session: &BrowserSession) -> Option<StaffIdentity> {
+        crate::test_staff_authenticate(&self.1, session, self.0)
+            .await
+            .ok()?;
         Some(StaffIdentity {
             account: self.0,
             mfa_satisfied: true,
@@ -83,7 +91,7 @@ fn app(db: &Fixture) -> Router {
             admin_panel: true,
             host: "staff.test".into(),
         },
-        Session(db.actor.account),
+        Session(db.actor.account, db.pool.clone()),
         PortalIdentity::configured(db.pool.clone()),
     )
 }
@@ -119,6 +127,7 @@ async fn browser(db: &Fixture) -> TestResult<(String, String)> {
         .to_owned();
     assert!(html.contains("value=\"create\""));
     assert!(html.contains("value=\"set-permissions\""));
+    crate::test_staff::browser(&db.pool, db.actor.account, &cookie).await?;
     Ok((cookie, csrf))
 }
 async fn post(db: &Fixture, cookie: &str, csrf: &str, body: String) -> TestResult<StatusCode> {
@@ -345,8 +354,9 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
 async fn player_notes_complete_when_small_pool_is_queued_on_role_fence() -> TestResult {
     use crate::players::{Flags, IdentityAccounts, Players};
     let started = std::time::Instant::now();
-    let db = Fixture::open(2).await?;
+    let mut db = Fixture::open(2).await?;
     insert_account(&db, db.actor.account, "active").await?;
+    db.actor.session_proof = Some(crate::test_staff::proof(&db.pool, db.actor.account).await?);
     let players = std::sync::Arc::new(Players::new(
         db.pool.clone(),
         Flags {
@@ -378,13 +388,16 @@ async fn player_notes_complete_when_small_pool_is_queued_on_role_fence() -> Test
     }
     // Same-account mutations now queue at account preparation before the fence.
     // Both connections must still be occupied and both operations must commit.
-    tokio::time::timeout(std::time::Duration::from_secs(2),async {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND (query='SELECT pg_advisory_xact_lock(71010)' OR query='SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE')").fetch_one(&db.root).await?;
-            if count >= 2 {return Ok::<_,sqlx::Error>(());}
+            let count = staff_waiters(&db).await?;
+            if count >= 2 {
+                return Ok::<_, sqlx::Error>(());
+            }
             tokio::task::yield_now().await;
         }
-    }).await??;
+    })
+    .await??;
     blocker.commit().await?;
     for task in tasks {
         tokio::time::timeout(std::time::Duration::from_secs(3), task).await???;
@@ -405,9 +418,10 @@ async fn player_notes_complete_when_small_pool_is_queued_on_role_fence() -> Test
 #[tokio::test]
 async fn role_fence_wait_is_bounded_and_releases_pool_capacity() -> TestResult {
     let started = std::time::Instant::now();
-    let db = Fixture::open(1).await?;
+    let mut db = Fixture::open(1).await?;
     let auth = Authorizer::new(db.pool.clone(), PortalIdentity::configured(db.pool.clone()));
     insert_account(&db, db.actor.account, "active").await?;
+    db.actor.session_proof = Some(crate::test_staff::proof(&db.pool, db.actor.account).await?);
     let mut blocker = db.root.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(71010)")
         .execute(&mut *blocker)
@@ -425,7 +439,7 @@ async fn role_fence_wait_is_bounded_and_releases_pool_capacity() -> TestResult {
     )
     .await?;
     assert!(
-        matches!(result,Err(super::Error::Storage(ref e)) if e.as_database_error().and_then(|e| e.code()).as_deref() == Some("55P03"))
+        matches!(result,Err(super::Error::Storage(ref e)) if matches!(e.as_database_error().and_then(|e| e.code()).as_deref(), Some("55P03" | "57014")))
     );
     blocker.rollback().await?;
     assert_eq!(
@@ -517,6 +531,232 @@ async fn postgres_role_pages_and_survivor_batches_are_bounded() -> TestResult {
     db.close().await?;
     eprintln!(
         "postgres_role_pages_and_survivor_batches_are_bounded duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[derive(Clone)]
+struct PausedPortalIdentity {
+    identity: PortalIdentity,
+    authenticated: Arc<tokio::sync::Notify>,
+    resume: Arc<tokio::sync::Notify>,
+}
+impl StaffSession for PausedPortalIdentity {
+    async fn resolve(&self, session: &BrowserSession) -> Option<StaffIdentity> {
+        let identity = self.identity.resolve(session).await?;
+        self.authenticated.notify_one();
+        self.resume.notified().await;
+        Some(identity)
+    }
+}
+
+#[tokio::test]
+async fn postgres_a3_real_player_request_refuses_revoked_session_after_authentication() -> TestResult
+{
+    use sha2::{Digest, Sha256};
+    let started = std::time::Instant::now();
+    let db = Fixture::open(4).await?;
+    insert_account(&db, db.actor.account, "active").await?;
+    let target = Uuid::now_v7();
+    insert_account(&db, target, "active").await?;
+    let session_id = format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()));
+    let grant = format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()));
+    let csrf = format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()));
+    sqlx::query("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,$2,true)")
+        .bind(db.actor.account)
+        .bind(Sha256::digest(Uuid::now_v7().as_bytes()).to_vec())
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) SELECT $1,a.id,m.generation,$2,'grant',clock_timestamp()+interval '1 hour' FROM accounts a JOIN account_mfa_totp m ON m.account_id=a.id WHERE a.id=$3")
+        .bind(Sha256::digest(grant.as_bytes()).to_vec()).bind(Sha256::digest(b"unused").to_vec()).bind(db.actor.account).execute(&db.pool).await?;
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,idle_expires_at,absolute_expires_at,data,csrf_token,authorization_generation) SELECT $1,id,'a3-browser',now()+interval '1 hour',now()+interval '1 day',jsonb_build_object('mfa_grant',$2::text),$3,native_security_generation FROM accounts WHERE id=$4")
+        .bind(Sha256::digest(session_id.as_bytes()).to_vec()).bind(&grant).bind(&csrf).bind(db.actor.account).execute(&db.pool).await?;
+    let identity = PortalIdentity::configured_from(db.pool.clone(), &|key| {
+        (key == "OTERYN_MFA_KEY").then(|| "12".repeat(32))
+    });
+    let authenticated = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let app = crate::players::http::router(
+        db.pool.clone(),
+        crate::players::Flags {
+            players: true,
+            ..Default::default()
+        },
+        PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        PausedPortalIdentity {
+            identity: identity.clone(),
+            authenticated: authenticated.clone(),
+            resume: resume.clone(),
+        },
+        identity,
+        crate::players::IdentityAccounts {
+            accounts: oteryn_identity::accounts::Accounts {
+                pool: db.pool.clone(),
+            },
+            projection: None,
+        },
+    );
+    let request = Request::post(format!("/admin/players/{target}"))
+        .header("host", "staff.test")
+        .header("origin", "https://staff.test")
+        .header("cookie", format!("__Host-oteryn_session={session_id}"))
+        .header("x-csrf-token", csrf)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(Body::from("action=note&body=Session+revocation+regression"))?;
+    let task = tokio::spawn(async move { app.oneshot(request).await });
+    tokio::time::timeout(std::time::Duration::from_secs(3), authenticated.notified()).await?;
+    let mut revoke = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(db.actor.account)
+        .execute(&mut *revoke)
+        .await?;
+    oteryn_identity::sessions::staff_revoke_all(&mut revoke, db.actor.account).await?;
+    revoke.commit().await?;
+    resume.notify_one();
+    assert_eq!(task.await??.status(), StatusCode::FORBIDDEN);
+    let notes: i64 = sqlx::query_scalar("SELECT count(*) FROM player_notes WHERE account_id=$1")
+        .bind(target)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(notes, 0);
+    let success: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='players.note.added'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(success, 0);
+    db.close().await?;
+    eprintln!(
+        "postgres_a3_real_player_request_refuses_revoked_session_after_authentication duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+async fn staff_waiters(db: &Fixture) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND wait_event_type='Lock' AND (query='SELECT pg_advisory_xact_lock(71010)' OR query='SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE')")
+        .bind(&db.schema).fetch_one(&db.root).await
+}
+#[tokio::test]
+async fn postgres_a3_staff_barrier_ignores_another_fixture_waiter() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Fixture::open(2).await?;
+    let other = Fixture::open(2).await?;
+    let mut blocker = db.root.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut *blocker)
+        .await?;
+    let mut unrelated = other.pool.begin().await?;
+    let unrelated_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *unrelated)
+        .await?;
+    let unrelated_task = tokio::spawn(async move {
+        super::lock_mutation(&mut unrelated).await?;
+        unrelated.commit().await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2),async {
+        loop {
+            let waiting: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock')").bind(unrelated_pid).fetch_one(&db.root).await?;
+            if waiting { break Ok::<(),sqlx::Error>(()); }
+            tokio::task::yield_now().await;
+        }
+    }).await??;
+    let mut own = db.pool.begin().await?;
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let go = resume.clone();
+    let own_task = tokio::spawn(async move {
+        go.notified().await;
+        super::lock_mutation(&mut own).await?;
+        own.commit().await
+    });
+    assert_eq!(
+        staff_waiters(&db).await?,
+        0,
+        "a foreign fixture must not open the barrier"
+    );
+    resume.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if staff_waiters(&db).await? == 1 {
+                break Ok::<(), sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    blocker.commit().await?;
+    own_task.await??;
+    unrelated_task.await??;
+    other.close().await?;
+    db.close().await?;
+    eprintln!(
+        "postgres_a3_staff_barrier_ignores_another_fixture_waiter duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_a3_role_writer_rechecks_current_session_mfa_binding() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Fixture::open(3).await?;
+    insert_account(&db, db.actor.account, "active").await?;
+    let mut context = db.actor;
+    context.session_proof = Some(crate::test_staff::proof(&db.pool, context.account).await?);
+    let auth = Authorizer::new(db.pool.clone(), PortalIdentity::configured(db.pool.clone()));
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(context.account)
+        .execute(&mut *blocker)
+        .await?;
+    let task = tokio::spawn(async move {
+        auth.change_from_panel(
+            context,
+            Uuid::now_v7(),
+            super::Change::CreateRole {
+                key: "current_mfa_binding",
+                permissions: &[],
+            },
+        )
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if staff_waiters(&db).await? == 1 {
+                break Ok::<(), sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    // The credential-bound token remains live, but this session no longer has
+    // an MFA proof. Reusing the captured token would authorize stale authority.
+    sqlx::query("UPDATE web_sessions SET data=data-'mfa_grant' WHERE account_id=$1")
+        .bind(context.account)
+        .execute(&mut *blocker)
+        .await?;
+    blocker.commit().await?;
+    assert!(matches!(task.await?, Err(super::Error::Denied)));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM roles WHERE key='current_mfa_binding'")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM audit_log WHERE action='rbac.role.created'"
+        )
+        .fetch_one(&db.pool)
+        .await?,
+        0
+    );
+    db.close().await?;
+    eprintln!(
+        "postgres_a3_role_writer_rechecks_current_session_mfa_binding duration: {:?}",
         started.elapsed()
     );
     Ok(())

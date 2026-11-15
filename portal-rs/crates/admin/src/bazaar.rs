@@ -79,8 +79,21 @@ impl<A: AccountStateReader> StaffBazaar<A> {
     pub async fn execute(&self, context: CheckContext, command: StaffCommand) -> Result<(), Error> {
         self.check(context).await?;
         let mut tx = self.pool.begin().await?;
-        moderation::lock_staff_target(&mut tx, &command).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        let resource_command = command.clone();
+        crate::rbac::authorize_mutation_with_resources_domain::<Error, _>(
+            &mut tx,
+            &[context.account],
+            move |connection| {
+                Box::pin(async move {
+                    moderation::lock_staff_target(connection, &resource_command).await?;
+                    Ok(())
+                })
+            },
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageMarketplace],
+        )
+        .await?;
         self.check_in(&mut tx, context).await?;
         let before = snapshot(&mut tx, command.target()).await?;
         moderation::execute_staff(&mut tx, context.account, &command).await?;
@@ -108,7 +121,7 @@ async fn snapshot(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     id: Uuid,
 ) -> Result<Value, sqlx::Error> {
-    sqlx::query_scalar("SELECT jsonb_build_object('hold',(SELECT to_jsonb(h) FROM bazaar_moderation_holds h WHERE listing_id=$1),'invalidation',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.hold_revision,r.id),'[]'::jsonb) FROM bazaar_invalidation_requests r WHERE id=$1 OR listing_id=$1),'report',(SELECT jsonb_build_object('state',state,'reviewed_by',reviewed_by) FROM bazaar_reports WHERE id=$1),'fees',(SELECT to_jsonb(f) FROM bazaar_fee_revisions f WHERE id=$1),'restriction',(SELECT to_jsonb(p) FROM bazaar_item_restrictions p WHERE id=$1))")
+    sqlx::query_scalar("SELECT jsonb_build_object('hold',(SELECT to_jsonb(h) FROM bazaar_moderation_holds h WHERE listing_id=$1),'invalidation',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.hold_revision,r.id),'[]'::jsonb) FROM bazaar_invalidation_requests r WHERE id=$1 OR (listing_id=$1 AND hold_revision=(SELECT revision FROM bazaar_moderation_holds WHERE listing_id=$1))),'report',(SELECT jsonb_build_object('state',state,'reviewed_by',reviewed_by) FROM bazaar_reports WHERE id=$1),'fees',(SELECT to_jsonb(f) FROM bazaar_fee_revisions f WHERE id=$1),'restriction',(SELECT to_jsonb(p) FROM bazaar_item_restrictions p WHERE id=$1))")
         .bind(id).fetch_one(&mut **tx).await
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {

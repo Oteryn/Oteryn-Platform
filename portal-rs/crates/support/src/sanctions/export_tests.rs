@@ -177,9 +177,23 @@ impl Database {
             include_str!("../../../../migrations/20261105220236_t34b_appeals.sql"),
             include_str!("../../../../migrations/20261105231600_support_sanction_revisions.sql"),
             include_str!("../../../../migrations/20261111140002_n009_sanction_export.sql"),
+            include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
+            include_str!("../../../../migrations/20261105220202_t04_login_guard.sql"),
+            include_str!(
+                "../../../../migrations/20261105220209_accounts_native_security_generation.sql"
+            ),
+            include_str!("../../../../migrations/20261105220213_t06_mfa.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
         }
+        let session_generation =
+            include_str!("../../../../migrations/20261115110002_fix_02_identity.sql")
+                .lines()
+                .find(|line| {
+                    line.starts_with("ALTER TABLE web_sessions ADD COLUMN authorization_generation")
+                })
+                .ok_or("session generation migration missing")?;
+        sqlx::raw_sql(session_generation).execute(&pool).await?;
         let expiry_migration = include_str!(
             "../../../../migrations/20261115120016_fix_a2-15-migrations_reminders_and_expiry.sql"
         )
@@ -190,7 +204,7 @@ impl Database {
         let actor = Uuid::now_v7();
         let owner = Uuid::parse_str("019a0000-0000-7000-8000-000000000002")?;
         for id in [actor, owner] {
-            sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES ($1,$2,'synthetic-hash','active','en')").bind(id).bind(format!("{id}@example.invalid")).execute(&pool).await?;
+            sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES ($1,$2,'synthetic-hash','active','en',now())").bind(id).bind(format!("{id}@example.invalid")).execute(&pool).await?;
         }
         sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator'").bind(actor).execute(&pool).await?;
         Ok(Some(Self {
@@ -312,6 +326,7 @@ async fn sanction_export_revision_on_revoke_and_appeal() -> TestResult {
                 account: db.actor,
                 require_staff_mfa: true,
                 mfa_verified: true,
+                session_proof: Some(crate::test_staff::proof(&db.pool, db.actor).await?),
             },
             Uuid::now_v7(),
             id,

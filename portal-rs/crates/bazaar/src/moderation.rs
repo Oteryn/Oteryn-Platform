@@ -3,7 +3,7 @@
 //! transaction-local ports. Missing adapters deny, without manufacturing evidence.
 use crate::{Accounts, Error, State};
 use serde::Deserialize;
-use sqlx::{PgConnection, PgPool, Postgres, Transaction};
+use sqlx::{PgConnection, PgPool};
 use std::future::Future;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -313,24 +313,21 @@ fn valid_id(id: Uuid) -> Result<(), Error> {
 fn text_valid(s: &str, min: usize, max: usize) -> bool {
     (min..=max).contains(&s.trim().chars().count()) && !s.chars().any(char::is_control)
 }
-async fn lock_listing(
-    tx: &mut Transaction<'_, Postgres>,
-    id: Uuid,
-) -> Result<(Uuid, State), Error> {
+async fn lock_listing(tx: &mut PgConnection, id: Uuid) -> Result<(Uuid, State), Error> {
     crate::locking::listing_gate(tx).await?;
     valid_id(id)?;
     sqlx::query_as("SELECT owner,state FROM bazaar_listings WHERE id=$1 FOR UPDATE")
         .bind(id)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or(Error::NotFound)
 }
-async fn held(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<bool, Error> {
+async fn held(tx: &mut PgConnection, id: Uuid) -> Result<bool, Error> {
     Ok(sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1) OR EXISTS(SELECT 1 FROM bazaar_listings WHERE id=$1 AND kind='item' AND state='active' AND EXISTS(SELECT 1 FROM bazaar_item_restrictions))",
     )
     .bind(id)
-    .fetch_one(&mut **tx)
+    .fetch_one(&mut *tx)
     .await?)
 }
 
@@ -397,10 +394,7 @@ impl StaffCommand {
 }
 /// Retains all holds. Approval queues reconciliation only, with no automatic
 /// dispatch, state cancellation, balance credit, fabricated receipt or asset reversal.
-pub async fn lock_staff_target(
-    tx: &mut Transaction<'_, Postgres>,
-    command: &StaffCommand,
-) -> Result<(), Error> {
+pub async fn lock_staff_target(tx: &mut PgConnection, command: &StaffCommand) -> Result<(), Error> {
     match command {
         StaffCommand::Suspend { listing, .. }
         | StaffCommand::RequestInvalidation { listing, .. } => {
@@ -411,29 +405,29 @@ pub async fn lock_staff_target(
                 "SELECT listing_id FROM bazaar_invalidation_requests WHERE id=$1",
             )
             .bind(id)
-            .fetch_optional(&mut **tx)
+            .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
             lock_listing(tx, listing).await?;
             sqlx::query("SELECT id FROM bazaar_invalidation_requests WHERE id=$1 FOR UPDATE")
                 .bind(id)
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await?;
         }
         StaffCommand::ReviewReport { id, .. } => {
             sqlx::query("SELECT id FROM bazaar_reports WHERE id=$1 FOR UPDATE")
                 .bind(id)
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await?;
         }
         StaffCommand::Fees { .. } => {
             sqlx::query("SELECT pg_advisory_xact_lock(64001)")
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await?;
         }
         StaffCommand::RestrictItem { .. } => {
             sqlx::query("SELECT pg_advisory_xact_lock(64002)")
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await?;
         }
     }
@@ -442,7 +436,7 @@ pub async fn lock_staff_target(
 
 /// Execute inside a transaction that also records the authenticated staff audit.
 pub async fn execute_staff(
-    tx: &mut Transaction<'_, Postgres>,
+    tx: &mut PgConnection,
     actor: Uuid,
     command: &StaffCommand,
 ) -> Result<(), Error> {
@@ -460,7 +454,7 @@ pub async fn execute_staff(
                 return Err(Error::IllegalTransition);
             }
             sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,1,$2,$3) ON CONFLICT(listing_id) DO UPDATE SET revision=bazaar_moderation_holds.revision+1,actor=$2,reason=$3,updated_at=clock_timestamp()")
-                .bind(listing).bind(actor).bind(reason).execute(&mut **tx).await?;
+                .bind(listing).bind(actor).bind(reason).execute(&mut *tx).await?;
         }
         StaffCommand::RequestInvalidation {
             id,
@@ -474,11 +468,11 @@ pub async fn execute_staff(
                 "SELECT revision FROM bazaar_moderation_holds WHERE listing_id=$1",
             )
             .bind(listing)
-            .fetch_optional(&mut **tx)
+            .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::Denied)?;
             sqlx::query("INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason) VALUES($1,$2,$3,$4,$5)")
-                .bind(id).bind(listing).bind(revision).bind(actor).bind(reason).execute(&mut **tx).await?;
+                .bind(id).bind(listing).bind(revision).bind(actor).bind(reason).execute(&mut *tx).await?;
         }
         StaffCommand::ApproveInvalidation { id } => {
             // Discover listing first; lock listing before request, as the requester does.
@@ -486,11 +480,11 @@ pub async fn execute_staff(
                 "SELECT listing_id FROM bazaar_invalidation_requests WHERE id=$1",
             )
             .bind(id)
-            .fetch_optional(&mut **tx)
+            .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
             cancellable(tx, listing).await?;
-            let (requester,revision,state,reviewer):(Uuid,i64,String,Option<Uuid>)=sqlx::query_as("SELECT requested_by,hold_revision,state,approved_by FROM bazaar_invalidation_requests WHERE id=$1 FOR UPDATE").bind(id).fetch_one(&mut **tx).await?;
+            let (requester,revision,state,reviewer):(Uuid,i64,String,Option<Uuid>)=sqlx::query_as("SELECT requested_by,hold_revision,state,approved_by FROM bazaar_invalidation_requests WHERE id=$1 FOR UPDATE").bind(id).fetch_one(&mut *tx).await?;
             if requester == actor {
                 return Err(Error::Denied);
             }
@@ -498,7 +492,7 @@ pub async fn execute_staff(
                 "SELECT revision FROM bazaar_moderation_holds WHERE listing_id=$1",
             )
             .bind(listing)
-            .fetch_optional(&mut **tx)
+            .fetch_optional(&mut *tx)
             .await?;
             if current != Some(revision) {
                 return Err(Error::Denied);
@@ -513,21 +507,21 @@ pub async fn execute_staff(
             if state != "pending" {
                 return Err(Error::Denied);
             }
-            sqlx::query("UPDATE bazaar_invalidation_requests SET approved_by=$2,state='approved',updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(actor).execute(&mut **tx).await?;
-            sqlx::query("INSERT INTO bazaar_moderation_outbox(id,listing_id,kind) VALUES($1,$2,'reconcile_invalidation')").bind(id).bind(listing).execute(&mut **tx).await?;
+            sqlx::query("UPDATE bazaar_invalidation_requests SET approved_by=$2,state='approved',updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(actor).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO bazaar_moderation_outbox(id,listing_id,kind) VALUES($1,$2,'reconcile_invalidation')").bind(id).bind(listing).execute(&mut *tx).await?;
         }
         StaffCommand::ReviewReport { id, accepted } => {
             let reporter: Uuid =
                 sqlx::query_scalar("SELECT reporter FROM bazaar_reports WHERE id=$1 FOR UPDATE")
                     .bind(id)
-                    .fetch_optional(&mut **tx)
+                    .fetch_optional(&mut *tx)
                     .await?
                     .ok_or(Error::NotFound)?;
             if actor == reporter {
                 return Err(Error::Denied);
             }
             let result=sqlx::query("UPDATE bazaar_reports SET state=$2,reviewed_by=$3,updated_at=clock_timestamp() WHERE id=$1 AND state='pending'")
-                .bind(id).bind(if *accepted {"accepted"} else {"dismissed"}).bind(actor).execute(&mut **tx).await?;
+                .bind(id).bind(if *accepted {"accepted"} else {"dismissed"}).bind(actor).execute(&mut *tx).await?;
             if result.rows_affected() != 1 {
                 return Err(Error::IllegalTransition);
             }
@@ -545,10 +539,10 @@ pub async fn execute_staff(
                 return Err(Error::InvalidInput);
             }
             sqlx::query("SELECT pg_advisory_xact_lock(64001)")
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await?;
             sqlx::query("INSERT INTO bazaar_fee_revisions(id,actor,coin_bps,gold_bps,listing_fee,promotion_price,reason) VALUES($1,$2,$3,$4,$5,$6,$7)")
-                .bind(id).bind(actor).bind(coin_bps).bind(gold_bps).bind(listing_fee).bind(promotion_price).bind(reason).execute(&mut **tx).await?;
+                .bind(id).bind(actor).bind(coin_bps).bind(gold_bps).bind(listing_fee).bind(promotion_price).bind(reason).execute(&mut *tx).await?;
         }
         StaffCommand::RestrictItem {
             id,
@@ -570,12 +564,12 @@ pub async fn execute_staff(
                 return Err(Error::InvalidInput);
             }
             sqlx::query("SELECT pg_advisory_xact_lock(64002)")
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await?;
             // Restrictive policy fences active item listings in the trading
             // trigger and public checks without locking lifetime history.
             sqlx::query("INSERT INTO bazaar_item_restrictions(id,world_id,family,production_key,revision_ref,minimum_value,denied,actor,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
-                .bind(id).bind(world).bind(family).bind(production_key).bind(revision_ref).bind(minimum_value).bind(denied).bind(actor).bind(reason).execute(&mut **tx).await?;
+                .bind(id).bind(world).bind(family).bind(production_key).bind(revision_ref).bind(minimum_value).bind(denied).bind(actor).bind(reason).execute(&mut *tx).await?;
         }
     }
     Ok(())
@@ -594,12 +588,12 @@ fn definition_key(s: &str) -> bool {
             c.is_ascii_lowercase() || c.is_ascii_digit() || (i > 0 && b"._:/-".contains(&c))
         })
 }
-async fn cancellable(tx: &mut Transaction<'_, Postgres>, listing: Uuid) -> Result<(), Error> {
+async fn cancellable(tx: &mut PgConnection, listing: Uuid) -> Result<(), Error> {
     let (_, state) = lock_listing(tx, listing).await?;
     let settlement: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_settlements WHERE listing_id=$1)")
             .bind(listing)
-            .fetch_one(&mut **tx)
+            .fetch_one(&mut *tx)
             .await?;
     if !matches!(state, State::Draft | State::Active) || settlement {
         return Err(Error::IllegalTransition);

@@ -550,3 +550,144 @@ async fn db_concurrent_batch_account_limit_and_same_key_retry() {
 /// Wallet credits read the coin-debt view, which spans the payments tables.
 /// A schema built from a migration subset gets an empty stand-in: no debt.
 pub(crate) const NO_COIN_DEBT_STUB: &str = "CREATE TABLE coin_purchase_reversals(id uuid PRIMARY KEY,payer_account_id uuid NOT NULL,outcome text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());CREATE VIEW coin_outstanding_debts AS SELECT id AS reversal_id,id AS order_id,payer_account_id AS account_id,created_at,0::bigint AS owed FROM coin_purchase_reversals";
+
+#[tokio::test]
+async fn postgres_a3_browser_premium_redemption_one_connection_and_value_restrictions() {
+    let started = std::time::Instant::now();
+    for maximum in [1, 16] {
+        let url = std::env::var("PORTAL_TEST_DATABASE_URL").expect("PostgreSQL required");
+        let root = PgPool::connect(&url).await.unwrap();
+        let schema = format!("a3_codes_{}", Uuid::now_v7().simple());
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&root)
+            .await
+            .unwrap();
+        let search = schema.clone();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(maximum)
+            .acquire_timeout(std::time::Duration::from_secs(1))
+            .after_connect(move |connection, _| {
+                let search = search.clone();
+                Box::pin(async move {
+                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                        .bind(search)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&url)
+            .await
+            .unwrap();
+        oteryn_db::migrate(&pool).await.unwrap();
+        let issuer = account();
+        let player = account();
+        for id in [issuer, player] {
+            sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'code-test-password','active','en',now())")
+            .bind(id).bind(format!("{id}@example.invalid")).execute(&pool).await.unwrap();
+        }
+        let codes = Codes::new(
+            pool.clone(),
+            CodeFlags { enabled: true },
+            oteryn_wallet::Ledger::new(
+                pool.clone(),
+                WalletFlags { enabled: true },
+                Policy,
+                Policy,
+                Policy,
+            ),
+            premium::repository::Ledger::new(
+                pool.clone(),
+                Arc::new(crate::loyalty::stream::http::DatabaseAccounts),
+                true,
+            ),
+            Policy,
+        );
+        let mut generous = batch(Kind::PremiumDays);
+        generous.max_per_account = 30;
+        generous.max_per_code = 30;
+        let generated = codes
+            .generate(&AuthorizedStaff { actor: issuer }, &generous, 1)
+            .await
+            .unwrap();
+        let request = Redemption {
+            account: player,
+            ..request(&generated.codes[0])
+        };
+        let receipt = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            codes.redeem_player(&request),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let changes = [
+            "UPDATE accounts SET email_change_blocked_until=clock_timestamp()+interval '1 hour' WHERE id=$1",
+            "INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '2 days')",
+            "INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','Redemption regression',now()-interval '1 hour',now()+interval '1 hour',$1)",
+        ];
+        for change in changes {
+            sqlx::query(change)
+                .bind(player)
+                .execute(&pool)
+                .await
+                .unwrap();
+            // An exact replay is distinct from acquisition of new value.
+            assert_eq!(codes.redeem_player(&request).await.unwrap(), receipt);
+            let new_request = Redemption {
+                key: Uuid::now_v7(),
+                ..request.clone()
+            };
+            assert_eq!(codes.redeem_player(&new_request).await, Err(Error::Denied));
+            let counts: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM code_redemptions),(SELECT count(*) FROM premium_ledger)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+            assert_eq!(counts, (1, 1));
+            sqlx::query("UPDATE accounts SET email_change_blocked_until='-infinity' WHERE id=$1")
+                .bind(player)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("UPDATE account_terminations SET cancelled_at=now() WHERE account_id=$1 AND cancelled_at IS NULL").bind(player).execute(&pool).await.unwrap();
+            sqlx::query("UPDATE sanctions SET status='revoked' WHERE account_id=$1")
+                .bind(player)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        // Fill the entire pool with contenders. Each operation must finish using
+        // its sole transaction instead of retaining one connection to request two.
+        let mut tasks = Vec::new();
+        let codes = Arc::new(codes);
+        for _ in 0..16 {
+            let codes = codes.clone();
+            let request = Redemption {
+                key: Uuid::now_v7(),
+                ..request.clone()
+            };
+            tasks.push(tokio::spawn(
+                async move { codes.redeem_player(&request).await },
+            ));
+        }
+        for task in tasks {
+            tokio::time::timeout(std::time::Duration::from_secs(5), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+        }
+        pool.close().await;
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+            .execute(&root)
+            .await
+            .unwrap();
+        root.close().await;
+    }
+    eprintln!(
+        "postgres_a3_browser_premium_redemption_one_connection_and_value_restrictions duration: {:?}",
+        started.elapsed()
+    );
+}

@@ -953,6 +953,10 @@ async fn audit_w2_c02_owner_body_wait_rechecks_epoch_for_every_family() {
             .execute(&mut *lock)
             .await
             .unwrap();
+        let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *lock)
+            .await
+            .unwrap();
         let app = site.clone();
         let cookie = cookie.clone();
         let read = tokio::spawn(async move {
@@ -969,7 +973,7 @@ async fn audit_w2_c02_owner_body_wait_rechecks_epoch_for_every_family() {
         });
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         loop {
-            let blocked:bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT body,%')").fetch_one(&db.admin).await.unwrap();
+            let blocked:bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock' AND query LIKE 'SELECT body,%')").bind(blocker_pid).fetch_one(&db.admin).await.unwrap();
             if blocked {
                 break;
             }

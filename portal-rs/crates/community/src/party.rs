@@ -113,6 +113,7 @@ impl Authority for ProductionAuthority {
                 account,
                 require_staff_mfa: false,
                 mfa_verified: false,
+                session_proof: None,
             };
             for permission in [
                 oteryn_admin::rbac::Permission::Access,

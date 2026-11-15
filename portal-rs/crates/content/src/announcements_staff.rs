@@ -51,15 +51,22 @@ fn routes<A: AccountStateReader + Clone + 'static>(pool: PgPool, accounts: A) ->
 #[derive(askama::Template)]
 #[template(path = "content/announcements.html", config = "src/pages/askama.toml")]
 struct Page {
+    next: u64,
+    more: bool,
     csrf: String,
     action: String,
     version: i64,
     fields: Vec<(String, String, String)>,
     rows: Vec<(Uuid, String, String)>,
 }
-async fn index(State(pool): State<PgPool>) -> Result<Response, StatusCode> {
-    let rows = sqlx::query_as("SELECT id,title,publication_state FROM announcements ORDER BY updated_at DESC,id DESC LIMIT 500").fetch_all(&pool).await.map_err(unavailable)?;
+async fn index(
+    State(pool): State<PgPool>,
+    axum::extract::Query(q): axum::extract::Query<crate::Pagination>,
+) -> Result<Response, StatusCode> {
+    let rows = sqlx::query_as("SELECT id,title,publication_state FROM announcements ORDER BY updated_at DESC,id DESC LIMIT 500 OFFSET $1").bind(q.offset(500)).fetch_all(&pool).await.map_err(unavailable)?;
     Ok(oteryn_web::render(&Page {
+        next: q.next(),
+        more: rows.len() == 500,
         csrf: String::new(),
         action: String::new(),
         version: 0,
@@ -120,6 +127,8 @@ async fn new(Extension(session): Extension<BrowserSession>) -> Result<Response, 
         })
         .collect();
     Ok(oteryn_web::render(&Page {
+        next: 0,
+        more: false,
         csrf: session.csrf_token().await.map_err(unavailable)?,
         action: "/admin/announcements".into(),
         version: 0,
@@ -151,6 +160,8 @@ async fn edit(
         })
         .collect();
     Ok(oteryn_web::render(&Page {
+        next: 0,
+        more: false,
         csrf: session.csrf_token().await.map_err(unavailable)?,
         action: format!("/admin/announcements/{id}/edit"),
         version: row.get("lock_version"),

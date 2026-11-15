@@ -147,7 +147,29 @@ impl StoredChannel {
         let request_id = Uuid::now_v7();
         let stamp = now.format(&Rfc3339).map_err(|_| Error::Unavailable)?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        let auth = rbac::Authorizer::new(
+            self.pool.clone(),
+            web::PortalIdentity::configured(self.pool.clone()),
+        )
+        .with_game_flags(rbac::GamePermissionFlags {
+            enabled: true,
+            deploy: false,
+        });
+        rbac::authorize_mutation(
+            &mut tx,
+            &[actor.account],
+            &auth,
+            actor,
+            &[
+                Permission::Access,
+                permission.parse().map_err(|_| Error::Denied)?,
+            ],
+        )
+        .await
+        .map_err(|error| match error {
+            rbac::Error::Storage(_) => Error::Unavailable,
+            _ => Error::Denied,
+        })?;
         control::store::ownership_lock(&mut tx, true)
             .await
             .map_err(|_| Error::Unavailable)?;
@@ -157,14 +179,6 @@ impl StoredChannel {
         if !owns {
             return Err(Error::Unavailable);
         }
-        let auth = rbac::Authorizer::new(
-            self.pool.clone(),
-            web::PortalIdentity::configured(self.pool.clone()),
-        )
-        .with_game_flags(rbac::GamePermissionFlags {
-            enabled: true,
-            deploy: false,
-        });
         auth.check_in(&mut tx, actor, Permission::Access)
             .await
             .map_err(|_| Error::Denied)?;

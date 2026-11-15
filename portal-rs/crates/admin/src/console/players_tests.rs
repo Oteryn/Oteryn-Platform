@@ -95,6 +95,7 @@ fn actor() -> CheckContext {
         account: Uuid::now_v7(),
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     }
 }
 fn lazy() -> sqlx::PgPool {
@@ -327,6 +328,19 @@ impl crate::web::StaffSession for Browser {
 #[derive(Clone)]
 struct Accounts;
 impl crate::rbac::AccountStateReader for Accounts {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(
         &self,
         _: Uuid,

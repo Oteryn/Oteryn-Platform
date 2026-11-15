@@ -25,6 +25,6 @@
 </select>{% else if field.0 == "severity" %}<select class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{% for severity in ["info", "maintenance", "warning"] %}<option{% if field.2.as_str() == *severity %} selected{% endif %}>{{ severity }}</option>{% endfor %}
 </select>{% else %}<textarea class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{{ field.2 }}</textarea>{% endif %}{% endfor %}
 <button class="op-button">Save / Zapisz</button>
-</form>{% endif %}</main>
+</form>{% endif %}{% if more %}<a href="?page={{ next }}">Next / Następna</a>{% endif %}</main>
 </body>
 </html>

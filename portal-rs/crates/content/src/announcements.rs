@@ -119,8 +119,14 @@ impl Announcements {
         input: Input,
     ) -> Result<Uuid, Error> {
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
-        oteryn_admin::rbac::lock_mutation(&mut tx).await?;
+        oteryn_admin::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account],
+            auth,
+            context,
+            &[Permission::Access, Permission::ManagePortalAnnouncements],
+        )
+        .await?;
         auth.check_in(&mut tx, context, Permission::Access).await?;
         auth.check_in(&mut tx, context, Permission::ManagePortalAnnouncements)
             .await?;

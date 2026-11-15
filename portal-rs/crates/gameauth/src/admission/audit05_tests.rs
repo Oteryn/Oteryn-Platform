@@ -321,7 +321,7 @@ async fn audit05_04_replay_waits_for_account_before_attempt() -> TestResult {
             // Refresh them so the barrier can observe a waiter arriving later.
             sqlx::query("SELECT pg_stat_clear_snapshot()")
                 .execute(&mut *writer).await?;
-            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%accounts WHERE id=%' AND pid<>pg_backend_pid())").fetch_one(&mut *writer).await?;
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pg_backend_pid()=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock' AND query LIKE '%accounts WHERE id=%')").fetch_one(&mut *writer).await?;
             if waiting { break; }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

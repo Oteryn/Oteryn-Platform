@@ -196,7 +196,7 @@ pub trait Backend: Clone + Send + Sync + 'static {
     fn prepare(
         &self,
         _tx: &mut Transaction<'_, Postgres>,
-        _actor: Uuid,
+        _context: CheckContext,
         _id: Uuid,
         _command: &Command,
     ) -> impl Future<Output = Result<(), Error>> + Send {
@@ -221,7 +221,7 @@ pub trait Backend: Clone + Send + Sync + 'static {
     fn apply(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        actor: Uuid,
+        context: CheckContext,
         id: Uuid,
         version: i64,
         command: &Command,
@@ -239,7 +239,7 @@ impl Backend for PendingSupport {
     async fn apply(
         &self,
         _: &mut Transaction<'_, Postgres>,
-        _: Uuid,
+        _: CheckContext,
         _: Uuid,
         _: i64,
         _: &Command,
@@ -276,19 +276,22 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
     }
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
     // Preparation precedes the RBAC fence, but retains its bounded lock waits.
-    sqlx::query("SET LOCAL lock_timeout = '3s'")
-        .execute(&mut *tx)
+    crate::rbac::mutation_budget(&mut tx)
         .await
         .map_err(|_| Error::Unavailable)?;
-    backend
-        .prepare(&mut tx, context.account, id, command)
-        .await?;
-    crate::rbac::lock_accounts(&mut tx, &[context.account])
-        .await
-        .map_err(|_| Error::Unavailable)?;
-    crate::rbac::lock_mutation(&mut tx)
-        .await
-        .map_err(|_| Error::Unavailable)?;
+    backend.prepare(&mut tx, context, id, command).await?;
+    crate::rbac::authorize_mutation(
+        &mut tx,
+        &[context.account],
+        auth,
+        context,
+        &[Permission::Access, command.area().permission()],
+    )
+    .await
+    .map_err(|error| match error {
+        crate::rbac::Error::Storage(_) => Error::Unavailable,
+        _ => Error::Denied,
+    })?;
     for permission in [Permission::Access, command.area().permission()] {
         auth.check_in(&mut tx, context, permission)
             .await
@@ -298,7 +301,7 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
             })?;
     }
     let (before, after) = backend
-        .apply(&mut tx, context.account, id, version, command)
+        .apply(&mut tx, context, id, version, command)
         .await?;
     audit::append(
         &mut tx,

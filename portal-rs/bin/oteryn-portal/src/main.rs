@@ -589,3 +589,7 @@ fn with_proxy_policy(
 }
 #[cfg(test)]
 mod audit_l9_tests;
+
+#[cfg(test)]
+#[path = "../../../crates/admin/src/test_staff.rs"]
+pub mod test_staff;

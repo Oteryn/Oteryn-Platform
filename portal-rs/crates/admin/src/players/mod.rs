@@ -285,8 +285,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         self.target(id).await?;
         valid_text(body, 4000)?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, id],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageSupportTickets],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         let note: Uuid = sqlx::query_scalar(
@@ -319,8 +325,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, id],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageSupportTickets],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         self.accounts.revoke_all(&mut tx, id).await?;
@@ -344,8 +356,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, id],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::KickAccountSessions],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::KickAccountSessions)
             .await?;
         let generation = oteryn_identity::security_revocations::staff_kick(&mut tx, id)
@@ -416,8 +434,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_id(hold)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, id],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ReleaseCoinPurchaseHold],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ReleaseCoinPurchaseHold)
             .await?;
         let receipt: Option<Uuid> = sqlx::query_scalar(
@@ -488,8 +512,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
                 .fetch_optional(&mut *tx)
                 .await?
                 .ok_or(Error::NotFound)?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, target]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, target],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageSupportTickets],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         if target == context.account || expected.is_some_and(|id| id != target) {
@@ -523,8 +553,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             return Err(Error::Denied);
         }
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, id],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageSupportTickets],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         if !self.accounts.verified(&mut tx, id, evidence).await? {
@@ -552,6 +588,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_id(request)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let requester: Uuid = sqlx::query_scalar(
             "SELECT requested_by FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2",
         )
@@ -560,8 +597,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(Error::Denied)?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id, requester]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, id, requester],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageRoles],
+        )
+        .await?;
         let row: Option<(Uuid,Uuid)> = sqlx::query_as("SELECT requested_by,evidence FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2 AND approved_by IS NULL AND expires_at>clock_timestamp() FOR UPDATE").bind(request).bind(id).fetch_optional(&mut *tx).await?;
         let (requester, evidence) = row.ok_or(Error::Denied)?;
         if context.account == requester || context.account == id {
@@ -569,15 +612,11 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         }
         self.check_in(&mut tx, context, Permission::ManageRoles)
             .await?;
-        self.check_in(
-            &mut tx,
-            CheckContext {
-                account: requester,
-                ..context
-            },
-            Permission::ManageSupportTickets,
-        )
-        .await?;
+        for permission in [Permission::Access, Permission::ManageSupportTickets] {
+            self.auth
+                .check_subject_in(&mut tx, requester, permission)
+                .await?;
+        }
         if !self.accounts.verified(&mut tx, id, evidence).await? {
             return Err(Error::Denied);
         }

@@ -6,6 +6,21 @@ use axum::{
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
+#[derive(Clone)]
+struct PausedCodeSession {
+    identity: oteryn_admin::web::PortalIdentity,
+    authenticated: Arc<tokio::sync::Notify>,
+    resume: Arc<tokio::sync::Notify>,
+}
+impl oteryn_admin::web::StaffSession for PausedCodeSession {
+    async fn resolve(&self, session: &BrowserSession) -> Option<oteryn_admin::web::StaffIdentity> {
+        let identity = oteryn_admin::web::StaffSession::resolve(&self.identity, session).await?;
+        self.authenticated.notify_one();
+        self.resume.notified().await;
+        Some(identity)
+    }
+}
+
 #[tokio::test]
 async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_items()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -43,7 +58,7 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
     let csrf = oteryn_identity::mfa::random_token()?;
     sqlx::query("INSERT INTO account_mfa_totp(account_id,secret,confirmed,generation) VALUES($1,$2,true,$3)").bind(actor).bind(Sha256::digest(grant.as_bytes()).to_vec()).bind(generation).execute(&pool).await?;
     sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '10 minutes')").bind(oteryn_identity::mfa::digest(&grant)).bind(actor).bind(generation).bind(oteryn_identity::mfa::digest("test-credential-hash")).execute(&pool).await?;
-    sqlx::query("INSERT INTO web_sessions(id_hash,csrf_token,account_id,data,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,$4,'code-dispatch-test',now()+interval '10 minutes',now()+interval '1 hour')").bind(Sha256::digest(cookie.as_bytes()).to_vec()).bind(&csrf).bind(actor).bind(serde_json::json!({"mfa_grant":grant})).execute(&pool).await?;
+    sqlx::query("INSERT INTO web_sessions(id_hash,csrf_token,account_id,data,user_agent_summary,idle_expires_at,absolute_expires_at,authorization_generation) VALUES($1,$2,$3,$4,'code-dispatch-test',now()+interval '10 minutes',now()+interval '1 hour',(SELECT native_security_generation FROM accounts WHERE id=$3))").bind(Sha256::digest(cookie.as_bytes()).to_vec()).bind(&csrf).bind(actor).bind(serde_json::json!({"mfa_grant":grant})).execute(&pool).await?;
     let config = |key: &str| match key {
         "OTERYN_STORE_CODES_ENABLED" | "OTERYN_ADMIN_PANEL" | "OTERYN_WALLET_ENABLED" => {
             Some("true".into())
@@ -64,7 +79,41 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
     };
     let now = OffsetDateTime::now_utc().unix_timestamp();
     let batch = serde_json::json!({"kind":"coins","amount":7,"count":1,"max_per_code":1,"max_per_account":1,"valid_from":now-60,"valid_until":now+3600,"note":"Dispatch regression"});
-    let response = send("/en/admin/store/codes", batch.clone())?.await?;
+    let identity = oteryn_admin::web::PortalIdentity::configured_from(pool.clone(), &config);
+    let authenticated = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let paused = oteryn_admin::web::guarded(
+        Router::new()
+            .route(GENERATE, post(generate))
+            .with_state(context(pool.clone(), true)),
+        pool.clone(),
+        oteryn_admin::web::PanelConfig {
+            admin_panel: true,
+            host: "admin.example.test".into(),
+        },
+        PausedCodeSession {
+            identity: identity.clone(),
+            authenticated: authenticated.clone(),
+            resume: resume.clone(),
+        },
+        identity,
+        oteryn_admin::rbac::Permission::GenerateStoreCodes,
+    );
+    let issue = Request::post("/en/admin/store/codes")
+        .header("host", "admin.example.test")
+        .header("origin", "https://admin.example.test")
+        .header("cookie", format!("__Host-oteryn_session={cookie}"))
+        .header("x-csrf-token", &csrf)
+        .header("content-type", "application/json")
+        .body(Body::from(batch.to_string()))?;
+    let issue = tokio::spawn(async move { paused.oneshot(issue).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), authenticated.notified()).await?;
+    let response = crate::test_staff::race_account_before_fence(&pool, actor, async move {
+        resume.notify_one();
+        issue.await
+    })
+    .await
+    .map_err(|e| e as Box<dyn std::error::Error>)???;
     assert_eq!(response.status(), StatusCode::OK);
     let result: serde_json::Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 8192).await?)?;
@@ -104,6 +153,38 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
             .await?,
         0
     );
+    let mut premium_batch = batch.clone();
+    premium_batch["kind"] = "premium_days".into();
+    premium_batch["max_per_code"] = 4.into();
+    let response = send("/en/admin/store/codes", premium_batch)?.await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let premium_code: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 8192).await?)?;
+    for restriction in [
+        "UPDATE accounts SET email_change_blocked_until=now()+interval '1 hour' WHERE id=$1",
+        "INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '2 days')",
+        "INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','Restricted code acquisition',now()-interval '1 hour',now()+interval '1 hour',$1)",
+    ] {
+        let player = Uuid::now_v7();
+        sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,$2,now(),'player-test-credential','active','en')")
+            .bind(player).bind(format!("{player}@example.invalid")).execute(&pool).await?;
+        let bearer = oteryn_identity::mfa::random_token()?;
+        let player_csrf = oteryn_identity::mfa::random_token()?;
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at,authorization_generation) SELECT $1,id,$2,'premium-code-browser',now()+interval '1 hour',now()+interval '1 day',native_security_generation FROM accounts WHERE id=$3")
+            .bind(Sha256::digest(bearer.as_bytes()).to_vec()).bind(&player_csrf).bind(player).execute(&pool).await?;
+        sqlx::query(restriction).bind(player).execute(&pool).await?;
+        let before:(i64,i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM code_redemptions),(SELECT count(*) FROM premium_ledger),(SELECT count(*) FROM audit_log)").fetch_one(&pool).await?;
+        let response=app.clone().oneshot(Request::post("/en/shop/codes/redeem")
+            .header("host","admin.example.test").header("origin","https://admin.example.test")
+            .header("cookie",format!("__Host-oteryn_session={bearer}")).header("x-csrf-token",player_csrf)
+            .header("content-type","application/json").body(Body::from(serde_json::json!({"code":premium_code["codes"][0],"operation":Uuid::now_v7()}).to_string()))?).await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let after:(i64,i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM code_redemptions),(SELECT count(*) FROM premium_ledger),(SELECT count(*) FROM audit_log)").fetch_one(&pool).await?;
+        assert_eq!(
+            before, after,
+            "restricted browser acquisition must have no reward or audit effect"
+        );
+    }
     sqlx::query("DELETE FROM role_permissions WHERE permission='store.codes.generate'")
         .execute(&pool)
         .await?;

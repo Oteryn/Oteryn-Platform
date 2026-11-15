@@ -13,6 +13,19 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy)]
 struct Accounts(Result<AccountState, AccountStateUnavailable>);
 impl AccountStateReader for Accounts {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         self.0
     }
@@ -23,6 +36,7 @@ fn verified(account: Uuid) -> CheckContext {
         account,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     }
 }
 
@@ -544,6 +558,19 @@ struct TargetState {
     state: Result<AccountState, AccountStateUnavailable>,
 }
 impl AccountStateReader for TargetState {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, account: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         if account == self.target {
             self.state
@@ -966,9 +993,14 @@ async fn db_transaction_authorization_one_connection_identity_read() {
     let db = Database::open()
         .await
         .expect("PORTAL_TEST_DATABASE_URL required");
-    let actor = db.manager().await;
+    let mut actor = db.manager().await;
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'pool-test@local.test','unused','active','en',now())")
         .bind(actor.account).execute(&db.pool).await.unwrap();
+    actor.session_proof = Some(
+        crate::test_staff::proof(&db.pool, actor.account)
+            .await
+            .unwrap(),
+    );
     let pool = bounded_pool(&db, 1).await;
     let auth = Authorizer::new(
         pool.clone(),

@@ -9,6 +9,19 @@ use tower::ServiceExt;
 #[derive(Clone)]
 struct Accounts;
 impl AccountStateReader for Accounts {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         Ok(AccountState::Active)
     }
@@ -85,17 +98,35 @@ async fn postgres_announcements_and_today() {
     oteryn_db::migrate(&pool).await.unwrap();
     let service = Announcements::new(pool.clone());
     let actor = Uuid::now_v7();
-    let context = CheckContext {
+    let mut context = CheckContext {
         account: actor,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     };
-    let auth = Authorizer::new(pool.clone(), Accounts);
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'announcement-password','active','en',now())").bind(actor).bind(format!("{actor}@example.invalid")).execute(&pool).await.unwrap();
+    context.session_proof = Some(crate::test_staff::proof(&pool, actor).await.unwrap());
+    let auth = Authorizer::new(
+        pool.clone(),
+        oteryn_admin::web::PortalIdentity::configured(pool.clone()),
+    );
     assert!(matches!(
         service.save(&auth, context, None, input()).await,
         Err(Error::Authorization(_))
     ));
     sqlx::query("INSERT INTO account_roles (account_id,role_id) SELECT $1,id FROM roles WHERE key='content_editor'").bind(actor).execute(&pool).await.unwrap();
+    let op_service = Announcements::new(pool.clone());
+    let op_auth = auth.clone();
+    let result = crate::test_staff::race_session_revocation(&pool, actor, async move {
+        op_service.save(&op_auth, context, None, input()).await
+    })
+    .await
+    .unwrap();
+    assert!(matches!(
+        result,
+        Err(Error::Authorization(oteryn_admin::rbac::Error::Denied))
+    ));
+    context.session_proof = Some(crate::test_staff::proof(&pool, actor).await.unwrap());
     let id = service.save(&auth, context, None, input()).await.unwrap();
     let at = OffsetDateTime::now_utc();
     assert_eq!(service.active("en", at, 5).await.unwrap().len(), 1);

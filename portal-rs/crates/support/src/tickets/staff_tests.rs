@@ -93,7 +93,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .bind(oteryn_identity::mfa::digest(&grant)).bind(staff).bind(generation).bind(oteryn_identity::mfa::digest("synthetic-hash")).execute(&pool).await?;
     let bearer = oteryn_identity::mfa::random_token()?;
     let csrf = "a".repeat(64);
-    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 hour','test',$3,$4)")
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 hour','test',$3,$4,(SELECT native_security_generation FROM accounts WHERE id=$2))")
         .bind(oteryn_identity::mfa::digest(&bearer)).bind(staff).bind(&csrf).bind(serde_json::json!({"mfa_grant":grant})).execute(&pool).await?;
     let cookie = format!("__Host-oteryn_session={bearer}");
     let ticket: Uuid = sqlx::query_scalar("INSERT INTO tickets(account_id,request_key,category,subject) VALUES($1,$2,'account','Existing ticket') RETURNING id").bind(owner).bind(Uuid::now_v7()).fetch_one(&pool).await?;
@@ -605,11 +605,11 @@ impl oteryn_admin::support::Backend for PausedPreparation {
     async fn prepare(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        actor: Uuid,
+        context: oteryn_admin::rbac::CheckContext,
         id: Uuid,
         command: &oteryn_admin::support::Command,
     ) -> std::result::Result<(), oteryn_admin::support::Error> {
-        self.backend.prepare(tx, actor, id, command).await?;
+        self.backend.prepare(tx, context, id, command).await?;
         self.prepared.notify_one();
         self.resume.notified().await;
         Ok(())
@@ -632,13 +632,13 @@ impl oteryn_admin::support::Backend for PausedPreparation {
     async fn apply(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        actor: Uuid,
+        context: CheckContext,
         id: Uuid,
         version: i64,
         command: &oteryn_admin::support::Command,
     ) -> std::result::Result<(serde_json::Value, serde_json::Value), oteryn_admin::support::Error>
     {
-        self.backend.apply(tx, actor, id, version, command).await
+        self.backend.apply(tx, context, id, version, command).await
     }
 }
 #[tokio::test]
@@ -691,6 +691,7 @@ async fn postgres_ticket_preparation_and_player_note_share_account_order() -> Te
         account: actor,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: Some(crate::test_staff::proof(&pool, actor).await?),
     };
     let reply_pool = pool.clone();
     let reply = tokio::spawn(async move {

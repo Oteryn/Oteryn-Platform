@@ -207,6 +207,7 @@ async fn authorize<I: StaffSession, A: AccountStateReader>(
             account: identity.account,
             require_staff_mfa: true,
             mfa_verified: identity.mfa_satisfied,
+            session_proof: None,
         };
         allowed = identity.mfa_satisfied
             && s.auth.check(context, Permission::Access).await.is_ok()
