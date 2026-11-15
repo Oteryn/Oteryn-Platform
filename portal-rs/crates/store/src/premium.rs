@@ -4,6 +4,9 @@ use uuid::Uuid;
 
 #[path = "premium_http.rs"]
 pub mod http;
+/// Profile-B authority wire (`oteryn-v2-profile-b-authority-wire-v1`).
+#[path = "premium_profile_b.rs"]
+pub mod profile_b;
 pub mod repository;
 #[path = "premium_wire.rs"]
 pub mod wire;
