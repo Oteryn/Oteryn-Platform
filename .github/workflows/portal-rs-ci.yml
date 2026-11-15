@@ -6,12 +6,16 @@ on:
       - main
     paths:
       - 'portal-rs/**'
+      # Rust tests read committed contract fixtures and documents byte for byte.
+      - 'docs/contracts/**'
       - '.github/workflows/portal-rs-ci.yml'
   push:
     branches:
       - main
     paths:
       - 'portal-rs/**'
+      # Rust tests read committed contract fixtures and documents byte for byte.
+      - 'docs/contracts/**'
       - '.github/workflows/portal-rs-ci.yml'
 
 permissions:
@@ -67,3 +71,44 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked
+
+      - name: Install browser qualification dependencies
+        # Pinned Playwright core and axe for the browser tests below; Chromium comes from the same
+        # Playwright release so the driver and browser versions match.
+        working-directory: .
+        run: |
+          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/browser" \
+            playwright-core@1.63.0 @axe-core/playwright@4.14.0
+          "$RUNNER_TEMP/browser/node_modules/.bin/playwright-core" install --with-deps chromium
+          chromium="$(node -e "console.log(require('$RUNNER_TEMP/browser/node_modules/playwright-core').chromium.executablePath())")"
+          test -x "$chromium"
+          {
+            echo "PORTAL_BROWSER_NODE=$(command -v node)"
+            echo "PORTAL_BROWSER_MODULES=$RUNNER_TEMP/browser"
+            echo "CHROMIUM_PATH=$chromium"
+            echo "PORTAL_ATLAS_BROWSER_NODE=$(command -v node)"
+            echo "PORTAL_ATLAS_PLAYWRIGHT_MODULE=$RUNNER_TEMP/browser/node_modules/playwright-core"
+            echo "PORTAL_ATLAS_CHROMIUM=$chromium"
+          } >> "$GITHUB_ENV"
+
+      - name: Run browser qualification tests
+        # These tests drive real pages in Chromium. They are #[ignore]d for local runs without a
+        # browser and run here explicitly; the atlas test runs its browser assertions when
+        # PORTAL_ATLAS_BROWSER_NODE is set.
+        run: |
+          # A filter that matches nothing passes, so each run must report the expected count.
+          run() {
+            expected="$1"; shift
+            cargo test --locked "$@" 2>&1 | tee "$RUNNER_TEMP/browser-test.log"
+            test "${PIPESTATUS[0]}" -eq 0
+            passed="$(grep -Eo 'test result: ok\. [0-9]+ passed' "$RUNNER_TEMP/browser-test.log" | awk '{s+=$4} END {print s+0}')"
+            if [ "$passed" -ne "$expected" ]; then
+              echo "expected $expected browser tests to pass, got $passed" >&2
+              exit 1
+            fi
+          }
+          run 1 -p oteryn-web postgres_browser_search_keyboard_and_accessibility -- --ignored
+          run 1 -p oteryn-store postgres_browser_at_360px -- --ignored
+          run 1 -p oteryn-portal --bin oteryn-portal postgres_dummy_checkout_browser_360px -- --ignored
+          run 1 -p oteryn-payments db_browser_layout_labels_and_keyboard_at_360px -- --ignored
+          run 1 -p oteryn-atlas postgres_spawns_private_markers_and_reports
