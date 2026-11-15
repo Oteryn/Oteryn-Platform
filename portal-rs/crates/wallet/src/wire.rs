@@ -457,7 +457,7 @@ async fn execute<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook>(
         }
         _ => {
             let a = id(&value, "seller_account_id", false)?;
-            ledger.coin_account(a).await?;
+            ledger.coin_return_account(a).await?;
             ledger
                 .release(key, a, id(&value, "reservation_id", true)?)
                 .await?

@@ -183,7 +183,9 @@ pub enum Action {
     Activate,
 }
 /// Implementations must read current state and RBAC through the supplied transaction.
-/// Missing, conflicting or unavailable account state must return Unknown or an error.
+/// The account-state check must lock the actor until transaction end, before the
+/// store acquires the shared RBAC writer fence. Missing, conflicting or unavailable
+/// account state must return Unknown or an error.
 pub trait CatalogAccess: Sync {
     fn account_state(
         &self,
@@ -217,10 +219,20 @@ impl CatalogStore {
         access: &impl CatalogAccess,
         connection: &mut PgConnection,
     ) -> Result<(), Error> {
-        if actor.is_nil()
-            || access.account_state(actor, connection).await? != AccountState::Active
-            || !access.permitted(actor, action, connection).await?
+        if actor.is_nil() || access.account_state(actor, connection).await? != AccountState::Active
         {
+            return Err(Error::Denied);
+        }
+        // Account first, then the same fence used exclusively by role writers.
+        // Keep this shared lock through permission checking and catalog commit,
+        // so a revocation cannot overtake an already-authorized mutation.
+        sqlx::query("SET LOCAL lock_timeout = '3s'")
+            .execute(&mut *connection)
+            .await?;
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(71010)")
+            .execute(&mut *connection)
+            .await?;
+        if !access.permitted(actor, action, connection).await? {
             return Err(Error::Denied);
         }
         Ok(())

@@ -928,11 +928,22 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
     /// Wire preflight distinguishes absent identity from inactive and unavailable
     /// authority. Every mutation repeats authorization in its own transaction.
     pub async fn coin_account(&self, account: Uuid) -> Result<(), Error> {
+        self.coin_account_preflight(account, false).await
+    }
+    /// Existing holds may return to suspended holders; missing identities still
+    /// receive the ordinary wire refusal before the transactional ownership check.
+    pub async fn coin_return_account(&self, account: Uuid) -> Result<(), Error> {
+        self.coin_account_preflight(account, true).await
+    }
+    async fn coin_account_preflight(&self, account: Uuid, safe_return: bool) -> Result<(), Error> {
         self.enabled()?;
         valid_id(account)?;
         let mut tx = self.pool.begin().await?;
         let result = match self.accounts.state(&mut tx, account).await {
             AccountState::Active => Ok(()),
+            AccountState::Inactive if safe_return => {
+                Self::active_state(self.accounts.safe_return(&mut tx, account).await)
+            }
             AccountState::Inactive => Err(Refusal::AccountDenied.into()),
             AccountState::Unknown => Err(Refusal::UnknownAccount.into()),
             AccountState::Unavailable => Err(Refusal::TransferStateUnknown.into()),

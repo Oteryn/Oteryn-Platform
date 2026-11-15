@@ -813,3 +813,87 @@ async fn l6_02_production_value_replays_check_current_transfer_permission() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn sw3_02_suspended_seller_cancels_through_coin_router() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("real PostgreSQL required");
+    let seller = id();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',now(),'en')").bind(seller).execute(&db.pool).await.unwrap();
+    fund(&db.ledger(&[seller]), seller, 1000).await;
+    let ledger = Ledger::new(
+        db.pool.clone(),
+        WalletFlags { enabled: true },
+        wire::DatabasePolicy,
+        wire::DatabasePolicy,
+        wire::DatabasePolicy,
+    );
+    let reservation = id();
+    ledger
+        .reserve_offer(reservation, seller, 200, 100)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(seller)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let app = wire::router(ledger, enabled(), map());
+    let mut body = parse(&fixture("cancellations-request.json"));
+    set(&mut body, "operation_id", Value::String(id().to_string()));
+    set(
+        &mut body,
+        "seller_account_id",
+        Value::String(seller.to_string()),
+    );
+    set(
+        &mut body,
+        "reservation_id",
+        Value::String(reservation.to_string()),
+    );
+    let other = id();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',now(),'en')").bind(other).execute(&db.pool).await.unwrap();
+    for (seller, refusal) in [(id(), "unknown_account"), (other, "invalid")] {
+        let mut invalid = body.clone();
+        set(
+            &mut invalid,
+            "seller_account_id",
+            Value::String(seller.to_string()),
+        );
+        let response = call(
+            app.clone(),
+            "/internal/v1/coins/market/cancellations",
+            Some(canonical::encode(&invalid).unwrap()),
+            true,
+        )
+        .await;
+        assert_eq!(member(&parse(&response.1), "result"), refusal);
+    }
+    let body = canonical::encode(&body).unwrap();
+    let first = call(
+        app.clone(),
+        "/internal/v1/coins/market/cancellations",
+        Some(body.clone()),
+        true,
+    )
+    .await;
+    assert_eq!(first.0, StatusCode::OK, "{:?}", first);
+    let replay = call(
+        app,
+        "/internal/v1/coins/market/cancellations",
+        Some(body),
+        true,
+    )
+    .await;
+    assert_eq!(replay.0, StatusCode::OK);
+    let mut expected = parse(&first.1);
+    set(&mut expected, "result", Value::String("replay".into()));
+    assert_eq!(canonical::encode(&expected).unwrap(), replay.1);
+    let totals: (i64,i64) = sqlx::query_as("SELECT sum(available_delta)::bigint,sum(reserved_delta)::bigint FROM wallet_entries WHERE account_id=$1").bind(seller).fetch_one(&db.pool).await.unwrap();
+    assert_eq!(totals, (1000, 0));
+    db.close().await;
+    eprintln!(
+        "PG sw3_02_suspended_seller_cancels_through_coin_router {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
