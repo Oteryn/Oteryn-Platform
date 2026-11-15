@@ -167,6 +167,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_wiki::web::configured_router(db.clone())?);
             let app = app.merge(oteryn_world::admin::configured_router(db.clone())?);
             let app = app.merge(oteryn_content::news::configured_router(db.clone())?);
+            let app = app.merge(oteryn_content::announcements::configured_router(
+                db.clone(),
+            )?);
             let app = app.merge(oteryn_stats::character::http::configured_router(db.clone()));
             let app = app.merge(oteryn_stats::watch::http::configured_router(db.clone()));
             let app = app.merge(oteryn_stats::rankings::configured_router(db.clone()));

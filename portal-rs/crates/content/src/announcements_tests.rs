@@ -59,6 +59,7 @@ fn input_and_action_validation() {
 }
 #[tokio::test]
 async fn postgres_announcements_and_today() {
+    let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL announcements test: PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -283,4 +284,305 @@ async fn postgres_announcements_and_today() {
         .execute(&root)
         .await
         .unwrap();
+    eprintln!(
+        "postgres_announcements_and_today duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[derive(Clone)]
+struct Staff(Uuid, bool);
+impl oteryn_admin::web::StaffSession for Staff {
+    async fn resolve(
+        &self,
+        _: &oteryn_web::session::BrowserSession,
+    ) -> Option<oteryn_admin::web::StaffIdentity> {
+        Some(oteryn_admin::web::StaffIdentity {
+            account: self.0,
+            mfa_satisfied: self.1,
+        })
+    }
+}
+#[tokio::test]
+async fn postgres_staff_announcement_dispatch() {
+    let started = std::time::Instant::now();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")
+        .expect("PORTAL_TEST_DATABASE_URL required for staff announcement dispatch");
+    let root = PgPool::connect(&url).await.unwrap();
+    let schema = format!("t11d_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&root)
+        .await
+        .unwrap();
+    let path = format!("SET search_path TO {schema}");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .after_connect(move |c, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query(sqlx::AssertSqlSafe(path)).execute(c).await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+
+    let actor = Uuid::now_v7();
+    let app = |enabled, host: &str, mfa| {
+        staff_router(
+            pool.clone(),
+            oteryn_admin::web::PanelConfig {
+                admin_panel: enabled,
+                host: host.into(),
+            },
+            Staff(actor, mfa),
+            Accounts,
+        )
+    };
+    let get = |path: &str| {
+        Request::get(path)
+            .header("host", "staff.test")
+            .body(Body::empty())
+            .unwrap()
+    };
+    assert_eq!(
+        app(false, "staff.test", true)
+            .oneshot(get("/admin/announcements/create"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        app(true, "other.test", true)
+            .oneshot(get("/admin/announcements/create"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        app(true, "staff.test", true)
+            .oneshot(get("/admin/announcements/create"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='content_editor'").bind(actor).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM role_permissions WHERE permission='portal.announcements.manage'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        app(true, "staff.test", true)
+            .oneshot(get("/admin/announcements/create"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) SELECT id,'portal.announcements.manage' FROM roles WHERE key='content_editor'").execute(&pool).await.unwrap();
+    assert_eq!(
+        app(true, "staff.test", false)
+            .oneshot(get("/admin/announcements/create"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let response = app(true, "staff.test", true)
+        .oneshot(get("/admin/announcements/create"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let token = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let send = |path: String, token: &str, version, state: &str, title: &str, translation: &str| {
+        Request::post(path).header("host","staff.test").header("origin","https://staff.test").header("cookie",&cookie).header("content-type","application/x-www-form-urlencoded").body(Body::from(format!("_csrf={token}&lock_version={version}&publication_state={state}&severity=info&starts_at=2026-01-01T00:00:00Z&title={title}&body=Body&title_pl=Tytul&body_pl=Tresc&translation_published_at={translation}"))).unwrap()
+    };
+    let service = Announcements::new(pool.clone());
+    assert_eq!(
+        app(true, "staff.test", true)
+            .oneshot(send(
+                "/admin/announcements".into(),
+                "bad",
+                0,
+                "draft",
+                "Original",
+                ""
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let r = app(true, "staff.test", true)
+        .oneshot(send(
+            "/admin/announcements".into(),
+            token,
+            0,
+            "draft",
+            "Original",
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::SEE_OTHER);
+    let path = r.headers()["location"].to_str().unwrap().to_owned();
+    assert!(
+        service
+            .active("en", OffsetDateTime::now_utc(), 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    for (version, state, title, translation, status, visible, polish) in [
+        (
+            1,
+            "published",
+            "Original",
+            "2026-01-01T00:00:00Z",
+            StatusCode::SEE_OTHER,
+            true,
+            true,
+        ),
+        (1, "draft", "Stale", "", StatusCode::CONFLICT, true, true),
+        (
+            2,
+            "published",
+            "Edited",
+            "2026-01-01T00:00:00Z",
+            StatusCode::SEE_OTHER,
+            true,
+            false,
+        ),
+        (
+            3,
+            "published",
+            "Edited",
+            "2026-01-02T00:00:00Z",
+            StatusCode::SEE_OTHER,
+            true,
+            true,
+        ),
+        (
+            4,
+            "draft",
+            "Edited",
+            "",
+            StatusCode::SEE_OTHER,
+            false,
+            false,
+        ),
+    ] {
+        assert_eq!(
+            app(true, "staff.test", true)
+                .oneshot(send(
+                    path.clone(),
+                    token,
+                    version,
+                    state,
+                    title,
+                    translation
+                ))
+                .await
+                .unwrap()
+                .status(),
+            status
+        );
+        assert_eq!(
+            !service
+                .active("en", OffsetDateTime::now_utc(), 10)
+                .await
+                .unwrap()
+                .is_empty(),
+            visible
+        );
+        assert_eq!(
+            !service
+                .active("pl", OffsetDateTime::now_utc(), 10)
+                .await
+                .unwrap()
+                .is_empty(),
+            polish
+        );
+        let response = crate::today::router(pool.clone())
+            .oneshot(Request::get("/en/today").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), 100000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        let expected = if version <= 1 { "Original" } else { "Edited" };
+        assert_eq!(html.contains(expected), visible);
+    }
+    let response = app(true, "staff.test", true)
+        .oneshot(get(&path))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("value=\"5\""));
+    assert_eq!(
+        app(true, "staff.test", true)
+            .oneshot(get("/admin/announcements"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        app(true, "staff.test", true)
+            .oneshot(send(path, token, 5, "published", "Denied", ""))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await
+        .unwrap();
+    eprintln!(
+        "postgres_staff_announcement_dispatch duration: {:?}",
+        started.elapsed()
+    );
 }
