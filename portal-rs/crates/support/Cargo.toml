@@ -29,8 +29,8 @@ uuid = { version = "1", features = ["v7", "serde"] }
 thiserror = "2"
 time = "0.3.47"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+sha2 = "0.10"
+tower = { version = "0.5.3", features = ["util"] }
 
 [dev-dependencies]
-tower = { version = "0.5.3", features = ["util"] }
-sha2 = "0.10"
 serde_urlencoded = "0.7"
