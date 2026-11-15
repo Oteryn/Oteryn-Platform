@@ -222,6 +222,15 @@ fn register_journal_cleanup(registry: &mut Registry, pool: &PgPool) -> Result<()
         Arc::new(oteryn_playerdata::retention::Retention(pool.clone())),
     )
 }
+fn register_security_notifications(
+    registry: &mut Registry,
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(delivery) = crate::sessions_http::delivery(pool)? {
+        registry.notifications(delivery)?;
+    }
+    Ok(())
+}
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
     if std::env::var("OTERYN_ADMIN_COMMERCE").as_deref() == Ok("true")
@@ -289,9 +298,7 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         closure.worker_interval_seconds(),
         Arc::new(closure.terminations),
     )?;
-    if let Some(delivery) = crate::sessions_http::delivery(pool.clone())? {
-        registry.notifications(delivery)?;
-    }
+    register_security_notifications(&mut registry, pool.clone())?;
     registry.cleanup(
         "cleanup.deaths",
         3600,

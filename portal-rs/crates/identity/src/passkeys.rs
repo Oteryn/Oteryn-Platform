@@ -116,12 +116,16 @@ impl Passkeys {
         decode(state)
     }
     /// Browser credential mutations require a fresh password proof for the session owner.
-    pub async fn confirm_password(&self, account: Uuid, password: String) -> Result<(), Error> {
+    pub async fn confirm_password(
+        &self,
+        account: Uuid,
+        password: String,
+    ) -> Result<crate::login::Authorization, Error> {
         let email: Option<String> = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1")
             .bind(account)
             .fetch_optional(&self.pool)
             .await?;
-        let verified = crate::login::authenticate(
+        let verified = crate::login::authenticate_authorized(
             &self.pool,
             crate::login::Credentials {
                 email: email.ok_or(Error::Refused)?,
@@ -129,18 +133,19 @@ impl Passkeys {
             },
         )
         .await?;
-        if verified != Some(account) {
-            return Err(Error::Refused);
-        }
-        Ok(())
+        verified
+            .filter(|proof| proof.account == account)
+            .ok_or(Error::Refused)
     }
-    pub async fn begin_registration(
+    pub async fn begin_registration_authorized(
         &self,
         binding: &str,
-        account: Uuid,
+        proof: crate::login::Authorization,
     ) -> Result<Challenge, Error> {
+        let account = proof.account;
         let mut tx = self.pool.begin().await?;
         eligible(&mut tx, account).await?;
+        mutation_authorized(&mut tx, binding, account, proof.generation).await?;
         let rows: Vec<(Value,)> =
             sqlx::query_as("SELECT credential FROM account_passkeys WHERE account_id=$1")
                 .bind(account)
@@ -168,8 +173,14 @@ impl Passkeys {
         // Request discoverable credentials for account-free login. UV remains required by the library.
         options["publicKey"]["authenticatorSelection"]["residentKey"] = "required".into();
         options["publicKey"]["authenticatorSelection"]["requireResidentKey"] = true.into();
-        self.save(binding, Some(account), "register", &state, options)
-            .await
+        self.save(
+            binding,
+            Some(account),
+            "register",
+            &(state, proof.generation),
+            options,
+        )
+        .await
     }
     pub async fn finish_registration(
         &self,
@@ -177,7 +188,7 @@ impl Passkeys {
         account: Uuid,
         input: Completion,
     ) -> Result<(), Error> {
-        let state: PasskeyRegistration = self
+        let (state, generation): (PasskeyRegistration, i64) = self
             .consume(binding, &input.token, "register", Some(account))
             .await?;
         let response: RegisterPublicKeyCredential = decode(input.credential)?;
@@ -187,6 +198,7 @@ impl Passkeys {
             .map_err(|_| Error::Refused)?;
         let mut tx = self.pool.begin().await?;
         eligible(&mut tx, account).await?;
+        mutation_authorized(&mut tx, binding, account, generation).await?;
         let count: i64 =
             sqlx::query_scalar("SELECT count(*) FROM account_passkeys WHERE account_id=$1")
                 .bind(account)
@@ -279,9 +291,16 @@ impl Passkeys {
         tx.commit().await?;
         Ok(ids)
     }
-    pub async fn remove(&self, account: Uuid, id: Uuid) -> Result<(), Error> {
+    pub async fn remove_authorized(
+        &self,
+        binding: &str,
+        proof: crate::login::Authorization,
+        id: Uuid,
+    ) -> Result<(), Error> {
+        let account = proof.account;
         let mut tx = self.pool.begin().await?;
         eligible(&mut tx, account).await?;
+        mutation_authorized(&mut tx, binding, account, proof.generation).await?;
         let deleted = sqlx::query("DELETE FROM account_passkeys WHERE account_id=$1 AND id=$2")
             .bind(account)
             .bind(id)
@@ -306,6 +325,20 @@ async fn eligible(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(
     let valid: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL AND NOT login_mfa_required FROM accounts WHERE id=$1 FOR UPDATE")
         .bind(account).fetch_optional(&mut **tx).await?;
     if valid != Some(true) {
+        return Err(Error::Refused);
+    }
+    Ok(())
+}
+// The account lock held by eligible serializes this check with every revocation.
+async fn mutation_authorized(
+    tx: &mut Transaction<'_, Postgres>,
+    binding: &str,
+    account: Uuid,
+    generation: i64,
+) -> Result<(), Error> {
+    let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts a JOIN web_sessions s ON s.account_id=a.id WHERE a.id=$1 AND a.native_security_generation=$2 AND s.csrf_token=$3 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp())")
+        .bind(account).bind(generation).bind(binding).fetch_one(&mut **tx).await?;
+    if !valid {
         return Err(Error::Refused);
     }
     Ok(())
