@@ -43,6 +43,28 @@ pub async fn lock_mutation(connection: &mut PgConnection) -> Result<(), sqlx::Er
     Ok(())
 }
 
+/// Lock accounts, then the RBAC fence, within one shared wait budget, so a
+/// writer queued behind a fence holder cannot wait for each lock in turn.
+pub async fn lock_accounts_and_mutation(
+    connection: &mut PgConnection,
+    accounts: &[Uuid],
+) -> Result<(), sqlx::Error> {
+    const BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
+    let started = std::time::Instant::now();
+    lock_accounts(&mut *connection, accounts).await?;
+    let remaining = BUDGET
+        .saturating_sub(started.elapsed())
+        .max(std::time::Duration::from_millis(1));
+    sqlx::query("SELECT set_config('lock_timeout', $1, true)")
+        .bind(format!("{}ms", remaining.as_millis()))
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(connection)
+        .await?;
+    Ok(())
+}
+
 /// Unavailable, missing and conflicting identity state all deny access.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountState {

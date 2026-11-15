@@ -303,14 +303,6 @@ impl Reservations for CoinReservations {
         let mut accounts = [s.buyer, s.seller];
         accounts.sort();
         self.lock_accounts(db, &accounts).await?;
-        // Locking participants also serves safe returns; a sale still needs
-        // current value eligibility for both participants.
-        for account in accounts {
-            if !oteryn_wallet::value_eligible_in(db, account).await? {
-                return Err(Error::Denied);
-            }
-        }
-
         let old: Option<String> = sqlx::query_scalar(
             "SELECT binding FROM bazaar_coin_dispositions WHERE settlement_id=$1 FOR UPDATE",
         )
@@ -318,11 +310,20 @@ impl Reservations for CoinReservations {
         .fetch_optional(&mut *db)
         .await?;
         if let Some(old) = old {
+            // An exact replay finishes an existing obligation (a delivered
+            // capture stays completable after a later suspension).
             return if old == Self::binding(s) {
                 Ok(())
             } else {
                 Err(Error::IdempotencyConflict)
             };
+        }
+        // Locking participants also serves safe returns; a new sale still needs
+        // current value eligibility for both participants.
+        for account in accounts {
+            if !oteryn_wallet::value_eligible_in(db, account).await? {
+                return Err(Error::Denied);
+            }
         }
         let row=sqlx::query("SELECT amount,settlement_id FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(s.reservation).bind(s.buyer).fetch_optional(&mut *db).await?.ok_or(Error::InsufficientFunds)?;
         if row.try_get::<i64, _>("amount")? < s.amount

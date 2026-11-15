@@ -11,7 +11,11 @@ impl AccountStateReader for Active {
         Ok(AccountState::Active)
     }
 }
+// Tests hold the database-wide RBAC fence (advisory lock 71010) while proving
+// bounded waits; run them one at a time so a holder never starves a sibling.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 struct Fixture {
+    _serial: tokio::sync::MutexGuard<'static, ()>,
     pool: PgPool,
     root: PgPool,
     schema: String,
@@ -19,6 +23,7 @@ struct Fixture {
 }
 impl Fixture {
     async fn open(size: u32) -> TestResult<Self> {
+        let serial = SERIAL.lock().await;
         let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
         let root = PgPoolOptions::new()
             .max_connections(5)
@@ -49,6 +54,7 @@ impl Fixture {
         };
         sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor.account).execute(&pool).await?;
         Ok(Self {
+            _serial: serial,
             pool,
             root,
             schema,

@@ -576,13 +576,9 @@ async fn production_proxy_policy_isolates_registration_verification_login_and_se
     );
     assert!(
         include_str!("../../../../deploy/oracle/public-platform.compose.yml")
-            .contains("TRUSTED_PROXIES: 172.18.0.10,172.18.0.5")
+            .contains("TRUSTED_PROXIES: 172.18.0.10\n")
     );
-    let app = crate::with_proxy_policy(
-        app,
-        pool.clone(),
-        TrustedProxies::parse("172.18.0.10,172.18.0.5")?,
-    );
+    let app = crate::with_proxy_policy(app, pool.clone(), TrustedProxies::parse("172.18.0.10")?);
     let response = app
         .clone()
         .oneshot(request("GET", "/en/register", "", "")?)
@@ -626,7 +622,7 @@ async fn production_proxy_policy_isolates_registration_verification_login_and_se
             let mut req = request(method, path, &cookie, &format!("_csrf={csrf}"))?;
             req.headers_mut().insert("x-forwarded-for", client.parse()?);
             req.extensions_mut()
-                .insert(ConnectInfo("172.18.0.5:8000".parse::<SocketAddr>()?));
+                .insert(ConnectInfo("172.18.0.10:8080".parse::<SocketAddr>()?));
             let response = app.clone().oneshot(req).await?;
             assert_eq!(
                 response.status(),
