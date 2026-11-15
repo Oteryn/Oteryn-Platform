@@ -651,3 +651,6 @@ fn coin_listener_apps(app: axum::Router, coins: axum::Router) -> (axum::Router, 
 #[cfg(test)]
 #[path = "coin_listener_tests.rs"]
 mod coin_listener_tests;
+#[cfg(test)]
+#[path = "../../../test-support/rate_clock.rs"]
+mod rate_clock;

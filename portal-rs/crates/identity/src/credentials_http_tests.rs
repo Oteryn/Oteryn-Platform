@@ -141,20 +141,14 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
         .execute(&pool)
         .await?;
     assert_eq!(service.require_sudo(&hash).await?, None);
-    // The limiter uses fixed database-clock windows. Start the 11 charged
-    // requests in the first half of a window so a boundary cannot reset the count.
+    // Advance explicitly to a fresh, frozen bucket before filling its quota.
     let window = NamedPolicy::IdentitySecurityMutation.window_seconds();
-    while sqlx::query_scalar::<_, bool>(
-        "SELECT mod(extract(epoch FROM statement_timestamp()), $1::bigint) * 2 > $1::bigint",
-    )
-    .bind(window)
-    .fetch_one(&pool)
-    .await?
-    {
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    }
+    sqlx::query("UPDATE audit_rate_clock SET instant=instant+$1::bigint*interval '1 second'")
+        .bind(window)
+        .execute(&pool)
+        .await?;
     for _ in 0..10 {
-        let _ = app
+        let response = app
             .clone()
             .oneshot(request(
                 "POST",
@@ -164,6 +158,7 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
                 "current_password=wrong",
             )?)
             .await?;
+        assert_eq!(response.status(), StatusCode::FOUND);
     }
     assert_eq!(
         app.oneshot(request(

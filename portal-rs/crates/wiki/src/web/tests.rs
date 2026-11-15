@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[path = "../../../../test-support/rate_clock.rs"]
+mod rate_clock;
 use super::*;
 use axum::{
     body::{Body, to_bytes},
@@ -47,7 +49,7 @@ impl Database {
             .execute(&root)
             .await
             .unwrap();
-        let path = format!("SET search_path TO {schema}");
+        let path = format!("SET search_path TO {schema},pg_catalog");
         let pool = PgPoolOptions::new()
             .max_connections(5)
             .after_connect(move |c, _| {
@@ -61,6 +63,7 @@ impl Database {
             .await
             .unwrap();
         oteryn_db::migrate(&pool).await.unwrap();
+        rate_clock::install(&pool).await.unwrap();
         let identity = Identity {
             actor: Uuid::now_v7(),
             state: AccountState::Active,

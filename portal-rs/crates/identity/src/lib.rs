@@ -1,5 +1,9 @@
 //! Accounts, passwords, 2FA, passkeys, recovery, e-mail verification and privacy (design T03–T09).
 
+#[cfg(test)]
+#[path = "../../../test-support/rate_clock.rs"]
+mod rate_clock;
+
 pub mod accounts;
 pub mod consents;
 pub mod password;
