@@ -120,6 +120,10 @@ fn enabled() -> Values {
         ("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY", "oteryn:game:primary"),
         ("PORTAL_STATS_ONLINE_INTERVALS_ENABLED", "true"),
         ("PORTAL_STATS_WORLD_TOTALS_ENABLED", "true"),
+        ("PORTAL_G4_SKILLS_INGEST_ENABLED", "true"),
+        ("PORTAL_G4_ACHIEVEMENTS_INGEST_ENABLED", "true"),
+        ("PORTAL_G4_EQUIPMENT_INGEST_ENABLED", "true"),
+        ("PORTAL_G4_OUTFIT_INGEST_ENABLED", "true"),
         (PUBLIC_IDENTITY, PUBLIC),
         ("PORTAL_LCFA_INTERNAL_IDENTITY", LCFA),
         ("PORTAL_PLAYERDATA_G10_INGEST_ENABLED", "true"),
@@ -499,6 +503,91 @@ async fn v2_watermark_reaches_stats_only_for_its_families() -> TestResult {
             (StatusCode::OK, "community".to_owned()),
             "{body}"
         );
+    }
+    Ok(())
+}
+
+/// G-4: the character family routes and their watermarks answer only the
+/// public projection identity, and only with their flags on.
+#[tokio::test]
+async fn g4_character_families_bind_the_public_identity_and_flags() -> TestResult {
+    let path = oteryn_community::v2_watermark::PATH;
+    let app = app_without_lcfa(&enabled()).await?;
+    for family in families::Family::ALL {
+        let route = format!("/internal/v2/game-public/{}", family.path());
+        assert_eq!(
+            call(&app, PUBLIC, &route, "not json").await?.0,
+            StatusCode::BAD_REQUEST,
+            "{route}"
+        );
+        assert_eq!(
+            call(&app, STRANGER, &route, "not json").await?.0,
+            StatusCode::UNAUTHORIZED,
+            "{route}"
+        );
+        assert_eq!(
+            call(&app, STORE, &route, "not json").await?.0,
+            StatusCode::UNAUTHORIZED,
+            "{route}"
+        );
+        let body = format!(r#"{{"family":"{}"}}"#, family.name());
+        assert_eq!(
+            call(&app, PUBLIC, path, &body).await?.0,
+            StatusCode::BAD_REQUEST,
+            "{body}"
+        );
+        assert_eq!(
+            call(&app, STRANGER, path, &body).await?.0,
+            StatusCode::UNAUTHORIZED,
+            "{body}"
+        );
+    }
+    for (flag, family) in [
+        ("PORTAL_G4_SKILLS_INGEST_ENABLED", families::Family::Skills),
+        (
+            "PORTAL_G4_ACHIEVEMENTS_INGEST_ENABLED",
+            families::Family::Achievements,
+        ),
+        (
+            "PORTAL_G4_EQUIPMENT_INGEST_ENABLED",
+            families::Family::Equipment,
+        ),
+        ("PORTAL_G4_OUTFIT_INGEST_ENABLED", families::Family::Outfit),
+    ] {
+        let mut values = enabled();
+        values.remove(flag);
+        let app = app_without_lcfa(&values).await?;
+        let route = format!("/internal/v2/game-public/{}", family.path());
+        assert_eq!(
+            call(&app, PUBLIC, &route, "not json").await?.0,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{flag}"
+        );
+    }
+    for (key, value) in [
+        ("APP_ENV", Some("production")),
+        ("PORTAL_PUBLIC_PROJECTIONS_ENABLED", None),
+    ] {
+        let mut values = enabled();
+        match value {
+            Some(value) => values.insert(key.into(), value.into()),
+            None => values.remove(key),
+        };
+        let app = app_without_lcfa(&values).await?;
+        for family in families::Family::ALL {
+            let route = format!("/internal/v2/game-public/{}", family.path());
+            assert_eq!(
+                call(&app, PUBLIC, &route, "not json").await?.0,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{key}"
+            );
+            let body = format!(r#"{{"family":"{}"}}"#, family.name());
+            assert_eq!(
+                call(&app, PUBLIC, path, &body).await?.0,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{key}"
+            );
+        }
     }
     Ok(())
 }

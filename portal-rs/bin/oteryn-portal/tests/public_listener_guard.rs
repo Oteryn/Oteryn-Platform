@@ -241,6 +241,10 @@ fn public_internal_routes() -> Vec<Route> {
         r#"{"family":"guild"}"#,
         r#"{"family":"house"}"#,
         r#"{"family":"world_daily"}"#,
+        r#"{"family":"character_skills"}"#,
+        r#"{"family":"character_achievements"}"#,
+        r#"{"family":"character_equipment"}"#,
+        r#"{"family":"character_outfit"}"#,
     ] {
         routes.push(Route {
             method: "POST",
@@ -282,6 +286,10 @@ fn public_internal_routes() -> Vec<Route> {
         "/internal/v1/game-auth/native-admissions",
         "/internal/v1/bazaar/status",
         "/internal/v1/game-events",
+        "/internal/v2/game-public/character-skills",
+        "/internal/v2/game-public/character-achievements",
+        "/internal/v2/game-public/character-equipment",
+        "/internal/v2/game-public/character-outfit",
     ] {
         routes.push(post(path, PUBLIC_SAN, 404));
     }
@@ -354,6 +362,11 @@ fn environment(port: u16, evidence_dir: &std::path::Path) -> Vec<(&'static str, 
         // Public projections (v1 ingest and the v2 families).
         ("PORTAL_PUBLIC_PROJECTIONS_ENABLED", "true".to_owned()),
         ("PORTAL_PUBLIC_PROJECTIONS_SAN", PUBLIC_SAN.to_owned()),
+        // G-4 ingest on, so a leak to this listener would answer, not 404.
+        ("PORTAL_G4_SKILLS_INGEST_ENABLED", "true".to_owned()),
+        ("PORTAL_G4_ACHIEVEMENTS_INGEST_ENABLED", "true".to_owned()),
+        ("PORTAL_G4_EQUIPMENT_INGEST_ENABLED", "true".to_owned()),
+        ("PORTAL_G4_OUTFIT_INGEST_ENABLED", "true".to_owned()),
         (
             "PORTAL_PUBLIC_PROJECTIONS_AUTHORITY",
             "game.test".to_owned(),

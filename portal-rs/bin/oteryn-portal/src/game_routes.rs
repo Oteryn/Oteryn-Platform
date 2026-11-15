@@ -16,6 +16,7 @@
 //! | `store/operations/{pending,read,receipt,reconcile}` | `PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED` | `PRODUCTS_ENTITLEMENTS_STORE_MTLS_CLIENT_IDENTITY` |
 //! | `store/{balance/read,history/read,purchases}` | `PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED` with the delivery flag | `PRODUCTS_ENTITLEMENTS_STORE_MTLS_CLIENT_IDENTITY` (one Store identity, store wire contract §4.1) |
 //! | v2 `game-public/{character-online-session,world-daily-kills}` and their watermarks | `PORTAL_PUBLIC_PROJECTIONS_ENABLED` with the G-8 family flags | `PORTAL_PUBLIC_PROJECTIONS_SAN` |
+//! | v2 `game-public/{character-skills,character-achievements,character-equipment,character-outfit}` and their watermarks (G-4) | `PORTAL_PUBLIC_PROJECTIONS_ENABLED` with `PORTAL_G4_{SKILLS,ACHIEVEMENTS,EQUIPMENT,OUTFIT}_INGEST_ENABLED` | `PORTAL_PUBLIC_PROJECTIONS_SAN` |
 //! | `playerdata/journal/{records,cursor}` (G-10) | `PORTAL_PLAYERDATA_G10_INGEST_ENABLED` | `PORTAL_PLAYERDATA_JOURNAL_ITEMS_SAN` |
 //! | `playerdata/progress/{record,watermark}` (G-11) | `PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED` | `PORTAL_PLAYERDATA_JOURNAL_PROGRESS_SAN` |
 //! | `support/enforcement-commands/{stream/read,commands/read,reconcile/read}` | `PORTAL_GAME_ENFORCEMENT_ENABLED` | `PORTAL_GAME_ENFORCEMENT_READER_IDENTITY` |
@@ -46,6 +47,7 @@ use axum::{
     routing::post_service,
 };
 use oteryn_characters::{bootstrap, commands, overview, restore, services};
+use oteryn_community::families;
 use oteryn_internal_api::{
     canonical::{self, Value},
     guard::{Binding, ConfigError, Identity, IdentityMap},
@@ -89,11 +91,17 @@ pub async fn mount(app: Router, pool: PgPool) -> Router {
     routes.mount(app)
 }
 
-/// Built routers; `stats` also answers its own families on the shared v2 watermark path.
+/// Built routers; `stats` and `families` also answer their own families on the
+/// shared v2 watermark path.
 pub struct Routes {
     routes: Router,
-    stats: Router,
+    diverted: Diverted,
     identities_valid: bool,
+}
+#[derive(Clone)]
+struct Diverted {
+    stats: Router,
+    families: Router,
 }
 
 impl Routes {
@@ -235,6 +243,21 @@ impl Routes {
         enforcement_settings.results_enabled &= valid && !on("PORTAL_GAME_RESTORE_NOTICE_ENABLED");
         let enforcement =
             enforcement::router(pool.clone(), enforcement_settings, identities.clone());
+        // G-4 character families: ingest only on this listener; the T24
+        // prerequisite and APP_ENV are checked in `ingest_config`.
+        let mut g4 = families::ingest_config(get);
+        g4.skills &= valid;
+        g4.achievements &= valid;
+        g4.equipment &= valid;
+        g4.outfit &= valid;
+        let g4 = families::ingest_router(pool.clone(), identities.clone(), g4);
+        let mut character_families = Router::new();
+        for family in families::Family::ALL {
+            character_families = character_families.route(
+                &format!("/internal/v2/game-public/{}", family.path()),
+                post_service(g4.clone()),
+            );
+        }
 
         let stats = oteryn_stats::online::router(
             pool,
@@ -268,15 +291,19 @@ impl Routes {
                 .merge(journal)
                 .merge(purchase)
                 .merge(enforcement)
-                .merge(online),
-            stats,
+                .merge(online)
+                .merge(character_families),
+            diverted: Diverted {
+                stats,
+                families: g4,
+            },
             identities_valid: valid,
         }
     }
 
     pub fn mount(self, app: Router) -> Router {
         app.merge(self.routes)
-            .layer(middleware::from_fn_with_state(self.stats, watermark))
+            .layer(middleware::from_fn_with_state(self.diverted, watermark))
     }
 }
 
@@ -355,9 +382,10 @@ struct Peek {
     family: Option<String>,
 }
 
-/// Sends a v2 watermark of a G-8 statistics family to the stats router; every
-/// other request, including other families, continues unchanged.
-async fn watermark(State(stats): State<Router>, request: Request, next: Next) -> Response {
+/// Sends a v2 watermark of a G-8 statistics family to the stats router and one of
+/// a G-4 character family to the families router; every other request, including
+/// other families, continues unchanged.
+async fn watermark(State(diverted): State<Diverted>, request: Request, next: Next) -> Response {
     if request.method() != Method::POST
         || request.uri().path() != oteryn_community::v2_watermark::PATH
     {
@@ -375,16 +403,23 @@ async fn watermark(State(stats): State<Router>, request: Request, next: Next) ->
         oteryn_stats::online::Family::CharacterOnlineSessions,
         oteryn_stats::online::Family::WorldDailyKills,
     ];
-    if statistics
+    let target = if statistics
         .iter()
         .any(|known| family.as_deref() == Some(known.name()))
     {
-        match stats.oneshot(request).await {
-            Ok(response) => response,
-            Err(never) => match never {},
-        }
+        diverted.stats
+    } else if family
+        .as_deref()
+        .and_then(families::Family::from_name)
+        .is_some()
+    {
+        diverted.families
     } else {
-        next.run(request).await
+        return next.run(request).await;
+    };
+    match target.oneshot(request).await {
+        Ok(response) => response,
+        Err(never) => match never {},
     }
 }
 
