@@ -108,9 +108,7 @@ impl RecoveryKeys {
         let account = Self::locked(conn, id).await?;
         let current = current.to_owned();
         let verified =
-            tokio::task::spawn_blocking(move || password::verify(&current, &account.password_hash))
-                .await
-                .map_err(|_| Error::Unavailable)?;
+            expensive(move || password::verify(&current, &account.password_hash)).await?;
         if verified {
             Ok(())
         } else {
@@ -130,8 +128,12 @@ impl RecoveryKeys {
                 raw.push_str(&format!("{byte:02X}"));
             }
         }
+        let normalized = normalize(&raw);
+        let digest = expensive(move || password::hash(&normalized))
+            .await?
+            .map_err(|_| Error::Unavailable)?;
         sqlx::query("INSERT INTO account_recovery_keys (account_id,key_hash) VALUES ($1,$2) ON CONFLICT (account_id) DO UPDATE SET key_hash=EXCLUDED.key_hash,confirmed_at=NULL,used_at=NULL,revoked_at=NULL,created_at=now(),updated_at=now()")
-            .bind(id).bind(password::hash(&normalize(&raw)).map_err(|_| Error::Unavailable)?).execute(&mut *tx).await?;
+            .bind(id).bind(digest).execute(&mut *tx).await?;
         event(&mut tx, id, "generated").await?;
         tx.commit().await?;
         Ok(raw)
@@ -142,7 +144,7 @@ impl RecoveryKeys {
         let mut tx = self.pool.begin().await?;
         Self::authorize(&mut tx, id, current).await?;
         let digest: Option<String>=sqlx::query_scalar("SELECT key_hash FROM account_recovery_keys WHERE account_id=$1 AND confirmed_at IS NULL AND used_at IS NULL AND revoked_at IS NULL").bind(id).fetch_optional(&mut *tx).await?;
-        if !matches_digest(digest, raw) {
+        if !matches_digest(digest, raw).await? {
             return Err(Error::Rejected);
         }
         sqlx::query("UPDATE account_recovery_keys SET confirmed_at=now(),updated_at=now() WHERE account_id=$1").bind(id).execute(&mut *tx).await?;
@@ -182,9 +184,8 @@ impl RecoveryKeys {
         validate_key(raw)?;
         // Hash on every well-formed request, including unknown accounts.
         let new_password = new_password.to_owned();
-        let hash = tokio::task::spawn_blocking(move || password::hash(&new_password))
-            .await
-            .map_err(|_| Error::Unavailable)?
+        let hash = expensive(move || password::hash(&new_password))
+            .await?
             .map_err(|_| Error::Unavailable)?;
         let mut tx = self.pool.begin().await?;
         let id: Option<AccountId> =
@@ -195,7 +196,7 @@ impl RecoveryKeys {
         let id = id.ok_or(Error::Rejected)?;
         Self::locked(&mut tx, id).await?;
         let digest:Option<String>=sqlx::query_scalar("SELECT key_hash FROM account_recovery_keys WHERE account_id=$1 AND confirmed_at IS NOT NULL AND used_at IS NULL AND revoked_at IS NULL").bind(id).fetch_optional(&mut *tx).await?;
-        if !matches_digest(digest, raw) {
+        if !matches_digest(digest, raw).await? {
             return Err(Error::Rejected);
         }
         reset_base(&mut tx, id).await?;
@@ -240,8 +241,27 @@ fn validate_key(raw: &str) -> Result<(), Error> {
     }
 }
 // Argon2 verifies the derived hash with a constant-time comparison.
-fn matches_digest(digest: Option<String>, raw: &str) -> bool {
-    digest.is_some_and(|stored| password::verify(&normalize(raw), &stored))
+async fn matches_digest(digest: Option<String>, raw: &str) -> Result<bool, Error> {
+    let normalized = normalize(raw);
+    expensive(move || digest.is_some_and(|stored| password::verify(&normalized, &stored))).await
+}
+
+// The permit belongs to the blocking closure: cancelling a request must not
+// admit more Argon2 work while its uncancellable computation is still running.
+static ARGON2_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+async fn expensive<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, Error> {
+    let permit = ARGON2_SLOTS
+        .acquire()
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        work()
+    })
+    .await
+    .map_err(|_| Error::Unavailable)
 }
 /// Revoke credentials transactionally before committing recovery.
 pub fn integrated_security(conn: &mut PgConnection, id: AccountId) -> ResetFuture<'_> {

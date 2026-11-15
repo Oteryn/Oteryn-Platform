@@ -28,7 +28,8 @@ text_enum!(Decision { Approved => "approved", Rejected => "rejected" });
 
 impl Status {
     /// Short operations may return a final result directly after delivery.
-    /// Only progress may repeat; terminal states never transition again.
+    /// Only progress may repeat. `record_result` separately reconciles final
+    /// evidence after a local delivery timeout; agent terminal states stay final.
     pub const fn permits(self, next: Self) -> bool {
         matches!(
             (self, next),
@@ -580,13 +581,22 @@ impl Store {
         let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
             .fetch_one(&mut *tx)
             .await?;
+        let mut reconcile = completed_before_expiry(&request, input, now);
+        if reconcile && request.status == Status::Expired {
+            // An agent's terminal expiry is authoritative. Only a local timeout,
+            // with no prior terminal agent result, is ambiguous.
+            let terminal: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_results WHERE request_id=$1 AND status IN ('succeeded','failed','rejected','expired','cancelled'))")
+                .bind(request.request_id).fetch_one(&mut *tx).await?;
+            reconcile = !terminal;
+        }
         if request.status == Status::Delivered
             && request.expires_at <= now
             && input.status != Status::Expired
+            && !reconcile
         {
             return Err(Error::IllegalTransition);
         }
-        if !request.status.permits(input.status) {
+        if !request.status.permits(input.status) && !reconcile {
             return Err(Error::IllegalTransition);
         }
         let result = sqlx::query_as("INSERT INTO admin_control_results
@@ -613,7 +623,9 @@ impl Store {
     }
 
     /// Accepted work is agent-owned. Only undelivered or unacknowledged requests
-    /// expire locally; neither class is ever automatically re-enqueued.
+    /// expire locally; neither class is ever automatically re-enqueued. A
+    /// delivered timeout retains its delivery identity and may be reconciled
+    /// by verified evidence of completion inside the original execution window.
     /// Each invocation handles at most 100 rows; later worker runs drain the backlog.
     pub async fn expire_due(&self) -> Result<u64, Error> {
         self.enabled()?;
@@ -799,3 +811,43 @@ async fn ownership_lock(
     }
     Ok(())
 }
+
+// NewResult is supplied by the trusted signature-verifying ingress. A local
+// delivery timeout is not evidence that the original operation did not finish.
+// Reconcile only final evidence for that same operation, completed during its
+// execution window; this never dispatches or authorizes further execution.
+fn completed_before_expiry(request: &Request, input: &NewResult, now: OffsetDateTime) -> bool {
+    if !matches!(request.status, Status::Delivered | Status::Expired)
+        || request.delivered_at.is_none()
+        || !matches!(
+            input.status,
+            Status::Succeeded | Status::Failed | Status::Rejected | Status::Cancelled
+        )
+    {
+        return false;
+    }
+    let Ok(envelope) =
+        serde_json::from_value::<super::signer::ResultEnvelope>(input.payload.clone())
+    else {
+        return false;
+    };
+    let Some(completed) = envelope.completed_at.as_deref().and_then(|value| {
+        OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).ok()
+    }) else {
+        return false;
+    };
+    envelope.request_id == request.request_id
+        && envelope.admin_operation_id == request.admin_operation_id
+        && envelope.agent_id == input.agent_id
+        && serde_json::to_value(envelope.status).ok() == serde_json::to_value(input.status).ok()
+        && envelope.game_ledger_id == input.game_ledger_id
+        && envelope.error.as_ref().map(|error| &error.code) == input.error_code.as_ref()
+        && !envelope.signature.is_empty()
+        && completed >= request.issued_at
+        && completed < request.expires_at
+        && completed <= now
+}
+
+#[cfg(test)]
+#[path = "store_late_tests.rs"]
+mod late_tests;
