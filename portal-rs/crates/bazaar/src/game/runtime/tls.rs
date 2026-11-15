@@ -99,11 +99,14 @@ impl Runtime {
                             }
                         },
                     );
-                    let _ = hyper::server::conn::http1::Builder::new()
-                        .header_read_timeout(Duration::from_secs(5))
-                        .timer(hyper_util::rt::TokioTimer::new())
-                        .serve_connection(TokioIo::new(tls), service)
-                        .await;
+                    let _ = tokio::time::timeout(Duration::from_secs(30), async {
+                        hyper::server::conn::http1::Builder::new()
+                            .header_read_timeout(Duration::from_secs(5))
+                            .timer(hyper_util::rt::TokioTimer::new())
+                            .serve_connection(TokioIo::new(tls), service)
+                            .await
+                    })
+                    .await;
                 });
             }
         }))
