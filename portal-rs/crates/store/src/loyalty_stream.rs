@@ -192,15 +192,19 @@ impl Stream {
                     .execute(&mut *tx)
                     .await?;
             }
+            let mut provisional_authorities = std::collections::BTreeSet::new();
             for &account in &known {
                 // Snapshots insert/lock authority before taking 5600.
                 // Prepare even credit-only accounts in that same order.
-                sqlx::query(
-                    "INSERT INTO premium_authority(account_id) VALUES($1) ON CONFLICT DO NOTHING",
+                let inserted: Option<Uuid> = sqlx::query_scalar(
+                    "INSERT INTO premium_authority(account_id) VALUES($1) ON CONFLICT DO NOTHING RETURNING account_id",
                 )
                 .bind(account)
-                .execute(&mut *tx)
+                .fetch_optional(&mut *tx)
                 .await?;
+                if inserted.is_some() && !observed.contains(&account) {
+                    provisional_authorities.insert(account);
+                }
                 // ON CONFLICT does not lock an existing authority row.
                 // Publication's foreign keys need this lock before 5600.
                 sqlx::query(
@@ -241,8 +245,20 @@ impl Stream {
                 .map(|(account, days)| (account, (days, days)))
                 .collect();
             for (account, credits) in credits {
+                provisional_authorities.remove(&account);
                 let (days, points) = totals.entry(account).or_insert((0, 0));
                 *points = days.saturating_add(credits);
+            }
+            // Lock-only inviters are not export candidates unless qualification
+            // credited them. Discard their provisional rows so preparation cannot
+            // make them eligible on a later poll. These rows were inserted by this
+            // transaction; account and authority locks remain held through commit.
+            for account in provisional_authorities {
+                totals.remove(&account);
+                sqlx::query("DELETE FROM premium_authority WHERE account_id=$1")
+                    .bind(account)
+                    .execute(&mut *tx)
+                    .await?;
             }
             for (account, (days, points)) in totals {
                 if !known.contains(&account) {
