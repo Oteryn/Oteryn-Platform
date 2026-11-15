@@ -76,6 +76,20 @@ impl<A: AccountStateReader> Repository<A> {
         }
         Ok(())
     }
+    async fn authorize_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        context: CheckContext,
+        permission: Permission,
+    ) -> Result<(), Error> {
+        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+            .execute(&mut **tx)
+            .await?;
+        for required in [Permission::Access, Permission::WikiAccess, permission] {
+            self.auth.check_in(tx, context, required).await?;
+        }
+        Ok(())
+    }
     pub async fn list(&self, context: CheckContext) -> Result<Vec<Guide>, Error> {
         self.authorize(context, Permission::WikiAccess).await?;
         Ok(sqlx::query_as("SELECT id,status,version,revision_version,entity_key FROM wiki_guides ORDER BY updated_at DESC,id LIMIT 100").fetch_all(&self.pool).await?)
@@ -117,6 +131,8 @@ impl<A: AccountStateReader> Repository<A> {
         }
         let mut tx = self.pool.begin().await?;
         reserve(&mut tx, values, None).await?;
+        self.authorize_in(&mut tx, context, Permission::ManageWikiArticles)
+            .await?;
         let id = Uuid::now_v7();
         sqlx::query("INSERT INTO wiki_guides(id,entity_key) VALUES($1,$2)")
             .bind(id)
@@ -154,6 +170,8 @@ impl<A: AccountStateReader> Repository<A> {
         // Same lock ordering for every slug reservation, including restore.
         slug_lock(&mut tx).await?;
         let guide = lock(&mut tx, id).await?;
+        self.authorize_in(&mut tx, context, Permission::ManageWikiArticles)
+            .await?;
         editable(&guide, expected)?;
         reserve(&mut tx, input, Some(id)).await?;
         let next = guide.version.checked_add(1).ok_or(Error::Conflict)?;
@@ -183,6 +201,8 @@ impl<A: AccountStateReader> Repository<A> {
         let mut tx = self.pool.begin().await?;
         slug_lock(&mut tx).await?;
         let guide = lock(&mut tx, id).await?;
+        self.authorize_in(&mut tx, context, Permission::PublishWiki)
+            .await?;
         editable(&guide, expected)?;
         let input = values(&mut tx, id, source).await?;
         domain::translations(&input, false)?;
