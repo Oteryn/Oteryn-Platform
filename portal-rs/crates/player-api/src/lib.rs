@@ -139,13 +139,13 @@ async fn characters(State(api): State<Api>, headers: HeaderMap) -> Response {
         Ok(token) => token,
         Err(error) => return failure(error, false),
     };
-    if let Err(error) = api.tickets.budget(token, false).await {
-        return failure(error, false);
-    }
     let principal = match api.tickets.account(token).await {
         Ok(principal) => principal,
         Err(error) => return failure(error, false),
     };
+    if let Err(error) = api.tickets.budget(token, false).await {
+        return failure(error, false);
+    }
     let Some(projection) = api.projection else {
         return failure(Error::Unavailable, false);
     };
