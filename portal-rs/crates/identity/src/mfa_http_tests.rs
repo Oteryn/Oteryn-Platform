@@ -213,7 +213,7 @@ async fn postgres_mfa_limits_and_missing_transport() -> Result<(), Box<dyn std::
     for _ in 0..5 {
         assert!(
             charge(
-                &context,
+                &context.limiter,
                 peer,
                 &HeaderMap::new(),
                 Language::En,
@@ -225,7 +225,7 @@ async fn postgres_mfa_limits_and_missing_transport() -> Result<(), Box<dyn std::
         );
     }
     let response = charge(
-        &context,
+        &context.limiter,
         peer,
         &HeaderMap::new(),
         Language::En,
@@ -237,7 +237,7 @@ async fn postgres_mfa_limits_and_missing_transport() -> Result<(), Box<dyn std::
     .ok_or("missing denial")?;
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     let response = charge(
-        &context,
+        &context.limiter,
         None,
         &HeaderMap::new(),
         Language::En,
@@ -249,7 +249,7 @@ async fn postgres_mfa_limits_and_missing_transport() -> Result<(), Box<dyn std::
     .ok_or("missing denial")?;
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let response = charge(
-        &context,
+        &context.limiter,
         peer,
         &HeaderMap::new(),
         Language::En,

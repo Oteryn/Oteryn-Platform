@@ -74,16 +74,14 @@ async fn submit(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     (limiter, headers): (
-        Option<Extension<crate::ratelimit::RateLimiter>>,
+        Extension<crate::ratelimit::RateLimiter>,
         axum::http::HeaderMap,
     ),
     value: Option<Extension<ConsentConfig>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     form: Result<Form<Registration>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
-    let limiter = limiter
-        .map(|v| v.0)
-        .unwrap_or_else(|| crate::ratelimit::RateLimiter::new(state.db.clone()));
+    let Extension(limiter) = limiter;
     let Some(Extension(ConnectInfo(peer_addr))) = peer else {
         return Ok(crate::ratelimit::Denial::Unavailable.response(language, false));
     };

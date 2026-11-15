@@ -607,3 +607,54 @@ async fn anonymous_source_budget_survives_rotating_identifiers() -> TestResult {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn error_renderer_preserves_all_cookie_deletions() -> TestResult {
+    let app = finish_routes(Router::new().route(
+        "/en/failure",
+        get(|| async {
+            let mut response = axum::response::Response::new(Body::empty());
+            *response.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
+            response.headers_mut().append(
+                header::SET_COOKIE,
+                HeaderValue::from_static("session=; Path=/; Max-Age=0; HttpOnly"),
+            );
+            response.headers_mut().append(
+                header::SET_COOKIE,
+                HeaderValue::from_static("other=; Path=/; Max-Age=0"),
+            );
+            response
+        }),
+    ));
+    let response = app
+        .oneshot(Request::get("/en/failure").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        response
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .count(),
+        2
+    );
+    assert!(
+        response
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .all(|v| v.to_str().is_ok_and(|s| s.contains("Max-Age=0")))
+    );
+    Ok(())
+}
+
+#[test]
+fn explicit_proxy_configuration_rejects_invalid_addresses() -> TestResult {
+    assert!(TrustedProxies::parse("")?.0.is_empty());
+    let parsed = TrustedProxies::parse("172.18.0.10, 172.18.0.5, ::1")?;
+    assert_eq!(parsed.0.len(), 3);
+    for invalid in ["*", "0.0.0.0/0", "127.0.0.1,", "not-an-ip"] {
+        assert!(TrustedProxies::parse(invalid).is_err());
+    }
+    Ok(())
+}

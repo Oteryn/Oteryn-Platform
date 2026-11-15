@@ -226,3 +226,50 @@ mod tests;
 
 #[cfg(test)]
 mod panel_tests;
+
+/// Request-scoped authorization using the guard's authoritative account adapter.
+#[derive(Clone)]
+pub struct MutationAuthorization(std::sync::Arc<dyn MutationCheck>);
+impl std::fmt::Debug for MutationAuthorization {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MutationAuthorization")
+            .finish_non_exhaustive()
+    }
+}
+trait MutationCheck: Send + Sync {
+    fn check<'a>(
+        &'a self,
+        connection: &'a mut PgConnection,
+        context: CheckContext,
+        permission: Permission,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
+}
+impl<A: AccountStateReader> MutationCheck for Authorizer<A> {
+    fn check<'a>(
+        &'a self,
+        connection: &'a mut PgConnection,
+        context: CheckContext,
+        permission: Permission,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>> {
+        Box::pin(async move {
+            self.check_in(connection, context, Permission::Access)
+                .await?;
+            self.check_in(connection, context, permission).await
+        })
+    }
+}
+impl MutationAuthorization {
+    pub fn new<A: AccountStateReader + 'static>(auth: std::sync::Arc<Authorizer<A>>) -> Self {
+        Self(auth)
+    }
+    /// Acquire after resource locks, then retain the transaction through commit.
+    pub async fn check_in(
+        &self,
+        connection: &mut PgConnection,
+        context: CheckContext,
+        permission: Permission,
+    ) -> Result<(), Error> {
+        lock_mutation(connection).await?;
+        self.0.check(connection, context, permission).await
+    }
+}

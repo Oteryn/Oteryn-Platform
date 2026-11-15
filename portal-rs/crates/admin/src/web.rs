@@ -123,7 +123,7 @@ struct Panel<I, A> {
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
     required: Option<Permission>,
     identity: I,
-    auth: Authorizer<A>,
+    auth: Arc<Authorizer<A>>,
     pool: PgPool,
 }
 
@@ -184,7 +184,8 @@ pub fn configured_guard_from(
 /// Wrap feature routes mounted under `/admin/...` in the panel's guard: admin host,
 /// browser session with CSRF, staff MFA, `Permission::Access` and `permission`.
 /// Refusals are audited like panel refusals. Handlers read the checked
-/// [`CheckContext`] from request extensions.
+/// [`CheckContext`] and [`crate::rbac::MutationAuthorization`] from request extensions.
+/// Mutations recheck after resource locks and retain their transaction through commit.
 pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     routes: Router,
     pool: PgPool,
@@ -199,7 +200,7 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
         config,
         required: Some(permission),
         identity,
-        auth: Authorizer::new(pool.clone(), accounts),
+        auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
     });
     routes
@@ -226,7 +227,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
         config,
         required: None,
         identity,
-        auth: Authorizer::new(pool.clone(), accounts),
+        auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
     });
     Router::new()
@@ -307,7 +308,7 @@ pub(crate) async fn host_guard(
     }
     response
 }
-async fn authenticate<I: StaffSession, A: AccountStateReader>(
+async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     State(s): State<Arc<Panel<I, A>>>,
     mut request: Request,
     next: Next,
@@ -345,6 +346,9 @@ async fn authenticate<I: StaffSession, A: AccountStateReader>(
         }
     }
     request.extensions_mut().insert(context);
+    request
+        .extensions_mut()
+        .insert(crate::rbac::MutationAuthorization::new(s.auth.clone()));
     next.run(request).await
 }
 async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> {

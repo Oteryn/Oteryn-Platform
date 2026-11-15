@@ -8,7 +8,7 @@ use axum::{
 };
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
-    rbac::{CheckContext, Permission},
+    rbac::{CheckContext, MutationAuthorization, Permission},
 };
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
@@ -388,17 +388,19 @@ fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String
 async fn create(
     State(pool): State<PgPool>,
     Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
-    save(&pool, context, None, input).await
+    save(&pool, &auth, context, None, input).await
 }
 async fn update(
     State(pool): State<PgPool>,
     Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
-    save(&pool, context, Some(id), input).await
+    save(&pool, &auth, context, Some(id), input).await
 }
 fn storage(e: sqlx::Error) -> StatusCode {
     if e.as_database_error().is_some_and(|e| {
@@ -413,6 +415,7 @@ fn storage(e: sqlx::Error) -> StatusCode {
 }
 async fn save(
     pool: &PgPool,
+    auth: &MutationAuthorization,
     context: CheckContext,
     id: Option<Uuid>,
     input: Input,
@@ -421,6 +424,10 @@ async fn save(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
     let mut tx = pool.begin().await.map_err(unavailable)?;
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
     let before: serde_json::Value = if let Some(id) = id {
         sqlx::query_scalar("SELECT to_jsonb(news) FROM news WHERE id=$1 FOR UPDATE")
             .bind(id)
@@ -431,13 +438,22 @@ async fn save(
     } else {
         json!({})
     };
+    auth.check_in(&mut tx, context, Permission::ManageNews)
+        .await
+        .map_err(|e| {
+            if matches!(e, oteryn_admin::rbac::Error::Denied) {
+                StatusCode::FORBIDDEN
+            } else {
+                unavailable(e)
+            }
+        })?;
     let action = if id.is_some() {
         "cms.news_updated"
     } else {
         "cms.news_created"
     };
     let id = if let Some(id) = id {
-        sqlx::query_scalar::<_,Uuid>("UPDATE news SET slug=$2,title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,title_pl=NULLIF($6,''),body_pl=NULLIF($7,''),translation_published_at=NULLIF($8,'')::timestamptz,translation_source_updated_at=CASE WHEN (title,body) IS DISTINCT FROM ($3,$4) AND (title_pl,body_pl) IS NOT DISTINCT FROM (NULLIF($6,''),NULLIF($7,'')) THEN NULL WHEN (title_pl,body_pl,translation_published_at) IS DISTINCT FROM (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN now() WHEN translation_source_updated_at>=updated_at THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 RETURNING id").bind(id).bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_optional(&mut *tx).await.map_err(storage)?.ok_or(StatusCode::NOT_FOUND)?
+        sqlx::query_scalar::<_,Uuid>("UPDATE news SET slug=$2,title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,title_pl=NULLIF($6,''),body_pl=NULLIF($7,''),translation_published_at=NULLIF($8,'')::timestamptz,translation_source_updated_at=CASE WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz AND NULLIF($8,'')::timestamptz IS NOT NULL THEN now() WHEN (title,body) IS DISTINCT FROM ($3,$4) AND (title_pl,body_pl) IS NOT DISTINCT FROM (NULLIF($6,''),NULLIF($7,'')) THEN NULL WHEN (title_pl,body_pl,translation_published_at) IS DISTINCT FROM (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN now() WHEN translation_source_updated_at>=updated_at THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 RETURNING id").bind(id).bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_optional(&mut *tx).await.map_err(storage)?.ok_or(StatusCode::NOT_FOUND)?
     } else {
         sqlx::query_scalar("INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,translation_source_updated_at) VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),NULLIF($7,'')::timestamptz,now()) RETURNING id").bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_one(&mut *tx).await.map_err(storage)?
     };
@@ -469,16 +485,35 @@ async fn save(
 async fn delete(
     State(pool): State<PgPool>,
     Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
 ) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
     let before: Option<serde_json::Value> =
-        sqlx::query_scalar("DELETE FROM news WHERE id=$1 RETURNING to_jsonb(news)")
+        sqlx::query_scalar("SELECT to_jsonb(news) FROM news WHERE id=$1 FOR UPDATE")
             .bind(id)
             .fetch_optional(&mut *tx)
             .await
             .map_err(unavailable)?;
     let before = before.ok_or(StatusCode::NOT_FOUND)?;
+    auth.check_in(&mut tx, context, Permission::ManageNews)
+        .await
+        .map_err(|e| {
+            if matches!(e, oteryn_admin::rbac::Error::Denied) {
+                StatusCode::FORBIDDEN
+            } else {
+                unavailable(e)
+            }
+        })?;
+    sqlx::query("DELETE FROM news WHERE id=$1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
     audit::append(
         &mut tx,
         Entry {

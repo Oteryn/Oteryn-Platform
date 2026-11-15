@@ -79,11 +79,24 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
         .execute(&pool)
         .await
         .unwrap();
-    let context = CheckContext::new(Uuid::now_v7());
+    let context = CheckContext {
+        account: Uuid::now_v7(),
+        require_staff_mfa: true,
+        mfa_verified: true,
+    };
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(context.account).execute(&pool).await.unwrap();
+    let auth = MutationAuthorization::new(std::sync::Arc::new(
+        oteryn_admin::rbac::Authorizer::new(pool.clone(), Staff(context.account)),
+    ));
     assert_eq!(
-        delete(State(pool.clone()), Extension(context), Path(id))
-            .await
-            .err(),
+        delete(
+            State(pool.clone()),
+            Extension(context),
+            Extension(auth.clone()),
+            Path(id)
+        )
+        .await
+        .err(),
         Some(StatusCode::UNPROCESSABLE_ENTITY)
     );
     sqlx::query("DELETE FROM media_references WHERE media_id=$1")
@@ -102,9 +115,14 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
         Some(StatusCode::SERVICE_UNAVAILABLE)
     );
     assert_eq!(
-        delete(State(pool.clone()), Extension(context), Path(id))
-            .await
-            .err(),
+        delete(
+            State(pool.clone()),
+            Extension(context),
+            Extension(auth.clone()),
+            Path(id)
+        )
+        .await
+        .err(),
         Some(StatusCode::SERVICE_UNAVAILABLE)
     );
     sqlx::query("DELETE FROM media WHERE id=$1")

@@ -112,7 +112,10 @@ pub fn router(service: Credentials) -> Router {
             sessions,
             session::middleware,
         ))
-        .layer(Extension(limiter))
+        .layer(axum::middleware::from_fn_with_state(
+            limiter,
+            oteryn_web::ratelimit::supply,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(8192))
         .with_state(service);
     oteryn_web::ratelimit::finish_routes(routes)

@@ -76,9 +76,8 @@ impl Events {
     ) -> Result<Uuid, Error> {
         let mut tx = self.pool.begin().await?;
         oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
+        oteryn_admin::rbac::lock_mutation(&mut tx).await?;
+        auth.check_in(&mut tx, context, Permission::Access).await?;
         auth.check_in(&mut tx, context, Permission::ManageEvents)
             .await?;
         draft.validate()?;
@@ -140,9 +139,8 @@ impl Events {
     ) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
+        oteryn_admin::rbac::lock_mutation(&mut tx).await?;
+        auth.check_in(&mut tx, context, Permission::Access).await?;
         for permission in [Permission::ManageEvents, Permission::PublishEvents] {
             auth.check_in(&mut tx, context, permission).await?;
         }

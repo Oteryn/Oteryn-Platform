@@ -158,6 +158,27 @@ impl Keys {
 #[derive(Clone, Debug, Default)]
 pub struct TrustedProxies(pub Vec<IpAddr>);
 impl TrustedProxies {
+    pub fn parse(value: &str) -> Result<Self, Denial> {
+        if value.trim().is_empty() {
+            return Ok(Self::default());
+        }
+        let addresses = value
+            .split(',')
+            .map(|ip| ip.trim().parse::<IpAddr>().map_err(|_| Denial::BadInput))
+            .collect::<Result<Vec<_>, _>>()?;
+        if addresses.len() > 32 {
+            return Err(Denial::BadInput);
+        }
+        Ok(Self(addresses))
+    }
+    pub fn configured() -> Result<Self, Denial> {
+        match std::env::var("TRUSTED_PROXIES") {
+            Ok(value) => Self::parse(&value),
+            Err(std::env::VarError::NotPresent) => Ok(Self::default()),
+            Err(_) => Err(Denial::BadInput),
+        }
+    }
+
     pub fn client_ip(&self, peer: SocketAddr, headers: &HeaderMap) -> Result<IpAddr, Denial> {
         if !self.0.contains(&peer.ip()) {
             return Ok(peer.ip());
@@ -191,19 +212,25 @@ impl TrustedProxies {
 pub struct RateLimiter {
     pool: PgPool,
     pub trusted_proxies: TrustedProxies,
+    configuration_valid: bool,
     last_error_windows: Arc<Vec<AtomicU64>>,
 }
 impl RateLimiter {
     pub fn new(pool: PgPool) -> Self {
+        let proxies = TrustedProxies::configured();
         Self {
             pool,
-            trusted_proxies: TrustedProxies::default(),
+            configuration_valid: proxies.is_ok(),
+            trusted_proxies: proxies.unwrap_or_default(),
             last_error_windows: Arc::new(
                 NamedPolicy::ALL.iter().map(|_| AtomicU64::new(0)).collect(),
             ),
         }
     }
     pub async fn check(&self, policy: NamedPolicy, keys: &[Keys]) -> Result<(), Denial> {
+        if !self.configuration_valid {
+            return Err(Denial::Unavailable);
+        }
         if matches!(
             policy,
             NamedPolicy::IdentityEmailToken | NamedPolicy::IdentityRecoveryKeyUse
@@ -429,4 +456,16 @@ impl oteryn_db::outbox::Cleanup for RateLimitCleanup {
 /// The main portal router already applies this policy to its mounted modules.
 pub fn finish_routes(router: axum::Router) -> axum::Router {
     crate::surface::finish(router).layer(axum::middleware::from_fn(api_errors))
+}
+
+/// Supply a standalone default without replacing the composition root's policy.
+pub async fn supply(
+    axum::extract::State(default): axum::extract::State<RateLimiter>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if request.extensions().get::<RateLimiter>().is_none() {
+        request.extensions_mut().insert(default);
+    }
+    next.run(request).await
 }

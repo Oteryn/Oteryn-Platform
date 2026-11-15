@@ -97,6 +97,7 @@ fn public_sessions(db: sqlx::PgPool, origin: Option<String>) -> session::Session
 
 /// Builds the public router. Module routers are merged here as their tasks land.
 pub fn router(state: AppState, static_dir: &str) -> Router {
+    let shared_limiter = ratelimit::RateLimiter::new(state.db.clone());
     let session_layer =
         public_sessions(state.db.clone(), std::env::var("OTERYN_PUBLIC_ORIGIN").ok());
     let oauth_sessions = session_layer.clone();
@@ -198,7 +199,13 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                 if !oteryn_gameauth::oauth::Config::from_env().enabled {
                     return StatusCode::NOT_FOUND.into_response();
                 }
-                let limiter = ratelimit::RateLimiter::new(pool.clone());
+                let Some(limiter) = request
+                    .extensions()
+                    .get::<ratelimit::RateLimiter>()
+                    .cloned()
+                else {
+                    return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                };
                 let Some(peer) = request
                     .extensions()
                     .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
@@ -309,11 +316,12 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             oteryn_identity::recovery_key_http::routes(state.db.clone()).route_layer(
                 axum::middleware::from_fn_with_state(
                     ratelimit::RateLimiter::new(state.db.clone()),
-                    |State(limiter): State<ratelimit::RateLimiter>,
+                    |State(default_limiter): State<ratelimit::RateLimiter>,
                      axum::Extension(session): axum::Extension<session::BrowserSession>,
                      axum::Extension(language): axum::Extension<Language>,
                      mut request: axum::extract::Request,
                      next: axum::middleware::Next| async move {
+                        let limiter = request.extensions().get::<ratelimit::RateLimiter>().cloned().unwrap_or(default_limiter);
                         if std::env::var("OTERYN_ACCOUNT_RECOVERY_KEYS").as_deref() != Ok("true") && !request
                             .extensions()
                             .get::<oteryn_identity::recovery_key::FeatureFlags>()
@@ -517,6 +525,10 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
     security_headers(router)
         // OAuth keeps its protocol envelopes outside the site error renderer.
         .merge(oauth_routes)
+        .layer(axum::middleware::from_fn_with_state(
+            shared_limiter,
+            ratelimit::supply,
+        ))
 }
 
 /// Resolves the browser client address once, through the same trusted-proxy
