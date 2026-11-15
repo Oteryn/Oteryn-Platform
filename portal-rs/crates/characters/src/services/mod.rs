@@ -258,7 +258,7 @@ impl Services {
         if financial == "RESERVED" {
             let reservation: Uuid = row.try_get("reservation_id")?;
             self.wallet()
-                .settle_in(
+                .reconcile_reservation_in(
                     &mut tx,
                     row.try_get("settlement_id")?,
                     account,

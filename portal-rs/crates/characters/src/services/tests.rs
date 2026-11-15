@@ -1142,3 +1142,55 @@ async fn bzb_rate_refusal_precedes_malformed_and_oversized_bodies() {
         );
     }
 }
+
+#[tokio::test]
+async fn audit_a210_postgres_suspended_rename_receipts_settle_once() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let s = Services::new(db.pool.clone(), settings());
+    for committed in [true, false] {
+        let account = Uuid::now_v7();
+        let character = Uuid::now_v7();
+        seed(&s, account, character, 200).await;
+        let cmd = s.request(account, rename(character)).await.unwrap();
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(account)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        let raw = receipt(&cmd, committed, 3);
+        let app = router(s.clone(), identities());
+        for _ in 0..2 {
+            assert_eq!(
+                http(
+                    app.clone(),
+                    "/internal/v2/game-auth/character-commands/receipt",
+                    &raw,
+                    1
+                )
+                .await
+                .0,
+                StatusCode::OK
+            );
+        }
+        let saved: String = sqlx::query_scalar(
+            "SELECT receipt_json FROM character_commands WHERE id=$1 AND state='TERMINAL'",
+        )
+        .bind(cmd.operation_id)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(saved, raw);
+        let totals: (i64,i64) = sqlx::query_as("SELECT COALESCE(sum(available_delta),0)::bigint,COALESCE(sum(reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1").bind(account).fetch_one(&db.pool).await.unwrap();
+        assert_eq!(totals, (if committed { 130 } else { 200 }, 0));
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_operations WHERE account_id=$1 AND kind IN ('capture','release')").bind(account).fetch_one(&db.pool).await.unwrap();
+        assert_eq!(count, 1);
+    }
+    db.close().await;
+    eprintln!(
+        "audit_a210_postgres_suspended_rename_receipts_settle_once duration={:?}",
+        started.elapsed()
+    );
+}

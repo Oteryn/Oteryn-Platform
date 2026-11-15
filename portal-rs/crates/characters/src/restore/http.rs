@@ -62,10 +62,13 @@ pub fn router(
         restore: restore.clone(),
         slots: Arc::new(Semaphore::new(slots as usize)),
     };
-    let exchange = commands::router(commands, identities.clone()).layer(
-        middleware::from_fn_with_state(exchange_state, serialize_receipt),
-    );
-    let exchange = guard::protect(
+    let exchange = commands::http::router_with_inner(commands, identities.clone(), |route| {
+        route.layer(middleware::from_fn_with_state(
+            exchange_state.clone(),
+            serialize_receipt,
+        ))
+    });
+    let exchange = guard::protect_peer(
         exchange,
         identities.clone(),
         RoutePolicy {
@@ -83,19 +86,21 @@ pub fn router(
             && command_settings.source_authority == restore.settings.source_authority,
         rates: Arc::new(Mutex::new(HashMap::new())),
     };
-    let notices = Router::new().route(PATH, post(notice));
-    let notices = guard::protect(
-        notices,
-        identities,
-        RoutePolicy {
-            enabled: restore.settings.available(),
-            group: GROUP.into(),
-            max_body_bytes: 512,
-            max_json_depth: 4,
-            json: JsonRule::Canonical(&wire::SHAPE),
-        },
-    )
-    .with_state(state);
+    let policy = RoutePolicy {
+        enabled: restore.settings.available(),
+        group: GROUP.into(),
+        max_body_bytes: 512,
+        max_json_depth: 4,
+        json: JsonRule::Canonical(&wire::SHAPE),
+    };
+    let notices = Router::new()
+        .route(PATH, post(notice))
+        .route_layer(middleware::from_fn_with_state(
+            policy.clone(),
+            guard::check_body,
+        ))
+        .route_layer(middleware::from_fn_with_state(state.clone(), notice_rate));
+    let notices = guard::protect_peer(notices, identities, policy).with_state(state);
     exchange.merge(notices).layer(middleware::from_fn(no_cache))
 }
 async fn no_cache(request: Request, next: Next) -> Response {
@@ -114,10 +119,11 @@ fn failure(error: Error) -> Response {
         Error::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     })
 }
-async fn notice(
+async fn notice_rate(
     State(state): State<NoticeState>,
     client: axum::Extension<VerifiedClient>,
-    body: Bytes,
+    request: Request,
+    next: Next,
 ) -> Response {
     // The guard has already restricted the key space to configured identities.
     let allowed = if let Ok(mut rates) = state.rates.lock() {
@@ -146,6 +152,9 @@ async fn notice(
         );
         return r;
     }
+    next.run(request).await
+}
+async fn notice(State(state): State<NoticeState>, body: Bytes) -> Response {
     let mut restore = state.restore;
     // A peerless probe returns 401 only when command identities are configured;
     // it never enters storage. Also validate the inner command configuration.

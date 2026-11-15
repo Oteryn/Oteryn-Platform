@@ -808,3 +808,50 @@ async fn db_restore_receipt_with_exhausted_pool() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn audit_a210_rate_admission_precedes_body_validation_v1_and_restore() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/unused")
+        .unwrap();
+    for composite in [false, true] {
+        let mut cs = command_settings();
+        cs.requests_per_minute = 1;
+        let mut rs = settings();
+        rs.requests_per_minute = 1;
+        let app = if composite {
+            router(Restore::new(pool.clone(), rs), cs, identities(true))
+        } else {
+            commands::router(Commands::new(pool.clone(), cs), identities(true))
+        };
+        let path = "/internal/v1/game-auth/character-commands/pending";
+        assert_eq!(
+            response(app.clone(), path, "{", Some(2)).await.0,
+            StatusCode::BAD_REQUEST
+        );
+        for path in [
+            path,
+            RECEIPT_PATH,
+            "/internal/v1/game-auth/character-commands/read",
+        ] {
+            for body in ["{".to_owned(), "x".repeat(4096)] {
+                assert_eq!(
+                    response(app.clone(), path, &body, Some(2)).await.0,
+                    StatusCode::TOO_MANY_REQUESTS
+                );
+            }
+        }
+        if composite {
+            assert_eq!(
+                response(app.clone(), PATH, "{", Some(1)).await.0,
+                StatusCode::BAD_REQUEST
+            );
+            for body in ["{".to_owned(), "x".repeat(4096)] {
+                assert_eq!(
+                    response(app.clone(), PATH, &body, Some(1)).await.0,
+                    StatusCode::TOO_MANY_REQUESTS
+                );
+            }
+        }
+    }
+}

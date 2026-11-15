@@ -19,13 +19,20 @@ struct Rate {
     used: u32,
 }
 #[derive(Debug, Clone)]
-struct HttpState {
+pub(crate) struct HttpState {
     commands: Commands,
     rate: Arc<Mutex<Rate>>,
 }
 /// Mount only on the private TLS listener. Dedicated identity, body bounds and
 /// one shared request budget apply across all three routes.
 pub fn router(commands: Commands, identities: Arc<IdentityMap>) -> Router {
+    router_with_inner(commands, identities, |route| route)
+}
+pub(crate) fn router_with_inner(
+    commands: Commands,
+    identities: Arc<IdentityMap>,
+    inner: impl Fn(Router<HttpState>) -> Router<HttpState>,
+) -> Router {
     let state = HttpState {
         commands: commands.clone(),
         rate: Arc::new(Mutex::new(Rate {
@@ -39,23 +46,23 @@ pub fn router(commands: Commands, identities: Arc<IdentityMap>) -> Router {
         ("read", post(read), 512),
         ("receipt", post(receipt), 1024),
     ] {
-        let route = Router::new()
-            .route(
-                &format!("/internal/v1/game-auth/character-commands/{path}"),
-                handler,
-            )
-            .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
-        router = router.merge(guard::protect(
-            route,
-            identities.clone(),
-            RoutePolicy {
-                enabled: commands.settings.available(),
-                group: GROUP.into(),
-                max_body_bytes: limit,
-                max_json_depth: 4,
-                json: JsonRule::Object,
-            },
-        ));
+        let policy = RoutePolicy {
+            enabled: commands.settings.available(),
+            group: GROUP.into(),
+            max_body_bytes: limit,
+            max_json_depth: 4,
+            json: JsonRule::Object,
+        };
+        let route = inner(Router::new().route(
+            &format!("/internal/v1/game-auth/character-commands/{path}"),
+            handler,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            policy.clone(),
+            guard::check_body,
+        ))
+        .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
+        router = router.merge(guard::protect_peer(route, identities.clone(), policy));
     }
     router
         .with_state(state)
