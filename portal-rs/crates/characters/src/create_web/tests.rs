@@ -267,6 +267,7 @@ fn input(world: Uuid) -> Submission {
 }
 #[tokio::test]
 async fn db_success_concurrent_replay_and_changed_intent_conflict() -> TestResult {
+    let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -286,6 +287,15 @@ async fn db_success_concurrent_replay_and_changed_intent_conflict() -> TestResul
         .await?;
     assert!(raw.contains("Aldric Stone"));
     assert!(raw.contains(&account.to_string()));
+    sqlx::query("INSERT INTO reserved_names(name,expires_at) VALUES ('aldric stone',now()+interval '6 months')").execute(&db.pool).await?;
+    for _ in 0..12 {
+        assert_eq!(service.submit(account, input.clone()).await?, operation);
+    }
+    sqlx::query("DELETE FROM world_status WHERE id=$1")
+        .bind(world)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(service.submit(account, input.clone()).await?, operation);
     let mut changed = input;
     changed.name = "Another Name".into();
     assert!(matches!(
@@ -296,6 +306,10 @@ async fn db_success_concurrent_replay_and_changed_intent_conflict() -> TestResul
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 1);
+    eprintln!(
+        "db_success_concurrent_replay_and_changed_intent_conflict duration={:?}",
+        started.elapsed()
+    );
     db.close().await
 }
 #[tokio::test]

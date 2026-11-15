@@ -315,23 +315,20 @@ impl Service {
         reference: Option<(&str, &str)>,
     ) -> Result<Preferences, Error> {
         let mut tx = self.lock().await?;
-        let candidates = sqlx::query_scalar::<_, Uuid>(
-            "SELECT DISTINCT account_id FROM account_characters WHERE character_id=$1",
-        )
-        .bind(character)
-        .fetch_all(&mut *tx)
-        .await?;
-        let mut owners = Vec::new();
-        for account in candidates {
-            match self.characters(&mut tx, account, now).await {
-                Ok(chars) if chars.iter().any(|c| c.0 == character) => owners.push(account),
-                Ok(_) | Err(Error::NotFound) => {}
-                Err(e) => return Err(e),
-            }
+        let highest = self.feed(&mut tx, now).await?;
+        // Invalid current snapshots remain unknown, even when another owner is valid.
+        let invalid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_characters c JOIN accounts a ON a.id=c.account_id JOIN account_character_snapshots s ON s.account_id=c.account_id WHERE c.character_id=$1 AND a.status='active' AND (s.invalid OR s.projection_epoch IS DISTINCT FROM $2 OR s.source_authority IS DISTINCT FROM $3))")
+            .bind(character).bind(&highest).bind(&self.settings.source_authority).fetch_one(&mut *tx).await?;
+        if invalid {
+            return Err(Error::Unavailable);
         }
+        let owners = sqlx::query_scalar::<_, Uuid>("SELECT DISTINCT c.account_id FROM account_characters c JOIN accounts a ON a.id=c.account_id JOIN account_character_snapshots s ON s.account_id=c.account_id WHERE c.character_id=$1 AND a.status='active' AND NOT s.invalid AND s.projection_epoch=$2 AND s.source_authority=$3 ORDER BY c.account_id LIMIT 2")
+            .bind(character).bind(highest).bind(&self.settings.source_authority).fetch_all(&mut *tx).await?;
         if owners.len() != 1 {
             return Err(Error::NotFound);
         }
+        AccountId::parse(&owners[0].to_string()).map_err(|_| Error::NotFound)?;
+        CharacterId::parse(&character.to_string()).map_err(|_| Error::Unavailable)?;
         if let Some((world, name)) = reference {
             let matches: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1 AND character_id=$2 AND world_id::text=$3 AND name=$4)").bind(owners[0]).bind(character).bind(world).bind(name).fetch_one(&mut *tx).await?;
             if !matches {
