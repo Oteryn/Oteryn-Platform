@@ -143,6 +143,11 @@ async fn database_families_ordering_rollback_and_watermarks() -> TestResult {
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261115110016_fix_w2a_ingest_budget.sql"
+    ))
+    .execute(&db)
+    .await?;
     for f in FAMILIES {
         let raw = FIXTURES.iter().find(|(name, _)| *name == f.name).unwrap().1;
         let response = send(app(db.clone(), true), f.path, raw, "projection-test").await;

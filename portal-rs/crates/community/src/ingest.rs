@@ -19,6 +19,8 @@ use std::{
 #[path = "ingest/ingest_schema.rs"]
 mod ingest_schema;
 use ingest_schema::publication;
+#[path = "ingest_budget.rs"]
+pub(crate) mod budget;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Family {
@@ -149,6 +151,7 @@ async fn cache_headers(
 }
 async fn handle(
     State(state): State<Ingest>,
+    Extension(publisher): Extension<guard::PublisherKey>,
     Extension(value): Extension<Value>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
@@ -170,6 +173,12 @@ async fn handle(
     };
     if publication.authority != state.config.source_authority {
         return guard::failure(StatusCode::UNAUTHORIZED);
+    }
+    let route = format!("v1/{}", state.family.map_or("watermark", |f| f.path));
+    if let Err(response) =
+        budget::check(&state.db, &publisher, &route, budget::configured_limit()).await
+    {
+        return response;
     }
     match apply(&state.db, &publication).await {
         Ok(result) => {

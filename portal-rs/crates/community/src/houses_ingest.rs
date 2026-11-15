@@ -13,6 +13,7 @@ use sqlx::{PgPool, Row};
 
 pub(super) async fn handle(
     State(state): State<Houses>,
+    Extension(publisher): Extension<guard::PublisherKey>,
     Extension(v): Extension<Value>,
     Extension(watermark): Extension<bool>,
     headers: HeaderMap,
@@ -29,6 +30,21 @@ pub(super) async fn handle(
     }
     if schema::text(&v, "source_authority") != Ok(state.config.ingest.source_authority.as_str()) {
         return guard::failure(StatusCode::UNAUTHORIZED);
+    }
+    let route = if watermark {
+        "v2/house/watermark"
+    } else {
+        "v2/house"
+    };
+    if let Err(response) = crate::ingest::budget::check(
+        &state.db,
+        &publisher,
+        route,
+        crate::ingest::budget::configured_limit(),
+    )
+    .await
+    {
+        return response;
     }
     match apply(&state.db, &v, watermark).await {
         Ok(result) => {

@@ -132,6 +132,11 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261115110016_fix_w2a_ingest_budget.sql"
+    ))
+    .execute(&db)
+    .await?;
     for (id, name, rank) in [
         ("01934f10-7c04-7001-805b-3b1122334401", "Aldric", 1),
         ("01934f10-7c04-7001-805b-3b1122334402", "Hidden Member", 3),
