@@ -151,7 +151,6 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Legacy redirects are the site fallback (oteryn_web::router), so
             // module routes on the same paths never overlap with them.
             let app = app.merge(oteryn_web::seo::router(seo));
-            let app = oteryn_web::register::configured(app);
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::web::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
@@ -367,6 +366,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Same router behind verified mTLS; the only adapter that admits /internal/v1 peers.
             let app = app.merge(oteryn_wallet::wire::configured_router(db.clone()));
             // Internal-only exports stay off the public and native listeners.
+            // Apply browser configuration after all public modules are merged.
+            let app = oteryn_web::register::configured(app);
             let public_app = app.clone();
             let app = app.merge(oteryn_support::sanctions::export::configured_router(
                 db.clone(),
@@ -514,3 +515,26 @@ mod account_lifecycle_http;
 mod account_closure;
 
 mod catalog_cli;
+
+#[cfg(test)]
+mod browser_configuration_tests {
+    #[test]
+    fn csrf_configuration_wraps_coin_and_moderation_routes() {
+        let source = include_str!("main.rs");
+        let composition = source.split("#[cfg(test)]").next().unwrap_or_default();
+        let configuration = composition
+            .find("let app = oteryn_web::register::configured(app);")
+            .unwrap_or_default();
+        for route in [
+            "coin_purchases::configured_router",
+            "oteryn_bazaar::moderation::web::configured_router",
+        ] {
+            assert!(composition.find(route).is_some_and(|at| at < configuration));
+        }
+        assert!(
+            composition
+                .find("let public_app = app.clone();")
+                .is_some_and(|at| at > configuration)
+        );
+    }
+}
