@@ -32,6 +32,9 @@ async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("bootstrap-intent") {
         return bootstrap_intent::main().await;
     }
+    if std::env::args().nth(1).as_deref() == Some("catalog") {
+        return catalog_cli::main().await;
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -430,3 +433,5 @@ mod registration_delivery;
 mod account_lifecycle_http;
 
 mod account_closure;
+
+mod catalog_cli;

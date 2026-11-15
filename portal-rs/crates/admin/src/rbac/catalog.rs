@@ -73,6 +73,8 @@ pub enum Permission {
     KickAccountSessions,
     /// Release one account's coin purchase hold; settles nothing.
     ReleaseCoinPurchaseHold,
+    ImportStoreCatalog,
+    ActivateStoreCatalog,
 }
 
 impl Permission {
@@ -154,6 +156,8 @@ impl Permission {
         Self::GameAuditRead,
         Self::KickAccountSessions,
         Self::ReleaseCoinPurchaseHold,
+        Self::ImportStoreCatalog,
+        Self::ActivateStoreCatalog,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -223,6 +227,8 @@ impl Permission {
             Self::GameAnalyticsExport => "game.analytics.export",
             Self::GameAuditRead => "game.audit.read",
             Self::KickAccountSessions => "account.security.kick",
+            Self::ImportStoreCatalog => "store.catalog.import",
+            Self::ActivateStoreCatalog => "store.catalog.activate",
             Self::ReleaseCoinPurchaseHold => "payments.coin_hold.release",
         }
     }
@@ -336,6 +342,8 @@ impl BuiltInRole {
                 Permission::PublishWiki,
                 Permission::KickAccountSessions,
                 Permission::ReleaseCoinPurchaseHold,
+                Permission::ImportStoreCatalog,
+                Permission::ActivateStoreCatalog,
             ],
             Self::SecurityAdmin => &[
                 Permission::Access,
