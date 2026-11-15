@@ -172,7 +172,14 @@ impl Mfa {
     }
     /// Configuration uses exactly 64 hexadecimal characters; malformed/missing keys deny startup.
     pub fn configured(pool: PgPool) -> Result<Self, sqlx::Error> {
-        let raw = std::env::var("OTERYN_MFA_KEY").map_err(|_| error())?;
+        Self::configured_from(pool, &|key| std::env::var(key).ok())
+    }
+    /// [`Self::configured`] reading `OTERYN_MFA_KEY` through `lookup`.
+    pub fn configured_from(
+        pool: PgPool,
+        lookup: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<Self, sqlx::Error> {
+        let raw = lookup("OTERYN_MFA_KEY").ok_or_else(error)?;
         if !valid_token(&raw) {
             return Err(error());
         }

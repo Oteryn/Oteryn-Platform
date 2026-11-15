@@ -54,7 +54,11 @@ pub struct PortalIdentity {
 }
 impl PortalIdentity {
     pub fn configured(pool: PgPool) -> Self {
-        let mfa = oteryn_identity::mfa::Mfa::configured(pool.clone()).ok();
+        Self::configured_from(pool, &|key| std::env::var(key).ok())
+    }
+    /// [`Self::configured`] reading its configuration through `lookup`.
+    pub fn configured_from(pool: PgPool, lookup: &dyn Fn(&str) -> Option<String>) -> Self {
+        let mfa = oteryn_identity::mfa::Mfa::configured_from(pool.clone(), lookup).ok();
         Self { pool, mfa }
     }
 }
@@ -124,8 +128,14 @@ struct Panel<I, A> {
 }
 
 pub(crate) fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
-    let enabled = std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|v| v == "true");
-    let host = std::env::var("OTERYN_ADMIN_HOST").unwrap_or_default();
+    config_from(&|key| std::env::var(key).ok())
+}
+
+pub(crate) fn config_from(
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<PanelConfig, Box<dyn std::error::Error>> {
+    let enabled = lookup("OTERYN_ADMIN_PANEL").is_some_and(|v| v == "true");
+    let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
     if enabled && (host.is_empty() || host.parse::<axum::http::uri::Authority>().is_err()) {
         return Err("invalid admin host".into());
     }
@@ -151,12 +161,22 @@ pub fn configured_guard(
     pool: PgPool,
     permission: Permission,
 ) -> Result<Router, Box<dyn std::error::Error>> {
+    configured_guard_from(routes, pool, permission, &|key| std::env::var(key).ok())
+}
+
+/// [`configured_guard`] reading its configuration through `lookup`.
+pub(crate) fn configured_guard_from(
+    routes: Router,
+    pool: PgPool,
+    permission: Permission,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
     Ok(guarded(
         routes,
         pool.clone(),
-        config_from_env()?,
-        PortalIdentity::configured(pool.clone()),
-        PortalIdentity::configured(pool),
+        config_from(lookup)?,
+        PortalIdentity::configured_from(pool.clone(), lookup),
+        PortalIdentity::configured_from(pool, lookup),
         permission,
     ))
 }

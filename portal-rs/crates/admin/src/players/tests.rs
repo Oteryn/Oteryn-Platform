@@ -555,7 +555,7 @@ async fn postgres_real_identity_lookup_safe_projection_and_missing_character_wat
         accounts: oteryn_identity::accounts::Accounts {
             pool: db.pool.clone(),
         },
-        projection: Some(projection::configured(db.pool.clone(), true)),
+        projection: Some(projection::configured(db.pool.clone(), true, &|_| None)),
     };
     let account = adapter
         .search("PLAYER@example.invalid")
@@ -1346,9 +1346,15 @@ async fn postgres_identity_adapter_sessions_logout_and_two_person_reset() {
             .any(|session| session.kind == "game-authorization")
     );
     // Use the production composition and real PortalIdentity/session guards.
-    assert_eq!(std::env::var("OTERYN_ADMIN_PLAYERS").as_deref(), Ok("true"));
-    let host = std::env::var("OTERYN_ADMIN_HOST").expect("test admin host required");
-    let app = http::configured_router(db.pool.clone()).unwrap();
+    let host = "staff.test".to_owned();
+    let lookup = |key: &str| match key {
+        "OTERYN_ADMIN_PLAYERS" | "OTERYN_ADMIN_PANEL" => Some("true".to_owned()),
+        "OTERYN_ADMIN_HOST" => Some(host.clone()),
+        // Synthetic test key; grant checks never decrypt the fixture secret.
+        "OTERYN_MFA_KEY" => Some("ab".repeat(32)),
+        _ => None,
+    };
+    let app = http::configured_router_from(db.pool.clone(), &lookup).unwrap();
     let staff_cookie = staff_security_cookie(&db.pool, db.support, 'b').await;
     let approver_cookie = staff_security_cookie(&db.pool, db.approver, 'c').await;
     let path = format!("/admin/players/{}", db.target);
