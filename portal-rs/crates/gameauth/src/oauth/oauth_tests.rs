@@ -415,7 +415,9 @@ async fn postgres_http_consent_and_oauth_envelopes() -> TestResult {
         csrf: "a".repeat(64),
         language: "en".into(),
     };
-    let app = browser_routes(db.pool.clone(), config()).layer(Extension(browser.clone()));
+    let app = browser_routes(db.pool.clone(), config())
+        .layer(Extension(browser.clone()))
+        .layer(Extension(browser_proof(&db, account, None).await?));
     let a = authorization();
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     for (k, v) in [
@@ -629,16 +631,44 @@ async fn mfa_account(db: &Database) -> Result<Uuid, sqlx::Error> {
         .await?;
     Ok(account)
 }
-fn browser_app(db: &Database, account: Uuid, language: &str, mfa: Option<Uuid>) -> axum::Router {
+async fn browser_proof(
+    db: &Database,
+    account: Uuid,
+    mfa: Option<Uuid>,
+) -> Result<BrowserProof, sqlx::Error> {
+    let session_hash = hash(&Uuid::now_v7().to_string());
+    let grant = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
+    let mfa_grant_hash = mfa.map(|_| hash(&grant));
+    if let Some(owner) = mfa {
+        sqlx::query("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,decode('00','hex'),true) ON CONFLICT(account_id) DO NOTHING").bind(owner).execute(&db.pool).await?;
+        let password: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+            .bind(owner)
+            .fetch_one(&db.pool)
+            .await?;
+        sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) SELECT $1,$2,generation,$3,'grant',clock_timestamp()+interval '1 hour' FROM account_mfa_totp WHERE account_id=$2").bind(hash(&grant)).bind(owner).bind(hash(&password)).execute(&db.pool).await?;
+    }
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at,data) VALUES($1,$2,$3,'OAuth regression',clock_timestamp()+interval '1 hour',clock_timestamp()+interval '2 hours',jsonb_build_object('mfa_grant',$4::text))").bind(&session_hash).bind(account).bind("a".repeat(64)).bind(if mfa.is_some() {Some(grant)} else {None}).execute(&db.pool).await?;
+    Ok(BrowserProof {
+        session_hash,
+        mfa_grant_hash,
+    })
+}
+async fn browser_app(
+    db: &Database,
+    account: Uuid,
+    language: &str,
+    mfa: Option<Uuid>,
+) -> Result<axum::Router, sqlx::Error> {
     let app = browser_routes(db.pool.clone(), config()).layer(Extension(Browser {
         account: Some(account),
         csrf: "a".repeat(64),
         language: language.into(),
     }));
-    match mfa {
+    let app = app.layer(Extension(browser_proof(db, account, mfa).await?));
+    Ok(match mfa {
         Some(account) => app.layer(Extension(MfaSession { account })),
         None => app,
-    }
+    })
 }
 async fn approve_post(
     app: &axum::Router,
@@ -669,7 +699,7 @@ async fn postgres_mfa_session_authorizes_exchanges_refreshes_and_verifies() -> T
         return Ok(());
     };
     let account = mfa_account(&db).await?;
-    let app = browser_app(&db, account, "en", Some(account));
+    let app = browser_app(&db, account, "en", Some(account)).await?;
     let fields = authorize_query();
     let r = app
         .clone()
@@ -725,7 +755,7 @@ async fn postgres_mfa_account_without_mfa_session_steps_up_without_a_code() -> T
         ("pl", Some(other), "/pl/login"),
         ("//evil.example/x", None, "/pl/login"),
     ] {
-        let app = browser_app(&db, account, language, mfa);
+        let app = browser_app(&db, account, language, mfa).await?;
         let r = app
             .clone()
             .oneshot(Request::get(format!("/oauth/authorize?{fields}")).body(Body::empty())?)
@@ -738,7 +768,7 @@ async fn postgres_mfa_account_without_mfa_session_steps_up_without_a_code() -> T
         assert_eq!(r.headers()["location"], expected);
     }
     // A client-supplied MFA or return claim is never accepted.
-    let app = browser_app(&db, account, "en", None);
+    let app = browser_app(&db, account, "en", None).await?;
     for extra in [
         "mfa=true",
         "mfa_satisfied=1",
@@ -903,4 +933,73 @@ async fn postgres_family_without_current_generation_fails_closed() -> TestResult
     }
     assert_eq!(stale_events(&db, account).await?, 2);
     db.close().await
+}
+
+/// Extensions freeze the request after proof validation; revocation commits before consent.
+#[tokio::test]
+async fn postgres_ida_consent_rechecks_live_session_and_mfa_after_revocation() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    for change in [
+        "password",
+        "password_plain",
+        "enrollment",
+        "suspension",
+        "logout",
+        "grant",
+        "expiry",
+        "mfa_generation",
+        "grant_credentials",
+    ] {
+        let account = if matches!(change, "enrollment" | "password_plain") {
+            db.account().await?
+        } else {
+            mfa_account(&db).await?
+        };
+        let app = browser_app(
+            &db,
+            account,
+            "en",
+            (!matches!(change, "enrollment" | "password_plain")).then_some(account),
+        )
+        .await?;
+        let sql = match change {
+            "password" | "password_plain" => {
+                "UPDATE accounts SET password_hash='changed-after-proof' WHERE id=$1"
+            }
+            "enrollment" => "UPDATE accounts SET login_mfa_required=true WHERE id=$1",
+            "suspension" => "UPDATE accounts SET status='suspended' WHERE id=$1",
+            "logout" => "DELETE FROM web_sessions WHERE account_id=$1",
+            "grant" => "DELETE FROM account_mfa_tokens WHERE account_id=$1",
+            "expiry" => {
+                "UPDATE web_sessions SET idle_expires_at=clock_timestamp()-interval '1 second' WHERE account_id=$1"
+            }
+            "mfa_generation" => {
+                "UPDATE account_mfa_tokens SET generation=uuidv7() WHERE account_id=$1"
+            }
+            "grant_credentials" => {
+                "UPDATE account_mfa_tokens SET credential_hash=decode(repeat('00',32),'hex') WHERE account_id=$1"
+            }
+            _ => unreachable!(),
+        };
+        sqlx::query(sql).bind(account).execute(&db.pool).await?;
+        let response = approve_post(&app, &authorize_query()).await?;
+        assert!(
+            matches!(
+                response.status(),
+                StatusCode::BAD_REQUEST | StatusCode::SEE_OTHER
+            ),
+            "{change}: {}",
+            response.status()
+        );
+        assert_eq!(codes(&db, account).await?, 0, "{change}");
+    }
+    db.close().await?;
+    eprintln!(
+        "postgres_ida_consent_rechecks_live_session_and_mfa_after_revocation duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
 }

@@ -18,10 +18,17 @@ pub struct Browser {
     pub language: String,
 }
 /// Supplied exclusively by the web session adapter, next to [`Browser`], when the
-/// browser session holds a live web MFA grant for `account`. Never built from request input.
+/// browser session held a live web MFA grant for `account`. Used for rendering only;
+/// code issuance revalidates [`BrowserProof`]. Never built from request input.
 #[derive(Clone, Copy)]
 pub struct MfaSession {
     pub account: Uuid,
+}
+/// Server-side session identity, revalidated under the account lock at issuance.
+#[derive(Clone)]
+pub struct BrowserProof {
+    pub session_hash: Vec<u8>,
+    pub mfa_grant_hash: Option<Vec<u8>>,
 }
 #[derive(Clone)]
 struct HttpState {
@@ -213,7 +220,7 @@ async fn show(
 async fn consent(
     State(state): State<HttpState>,
     Extension(browser): Extension<Browser>,
-    mfa: Option<Extension<MfaSession>>,
+    proof: Option<Extension<BrowserProof>>,
     form: Result<Form<Vec<(String, String)>>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if !state.config.enabled {
@@ -258,8 +265,10 @@ async fn consent(
             .append_pair("error", "access_denied")
             .append_pair("state", &request.state);
     } else {
-        let mfa = mfa_proven(mfa, account);
-        match approve(&state.pool, &state.config, account, mfa, &request).await {
+        let Some(Extension(proof)) = proof else {
+            return refused(&state, Some(account), Error::InvalidGrant).await;
+        };
+        match approve_browser(&state.pool, &state.config, account, &proof, &request).await {
             Ok(None) => return sign_in(&browser.language),
             Ok(Some(code)) => {
                 redirect
