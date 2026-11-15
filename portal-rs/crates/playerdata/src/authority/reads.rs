@@ -70,18 +70,19 @@ impl JournalLoginAuthority {
         let owned = match character {
             None => None,
             Some(character) => {
+                let Ownership::Owner(owned) = ownership(tx, account_id, character).await? else {
+                    return Err(Error::Denied);
+                };
                 if crate::store::character_deleted(
                     tx,
                     &account_id.to_string(),
                     &character.to_string(),
+                    Some(owned.character_revision),
                 )
                 .await?
                 {
                     return Err(Error::Denied);
                 }
-                let Ownership::Owner(owned) = ownership(tx, account_id, character).await? else {
-                    return Err(Error::Denied);
-                };
                 Some(owned)
             }
         };
@@ -285,14 +286,19 @@ impl JournalEvidence {
         let cut = match character {
             None => None,
             Some(character) => {
-                if crate::store::character_deleted(db, &actor.to_string(), &character.to_string())
-                    .await?
-                {
-                    return Err(Error::Denied);
-                }
                 let Ownership::Owner(cut) = ownership(db, actor, character).await? else {
                     return Err(Error::Denied);
                 };
+                if crate::store::character_deleted(
+                    db,
+                    &actor.to_string(),
+                    &character.to_string(),
+                    Some(cut.character_revision),
+                )
+                .await?
+                {
+                    return Err(Error::Denied);
+                }
                 if cut.world != world {
                     return Err(Error::Denied);
                 }

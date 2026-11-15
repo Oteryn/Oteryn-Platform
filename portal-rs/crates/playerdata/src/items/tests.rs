@@ -952,11 +952,11 @@ async fn pg_production_retention_erases_item_snapshots_and_event_payloads() {
         .execute(&db.pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE pd_t76_records SET occurred_at=0")
+    sqlx::query("UPDATE pd_t76_records SET occurred_at=extract(epoch FROM clock_timestamp())::bigint-31*86400")
         .execute(&db.pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE pd_t76_events SET occurred_at=0")
+    sqlx::query("UPDATE pd_t76_events SET occurred_at=extract(epoch FROM clock_timestamp())::bigint-31*86400")
         .execute(&db.pool)
         .await
         .unwrap();
@@ -975,6 +975,93 @@ async fn pg_production_retention_erases_item_snapshots_and_event_payloads() {
     db.close().await;
     eprintln!(
         "PG pg_production_retention_erases_item_snapshots_and_event_payloads {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_pd2_01_production_lifecycle_dispatches_item_erasure() {
+    let started = std::time::Instant::now();
+    let Some(db) = TestDb::with_migrations(true).await else {
+        return;
+    };
+    let (p, _) = db.projection();
+    let inventory = snapshot(vec![item(11)]);
+    for r in &inventory {
+        ingest(&p, r).await.unwrap();
+    }
+    let mut ledger = bank();
+    ledger.record_id = ident(9999);
+    ingest(&p, &ledger).await.unwrap();
+    sqlx::query("INSERT INTO pd_erasure_jobs(account_id,character_id) VALUES($1,$2)")
+        .bind(ident(1))
+        .bind(ident(3))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE pd_t76_records r SET occurred_at=extract(epoch FROM clock_timestamp())::bigint-62*86400 FROM pd_t76_streams s WHERE r.stream_key=s.stream_key AND s.character_id IS NOT NULL").execute(&db.pool).await.unwrap();
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_t76_records r JOIN pd_t76_streams s USING(stream_key) WHERE s.character_id IS NOT NULL AND (r.canonical_bytes IS NOT NULL OR r.occurred_at<>0)").fetch_one(&db.pool).await.unwrap();
+    assert_eq!(count, 0);
+    let hashes: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_t76_records r JOIN pd_t76_streams s USING(stream_key) WHERE s.character_id IS NOT NULL").fetch_one(&db.pool).await.unwrap();
+    assert_eq!(hashes, 3, "deletion replay hashes survive 120 days");
+
+    assert!(matches!(
+        ingest(&p, &inventory[0]).await,
+        Err(Error::Conflict)
+    ));
+    assert_eq!(
+        p.history(actor(), world(), None, "BANK")
+            .await
+            .unwrap()
+            .records
+            .len(),
+        1
+    );
+    sqlx::query("INSERT INTO pd_erasure_jobs(account_id) VALUES($1)")
+        .bind(ident(1))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert!(matches!(
+        p.history(actor(), world(), None, "BANK").await,
+        Err(Error::Unavailable)
+    ));
+    db.close().await;
+    eprintln!(
+        "postgres_pd2_01_production_lifecycle_dispatches_item_erasure duration={:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_pd2_03_production_item_metadata_cleanup_advances_floor() {
+    let started = std::time::Instant::now();
+    let Some(db) = TestDb::with_migrations(true).await else {
+        return;
+    };
+    let (p, _) = db.projection();
+    let ledger = bank();
+    ingest(&p, &ledger).await.unwrap();
+    sqlx::query("UPDATE pd_t76_records SET occurred_at=extract(epoch FROM clock_timestamp())::bigint-62*86400").execute(&db.pool).await.unwrap();
+    sqlx::query("UPDATE pd_t76_events SET occurred_at=extract(epoch FROM clock_timestamp())::bigint-62*86400").execute(&db.pool).await.unwrap();
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    let state:(i64,i64,String)=sqlx::query_as("SELECT (SELECT count(*) FROM pd_t76_records),(SELECT count(*) FROM pd_t76_events),retention_floor::text FROM pd_t76_streams").fetch_one(&db.pool).await.unwrap();
+    assert_eq!(state, (0, 0, "1".into()));
+    assert!(matches!(ingest(&p, &ledger).await, Err(Error::Conflict)));
+    db.close().await;
+    eprintln!(
+        "postgres_pd2_03_production_item_metadata_cleanup_advances_floor duration={:?}",
         started.elapsed()
     );
 }

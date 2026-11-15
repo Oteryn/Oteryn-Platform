@@ -8,7 +8,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 mod schema;
-mod storage;
+pub(crate) mod storage;
 mod view;
 pub use schema::*;
 pub use storage::*;

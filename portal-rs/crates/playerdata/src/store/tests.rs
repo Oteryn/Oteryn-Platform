@@ -1623,3 +1623,88 @@ async fn postgres_conflicting_bindings_raise_one_durable_operator_alarm()
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_pd2_03_production_cleanup_prunes_bank_replay_metadata()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let now: i64 =
+        sqlx::query_scalar("SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint")
+            .fetch_one(&db.pool)
+            .await?;
+    let old = (now as u64 - 62 * 86400000) / 1000 * 1000;
+    let bytes = String::from_utf8(bank(1, None, 0, 100))?
+        .replace(&(NOW / 1000).to_string(), &(old / 1000).to_string());
+    let r = playerdata::items(bytes.as_bytes())?;
+    let a = TestAuthority::default();
+    a.allow(r.scope.clone()).await;
+    let store = db.store(&a);
+    let time = TrustedTime {
+        unix_ms: now as u64,
+        uncertainty_ms: 0,
+    };
+    store
+        .ingest(
+            r.clone(),
+            TrustedTime {
+                unix_ms: old,
+                uncertainty_ms: 0,
+            },
+        )
+        .await?;
+    sqlx::query(
+        "INSERT INTO pd_conflicts VALUES(decode(repeat('00',32),'hex'),'IMMUTABLE_BINDING',$1)",
+    )
+    .bind(now - 1)
+    .execute(&db.pool)
+    .await?;
+    sqlx::query("INSERT INTO pd_deleted_scopes VALUES(decode(repeat('01',32),'hex'),$1,$2,NULL)")
+        .bind(now - 121 * 86400000_i64)
+        .bind(now - 1)
+        .execute(&db.pool)
+        .await?;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await?;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_records")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 0);
+    let floor: String = sqlx::query_scalar("SELECT retention_floor::text FROM pd_streams")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(floor, "1");
+    assert_eq!(store.ingest(r, time).await, Err(Error::Conflict));
+    let identity = Identity::san("journal-test")?;
+    let identities = Arc::new(IdentityMap::new(vec![Binding {
+        identity: identity.clone(),
+        group: http::ITEMS_GROUP.into(),
+    }])?);
+    let app = http::router(
+        http::HttpState::new(db.store(&a), Arc::new(TestClock)).with_sources(sources(false)),
+        identities,
+    );
+    let mut request = Request::post(http::RECORDS_PATH)
+        .header("content-type", "application/json")
+        .header("content-length", bytes.len())
+        .body(Body::from(bytes))?;
+    request
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(identity));
+    assert_eq!(app.oneshot(request).await?.status(), StatusCode::CONFLICT);
+    let count: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM pd_conflicts)+(SELECT count(*) FROM pd_deleted_scopes)",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(count, 0);
+    db.close().await?;
+    eprintln!(
+        "postgres_pd2_03_production_cleanup_prunes_bank_replay_metadata duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
