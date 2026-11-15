@@ -93,6 +93,10 @@ pub fn router(services: Services, identities: Arc<IdentityMap>) -> Router {
 }
 async fn no_cache(request: Request, next: Next) -> Response {
     let mut r = next.run(request).await;
+    if r.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        *r.status_mut() = StatusCode::BAD_REQUEST;
+        *r.body_mut() = axum::body::Body::empty();
+    }
     r.headers_mut().insert(
         header::CACHE_CONTROL,
         header::HeaderValue::from_static("no-store, private"),
