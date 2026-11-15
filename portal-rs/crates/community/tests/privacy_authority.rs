@@ -69,6 +69,7 @@ async fn online_real_privacy_owner_mutations_and_missing_state() -> Result {
         include_str!("../../../migrations/20261105231104_t45_profile_preferences.sql"),
         include_str!("../../../migrations/20261107130001_t45_privacy.up.sql"),
         include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
+        include_str!("../../../migrations/20261115110016_fix_w2a_ingest_budget.sql"),
     ] {
         sqlx::raw_sql(sql).execute(&db).await?;
     }

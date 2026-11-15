@@ -197,6 +197,11 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
     .execute(&db)
     .await?;
     sqlx::raw_sql(include_str!(
+        "../../../migrations/20261115110016_fix_w2a_ingest_budget.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
         "../../../migrations/20261105231103_t24f_houses.sql"
     ))
     .execute(&db)
