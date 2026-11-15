@@ -367,6 +367,35 @@ async fn postgres_reminder_identity_includes_character_and_cut() -> Result<()> {
         service.schedule(owner, &account, &p, 100_000).await?,
         account_id
     );
+    // New-first rolling upgrade retries must return the durable scoped ID,
+    // including when the new worker has already delivered it.
+    for expected_state in ["pending", "delivered", "cancelled"] {
+        let mut retry = first.clone();
+        retry.entity = format!("boss/new-first-{expected_state}");
+        let canonical = service.schedule(owner, &retry, &p, 100_000).await?;
+        if expected_state == "delivered" {
+            assert!(
+                service
+                    .dispatch(canonical, &retry, &p, &capture, 100_000)
+                    .await?
+            );
+        }
+        if expected_state == "cancelled" {
+            assert!(service.cancel(owner, retry.owner, canonical).await?);
+        }
+        for _ in 0..2 {
+            let returned: Uuid = sqlx::query_scalar("INSERT INTO pd_reminders(id,account_id,character_id,kind,entity_key,channel,due_at_ms,cut) VALUES($1,$2,$3,'boss',$4,'email',$5,$6) ON CONFLICT(account_id,kind,entity_key,channel,due_at_ms) DO UPDATE SET updated_at=pd_reminders.updated_at RETURNING id")
+                .bind(Uuid::now_v7()).bind(retry.owner).bind(retry.character).bind(&retry.entity).bind(retry.due_at_ms).bind(retry.cut.map(serde_json::to_value).transpose()?).fetch_one(&pool).await?;
+            assert_eq!(returned, canonical);
+            assert_eq!(
+                service.schedule(owner, &retry, &p, 100_000).await?,
+                canonical
+            );
+            let states: (String, String) = sqlx::query_as("SELECT l.state,s.state FROM pd_reminders l JOIN pd_scoped_reminders s USING(id) WHERE l.id=$1")
+                .bind(canonical).fetch_one(&pool).await?;
+            assert_eq!(states, (expected_state.into(), expected_state.into()));
+        }
+    }
     // Old binaries retain their original table and conflict target. Their
     // pending IDs remain dispatchable by the new scheduler during an upgrade.
     let mut legacy = first.clone();
@@ -388,6 +417,19 @@ async fn postgres_reminder_identity_includes_character_and_cut() -> Result<()> {
         .fetch_one(&pool)
         .await?;
     assert_eq!(legacy_state, "delivered");
+    let rejected_character = Uuid::now_v7();
+    let rejected: Option<Uuid> = sqlx::query_scalar("INSERT INTO pd_reminders(id,account_id,character_id,kind,entity_key,channel,due_at_ms,cut) VALUES($1,$2,$3,'boss',$4,'email',$5,$6) ON CONFLICT(account_id,kind,entity_key,channel,due_at_ms) DO UPDATE SET updated_at=pd_reminders.updated_at WHERE pd_reminders.character_id IS NOT DISTINCT FROM EXCLUDED.character_id AND pd_reminders.cut IS NOT DISTINCT FROM EXCLUDED.cut RETURNING id")
+        .bind(Uuid::now_v7()).bind(legacy.owner).bind(rejected_character).bind(&legacy.entity).bind(legacy.due_at_ms).bind(legacy.cut.map(serde_json::to_value).transpose()?).fetch_optional(&pool).await?;
+    assert!(rejected.is_none());
+    let refused_intents: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM pd_scoped_reminders WHERE character_id=$1")
+            .bind(rejected_character)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(
+        refused_intents, 0,
+        "a legacy scope refusal must not schedule work"
+    );
     let schema: String = sqlx::query_scalar("SELECT current_schema()")
         .fetch_one(&pool)
         .await?;
