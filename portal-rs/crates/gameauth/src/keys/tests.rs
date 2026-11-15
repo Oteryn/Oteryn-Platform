@@ -462,6 +462,7 @@ impl Database {
 }
 #[tokio::test]
 async fn postgres_publication_rotation_evidence_and_terminal_revocation() -> TestResult {
+    let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -472,18 +473,28 @@ async fn postgres_publication_rotation_evidence_and_terminal_revocation() -> Tes
     registry.publish(&old).await?;
     sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=clock_timestamp()-interval '10 seconds'").execute(&db.pool).await?;
     let snapshot = registry.snapshot().await?;
-    let now = db.now().await?;
+    let now = snapshot.observed_at();
     ring.activate("old", now, &snapshot)?;
     let signed = ring.sign(b"old.payload", now + 20, now, &snapshot)?;
     let new = ring.generate_next("new")?;
     registry.publish(&new).await?;
+    // Force the second boundary that a busy CI runner can cross between
+    // capturing `now` and reading the post-publication snapshot.
+    sqlx::query("SELECT pg_sleep(greatest(0, $1::double precision + 1.05 - extract(epoch FROM clock_timestamp())))")
+        .bind(now as f64).execute(&db.pool).await?;
+    let snapshot = registry.snapshot().await?;
+    assert_eq!(
+        ring.activate("new", now, &snapshot),
+        Err(KeyError::Unavailable)
+    );
+    let now = snapshot.observed_at();
     assert!(matches!(
-        ring.activate("new", now, &registry.snapshot().await?),
+        ring.activate("new", now, &snapshot),
         Err(KeyError::TooEarly | KeyError::Untrusted)
     ));
     sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=clock_timestamp()-interval '10 seconds'").execute(&db.pool).await?;
     let snapshot = registry.snapshot().await?;
-    let now = db.now().await?;
+    let now = snapshot.observed_at();
     ring.activate("new", now, &snapshot)?;
     assert_eq!(
         ring.resign(
@@ -537,7 +548,12 @@ async fn postgres_publication_rotation_evidence_and_terminal_revocation() -> Tes
     let response = crate::evidence::observe(&db.pool, &config, &request).await;
     assert!(String::from_utf8(canonical::encode(&response)?)?.contains("\"trusted\":false"));
     assert!(matches!(response, Value::Object(_)));
-    db.close().await
+    db.close().await?;
+    eprintln!(
+        "postgres_publication_rotation_evidence_and_terminal_revocation duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }
 #[tokio::test]
 async fn postgres_refuses_third_rebinding_bad_input_and_stale_snapshot() -> TestResult {

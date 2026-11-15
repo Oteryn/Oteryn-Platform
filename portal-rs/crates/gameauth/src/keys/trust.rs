@@ -25,6 +25,12 @@ pub struct TrustSnapshot {
     observed_at: u64,
     keys: BTreeMap<String, TrustedKey>,
 }
+#[cfg(test)]
+impl TrustSnapshot {
+    pub(super) fn observed_at(&self) -> u64 {
+        self.observed_at
+    }
+}
 impl SigningTrust for TrustSnapshot {
     fn trusted_key(
         &self,
