@@ -247,3 +247,72 @@ impl Reports {
 
 #[cfg(test)]
 mod tests;
+
+impl Reports {
+    /// Staff domain mutation in the caller's authorization/audit transaction.
+    pub async fn staff_apply(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        actor: Uuid,
+        binding: (Uuid, i64),
+        command: &oteryn_admin::support::Command,
+        notifications: &oteryn_notify::Notifications,
+    ) -> Result<(serde_json::Value, serde_json::Value), oteryn_admin::support::Error> {
+        use oteryn_admin::support::{Command, Error as StaffError};
+        self.available().map_err(|_| StaffError::NotFound)?;
+        let Command::Moderate {
+            status,
+            public_outcome,
+            moderator_notes,
+        } = command
+        else {
+            return Err(StaffError::Invalid);
+        };
+        command.validate()?;
+        let (id, version) = binding;
+        let owner: Uuid =
+            sqlx::query_scalar("SELECT reporter_account_id FROM player_reports WHERE id=$1")
+                .bind(id)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?
+                .ok_or(StaffError::NotFound)?;
+        // Staff resolve existing reports even when their reporter is suspended
+        // or closed; submission/owner-access admission does not govern moderation.
+        let owner_state: Option<String> =
+            sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
+                .bind(owner)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
+        if !matches!(
+            owner_state.as_deref(),
+            Some("active" | "pending_verification" | "suspended" | "closed")
+        ) {
+            return Err(StaffError::Denied);
+        }
+        let row: (String, i64) =
+            sqlx::query_as("SELECT status,lock_version FROM player_reports WHERE id=$1 FOR UPDATE")
+                .bind(id)
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
+        if row.1 != version {
+            return Err(StaffError::Conflict);
+        }
+        command.transition(&row.0)?;
+        sqlx::query("UPDATE player_reports SET status=$2,public_outcome=nullif(btrim($3),''),moderator_notes=nullif(btrim($4),''),assigned_to=$5,lock_version=lock_version+1,processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,updated_at=clock_timestamp() WHERE id=$1")
+            .bind(id).bind(status).bind(public_outcome).bind(moderator_notes).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+        crate::tickets::staff::notify(
+            tx,
+            notifications,
+            owner,
+            format!("{status}: {}", public_outcome.trim()),
+        )
+        .await?;
+        Ok((
+            serde_json::json!({"status":row.0,"lock_version":version}),
+            serde_json::json!({"status":status,"lock_version":version+1}),
+        ))
+    }
+}

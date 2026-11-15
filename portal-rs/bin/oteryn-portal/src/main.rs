@@ -230,7 +230,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             ));
             let app = app.merge(shop_web::router(db.clone()));
             let app = app.merge(oteryn_player_api::account_feed::configured_router());
-            let app = app.merge(oteryn_admin::support::web::configured_router(db.clone())?);
+            let app = app.merge(oteryn_support::tickets::configured_staff_router(
+                db.clone(),
+            )?);
             let app = app.merge(oteryn_atlas::spawns::configured_router(db.clone()));
             let app = app.layer(axum::middleware::from_fn(
                 oteryn_atlas::spawns::viewer_policy,

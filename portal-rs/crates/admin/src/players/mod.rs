@@ -83,7 +83,7 @@ pub trait Accounts: Clone + Send + Sync + 'static {
         evidence: Uuid,
     ) -> impl Future<Output = Result<(), Error>> + Send;
 }
-/// Available identity API supports exact ID/email lookup; security APIs await T08.
+/// Authoritative identity lookup and transactional staff security operations.
 #[derive(Debug, Clone)]
 pub struct IdentityAccounts {
     pub accounts: oteryn_identity::accounts::Accounts,
@@ -128,20 +128,39 @@ impl Accounts for IdentityAccounts {
             .map(Self::safe)
             .transpose()
     }
-    async fn sessions(&self, _: Uuid) -> Result<Vec<Session>, Error> {
-        Err(Error::Unavailable)
+    async fn sessions(&self, id: Uuid) -> Result<Vec<Session>, Error> {
+        Ok(
+            oteryn_identity::sessions::staff_sessions(&self.accounts.pool, id)
+                .await?
+                .into_iter()
+                .map(|(kind, expires_at)| Session { kind, expires_at })
+                .collect(),
+        )
     }
     async fn characters(&self, id: Uuid) -> Result<Vec<Character>, Error> {
         projection::characters(self.projection.as_ref().ok_or(Error::Unavailable)?, id).await
     }
-    async fn verified(&self, _: &mut PgConnection, _: Uuid, _: Uuid) -> Result<bool, Error> {
-        Err(Error::Unavailable)
+    async fn verified(
+        &self,
+        connection: &mut PgConnection,
+        id: Uuid,
+        evidence: Uuid,
+    ) -> Result<bool, Error> {
+        Ok(oteryn_identity::mfa::staff_reset_verified(connection, id, evidence).await?)
     }
-    async fn revoke_all(&self, _: &mut PgConnection, _: Uuid) -> Result<(), Error> {
-        Err(Error::Unavailable)
+    async fn revoke_all(&self, connection: &mut PgConnection, id: Uuid) -> Result<(), Error> {
+        Ok(oteryn_identity::sessions::staff_revoke_all(connection, id).await?)
     }
-    async fn reset_mfa(&self, _: &mut PgConnection, _: Uuid, _: Uuid) -> Result<(), Error> {
-        Err(Error::Unavailable)
+    async fn reset_mfa(
+        &self,
+        connection: &mut PgConnection,
+        id: Uuid,
+        evidence: Uuid,
+    ) -> Result<(), Error> {
+        if !oteryn_identity::mfa::staff_reset(connection, id, evidence).await? {
+            return Err(Error::Denied);
+        }
+        Ok(())
     }
 }
 
@@ -413,6 +432,42 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         .await?;
         tx.commit().await?;
         Ok(Some(hold.order_id))
+    }
+    /// Record a staff attestation after support has verified the ticket owner's identity.
+    /// This is a privileged service API, never a browser-supplied verification bit.
+    pub async fn attest_reset_evidence(
+        &self,
+        context: CheckContext,
+        ticket: Uuid,
+    ) -> Result<Uuid, Error> {
+        self.check(context, Permission::ManageSupportTickets)
+            .await?;
+        valid_id(ticket)?;
+        let mut tx = self.pool.begin().await?;
+        crate::rbac::lock_mutation(&mut tx).await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
+        let target: Uuid = sqlx::query_scalar(
+            "SELECT account_id FROM tickets WHERE id=$1 AND category='account' FOR SHARE",
+        )
+        .bind(ticket)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::NotFound)?;
+        if target == context.account {
+            return Err(Error::Denied);
+        }
+        let evidence: Uuid = sqlx::query_scalar("INSERT INTO support_mfa_reset_evidence(ticket_id,account_id,verified_by) VALUES($1,$2,$3) RETURNING id").bind(ticket).bind(target).bind(context.account).fetch_one(&mut *tx).await?;
+        append(
+            &mut tx,
+            context,
+            "players.mfa_reset.identity_verified",
+            target,
+            json!({"ticket":ticket,"evidence":evidence}),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(evidence)
     }
     pub async fn request_reset(
         &self,

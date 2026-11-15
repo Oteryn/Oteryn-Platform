@@ -1,4 +1,4 @@
-//! Guarded SSR support routes; missing domain adapters return 503.
+//! Guarded SSR support routes composed with an authoritative support domain adapter.
 use super::*;
 use crate::web::{self, PanelConfig, StaffSession};
 use axum::{
@@ -31,13 +31,16 @@ struct Input {
     command: Command,
 }
 
-pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
+pub fn configured_router<B: Backend>(
+    pool: PgPool,
+    backend: B,
+) -> Result<Router, Box<dyn std::error::Error>> {
     let mut routes = Router::new();
     for area in [Area::Tickets, Area::Reports, Area::Enforcement] {
         let state = Arc::new(Panel {
             pool: pool.clone(),
             auth: Authorizer::new(pool.clone(), web::PortalIdentity::configured(pool.clone())),
-            backend: ReadSupport(pool.clone()),
+            backend: backend.clone(),
         });
         routes = routes.merge(web::configured_guard(
             area_routes(area, state),
@@ -407,53 +410,6 @@ mod tests {
         assert_eq!(text("en", "internal"), "Internal staff note");
         assert_eq!(text("pl", "internal"), "Wewnętrzna notatka zespołu");
         assert!(!escape("<script>\"&").contains('<'));
-    }
-}
-
-/// Staff queue reads use the owning domain tables; mutations remain at the domain seam.
-#[derive(Clone)]
-struct ReadSupport(PgPool);
-impl Backend for ReadSupport {
-    async fn list(&self, area: Area, page: u32) -> Result<Vec<Record>, Error> {
-        let query = match area {
-            Area::Tickets => {
-                "SELECT id,lock_version,subject,status FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
-            }
-            Area::Reports => {
-                "SELECT id,lock_version,target_reference,status FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
-            }
-            Area::Enforcement => {
-                "SELECT id,lock_version,public_reason,status FROM sanctions WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
-            }
-        };
-        let rows: Vec<(Uuid, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
-            .bind(i64::from(page.saturating_sub(1)) * 30)
-            .fetch_all(&self.0)
-            .await
-            .map_err(|_| Error::Unavailable)?;
-        Ok(rows
-            .into_iter()
-            .map(|(id, version, title, status)| Record {
-                id,
-                version,
-                title,
-                status,
-                messages: vec![],
-            })
-            .collect())
-    }
-    async fn load(&self, _: Area, _: Uuid) -> Result<Record, Error> {
-        Err(Error::Unavailable)
-    }
-    async fn apply(
-        &self,
-        _: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        _: Uuid,
-        _: Uuid,
-        _: i64,
-        _: &Command,
-    ) -> Result<(serde_json::Value, serde_json::Value), Error> {
-        Err(Error::Unavailable)
     }
 }
 

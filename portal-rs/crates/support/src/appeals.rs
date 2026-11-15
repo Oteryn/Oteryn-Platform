@@ -179,7 +179,7 @@ impl Appeals {
     }
     /// Trusted transaction seam, not an HTTP handler. Caller must authorize owner
     /// mutations or staff decisions against T34 and commit their effects atomically.
-    async fn change(
+    pub(crate) async fn change(
         self,
         db: &mut PgConnection,
         owner: Uuid,

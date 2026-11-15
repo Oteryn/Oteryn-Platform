@@ -478,3 +478,37 @@ async fn postgres_platform_metrics_and_closed_permission_catalog() {
     )));
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
+    let started = std::time::Instant::now();
+    let db = Db::new().await.expect("PORTAL_TEST_DATABASE_URL required");
+    let actor = db.staff().await;
+    let alarm:Uuid=sqlx::query_scalar("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'ops.playerdata_binding_conflict','binding-fingerprint','null',$1,$2) RETURNING id")
+        .bind(serde_json::json!({"authority":"oteryn:journal:primary","family":"BANK","record_id":"019a0000-0000-7000-8000-000000000008"})).bind(Uuid::now_v7()).fetch_one(&db.pool).await.unwrap();
+    let page = body(
+        get(
+            app(db.pool.clone(), actor, fixture(3), true, true),
+            "/console/dashboard?lang=en",
+        )
+        .await,
+    )
+    .await;
+    assert!(page.contains("IMMUTABLE_BINDING"));
+    assert!(page.contains(&alarm.to_string()));
+    assert!(page.contains("binding-fingerprint"));
+    let denied = body(
+        get(
+            app(db.pool.clone(), actor, fixture(3), false, true),
+            "/console/dashboard?lang=en",
+        )
+        .await,
+    )
+    .await;
+    assert!(!denied.contains(&alarm.to_string()));
+    db.close().await;
+    eprintln!(
+        "postgres_operator_alarms_visible_offline_only_with_ops_permission duration: {:?}",
+        started.elapsed()
+    );
+}

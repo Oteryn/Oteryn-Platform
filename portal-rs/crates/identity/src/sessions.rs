@@ -208,3 +208,45 @@ impl AccountState for LoginAccount {
         Box::pin(async move { Ok((id == self.id).then(|| self.account.clone())) })
     }
 }
+
+/// Safe staff projection. The caller must authorize access to the target account.
+/// The extra row allows callers to fail closed rather than silently truncate.
+pub async fn staff_sessions(
+    pool: &PgPool,
+    account: AccountId,
+) -> std::result::Result<Vec<(String, String)>, sqlx::Error> {
+    sqlx::query_scalar::<_, Uuid>("SELECT id FROM accounts WHERE id=$1")
+        .bind(account)
+        .fetch_one(pool)
+        .await?;
+    sqlx::query_as("SELECT kind,expires::text FROM (SELECT 'web' AS kind,least(idle_expires_at,absolute_expires_at) AS expires FROM web_sessions WHERE account_id=$1 UNION ALL SELECT 'oauth',expires_at FROM oauth_token_families WHERE account_id=$1 AND revoked_at IS NULL UNION ALL SELECT 'device',to_timestamp(least(idle_expires_at,absolute_expires_at)::double precision) FROM device_sessions WHERE account_id=$1 AND revoked_at IS NULL UNION ALL SELECT 'game-authorization',expires_at FROM game_login_tickets WHERE account_id=$1 AND used_at IS NULL) AS sessions WHERE expires>clock_timestamp() ORDER BY expires,kind LIMIT 101")
+        .bind(account).fetch_all(pool).await
+}
+
+/// Complete staff revocation in the caller's authorization/audit transaction.
+/// Account locking serializes credential issuance and advances the native fence.
+pub async fn staff_revoke_all(
+    connection: &mut sqlx::PgConnection,
+    account: AccountId,
+) -> std::result::Result<(), sqlx::Error> {
+    let found = sqlx::query("UPDATE accounts SET native_security_generation=native_security_generation+1,updated_at=clock_timestamp() WHERE id=$1")
+        .bind(account).execute(&mut *connection).await?.rows_affected();
+    if found != 1 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    crate::recovery_key::revoke_authorizations(connection, account).await?;
+    sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
+        .bind(account)
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("UPDATE game_login_tickets SET used_at=coalesce(used_at,clock_timestamp()),updated_at=clock_timestamp() WHERE account_id=$1").bind(account).execute(&mut *connection).await?;
+    sqlx::query("DELETE FROM passkey_ceremonies WHERE account_id=$1")
+        .bind(account)
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("INSERT INTO security_events(account_id,kind) VALUES($1,'all_sessions_revoked')")
+        .bind(account)
+        .execute(connection)
+        .await?;
+    Ok(())
+}

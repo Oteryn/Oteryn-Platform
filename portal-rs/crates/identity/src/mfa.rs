@@ -733,3 +733,47 @@ pub async fn confirmed(pool: &PgPool, id: AccountId) -> Result<bool, sqlx::Error
     .fetch_one(pool)
     .await
 }
+
+/// Lock current support evidence until the caller commits its staff action.
+pub async fn staff_reset_verified(
+    connection: &mut sqlx::PgConnection,
+    account: AccountId,
+    evidence: Uuid,
+) -> Result<bool, sqlx::Error> {
+    // Account first, matching credential issuance and revocation lock order.
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(account)
+        .fetch_one(&mut *connection)
+        .await?;
+    Ok(sqlx::query_scalar::<_, Uuid>("SELECT e.id FROM support_mfa_reset_evidence e WHERE e.id=$1 AND e.account_id=$2 AND e.consumed_at IS NULL AND e.expires_at>clock_timestamp() AND EXISTS(SELECT 1 FROM tickets t WHERE t.id=e.ticket_id AND t.account_id=e.account_id AND t.category='account') AND EXISTS(SELECT 1 FROM accounts a WHERE a.id=e.verified_by AND a.status='active' AND a.email_verified_at IS NOT NULL) FOR UPDATE OF e")
+        .bind(evidence).bind(account).fetch_optional(connection).await?.is_some())
+}
+
+/// Consume verified evidence and clear MFA in the staff authorization transaction.
+pub async fn staff_reset(
+    connection: &mut sqlx::PgConnection,
+    account: AccountId,
+    evidence: Uuid,
+) -> Result<bool, sqlx::Error> {
+    if !staff_reset_verified(connection, account, evidence).await? {
+        return Ok(false);
+    }
+    let consumed = sqlx::query("UPDATE support_mfa_reset_evidence SET consumed_at=clock_timestamp() WHERE id=$1 AND account_id=$2 AND consumed_at IS NULL AND expires_at>clock_timestamp()")
+        .bind(evidence).bind(account).execute(&mut *connection).await?.rows_affected();
+    if consumed != 1 {
+        return Ok(false);
+    }
+    crate::sessions::staff_revoke_all(connection, account).await?;
+    for statement in [
+        "DELETE FROM account_mfa_tokens WHERE account_id=$1",
+        "DELETE FROM account_recovery_codes WHERE account_id=$1",
+        "DELETE FROM account_mfa_totp WHERE account_id=$1",
+        "UPDATE accounts SET login_mfa_required=false,updated_at=clock_timestamp() WHERE id=$1",
+    ] {
+        sqlx::query(statement)
+            .bind(account)
+            .execute(&mut *connection)
+            .await?;
+    }
+    Ok(true)
+}

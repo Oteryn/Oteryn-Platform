@@ -1529,3 +1529,97 @@ async fn postgres_shared_authority_preserves_cross_account_record_binding()
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_conflicting_bindings_raise_one_durable_operator_alarm()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let db = Db::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    for progress_route in [false, true] {
+        let a = TestAuthority::default();
+        let raw = if progress_route {
+            progress(1)
+        } else {
+            bank(1, None, 0, 100)
+        };
+        let r = if progress_route {
+            playerdata::progress(&raw)?
+        } else {
+            playerdata::items(&raw)?
+        };
+        a.allow(r.scope.clone()).await;
+        let identity = Identity::san("journal-alarm-test")?;
+        let app = http::router(
+            http::HttpState::new(db.store(&a), Arc::new(TestClock))
+                .with_sources(sources(progress_route)),
+            Arc::new(IdentityMap::new(vec![Binding {
+                identity: identity.clone(),
+                group: if progress_route {
+                    http::PROGRESS_GROUP
+                } else {
+                    http::ITEMS_GROUP
+                }
+                .into(),
+            }])?),
+        );
+        let request = |body: Vec<u8>| {
+            let mut req = Request::post(if progress_route {
+                http::PROGRESS_RECORD_PATH
+            } else {
+                http::RECORDS_PATH
+            })
+            .header("content-type", "application/json")
+            .header("content-length", body.len())
+            .body(Body::from(body))
+            .unwrap();
+            req.extensions_mut()
+                .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+            req
+        };
+        assert_eq!(
+            app.clone().oneshot(request(raw.clone())).await?.status(),
+            StatusCode::OK
+        );
+        for amount in [101, 102, 101] {
+            let changed = if progress_route {
+                String::from_utf8(raw.clone())?.replace(
+                    "\"stamina_minutes\":2400",
+                    &format!("\"stamina_minutes\":{amount}"),
+                )
+            } else {
+                String::from_utf8(raw.clone())?
+                    .replace("\"amount\":\"100\"", &format!("\"amount\":\"{amount}\""))
+                    .replace(
+                        "\"balance_after\":\"100\"",
+                        &format!("\"balance_after\":\"{amount}\""),
+                    )
+            };
+            assert_eq!(
+                app.clone()
+                    .oneshot(request(changed.into_bytes()))
+                    .await?
+                    .status(),
+                StatusCode::CONFLICT
+            );
+        }
+        let alarms: Vec<serde_json::Value> = sqlx::query_scalar("SELECT after FROM audit_log WHERE action='ops.playerdata_binding_conflict' ORDER BY created_at,id").fetch_all(&db.pool).await?;
+        assert_eq!(alarms.len(), if progress_route { 2 } else { 1 });
+        let alarm = alarms.last().ok_or("alarm missing")?;
+        assert_eq!(alarm["reason"], "IMMUTABLE_BINDING");
+        assert_eq!(alarm["record_id"], r.id);
+        assert_eq!(alarm["source_revision"], "1");
+        let serialized = alarm.to_string();
+        assert!(!serialized.contains("stamina_minutes"));
+        assert!(!serialized.contains("balance_after"));
+        assert!(!serialized.contains(ACCOUNT));
+        assert_eq!(db.store(&a).cursor(&r.scope).await?.0.stored, 1);
+    }
+    db.close().await?;
+    eprintln!(
+        "postgres_conflicting_bindings_raise_one_durable_operator_alarm duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
