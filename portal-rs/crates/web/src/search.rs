@@ -76,7 +76,10 @@ pub fn routes(state: SearchState) -> Router {
         .route("/pl/search", get(show))
         .route("/en/search", get(show))
         .layer(axum::middleware::from_fn(no_store))
-        .layer(Extension(limiter))
+        .layer(axum::middleware::from_fn_with_state(
+            limiter,
+            crate::ratelimit::supply,
+        ))
         .with_state(state);
     crate::surface::finish(app)
 }

@@ -66,7 +66,10 @@ fn router(pool: PgPool, key: DeliveryKey, sessions: SessionLayer) -> Router {
                 pool: pool.clone(),
                 key,
             }))
-            .layer(Extension(limiter))
+            .layer(axum::middleware::from_fn_with_state(
+                limiter,
+                oteryn_web::ratelimit::supply,
+            ))
             .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024))
             .layer(axum::middleware::from_fn_with_state(
                 pool.clone(),

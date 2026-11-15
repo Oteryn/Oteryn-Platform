@@ -55,7 +55,10 @@ fn router(pool: PgPool, layer: SessionLayer) -> Router {
             layer,
             session::middleware,
         ))
-        .layer(Extension(RateLimiter::new(pool.clone())))
+        .layer(axum::middleware::from_fn_with_state(
+            RateLimiter::new(pool.clone()),
+            oteryn_web::ratelimit::supply,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024))
         .with_state(pool);
     oteryn_web::ratelimit::finish_routes(routes)

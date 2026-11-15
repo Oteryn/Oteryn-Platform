@@ -22,6 +22,7 @@ use std::{net::SocketAddr, sync::Arc};
 use uuid::Uuid;
 #[derive(Clone)]
 struct Services {
+    limiter: RateLimiter,
     pool: PgPool,
     notifications: Arc<oteryn_notify::Notifications>,
     termination: termination::Terminations,
@@ -122,6 +123,7 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
         ))
         .merge(Router::new().route("/{lang}/unsubscribe", axum::routing::post(unsubscribe)))
         .with_state(Services {
+            limiter: RateLimiter::new(pool.clone()),
             pool,
             notifications,
             termination,
@@ -264,7 +266,7 @@ fn boolean(v: Option<String>) -> Result<bool, StatusCode> {
     }
 }
 async fn rate(
-    st: &Services,
+    limiter: &RateLimiter,
     headers: &HeaderMap,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     account: Option<Uuid>,
@@ -272,7 +274,6 @@ async fn rate(
     policy: NamedPolicy,
     token: Option<&str>,
 ) -> Result<(), Response> {
-    let limiter = RateLimiter::new(st.pool.clone());
     let Some(Extension(ConnectInfo(peer))) = peer else {
         return Err(oteryn_web::ratelimit::Denial::Unavailable.response(l, false));
     };
@@ -290,15 +291,17 @@ async fn rate(
 }
 async fn save(
     State(st): State<Services>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(l): Extension<Language>,
     Extension(s): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     Form(input): Form<PreferenceInput>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied.map(|v| v.0).unwrap_or_else(|| st.limiter.clone());
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
     if let Err(r) = rate(
-        &st,
+        &limiter,
         &headers,
         peer,
         Some(id),
@@ -354,13 +357,15 @@ async fn unsubscribe_page(
 }
 async fn unsubscribe(
     State(st): State<Services>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(l): Extension<Language>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<Token>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied.map(|v| v.0).unwrap_or_else(|| st.limiter.clone());
     if let Err(r) = rate(
-        &st,
+        &limiter,
         &headers,
         peer,
         None,
@@ -440,15 +445,17 @@ fn failure(e: termination::Error) -> StatusCode {
 }
 async fn delete(
     State(st): State<Services>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(l): Extension<Language>,
     Extension(s): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     Form(input): Form<DeleteInput>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied.map(|v| v.0).unwrap_or_else(|| st.limiter.clone());
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
     if let Err(r) = rate(
-        &st,
+        &limiter,
         &headers,
         peer,
         Some(id),
@@ -473,15 +480,17 @@ async fn delete(
 }
 async fn cancel(
     State(st): State<Services>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(l): Extension<Language>,
     Extension(s): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     Form(input): Form<DeleteInput>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied.map(|v| v.0).unwrap_or_else(|| st.limiter.clone());
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
     if let Err(r) = rate(
-        &st,
+        &limiter,
         &headers,
         peer,
         Some(id),

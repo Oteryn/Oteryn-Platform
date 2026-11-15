@@ -265,6 +265,11 @@ async fn policy(mut request: Request, next: Next) -> Response {
                 replacement.headers_mut().insert(name, value.clone());
             }
         }
+        for value in response.headers().get_all(header::SET_COOKIE) {
+            replacement
+                .headers_mut()
+                .append(header::SET_COOKIE, value.clone());
+        }
         response = replacement;
     }
     let headers = response.headers_mut();

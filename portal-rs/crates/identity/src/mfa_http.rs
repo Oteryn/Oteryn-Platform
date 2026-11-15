@@ -276,7 +276,7 @@ async fn show_challenge(
     .await
 }
 async fn charge(
-    context: &Context,
+    limiter: &RateLimiter,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: &HeaderMap,
     language: Language,
@@ -286,8 +286,7 @@ async fn charge(
     let Some(Extension(ConnectInfo(peer))) = peer else {
         return Err(Denial::Unavailable.response(language, false));
     };
-    let source = context
-        .limiter
+    let source = limiter
         .trusted_proxies
         .client_ip(peer, headers)
         .map_err(|e| e.response(language, false))?;
@@ -297,8 +296,7 @@ async fn charge(
     keys.pending_account = pending;
     keys.email = email;
     for policy in policies {
-        context
-            .limiter
+        limiter
             .check(*policy, &[keys.clone()])
             .await
             .map_err(|e| e.response(language, false))?;
@@ -376,14 +374,18 @@ async fn establish(
 }
 async fn login(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     form: Result<Form<Credentials>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -409,7 +411,7 @@ async fn login(
         return refusal(language, &session, "/login").await;
     }
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -492,14 +494,18 @@ struct Input {
 }
 async fn challenge(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     form: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -520,7 +526,7 @@ async fn challenge(
         .map_err(unavailable)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -551,13 +557,17 @@ async fn challenge(
 }
 async fn email(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -578,7 +588,7 @@ async fn email(
         .map_err(unavailable)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -666,17 +676,21 @@ async fn settings(
 }
 async fn enroll(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     form: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     let Some(id) = session.account_id().await else {
         return Ok(redirect(language, "/login"));
     };
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -709,17 +723,21 @@ async fn enroll(
 }
 async fn confirm(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     form: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     let Some(id) = session.account_id().await else {
         return Ok(redirect(language, "/login"));
     };
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,
@@ -755,17 +773,21 @@ async fn confirm(
 }
 async fn remove_device(
     State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     form: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
     let Some(id) = session.account_id().await else {
         return Ok(redirect(language, "/login"));
     };
     if let Err(r) = charge(
-        &context,
+        &limiter,
         peer,
         &headers,
         language,

@@ -84,6 +84,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tokio::signal::ctrl_c().await?;
         }
         Role::Serve => {
+            let proxies = oteryn_web::ratelimit::TrustedProxies::configured()?;
             let internal_configuration = game_routes::Configuration::from_env()?;
             let catalog_db = db.clone();
             let catalog_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -374,6 +375,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);
+            let app = with_proxy_policy(app, db.clone(), proxies);
             let public_app = app.clone();
             let app = app.merge(oteryn_support::sanctions::export::configured_router(
                 db.clone(),
@@ -549,3 +551,17 @@ mod browser_configuration_tests {
 
 #[cfg(test)]
 mod large_pages_tests;
+
+/// Last browser composition layer shares one validated policy across module adapters.
+fn with_proxy_policy(
+    app: axum::Router,
+    pool: sqlx::PgPool,
+    proxies: oteryn_web::ratelimit::TrustedProxies,
+) -> axum::Router {
+    let mut limiter = oteryn_web::ratelimit::RateLimiter::new(pool);
+    limiter.trusted_proxies = proxies;
+    app.layer(axum::middleware::from_fn_with_state(
+        limiter,
+        oteryn_web::ratelimit::supply,
+    ))
+}

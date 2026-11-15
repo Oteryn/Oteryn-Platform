@@ -119,19 +119,19 @@ impl Announcements {
         input: Input,
     ) -> Result<Uuid, Error> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
+        oteryn_admin::rbac::lock_mutation(&mut tx).await?;
+        auth.check_in(&mut tx, context, Permission::Access).await?;
         auth.check_in(&mut tx, context, Permission::ManagePortalAnnouncements)
             .await?;
         input.validate()?;
         let id = existing.map_or_else(Uuid::now_v7, |v| v.0);
-        let (before, previous_publication, previous_source) = if let Some((_, version)) = existing {
-            type StoredVersion = (i64, String, Option<OffsetDateTime>, Option<OffsetDateTime>);
+        let (before, same_publication, previous_source) = if let Some((_, version)) = existing {
+            type StoredVersion = (i64, String, bool, Option<OffsetDateTime>);
             let current: Option<StoredVersion> = sqlx::query_as(
-                "SELECT lock_version,publication_state,translation_published_at,translation_source_updated_at FROM announcements WHERE id=$1 FOR UPDATE",
+                "SELECT lock_version,publication_state,translation_published_at IS NOT DISTINCT FROM $2::timestamptz,translation_source_updated_at FROM announcements WHERE id=$1 FOR UPDATE",
             )
             .bind(id)
+            .bind(input.translation_published_at)
             .fetch_optional(&mut *tx)
             .await?;
             let Some((actual, state, publication, source)) = current else {
@@ -143,20 +143,20 @@ impl Announcements {
             }
             (json!({"version":actual,"state":state}), publication, source)
         } else {
-            (json!(null), None, None)
+            (json!(null), false, None)
         };
         let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
             .fetch_one(&mut *tx)
             .await?;
         // An unchanged publication stamp cannot reapprove a stale translation.
-        let source = input.translation_published_at.and_then(|stamp| {
-            if existing.is_none() || Some(stamp) != previous_publication {
+        let source = input.translation_published_at.and_then(|_| {
+            if existing.is_none() || !same_publication {
                 Some(now)
             } else {
                 previous_source
             }
         });
-        sqlx::query("INSERT INTO announcements (id,publication_state,severity,starts_at,ends_at,title,body,action_label,action_url,title_pl,body_pl,action_label_pl,translation_published_at,translation_source_updated_at,created_by,updated_by,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$16,$15,$15,$14) ON CONFLICT (id) DO UPDATE SET publication_state=$2,severity=$3,starts_at=$4,ends_at=$5,title=$6,body=$7,action_label=$8,action_url=$9,title_pl=$10,body_pl=$11,action_label_pl=$12,translation_published_at=$13,translation_source_updated_at=$16,updated_by=$15,updated_at=$14,lock_version=announcements.lock_version+1")
+        sqlx::query("INSERT INTO announcements (id,publication_state,severity,starts_at,ends_at,title,body,action_label,action_url,title_pl,body_pl,action_label_pl,translation_published_at,translation_source_updated_at,created_by,updated_by,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$16,$15,$15,$14) ON CONFLICT (id) DO UPDATE SET publication_state=$2,severity=$3,starts_at=$4,ends_at=$5,title=$6,body=$7,action_label=$8,action_url=$9,title_pl=$10,body_pl=$11,action_label_pl=$12,translation_published_at=$13,translation_source_updated_at=$16,updated_by=$15,updated_at=CASE WHEN (announcements.title,announcements.body,announcements.action_label,announcements.action_url) IS DISTINCT FROM ($6,$7,$8,$9) THEN $14 ELSE announcements.updated_at END,lock_version=announcements.lock_version+1")
             .bind(id).bind(&input.publication_state).bind(&input.severity).bind(input.starts_at).bind(input.ends_at).bind(&input.title).bind(&input.body).bind(&input.action_label).bind(&input.action_url).bind(&input.title_pl).bind(&input.body_pl).bind(&input.action_label_pl).bind(input.translation_published_at).bind(now).bind(context.account).bind(source).execute(&mut *tx).await?;
         audit::append(
             &mut tx,

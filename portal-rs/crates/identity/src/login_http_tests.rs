@@ -497,3 +497,153 @@ async fn audit02_paused_password_completion_refuses_reset_even_after_anonymous_g
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn logout_delete_failure_keeps_deletion_cookie_through_error_renderer() -> TestResult {
+    use sha2::{Digest, Sha256};
+    let started = std::time::Instant::now();
+    let database = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let pool = database.pool.clone();
+    let account: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,email_verified_at,locale) VALUES('logout-failure@example.test','unused','active',now(),'en') RETURNING id").fetch_one(&pool).await?;
+    let raw = "e".repeat(64);
+    let csrf = "f".repeat(64);
+    sqlx::query("INSERT INTO web_sessions(id_hash,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at,account_id) VALUES($1,'logout regression',$2,now()+interval '1 hour',now()+interval '1 day',$3)").bind(Sha256::digest(raw.as_bytes()).to_vec()).bind(&csrf).bind(account).execute(&pool).await?;
+    sqlx::raw_sql("CREATE FUNCTION refuse_logout_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test storage deletion failure'; END $$; CREATE TRIGGER refuse_logout_delete BEFORE DELETE ON web_sessions FOR EACH ROW EXECUTE FUNCTION refuse_logout_delete()").execute(&pool).await?;
+    let app = router(pool.clone(), true, SessionLayer::new(pool.clone()));
+    for path in ["/logout", "/pl/logout", "/en/logout"] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                path,
+                &format!("{}={raw}", session::COOKIE_NAME),
+                &format!("_csrf={csrf}"),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            response
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .any(|v| v.to_str().is_ok_and(|s| s.contains("Max-Age=0"))),
+            "{path}"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM web_sessions")
+                .fetch_one(&pool)
+                .await?,
+            1
+        );
+    }
+    database.close().await?;
+    eprintln!(
+        "logout_delete_failure_keeps_deletion_cookie_through_error_renderer duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn production_proxy_policy_isolates_registration_verification_login_and_search() -> TestResult
+{
+    use oteryn_web::{
+        AppState,
+        ratelimit::{NamedPolicy, TrustedProxies},
+    };
+    let started = std::time::Instant::now();
+    let database = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let pool = database.pool.clone();
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
+        .execute(&pool)
+        .await?;
+    let app = oteryn_web::router(AppState { db: pool.clone() }, "static")
+        .merge(router(pool.clone(), true, SessionLayer::new(pool.clone())))
+        .merge(oteryn_web::search::routes(
+            oteryn_web::search::SearchState {
+                pool: pool.clone(),
+                world: None,
+                characters: None,
+            },
+        ));
+    assert!(
+        include_str!("../../../../deploy/oracle/Caddyfile")
+            .contains("header_up X-Forwarded-For {client_ip}")
+    );
+    assert!(
+        include_str!("../../../../deploy/oracle/public-platform.compose.yml")
+            .contains("TRUSTED_PROXIES: 172.18.0.10,172.18.0.5")
+    );
+    let app = crate::with_proxy_policy(
+        app,
+        pool.clone(),
+        TrustedProxies::parse("172.18.0.10,172.18.0.5")?,
+    );
+    let response = app
+        .clone()
+        .oneshot(request("GET", "/en/register", "", "")?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = cookie(&response)?;
+    let html = body(response).await?;
+    let csrf = csrf(&html)?;
+    for (policy, path, method, expected) in [
+        (
+            NamedPolicy::IdentityRegistration,
+            "/en/register",
+            "POST",
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            NamedPolicy::IdentityVerificationSource,
+            "/en/verify-email?token=invalid",
+            "GET",
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            NamedPolicy::IdentityLoginSource,
+            "/en/login",
+            "POST",
+            StatusCode::FOUND,
+        ),
+        (
+            NamedPolicy::WikiSearch,
+            "/en/search?q=budget",
+            "GET",
+            StatusCode::OK,
+        ),
+    ] {
+        for n in 0..=policy.limit() + 1 {
+            let client = if n <= policy.limit() {
+                "192.0.2.10"
+            } else {
+                "192.0.2.11"
+            };
+            let mut req = request(method, path, &cookie, &format!("_csrf={csrf}"))?;
+            req.headers_mut().insert("x-forwarded-for", client.parse()?);
+            req.extensions_mut()
+                .insert(ConnectInfo("172.18.0.5:8000".parse::<SocketAddr>()?));
+            let response = app.clone().oneshot(req).await?;
+            assert_eq!(
+                response.status(),
+                if n == policy.limit() {
+                    StatusCode::TOO_MANY_REQUESTS
+                } else {
+                    expected
+                },
+                "{} request {n}",
+                policy.name()
+            );
+        }
+    }
+    database.close().await?;
+    eprintln!(
+        "production_proxy_policy_isolates_registration_verification_login_and_search duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

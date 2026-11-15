@@ -190,15 +190,17 @@ async fn update(
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
         .0;
-    let source = state
-        .limiter
+    let limiter = request
+        .extensions()
+        .get::<oteryn_web::ratelimit::RateLimiter>()
+        .unwrap_or(&state.limiter);
+    let source = limiter
         .trusted_proxies
         .client_ip(peer, request.headers())
         .map_err(|error| error.status())?;
     let mut keys = oteryn_web::ratelimit::Keys::source(source);
     keys.account = Some(id.to_string());
-    if let Err(error) = state
-        .limiter
+    if let Err(error) = limiter
         .check(
             oteryn_web::ratelimit::NamedPolicy::IdentitySecurityMutation,
             &[keys],

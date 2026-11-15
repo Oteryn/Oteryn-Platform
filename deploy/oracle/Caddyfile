@@ -11,7 +11,10 @@ oteryn.com {
 	# Preserve the native contract path and Laravel's authenticated API handler.
 	@native_ticket path /v1/game-auth/tickets
 	rewrite @native_ticket /api/v1/game-auth/tickets
-	reverse_proxy platform:8000
+	reverse_proxy platform:8000 {
+		# Forward the client resolved by Caddy's explicit Cloudflare trust policy.
+		header_up X-Forwarded-For {client_ip}
+	}
 }
 
 www.oteryn.com {
