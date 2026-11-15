@@ -967,3 +967,24 @@ async fn db_revision_newer_expired_state_never_restores_older_permanent_state() 
     assert_eq!(state(&db, Some(character)).await?.revision, 4);
     db.cleanup().await
 }
+
+#[tokio::test]
+async fn db_effective_state_refuses_oversized_materialization() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let mut tx = db.pool.begin().await?;
+    for _ in 0..1001 {
+        let ban = intent(
+            db.target,
+            SanctionAction::Ban {
+                expires_at_ms: None,
+            },
+            None,
+        );
+        db.service().allocate_and_record(&mut tx, &ban).await?;
+    }
+    tx.commit().await?;
+    assert!(matches!(state(&db, None).await, Err(Error::Conflict)));
+    db.cleanup().await
+}

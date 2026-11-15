@@ -48,7 +48,7 @@ impl StatisticsJob {
             .fetch_one(&mut *tx)
             .await?;
         store::partitions(&mut tx, today).await?;
-        let rows = sqlx::query("SELECT s.family,s.subject,s.epoch::text,s.version::text,s.watermark,s.payload FROM public_snapshots s JOIN public_snapshots w ON w.family=s.family AND w.is_watermark AND w.epoch=s.epoch JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch LEFT JOIN stats_projection_cursors c ON c.family=s.family AND c.subject=s.subject WHERE NOT s.is_watermark AND s.family IN ('character_profile','character_deaths','world_online') AND s.watermark <= w.watermark AND (c.subject IS NULL OR (s.epoch,s.version,s.watermark) > (c.epoch,c.version,c.watermark)) ORDER BY s.watermark,s.family,s.subject").fetch_all(&mut *tx).await?;
+        let rows = sqlx::query("SELECT s.family,s.subject,s.epoch::text,s.version::text,s.watermark,s.payload FROM public_snapshots s JOIN public_snapshots w ON w.family=s.family AND w.is_watermark AND w.epoch=s.epoch JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch LEFT JOIN stats_projection_cursors c ON c.family=s.family AND c.subject=s.subject WHERE NOT s.is_watermark AND s.family IN ('character_profile','character_deaths','world_online') AND s.watermark <= w.watermark AND (c.subject IS NULL OR (s.epoch,s.version,s.watermark) > (c.epoch,c.version,c.watermark)) ORDER BY s.watermark,s.family,s.subject LIMIT 100").fetch_all(&mut *tx).await?;
         let count = rows.len();
         for row in rows {
             let family: String = row.try_get("family")?;
@@ -111,8 +111,10 @@ impl StatisticsJob {
                         .and_then(Value::as_array)
                         .ok_or_else(invalid)?
                         .len();
+                    // Buckets older than 90 days are finalized. Replays and corrections
+                    // to finalized buckets are refused; retained samples are first-write wins.
                     // Observation time prevents manufacturing samples from stale projections.
-                    sqlx::query("INSERT INTO stats_world_samples (world,sampled_at,players_online) VALUES ($1,to_timestamp(($2::bigint / 300) * 300),$3) ON CONFLICT DO NOTHING").bind(character).bind(observed).bind(i32::try_from(online).map_err(|_|invalid())?).execute(&mut *tx).await?;
+                    sqlx::query("INSERT INTO stats_world_samples (world,sampled_at,players_online) SELECT $1,to_timestamp(($2::bigint / 300) * 300),$3 WHERE to_timestamp(($2::bigint / 300) * 300) >= now() - interval '90 days' ON CONFLICT DO NOTHING").bind(character).bind(observed).bind(i32::try_from(online).map_err(|_|invalid())?).execute(&mut *tx).await?;
                 }
                 _ => return Err(invalid()),
             }

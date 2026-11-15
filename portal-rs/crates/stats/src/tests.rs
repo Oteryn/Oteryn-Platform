@@ -318,3 +318,187 @@ async fn malformed_projection_rolls_back_cursor_and_effects() -> Result {
     assert_eq!(n, 0);
     dispose(db).await
 }
+
+#[tokio::test]
+async fn postgres_snapshot_corrections_replace_derived_events() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let mut original = sample();
+    let mut tx = db.begin().await?;
+    partitions(&mut tx, original.day).await?;
+    snapshot(&mut tx, &original).await?;
+    original.day = original.day.next_day().unwrap();
+    original.observed_at = 3;
+    let mut changed = original.clone();
+    changed.name = "Changed".into();
+    changed.world = Uuid::now_v7();
+    changed.guild = Some(Uuid::now_v7());
+    changed.level += 1;
+    changed.observed_at = 2;
+    snapshot(&mut tx, &changed).await?;
+    source_event(
+        &mut tx,
+        original.character_ref,
+        original.day,
+        "death",
+        "independent",
+        &json!({"level":10}),
+    )
+    .await?;
+    snapshot(&mut tx, &original).await?;
+    let kinds: Vec<String> = sqlx::query_scalar(
+        "SELECT kind FROM stats_character_events WHERE character_ref=$1 AND day=$2 ORDER BY kind",
+    )
+    .bind(original.character_ref)
+    .bind(original.day)
+    .fetch_all(&mut *tx)
+    .await?;
+    assert_eq!(kinds, vec!["death"]);
+    tx.commit().await?;
+    dispose(db).await
+}
+
+#[tokio::test]
+async fn postgres_rollup_rejects_finalized_replay() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let world = Uuid::now_v7();
+    let observed: i64 =
+        sqlx::query_scalar("SELECT extract(epoch FROM now()-interval '100 days')::bigint")
+            .fetch_one(&db)
+            .await?;
+    sqlx::query("INSERT INTO stats_world_samples(world,sampled_at,players_online) VALUES($1,to_timestamp(($2::bigint/300)*300),7)").bind(world).bind(observed).execute(&db).await?;
+    let job = StatisticsJob {
+        pool: db.clone(),
+        enabled: true,
+    };
+    job.retention().await?;
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=2")
+        .execute(&db)
+        .await?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('world_online',$1,false,2,1,$2,$3),('world_online','',true,2,1,$2,'{}')").bind(world.to_string()).bind(observed).bind(json!({"characters":[{},{}]})).execute(&db).await?;
+    assert_eq!(job.run().await?, 1);
+    let totals: (i64, String) =
+        sqlx::query_as("SELECT samples,players_sum::text FROM stats_world_daily WHERE world=$1")
+            .bind(world)
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(totals, (1, "7".into()));
+    dispose(db).await
+}
+
+#[tokio::test]
+async fn postgres_worker_batches_cover_backlog_once() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
+        .execute(&db)
+        .await?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) SELECT 'world_online',uuidv7()::text,false,1,1,extract(epoch FROM now())::bigint,'{\"characters\":[]}' FROM generate_series(1,205)").execute(&db).await?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('world_online','',true,1,1,extract(epoch FROM now())::bigint,'{}')").execute(&db).await?;
+    let job = StatisticsJob {
+        pool: db.clone(),
+        enabled: true,
+    };
+    assert_eq!(job.run().await?, 100);
+    assert_eq!(job.run().await?, 100);
+    assert_eq!(job.run().await?, 5);
+    assert_eq!(job.run().await?, 0);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM stats_projection_cursors")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(count, 205);
+    dispose(db).await
+}
+
+#[tokio::test]
+async fn postgres_history_refuses_oversized_events() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let s = sample();
+    let mut tx = db.begin().await?;
+    partitions(&mut tx, s.day).await?;
+    snapshot(&mut tx, &s).await?;
+    for n in 0..1001 {
+        source_event(
+            &mut tx,
+            s.character_ref,
+            s.day,
+            "death",
+            &n.to_string(),
+            &json!({"level":10}),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    assert!(
+        history(
+            &db,
+            s.character_ref,
+            s.day,
+            s.day,
+            &Policy {
+                hidden: None,
+                fields: true
+            }
+        )
+        .await
+        .is_err()
+    );
+    let hidden = history(
+        &db,
+        s.character_ref,
+        s.day,
+        s.day,
+        &Policy {
+            hidden: None,
+            fields: false,
+        },
+    )
+    .await?;
+    assert!(hidden.events.is_empty());
+    dispose(db).await
+}
+
+struct OnlyVisible(Uuid);
+impl Visibility for OnlyVisible {
+    fn permissions(&self, id: Uuid) -> Permissions {
+        Permissions {
+            visible: id == self.0,
+            ..Permissions::default()
+        }
+    }
+}
+#[tokio::test]
+async fn postgres_growth_privacy_crosses_multiple_batches() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let mut s = sample();
+    s.day = s.day.next_day().unwrap();
+    let mut tx = db.begin().await?;
+    partitions(&mut tx, s.day).await?;
+    sqlx::query("INSERT INTO stats_character_daily(character_ref,day,level,experience,name,world,observed_at) SELECT uuidv7(),$1,10,n,'Observed', $2,1 FROM generate_series(1,205) n").bind(s.day).bind(s.world).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO stats_character_daily(character_ref,day,level,experience,name,world,observed_at) SELECT character_ref,$1,level,0,name,world,0 FROM stats_character_daily").bind(s.day.previous_day().unwrap()).execute(&mut *tx).await?;
+    let visible: Uuid =
+        sqlx::query_scalar("SELECT character_ref FROM stats_character_daily WHERE experience=1")
+            .fetch_one(&mut *tx)
+            .await?;
+    tx.commit().await?;
+    let result = top_growth(
+        &db,
+        s.day.previous_day().unwrap(),
+        s.day,
+        1,
+        &OnlyVisible(visible),
+    )
+    .await?;
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].character_ref, visible);
+    assert_eq!(result[0].experience_gain, "1");
+    dispose(db).await
+}
