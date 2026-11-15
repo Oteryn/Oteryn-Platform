@@ -399,7 +399,10 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
     };
     db.enable().await?;
     db.range("a fresh registration passphrase", false).await?;
-    for n in 0..7 {
+    // Prepare every form and solve its work token first, so that only the
+    // submissions fall inside the one-minute registration budget window.
+    let mut forms = Vec::new();
+    for _ in 0..7 {
         let (app, cookie, csrf) = browser_form(&db).await?;
         let token = issue(&db.pool, &csrf).await.map_err(|e| e.to_string())?;
         let nonce = solve(&token);
@@ -413,6 +416,9 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
             ("terms", "2026-11-05"),
             ("privacy", "2026-11-05"),
         ])?;
+        forms.push((app, cookie, body));
+    }
+    for (n, (app, cookie, body)) in forms.into_iter().enumerate() {
         let response = app
             .oneshot(
                 axum::http::Request::post(if n % 2 == 0 {
