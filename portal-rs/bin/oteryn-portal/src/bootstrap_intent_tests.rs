@@ -359,3 +359,137 @@ async fn missing_malformed_or_unknown_actor_issues_and_audits_nothing() -> TestR
     );
     db.close().await
 }
+
+struct RbacAccounts(PgPool);
+impl oteryn_admin::rbac::AccountStateReader for RbacAccounts {
+    async fn state(
+        &self,
+        account: Uuid,
+    ) -> Result<oteryn_admin::rbac::AccountState, oteryn_admin::rbac::AccountStateUnavailable> {
+        let mut connection = self
+            .0
+            .acquire()
+            .await
+            .map_err(|_| oteryn_admin::rbac::AccountStateUnavailable)?;
+        self.state_in(&mut connection, account).await
+    }
+    async fn state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> Result<oteryn_admin::rbac::AccountState, oteryn_admin::rbac::AccountStateUnavailable> {
+        use oteryn_admin::rbac::{AccountState, AccountStateUnavailable};
+        let active: Option<bool> =
+            sqlx::query_scalar("SELECT status='active' FROM accounts WHERE id=$1")
+                .bind(account)
+                .fetch_optional(connection)
+                .await
+                .map_err(|_| AccountStateUnavailable)?;
+        Ok(if active == Some(true) {
+            AccountState::Active
+        } else {
+            AccountState::Disabled
+        })
+    }
+}
+
+#[tokio::test]
+async fn cw3_02_postgres_bootstrap_serializes_permission_revocation() -> TestResult {
+    use oteryn_admin::rbac::{Authorizer, Change, CheckContext};
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let manager = Uuid::parse_str(SUSPENDED)?;
+    sqlx::query("UPDATE accounts SET status='active' WHERE id=$1")
+        .bind(manager)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(manager).execute(&db.pool).await?;
+    let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='game_master_senior'")
+        .fetch_one(&db.pool)
+        .await?;
+    sqlx::query(
+        "INSERT INTO character_bootstrap_intent_authority(id,last_source_revision) VALUES (1,'0')",
+    )
+    .execute(&db.pool)
+    .await?;
+    let mut blocker = db.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    sqlx::query("SELECT id FROM character_bootstrap_intent_authority WHERE id=1 FOR UPDATE")
+        .execute(&mut *blocker)
+        .await?;
+    let pool = db.pool.clone();
+    let issuance = tokio::spawn(async move {
+        execute(
+            &pool,
+            ON,
+            Some(STAFF),
+            request(&Uuid::now_v7().to_string(), ACCOUNT).as_bytes(),
+        )
+        .await
+    });
+    // Observe the actual authority-row wait: authorization has already run.
+    let issuance_pid = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let pid: Option<i32> = sqlx::query_scalar("SELECT pid FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND query LIKE 'SELECT last_source_revision%'")
+                .bind(blocker_pid).fetch_optional(&db.admin).await?;
+            if let Some(pid) = pid { return Ok::<_, sqlx::Error>(pid); }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await??;
+    let pool = db.pool.clone();
+    let revocation = tokio::spawn(async move {
+        let authorizer = Authorizer::new(pool.clone(), RbacAccounts(pool));
+        let mut context = CheckContext::new(manager);
+        context.mfa_verified = true;
+        authorizer
+            .change(
+                context,
+                Uuid::now_v7(),
+                Change::SetPermissions {
+                    role,
+                    permissions: &[],
+                },
+            )
+            .await
+    });
+    // A real role writer must wait for issuance, rather than commit before it.
+    let serialized = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if revocation.is_finished() { return Ok::<_, sqlx::Error>(false); }
+            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND query='SELECT pg_advisory_xact_lock(71010)')")
+                .bind(issuance_pid).fetch_one(&db.admin).await?;
+            if blocked { return Ok(true); }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await??;
+    blocker.rollback().await?;
+    issuance.await??;
+    revocation.await??;
+    assert!(
+        serialized,
+        "permission revocation committed ahead of already authorized issuance"
+    );
+    assert_eq!(db.counts().await?, (1, 1));
+    assert!(
+        execute(
+            &db.pool,
+            ON,
+            Some(STAFF),
+            request(&Uuid::now_v7().to_string(), ACCOUNT).as_bytes()
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(db.counts().await?, (1, 1));
+    db.close().await?;
+    eprintln!(
+        "cw3_02_postgres_bootstrap_serializes_permission_revocation duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

@@ -240,7 +240,7 @@ impl Services {
         let id = wire::identifier(wire::string(&v, "operation_id")?)?;
         let mut tx = self.pool.begin().await?;
         restore_lock(&mut tx).await?;
-        let row=sqlx::query("SELECT c.intent_json,c.receipt_json,o.account_id,o.reservation_id,o.settlement_id,o.financial_state,o.credit_from,o.credit_used_by FROM character_commands c JOIN character_service_orders o ON o.operation_id=c.id WHERE c.id=$1 FOR UPDATE OF c,o").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        let row=sqlx::query("SELECT c.intent_json,c.receipt_json,o.account_id,o.character_id,o.reservation_id,o.settlement_id,o.financial_state,o.credit_from,o.credit_used_by FROM character_commands c JOIN character_service_orders o ON o.operation_id=c.id WHERE c.id=$1 FOR UPDATE OF c,o").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         let intent: String = row.try_get("intent_json")?;
         wire::validate_binding(&v, &intent)?;
         if let Some(existing) = row.try_get::<Option<String>, _>("receipt_json")? {
@@ -291,6 +291,25 @@ impl Services {
                 return Err(Error::Conflict);
             }
             next = "SETTLED".into();
+        }
+        if committed && let Some(credit) = row.try_get::<Option<Uuid>, _>("credit_from")? {
+            // A rejected replacement releases its claim, but restore may reopen
+            // that FREE order. Revalidate and reclaim its originating credit on
+            // every commit, atomically with the receipt and restore history.
+            let parent = sqlx::query("SELECT account_id,character_id,financial_state,credit_used_by FROM character_service_orders WHERE operation_id=$1 FOR UPDATE")
+                .bind(credit).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
+            if parent.try_get::<Uuid, _>("account_id")? != account
+                || parent.try_get::<Uuid, _>("character_id")?
+                    != row.try_get::<Uuid, _>("character_id")?
+                || parent.try_get::<String, _>("financial_state")? != "RECOVERY_REQUIRED"
+                || parent
+                    .try_get::<Option<Uuid>, _>("credit_used_by")?
+                    .is_some_and(|used| used != id)
+            {
+                return Err(Error::Conflict);
+            }
+            sqlx::query("UPDATE character_service_orders SET credit_used_by=$2,updated_at=now() WHERE operation_id=$1")
+                .bind(credit).bind(id).execute(&mut *tx).await?;
         }
         if !committed && let Some(credit) = row.try_get::<Option<Uuid>, _>("credit_from")? {
             sqlx::query("UPDATE character_service_orders SET credit_used_by=NULL,updated_at=now() WHERE operation_id=$1 AND credit_used_by=$2").bind(credit).bind(id).execute(&mut *tx).await?;

@@ -133,9 +133,22 @@ pub async fn issue(pool: &PgPool, input: IssueInput, actor: Actor) -> Result<Iss
     let operation = Uuid::parse_str(&input.operation_id)
         .map_err(|_| bad("operationId must be a lower-case UUID"))?;
     let mut tx = pool.begin().await?;
+    // Prepare both account locks before the RBAC fence. Sorting also prevents
+    // opposite actor/subject pairs from acquiring accounts in opposite orders.
+    let mut accounts = vec![identity.as_uuid()];
     if let Actor::Operator(actor) = actor {
-        // Same rule as the downloads operator: an active account holding the staff
-        // permission. The account row stays locked until the decision commits.
+        accounts.push(actor.as_uuid());
+    }
+    sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR SHARE")
+        .bind(&accounts)
+        .execute(&mut *tx)
+        .await?;
+    if let Actor::Operator(actor) = actor {
+        // Role writers take the exclusive fence (71010). Keep our shared fence
+        // through the permission check, issuance and audit commit.
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(71010)")
+            .execute(&mut *tx)
+            .await?;
         let allowed: Option<bool> = sqlx::query_scalar("SELECT a.status='active' AND EXISTS(SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id WHERE ar.account_id=a.id AND rp.permission=$2) FROM accounts a WHERE a.id=$1 FOR SHARE OF a")
             .bind(actor.as_uuid())
             .bind(ACTOR_PERMISSION)
