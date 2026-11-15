@@ -3,9 +3,11 @@
 //! Sources: premium snapshot contract §2.5, Rust plan §5.4, Laravel
 //! AdminPremiumTimeController, AdjustWalletBalance and ResolvePaymentReconciliation.
 //! Authentication and transactional account authority are trusted adapters. The
-//! configured surface keeps the pending authentication adapters from the staff shell.
+//! configured surface uses current staff identity and the owning domain ledgers.
+pub mod configured;
 mod effects;
 mod http;
+pub use configured::*;
 pub use effects::*;
 pub use http::{configured_router, router};
 
@@ -119,7 +121,11 @@ impl From<rbac::Error> for Error {
 /// effects may occur here; use the transactional outbox for provider requests.
 pub trait Effects: Send + Sync {
     /// Read current target authority before accepting a pending request.
-    fn inspect(&self, request: &Request) -> impl Future<Output = Result<Value, Error>> + Send;
+    fn inspect(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        request: &Request,
+    ) -> impl Future<Output = Result<Value, Error>> + Send;
 
     fn apply(
         &self,
@@ -186,9 +192,7 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         let mut tx = self.pool.begin().await?;
         // Serialize with T10/T10b role writers. Check both staff permissions under
         // the lock, including on idempotent replays and approval requests.
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
+        rbac::lock_mutation(&mut tx).await?;
         if let Err(error) = self.authorize_in(&mut tx, context, &request.command).await {
             if matches!(error, Error::Denied) {
                 record(
@@ -224,7 +228,7 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
                 replayed: true,
             });
         }
-        let review = self.effects.inspect(&request).await?;
+        let review = self.effects.inspect(&mut tx, &request).await?;
         sqlx::query("UPDATE commerce_operations SET review=$2 WHERE id=$1")
             .bind(request.request_id)
             .bind(&review)
@@ -265,9 +269,7 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
+        rbac::lock_mutation(&mut tx).await?;
         let row = sqlx::query("SELECT actor_id,target_id,command,reason_sha256,requires_approval,approved_by,result FROM commerce_operations WHERE id=$1 FOR UPDATE")
             .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Invalid)?;
         let actor: Uuid = row.try_get("actor_id")?;

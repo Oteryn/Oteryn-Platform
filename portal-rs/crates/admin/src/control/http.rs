@@ -563,7 +563,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     }
     Ok(router(pool, true, configured_bindings()?)?)
 }
-fn configured_bindings() -> Result<Vec<AgentBinding>, Box<dyn std::error::Error>> {
+pub(crate) fn configured_bindings() -> Result<Vec<AgentBinding>, Box<dyn std::error::Error>> {
     let config = std::env::var("PORTAL_ADMIN_CONTROL_AGENTS_JSON")?;
     let bindings: Vec<ConfiguredAgent> = serde_json::from_str(&config)?;
     if bindings.is_empty() {

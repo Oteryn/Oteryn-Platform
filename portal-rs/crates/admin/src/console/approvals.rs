@@ -22,12 +22,13 @@ pub struct Pending {
 pub(crate) async fn page<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
+    Extension(session): Extension<oteryn_web::session::BrowserSession>,
     Query(input): Query<Locale>,
 ) -> Result<Response, Error> {
     state.check(actor, "admin.roles.manage").await?;
     let lang = language(input.lang.as_deref())?;
     let mut page = Page::new(lang, "approvals");
-    let pending = state.backend.approvals(actor).await?;
+    let pending = state.backend.for_session(session).approvals(actor).await?;
     let lines = if let Some(rows) = pending {
         let mut lines = Vec::new();
         for row in rows.into_iter().take(100) {

@@ -148,9 +148,14 @@ async fn audit_boundary(State(pool): State<PgPool>, mut request: Request, next: 
     if !attempt.recorded.load(Ordering::SeqCst) {
         let context = *attempt.context.lock().await;
         if let Some(actor) = context.actor
-            && denial(&pool, actor, context.request_id, &target)
-                .await
-                .is_err()
+            && !matches!(
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(1),
+                    denial(&pool, actor, context.request_id, &target)
+                )
+                .await,
+                Ok(Ok(()))
+            )
         {
             response = StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
@@ -225,6 +230,17 @@ async fn read<I: StaffSession, A: AccountStateReader>(
     State(s): State<Arc<Context<I, A>>>,
     request: Request,
 ) -> Response {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(4),
+        read_bounded(State(s), request),
+    )
+    .await
+    .unwrap_or_else(|_| StatusCode::SERVICE_UNAVAILABLE.into_response())
+}
+async fn read_bounded<I: StaffSession, A: AccountStateReader>(
+    State(s): State<Arc<Context<I, A>>>,
+    request: Request,
+) -> Response {
     let Some(context) = request.extensions().get::<AuditContext>().copied() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
@@ -239,10 +255,14 @@ async fn read<I: StaffSession, A: AccountStateReader>(
         Ok(t) => t,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    if sqlx::query("SELECT pg_advisory_xact_lock(71140001)")
+    if sqlx::query("SET LOCAL statement_timeout = '3s'")
         .execute(&mut *tx)
         .await
         .is_err()
+        || !sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_xact_lock(71140001)")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap_or(false)
     {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }

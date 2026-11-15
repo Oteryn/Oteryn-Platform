@@ -65,7 +65,12 @@ impl<A: AccountStateReader> StaffBazaar<A> {
         moderation::lock_staff_target(&mut tx, &command).await?;
         let before = snapshot(&mut tx, command.target()).await?;
         moderation::execute_staff(&mut tx, context.account, &command).await?;
-        self.check(context).await?;
+        self.auth
+            .check_in(&mut tx, context, Permission::Access)
+            .await?;
+        self.auth
+            .check_in(&mut tx, context, Permission::ManageMarketplace)
+            .await?;
         let after = snapshot(&mut tx, command.target()).await?;
         audit::append(
             &mut tx,

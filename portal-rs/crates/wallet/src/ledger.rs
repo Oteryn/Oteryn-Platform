@@ -66,11 +66,21 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         self.enabled()?;
         valid_id(account)?;
         let mut tx = self.pool.begin().await?;
-        self.active(&mut tx, account).await?;
-        lock(&mut tx, account).await?;
-        let result = balance(&mut tx, account).await?;
+        let result = self.balance_in(&mut tx, account).await?;
         tx.commit().await?;
         Ok(result)
+    }
+    /// Read using the caller's transaction and account lock.
+    pub async fn balance_in(
+        &self,
+        connection: &mut PgConnection,
+        account: Uuid,
+    ) -> Result<Balance, Error> {
+        self.enabled()?;
+        valid_id(account)?;
+        self.active(connection, account).await?;
+        lock(connection, account).await?;
+        balance(connection, account).await
     }
     pub async fn transfer(
         &self,
@@ -431,15 +441,15 @@ fn positive(amount: i64) -> Result<(), Error> {
     }
     Ok(())
 }
-async fn lock(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(), Error> {
+async fn lock(tx: &mut PgConnection, account: Uuid) -> Result<(), Error> {
     // Creation also acquires a lock: callers order inserts as well as SELECTs.
     sqlx::query("INSERT INTO wallet_accounts (account_id) VALUES ($1) ON CONFLICT DO NOTHING")
         .bind(account)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await?;
     sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
         .bind(account)
-        .fetch_one(&mut **tx)
+        .fetch_one(&mut *tx)
         .await?;
     Ok(())
 }

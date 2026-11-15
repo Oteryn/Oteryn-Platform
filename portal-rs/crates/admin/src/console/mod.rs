@@ -1,5 +1,5 @@
 //! R0 console. All Game reads and query submissions use the Platform channel store.
-//! P1A/P2A are absent: the configured channel fails closed until their adapters exist.
+//! The configured channel signs queries and projects verified, actor-scoped results.
 //! Adapters must resolve current hello ownership, verify results, bound R0 fields and
 //! enforce request ownership. No network client or guessed channel schema lives here.
 pub mod access;
@@ -7,6 +7,9 @@ pub mod approvals;
 pub mod audit;
 pub mod players;
 
+mod projection;
+mod stored;
+pub use stored::StoredChannel;
 mod alerts;
 mod dashboard;
 mod database;
@@ -335,16 +338,27 @@ pub struct Console<P, C> {
 }
 /// Off by default; additionally requires the existing admin host/session/MFA guard.
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    let console = Console {
-        enabled: std::env::var("OTERYN_ADMIN_CONSOLE").is_ok_and(|v| v == "true"),
+    let enabled = std::env::var("OTERYN_ADMIN_CONSOLE").is_ok_and(|v| v == "true");
+    web::configured_guard(
+        configured_routes(
+            pool.clone(),
+            enabled,
+            StoredChannel::configured(pool.clone())?,
+        ),
+        pool,
+        Permission::Access,
+    )
+}
+pub(super) fn configured_routes(pool: PgPool, enabled: bool, channel: StoredChannel) -> Router {
+    routes(Console {
+        enabled,
         permissions: PgPermissions {
             pool: pool.clone(),
             accounts: web::PortalIdentity::configured(pool.clone()),
         },
-        channel: UnavailableChannel,
-        pool: pool.clone(),
-    };
-    web::configured_guard(routes(console), pool, Permission::Access)
+        channel,
+        pool,
+    })
 }
 /// Embedders must wrap these routes with web::guarded (trusted staff context + CSRF).
 fn routes<P: Permissions, C: Channel>(console: Console<P, C>) -> Router {
@@ -567,7 +581,6 @@ async fn render<P: Permissions, C: Channel>(
                 && result.operation == *op
                 && result.target == q.target
                 && q.request.is_none_or(|id| id == result.request_id)
-                && !result.revision.is_empty()
                 && let Ok(age) = SystemTime::now().duration_since(result.observed_at)
             {
                 section.freshness = format!("{} {}", age.as_secs(), text(language, "seconds"));

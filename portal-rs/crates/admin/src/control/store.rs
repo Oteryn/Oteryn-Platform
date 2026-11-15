@@ -325,6 +325,17 @@ impl Store {
         self.enabled()?;
         validate_request(input)?;
         let mut tx = self.pool.begin().await?;
+        let request = self.enqueue_in(&mut tx, input).await?;
+        tx.commit().await?;
+        Ok(request)
+    }
+    pub async fn enqueue_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        input: &NewRequest,
+    ) -> Result<Request, Error> {
+        self.enabled()?;
+        validate_request(input)?;
         let inserted: Option<Request> = sqlx::query_as(
             "INSERT INTO admin_control_requests (request_id, admin_operation_id, operation, operation_version,
                 kind, target, params, params_digest, dry_run, risk_class, actor, reason, approvals,
@@ -336,17 +347,17 @@ impl Store {
             .bind(&input.params).bind(&input.params_digest).bind(input.dry_run).bind(input.risk_class)
             .bind(input.actor).bind(&input.reason).bind(sqlx::types::Json(&input.approvals))
             .bind(input.issued_at).bind(input.expires_at).bind(&input.nonce).bind(&input.signer_key_id)
-            .bind(&input.canonical_envelope).bind(&input.signature).fetch_optional(&mut *tx).await?;
+            .bind(&input.canonical_envelope).bind(&input.signature).fetch_optional(&mut **tx).await?;
         let request = if let Some(request) = inserted {
             for approval in &input.approvals {
                 sqlx::query("INSERT INTO admin_approvals (approval_id,request_id,approver,approved_at,preview_digest,decision)
                     VALUES ($1,$2,$3,$4,$5,$6)")
                     .bind(approval.approval_id).bind(input.request_id).bind(approval.approver)
                     .bind(approval.approved_at).bind(&approval.preview_digest).bind(approval.decision)
-                    .execute(&mut *tx).await?;
+                    .execute(&mut **tx).await?;
             }
             audit(
-                &mut tx,
+                tx,
                 input.request_id,
                 Some(input.actor),
                 None,
@@ -358,7 +369,7 @@ impl Store {
             let existing: Request =
                 sqlx::query_as("SELECT * FROM admin_control_requests WHERE admin_operation_id=$1")
                     .bind(input.admin_operation_id)
-                    .fetch_optional(&mut *tx)
+                    .fetch_optional(&mut **tx)
                     .await?
                     .ok_or(Error::Conflict)?;
             if existing.params_digest != input.params_digest
@@ -375,7 +386,6 @@ impl Store {
             }
             existing
         };
-        tx.commit().await?;
         Ok(request)
     }
 
@@ -794,7 +804,7 @@ impl oteryn_db::outbox::Cleanup for ExpiryJob {
 
 // Scope changes serialize with claims/results; shared locks still allow parallel
 // channel claims to exercise row-level SKIP LOCKED without blocking each other.
-async fn ownership_lock(
+pub(crate) async fn ownership_lock(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     shared: bool,
 ) -> Result<(), Error> {

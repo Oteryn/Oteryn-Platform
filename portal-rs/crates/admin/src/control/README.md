@@ -100,3 +100,23 @@ branch retained for owner review, no PR. Changes stay within portal-rs per owner
 scope. No mapped live S12 Issue was found; Jira synchronization is unknown.
 Runtime E2E is not applicable: disabled definitions and pure validation have no
 actor-to-effect path.
+
+Console query composition
+-------------------------
+
+With `OTERYN_ADMIN_CONSOLE` and `PORTAL_ADMIN_CONTROL_ENABLED`, the configured
+console uses the request/result store. `PORTAL_ADMIN_CONTROL_SIGNER_KEY_FILE`
+names the existing signer's 32-byte seed file. Its public identity and validity
+window come from `PORTAL_ADMIN_CONTROL_SIGNER_KEY_ID`,
+`PORTAL_ADMIN_CONTROL_SIGNER_NOT_BEFORE` and
+`PORTAL_ADMIN_CONTROL_SIGNER_NOT_AFTER` (Unix seconds). Each agent needs its
+configured result verification key. Missing custody or verification authority
+refuses queries. No private material is included in browser responses.
+
+Admission rechecks staff permissions and the browser's durable MFA grant, live
+agent scope and query capability, and the four-query per-actor limit. The signed
+request has a 60-second expiry. Admission and its audit commit together, including
+the owning agent epoch. Results are correlated to actor, request, operation,
+parameters, scope and that epoch, and verified again before presentation. Only
+bounded, named presentation fields reach templates. Ambiguous targets refuse;
+list operations need an unambiguous served node or world when none was selected.

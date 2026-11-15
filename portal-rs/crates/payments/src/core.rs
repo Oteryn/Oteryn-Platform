@@ -127,3 +127,12 @@ pub(crate) fn identifier(value: &str) -> Result<(), Error> {
     }
     Ok(())
 }
+
+/// Account policy for readers participating in an existing transaction.
+pub trait ConnectionAccountReader: AccountReader {
+    fn state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> impl std::future::Future<Output = Result<AccountState, Error>> + Send;
+}

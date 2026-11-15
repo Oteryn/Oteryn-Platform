@@ -66,14 +66,30 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     if !flags.enabled {
         return Ok(Router::new());
     }
+    web::configured_guard(
+        configured_routes(
+            pool.clone(),
+            flags,
+            configured_payment_adapter(pool.clone())?,
+        ),
+        pool,
+        rbac::Permission::Access,
+    )
+}
+pub(super) fn configured_routes(
+    pool: PgPool,
+    flags: Flags,
+    payments: Option<TestPaymentAdapter>,
+) -> Router {
     let service = Arc::new(Commerce::new(
         pool.clone(),
         web::PortalIdentity::configured(pool.clone()),
-        PendingEffects,
+        domain_effects(pool, flags, payments),
         flags,
     ));
-    web::configured_guard(routes(service), pool, rbac::Permission::Access)
+    routes(service)
 }
+
 fn enabled(name: &str) -> bool {
     std::env::var(name).as_deref() == Ok("true")
 }

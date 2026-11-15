@@ -54,10 +54,14 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
         Ok(tx) => tx,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    if sqlx::query("SELECT pg_advisory_xact_lock(71140001)")
+    if sqlx::query("SET LOCAL statement_timeout = '3s'")
         .execute(&mut *tx)
         .await
         .is_err()
+        || !sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_xact_lock(71140001)")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap_or(false)
     {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }

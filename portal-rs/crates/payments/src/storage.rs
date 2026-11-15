@@ -146,6 +146,34 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         })
     }
 
+    /// Read and authorize without acquiring a second pool connection.
+    pub async fn intent_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<Intent, Error>
+    where
+        A: crate::ConnectionAccountReader,
+    {
+        self.enabled()?;
+        let row = sqlx::query("SELECT account_id, amount, currency, state, provider_reference FROM payment_intents WHERE id=$1 AND provider=$2 FOR SHARE")
+            .bind(id).bind(self.provider.name()).fetch_optional(&mut *connection).await?.ok_or(Error::NotFound)?;
+        let account_id = row.try_get("account_id")?;
+        if self.accounts.state_in(connection, account_id).await? != AccountState::Active {
+            return Err(Error::AccountDenied);
+        }
+        Ok(Intent {
+            id,
+            account_id,
+            amount: Amount {
+                minor_units: row.try_get("amount")?,
+                currency: row.try_get("currency")?,
+            },
+            state: IntentState::parse(row.try_get("state")?)?,
+            provider_reference: row.try_get("provider_reference")?,
+        })
+    }
+
     /// A duplicate event is a no-op, including concurrent deliveries. Validation, state change,
     /// invoice and outbox enqueue either all commit or all roll back.
     pub async fn webhook(&self, body: &[u8], signature: &[u8]) -> Result<WebhookOutcome, Error> {

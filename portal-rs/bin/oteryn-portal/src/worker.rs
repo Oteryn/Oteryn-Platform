@@ -224,6 +224,15 @@ fn register_journal_cleanup(registry: &mut Registry, pool: &PgPool) -> Result<()
 }
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
+    if std::env::var("OTERYN_ADMIN_COMMERCE").as_deref() == Ok("true")
+        && std::env::var("OTERYN_REFUNDS_ENABLED").as_deref() == Ok("true")
+        && let Some(adapter) = oteryn_admin::commerce::configured_payment_adapter(pool.clone())?
+    {
+        registry.commerce_refunds(oteryn_admin::commerce::RefundDelivery {
+            pool: pool.clone(),
+            adapter,
+        })?;
+    }
     crate::wallet_topup::register(&mut registry, pool.clone())?;
     if let Some(runtime) = oteryn_bazaar::game::runtime::Runtime::configured(pool.clone()).await? {
         registry.cleanup("bazaar.authority", 1, Arc::new(runtime))?;
@@ -407,7 +416,6 @@ impl Handler for oteryn_admin::commerce::RefundDelivery {
 }
 impl Registry {
     /// Commerce supplies verified domain authority before refund dispatch is enabled.
-    #[allow(dead_code)]
     pub fn commerce_refunds(
         &mut self,
         delivery: oteryn_admin::commerce::RefundDelivery,
