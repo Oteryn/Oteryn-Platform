@@ -51,7 +51,7 @@ impl Default for RecoveryLimits {
     fn default() -> Self {
         Self {
             sources: Mutex::new(WindowLimiter::new(30, Duration::from_secs(60), 100_000)),
-            attempts: Mutex::new(WindowLimiter::new(6, Duration::from_secs(120), 100_000)),
+            attempts: Mutex::new(attempt_limiter()),
             revoke_sources: Mutex::new(WindowLimiter::new(30, Duration::from_secs(60), 100_000)),
         }
     }
@@ -84,7 +84,7 @@ pub fn router_with(issuer: IssuerClient, options: Options) -> Router {
         version: options.version,
         start: Instant::now(),
         sources: Mutex::new(WindowLimiter::new(30, Duration::from_secs(60), 100_000)),
-        attempts: Mutex::new(WindowLimiter::new(6, Duration::from_secs(120), 100_000)),
+        attempts: Mutex::new(attempt_limiter()),
         recovery: RecoveryLimits::default(),
     });
     Router::new()
@@ -512,3 +512,82 @@ async fn request_log(req: Request, next: Next) -> Response {
 
 #[cfg(test)]
 mod golden;
+
+// Recovery handles have a maximum lifetime of 12 hours (§19.3 U20).
+// Starting retention at first use conservatively covers the remaining lifetime;
+// login tickets expire sooner. Never evict a live total budget for capacity.
+fn attempt_limiter() -> WindowLimiter {
+    WindowLimiter::new(6, Duration::from_secs(12 * 60 * 60), 100_000)
+}
+
+#[cfg(test)]
+mod attempt_budget_tests {
+    use super::*;
+
+    #[test]
+    fn login_total_budget_survives_old_window() {
+        check_total_budget(attempt_limiter());
+    }
+
+    #[test]
+    fn recovery_total_budget_survives_old_window() -> Result<(), Box<dyn std::error::Error>> {
+        check_total_budget(
+            RecoveryLimits::default()
+                .attempts
+                .into_inner()
+                .map_err(|_| "poisoned limiter")?,
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn recovery_refuses_after_120_seconds_before_issuer_dispatch()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = StateData {
+            issuer: IssuerClient::new(
+                "http://127.0.0.1:1",
+                "synthetic".into(),
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+            )?,
+            enabled: true,
+            protocol3: true,
+            version: "test".into(),
+            start: Instant::now(),
+            sources: Mutex::new(WindowLimiter::new(30, Duration::from_secs(60), 100_000)),
+            attempts: Mutex::new(attempt_limiter()),
+            recovery: RecoveryLimits::default(),
+        };
+        let body = include_bytes!(
+            "../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/recover-request.json"
+        );
+        let mut issuer_dispatches = 0;
+        for _ in 0..6 {
+            if prepare_recovery(&state, "127.0.0.1", body, Duration::ZERO).is_ok() {
+                issuer_dispatches += 1;
+            }
+        }
+        let result = prepare_recovery(&state, "127.0.0.1", body, Duration::from_secs(121));
+        assert!(result.is_err());
+        let refusal = result.err().ok_or("exhausted total budget")?;
+        assert_eq!(
+            refuse_recovery(refusal, None).status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(issuer_dispatches, 6);
+        Ok(())
+    }
+
+    fn check_total_budget(mut limiter: WindowLimiter) {
+        for _ in 0..6 {
+            assert!(limiter.allow(b"attempt-and-handle", Duration::ZERO).is_ok());
+        }
+        for seconds in [121, 3600, 43199] {
+            assert!(
+                limiter
+                    .allow(b"attempt-and-handle", Duration::from_secs(seconds))
+                    .is_err()
+            );
+        }
+    }
+}
