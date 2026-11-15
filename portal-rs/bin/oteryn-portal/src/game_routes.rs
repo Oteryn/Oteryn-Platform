@@ -11,6 +11,8 @@
 //! | `character-bootstrap-intents/read` | `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_ENABLED` | `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY` |
 //! | `premium-snapshots/read` | `PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_ENABLED` | `PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_MTLS_CLIENT_IDENTITY` |
 //! | `loyalty-snapshots/read` | `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_ENABLED` | `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_MTLS_CLIENT_IDENTITY` |
+//! | `profile-b/authority/read` | `PRODUCTS_ENTITLEMENTS_PROFILE_B_AUTHORITY_ENABLED` | `PRODUCTS_ENTITLEMENTS_PROFILE_B_AUTHORITY_MTLS_CLIENT_IDENTITY` |
+//! | `profile-b/changes/read` | `PRODUCTS_ENTITLEMENTS_PROFILE_B_CHANGES_ENABLED` | `PRODUCTS_ENTITLEMENTS_PROFILE_B_CHANGES_MTLS_CLIENT_IDENTITY` |
 //! | `store/operations/{pending,read,receipt,reconcile}` | `PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED` | `PRODUCTS_ENTITLEMENTS_STORE_MTLS_CLIENT_IDENTITY` |
 //! | `store/{balance/read,history/read,purchases}` | `PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED` with the delivery flag | `PRODUCTS_ENTITLEMENTS_STORE_MTLS_CLIENT_IDENTITY` (one Store identity, store wire contract §4.1) |
 //! | v2 `game-public/{character-online-session,world-daily-kills}` and their watermarks | `PORTAL_PUBLIC_PROJECTIONS_ENABLED` with the G-8 family flags | `PORTAL_PUBLIC_PROJECTIONS_SAN` |
@@ -49,7 +51,7 @@ use oteryn_internal_api::{
     guard::{Binding, ConfigError, Identity, IdentityMap},
 };
 use oteryn_playerdata::journal;
-use oteryn_store::{delivery, loyalty, premium, purchase};
+use oteryn_store::{delivery, loyalty, premium, premium::profile_b, purchase};
 use oteryn_support::sanctions::enforcement;
 use sqlx::PgPool;
 use std::{collections::BTreeMap, sync::Arc};
@@ -170,6 +172,22 @@ impl Routes {
             premium_settings,
             identities.clone(),
         );
+        let mut profile_b_settings = profile_b::http::Settings::from_lookup(get);
+        profile_b_settings.authority_enabled &= valid;
+        profile_b_settings.changes_enabled &= valid;
+        // No product contract declares Profile B yet (#1467): a configured
+        // product answers 503 rather than invented NONE evidence.
+        let profile_b = profile_b::http::router(
+            profile_b::Authority::new(
+                pool.clone(),
+                accounts.clone(),
+                Arc::new(profile_b::NoGenericLedger),
+                profile_b_settings.authority_valid(),
+            ),
+            profile_b::Changes::new(pool.clone(), profile_b_settings.changes_valid()),
+            profile_b_settings,
+            identities.clone(),
+        );
         let mut loyalty_settings = loyalty::http::Settings::from_lookup(get);
         loyalty_settings.enabled &= valid;
         let loyalty = loyalty::http::router(
@@ -245,6 +263,7 @@ impl Routes {
                 .merge(bootstrap)
                 .merge(premium)
                 .merge(loyalty)
+                .merge(profile_b)
                 .merge(delivery)
                 .merge(journal)
                 .merge(purchase)
@@ -295,6 +314,8 @@ fn bindings(values: &Values) -> Result<Vec<Binding>, ConfigError> {
                 BOOTSTRAP_IDENTITY => bootstrap::GROUP,
                 PREMIUM_IDENTITY => premium::http::GROUP,
                 LOYALTY_IDENTITY => loyalty::http::GROUP,
+                profile_b::http::AUTHORITY_IDENTITY => profile_b::http::AUTHORITY_GROUP,
+                profile_b::http::CHANGES_IDENTITY => profile_b::http::CHANGES_GROUP,
                 STORE_IDENTITY => delivery::http::GROUP,
                 PUBLIC_IDENTITY => PUBLIC_GROUP,
                 journal::ITEMS_IDENTITY => journal::ITEMS_GROUP,

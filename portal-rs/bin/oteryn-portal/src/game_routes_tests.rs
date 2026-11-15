@@ -22,6 +22,8 @@ const SERVICES: &str = "character-services.oteryn.internal";
 const BOOTSTRAP: &str = "bootstrap.oteryn.internal";
 const PREMIUM: &str = "premium.oteryn.internal";
 const LOYALTY: &str = "loyalty.oteryn.internal";
+const PROFILE_B_AUTHORITY: &str = "profile-b-authority.oteryn.internal";
+const PROFILE_B_CHANGES: &str = "profile-b-changes.oteryn.internal";
 const STORE: &str = "store.oteryn.internal";
 const PUBLIC: &str = "public.oteryn.internal";
 const LCFA: &str = "lcfa.oteryn.internal";
@@ -53,6 +55,9 @@ const SERVICES_PATHS: [&str; 2] = [
 const BOOTSTRAP_PATH: &str = "/internal/v1/game-auth/character-bootstrap-intents/read";
 const PREMIUM_PATH: &str = "/internal/v1/products-entitlements/premium-snapshots/read";
 const LOYALTY_PATH: &str = "/internal/v1/products-entitlements/loyalty-snapshots/read";
+const PROFILE_B_AUTHORITY_PATH: &str =
+    "/internal/v1/products-entitlements/profile-b/authority/read";
+const PROFILE_B_CHANGES_PATH: &str = "/internal/v1/products-entitlements/profile-b/changes/read";
 const STORE_PATHS: [&str; 4] = [
     "/internal/v1/products-entitlements/store/operations/pending",
     "/internal/v1/products-entitlements/store/operations/read",
@@ -100,6 +105,10 @@ fn enabled() -> Values {
         (PREMIUM_IDENTITY, PREMIUM),
         ("PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_ENABLED", "true"),
         (LOYALTY_IDENTITY, LOYALTY),
+        ("PRODUCTS_ENTITLEMENTS_PROFILE_B_AUTHORITY_ENABLED", "true"),
+        (profile_b::http::AUTHORITY_IDENTITY, PROFILE_B_AUTHORITY),
+        ("PRODUCTS_ENTITLEMENTS_PROFILE_B_CHANGES_ENABLED", "true"),
+        (profile_b::http::CHANGES_IDENTITY, PROFILE_B_CHANGES),
         ("PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED", "true"),
         (
             "PRODUCTS_ENTITLEMENTS_STORE_SOURCE_AUTHORITY",
@@ -257,6 +266,18 @@ fn surfaces() -> Vec<Surface> {
         &["PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_ENABLED"],
         StatusCode::BAD_REQUEST,
     ));
+    surfaces.push((
+        PROFILE_B_AUTHORITY_PATH,
+        PROFILE_B_AUTHORITY,
+        &["PRODUCTS_ENTITLEMENTS_PROFILE_B_AUTHORITY_ENABLED"],
+        StatusCode::BAD_REQUEST,
+    ));
+    surfaces.push((
+        PROFILE_B_CHANGES_PATH,
+        PROFILE_B_CHANGES,
+        &["PRODUCTS_ENTITLEMENTS_PROFILE_B_CHANGES_ENABLED"],
+        StatusCode::BAD_REQUEST,
+    ));
     for path in STORE_PATHS {
         // Past the identity check the Store budget needs the database, absent here.
         surfaces.push((
@@ -409,6 +430,13 @@ async fn reused_or_malformed_identities_keep_every_route_unavailable() -> TestRe
         values.insert(key.into(), COMMAND_A.into());
         cases.push(values);
     }
+    // The two Profile-B groups have separate identities (owner decision P8).
+    let mut values = enabled();
+    values.insert(
+        profile_b::http::CHANGES_IDENTITY.into(),
+        PROFILE_B_AUTHORITY.into(),
+    );
+    cases.push(values);
     for raw in [
         r#"["char-authority-a.oteryn.internal"]"#,
         r#"{"char-authority-a.oteryn.internal":true}"#,
