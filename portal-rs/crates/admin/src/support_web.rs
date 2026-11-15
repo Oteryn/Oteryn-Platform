@@ -16,6 +16,8 @@ struct Panel<A, B> {
     auth: Authorizer<A>,
     backend: B,
 }
+const MAX_PAGE: u32 = 10000;
+
 #[derive(Deserialize, Default)]
 struct Paging {
     page: Option<u32>,
@@ -170,7 +172,7 @@ async fn list<A: AccountStateReader, B: Backend>(
     headers: HeaderMap,
 ) -> Response {
     let page = paging.page.unwrap_or(1);
-    if page == 0 || page > 10000 {
+    if page == 0 || page > MAX_PAGE {
         return status(Error::Invalid);
     }
     let records = match s.backend.list(area, page).await {
@@ -181,6 +183,14 @@ async fn list<A: AccountStateReader, B: Backend>(
         return status(Error::Unavailable);
     }
     let lang = language(&headers);
+    let has_next = if records.len() == 30 && page < MAX_PAGE {
+        match s.backend.list(area, page + 1).await {
+            Ok(rows) => !rows.is_empty(),
+            Err(e) => return status(e),
+        }
+    } else {
+        false
+    };
     let mut body = String::from("<ul>");
     if area == Area::Enforcement {
         body.push_str(&format!(
@@ -197,12 +207,14 @@ async fn list<A: AccountStateReader, B: Backend>(
         ));
     }
     body.push_str("</ul>");
-    body.push_str(&format!(
-        "<a href=\"{}?page={}\">{}</a>",
-        base(area),
-        page + 1,
-        text(lang, "next")
-    ));
+    if has_next {
+        body.push_str(&format!(
+            "<a href=\"{}?page={}\">{}</a>",
+            base(area),
+            page + 1,
+            text(lang, "next")
+        ));
+    }
     shell(lang, body)
 }
 async fn show<A: AccountStateReader, B: Backend>(
@@ -444,3 +456,7 @@ impl Backend for ReadSupport {
         Err(Error::Unavailable)
     }
 }
+
+#[cfg(test)]
+#[path = "support_pagination_tests.rs"]
+mod pagination_tests;

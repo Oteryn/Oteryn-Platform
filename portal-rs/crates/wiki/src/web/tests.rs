@@ -787,3 +787,25 @@ async fn database_queued_create_edit_restore_recheck_revocation() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn postgres_pagination_wiki_ceiling() {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    sqlx::query("INSERT INTO wiki_guides(id,status,published_at) SELECT uuidv7(),'published',now() FROM generate_series(1,12000)").execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO wiki_revisions(id,guide_id,version,locale,title,slug,summary,markdown,editor,change_note) SELECT uuidv7(),id,1,'en','Boundary guide','boundary-'||row_number() OVER (), 'Boundary summary','Boundary article',id,'Pagination fixture' FROM wiki_guides").execute(&db.pool).await.unwrap();
+    for path in ["/en/wiki?page=1000", "/en/wiki/search?q=Boundary&page=1000"] {
+        let response = get(db.app(), path).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body(response).await;
+        assert_eq!(html.matches("<article").count(), 12);
+        assert!(!html.contains("value=\"1001\""));
+    }
+    db.close().await;
+    eprintln!(
+        "postgres_pagination_wiki_ceiling duration: {:?}",
+        started.elapsed()
+    );
+}
