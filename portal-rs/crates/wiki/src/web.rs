@@ -1,7 +1,7 @@
 //! SSR wiki routes and trusted staff-session integration.
 use crate::{
     domain::{self, Action, Error, Translation},
-    repository::{Guide, PublicRepository, Repository, Revision},
+    repository::{Guide, HISTORY_PAGE_VERSIONS, PublicRepository, Repository, Revision},
 };
 use askama::Template;
 use axum::{
@@ -463,6 +463,7 @@ struct History<'a> {
     id: Uuid,
     version: i64,
     rows: Vec<Revision>,
+    older: i64,
     csrf: String,
 }
 impl History<'_> {
@@ -470,17 +471,22 @@ impl History<'_> {
         text(self.lang, key)
     }
 }
+#[derive(Default, Deserialize)]
+struct HistoryQuery {
+    before: Option<i64>,
+}
 async fn history<A: AccountStateReader>(
     State(s): State<Arc<Staff<A>>>,
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
+    Query(query): Query<HistoryQuery>,
     headers: HeaderMap,
 ) -> Response {
     let lang = language(&headers);
     let result = async {
         let (guide, _) = s.repository.get(context, id).await?;
-        let rows = s.repository.history(context, id).await?;
+        let rows = s.repository.history(context, id, query.before).await?;
         let csrf = session.csrf_token().await?;
         Ok::<_, Error>((guide, rows, csrf))
     }
@@ -490,6 +496,17 @@ async fn history<A: AccountStateReader>(
             lang,
             id,
             version: guide.version,
+            older: if rows
+                .iter()
+                .map(|r| r.version)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == HISTORY_PAGE_VERSIONS as usize
+            {
+                rows.last().map_or(0, |r| r.version)
+            } else {
+                0
+            },
             rows,
             csrf,
         }),

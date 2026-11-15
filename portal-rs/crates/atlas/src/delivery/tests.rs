@@ -349,7 +349,8 @@ async fn cleanup(pool: sqlx::PgPool, schema: String) {
     pool.close().await;
 }
 #[tokio::test]
-async fn postgres_http_success() {
+async fn postgres_http_delivery_map_link_reaches_viewer() {
+    let started = std::time::Instant::now();
     use axum::{
         body::{Body, to_bytes},
         http::Request,
@@ -358,8 +359,48 @@ async fn postgres_http_success() {
     let Some((pool, schema)) = database().await else {
         return;
     };
+    let directory = tempfile::tempdir().unwrap();
+    let version = "a".repeat(40);
+    let target = directory.path().join(&version).join("7");
+    std::fs::create_dir_all(&target).unwrap();
+    let manifest = crate::tiles::Manifest {
+        format_version: 1,
+        world_version: version,
+        floor: 7,
+        tile_size: 256,
+        bounds: crate::tiles::Bounds {
+            min_x: 0,
+            min_y: 0,
+            max_x: 256,
+            max_y: 256,
+        },
+        levels: vec![crate::tiles::Level {
+            z: 0,
+            width: 256,
+            height: 256,
+            columns: 1,
+            rows: 1,
+        }],
+        tiles: vec![],
+    };
+    std::fs::write(
+        target.join("manifest.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    // Use the same route registrations merged by production dispatch.
+    let app = router(
+        pool.clone(),
+        Options { enabled: true },
+        oteryn_world::WorldOptions { enabled: true },
+    )
+    .merge(crate::web::router(crate::web::Viewer {
+        enabled: true,
+        directory: directory.path().into(),
+        world: WorldStore::new(pool.clone(), oteryn_world::WorldOptions { enabled: true }),
+    }));
     for lang in ["en", "pl"] {
-        let response=router(pool.clone(),Options{enabled:true},oteryn_world::WorldOptions{enabled:true}).oneshot(Request::builder().uri(format!("/{lang}/atlas/delivery?item=item%3Aore&count=10&level=&floor=&city=&rarity=&q=&creature=")).body(Body::empty()).unwrap()).await.unwrap();
+        let response=app.clone().oneshot(Request::builder().uri(format!("/{lang}/atlas/delivery?item=item%3Aore&count=10&level=&floor=&city=&rarity=&q=&creature=")).body(Body::empty()).unwrap()).await.unwrap();
         assert_eq!(response.status(), 200);
         let body = String::from_utf8(
             to_bytes(response.into_body(), 1_000_000)
@@ -392,11 +433,41 @@ async fn postgres_http_success() {
             .unwrap();
         }
         assert!(body.contains("40.00"));
-        assert!(body.contains("/atlas/7/10/20"));
+        let link = body
+            .split("href=\"")
+            .skip(1)
+            .map(|part| part.split('"').next().unwrap())
+            .find(|link| {
+                link.starts_with(&format!("/{lang}/atlas?"))
+                    || link.starts_with(&format!("/{lang}/atlas/"))
+            })
+            .unwrap()
+            .replace("&amp;", "&");
+        let response = app
+            .clone()
+            .oneshot(Request::get(&link).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(link, format!("/{lang}/atlas?x=10&y=20&z=7"));
+        let viewer = String::from_utf8(
+            to_bytes(response.into_body(), 1_000_000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        for coordinate in ["&#34;x&#34;:10", "&#34;y&#34;:20", "&#34;floor&#34;:7"] {
+            assert!(viewer.contains(coordinate), "missing {coordinate}");
+        }
         assert!(body.contains("P95:"));
         assert!(body.contains(&format!("lang=\"{lang}\"")));
     }
     cleanup(pool, schema).await;
+    eprintln!(
+        "postgres_http_delivery_map_link_reaches_viewer duration: {:?}",
+        started.elapsed()
+    );
 }
 #[tokio::test]
 async fn postgres_hidden_source_refused() {
