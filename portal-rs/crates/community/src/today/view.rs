@@ -123,6 +123,10 @@ async fn read_inner(
         creature_keys.extend([h.creature_key.as_str(), h.boss_key.as_str()]);
     }
     let raid_keys: Vec<&str> = d.raids.iter().map(|r| r.raid_key.as_str()).collect();
+    let catalogue_version: String =
+        sqlx::query_scalar("SELECT version_id::text FROM world_active_version")
+            .fetch_one(&mut *tx)
+            .await?;
     let rows: Vec<(String,String,String)> = sqlx::query_as("SELECT e.kind,e.key,CASE WHEN $3='pl' THEN n.pl ELSE n.en END FROM world_entities e JOIN world_active_version a ON a.version_id=e.version_id JOIN world_versions r ON r.id=e.version_id AND r.status='ready' JOIN world_visibility v ON v.kind=e.kind AND v.key=e.key AND v.allowed JOIN world_admin_names n ON n.kind=e.kind AND n.key=e.key WHERE e.publishable AND ((e.kind='Creature' AND e.key=ANY($1)) OR (e.kind='Raid' AND e.key=ANY($2)))")
         .bind(&creature_keys).bind(&raid_keys).bind(lang).fetch_all(&mut *tx).await?;
     let names: BTreeMap<_, _> = rows
@@ -181,6 +185,19 @@ async fn read_inner(
     if !valid {
         return Err(Error::Unavailable);
     }
+    let current_rows: Vec<(String,String,String)> = sqlx::query_as("SELECT e.kind,e.key,CASE WHEN $3='pl' THEN n.pl ELSE n.en END FROM world_entities e JOIN world_active_version a ON a.version_id=e.version_id JOIN world_versions r ON r.id=e.version_id AND r.status='ready' JOIN world_visibility v ON v.kind=e.kind AND v.key=e.key AND v.allowed JOIN world_admin_names n ON n.kind=e.kind AND n.key=e.key WHERE e.publishable AND ((e.kind='Creature' AND e.key=ANY($1)) OR (e.kind='Raid' AND e.key=ANY($2))) FOR SHARE OF e,a,r,v,n")
+        .bind(&creature_keys).bind(&raid_keys).bind(lang).fetch_all(&mut *validation).await?;
+    let current_names: BTreeMap<_, _> = current_rows
+        .into_iter()
+        .map(|(kind, key, name)| ((kind, key), name))
+        .collect();
+    let current_version: String =
+        sqlx::query_scalar("SELECT version_id::text FROM world_active_version FOR SHARE")
+            .fetch_one(&mut *validation)
+            .await?;
+    if current_names != names || current_version != catalogue_version {
+        return Err(Error::Unavailable);
+    }
     validation.commit().await?;
     if !result.eligible(serving_clock()) {
         return Err(Error::Unavailable);
@@ -215,8 +232,8 @@ fn name(
     Ok(name.clone())
 }
 
-/// Read at a caller-supplied clock origin, advancing it across database waits.
-/// HTTP serving uses `read_current` so both clock samples use the actual wall clock.
+/// Read at an explicit, fixed clock cut for deterministic contract evaluation.
+/// HTTP serving uses `read_current`, which resamples wall time after database waits.
 pub async fn read(
     db: &PgPool,
     config: &Config,
@@ -224,16 +241,9 @@ pub async fn read(
     lang: &str,
     now: i64,
 ) -> Result<DailyView, Error> {
-    let started = time::OffsetDateTime::now_utc().unix_timestamp();
     tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        read_inner(db, config, world, lang, now, || {
-            now.saturating_add(
-                time::OffsetDateTime::now_utc()
-                    .unix_timestamp()
-                    .saturating_sub(started),
-            )
-        }),
+        read_inner(db, config, world, lang, now, || now),
     )
     .await
     .map_err(|_| Error::Unavailable)?

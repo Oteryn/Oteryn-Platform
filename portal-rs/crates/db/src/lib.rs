@@ -39,3 +39,5 @@ mod tests {
 pub mod outbox;
 
 pub mod retry;
+
+pub mod ingest_budget;

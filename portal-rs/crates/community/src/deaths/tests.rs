@@ -226,12 +226,7 @@ impl Database {
             return Ok(None);
         };
         let admin = PgPool::connect(&url).await?;
-        let schema = format!(
-            "deaths_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_nanos()
-        );
+        let schema = format!("deaths_{}", uuid::Uuid::now_v7().simple());
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&admin)
             .await?;
@@ -254,6 +249,7 @@ impl Database {
         ] {
             sqlx::raw_sql(migration).execute(&db).await?;
         }
+        sqlx::raw_sql("CREATE TABLE community_privacy_revision(id integer PRIMARY KEY,revision bigint NOT NULL DEFAULT 0); INSERT INTO community_privacy_revision(id) VALUES(1)").execute(&db).await?;
         Ok(Some(Self { admin, db, schema }))
     }
     async fn close(self) -> TestResult {

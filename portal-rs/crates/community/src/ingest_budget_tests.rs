@@ -8,6 +8,7 @@ use axum::{
     body::{Body, to_bytes},
     http::Request,
 };
+use oteryn_db::ingest_budget::admit;
 use oteryn_internal_api::guard::{Binding, Identity, IdentityMap, VerifiedClient};
 use std::{sync::Arc, time::Instant};
 use tower::ServiceExt;
@@ -101,6 +102,9 @@ async fn audit06_009_all_ingest_routes_enforce_shared_budget() -> Result {
         let watermark = format!(
             r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"{AUTHORITY}","family":"{family}","projection_epoch":"1","complete_through":"{now}","observed_at":"{now}"}}"#
         );
+        sqlx::query("DELETE FROM community_ingest_budgets WHERE route='v2/watermark'")
+            .execute(db)
+            .await?;
         for (suffix, path, body) in [("", family, body), ("/watermark", "watermark", watermark)] {
             seed(db, &format!("v2/{family}{suffix}"), 5999).await?;
             let path = format!("v2/game-public/{path}");
@@ -325,6 +329,193 @@ async fn audit_w2_c03_v2_families_and_deaths_share_publisher_route_budgets() -> 
     database.close().await?;
     eprintln!(
         "audit_w2_c03_v2_families_and_deaths_share_publisher_route_budgets {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn w3_c06_001_watermark_dispatch_shares_budget_across_families() -> Result {
+    let started = Instant::now();
+    let database = Database::new().await?;
+    let db = &database.db;
+    let ids = identities()?;
+    let guild = guilds::ingest_router(
+        db.clone(),
+        ids.clone(),
+        guilds::IngestConfig {
+            enabled: true,
+            source_authority: AUTHORITY.into(),
+        },
+    );
+    let house = houses::router(
+        db.clone(),
+        ids.clone(),
+        Arc::new(houses::DenyOwners),
+        houses::Config {
+            ingest: ingest::Config {
+                enabled: true,
+                source_authority: AUTHORITY.into(),
+            },
+            serving_enabled: false,
+        },
+    );
+    let deaths = crate::deaths::ingest_router(
+        db.clone(),
+        ids.clone(),
+        crate::deaths::IngestConfig {
+            enabled: true,
+            source_authority: AUTHORITY.into(),
+            requests_per_minute: 6000,
+        },
+    );
+    let daily = today::router(
+        db.clone(),
+        ids.clone(),
+        today::Config {
+            ingest_enabled: true,
+            public_enabled: false,
+            source_authority: AUTHORITY.into(),
+            worlds: [uuid::Uuid::parse_str(WORLD)?].into(),
+        },
+    );
+    let dispatcher = crate::v2_watermark::router(deaths, guild, house, daily);
+    seed(db, "v2/watermark", 5999).await?;
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let watermark = |family: &str| {
+        format!(
+            r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"{AUTHORITY}","family":"{family}","projection_epoch":"1","complete_through":"{now}","observed_at":"{now}"}}"#
+        )
+    };
+    assert_eq!(
+        send(
+            dispatcher.clone(),
+            "v2/game-public/watermark",
+            &watermark("guild")
+        )
+        .await?
+        .status(),
+        StatusCode::OK
+    );
+    for family in ["house", "character_deaths", "world_daily"] {
+        exhausted(
+            send(
+                dispatcher.clone(),
+                "v2/game-public/watermark",
+                &watermark(family),
+            )
+            .await?,
+        )
+        .await?;
+    }
+    let skills = crate::families::ingest_router(
+        db.clone(),
+        ids,
+        crate::families::IngestConfig {
+            skills: true,
+            source_authority: AUTHORITY.into(),
+            ..Default::default()
+        },
+    );
+    exhausted(
+        send(
+            skills,
+            "v2/game-public/watermark",
+            &watermark("character_skills"),
+        )
+        .await?,
+    )
+    .await?;
+    let v1 = ingest::router(
+        db.clone(),
+        identities()?,
+        ingest::Config {
+            enabled: true,
+            source_authority: AUTHORITY.into(),
+        },
+    );
+    let v1_watermark = V1_FIXTURES
+        .iter()
+        .find(|(family, _)| *family == "watermark")
+        .ok_or("watermark fixture missing")?
+        .1;
+    assert_eq!(
+        send(v1, "v1/game-public/watermark", v1_watermark)
+            .await?
+            .status(),
+        StatusCode::OK,
+        "a different HTTP endpoint has its own allowance"
+    );
+    database.close().await?;
+    eprintln!(
+        "w3_c06_001_watermark_dispatch_shares_budget_across_families {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn w3_c06_009_ingested_unicode_and_url_names_follow_profile_links() -> Result {
+    struct Visible;
+    impl crate::profiles::Privacy for Visible {
+        fn visible<'a>(&'a self, _: &'a str) -> crate::profiles::DecisionFuture<'a> {
+            Box::pin(async { Ok(true) })
+        }
+    }
+    let started = Instant::now();
+    let database = Database::new().await?;
+    let db = &database.db;
+    let ingest = ingest::router(
+        db.clone(),
+        identities()?,
+        ingest::Config {
+            enabled: true,
+            source_authority: AUTHORITY.into(),
+        },
+    );
+    let raw = V1_FIXTURES
+        .iter()
+        .find(|(family, _)| *family == "character_profile")
+        .ok_or("profile fixture missing")?
+        .1;
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let watermark = format!(
+        r#"{{"contract_version":1,"operation":"PublishPublicProjectionWatermarkV1","source_authority":"{AUTHORITY}","family":"character_profile","projection_epoch":"1","complete_through":"{now}","observed_at":"{now}"}}"#
+    );
+    assert_eq!(
+        send(ingest.clone(), "v1/game-public/watermark", &watermark)
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+    for (i, name) in ["Élodie", "100% Hero", "Name?Tag#One"]
+        .into_iter()
+        .enumerate()
+    {
+        let publication = raw.replace("Aldric", name).replace(
+            "\"projection_revision\":\"9\"",
+            &format!("\"projection_revision\":\"{}\"", i + 10),
+        );
+        assert_eq!(
+            send(
+                ingest.clone(),
+                "v1/game-public/character-profile",
+                &publication
+            )
+            .await?
+            .status(),
+            StatusCode::OK
+        );
+        let encoded =
+            percent_encoding::utf8_percent_encode(name, percent_encoding::NON_ALPHANUMERIC);
+        let response = crate::profiles::router(db.clone(), true, Arc::new(Visible))
+            .oneshot(Request::get(format!("/en/characters/{encoded}")).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK, "{name}");
+    }
+    database.close().await?;
+    eprintln!(
+        "w3_c06_009_ingested_unicode_and_url_names_follow_profile_links {:?}",
         started.elapsed()
     );
     Ok(())

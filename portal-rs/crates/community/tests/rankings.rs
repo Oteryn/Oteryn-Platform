@@ -89,6 +89,7 @@ async fn seeded() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql("CREATE TABLE community_privacy_revision(id integer PRIMARY KEY,revision bigint NOT NULL DEFAULT 0); INSERT INTO community_privacy_revision(id) VALUES(1)").execute(&db).await?;
     sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
         .execute(&db)
         .await?;

@@ -177,6 +177,9 @@ async fn load_inner(
     if !wire::authority(&s.config.source_authority) {
         return Err(Unavailable);
     }
+    let privacy_cut = crate::privacy::Cut::read(&s.db)
+        .await
+        .map_err(|_| Unavailable)?;
     // Fence capacity is separate from the pool used by privacy and projection reads.
     let mut fence = s.fences.begin().await.map_err(|_| Unavailable)?;
     sqlx::query("SELECT set_config('statement_timeout','2500ms',true),set_config('idle_in_transaction_session_timeout','3s',true)")
@@ -294,6 +297,13 @@ async fn load_inner(
                 timestamp,
             });
         }
+    }
+    if !privacy_cut
+        .validate(&mut fence)
+        .await
+        .map_err(|_| Unavailable)?
+    {
+        return Err(Unavailable);
     }
     if evidence(s).await? != epoch {
         return Err(Unavailable);
