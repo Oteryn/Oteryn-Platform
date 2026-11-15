@@ -8,6 +8,12 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Duration};
 use tower::ServiceExt;
+async fn exchange_deadline<F: std::future::Future>(
+    duration: Duration,
+    exchange: F,
+) -> Result<F::Output, tokio::time::error::Elapsed> {
+    tokio::time::timeout(duration, exchange).await
+}
 impl Runtime {
     pub async fn start_private_listener(&self) -> Result<tokio::task::JoinHandle<()>, Error> {
         self.config.current()?;
@@ -99,7 +105,7 @@ impl Runtime {
                             }
                         },
                     );
-                    let _ = tokio::time::timeout(Duration::from_secs(30), async {
+                    let _ = exchange_deadline(Duration::from_secs(30), async {
                         hyper::server::conn::http1::Builder::new()
                             .header_read_timeout(Duration::from_secs(5))
                             .timer(hyper_util::rt::TokioTimer::new())
@@ -168,4 +174,70 @@ fn spki(cert: &[u8]) -> Result<&[u8], Error> {
         return Err(Error::Invalid);
     }
     Ok(&tbs[..end])
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn stalled_body_deadline_releases_connection_permit()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use tokio::io::AsyncWriteExt;
+        let permits = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = permits.clone().acquire_owned().await?;
+        let (server, mut client) = tokio::io::duplex(4096);
+        let task = tokio::spawn(async move {
+            let _permit = permit;
+            let service = hyper::service::service_fn(
+                |request: hyper::Request<hyper::body::Incoming>| async move {
+                    let _ = axum::body::to_bytes(Body::new(request.into_body()), 1024).await;
+                    Ok::<_, std::convert::Infallible>(hyper::Response::new(Body::empty()))
+                },
+            );
+            exchange_deadline(Duration::from_millis(100), async {
+                hyper::server::conn::http1::Builder::new()
+                    .serve_connection(TokioIo::new(server), service)
+                    .await
+            })
+            .await
+        });
+        client
+            .write_all(b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\nx")
+            .await?;
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), task)
+                .await??
+                .is_err()
+        );
+        assert_eq!(permits.available_permits(), 1);
+        Ok(())
+    }
+    #[tokio::test]
+    async fn postgres_exchange_deadline_cancels_issuer_wait_and_releases_pool()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&url)
+            .await?;
+        oteryn_db::migrate(&pool).await?;
+        let mut blocker = pool.begin().await?;
+        sqlx::query("SELECT singleton FROM bazaar_game_issuer FOR UPDATE")
+            .execute(&mut *blocker)
+            .await?;
+        let result = exchange_deadline(Duration::from_millis(100), async {
+            let mut waiting = crate::game::authority_http::begin_exchange(&pool).await?;
+            sqlx::query("SELECT singleton FROM bazaar_game_issuer FOR UPDATE")
+                .execute(&mut *waiting)
+                .await?;
+            waiting.commit().await
+        })
+        .await;
+        assert!(result.is_err());
+        let mut connection = tokio::time::timeout(Duration::from_secs(7), pool.acquire()).await??;
+        sqlx::query("SELECT 1").execute(&mut *connection).await?;
+        blocker.rollback().await?;
+        Ok(())
+    }
 }

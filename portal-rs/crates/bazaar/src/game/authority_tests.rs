@@ -297,6 +297,29 @@ async fn postgres_exact_receipt_replay_conflict_audit_rollback_and_nonrollback_f
         .unwrap(),
         ReceiptResult::Duplicate
     );
+    let collision = DecisionIdentity {
+        operation_id: Uuid::now_v7(),
+        ..identity.clone()
+    };
+    assert_eq!(
+        a.decision(
+            &mut tx,
+            &a.config.projection_authority,
+            &collision,
+            &p,
+            b"colliding-envelope"
+        )
+        .await
+        .unwrap(),
+        ReceiptResult::Quarantined
+    );
+    assert!(a.retained(&mut tx, op).await.unwrap().is_none());
+    assert!(
+        a.retained(&mut tx, collision.operation_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
     let changed = raw.replace(
         "\"decided_at\":\"1790000002\"",
         "\"decided_at\":\"1790000003\"",
