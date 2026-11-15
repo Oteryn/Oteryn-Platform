@@ -63,22 +63,27 @@ async fn script() -> impl IntoResponse {
         include_str!("registration.js"),
     )
 }
-async fn challenge(State(pool): State<PgPool>, request: Request) -> Response {
-    let Some(peer) = request
+/// The browser client address resolved by the web layer through its
+/// trusted-proxy policy. The abuse budgets prefer it over the socket peer, so
+/// clients behind a trusted reverse proxy do not share one budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClientIp(pub std::net::IpAddr);
+
+fn source(request: &Request) -> Option<String> {
+    if let Some(ClientIp(ip)) = request.extensions().get::<ClientIp>() {
+        return Some(ip.to_string());
+    }
+    request
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-    else {
+        .map(|peer| peer.ip().to_string())
+}
+
+async fn challenge(State(pool): State<PgPool>, request: Request) -> Response {
+    let Some(source) = source(&request) else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    if let Err(response) = budget(
-        &pool,
-        "identity-registration-challenge",
-        &peer.ip().to_string(),
-        5,
-        60,
-    )
-    .await
-    {
+    if let Err(response) = budget(&pool, "identity-registration-challenge", &source, 5, 60).await {
         return *response;
     }
     let csrf = request
@@ -110,21 +115,10 @@ pub async fn protect(State(pool): State<PgPool>, mut request: Request, next: Nex
     if request.method() != Method::POST {
         return next.run(request).await;
     }
-    let Some(peer) = request
-        .extensions()
-        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-    else {
+    let Some(source) = source(&request) else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    if let Err(response) = budget(
-        &pool,
-        "identity-registration-attempt",
-        &peer.ip().to_string(),
-        5,
-        60,
-    )
-    .await
-    {
+    if let Err(response) = budget(&pool, "identity-registration-attempt", &source, 5, 60).await {
         return *response;
     }
     let body = std::mem::replace(request.body_mut(), Body::empty());
