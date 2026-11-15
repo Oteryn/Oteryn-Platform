@@ -9,6 +9,23 @@ use uuid::Uuid;
 
 struct Accounts(PgPool);
 impl AccountReader for Accounts {
+    async fn state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<AccountState, oteryn_payments::Error> {
+        let active: Option<bool> = sqlx::query_scalar(
+            "SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_optional(connection)
+        .await?;
+        Ok(match active {
+            Some(true) => AccountState::Active,
+            Some(false) => AccountState::Restricted,
+            None => AccountState::Unknown,
+        })
+    }
     async fn state(&self, id: Uuid) -> Result<AccountState, oteryn_payments::Error> {
         let account = oteryn_identity::accounts::Accounts {
             pool: self.0.clone(),

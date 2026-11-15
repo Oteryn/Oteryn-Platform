@@ -13,6 +13,9 @@ use uuid::Uuid;
 pub struct Access(pub AccountState, pub Option<bool>);
 #[async_trait]
 impl PublishAccess for Access {
+    async fn authorize_in(&self, _: &mut sqlx::PgConnection, _: Uuid, _: Channel) -> bool {
+        self.0 == AccountState::Active && self.1 == Some(true)
+    }
     async fn account_state(&self, _: Uuid) -> AccountState {
         self.0
     }
@@ -227,6 +230,9 @@ pub struct Database {
 }
 impl Database {
     pub async fn open() -> Option<Self> {
+        Self::with_connections(4).await
+    }
+    pub async fn with_connections(max: u32) -> Option<Self> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("SKIP downloads DB test: PORTAL_TEST_DATABASE_URL is unset");
             return None;
@@ -240,7 +246,7 @@ impl Database {
             .unwrap();
         let search_path = schema.clone();
         let pool = PgPoolOptions::new()
-            .max_connections(4)
+            .max_connections(max)
             .after_connect(move |connection, _| {
                 let schema = search_path.clone();
                 Box::pin(async move {

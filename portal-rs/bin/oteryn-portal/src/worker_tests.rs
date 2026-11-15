@@ -323,6 +323,15 @@ async fn shutdown_drains_in_flight_job() -> TestResult {
 
 #[tokio::test]
 async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
+    paid_topup_and_refund_scenario().await
+}
+
+#[tokio::test]
+async fn generic_refund_after_real_worker_credit_is_refused() -> TestResult {
+    paid_topup_and_refund_scenario().await
+}
+
+async fn paid_topup_and_refund_scenario() -> TestResult {
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -331,6 +340,13 @@ async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
     };
     struct Active;
     impl oteryn_payments::AccountReader for Active {
+        async fn state_in(
+            &self,
+            _: &mut sqlx::PgConnection,
+            id: Uuid,
+        ) -> Result<oteryn_payments::AccountState, oteryn_payments::Error> {
+            self.state(id).await
+        }
         async fn state(
             &self,
             _: Uuid,
@@ -405,6 +421,22 @@ async fn paid_topup_webhook_outbox_worker_balance() -> TestResult {
         balance, 1234,
         "paid checkout must credit package coins, not minor units"
     );
+    let mut refund: PaymentEvent = serde_json::from_slice(&body)?;
+    refund.event_id = "refund-after-worker-credit".into();
+    refund.state = IntentState::Refunded;
+    let refund = serde_json::to_vec(&refund)?;
+    assert!(matches!(
+        payments.webhook(&refund, &provider.sign(&refund)?).await,
+        Err(oteryn_payments::Error::IllegalTransition)
+    ));
+    assert_eq!(
+        payments.intent(intent.id).await?.state,
+        IntentState::Succeeded
+    );
+    let refunds: i64 = query_scalar("SELECT count(*) FROM payment_events WHERE state='refunded'")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(refunds, 0);
     assert_eq!(outbox::counts(&db.pool).await?.done, 2);
     let payload: String =
         query_scalar("SELECT payload::text FROM outbox WHERE kind='wallet.top_up'")

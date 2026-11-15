@@ -98,9 +98,20 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, Error> {
     }
     Ok(bytes)
 }
-struct DatabaseAccess(PgPool);
+/// Pool-backed operator authorization; publication rechecks on its own connection.
+#[derive(Debug)]
+pub struct DatabaseAccess(pub PgPool);
 #[async_trait]
 impl PublishAccess for DatabaseAccess {
+    async fn authorize_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        actor: Uuid,
+        _: Channel,
+    ) -> bool {
+        sqlx::query_scalar::<_, bool>("SELECT status='active' AND EXISTS(SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id WHERE ar.account_id=accounts.id AND rp.permission='downloads.manage') FROM accounts WHERE id=$1")
+            .bind(actor).fetch_optional(connection).await.ok().flatten() == Some(true)
+    }
     async fn account_state(&self, actor: Uuid) -> AccountState {
         match sqlx::query_scalar::<_, String>("SELECT status FROM accounts WHERE id = $1")
             .bind(actor)
