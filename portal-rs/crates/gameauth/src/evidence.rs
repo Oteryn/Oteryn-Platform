@@ -5,8 +5,9 @@
 //! Source owners provide accounts(id UUIDv7, status, native_security_generation),
 //! and native_game_signing_trust_profiles / native_game_signing_trust_key_versions
 //! with UUIDv7 profile ids and immutable positive profile/key revisions.
-//! Account and signing-trust mutations must advance their retained state floor
-//! before publishing a new generation/revision. Missing source schema fails closed.
+//! Account reads reconcile committed forward generations under the source row lock.
+//! Signing-trust mutations advance their retained floor before publication.
+//! Missing source schema or SQL state below retained authority fails closed.
 use crate::runtime::{
     self, Failure, Throttle, bad, bounded_text, decimal, json, now, object, string, text,
     unavailable, uuid,
@@ -443,14 +444,21 @@ async fn source(
             return Err(unavailable());
         }
         match witness.floor(&request.state_namespace)? {
-            Some(floor) if floor == generation => {}
+            Some(floor) if floor <= generation => {
+                // The account row and retained state are both locked. Committed
+                // forward mutations (including SQL triggers) may reconcile up;
+                // restored SQL state below retained authority remains unavailable.
+                if floor < generation {
+                    witness.advance(&request.state_namespace, generation)?;
+                }
+            }
             None if history == 0 => witness.advance(&request.state_namespace, generation)?,
             _ => return Err(unavailable()),
         }
         let status: String = row.try_get("status").map_err(|_| unavailable())?;
         let allowed = match status.as_str() {
             "active" => true,
-            "disabled" | "suspended" | "terminated" => false,
+            "suspended" | "closed" | "pending_verification" => false,
             _ => return Err(unavailable()),
         };
         Ok(Some(vec![
