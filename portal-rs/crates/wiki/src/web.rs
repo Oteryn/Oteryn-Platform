@@ -500,26 +500,32 @@ async fn history<A: AccountStateReader>(
     let result = async {
         let (guide, _) = s.repository.get(context, id).await?;
         let rows = s.repository.history(context, id, query.before).await?;
+        let older = if rows
+            .iter()
+            .map(|r| r.version)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            == HISTORY_PAGE_VERSIONS as usize
+        {
+            let before = rows.last().map(|r| r.version);
+            if s.repository.history(context, id, before).await?.is_empty() {
+                0
+            } else {
+                before.unwrap_or(0)
+            }
+        } else {
+            0
+        };
         let csrf = session.csrf_token().await?;
-        Ok::<_, Error>((guide, rows, csrf))
+        Ok::<_, Error>((guide, rows, csrf, older))
     }
     .await;
     match result {
-        Ok((guide, rows, csrf)) => page(History {
+        Ok((guide, rows, csrf, older)) => page(History {
             lang,
             id,
             version: guide.version,
-            older: if rows
-                .iter()
-                .map(|r| r.version)
-                .collect::<std::collections::BTreeSet<_>>()
-                .len()
-                == HISTORY_PAGE_VERSIONS as usize
-            {
-                rows.last().map_or(0, |r| r.version)
-            } else {
-                0
-            },
+            older,
             rows,
             csrf,
         }),

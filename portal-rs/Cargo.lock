@@ -3352,6 +3352,7 @@ dependencies = [
  "axum",
  "fluent-bundle",
  "oteryn-admin",
+ "oteryn-atlas",
  "oteryn-db",
  "oteryn-ui",
  "oteryn-web",

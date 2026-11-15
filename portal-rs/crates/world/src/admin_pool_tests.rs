@@ -129,7 +129,14 @@ async fn world_two_queued_mutations_complete_with_two_connections() -> TestResul
             mutate(&panel, actor, form(version)).await
         }));
     }
-    wait_for_fence(&db, 2).await?;
+    // One mutation waits at authorization; the other queues at its resource.
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND (query='SELECT pg_advisory_xact_lock(71010)' OR query='SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE')").fetch_one(&db.root).await?;
+            if waiting >= 2 { return Ok::<_, sqlx::Error>(()); }
+            tokio::task::yield_now().await;
+        }
+    }).await??;
     blocker.commit().await?;
     for task in tasks {
         assert_eq!(
@@ -223,6 +230,85 @@ async fn world_refuses_revoked_prerequisite_with_action_retained() -> TestResult
     db.close().await?;
     eprintln!(
         "world_refuses_revoked_prerequisite_with_action_retained: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn publication_wait_does_not_hold_global_authorization_fence() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Fixture::open(5).await?;
+    let version = prepare(&db).await?;
+    let panel = Panel {
+        pool: db.pool.clone(),
+        auth: Arc::new(Authorizer::new(db.pool.clone(), Active)),
+        enabled: true,
+    };
+    let manager = CheckContext {
+        account: Uuid::now_v7(),
+        ..db.actor
+    };
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='security_admin'").bind(manager.account).execute(&db.pool).await?;
+    let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
+        .fetch_one(&db.pool)
+        .await?;
+    for table in ["world_catalog_publication", "world_active_version"] {
+        let mut blocker = db.pool.begin().await?;
+        sqlx::query(AssertSqlSafe(format!(
+            "SELECT singleton FROM {table} WHERE singleton FOR UPDATE"
+        )))
+        .fetch_one(&mut *blocker)
+        .await?;
+        let panel = Panel {
+            pool: panel.pool.clone(),
+            auth: panel.auth.clone(),
+            enabled: true,
+        };
+        let actor = db.actor;
+        let revoker = panel.auth.clone();
+        let mutation = tokio::spawn(async move { mutate(&panel, actor, form(version)).await });
+        // Wait for the foreground transaction to reach its resource wait.
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%world_%version%FOR UPDATE%' OR wait_event_type='Lock' AND query LIKE '%world_catalog_publication%FOR UPDATE%')").fetch_one(&db.pool).await?;
+                if waiting { break Ok::<_, sqlx::Error>(()); }
+                tokio::task::yield_now().await;
+            }
+        }).await??;
+        let unrelated = Uuid::now_v7();
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+            .bind(unrelated)
+            .bind(role)
+            .execute(&db.pool)
+            .await?;
+        tokio::time::timeout(
+            std::time::Duration::from_millis(150),
+            revoker.change(
+                manager,
+                Uuid::now_v7(),
+                Change::Revoke {
+                    account: unrelated,
+                    role,
+                },
+            ),
+        )
+        .await??;
+        let remains: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1)")
+                .bind(unrelated)
+                .fetch_one(&db.pool)
+                .await?;
+        assert!(!remains);
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), mutation).await??,
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        );
+        blocker.rollback().await?;
+    }
+    db.close().await?;
+    eprintln!(
+        "publication_wait_does_not_hold_global_authorization_fence: {:?}",
         started.elapsed()
     );
     Ok(())

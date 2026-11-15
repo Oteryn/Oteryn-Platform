@@ -316,10 +316,10 @@ async fn postgres_spawns_private_markers_and_reports() -> TestResult {
         ("creatures", "visible", serde_json::json!({}), true),
         ("creatures", "hidden", serde_json::json!({}), false),
     ] {
-        sqlx::query("INSERT INTO world_entities(version_id,kind,key,data,publishable) VALUES ($1,$2,$3,$4,true)").bind(version).bind(kind).bind(key).bind(data).execute(&pool).await?;
+        sqlx::query("INSERT INTO world_entities(version_id,kind,key,data,publishable) VALUES ($1,$2,$3,$4,true)").bind(version).bind(oteryn_world::canonical_kind(kind)).bind(key).bind(data).execute(&pool).await?;
         if allowed {
             sqlx::query("INSERT INTO world_visibility(kind,key,allowed) VALUES ($1,$2,true)")
-                .bind(kind)
+                .bind(oteryn_world::canonical_kind(kind))
                 .bind(key)
                 .execute(&pool)
                 .await?;
@@ -387,7 +387,7 @@ async fn postgres_spawns_private_markers_and_reports() -> TestResult {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
-    sqlx::query("UPDATE world_entities SET data='{}' WHERE kind='spawns' AND key='public'")
+    sqlx::query("UPDATE world_entities SET data='{}' WHERE kind='Spawn.Source' AND key='public'")
         .execute(&pool)
         .await?;
     assert_eq!(

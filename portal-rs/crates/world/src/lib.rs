@@ -19,3 +19,20 @@ pub mod catalog;
 #[cfg(test)]
 #[path = "../tests/support/catalog.rs"]
 mod catalog_fixture;
+
+/// Canonical public entity families shared by imports, approvals, wiki and atlas.
+/// Unknown application-specific families retain their identity.
+pub fn canonical_kind(kind: &str) -> &str {
+    match kind {
+        "items" => "Item",
+        "creatures" => "Creature",
+        "npcs" => "NPC",
+        "spells" => "Spell",
+        "quests" => "Quest",
+        "loot" => "Loot",
+        "achievements" => "Achievement",
+        "areas" => "Area",
+        "spawns" => "Spawn.Source",
+        _ => kind,
+    }
+}

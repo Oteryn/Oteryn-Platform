@@ -14,6 +14,7 @@ use sqlx::PgPool;
 struct Service {
     store: WorldStore,
     options: Options,
+    computation: std::sync::Arc<tokio::sync::Semaphore>,
 }
 pub fn configured_router(pool: PgPool) -> Router {
     let flags = crate::config::Flags::configured();
@@ -34,6 +35,7 @@ pub fn router(pool: PgPool, options: Options, world: WorldOptions) -> Router {
         .with_state(Service {
             store: WorldStore::new(pool, world),
             options,
+            computation: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
         })
 }
 async fn css() -> impl IntoResponse {
@@ -107,6 +109,10 @@ async fn page(
             body += &t.text("invalid");
             return finish(StatusCode::BAD_REQUEST, body);
         }
+    };
+    let permit = match service.computation.clone().try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => return finish(StatusCode::SERVICE_UNAVAILABLE, body),
     };
     let snapshot = match load(&service.store).await {
         Ok(s) => s,
@@ -242,9 +248,15 @@ async fn page(
         body += "</ul>";
     }
     if filters.item.is_some() {
-        let data = match snapshot.discover(service.options, &filters) {
-            Ok(d) => d,
-            Err(_) => {
+        let options = service.options;
+        let calculation = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            snapshot.discover(options, &filters)
+        })
+        .await;
+        let data = match calculation {
+            Ok(Ok(d)) => d,
+            Ok(Err(_)) | Err(_) => {
                 body += &t.text("unavailable");
                 return finish(StatusCode::NOT_FOUND, body);
             }
@@ -299,4 +311,69 @@ async fn page(
         }
     }
     finish(StatusCode::OK, body)
+}
+
+#[cfg(test)]
+mod computation_tests {
+    use super::*;
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn delivery_admission_is_bounded_and_heartbeat_remains_responsive()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let computation = std::sync::Arc::new(tokio::sync::Semaphore::new(2));
+        let pool = oteryn_db::lazy_pool("postgres://localhost/unreachable")?;
+        let service = Service {
+            store: WorldStore::new(pool, WorldOptions { enabled: true }),
+            options: Options { enabled: true },
+            computation: computation.clone(),
+        };
+        let app = Router::new()
+            .route("/{lang}/atlas/delivery", get(page))
+            .route("/heartbeat", get(|| async { StatusCode::OK }))
+            .with_state(service);
+        let first = computation.clone().try_acquire_owned()?;
+        let second = computation.clone().try_acquire_owned()?;
+        let busy = app
+            .clone()
+            .oneshot(
+                Request::get("/en/atlas/delivery?item=item%3Aore&count=100000")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        drop(first);
+        drop(second);
+        let mut snapshot = super::super::tests::snapshot();
+        for i in 0..1000 {
+            snapshot.entities.insert(
+                ("Creature".into(), format!("source-{i}")),
+                serde_json::json!({"loot":"loot:rat","level":1}),
+            );
+        }
+        let permit = computation.clone().try_acquire_owned()?;
+        let calculation = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            snapshot.discover(
+                Options { enabled: true },
+                &Filters {
+                    item: Some("item:ore".into()),
+                    count: Some(100_000),
+                    ..Default::default()
+                },
+            )
+        });
+        let heartbeat = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            app.oneshot(Request::get("/heartbeat").body(Body::empty())?),
+        )
+        .await??;
+        assert_eq!(heartbeat.status(), StatusCode::OK);
+        let result = calculation.await?.map_err(|_| "discovery failed")?;
+        assert_eq!(result.sources.len(), 1001);
+        assert!(result.sources.iter().all(|s| s.estimate.is_none()));
+        assert_eq!(computation.available_permits(), 2);
+        Ok(())
+    }
 }
