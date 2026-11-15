@@ -920,3 +920,148 @@ async fn wave2_03_report_rechecked_after_trust_refresh() -> TestResult {
     );
     Ok(())
 }
+
+#[derive(Debug)]
+struct SlowResigner(Arc<dyn GrantSigner>);
+impl GrantSigner for SlowResigner {
+    fn prepare(&self) -> Future<'_, ()> {
+        self.0.prepare()
+    }
+    fn prepare_on<'a>(&'a self, db: &'a mut PgConnection) -> Future<'a, ()> {
+        self.0.prepare_on(db)
+    }
+    fn sign(&self, payload: &[u8], expires: u64, now: u64) -> Result<String, Error> {
+        self.0.sign(payload, expires, now)
+    }
+    fn resign(&self, input: &str, expires: u64, now: u64) -> Result<String, Error> {
+        self.0.resign(input, expires, now)
+    }
+    fn resign_async<'a>(&'a self, input: &'a str, expires: u64, now: u64) -> Future<'a, String> {
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            self.0.resign_async(input, expires, now).await
+        })
+    }
+}
+
+#[tokio::test]
+async fn wave3_01_recovery_replay_expires_during_resigning() -> TestResult {
+    let started = std::time::Instant::now();
+    let f = Fixture::new().await?;
+    let (request, mut issuer) = recovery_fixture(&f).await?;
+    let first = recovery::recover(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &issuer,
+        &f.authority.issuance.runtime,
+    )
+    .await;
+    assert!(first.is_ok(), "{first:?}");
+    issuer.signer = Some(Arc::new(SlowResigner(
+        issuer.signer.take().ok_or("signer")?,
+    )));
+    sqlx::query("UPDATE native_recoveries SET expires_at_ms=floor(extract(epoch FROM clock_timestamp())*1000)::bigint+1500")
+        .execute(&f.db.pool).await?;
+    let result = recovery::recover(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &issuer,
+        &f.authority.issuance.runtime,
+    )
+    .await;
+    assert_eq!(
+        result.err().map(|r| r.error),
+        Some(recovery::RecoveryError::GrantExpired)
+    );
+    f.close().await?;
+    eprintln!(
+        "wave3_01_recovery_replay_expires_during_resigning duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+async fn replacement_requires_current_device_eligibility(devices_enabled: bool) -> TestResult {
+    let started = std::time::Instant::now();
+    let f = Fixture::new().await?;
+    use base64::Engine;
+    use sha2::Digest;
+    let public_key = ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+        .verifying_key()
+        .to_bytes();
+    let thumbprint =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(public_key));
+    let family: Uuid = sqlx::query_scalar("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at,device_public_key,device_key_thumbprint) VALUES(uuidv7(),$1,uuidv7(),'wave3-test',1,1,9999999999,9999999999,$2,$3) RETURNING id")
+        .bind(f.account).bind(&public_key[..]).bind(&thumbprint).fetch_one(&f.db.pool).await?;
+    sqlx::query("UPDATE game_login_tickets SET device_family_id=$1 WHERE ticket_hash=$2")
+        .bind(family)
+        .bind(f.request.ticket_hash())
+        .execute(&f.db.pool)
+        .await?;
+    let mut request = f.request.clone();
+    request.protocol = 3;
+    let mut settings = Protocol3 {
+        runtime: f.authority.issuance.runtime.clone(),
+        handles: Handles::On {
+            lifetime_seconds: 3600,
+            require_device_binding: true,
+            devices_enabled: true,
+        },
+    };
+    let first = store::admit(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &f.authority,
+        Some(f.signer.as_ref()),
+        Some(&settings),
+    )
+    .await
+    .map_err(|e| format!("{e:?}"))?;
+    assert!(!serde_json::from_slice::<serde_json::Value>(&first)?["recovery"].is_null());
+    settings.handles = Handles::On {
+        lifetime_seconds: 3600,
+        require_device_binding: true,
+        devices_enabled,
+    };
+    if devices_enabled {
+        sqlx::query("UPDATE device_sessions SET idle_expires_at=1 WHERE id=$1")
+            .bind(family)
+            .execute(&f.db.pool)
+            .await?;
+    }
+    let replay = store::admit(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &f.authority,
+        Some(f.signer.as_ref()),
+        Some(&settings),
+    )
+    .await
+    .map_err(|e| format!("{e:?}"))?;
+    assert!(serde_json::from_slice::<serde_json::Value>(&replay)?["recovery"].is_null());
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM native_recovery_handles WHERE attempt_ref=$1")
+            .bind(request.attempt_ref)
+            .fetch_one(&f.db.pool)
+            .await?;
+    assert_eq!(count, 1);
+    f.close().await?;
+    eprintln!(
+        "wave3_02_replacement_requires_current_device_eligibility devices_enabled={devices_enabled} duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn wave3_02_replacement_refuses_disabled_devices() -> TestResult {
+    replacement_requires_current_device_eligibility(false).await
+}
+#[tokio::test]
+async fn wave3_02_replacement_refuses_idle_expired_family() -> TestResult {
+    replacement_requires_current_device_eligibility(true).await
+}
