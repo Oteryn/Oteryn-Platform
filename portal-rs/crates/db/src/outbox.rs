@@ -1,7 +1,9 @@
 //! Transactional, at-least-once job delivery. Handlers must make their effects idempotent.
 
+use sqlx::Connection;
 pub use sqlx::types::{Uuid, time::OffsetDateTime};
 pub use sqlx::{Error, PgPool, Postgres, Transaction};
+use std::time::Duration;
 
 /// A claim's attempt number fences acknowledgements from expired owners.
 #[derive(Debug, Clone)]
@@ -40,15 +42,34 @@ pub async fn enqueue(
 
 /// Claims a bounded batch without waiting for other workers' row locks.
 pub async fn claim(pool: &PgPool, batch: i64, lease_seconds: i32) -> Result<Vec<Job>, Error> {
+    claim_with_deadline(pool, batch, lease_seconds, Duration::from_secs(30)).await
+}
+
+/// Bounds acquisition, SQL execution and commit; timeout closes the dedicated connection.
+pub async fn claim_with_deadline(
+    pool: &PgPool,
+    batch: i64,
+    lease_seconds: i32,
+    budget: Duration,
+) -> Result<Vec<Job>, Error> {
     if !(1..=1000).contains(&batch) || !(1..=86400).contains(&lease_seconds) {
         return Err(Error::Protocol(
             "invalid outbox batch or lease duration".into(),
         ));
     }
-    let mut tx = pool.begin().await?;
-    // Exhausted jobs also become dead after a crash on their final attempt.
-    sqlx::query(
-        "WITH exhausted AS (
+    let mut acquired = StageConnection(None);
+    let result = tokio::time::timeout(budget, async {
+        let connection = acquired.0.insert(pool.acquire().await?);
+        let mut tx = connection.begin().await?;
+        // Closing a client socket need not interrupt a PostgreSQL lock wait
+        // immediately. A server-side timeout also cancels the blocked statement.
+        sqlx::query("SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $1, true)")
+            .bind(format!("{}ms", budget.as_millis().max(1)))
+            .execute(&mut *tx)
+            .await?;
+        // Exhausted jobs also become dead after a crash on their final attempt.
+        sqlx::query(
+            "WITH exhausted AS (
            SELECT id FROM outbox WHERE state = 'running' AND leased_until <= now()
              AND attempts >= max_attempts ORDER BY leased_until
            FOR UPDATE SKIP LOCKED LIMIT $1
@@ -56,12 +77,12 @@ pub async fn claim(pool: &PgPool, batch: i64, lease_seconds: i32) -> Result<Vec<
          UPDATE outbox o SET state = 'dead', leased_until = NULL,
            last_error = 'lease expired on final attempt', updated_at = now()
          FROM exhausted WHERE o.id = exhausted.id",
-    )
-    .bind(batch)
-    .execute(&mut *tx)
-    .await?;
-    let rows: Vec<(Uuid, String, String, i32)> = sqlx::query_as(
-        "WITH due AS (
+        )
+        .bind(batch)
+        .execute(&mut *tx)
+        .await?;
+        let rows: Vec<(Uuid, String, String, i32)> = sqlx::query_as(
+            "WITH due AS (
            SELECT id FROM outbox WHERE
              (state = 'pending' AND run_after <= now()) OR
              (state = 'running' AND leased_until <= now() AND attempts < max_attempts)
@@ -70,21 +91,31 @@ pub async fn claim(pool: &PgPool, batch: i64, lease_seconds: i32) -> Result<Vec<
          UPDATE outbox o SET state = 'running', attempts = attempts + 1,
            leased_until = now() + make_interval(secs => $2), updated_at = now()
          FROM due WHERE o.id = due.id RETURNING o.id, o.kind, o.payload::text, o.attempts",
-    )
-    .bind(batch)
-    .bind(f64::from(lease_seconds))
-    .fetch_all(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(rows
-        .into_iter()
-        .map(|(id, kind, payload, attempts)| Job {
-            id,
-            kind,
-            payload,
-            attempts,
-        })
-        .collect())
+        )
+        .bind(batch)
+        .bind(f64::from(lease_seconds))
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, kind, payload, attempts)| Job {
+                id,
+                kind,
+                payload,
+                attempts,
+            })
+            .collect())
+    })
+    .await;
+    if result.is_ok() {
+        // Completed work (including a rolled-back database error) can reuse
+        // its pooled session. Cancellation instead closes it via the guard.
+        drop(acquired.0.take());
+    }
+    result
+        .map_err(|_| Error::Protocol("outbox claiming deadline exceeded".into()))?
+        .map_err(|error| stage_error("claiming", error))
 }
 
 /// Extends a live lease only while its original claim still owns it.
@@ -148,19 +179,48 @@ pub async fn counts(pool: &PgPool) -> Result<Counts, Error> {
 
 /// A database-clock schedule slot makes concurrent schedulers and restarts deduplicate.
 pub async fn schedule(pool: &PgPool, kind: &str, interval_seconds: i32) -> Result<(), Error> {
+    schedule_with_deadline(pool, kind, interval_seconds, Duration::from_secs(30)).await
+}
+
+/// Bounds the complete scheduling transaction, including acquisition and commit.
+pub async fn schedule_with_deadline(
+    pool: &PgPool,
+    kind: &str,
+    interval_seconds: i32,
+    budget: Duration,
+) -> Result<(), Error> {
     if interval_seconds <= 0 {
         return Err(Error::Protocol("schedule interval must be positive".into()));
     }
-    sqlx::query(
-        "INSERT INTO outbox (kind, payload, idempotency_key)
+    let mut acquired = StageConnection(None);
+    let result = tokio::time::timeout(budget, async {
+        let connection = acquired.0.insert(pool.acquire().await?);
+        let mut tx = connection.begin().await?;
+        // Closing a client socket need not interrupt a PostgreSQL lock wait
+        // immediately. A server-side timeout also cancels the blocked statement.
+        sqlx::query("SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $1, true)")
+            .bind(format!("{}ms", budget.as_millis().max(1)))
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO outbox (kind, payload, idempotency_key)
          VALUES ($1, '{}'::jsonb, 'schedule:' || floor(extract(epoch FROM now()) / $2)::text)
          ON CONFLICT (kind, idempotency_key) DO NOTHING",
-    )
-    .bind(kind)
-    .bind(interval_seconds)
-    .execute(pool)
-    .await?;
-    Ok(())
+        )
+        .bind(kind)
+        .bind(interval_seconds)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    })
+    .await;
+    if result.is_ok() {
+        drop(acquired.0.take());
+    }
+    result
+        .map_err(|_| Error::Protocol("outbox scheduling deadline exceeded".into()))?
+        .map_err(|error| stage_error("scheduling", error))
 }
 
 // Re-export the query and pool builders for domain repositories and integration harnesses.
@@ -173,4 +233,27 @@ pub type CleanupFuture<'a> =
 /// Implemented by session, token and support retention repositories.
 pub trait Cleanup: std::fmt::Debug + Send + Sync {
     fn clean(&self) -> CleanupFuture<'_>;
+}
+
+// Include the affected stage and retain the cause for server-side failures.
+fn stage_error(stage: &str, error: Error) -> Error {
+    if error
+        .as_database_error()
+        .is_some_and(|error| matches!(error.code().as_deref(), Some("57014" | "55P03")))
+    {
+        Error::Protocol(format!("outbox {stage} deadline exceeded: {error}"))
+    } else {
+        Error::Protocol(format!("outbox {stage} failed: {error}"))
+    }
+}
+
+// Dropping a stage, whether for its deadline or worker shutdown, must never
+// return still-blocked work to the shared pool. Keep the permit until that drop.
+struct StageConnection(Option<sqlx::pool::PoolConnection<Postgres>>);
+impl Drop for StageConnection {
+    fn drop(&mut self) {
+        if let Some(connection) = self.0.take() {
+            drop(connection.detach());
+        }
+    }
 }

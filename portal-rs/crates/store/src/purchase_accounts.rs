@@ -34,9 +34,14 @@ AND NOT EXISTS(SELECT 1 FROM sanctions s WHERE s.account_id=a.id AND (s.category
 OR (s.category IN ('restriction','suspension') AND s.status='active' AND s.effective_at<=clock_timestamp() AND (s.expires_at IS NULL OR s.expires_at>clock_timestamp())))) \
 AND NOT EXISTS(SELECT 1 FROM (SELECT DISTINCT ON (r.sanction_id) r.active,r.expires_at FROM support_sanction_revisions r JOIN support_sanction_identities i USING(sanction_id) \
 WHERE r.account_id=a.id AND i.kind='ban' ORDER BY r.sanction_id,r.revision DESC) latest WHERE latest.active AND (latest.expires_at IS NULL OR latest.expires_at>clock_timestamp())) \
-FROM accounts a WHERE a.id=$1 FOR SHARE OF a";
+FROM accounts a WHERE a.id=$1";
 
 async fn buyable(connection: &mut PgConnection, account: Uuid) -> Result<Option<bool>, Error> {
+    // Dependent-table eligibility needs a snapshot taken after the lock wait.
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+        .bind(account)
+        .fetch_optional(&mut *connection)
+        .await?;
     Ok(sqlx::query_scalar::<_, bool>(BUYABLE)
         .bind(account)
         .fetch_optional(connection)

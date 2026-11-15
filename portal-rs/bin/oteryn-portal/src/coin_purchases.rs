@@ -131,6 +131,11 @@ impl CoinHost for Host {
             // sanction, a sanction of unknown category or status and an effective
             // typed ban (the Store buyer gate and game-access guard refuse the
             // same states). A missing account is restricted.
+            // Lock first, then obtain a fresh READ COMMITTED statement snapshot.
+            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+                .bind(payer)
+                .fetch_optional(&mut *connection)
+                .await?;
             let reason: Option<Option<String>> = sqlx::query_scalar(
                 "SELECT CASE \
                    WHEN a.status<>'active' THEN 'account_'||a.status \
@@ -149,7 +154,7 @@ impl CoinHost for Host {
                      WHERE r.account_id=a.id AND i.kind='ban' ORDER BY r.sanction_id,r.revision DESC) latest \
                      WHERE latest.active AND (latest.expires_at IS NULL OR latest.expires_at>clock_timestamp())) \
                      THEN 'ban' \
-                 END FROM accounts a WHERE a.id=$1 FOR SHARE OF a",
+                 END FROM accounts a WHERE a.id=$1",
             )
             .bind(payer)
             .fetch_optional(connection)

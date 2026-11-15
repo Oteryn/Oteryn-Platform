@@ -35,6 +35,13 @@ fn packages() -> String {
 struct TestHost {
     host: Host,
     owned: Vec<(Uuid, Uuid)>,
+    pause: Option<Arc<EligibilityPause>>,
+}
+#[derive(Debug, Default)]
+struct EligibilityPause {
+    remaining: std::sync::atomic::AtomicUsize,
+    reached: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
 }
 impl CoinHost for TestHost {
     fn payer<'a>(&'a self, bearer: &'a str) -> HostFuture<'a, Result<Uuid, CoinError>> {
@@ -55,7 +62,20 @@ impl CoinHost for TestHost {
         connection: &'a mut PgConnection,
         payer: Uuid,
     ) -> HostFuture<'a, Result<Option<String>, CoinError>> {
-        self.host.restriction_in(connection, payer)
+        Box::pin(async move {
+            let result = self.host.restriction_in(connection, payer).await;
+            if let Some(pause) = &self.pause
+                && pause.remaining.fetch_update(
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::SeqCst,
+                    |remaining| remaining.checked_sub(1),
+                ) == Ok(1)
+            {
+                pause.reached.notify_one();
+                pause.resume.notified().await;
+            }
+            result
+        })
     }
     fn reverse_in<'a>(
         &'a self,
@@ -178,6 +198,13 @@ impl Database {
             .access_token)
     }
     fn service(&self, owned: Vec<(Uuid, Uuid)>) -> Arc<CoinPurchases> {
+        self.service_with_pause(owned, None)
+    }
+    fn service_with_pause(
+        &self,
+        owned: Vec<(Uuid, Uuid)>,
+        pause: Option<Arc<EligibilityPause>>,
+    ) -> Arc<CoinPurchases> {
         let settings = CoinSettings {
             enabled: true,
             packages: parse_packages(&packages()).unwrap(),
@@ -195,6 +222,7 @@ impl Database {
                 ),
             },
             owned,
+            pause,
         };
         Arc::new(CoinPurchases::new(
             self.pool.clone(),
@@ -1682,6 +1710,7 @@ async fn bad_reversal_events_are_refused() -> TestResult {
                 ),
             },
             owned: vec![],
+            pause: None,
         }),
     );
     assert!(matches!(
@@ -2073,4 +2102,81 @@ async fn l2_01_shared_transfer_ceiling_refuses_atomically_and_native_balance_rea
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn settlement_and_store_read_sanctions_committed_during_account_lock_wait() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let staff = db.account().await?;
+    for category in ["restriction", "suspension", "ban"] {
+        let payer = db.account().await?;
+        let token = db.token(payer).await?;
+        let pause = Arc::new(EligibilityPause::default());
+        let service = db.service_with_pause(vec![], Some(pause.clone()));
+        let (order, _, request) = awaiting_order(&db, &service, payer, &token).await?;
+        // sandbox_complete checks payable, then Payments::intent checks
+        // eligibility again. Pause after that final pre-settlement check.
+        pause
+            .remaining
+            .store(2, std::sync::atomic::Ordering::SeqCst);
+        let paying = service.clone();
+        let payment =
+            tokio::spawn(async move { paying.sandbox_complete(payer, order, true).await });
+        tokio::time::timeout(std::time::Duration::from_secs(5), pause.reached.notified()).await?;
+        // The initial checkout eligibility check completed. The production
+        // sanction writer locks the payer before inserting dependent rows.
+        let mut writer = db.pool.begin().await?;
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(payer)
+            .fetch_one(&mut *writer)
+            .await?;
+        if category == "ban" {
+            sqlx::query("WITH i AS (INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES(gen_random_uuid(),$1,'ban') RETURNING sanction_id) INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) SELECT $1,1,sanction_id,jsonb_build_object('staff',$2::uuid),true,now()-interval '1 minute',now()+interval '1 day' FROM i")
+                .bind(payer).bind(staff).execute(&mut *writer).await?;
+        } else {
+            sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,$3,'active','test',now()-interval '1 minute',now()+interval '1 day',$2)")
+                .bind(payer).bind(staff).bind(category).execute(&mut *writer).await?;
+        }
+        let pool = db.pool.clone();
+        let store = tokio::spawn(async move {
+            let mut tx = pool.begin().await?;
+            let state = oteryn_store::purchase::Accounts::state(
+                &oteryn_store::purchase::DatabaseAccounts,
+                &mut tx,
+                payer,
+            )
+            .await;
+            tx.rollback().await?;
+            Ok::<_, sqlx::Error>(state)
+        });
+        pause.resume.notify_one();
+        // Observe both readers actually waiting on this writer, rather than
+        // relying on scheduler timing to reproduce the old statement snapshot.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid))")
+                    .bind(sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()").fetch_one(&mut *writer).await?)
+                    .fetch_one(&db.pool).await?;
+                if waiting >= 2 { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            Ok::<_, sqlx::Error>(())
+        }).await??;
+        writer.commit().await?;
+        let paid = tokio::time::timeout(std::time::Duration::from_secs(5), payment).await???;
+        assert_eq!(paid.state, OrderState::Processing, "{category}");
+        assert!(paid.review_required, "{category}");
+        assert_eq!(
+            service.order(payer, request).await?.state,
+            OrderState::Processing
+        );
+        assert_eq!(top_ups(&db, payer).await, 0, "{category}");
+        assert_eq!(
+            store.await???,
+            oteryn_store::purchase::AccountState::Restricted
+        );
+    }
+    db.close().await
 }
