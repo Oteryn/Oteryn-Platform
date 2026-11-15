@@ -182,9 +182,11 @@ pub struct Record {
     pub title: String,
     pub status: String,
     pub messages: Vec<Message>,
+    pub next_message: Option<Uuid>,
 }
 #[derive(Debug, Clone)]
 pub struct Message {
+    pub id: Option<Uuid>,
     pub body: String,
     pub internal: bool,
 }
@@ -206,7 +208,12 @@ pub trait Backend: Clone + Send + Sync + 'static {
         area: Area,
         page: u32,
     ) -> impl Future<Output = Result<Vec<Record>, Error>> + Send;
-    fn load(&self, area: Area, id: Uuid) -> impl Future<Output = Result<Record, Error>> + Send;
+    fn load(
+        &self,
+        area: Area,
+        id: Uuid,
+        after: Option<Uuid>,
+    ) -> impl Future<Output = Result<Record, Error>> + Send;
     /// Creation requires an absent ID and an active authoritative target account.
     /// Updates must never change the target account of an existing sanction.
     /// Must reject stale versions; accepted appeals revoke the sanction atomically.
@@ -226,7 +233,7 @@ impl Backend for PendingSupport {
     async fn list(&self, _: Area, _: u32) -> Result<Vec<Record>, Error> {
         Err(Error::Unavailable)
     }
-    async fn load(&self, _: Area, _: Uuid) -> Result<Record, Error> {
+    async fn load(&self, _: Area, _: Uuid, _: Option<Uuid>) -> Result<Record, Error> {
         Err(Error::Unavailable)
     }
     async fn apply(

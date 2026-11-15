@@ -192,6 +192,7 @@ impl Reports {
                         .map(str::trim)
                         .filter(|s| !s.is_empty())
             {
+                tx.commit().await?;
                 return Err(Error::Conflict);
             }
             tx.commit().await?;

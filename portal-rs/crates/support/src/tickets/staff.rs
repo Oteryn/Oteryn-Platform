@@ -119,17 +119,42 @@ impl Backend for StaffSupport {
         command: &Command,
     ) -> std::result::Result<(), StaffError> {
         self.available(command.area())?;
+        let owner: Uuid = match command {
+            Command::Reply { .. } | Command::TicketStatus { .. } => {
+                sqlx::query_scalar("SELECT account_id FROM tickets WHERE id=$1")
+                    .bind(id)
+                    .fetch_optional(&mut **tx)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?
+                    .ok_or(StaffError::NotFound)?
+            }
+            Command::Moderate { .. } => {
+                sqlx::query_scalar("SELECT reporter_account_id FROM player_reports WHERE id=$1")
+                    .bind(id)
+                    .fetch_optional(&mut **tx)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?
+                    .ok_or(StaffError::NotFound)?
+            }
+            Command::Sanction {
+                create: true,
+                target,
+                ..
+            } => *target,
+            _ => sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
+                .bind(id)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?
+                .ok_or(StaffError::NotFound)?,
+        };
+        // Include implicit author FK locks and RBAC's actor SHARE lock. Every
+        // domain uses the same UUID order before joining the role-writer fence.
         if matches!(
             command,
             Command::Reply { .. } | Command::TicketStatus { .. }
         ) {
             let tickets = self.tickets.as_ref().ok_or(StaffError::NotFound)?;
-            let owner: Uuid = sqlx::query_scalar("SELECT account_id FROM tickets WHERE id=$1")
-                .bind(id)
-                .fetch_optional(&mut **tx)
-                .await
-                .map_err(|_| StaffError::Unavailable)?
-                .ok_or(StaffError::NotFound)?;
             for account in if actor < owner {
                 [actor, owner]
             } else {
@@ -140,6 +165,10 @@ impl Backend for StaffSupport {
                     .await
                     .map_err(ticket_error)?;
             }
+        } else {
+            crate::sanctions::store::lock_staff_accounts(tx, actor, owner)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
         }
         Ok(())
     }
@@ -170,15 +199,28 @@ impl Backend for StaffSupport {
                 title,
                 status,
                 messages: vec![],
+                next_message: None,
             })
             .collect())
     }
-    async fn load(&self, area: Area, id: Uuid) -> std::result::Result<Record, StaffError> {
+    async fn load(
+        &self,
+        area: Area,
+        id: Uuid,
+        after: Option<Uuid>,
+    ) -> std::result::Result<Record, StaffError> {
         self.available(area)?;
         if area == Area::Tickets {
             let tickets = self.tickets.as_ref().ok_or(StaffError::NotFound)?;
-            let (t, messages) = tickets.show(id, true, id).await.map_err(ticket_error)?;
+            let (t, messages) = tickets
+                .show_page(id, true, id, after)
+                .await
+                .map_err(ticket_error)?;
+            let next_message = (messages.len() == 50)
+                .then(|| messages.last().map(|m| m.id))
+                .flatten();
             return Ok(Record {
+                next_message,
                 id: t.id,
                 version: t.lock_version,
                 title: t.subject,
@@ -186,6 +228,7 @@ impl Backend for StaffSupport {
                 messages: messages
                     .into_iter()
                     .map(|m| StaffMessage {
+                        id: Some(m.id),
                         body: m.body,
                         internal: m.internal,
                     })
@@ -210,7 +253,11 @@ impl Backend for StaffSupport {
             let mut messages = vec![];
             for (column, internal) in [("public_message", false), ("private_message", true)] {
                 if let Some(body) = row.try_get::<Option<String>, _>(column)? {
-                    messages.push(StaffMessage { body, internal });
+                    messages.push(StaffMessage {
+                        id: None,
+                        body,
+                        internal,
+                    });
                 }
             }
             Ok(Record {
@@ -219,6 +266,7 @@ impl Backend for StaffSupport {
                 title: row.try_get("title")?,
                 status: row.try_get("status")?,
                 messages,
+                next_message: None,
             })
         };
         decode().map_err(|_| StaffError::Unavailable)

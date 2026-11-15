@@ -26,13 +26,14 @@ impl Backend for Queue {
                     }
                     .into(),
                     messages: vec![],
+                    next_message: None,
                 })
                 .collect()
         } else {
             vec![]
         })
     }
-    async fn load(&self, _: Area, _: Uuid) -> Result<Record, Error> {
+    async fn load(&self, _: Area, _: Uuid, _: Option<Uuid>) -> Result<Record, Error> {
         Err(Error::NotFound)
     }
     async fn apply(

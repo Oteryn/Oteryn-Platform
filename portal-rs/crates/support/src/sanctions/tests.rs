@@ -1015,3 +1015,59 @@ async fn lk_sanction_authorization_with_one_available_connection() -> TestResult
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_legacy_sanctions_lock_accounts_before_rbac() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let mut sanction = Uuid::nil();
+    for phase in 0..3 {
+        let mut blocker = db.pool.begin().await?;
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *blocker)
+            .await?;
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(db.target)
+            .fetch_one(&mut *blocker)
+            .await?;
+        let service = db.service();
+        let decision = db.decision(Category::Warning, true).await?;
+        let actor = if phase == 1 { db.reviewer } else { db.actor };
+        let id = sanction;
+        let operation = tokio::spawn(async move {
+            match phase {
+                0 => service.create(staff(actor), Uuid::now_v7(), decision).await,
+                1 => service.approve(staff(actor), Uuid::now_v7(), id, 1).await,
+                _ => service.revoke(staff(actor), Uuid::now_v7(), id, 2).await,
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(2),async {
+            loop {
+                let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))").bind(pid).fetch_one(&db.pool).await?;
+                if blocked {return Ok::<_,sqlx::Error>(());}
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }).await??;
+        // A mutation waiting on its target must not already own the RBAC fence.
+        let mut probe = db.pool.begin().await?;
+        let free: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(71010)")
+            .fetch_one(&mut *probe)
+            .await?;
+        probe.rollback().await?;
+        blocker.rollback().await?;
+        let receipt = operation.await??;
+        assert!(
+            free,
+            "phase {phase} held RBAC while waiting on its target account"
+        );
+        sanction = receipt.id;
+    }
+    db.cleanup().await?;
+    eprintln!(
+        "postgres_legacy_sanctions_lock_accounts_before_rbac duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

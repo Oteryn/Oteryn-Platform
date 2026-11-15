@@ -553,3 +553,57 @@ async fn postgres_request_key_binds_every_report_field() -> TestResult {
     assert_eq!(stored.evidence_summary, created.evidence_summary);
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_conflicting_replays_consume_submission_budget() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let owner = db.account("active").await?;
+    let service = Reports::new(db.pool.clone(), policy());
+    let (cookie, csrf) = session(&db, owner, 'a').await?;
+    let app = router(db.pool.clone(), policy());
+    let mut fields = values();
+    assert_eq!(
+        app.clone()
+            .oneshot(post("/en/support/reports", &cookie, &csrf, &fields))
+            .await?
+            .status(),
+        StatusCode::FOUND
+    );
+    let report = service.list(owner, 1).await?.remove(0);
+    fields[3].1 = "Different valid target".into();
+    for expected in [
+        StatusCode::CONFLICT,
+        StatusCode::CONFLICT,
+        StatusCode::TOO_MANY_REQUESTS,
+    ] {
+        assert_eq!(
+            app.clone()
+                .oneshot(post("/en/support/reports", &cookie, &csrf, &fields))
+                .await?
+                .status(),
+            expected
+        );
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i32>(
+            "SELECT attempts FROM player_report_submission_limits WHERE account_id=$1"
+        )
+        .bind(owner)
+        .fetch_one(&db.pool)
+        .await?,
+        3
+    );
+    assert_eq!(
+        service.get(owner, report.id).await?.target_reference,
+        report.target_reference
+    );
+    db.close().await?;
+    eprintln!(
+        "postgres_conflicting_replays_consume_submission_budget duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
