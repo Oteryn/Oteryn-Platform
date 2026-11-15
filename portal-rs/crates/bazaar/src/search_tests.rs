@@ -337,3 +337,60 @@ async fn postgres_preferences_and_private_tabs() -> Result<(), Box<dyn std::erro
     pool.close().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_watch_admission_is_bounded_and_existing_watch_replays()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let pool = PgPool::connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?).await?;
+    oteryn_db::migrate(&pool).await?;
+    let actor = Uuid::now_v7();
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) SELECT uuidv7(),$1,'character','auction','coins',100,false,now()+interval '1 day' FROM generate_series(1,501)").bind(actor).execute(&pool).await?;
+    sqlx::query("INSERT INTO bazaar_watches(account,listing_id) SELECT $1,id FROM bazaar_listings WHERE owner=$1 ORDER BY id LIMIT 500").bind(actor).execute(&pool).await?;
+    let listing: Uuid = sqlx::query_scalar(
+        "SELECT id FROM bazaar_listings WHERE owner=$1 ORDER BY id DESC LIMIT 1",
+    )
+    .bind(actor)
+    .fetch_one(&pool)
+    .await?;
+    let api = BazaarSearch::new(
+        pool.clone(),
+        TestAccounts,
+        TestProjection { id: listing },
+        SearchFlags {
+            public_listings_enabled: true,
+            account_features_enabled: true,
+            gold_enabled: false,
+        },
+    );
+    assert!(matches!(
+        api.watch(actor, listing, true).await,
+        Err(Error::Denied)
+    ));
+    let old: Uuid = sqlx::query_scalar(
+        "SELECT listing_id FROM bazaar_watches WHERE account=$1 ORDER BY listing_id LIMIT 1",
+    )
+    .bind(actor)
+    .fetch_one(&pool)
+    .await?;
+    api.watch(actor, old, false).await?;
+    api.watch(actor, listing, true).await?;
+    api.watch(actor, listing, true).await?;
+    assert_eq!(
+        api.search(
+            Some(actor),
+            &SearchQuery {
+                tab: SearchTab::Watched,
+                ..SearchQuery::default()
+            }
+        )
+        .await?
+        .total,
+        1
+    );
+    eprintln!(
+        "postgres_watch_admission_is_bounded_and_existing_watch_replays: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

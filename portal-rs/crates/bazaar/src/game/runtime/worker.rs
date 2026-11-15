@@ -25,8 +25,9 @@ impl Runtime {
             Err(_) => resync.rollback().await?,
         }
         self.tick_gold_bids().await?;
-        let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE a.refusal_code IS NULL AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state='completed' AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric))) ORDER BY CASE l.state WHEN 'awaiting_delivery' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,l.id LIMIT 24").bind(self.config.fence.recovery_generation.to_string()).fetch_all(&self.pool).await?;
+        let ids = listing_batch(&self.pool, self.config.fence.recovery_generation).await?;
         for listing in ids {
+            crate::scheduling::advance(&self.pool, "listings", listing).await?;
             match self.advance(listing).await {
                 Ok(()) => {}
                 Err(Error::Database(e)) => return Err(Error::Database(e)),
@@ -133,6 +134,7 @@ impl Runtime {
     }
     async fn advance(&self, id: Uuid) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
             .bind(id)
             .fetch_one(&mut *tx)
@@ -149,11 +151,13 @@ impl Runtime {
             .try_into()
             .map_err(|_| Error::Invalid)?;
         // A definite refusal is visible as refusal, never guessed from absence/timeout.
-        let refusals:Vec<Uuid>=sqlx::query_scalar("SELECT operation_id FROM bazaar_game_outbox WHERE listing_id=$1 ORDER BY source_revision DESC").bind(id).fetch_all(&mut *tx).await?;
+        let refusals:Vec<Uuid>=sqlx::query_scalar("SELECT latest.operation_id FROM (VALUES ('LockBazaarCharacter'),('BindBazaarCharacterTransfer'),('UnlockBazaarCharacter'),('EscrowBazaarItem'),('DeliverBazaarItem'),('ReturnBazaarItem'),('PayoutBazaarGold')) commands(command) CROSS JOIN LATERAL (SELECT operation_id FROM bazaar_game_outbox WHERE listing_id=$1 AND command=commands.command ORDER BY source_revision DESC LIMIT 1) latest").bind(id).fetch_all(&mut *tx).await?;
         for operation in refusals {
             if let Some((_, receipt)) = self.authority().retained(&mut tx, operation).await?
                 && !receipt.committed
                 && !matches!(receipt.command, Command::Hold | Command::Release)
+                && !(receipt.command == Command::Bind
+                    && text(&receipt.value, "result_code")? == "CHAR_CMD_INTENT_EXPIRED")
             {
                 sqlx::query(
                     "UPDATE bazaar_authority_assets SET refusal_code=$2 WHERE listing_id=$1",
@@ -282,7 +286,8 @@ impl Runtime {
         purpose: &str,
         sale: Option<&Settlement>,
     ) -> Result<(), Error> {
-        let existing:Option<Uuid>=sqlx::query_scalar("SELECT operation_id FROM bazaar_authority_transfers WHERE listing_id=$1 AND purpose=$2").bind(l.id).bind(purpose).fetch_optional(&mut **tx).await?;
+        let existing =
+            super::characters::reconcile_transfer(self.authority(), tx, l.id, purpose).await?;
         let operation = if let Some(operation) = existing {
             operation
         } else {
@@ -357,8 +362,25 @@ impl Runtime {
             let binding =
                 String::from_utf8(canonical::encode(&binding).map_err(|_| Error::Invalid)?)
                     .map_err(|_| Error::Invalid)?;
-            sqlx::query("INSERT INTO bazaar_authority_transfers(operation_id,listing_id,purpose,decision_id,source_revision,intent,intent_digest,binding,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::text::numeric,$10::text::numeric)")
-                .bind(operation).bind(l.id).bind(purpose).bind(decision).bind(revision).bind(&intent).bind(digest(intent.as_bytes())).bind(binding).bind(self.config.fence.projection_epoch.to_string()).bind(self.config.fence.recovery_generation.to_string()).execute(&mut **tx).await?;
+            let original:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_transfers WHERE listing_id=$1 AND purpose=$2)").bind(l.id).bind(purpose).fetch_one(&mut **tx).await?;
+            let insert = if original {
+                "INSERT INTO bazaar_authority_transfer_retries(operation_id,listing_id,purpose,decision_id,source_revision,intent,intent_digest,binding,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::text::numeric,$10::text::numeric)"
+            } else {
+                "INSERT INTO bazaar_authority_transfers(operation_id,listing_id,purpose,decision_id,source_revision,intent,intent_digest,binding,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::text::numeric,$10::text::numeric)"
+            };
+            sqlx::query(insert)
+                .bind(operation)
+                .bind(l.id)
+                .bind(purpose)
+                .bind(decision)
+                .bind(revision)
+                .bind(&intent)
+                .bind(digest(intent.as_bytes()))
+                .bind(binding)
+                .bind(self.config.fence.projection_epoch.to_string())
+                .bind(self.config.fence.recovery_generation.to_string())
+                .execute(&mut **tx)
+                .await?;
             operation
         };
         let transfer = staged(self.authority(), tx, operation).await?;
@@ -434,38 +456,7 @@ impl Runtime {
         if !receipt.committed {
             return Err(Error::Denied);
         }
-        let already: Option<String> =
-            sqlx::query_scalar("SELECT intent_json FROM character_commands WHERE id=$1")
-                .bind(operation)
-                .fetch_optional(&mut **tx)
-                .await?;
-        if let Some(existing) = already {
-            if existing.as_bytes() != raw {
-                return Err(Error::Conflict);
-            }
-            return Ok(());
-        }
-        sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
-            .execute(&mut **tx)
-            .await?;
-        let revision = number(&transfer, "source_revision")?;
-        let behind: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM character_commands WHERE source_revision>=$1)",
-        )
-        .bind(i64::try_from(revision).map_err(|_| Error::Invalid)?)
-        .fetch_one(&mut **tx)
-        .await?;
-        let backlog: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM character_commands WHERE state='PENDING'")
-                .fetch_one(&mut **tx)
-                .await?;
-        if behind || backlog >= 40 {
-            return Err(Error::Unavailable);
-        }
-        let row=sqlx::query("SELECT decision_id,binding,intent FROM bazaar_authority_transfers WHERE operation_id=$1").bind(operation).fetch_one(&mut **tx).await?;
-        sqlx::query("INSERT INTO character_commands(id,source_revision,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json) OVERRIDING SYSTEM VALUE VALUES($1,$2,$3,$4,'TransferCharacterOwnership',$5,$6,$7,$8)")
-            .bind(operation).bind(revision as i64).bind(row.try_get::<Uuid,_>("decision_id")?).bind(format!("bazaar-transfer:{}:{purpose}:1",l.id)).bind(id(text(&transfer,"expected_from_account_id")?)?).bind(id(text(&transfer,"to_account_id")?)?).bind(row.try_get::<String,_>("binding")?).bind(row.try_get::<String,_>("intent")?).execute(&mut **tx).await?;
-        Ok(())
+        publish_transfer(tx, l.id, purpose, operation, &transfer, &raw).await
     }
     pub(super) async fn unlock(
         &self,
@@ -575,4 +566,107 @@ fn funding(s: &Settlement) -> Value {
         ("hold_revision".into(), Value::Null),
         ("gross_amount".into(), string(s.amount)),
     ])
+}
+
+pub(super) async fn listing_batch(pool: &PgPool, generation: u64) -> Result<Vec<Uuid>, Error> {
+    let cursor = crate::scheduling::cursor(pool, "listings").await?;
+    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE a.refusal_code IS NULL AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state='completed' AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric))) ORDER BY (l.id <= $2),l.id LIMIT 24").bind(generation.to_string()).bind(cursor).fetch_all(pool).await?;
+    if let Some(last) = ids.last() {
+        crate::scheduling::advance(pool, "listings", *last).await?;
+    }
+    Ok(ids)
+}
+
+pub(crate) async fn publish_transfer(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing: Uuid,
+    purpose: &str,
+    operation: Uuid,
+    transfer: &Value,
+    raw: &[u8],
+) -> Result<(), Error> {
+    let already: Option<String> =
+        sqlx::query_scalar("SELECT intent_json FROM character_commands WHERE id=$1")
+            .bind(operation)
+            .fetch_optional(&mut **tx)
+            .await?;
+    if let Some(existing) = already {
+        if existing.as_bytes() != raw {
+            return Err(Error::Conflict);
+        }
+        return Ok(());
+    }
+    sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+        .execute(&mut **tx)
+        .await?;
+    let revision = number(transfer, "source_revision")?;
+    // Re-read the publication head on every retry. Legacy staged revisions
+    // may be behind it: publish their original bytes for pending-list resync
+    // and terminal reconciliation, never renumber a digest-bound operation.
+    let _head: Option<i64> =
+        sqlx::query_scalar("SELECT max(source_revision) FROM character_commands")
+            .fetch_one(&mut **tx)
+            .await?;
+    let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_current_transfers t WHERE t.source_revision<$1 AND (t.intent::jsonb->>'expires_at_source')::bigint>extract(epoch FROM clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM character_commands c WHERE c.id=t.operation_id))").bind(i64::try_from(revision).map_err(|_|Error::Invalid)?).fetch_one(&mut **tx).await?;
+    if blocked {
+        return Err(Error::Unavailable);
+    }
+    let backlog: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM character_commands WHERE state='PENDING'")
+            .fetch_one(&mut **tx)
+            .await?;
+    if backlog >= 40 {
+        return Err(Error::Unavailable);
+    }
+    let row = sqlx::query(
+        "SELECT decision_id,binding,intent FROM bazaar_all_transfers WHERE operation_id=$1",
+    )
+    .bind(operation)
+    .fetch_one(&mut **tx)
+    .await?;
+    sqlx::query("INSERT INTO character_commands(id,source_revision,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json) OVERRIDING SYSTEM VALUE VALUES($1,$2,$3,$4,'TransferCharacterOwnership',$5,$6,$7,$8)")
+            .bind(operation).bind(revision as i64).bind(row.try_get::<Uuid,_>("decision_id")?).bind(format!("bazaar-transfer:{listing}:{purpose}:{operation}")).bind(id(text(transfer,"expected_from_account_id")?)?).bind(id(text(transfer,"to_account_id")?)?).bind(row.try_get::<String,_>("binding")?).bind(row.try_get::<String,_>("intent")?).execute(&mut **tx).await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod fairness_tests {
+    use super::*;
+    #[tokio::test]
+    async fn postgres_blocked_listing_and_gold_batches_rotate()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let started = std::time::Instant::now();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?)
+            .await?;
+        oteryn_db::migrate(&pool).await?;
+        sqlx::raw_sql("CREATE TEMP TABLE bazaar_listings (LIKE public.bazaar_listings INCLUDING DEFAULTS); CREATE TEMP TABLE bazaar_authority_assets (LIKE public.bazaar_authority_assets INCLUDING DEFAULTS); CREATE TEMP TABLE bazaar_authority_gold_bids (LIKE public.bazaar_authority_gold_bids INCLUDING DEFAULTS)").execute(&pool).await?;
+        let mut ready = Uuid::nil();
+        for _ in 0..25 {
+            ready = Uuid::now_v7();
+            sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'item','auction','coins',100,false,'awaiting_delivery',now())")
+                .bind(ready).bind(Uuid::now_v7()).execute(&pool).await?;
+            sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$1,$1,$1,1,$2,1,true,'scheduler-test')")
+                .bind(ready).bind([1_u8;32].as_slice()).execute(&pool).await?;
+            sqlx::query("INSERT INTO bazaar_authority_gold_bids(request_id,listing_id,buyer,character_id,maximum,hold_operation_id) VALUES($1,$1,$1,$1,100,$1)")
+                .bind(ready).execute(&pool).await?;
+        }
+        assert_eq!(listing_batch(&pool, 3).await?.len(), 24);
+        assert!(listing_batch(&pool, 3).await?.contains(&ready));
+        assert_eq!(
+            super::super::gold_worker::gold_batch(&pool).await?.len(),
+            24
+        );
+        assert!(
+            super::super::gold_worker::gold_batch(&pool)
+                .await?
+                .contains(&ready)
+        );
+        eprintln!(
+            "postgres_blocked_listing_and_gold_batches_rotate: {:?}",
+            started.elapsed()
+        );
+        Ok(())
+    }
 }

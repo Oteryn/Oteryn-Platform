@@ -219,14 +219,16 @@ impl CharacterEvidence for Game {
         _: &mut PgConnection,
         actor: Uuid,
     ) -> std::result::Result<Vec<CharacterChoice>, Error> {
-        Ok(if actor == self.owner {
-            vec![CharacterChoice {
-                id: self.character,
-                name: "Aster Vale".into(),
-            }]
-        } else {
-            vec![]
-        })
+        Ok(
+            if actor == self.owner && self.valid.load(Ordering::SeqCst) {
+                vec![CharacterChoice {
+                    id: self.character,
+                    name: "Aster Vale".into(),
+                }]
+            } else {
+                vec![]
+            },
+        )
     }
 }
 type Api = CharacterMarket<AccountAdapter, Funds, Game>;
@@ -661,4 +663,40 @@ async fn postgres_real_session_csrf_and_origin_adapter() -> Result {
         StatusCode::FORBIDDEN
     );
     h.finish().await
+}
+
+#[tokio::test]
+async fn postgres_character_replays_survive_expiry_and_removed_choices() -> Result {
+    let started = std::time::Instant::now();
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let api = h.api(true);
+    let mut request = input(h.game.character);
+    let listing = api.request(h.owner, &request).await?;
+    api.publish(h.owner, listing).await?;
+    let key = Uuid::now_v7().to_string();
+    let outcome = api.bid(h.buyer, listing, "500", &key).await?;
+    sqlx::query("UPDATE bazaar_listings SET ends_at=now()-interval '1 second' WHERE id=$1")
+        .bind(listing)
+        .execute(&h.pool)
+        .await?;
+    h.game.valid.store(false, Ordering::SeqCst);
+    assert_eq!(api.bid(h.buyer, listing, "500", &key).await?, outcome);
+    assert!(matches!(
+        api.bid(h.buyer, listing, "501", &key).await,
+        Err(Error::IdempotencyConflict)
+    ));
+    assert_eq!(api.request(h.owner, &request).await?, listing);
+    request.starting_bid = "101".into();
+    assert!(matches!(
+        api.request(h.owner, &request).await,
+        Err(Error::IdempotencyConflict)
+    ));
+    h.finish().await?;
+    eprintln!(
+        "postgres_character_replays_survive_expiry_and_removed_choices: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

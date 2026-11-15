@@ -197,78 +197,92 @@ impl Runtime {
     ) -> Result<Vec<Card>, Error> {
         self.config.current()?;
         let mut tx = self.pool.begin().await?;
-        let rows:Vec<Listing>=sqlx::query_as("SELECT l.* FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE ($1::uuid IS NULL OR l.id=$1) AND (NOT $2 OR l.owner=$3) ORDER BY l.created_at DESC LIMIT 50").bind(listing).bind(only_own).bind(actor).fetch_all(&mut *tx).await?;
         let mut cards = vec![];
-        for row in rows {
-            let owner = actor == Some(row.owner);
-            let refused: bool = sqlx::query_scalar(
+        let mut cursor = None;
+        loop {
+            let rows = candidate_page(&mut tx, actor, listing, only_own, cursor).await?;
+            if rows.is_empty() {
+                break;
+            }
+            cursor = rows.last().map(|row| (row.created_at, row.id));
+            for candidate in rows {
+                let row = candidate.row;
+                let owner = actor == Some(row.owner);
+                let refused: bool = sqlx::query_scalar(
                 "SELECT refusal_code IS NOT NULL FROM bazaar_authority_assets WHERE listing_id=$1",
             )
             .bind(row.id)
             .fetch_one(&mut *tx)
             .await?;
-            let completed = row.state == State::Completed;
-            let buyer: bool = if let Some(actor) = actor {
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_settlements WHERE listing_id=$1 AND buyer=$2 UNION ALL SELECT 1 FROM bazaar_authority_gold_sales WHERE listing_id=$1 AND buyer=$2)").bind(row.id).bind(actor).fetch_one(&mut *tx).await?
-            } else {
-                false
-            };
-            let eligible = row.state == State::Active
-                && self
-                    .authority()
-                    .escrow_ready(&mut tx, &row)
-                    .await
-                    .map_err(core_error)?;
-            if !eligible && !owner && !buyer {
-                continue;
-            }
-            let name = if eligible && row.kind == Kind::Character {
-                use crate::characters::CharacterEvidence;
-                self.authority()
-                    .approved(&mut tx, &row)
-                    .await
-                    .map_err(core_error)?
-                    .ok_or(Error::Unavailable)?
-                    .name
-            } else if eligible {
-                use crate::items::ItemAuthority;
-                self.authority()
-                    .publication(&mut tx, &row)
-                    .await
-                    .map_err(core_error)?
-                    .ok_or(Error::Unavailable)?
-                    .name
-            } else {
-                translated(
-                    "en",
-                    if row.kind == Kind::Character {
-                        "character"
-                    } else {
-                        "item"
-                    },
-                )
-            };
-            cards.push(Card {
-                id: row.id,
-                name,
-                kind: if row.kind == Kind::Character {
-                    "character".into()
+                let completed = row.state == State::Completed;
+                let buyer: bool = if let Some(actor) = actor {
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_settlements WHERE listing_id=$1 AND buyer=$2 UNION ALL SELECT 1 FROM bazaar_authority_gold_sales WHERE listing_id=$1 AND buyer=$2)").bind(row.id).bind(actor).fetch_one(&mut *tx).await?
                 } else {
-                    "item".into()
-                },
-                state: format!("{:?}", row.state).to_ascii_lowercase(),
-                price: row.price,
-                currency: if row.currency == Currency::Gold {
-                    "Gold"
-                } else {
-                    "Coins"
+                    false
+                };
+                let eligible = row.state == State::Active
+                    && self
+                        .authority()
+                        .escrow_ready(&mut tx, &row)
+                        .await
+                        .map_err(core_error)?;
+                if !eligible && !owner && !buyer {
+                    continue;
                 }
-                .into(),
-                owner,
-                refused,
-                completed,
-                cancelled: row.state == State::Cancelled,
-            });
+                let name = if eligible && row.kind == Kind::Character {
+                    use crate::characters::CharacterEvidence;
+                    self.authority()
+                        .approved(&mut tx, &row)
+                        .await
+                        .map_err(core_error)?
+                        .ok_or(Error::Unavailable)?
+                        .name
+                } else if eligible {
+                    use crate::items::ItemAuthority;
+                    self.authority()
+                        .publication(&mut tx, &row)
+                        .await
+                        .map_err(core_error)?
+                        .ok_or(Error::Unavailable)?
+                        .name
+                } else {
+                    translated(
+                        "en",
+                        if row.kind == Kind::Character {
+                            "character"
+                        } else {
+                            "item"
+                        },
+                    )
+                };
+                cards.push(Card {
+                    id: row.id,
+                    name,
+                    kind: if row.kind == Kind::Character {
+                        "character".into()
+                    } else {
+                        "item".into()
+                    },
+                    state: format!("{:?}", row.state).to_ascii_lowercase(),
+                    price: row.price,
+                    currency: if row.currency == Currency::Gold {
+                        "Gold"
+                    } else {
+                        "Coins"
+                    }
+                    .into(),
+                    owner,
+                    refused,
+                    completed,
+                    cancelled: row.state == State::Cancelled,
+                });
+                if cards.len() >= 50 {
+                    break;
+                }
+            }
+            if cards.len() >= 50 {
+                break;
+            }
         }
         if listing.is_some() && cards.is_empty() {
             return Err(Error::NotFound);
@@ -487,5 +501,77 @@ async fn control(
     {
         Ok(()) => Redirect::to(&format!("/{lang}/bazaar/{id}")).into_response(),
         Err(e) => failure(&lang, e),
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct Candidate {
+    #[sqlx(flatten)]
+    row: Listing,
+    created_at: OffsetDateTime,
+}
+impl std::ops::Deref for Candidate {
+    type Target = Listing;
+    fn deref(&self) -> &Listing {
+        &self.row
+    }
+}
+async fn candidate_page(
+    db: &mut PgConnection,
+    actor: Option<Uuid>,
+    listing: Option<Uuid>,
+    only_own: bool,
+    cursor: Option<(OffsetDateTime, Uuid)>,
+) -> Result<Vec<Candidate>, Error> {
+    Ok(sqlx::query_as("SELECT l.* FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE ($1::uuid IS NULL OR l.id=$1) AND (NOT $2 OR l.owner=$3) AND (l.state='active' OR l.owner=$3 OR EXISTS(SELECT 1 FROM bazaar_settlements s WHERE s.listing_id=l.id AND s.buyer=$3) OR EXISTS(SELECT 1 FROM bazaar_authority_gold_sales s WHERE s.listing_id=l.id AND s.buyer=$3)) AND ($4::timestamptz IS NULL OR (l.created_at,l.id)<($4,$5)) ORDER BY l.created_at DESC,l.id DESC LIMIT 50").bind(listing).bind(only_own).bind(actor).bind(cursor.map(|c|c.0)).bind(cursor.map(|c|c.1)).fetch_all(db).await?)
+}
+#[cfg(test)]
+mod catalogue_tests {
+    use super::*;
+    #[tokio::test]
+    async fn postgres_terminal_history_cannot_hide_active_catalogue_candidate()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let started = std::time::Instant::now();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?)
+            .await?;
+        oteryn_db::migrate(&pool).await?;
+        let mut db = pool.acquire().await?;
+        sqlx::raw_sql("CREATE TEMP TABLE bazaar_listings (LIKE public.bazaar_listings INCLUDING DEFAULTS); CREATE TEMP TABLE bazaar_authority_assets (LIKE public.bazaar_authority_assets INCLUDING DEFAULTS)").execute(&mut *db).await?;
+        let active = Uuid::now_v7();
+        for n in 0..101_i32 {
+            let listing = if n == 0 { active } else { Uuid::now_v7() };
+            sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at,created_at) VALUES($1,$2,'item','auction','coins',100,false,CASE WHEN $3=0 THEN 'active'::bazaar_state ELSE 'completed'::bazaar_state END,now()+interval '1 day',now()+make_interval(secs=>$3))")
+                .bind(listing).bind(Uuid::now_v7()).bind(n).execute(&mut *db).await?;
+            sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$1,$1,$1,1,$2,1,true,'catalogue-test')").bind(listing).bind([1_u8;32].as_slice()).execute(&mut *db).await?;
+        }
+        let page = candidate_page(&mut db, None, None, false, None).await?;
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].id, active);
+        sqlx::query("UPDATE bazaar_listings SET state='active'")
+            .execute(&mut *db)
+            .await?;
+        let page = candidate_page(&mut db, None, None, false, None).await?;
+        assert_eq!(page.len(), 50);
+        let last = &page[49];
+        let second =
+            candidate_page(&mut db, None, None, false, Some((last.created_at, last.id))).await?;
+        assert_eq!(second.len(), 50);
+        assert!(
+            !second
+                .iter()
+                .any(|row| page.iter().any(|first| first.id == row.id))
+        );
+        let last = &second[49];
+        let third =
+            candidate_page(&mut db, None, None, false, Some((last.created_at, last.id))).await?;
+        assert_eq!(third.len(), 1);
+        assert_eq!(third[0].id, active);
+        eprintln!(
+            "postgres_terminal_history_cannot_hide_active_catalogue_candidate: {:?}",
+            started.elapsed()
+        );
+        Ok(())
     }
 }

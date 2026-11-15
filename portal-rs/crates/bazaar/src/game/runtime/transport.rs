@@ -99,7 +99,7 @@ async fn event(
             return Err(Error::Backlog);
         }
         state.runtime.config.current()?;
-        let mut tx = state.runtime.pool.begin().await?;
+        let mut tx = crate::game::authority_http::begin_exchange(&state.runtime.pool).await?;
         let time = now(&mut tx).await?;
         let result = state
             .runtime

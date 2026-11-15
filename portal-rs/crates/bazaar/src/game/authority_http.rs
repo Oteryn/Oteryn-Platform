@@ -132,7 +132,7 @@ fn result(value: Result<String, Error>) -> Response {
 async fn exchange(State(s): State<Http>, OriginalUri(uri): OriginalUri, raw: Bytes) -> Response {
     let value = async {
         route_operation(uri.path(), &raw)?;
-        let mut tx = s.pool.begin().await?;
+        let mut tx = begin_exchange(&s.pool).await?;
         let result = s
             .authority
             .exchange(&mut tx, &s.authority.config.projection_authority, &raw)
@@ -145,7 +145,7 @@ async fn exchange(State(s): State<Http>, OriginalUri(uri): OriginalUri, raw: Byt
 }
 async fn receipt(State(s): State<Http>, raw: Bytes) -> Response {
     let value = async {
-        let mut tx = s.pool.begin().await?;
+        let mut tx = begin_exchange(&s.pool).await?;
         let now = clock(&mut tx).await?;
         let outcome = s
             .authority
@@ -164,7 +164,7 @@ async fn ingest(State(s): State<Http>, OriginalUri(uri): OriginalUri, raw: Bytes
     let value = async {
         route_operation(uri.path(), &raw)?;
         s.authority.enabled()?;
-        let mut tx = s.pool.begin().await?;
+        let mut tx = begin_exchange(&s.pool).await?;
         s.authority.lock(&mut tx).await?;
         let now = clock(&mut tx).await?;
         let outbox = Outbox {
@@ -264,4 +264,18 @@ fn route_operation(path: &str, raw: &[u8]) -> Result<(), Error> {
         return Err(Error::Invalid);
     }
     Ok(())
+}
+
+/// Keep canceled private exchanges from retaining a pool slot behind a server-side lock wait.
+pub(super) async fn begin_exchange(
+    pool: &PgPool,
+) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '5s'")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SET LOCAL lock_timeout = '5s'")
+        .execute(&mut *tx)
+        .await?;
+    Ok(tx)
 }
