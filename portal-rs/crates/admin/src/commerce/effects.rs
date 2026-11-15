@@ -315,6 +315,23 @@ impl AccountReader for PaymentAccounts {
             _ => oteryn_payments::AccountState::Unknown,
         })
     }
+    async fn state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<oteryn_payments::AccountState, oteryn_payments::Error> {
+        let active: bool =
+            sqlx::query_scalar("SELECT status='active' FROM accounts WHERE id=$1 FOR SHARE")
+                .bind(id)
+                .fetch_optional(connection)
+                .await?
+                .unwrap_or(false);
+        Ok(if active {
+            oteryn_payments::AccountState::Active
+        } else {
+            oteryn_payments::AccountState::Unknown
+        })
+    }
 }
 
 /// At-least-once worker adapter. It accepts only the owning job kind and a
@@ -341,25 +358,5 @@ impl RefundDelivery {
         self.adapter
             .deliver_refund(&self.pool, payload.operation)
             .await
-    }
-}
-
-impl oteryn_payments::ConnectionAccountReader for PaymentAccounts {
-    async fn state_in(
-        &self,
-        connection: &mut sqlx::PgConnection,
-        id: Uuid,
-    ) -> Result<oteryn_payments::AccountState, oteryn_payments::Error> {
-        let active: bool =
-            sqlx::query_scalar("SELECT status='active' FROM accounts WHERE id=$1 FOR SHARE")
-                .bind(id)
-                .fetch_optional(connection)
-                .await?
-                .unwrap_or(false);
-        Ok(if active {
-            oteryn_payments::AccountState::Active
-        } else {
-            oteryn_payments::AccountState::Unknown
-        })
     }
 }

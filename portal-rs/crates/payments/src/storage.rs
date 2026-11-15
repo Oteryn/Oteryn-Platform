@@ -151,10 +151,7 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         &self,
         connection: &mut sqlx::PgConnection,
         id: Uuid,
-    ) -> Result<Intent, Error>
-    where
-        A: crate::ConnectionAccountReader,
-    {
+    ) -> Result<Intent, Error> {
         self.enabled()?;
         let row = sqlx::query("SELECT account_id, amount, currency, state, provider_reference FROM payment_intents WHERE id=$1 AND provider=$2 FOR SHARE")
             .bind(id).bind(self.provider.name()).fetch_optional(&mut *connection).await?.ok_or(Error::NotFound)?;
@@ -222,7 +219,17 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
             return Ok(WebhookOutcome::Replay);
         }
         IntentState::parse(row.try_get("state")?)?.transition(event.state)?;
-        self.eligible(account_id).await?;
+        if !matches!(
+            self.accounts.state_in(&mut tx, account_id).await,
+            Ok(AccountState::Active)
+        ) {
+            return Err(Error::AccountDenied);
+        }
+        // Generic top-ups have no reconciliation/reversal consumer. Never acknowledge
+        // a refund while leaving an earlier wallet credit freely spendable.
+        if event.state == IntentState::Refunded {
+            return Err(Error::IllegalTransition);
+        }
         sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1")
             .bind(event.intent_id)
             .bind(event.state.as_str())

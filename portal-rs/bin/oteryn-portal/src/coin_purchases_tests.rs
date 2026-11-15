@@ -498,6 +498,13 @@ async fn catalogue_order_paid_credits_once() -> TestResult {
 #[derive(Debug)]
 struct Active;
 impl AccountReader for Active {
+    async fn state_in(
+        &self,
+        _: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<AccountState, PaymentError> {
+        self.state(id).await
+    }
     async fn state(&self, _: Uuid) -> Result<AccountState, PaymentError> {
         Ok(AccountState::Active)
     }
@@ -2185,5 +2192,78 @@ async fn settlement_and_store_read_sanctions_committed_during_account_lock_wait(
             oteryn_store::purchase::AccountState::Restricted
         );
     }
+    db.close().await
+}
+
+#[tokio::test]
+async fn unpaid_order_churn_is_bounded_and_replays_survive_budget() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let service = db.service(vec![]);
+    let mut last = None;
+    for _ in 0..100 {
+        let catalogue = service.catalogue(payer, None).await?;
+        let request = CoinOrderRequest::decode(
+            order_body(
+                Uuid::now_v7(),
+                &catalogue.packages[0].quote_id.to_string(),
+                None,
+            )
+            .as_bytes(),
+        )
+        .ok_or("invalid order fixture")?;
+        let order = service.create_order(payer, &request).await?;
+        last = Some((request, order));
+    }
+    assert!(service.catalogue(payer, None).await.is_err());
+    let (request, order) = last.ok_or("no orders")?;
+    assert_eq!(service.create_order(payer, &request).await?, order);
+    // Terminal orders cannot free the rolling issuance budget either.
+    sqlx::query("UPDATE coin_purchase_orders SET state='failed',checkout_url=NULL")
+        .execute(&db.pool)
+        .await?;
+    assert!(service.catalogue(payer, None).await.is_err());
+    sqlx::query("UPDATE coin_purchase_orders SET state='processing'")
+        .execute(&db.pool)
+        .await?;
+    // The issuance window can elapse, but unpaid orders still block allocation.
+    sqlx::query("UPDATE coin_purchase_quotes SET created_at=now()-interval '2 hours'")
+        .execute(&db.pool)
+        .await?;
+    assert!(service.catalogue(payer, None).await.is_err());
+    for table in [
+        "coin_purchase_quotes",
+        "coin_purchase_orders",
+        "payment_intents",
+    ] {
+        let count: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(count, 100, "{table}");
+    }
+    // A previously issued live quote must also be refused by the independent
+    // order cap, including concurrent attempts and processing orders.
+    let spare = Uuid::now_v7();
+    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,character_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) SELECT $1,payer_account_id,character_id,package_id,coins,minor_units,currency,exponent,environment,now()+interval '2 minutes' FROM coin_purchase_quotes WHERE id=$2")
+        .bind(spare).bind(request.quote_id).execute(&db.pool).await?;
+    let a =
+        CoinOrderRequest::decode(order_body(Uuid::now_v7(), &spare.to_string(), None).as_bytes())
+            .ok_or("invalid order fixture")?;
+    let b =
+        CoinOrderRequest::decode(order_body(Uuid::now_v7(), &spare.to_string(), None).as_bytes())
+            .ok_or("invalid order fixture")?;
+    let (a, b) = tokio::join!(
+        service.create_order(payer, &a),
+        service.create_order(payer, &b)
+    );
+    assert_eq!(a, Err(CoinError::Unavailable));
+    assert_eq!(b, Err(CoinError::Unavailable));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM coin_purchase_orders")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 100);
     db.close().await
 }

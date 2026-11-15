@@ -1027,6 +1027,14 @@ async fn audit_09_05_catalogue_reuses_caps_and_prunes_quotes() -> TestResult {
     sqlx::query("UPDATE coin_purchase_quotes SET expires_at=clock_timestamp()-interval '1 second'")
         .execute(&h.pool)
         .await?;
+    // Expiry alone cannot reset the rolling issuance allowance.
+    assert_eq!(
+        coins.catalogue(payer, None).await.unwrap_err(),
+        CoinError::Unavailable
+    );
+    sqlx::query("UPDATE coin_purchase_quotes SET created_at=clock_timestamp()-interval '2 hours'")
+        .execute(&h.pool)
+        .await?;
     // Even an unconsumed flag cannot make an order-referenced quote deletable.
     sqlx::query("UPDATE coin_purchase_quotes SET consumed_at=NULL WHERE payer_account_id=$1")
         .bind(paid_payer)
@@ -1036,7 +1044,7 @@ async fn audit_09_05_catalogue_reuses_caps_and_prunes_quotes() -> TestResult {
     coins.catalogue(concurrent_payer, None).await?;
     coins.catalogue(paid_payer, None).await?;
     assert_eq!(h.count("SELECT count(*) FROM coin_purchase_quotes q JOIN coin_purchase_orders o ON o.quote_id=q.id").await, 1);
-    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) SELECT gen_random_uuid(),$1,$2,1,1,'EUR',2,'testing',clock_timestamp()-interval '1 second' FROM generate_series(1,250)")
+    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,created_at) SELECT gen_random_uuid(),$1,$2,1,1,'EUR',2,'testing',clock_timestamp()-interval '1 second',clock_timestamp()-interval '2 hours' FROM generate_series(1,250)")
         .bind(payer).bind(Uuid::now_v7()).execute(&h.pool).await?;
     assert_eq!(
         coins

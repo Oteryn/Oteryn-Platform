@@ -330,6 +330,12 @@ async fn checkout_and_webhook_routes_absent_outside_testing_gate() -> TestResult
 }
 
 async fn database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error::Error>> {
+    database_with_connections(8).await
+}
+
+async fn database_with_connections(
+    max: u32,
+) -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error::Error>> {
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIPPED shop payment PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(None);
@@ -341,7 +347,7 @@ async fn database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::err
         .await?;
     let path = schema.clone();
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(8)
+        .max_connections(max)
         .after_connect(move |c, _| {
             let path = path.clone();
             Box::pin(async move {
@@ -705,5 +711,61 @@ async fn postgres_non_rfc_v7_checkout_keys_never_claim_payments() -> TestResult 
         "PG postgres_non_rfc_v7_checkout_keys_never_claim_payments duration={:.3}s",
         started.elapsed().as_secs_f64()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_single_connection_and_saturated_settlement() -> TestResult {
+    for connections in [1, 3] {
+        let Some((pool, admin, schema)) = database_with_connections(connections).await? else {
+            return Ok(());
+        };
+        let account = Uuid::now_v7();
+        sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'pool@example.invalid',now(),'unused','active','en')").bind(account).execute(&pool).await?;
+        let provider = TestProvider::new(&[5; 32])?;
+        let payments = Payments::new(
+            pool.clone(),
+            provider.clone(),
+            Accounts(pool.clone()),
+            PaymentFlags { enabled: true },
+        );
+        let intent = payments
+            .create_intent(
+                account,
+                Amount {
+                    minor_units: 250,
+                    currency: "PLN".into(),
+                },
+            )
+            .await?;
+        let body = serde_json::to_vec(&oteryn_payments::PaymentEvent {
+            event_id: "pool-settlement".into(),
+            intent_id: intent.id,
+            provider_reference: intent.provider_reference,
+            amount: intent.amount,
+            state: oteryn_payments::IntentState::Succeeded,
+        })?;
+        let signature = provider.sign(&body)?;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            let (a, b, c) = tokio::join!(
+                payments.webhook(&body, &signature),
+                payments.webhook(&body, &signature),
+                payments.webhook(&body, &signature)
+            );
+            Ok::<_, oteryn_payments::Error>([a?, b?, c?])
+        })
+        .await??;
+        assert_eq!(
+            result
+                .iter()
+                .filter(|r| **r == oteryn_payments::WebhookOutcome::Applied)
+                .count(),
+            1
+        );
+        pool.close().await;
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+            .execute(&admin)
+            .await?;
+    }
     Ok(())
 }

@@ -150,3 +150,39 @@ async fn db_signed_contract_bundles_publish_for_both_channels() {
     }
     db.close().await;
 }
+
+#[tokio::test]
+async fn db_single_connection_publication_authorization() {
+    let Some(db) = Database::with_connections(1).await else {
+        return;
+    };
+    let actor = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'single@example.invalid','unused','active','en')").bind(actor).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,role_id FROM role_permissions WHERE permission='downloads.manage' LIMIT 1").bind(actor).execute(&db.pool).await.unwrap();
+    let signer = SignerFixture::new();
+    let downloads = oteryn_downloads::Downloads::new(
+        db.pool.clone(),
+        FeatureFlags { downloads: true },
+        signer.roots(),
+    );
+    let access = oteryn_downloads::command::DatabaseAccess(db.pool.clone());
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        downloads.publish(&access, actor, signer.upload(signer.policy(1, "single", 1))),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(actor)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        downloads
+            .publish(&access, actor, signer.upload(signer.policy(2, "next", 2)))
+            .await,
+        Err(Error::Denied)
+    ));
+    db.close().await;
+}

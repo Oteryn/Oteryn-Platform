@@ -37,6 +37,12 @@ pub enum AccountState {
 #[allow(async_fn_in_trait)]
 pub trait AccountReader: Send + Sync {
     async fn state(&self, account_id: Uuid) -> Result<AccountState, Error>;
+
+    /// Authorization inside a caller transaction. Adapters must use this connection;
+    /// unsupported adapters deny rather than acquiring another pool connection.
+    async fn state_in(&self, _: &mut sqlx::PgConnection, _: Uuid) -> Result<AccountState, Error> {
+        Ok(AccountState::Unknown)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,13 +132,4 @@ pub(crate) fn identifier(value: &str) -> Result<(), Error> {
         return Err(Error::InvalidInput);
     }
     Ok(())
-}
-
-/// Account policy for readers participating in an existing transaction.
-pub trait ConnectionAccountReader: AccountReader {
-    fn state_in(
-        &self,
-        connection: &mut sqlx::PgConnection,
-        account: Uuid,
-    ) -> impl std::future::Future<Output = Result<AccountState, Error>> + Send;
 }

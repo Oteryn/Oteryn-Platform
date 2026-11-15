@@ -12,6 +12,9 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 #[derive(Debug, Clone)]
 struct Accounts(Arc<AtomicU8>);
 impl AccountReader for Accounts {
+    async fn state_in(&self, _: &mut sqlx::PgConnection, id: Uuid) -> Result<AccountState, Error> {
+        self.state(id).await
+    }
     async fn state(&self, _: Uuid) -> Result<AccountState, Error> {
         match self.0.load(Ordering::SeqCst) {
             0 => Ok(AccountState::Active),
@@ -329,11 +332,15 @@ async fn refund_transition_has_no_second_credit() -> TestResult {
         h.provider.refund(intent.id, &intent.amount).await?
     );
     let (body, signature) = h.signed(&h.event(&intent, IntentState::Refunded))?;
-    service.webhook(&body, &signature).await?;
+    assert!(matches!(
+        service.webhook(&body, &signature).await,
+        Err(Error::IllegalTransition)
+    ));
     assert_eq!(
         service.intent(intent.id).await?.state,
-        IntentState::Refunded
+        IntentState::Succeeded
     );
+    assert_eq!(h.count("payment_events").await?, 1);
     assert_eq!(h.count("outbox").await?, 1);
     h.finish().await
 }
