@@ -350,7 +350,7 @@ pub(crate) async fn erase_scope(
             .await?;
         return Ok(());
     }
-    sqlx::query("UPDATE pd_t78_records SET payload=NULL,entity_key='',occurred_at_ms=0 WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2)")
+    sqlx::query("UPDATE pd_t78_records SET payload=NULL,entity_key='',occurred_at_ms=0,erased_at_ms=GREATEST(erased_at_ms,floor(extract(epoch FROM clock_timestamp())*1000)::bigint) WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2)")
         .bind(account).bind(character).execute(&mut **tx).await?;
     Ok(())
 }

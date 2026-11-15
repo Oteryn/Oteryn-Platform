@@ -358,6 +358,7 @@ pub fn router<S: Clone + Send + Sync + 'static>(
     )
     .route_layer(middleware::from_fn_with_state(state, gate))
     .route_layer(middleware::from_fn(runtime::normalize))
+    .route_layer(middleware::from_fn(refusal_envelope))
     .route_layer(middleware::from_fn(runtime::no_cache))
 }
 
@@ -436,3 +437,41 @@ async fn handle(
 #[cfg(test)]
 #[path = "locator_tests.rs"]
 mod tests;
+
+/// §19.6.2 uses the §11.1 public classes; locator reports have no attempt_ref.
+async fn refusal_envelope(request: Request, next: Next) -> Response {
+    let response = next.run(request).await;
+    let (code, class) = match response.status() {
+        StatusCode::BAD_REQUEST => ("NATIVE_LOGIN_REQUEST_MALFORMED", "RETRY_LOGIN"),
+        StatusCode::UNAUTHORIZED => (
+            "NATIVE_LOGIN_AUTHENTICATION_REQUIRED",
+            "AUTHENTICATION_REQUIRED",
+        ),
+        StatusCode::CONFLICT => ("NATIVE_LOGIN_CHARACTER_CONFLICT", "SESSION_UNAVAILABLE"),
+        StatusCode::TOO_MANY_REQUESTS => ("NATIVE_LOGIN_RATE_LIMITED", "TEMPORARILY_UNAVAILABLE"),
+        _ => return response,
+    };
+    let status = response.status();
+    let retry = response
+        .headers()
+        .get(axum::http::header::RETRY_AFTER)
+        .cloned();
+    let mut result = runtime::json(&runtime::object([
+        ("protocol_version", Value::Unsigned(2)),
+        (
+            "error",
+            runtime::object([
+                ("code", runtime::string(code)),
+                ("public_class", runtime::string(class)),
+            ]),
+        ),
+        ("attempt_ref", Value::Null),
+    ]));
+    *result.status_mut() = status;
+    if let Some(retry) = retry {
+        result
+            .headers_mut()
+            .insert(axum::http::header::RETRY_AFTER, retry);
+    }
+    result
+}
