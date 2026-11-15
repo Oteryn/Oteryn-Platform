@@ -420,7 +420,7 @@ impl Store {
         let key = stream_key(&r.scope);
         let c = stream(&mut tx, &r.scope, r.progress).await?;
         let digest = hash(&r.bytes);
-        let existing=sqlx::query("SELECT stream_key,source_revision::text,digest,kind FROM pd_records WHERE (stream_key=$1 AND source_revision=$2::numeric) OR (authority=$3 AND recovery_generation=$4 AND record_id=$5)").bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).fetch_all(&mut *tx).await?;
+        let existing=sqlx::query("SELECT stream_key,source_revision::text,digest,kind,record_id,authority FROM pd_records WHERE (stream_key=$1 AND source_revision=$2::numeric) OR (authority=$3 AND recovery_generation=$4 AND record_id=$5)").bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).fetch_all(&mut *tx).await?;
         if !existing.is_empty() {
             if existing.len() != 1
                 || existing[0].try_get::<String, _>("stream_key")? != key
@@ -429,6 +429,36 @@ impl Store {
             {
                 sqlx::query("INSERT INTO pd_conflicts(reference,reason,expires_ms) VALUES($1,'IMMUTABLE_BINDING',$2) ON CONFLICT DO NOTHING")
                     .bind(&digest).bind(now.saturating_add(7*86400000) as i64).execute(&mut *tx).await?;
+                // One durable operator alarm per accepted binding per UTC week.
+                // Deduplication does not depend on attacker-controlled conflicting bytes.
+                let mut accepted = existing
+                    .iter()
+                    .map(|row| -> std::result::Result<_, sqlx::Error> {
+                        let stream: String = row.try_get("stream_key")?;
+                        let revision: String = row.try_get("source_revision")?;
+                        Ok((
+                            stream,
+                            revision,
+                            row.try_get::<String, _>("record_id")?,
+                            row.try_get::<String, _>("authority")?,
+                        ))
+                    })
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                accepted.sort();
+                let binding = hex_digest(format!("{}:{}", accepted[0].0, accepted[0].1).as_bytes());
+                let metadata = serde_json::json!({
+                    "reason":"IMMUTABLE_BINDING", "authority":r.scope.authority,
+                    "family":r.scope.family, "record_id":r.id, "source_revision":r.revision.to_string(),
+                    "stream_reference":hex_digest(key.as_bytes()), "incoming_digest":hex_digest(&r.bytes),
+                    "accepted_bindings":accepted.iter().map(|(stream,revision,id,authority)| serde_json::json!({
+                        "stream_reference":hex_digest(stream.as_bytes()), "source_revision":revision,
+                        "record_id":id, "authority":authority
+                    })).collect::<Vec<_>>()
+                });
+                // The append-only audit store is also the operational alert source.
+                // A PK derived from the binding/window makes concurrent retries atomic.
+                sqlx::query("WITH alarm AS (INSERT INTO audit_log(id,actor,action,target,before,after,request_id) VALUES(md5('ops.playerdata_binding_conflict:' || $1 || ':' || floor(extract(epoch FROM clock_timestamp())/604800)::text)::uuid,NULL,'ops.playerdata_binding_conflict',$1,'null'::jsonb,$2,uuidv7()) ON CONFLICT(id) DO NOTHING RETURNING id) SELECT pg_notify('oteryn_operator_alerts',id::text) FROM alarm")
+                    .bind(binding).bind(metadata).execute(&mut *tx).await?;
                 tx.commit().await?;
                 return Err(Error::Conflict);
             };
@@ -1078,4 +1108,11 @@ fn acknowledgement(r: &Record) -> Result<Vec<u8>> {
 /// exact replay returns the same bytes.
 fn refusal(r: &Record, reason: &str) -> Vec<u8> {
     format!("{{\"contract_version\":1,\"result\":\"refused\",\"record_id\":\"{}\",\"consumed_source_revision\":\"{}\",\"reason\":\"{reason}\"}}",r.id,r.revision).into_bytes()
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }

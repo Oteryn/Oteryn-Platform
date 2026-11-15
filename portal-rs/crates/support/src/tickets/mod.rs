@@ -5,7 +5,9 @@ use sqlx::{PgPool, Postgres, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
 
+pub(crate) mod staff;
 mod web;
+pub use staff::{StaffSupport, configured_staff_router};
 pub use web::{configured_router, router, staff_router};
 #[cfg(test)]
 mod tests;
@@ -160,15 +162,13 @@ impl Tickets {
             .bind(id).bind(actor).bind(if staff {"staff"} else {"user"}).bind(internal).bind(body.trim()).execute(&mut **tx).await?;
         Ok(())
     }
-    /// Staff context must come from the guarded route extension, never form input.
-    pub async fn change(
+    fn validate_change(
         &self,
         actor: Uuid,
         staff: Option<CheckContext>,
-        id: Uuid,
         version: i64,
         change: Change<'_>,
-    ) -> Result<Ticket> {
+    ) -> Result<bool> {
         self.enabled()?;
         if version < 1 {
             return Err(Error::Invalid);
@@ -192,15 +192,46 @@ impl Tickets {
             }
             _ => {}
         }
+        Ok(is_staff)
+    }
+    /// Staff context must come from the guarded route extension, never form input.
+    pub async fn change(
+        &self,
+        actor: Uuid,
+        staff: Option<CheckContext>,
+        id: Uuid,
+        version: i64,
+        change: Change<'_>,
+    ) -> Result<Ticket> {
+        self.validate_change(actor, staff, version, change)?;
         let mut tx = self.pool.begin().await?;
+        let (ticket, _) = self
+            .change_in(&mut tx, actor, staff, (id, version), change, true)
+            .await?;
+        tx.commit().await?;
+        Ok(ticket)
+    }
+    /// Caller retains the authorization/audit transaction. The queue adapter
+    /// supplies its audit through the admin execute boundary.
+    pub(crate) async fn change_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        actor: Uuid,
+        staff: Option<CheckContext>,
+        binding: (Uuid, i64),
+        change: Change<'_>,
+        audit_staff: bool,
+    ) -> Result<(Ticket, String)> {
+        let (id, version) = binding;
+        let is_staff = self.validate_change(actor, staff, version, change)?;
         // Always acquire account locks before ticket locks, including reopen operations.
-        let actor_state = oteryn_identity::accounts::Accounts {
-            pool: self.pool.clone(),
-        }
-        .find_by_id(actor)
-        .await?
-        .ok_or(Error::Denied)?;
-        if actor_state.status != "active" {
+        let actor_active: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND status='active')",
+        )
+        .bind(actor)
+        .fetch_one(&mut **tx)
+        .await?;
+        if !actor_active {
             return Err(Error::Denied);
         }
         let owner: Uuid = sqlx::query_scalar(
@@ -209,17 +240,17 @@ impl Tickets {
         .bind(id)
         .bind(is_staff)
         .bind(actor)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?
         .ok_or(Error::NotFound)?;
-        self.lock_account(&mut tx, owner).await?;
+        self.lock_account(tx, owner).await?;
         let mut ticket: Ticket = sqlx::query_as(
             "SELECT * FROM tickets WHERE id=$1 AND ($2 OR account_id=$3) FOR UPDATE",
         )
         .bind(id)
         .bind(is_staff)
         .bind(actor)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?
         .ok_or(Error::NotFound)?;
         if !STATUSES.contains(&ticket.status.as_str()) {
@@ -236,7 +267,7 @@ impl Tickets {
                 {
                     return Err(Error::Conflict);
                 }
-                Self::message(&mut tx, id, actor, body, is_staff, internal).await?;
+                Self::message(tx, id, actor, body, is_staff, internal).await?;
                 (
                     if internal {
                         ticket.status.clone()
@@ -254,43 +285,49 @@ impl Tickets {
                     return Err(Error::Conflict);
                 }
                 if active(status) && !active(&ticket.status) {
-                    self.capacity(&mut tx, ticket.account_id).await?;
+                    self.capacity(tx, ticket.account_id).await?;
                 }
                 (status.to_owned(), is_staff, false)
             }
         };
         ticket = sqlx::query_as("UPDATE tickets SET status=$2,lock_version=lock_version+1,unread_reply=CASE WHEN $3 THEN true WHEN NOT $4 THEN false ELSE unread_reply END,last_message_at=CASE WHEN $5 THEN now() ELSE last_message_at END,closed_at=CASE WHEN $2 IN ('resolved','closed') THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 RETURNING *")
-            .bind(id).bind(status).bind(notify && reply).bind(is_staff).bind(reply).fetch_one(&mut *tx).await?;
-        if is_staff {
-            audit::append(&mut tx,audit::Entry {context:audit::AuditContext {actor:Some(actor),request_id:Uuid::now_v7()},action:match change { Change::Reply {internal:true,..}=>"support.ticket_internal_note_added",Change::Reply {..}=>"support.ticket_replied",Change::Status(_)=>"support.ticket_status_changed"},target:&id.to_string(),before:serde_json::json!({"status":before,"lock_version":version}),after:serde_json::json!({"status":ticket.status,"lock_version":ticket.lock_version})}).await.map_err(|_|Error::Denied)?;
+            .bind(id).bind(status).bind(notify && reply).bind(is_staff).bind(reply).fetch_one(&mut **tx).await?;
+        if is_staff && audit_staff {
+            audit::append(tx,audit::Entry {context:audit::AuditContext {actor:Some(actor),request_id:Uuid::now_v7()},action:match change { Change::Reply {internal:true,..}=>"support.ticket_internal_note_added",Change::Reply {..}=>"support.ticket_replied",Change::Status(_)=>"support.ticket_status_changed"},target:&id.to_string(),before:serde_json::json!({"status":before,"lock_version":version}),after:serde_json::json!({"status":ticket.status,"lock_version":ticket.lock_version})}).await.map_err(|_|Error::Denied)?;
         }
         if notify {
-            let owner = oteryn_identity::accounts::Accounts {
-                pool: self.pool.clone(),
-            }
-            .find_by_id(ticket.account_id)
-            .await?
-            .ok_or(Error::Denied)?;
+            let owner_locale: String =
+                sqlx::query_scalar("SELECT locale FROM accounts WHERE id=$1")
+                    .bind(ticket.account_id)
+                    .fetch_one(&mut **tx)
+                    .await?;
             let body = format!(
                 "{} /{}/support/tickets/{}",
                 text::text(
-                    &owner.locale,
+                    &owner_locale,
                     if reply {
                         "notification-reply"
                     } else {
                         "notification-status"
                     }
                 ),
-                owner.locale,
+                owner_locale,
                 id
             );
-            self.notifications
-                .enqueue(&mut tx, ticket.account_id, &EmailTemplate::Support { body })
-                .await
-                .map_err(|_| Error::Notification)?;
+            if audit_staff {
+                self.notifications
+                    .enqueue(tx, ticket.account_id, &EmailTemplate::Support { body })
+                    .await
+                    .map_err(|_| Error::Notification)?;
+            } else {
+                // Queue mutations use the locked account snapshot, so a caller
+                // holding the sole pool connection never re-enters the pool.
+                staff::notify(tx, &self.notifications, ticket.account_id, body)
+                    .await
+                    .map_err(|_| Error::Notification)?;
+            }
         }
-        tx.commit().await?;
-        Ok(ticket)
+        Ok((ticket, before))
     }
     pub async fn list(&self, account: Uuid, staff: bool, page: u32) -> Result<Vec<Ticket>> {
         self.enabled()?;
@@ -364,3 +401,6 @@ impl oteryn_db::outbox::Cleanup for Retention {
         })
     }
 }
+
+#[cfg(test)]
+mod staff_tests;
