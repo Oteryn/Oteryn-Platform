@@ -1214,3 +1214,77 @@ async fn postgres_http_coin_hold_release_csrf_permission_mfa_and_result() {
     assert_eq!(coin_hold_state(&db).await, (0, 1, 1));
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_reset_rechecks_live_expiry_after_advisory_lock() {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let request = db
+        .service()
+        .request_reset(context(db.support), db.target, db.evidence, "Verified case")
+        .await
+        .unwrap();
+    let mut lock = db.pool.begin().await.unwrap();
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *lock)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut *lock)
+        .await
+        .unwrap();
+    let service = db.service();
+    let approver = db.approver;
+    let target = db.target;
+    let waiting = tokio::spawn(async move {
+        service
+            .approve_reset(context(approver), target, request)
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(blocker)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if blocked {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // Expire after the approval transaction started, while it is still blocked.
+    sqlx::query("UPDATE player_mfa_reset_requests SET expires_at=clock_timestamp() WHERE id=$1")
+        .bind(request)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    lock.rollback().await.unwrap();
+    assert!(matches!(waiting.await.unwrap(), Err(Error::Denied)));
+    let state: (bool, bool, bool) =
+        sqlx::query_as("SELECT reset,revoked,verified FROM test_security")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(state, (false, false, true));
+    let approved: bool = sqlx::query_scalar(
+        "SELECT approved_by IS NOT NULL FROM player_mfa_reset_requests WHERE id=$1",
+    )
+    .bind(request)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(!approved);
+    db.close().await;
+    eprintln!(
+        "postgres_reset_rechecks_live_expiry_after_advisory_lock duration={:?}",
+        started.elapsed()
+    );
+}
