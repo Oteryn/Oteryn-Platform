@@ -215,6 +215,13 @@ async fn run_until(
         }
     }
 }
+fn register_journal_cleanup(registry: &mut Registry, pool: &PgPool) -> Result<(), String> {
+    registry.cleanup(
+        "cleanup.journal-payloads",
+        10,
+        Arc::new(oteryn_playerdata::retention::Retention(pool.clone())),
+    )
+}
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
     crate::wallet_topup::register(&mut registry, pool.clone())?;
@@ -248,11 +255,7 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         3600,
         Arc::new(oteryn_playerdata::logins::Retention(pool.clone())),
     )?;
-    registry.cleanup(
-        "cleanup.journal-payloads",
-        10,
-        Arc::new(oteryn_playerdata::retention::Retention(pool.clone())),
-    )?;
+    register_journal_cleanup(&mut registry, &pool)?;
     crate::reset_delivery::register(&mut registry, pool.clone())?;
     crate::registration_delivery::register(&mut registry, pool.clone())?;
     registry.cleanup(

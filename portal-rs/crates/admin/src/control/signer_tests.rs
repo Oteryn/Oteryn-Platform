@@ -540,3 +540,29 @@ fn adm_x1_game_golden_envelopes() {
         }
     }
 }
+
+#[test]
+fn committed_admin_results_match_schema_and_reject_bad_members() {
+    let schema: Value =
+        serde_json::from_str(include_str!("fixtures/admin-control-v1/result.schema.json")).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    let vector: Value = serde_json::from_str(include_str!(
+        "fixtures/admin-control-v1/vectors/idempotency-recorded.json"
+    ))
+    .unwrap();
+    let result = &vector["prior_result"];
+    validator.validate(result).unwrap();
+    let _: ResultEnvelope = serde_json::from_value(result.clone()).unwrap();
+    for (key, value) in [
+        ("status", json!("unknown")),
+        ("audit_event_ids", json!([1])),
+        ("unexpected", json!(true)),
+    ] {
+        let mut bad = result.clone();
+        bad[key] = value;
+        assert!(!validator.is_valid(&bad), "{key}");
+    }
+    let mut bad = result.clone();
+    bad.as_object_mut().unwrap().remove("request_id");
+    assert!(!validator.is_valid(&bad));
+}

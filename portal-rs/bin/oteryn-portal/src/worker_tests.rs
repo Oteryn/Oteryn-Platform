@@ -919,3 +919,126 @@ async fn handler_finishes_while_renewal_waits_for_capacity() -> TestResult {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_journal_registry_expires_and_erases_lifecycle_payloads() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    let character = Uuid::now_v7();
+    let transferred = Uuid::now_v7();
+    query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'journal@example.test','x','active','en')").bind(account).execute(&db.pool).await?;
+    // Payload rows represent each retention class and an unexpired sibling.
+    for (key, family, progress, expired) in [
+        ("bank", "BANK", false, true),
+        ("login", "game_login", true, true),
+        ("stamina", "stamina", true, true),
+        ("live", "stamina", true, false),
+    ] {
+        query("INSERT INTO pd_streams(stream_key,authority,account_id,family,progress) VALUES($1,'journal-test',$2,$3,$4)").bind(key).bind(account.to_string()).bind(family).bind(progress).execute(&db.pool).await?;
+        let record: serde_json::Value = serde_json::from_str(if family == "BANK" {
+            include_str!(
+                "../../../../docs/contracts/fixtures/game-journal-items-v1/record-bank-entry.valid.json"
+            )
+        } else {
+            include_str!(
+                "../../../../docs/contracts/fixtures/game-journal-progress-v1/record-stamina.valid.json"
+            )
+        })?;
+        let payload = if family == "game_login" {
+            include_bytes!("../../../../docs/contracts/fixtures/game-journal-progress-v1/payload-game-login.valid.json").to_vec()
+        } else {
+            serde_json::to_vec(&record["payload"])?
+        };
+        query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) VALUES($1,1,'journal-test','3',$1,$1,$2,'test','UPSERT',0,0,decode(repeat('00',32),'hex'),$4,CASE WHEN $3 THEN 0 ELSE 9000000000000 END)").bind(key).bind(character.to_string()).bind(expired).bind(payload).execute(&db.pool).await?;
+    }
+    let mut registry = Registry::default();
+    register_journal_cleanup(&mut registry, &db.pool)?;
+    registry.schedule(&db.pool).await?;
+    assert_eq!(registry.batch(&db.pool).await?, 1);
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_records WHERE payload IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    for (key, subject) in [
+        ("transferred", Some(transferred.to_string())),
+        ("account", None),
+    ] {
+        query("INSERT INTO pd_records SELECT stream_key,2,'journal-test','3',$1,$1,$2,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms FROM pd_records WHERE stream_key='live' AND source_revision=1")
+            .bind(key).bind(subject).execute(&db.pool).await?;
+        // Distinct revisions in the same stream retain independent subjects.
+        query("UPDATE pd_records SET source_revision=3 WHERE record_id='transferred'")
+            .execute(&db.pool)
+            .await?;
+    }
+    // A scheduled deletion is not terminal and must retain current payloads.
+    query("INSERT INTO character_service_states(account_id,character_id,epoch,revision,character_revision,snapshot_json) VALUES($1,$2,1,1,'1','{\"lifecycle\":\"DELETION_PENDING\"}')").bind(account).bind(character).execute(&db.pool).await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_erasure_jobs")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    query("UPDATE character_service_states SET snapshot_json='{\"lifecycle\":\"DELETED\"}',revision=2").execute(&db.pool).await?;
+    db.enqueue("cleanup.journal-payloads", "character-erasure", 3)
+        .await?;
+    registry.batch(&db.pool).await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_records WHERE payload IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await?,
+        2
+    );
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_deleted_scopes")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    // The same authoritative handoff also covers transfers and account closure.
+    query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json,receipt_json,state) VALUES($1,$1,'transfer','TransferCharacterOwnership',$2,$3,'{}','{}',json_build_object('outcome','COMMITTED','from_account_id',$2::text,'character_id',$4::text)::text,'TERMINAL')").bind(Uuid::now_v7()).bind(account).bind(Uuid::now_v7()).bind(transferred).execute(&db.pool).await?;
+    db.enqueue("cleanup.journal-payloads", "transfer-erasure", 3)
+        .await?;
+    registry.batch(&db.pool).await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_records WHERE payload IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    query("UPDATE accounts SET status='closed' WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_erasure_jobs")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    db.enqueue("cleanup.journal-payloads", "account-erasure", 3)
+        .await?;
+    registry.batch(&db.pool).await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_streams WHERE NOT erased")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_erasure_jobs")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await?;
+    eprintln!(
+        "postgres_journal_registry_expires_and_erases_lifecycle_payloads duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

@@ -267,8 +267,10 @@ pub(crate) async fn character_deleted(
     character: &str,
 ) -> Result<bool> {
     Ok(
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1)")
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1) OR EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$2 AND (character_id IS NULL OR character_id=$3))")
             .bind(scope_digest(account, Some(character)))
+            .bind(account)
+            .bind(character)
             .fetch_one(conn)
             .await?,
     )
@@ -300,13 +302,19 @@ async fn deleted(tx: &mut Transaction<'_, Postgres>, s: &Scope) -> Result<Delete
     .bind(digests)
     .fetch_all(&mut **tx)
     .await?;
-    Ok(if found.contains(&account) {
-        Deleted::Account
-    } else if found.is_empty() {
-        Deleted::No
-    } else {
-        Deleted::Character
-    })
+    // Authoritative writers enqueue in their own transaction. Hide immediately;
+    // the worker replaces the pending handoff with durable tombstones on purge.
+    let pending = sqlx::query("SELECT EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$1 AND character_id IS NULL) AS account, EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$1 AND character_id=$2) AS character")
+        .bind(&s.account).bind(&s.character).fetch_one(&mut **tx).await?;
+    Ok(
+        if found.contains(&account) || pending.try_get::<bool, _>("account")? {
+            Deleted::Account
+        } else if found.is_empty() && !pending.try_get::<bool, _>("character")? {
+            Deleted::No
+        } else {
+            Deleted::Character
+        },
+    )
 }
 fn decimal_row(row: &sqlx::postgres::PgRow, name: &str) -> Result<u64> {
     row.try_get::<String, _>(name)?
@@ -343,15 +351,41 @@ async fn shared_authority(tx: &mut Transaction<'_, Postgres>, authority: &str) -
 async fn stream(tx: &mut Transaction<'_, Postgres>, s: &Scope, progress: bool) -> Result<Cursor> {
     let key = stream_key(s);
     sqlx::query("INSERT INTO pd_streams(stream_key,authority,account_id,family,progress) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING").bind(&key).bind(&s.authority).bind(&s.account).bind(&s.family).bind(progress).execute(&mut **tx).await?;
-    let row=sqlx::query("SELECT highest_seen::text,stored_through::text,applied_through::text,erased FROM pd_streams WHERE stream_key=$1 FOR UPDATE").bind(&key).fetch_one(&mut **tx).await?;
+    let row=sqlx::query("SELECT highest_seen::text,stored_through::text,applied_through::text,erased,GREATEST(recovery_high_water,watermark_recovery)::text AS recovery_high_water FROM pd_streams WHERE stream_key=$1 FOR UPDATE").bind(&key).fetch_one(&mut **tx).await?;
     if row.try_get::<bool, _>("erased")? {
         return Err(Error::Conflict);
     };
+    if progress {
+        let recovery = s.recovery.parse::<u64>().map_err(|_| Error::Invalid)?;
+        let accepted = row
+            .try_get::<Option<String>, _>("recovery_high_water")?
+            .map(|v| v.parse::<u64>().map_err(|_| Error::Unavailable))
+            .transpose()?;
+        if accepted.is_some_and(|high| recovery < high) {
+            return Err(Error::Conflict);
+        }
+    }
     Ok(Cursor {
         highest_seen: decimal_row(&row, "highest_seen")?,
         stored: decimal_row(&row, "stored_through")?,
         applied: decimal_row(&row, "applied_through")?,
     })
+}
+// Called only on successful admission: conflict alarms commit independently
+// and must never advance the accepted recovery fence.
+async fn accept_recovery(
+    tx: &mut Transaction<'_, Postgres>,
+    scope: &Scope,
+    progress: bool,
+) -> Result<()> {
+    if progress {
+        sqlx::query("UPDATE pd_streams SET recovery_high_water=$2::numeric WHERE stream_key=$1")
+            .bind(stream_key(scope))
+            .bind(&scope.recovery)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
 }
 fn retention(r: &Record) -> u64 {
     let days = if !r.progress {
@@ -466,6 +500,7 @@ impl Store {
                 return Err(Error::Conflict);
             }
             let kind = existing[0].try_get::<String, _>("kind")?;
+            accept_recovery(&mut tx, &r.scope, r.progress).await?;
             tx.commit().await?;
             if let Some(reason) = TERMINAL_REFUSALS.iter().find(|reason| **reason == kind) {
                 return Ok(refusal(&r, reason));
@@ -495,6 +530,7 @@ impl Store {
             sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) VALUES($1,$2::numeric,$3,'',$4,'',NULL,'',$5,0,0,$6,NULL,$7)")
                 .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(&r.id).bind(reason).bind(&digest).bind(now as i64).execute(&mut *tx).await?;
             sqlx::query("UPDATE pd_streams SET highest_seen=$2::numeric,stored_through=$2::numeric,applied_through=$2::numeric,last_record_id=$3 WHERE stream_key=$1").bind(&key).bind(r.revision.to_string()).bind(&r.id).execute(&mut *tx).await?;
+            accept_recovery(&mut tx, &r.scope, r.progress).await?;
             tx.commit().await?;
             return Ok(refusal(&r, reason));
         }
@@ -552,6 +588,7 @@ impl Store {
             r.revision
         };
         sqlx::query("UPDATE pd_streams SET highest_seen=$2::numeric,stored_through=$2::numeric,applied_through=$3::numeric,last_record_id=$4 WHERE stream_key=$1").bind(&key).bind(r.revision.to_string()).bind(applied.to_string()).bind(&r.id).execute(&mut *tx).await?;
+        accept_recovery(&mut tx, &r.scope, r.progress).await?;
         tx.commit().await?;
         acknowledgement(&r)
     }
@@ -657,6 +694,7 @@ impl Store {
                 }
             }
         }
+        accept_recovery(&mut tx, &scope, true).await?;
         tx.commit().await?;
         Ok(format!(
             "{{\"contract_version\":1,\"result\":\"accepted\",\"complete_through\":\"{}\"}}",
