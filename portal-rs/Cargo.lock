@@ -3220,6 +3220,7 @@ dependencies = [
  "axum",
  "fluent-bundle",
  "oteryn-characters",
+ "oteryn-community",
  "oteryn-core",
  "oteryn-db",
  "oteryn-internal-api",

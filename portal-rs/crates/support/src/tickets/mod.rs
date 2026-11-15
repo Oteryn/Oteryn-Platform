@@ -33,6 +33,8 @@ pub enum Error {
     NotFound,
     #[error("access denied")]
     Denied,
+    #[error("request key is bound to a different ticket payload")]
+    RequestKeyConflict,
     #[error("ticket conflict")]
     Conflict,
     #[error("database unavailable")]
@@ -142,7 +144,7 @@ impl Tickets {
                 || ticket.subject != subject.trim()
                 || original != body.trim()
             {
-                return Err(Error::Conflict);
+                return Err(Error::RequestKeyConflict);
             }
             tx.commit().await?;
             return Ok(ticket);
