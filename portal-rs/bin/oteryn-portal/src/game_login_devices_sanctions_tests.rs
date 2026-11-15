@@ -171,6 +171,8 @@ async fn sanctioned_device_is_refused(ban: bool) -> TestResult {
             .bind(account)
             .fetch_one(&db.pool)
             .await?;
+    let credentials_before: i64 = sqlx::query_scalar("SELECT count(*) FROM device_session_credentials c JOIN device_sessions f ON f.id=c.family_id WHERE f.account_id=$1")
+        .bind(account).fetch_one(&db.pool).await?;
     for suffix in ["/tickets", "/native-characters"] {
         let (status, body) = https
             .post(suffix, "OterynDevice", &credential, operation.clone())
@@ -181,23 +183,74 @@ async fn sanctioned_device_is_refused(ban: bool) -> TestResult {
             serde_json::json!({"error":"device_authorization_unavailable"})
         );
     }
+    let families_before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM device_sessions WHERE account_id=$1")
+            .bind(account)
+            .fetch_one(&db.pool)
+            .await?;
+    let enrollment_bearer = db.access_token(account).await?;
+    let (status, body) = https
+        .post(
+            "",
+            "Bearer",
+            &enrollment_bearer,
+            serde_json::json!({"protocol_version":1,"remember_device":true}),
+        )
+        .await?;
+    assert_eq!(status, 401, "fresh enrollment must enforce sanctions");
+    assert_eq!(
+        body,
+        serde_json::json!({"error":"device_authorization_unavailable"})
+    );
+    let families_after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM device_sessions WHERE account_id=$1")
+            .bind(account)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(families_before, families_after);
     let tickets_after: i64 =
         sqlx::query_scalar("SELECT count(*) FROM game_login_tickets WHERE account_id=$1")
             .bind(account)
             .fetch_one(&db.pool)
             .await?;
     assert_eq!(tickets_before, tickets_after);
+    let credentials_after: i64 = sqlx::query_scalar("SELECT count(*) FROM device_session_credentials c JOIN device_sessions f ON f.id=c.family_id WHERE f.account_id=$1")
+        .bind(account).fetch_one(&db.pool).await?;
+    assert_eq!(
+        credentials_before, credentials_after,
+        "no successor credential"
+    );
     let unused: i64 = sqlx::query_scalar("SELECT count(*) FROM device_session_credentials c JOIN device_sessions f ON f.id=c.family_id WHERE f.account_id=$1 AND c.consumed_at IS NULL AND f.revoked_at IS NULL")
         .bind(account).fetch_one(&db.pool).await?;
     assert_eq!(unused, 1, "sanctions refusal rolls back device rotation");
+    let (status, body) = https
+        .post("/revoke", "OterynDevice", &credential, operation)
+        .await?;
+    assert_eq!(status, 200, "sanctioned accounts can still revoke devices");
+    assert_eq!(
+        body,
+        serde_json::json!({"protocol_version":1,"revoked":true})
+    );
     drop(https);
     db.close().await
 }
 #[tokio::test]
 async fn audit05_03_device_routes_refuse_effective_suspension() -> TestResult {
-    sanctioned_device_is_refused(false).await
+    let started = std::time::Instant::now();
+    let result = sanctioned_device_is_refused(false).await;
+    eprintln!(
+        "audit05_03_device_routes_refuse_effective_suspension: {:?}",
+        started.elapsed()
+    );
+    result
 }
 #[tokio::test]
 async fn audit05_03_device_routes_refuse_effective_ban() -> TestResult {
-    sanctioned_device_is_refused(true).await
+    let started = std::time::Instant::now();
+    let result = sanctioned_device_is_refused(true).await;
+    eprintln!(
+        "audit05_03_device_routes_refuse_effective_ban: {:?}",
+        started.elapsed()
+    );
+    result
 }

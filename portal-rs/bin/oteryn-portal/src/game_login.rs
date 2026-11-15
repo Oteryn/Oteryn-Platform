@@ -63,13 +63,62 @@ pub fn device_authority(
     config: oauth::Config,
     projection_authority: String,
 ) -> Arc<dyn oteryn_gameauth::devices::NativeAuthority> {
-    Arc::new(GuardedTickets::new(
+    Arc::new(GuardedDevices(GuardedTickets::new(
         PlatformAuthority {
             oauth: config,
             projection_authority,
         },
         FEATURES,
-    ))
+    )))
+}
+
+/// Keep enrollment behind the same account-locked sanctions decision as use.
+/// The shared ticket wrapper already guards rotations; revocation remains
+/// credential-based and does not depend on game access.
+struct GuardedDevices(GuardedTickets<PlatformAuthority>);
+impl oteryn_gameauth::devices::NativeAuthority for GuardedDevices {
+    fn deployment_ready(&self) -> Result<(), oteryn_gameauth::devices::Failure> {
+        self.0.deployment_ready()
+    }
+    fn enroll<'a>(
+        &'a self,
+        db: &'a mut sqlx::PgConnection,
+        bearer: &'a str,
+    ) -> oteryn_gameauth::devices::NativeFuture<'a, oteryn_gameauth::devices::Enrollment> {
+        Box::pin(async move {
+            let enrollment = self.0.enroll(db, bearer).await?;
+            oteryn_support::sanctions::require_game_access(
+                db,
+                enrollment.authorization.account_id,
+                FEATURES,
+            )
+            .await
+            .map_err(|error| match error {
+                oteryn_support::sanctions::Error::Denied
+                | oteryn_support::sanctions::Error::InvalidInput => {
+                    oteryn_gameauth::devices::Failure::Denied
+                }
+                _ => oteryn_gameauth::devices::Failure::Unavailable,
+            })?;
+            Ok(enrollment)
+        })
+    }
+    fn verify<'a>(
+        &'a self,
+        db: &'a mut sqlx::PgConnection,
+        auth: &'a oteryn_gameauth::devices::Authorization,
+    ) -> oteryn_gameauth::devices::NativeFuture<'a, ()> {
+        self.0.verify(db, auth)
+    }
+    fn use_native<'a>(
+        &'a self,
+        db: &'a mut sqlx::PgConnection,
+        auth: &'a oteryn_gameauth::devices::Authorization,
+        family: uuid::Uuid,
+        purpose: oteryn_gameauth::devices::Purpose,
+    ) -> oteryn_gameauth::devices::NativeFuture<'a, oteryn_gameauth::devices::NativeResult> {
+        self.0.use_native(db, auth, family, purpose)
+    }
 }
 
 /// Ticket redemption, the character check and grant issuance behind the
