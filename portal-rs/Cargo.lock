@@ -2973,6 +2973,7 @@ dependencies = [
  "ed25519-dalek",
  "email_address",
  "fluent-bundle",
+ "futures-util",
  "getrandom 0.4.3",
  "oteryn-db",
  "oteryn-internal-api",

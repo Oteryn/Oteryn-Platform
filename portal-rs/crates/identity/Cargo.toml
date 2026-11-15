@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+futures-util = "0.3"
 oteryn-ui.workspace = true
 oteryn-db.workspace = true
 sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "uuid", "time", "derive"] }
