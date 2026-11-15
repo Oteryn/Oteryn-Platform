@@ -44,7 +44,7 @@ pub async fn consume(pool: &PgPool, token: &str) -> Result<bool, sqlx::Error> {
         .bind(id)
         .execute(&mut *tx)
         .await?;
-    let used=sqlx::query("UPDATE account_email_tokens SET used_at=now(),updated_at=now() WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now() AND purpose='verify_email'").bind(hash).execute(&mut *tx).await?.rows_affected();
+    let used=sqlx::query("UPDATE account_email_tokens SET used_at=now(),updated_at=now() WHERE token_hash=$1 AND used_at IS NULL AND expires_at>clock_timestamp() AND purpose='verify_email'").bind(hash).execute(&mut *tx).await?.rows_affected();
     if used != 1 || !Accounts::mark_verified(&mut tx, id).await? {
         return Ok(false);
     }
@@ -57,6 +57,10 @@ pub async fn resend(pool: &PgPool, id: AccountId) -> Result<bool, sqlx::Error> {
     let Some(locale) = locale else {
         return Ok(false);
     };
+    let recent: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_email_tokens WHERE account_id=$1 AND purpose='verify_email' AND created_at>clock_timestamp()-interval '60 seconds')").bind(id).fetch_one(&mut *tx).await?;
+    if recent {
+        return Ok(false);
+    }
     issue(&mut tx, id, &locale).await?;
     tx.commit().await?;
     Ok(true)

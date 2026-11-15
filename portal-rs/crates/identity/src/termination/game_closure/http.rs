@@ -116,7 +116,14 @@ async fn rate(State(state): State<StateData>, request: Request, next: Next) -> R
         }
     });
     if !allowed {
-        return guard::failure(StatusCode::TOO_MANY_REQUESTS);
+        let retry = state.rate.lock().map_or(60, |rate| {
+            60_u64.saturating_sub(rate.0.elapsed().as_secs()).max(1)
+        });
+        let mut response = guard::failure(StatusCode::TOO_MANY_REQUESTS);
+        if let Ok(value) = retry.to_string().parse() {
+            response.headers_mut().insert(header::RETRY_AFTER, value);
+        }
+        return response;
     }
     next.run(request).await
 }

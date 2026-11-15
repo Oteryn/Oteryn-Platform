@@ -345,6 +345,7 @@ impl GameBoundary {
         if after_revision < 0 || !(1..=40).contains(&limit) {
             return Err(Error::InvalidInput);
         }
+        self.reconcile_resolutions(pool, limit).await?;
         Ok(sqlx::query_scalar("SELECT c.intent FROM plat3_closure_commands c WHERE c.source_revision>$1 AND NOT EXISTS(SELECT 1 FROM plat3_closure_receipts r WHERE r.operation_id=c.operation_id) ORDER BY c.source_revision LIMIT $2")
             .bind(after_revision).bind(limit).fetch_all(pool).await?)
     }
@@ -367,12 +368,31 @@ impl GameBoundary {
         self.settings.ready()?;
         let (generation,close,resolution):(i64,Option<Uuid>,Option<String>)=sqlx::query_as("SELECT generation,close_operation_id,resolution FROM plat3_closure_work WHERE termination_id=$1 AND account_id=$2 AND NOT invalid FOR UPDATE")
             .bind(termination.id).bind(termination.account_id).fetch_optional(&mut **tx).await?.ok_or(Error::UnknownState)?;
-        if let Some(resolution) = resolution {
-            return if Some(resolution.as_str()) == decision {
-                Ok(())
-            } else {
-                Err(Error::UnknownState)
+        let mut retry_generation = None;
+        if let Some(resolution) = &resolution {
+            if Some(resolution.as_str()) != decision {
+                return Err(Error::UnknownState);
+            }
+            let previous: Option<(Vec<u8>, Option<Vec<u8>>)> = sqlx::query_as("SELECT c.intent,r.receipt FROM plat3_closure_commands c LEFT JOIN plat3_closure_receipts r USING(operation_id) WHERE c.termination_id=$1 AND c.command='ResolveAccountClosure' ORDER BY c.source_revision DESC LIMIT 1").bind(termination.id).fetch_optional(&mut **tx).await?;
+            let Some((intent, Some(receipt))) = previous else {
+                return Ok(());
             };
+            let receipt = Receipt::parse(&receipt)?;
+            if receipt.outcome != "REJECTED"
+                || !matches!(
+                    receipt.result_code.as_str(),
+                    "CHAR_CMD_INTENT_EXPIRED" | "CHAR_CMD_ACCOUNT_CLOSE_STALE_GENERATION"
+                )
+            {
+                return Ok(());
+            }
+            retry_generation = Some(
+                i64::try_from(wire::number(
+                    &Intent::parse(&intent)?.lifecycle_generation,
+                    true,
+                )?)
+                .map_err(|_| Error::UnknownState)?,
+            );
         }
         // Cancellation before a close intent has no remote effect to reverse.
         if decision == Some("CANCEL") && close.is_none() {
@@ -419,6 +439,7 @@ impl GameBoundary {
         .bind(termination.account_id)
         .fetch_one(&mut **tx)
         .await?;
+        let generation = retry_generation.unwrap_or(generation);
         if current != generation {
             return Err(Error::UnknownState);
         }
@@ -472,6 +493,24 @@ impl GameBoundary {
             .bind(operation)
             .execute(&mut **tx)
             .await?;
+        }
+        Ok(())
+    }
+    /// Bounded independent reconciliation of terminal semantic decisions.
+    pub async fn reconcile_resolutions(&self, pool: &PgPool, limit: i64) -> Result<()> {
+        self.settings.ready()?;
+        let rows: Vec<Termination> = sqlx::query_as("SELECT t.* FROM account_terminations t JOIN plat3_closure_work w ON w.termination_id=t.id WHERE w.resolution IS NOT NULL AND NOT w.invalid AND EXISTS(SELECT 1 FROM plat3_closure_commands c JOIN plat3_closure_receipts r USING(operation_id) WHERE c.termination_id=t.id AND c.command='ResolveAccountClosure') ORDER BY w.next_resolution_attempt,t.id LIMIT $1").bind(limit.clamp(1,1000)).fetch_all(pool).await?;
+        for termination in rows {
+            let mut tx = pool.begin().await?;
+            lock(&mut tx, termination.account_id)
+                .await?
+                .ok_or(Error::UnknownState)?;
+            let decision: String = sqlx::query_scalar("UPDATE plat3_closure_work SET next_resolution_attempt=clock_timestamp() WHERE termination_id=$1 RETURNING resolution").bind(termination.id).fetch_one(&mut *tx).await?;
+            match self.enqueue(&mut tx, &termination, Some(&decision)).await {
+                Ok(()) => tx.commit().await?,
+                Err(Error::UnknownState) => tx.commit().await?,
+                Err(error) => return Err(error),
+            }
         }
         Ok(())
     }
@@ -566,6 +605,9 @@ impl GameBoundary {
     }
 }
 impl Boundary for GameBoundary {
+    fn reconcile<'a>(&'a self, pool: &'a PgPool, limit: i64) -> BoundaryFuture<'a> {
+        Box::pin(async move { self.reconcile_resolutions(pool, limit).await })
+    }
     fn authorize<'a>(
         &'a self,
         tx: &'a mut Transaction<'_, Postgres>,

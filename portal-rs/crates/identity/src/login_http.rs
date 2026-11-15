@@ -159,26 +159,50 @@ async fn submit(
     if session.account_id().await.is_some() {
         return Ok(redirect(&format!("/{}/", language.code())));
     }
-    let account = login::authenticate(&pool, input)
+    let account = login::authenticate_authorized(&pool, input)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if let Some(id) = account {
-        session
-            .set(LOGIN_FAILED, &false)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        session::rotate(&session, PrivilegeChange::Login(id))
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let target = take_return(&session)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        Ok(redirect(
-            &target.unwrap_or_else(|| format!("/{}/", language.code())),
-        ))
+    if let Some(proof) = account {
+        establish(&pool, language, &session, proof).await
     } else {
         refuse(language, &session).await
     }
+}
+/// The proof remains immutable while credential mutations may commit before rotation.
+async fn establish(
+    pool: &PgPool,
+    language: Language,
+    session: &BrowserSession,
+    proof: login::Authorization,
+) -> Result<Response, StatusCode> {
+    let id = proof.account;
+    session
+        .set(LOGIN_FAILED, &false)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    session::rotate(
+        session,
+        PrivilegeChange::AuthorizedLogin(id, proof.generation),
+    )
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let valid = proof.current(pool).await;
+    if !matches!(valid, Ok(true)) {
+        session::rotate(session, PrivilegeChange::Logout)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        if valid.is_err() {
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        return refuse(language, session).await;
+    }
+    crate::sessions_http::complete_login(pool, session, id).await?;
+    let target = take_return(session)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(redirect(
+        &target.unwrap_or_else(|| format!("/{}/", language.code())),
+    ))
 }
 async fn logout(
     Extension(language): Extension<Language>,

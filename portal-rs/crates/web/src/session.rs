@@ -166,7 +166,7 @@ impl BrowserSession {
         let Some(record) = &inner.record else {
             return Ok(None);
         };
-        let value: Option<Option<String>> = sqlx::query_scalar("SELECT (data -> $2)::text FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>now() AND absolute_expires_at>now()")
+        let value: Option<Option<String>> = sqlx::query_scalar("SELECT (data -> $2)::text FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
             .bind(hash(&record.id)).bind(key.name).fetch_optional(&self.pool).await?;
         value
             .flatten()
@@ -188,7 +188,7 @@ impl BrowserSession {
         let mut inner = self.inner.lock().await;
         self.ensure(&mut inner).await?;
         let record = inner.record.as_ref().ok_or(sqlx::Error::RowNotFound)?;
-        let result = sqlx::query("UPDATE web_sessions SET data=jsonb_set(data,ARRAY[$2],$3::text::jsonb), updated_at=now() WHERE id_hash=$1 AND idle_expires_at>now() AND absolute_expires_at>now()")
+        let result = sqlx::query("UPDATE web_sessions SET data=jsonb_set(data,ARRAY[$2],$3::text::jsonb), updated_at=now() WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
             .bind(hash(&record.id)).bind(key.name).bind(value).execute(&self.pool).await?;
         if result.rows_affected() != 1 {
             return Err(sqlx::Error::RowNotFound);
@@ -202,28 +202,78 @@ impl BrowserSession {
 #[derive(Debug, Clone, Copy)]
 pub enum PrivilegeChange {
     Login(Uuid),
+    AuthorizedLogin(Uuid, i64),
     Logout,
     Sudo(OffsetDateTime),
+}
+/// Prepared durable rotation. Apply to request memory only after its transaction commits.
+pub struct CommittedRotation {
+    id: String,
+    csrf: String,
+    account: Option<Uuid>,
+}
+pub async fn rotate_in_transaction(
+    session: &BrowserSession,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    until: OffsetDateTime,
+) -> Result<CommittedRotation, sqlx::Error> {
+    let inner = session.inner.lock().await;
+    let record = inner.record.as_ref().ok_or(sqlx::Error::RowNotFound)?;
+    let account = record.account_id.ok_or(sqlx::Error::RowNotFound)?;
+    let id = random_token()?;
+    let csrf = random_token()?;
+    let changed = sqlx::query("UPDATE web_sessions SET id_hash=$2,csrf_token=$3,sudo_until=$4,updated_at=clock_timestamp() WHERE id_hash=$1 AND account_id=$5 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
+        .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(until).bind(account).execute(&mut **tx).await?;
+    if changed.rows_affected() != 1 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    Ok(CommittedRotation {
+        id,
+        csrf,
+        account: Some(account),
+    })
+}
+pub async fn apply_rotation(session: &BrowserSession, rotation: CommittedRotation) {
+    let mut inner = session.inner.lock().await;
+    inner.cookie = Some(cookie(&rotation.id));
+    inner.record = Some(Record {
+        id: rotation.id,
+        csrf: rotation.csrf,
+        account_id: rotation.account,
+    });
+}
+impl BrowserSession {
+    /// Hash of the current server-issued identity, for transactional security recording.
+    pub async fn identity_hash(&self) -> Option<Vec<u8>> {
+        self.inner
+            .lock()
+            .await
+            .record
+            .as_ref()
+            .map(|record| hash(&record.id))
+    }
 }
 pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result<(), sqlx::Error> {
     let mut inner = session.inner.lock().await;
     if matches!(change, PrivilegeChange::Logout) {
-        if let Some(record) = &inner.record {
-            sqlx::query("DELETE FROM web_sessions WHERE id_hash=$1")
-                .bind(hash(&record.id))
-                .execute(&session.pool)
-                .await?;
-        }
+        let previous = inner.record.as_ref().map(|record| hash(&record.id));
+        // Withhold any newly rotated identity even when durable deletion is unavailable.
         inner.record = None;
         inner.cookie = Some(format!(
             "{COOKIE_NAME}=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
         ));
+        if let Some(previous) = previous {
+            sqlx::query("DELETE FROM web_sessions WHERE id_hash=$1")
+                .bind(previous)
+                .execute(&session.pool)
+                .await?;
+        }
         return Ok(());
     }
     session.ensure(&mut inner).await?;
     let record = inner.record.as_ref().ok_or(sqlx::Error::RowNotFound)?;
     let account = match change {
-        PrivilegeChange::Login(id) => Some(id),
+        PrivilegeChange::Login(id) | PrivilegeChange::AuthorizedLogin(id, _) => Some(id),
         _ => record.account_id,
     };
     let sudo = match change {
@@ -235,8 +285,13 @@ pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result
     };
     let id = random_token()?;
     let csrf = random_token()?;
-    let result = sqlx::query("UPDATE web_sessions SET id_hash=$2, csrf_token=$3, account_id=$4, sudo_until=$5, updated_at=now() WHERE id_hash=$1 AND idle_expires_at>now() AND absolute_expires_at>now()")
-        .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).execute(&session.pool).await?;
+    let result = if let PrivilegeChange::AuthorizedLogin(_, generation) = change {
+        sqlx::query("UPDATE web_sessions SET id_hash=$2,csrf_token=$3,account_id=$4,sudo_until=$5,authorization_generation=$6,updated_at=clock_timestamp() WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
+            .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).bind(generation).execute(&session.pool).await?
+    } else {
+        sqlx::query("UPDATE web_sessions SET id_hash=$2, csrf_token=$3, account_id=$4, sudo_until=$5, updated_at=now() WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
+        .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).execute(&session.pool).await?
+    };
     if result.rows_affected() != 1 {
         return Err(sqlx::Error::RowNotFound);
     }
@@ -332,7 +387,7 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         if !valid_id(id) || identifiers.next().is_some() {
             return Err(sqlx::Error::Protocol("invalid session cookie".into()));
         }
-        let row: Option<(String, Option<Uuid>)> = sqlx::query_as("UPDATE web_sessions SET last_seen_at=now(), updated_at=now(), idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2)) WHERE id_hash=$1 AND idle_expires_at>now() AND absolute_expires_at>now() RETURNING csrf_token, account_id")
+        let row: Option<(String, Option<Uuid>)> = sqlx::query_as("UPDATE web_sessions SET last_seen_at=now(), updated_at=now(), idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2)) WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp() RETURNING csrf_token, account_id")
             .bind(hash(id)).bind(f64::from(layer.config.idle_seconds)).fetch_optional(&layer.pool).await?;
         if let Some((csrf, account_id)) = row {
             session.inner.lock().await.record = Some(Record {
@@ -374,7 +429,7 @@ pub(crate) async fn chrome_account(
         return oteryn_ui::Account::Anonymous;
     }
     let row: Result<Option<(String, Option<Uuid>)>, _> = sqlx::query_as(
-        "SELECT csrf_token, account_id FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>now() AND absolute_expires_at>now()")
+        "SELECT csrf_token, account_id FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
         .bind(hash(id)).fetch_optional(&layer.pool).await;
     match row {
         Ok(Some((csrf, Some(_)))) => oteryn_ui::Account::SignedIn { csrf },
@@ -405,5 +460,11 @@ impl oteryn_db::outbox::Cleanup for SessionCleanup {
                 .await
                 .map_err(|error| error.to_string())
         })
+    }
+}
+
+impl std::fmt::Debug for CommittedRotation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CommittedRotation([redacted])")
     }
 }

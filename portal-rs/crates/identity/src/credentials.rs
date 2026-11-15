@@ -129,7 +129,7 @@ impl Credentials {
         if !self.enabled {
             return Ok(None);
         }
-        sqlx::query_scalar("SELECT s.account_id FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now() AND s.sudo_until>now() AND s.sudo_until<=now()+interval '15 minutes' AND a.status='active' AND a.email_verified_at IS NOT NULL")
+        sqlx::query_scalar("SELECT s.account_id FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() AND s.sudo_until>clock_timestamp() AND s.sudo_until<=clock_timestamp()+interval '15 minutes' AND a.status='active' AND a.email_verified_at IS NOT NULL")
             .bind(session_hash).fetch_optional(&self.pool).await
     }
 }
@@ -148,7 +148,7 @@ pub async fn authenticated(
     let Some((id, hash)) = row else {
         return Ok(None);
     };
-    let live: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND idle_expires_at>now() AND absolute_expires_at>now())")
+    let live: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp())")
         .bind(session_hash).bind(id).fetch_one(&mut **tx).await?;
     Ok(live.then_some((id, hash)))
 }

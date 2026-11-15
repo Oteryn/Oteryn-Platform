@@ -80,7 +80,7 @@ async fn registered(service: &Passkeys, account: Uuid, auth: &mut SoftPasskey) -
 async fn assertion(service: &Passkeys, account: Uuid, auth: &mut SoftPasskey) -> Completion {
     let start = service.begin_authentication(BINDING).await.unwrap();
     let key: Value =
-        sqlx::query_scalar("SELECT credential FROM account_passkeys WHERE account_id=$1")
+        sqlx::query_scalar("SELECT credential FROM account_passkeys WHERE account_id=$1 ORDER BY created_at,id LIMIT 1")
             .bind(account)
             .fetch_one(&service.pool)
             .await
@@ -478,4 +478,77 @@ async fn postgres_account_rechecked_and_removed_credential_denied() {
         .unwrap();
     assert!(service.finish_authentication(BINDING, input).await.is_err());
     db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn audit02_completed_passkey_proof_refuses_removed_key()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = database::Database::open()
+        .await
+        .map_err(|_| "passkey regression")?
+    else {
+        return Ok(());
+    };
+    let service = service(db.pool.clone());
+    let id = account(&db.pool).await;
+    let mut auth = SoftPasskey::new(true);
+    registered(&service, id, &mut auth).await;
+    let input = assertion(&service, id, &mut auth).await;
+    let proof = service
+        .finish_authorized(BINDING, input)
+        .await
+        .map_err(|_| "passkey regression")?;
+    assert!(
+        service
+            .authentication_current(&proof)
+            .await
+            .map_err(|_| "passkey regression")?
+    );
+    let key = service.list(id).await.map_err(|_| "passkey regression")?[0];
+    service
+        .remove(id, key)
+        .await
+        .map_err(|_| "passkey regression")?;
+    assert!(
+        !service
+            .authentication_current(&proof)
+            .await
+            .map_err(|_| "passkey regression")?
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_removing_another_passkey_invalidates_earlier_authentication()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let service = service(db.pool.clone());
+    let id = account(&db.pool).await;
+    let mut first = SoftPasskey::new(true);
+    registered(&service, id, &mut first).await;
+    let mut second = SoftPasskey::new(true);
+    registered(&service, id, &mut second).await;
+    let input = assertion(&service, id, &mut first).await;
+    let proof = service
+        .finish_authorized(BINDING, input)
+        .await
+        .map_err(|_| "proof")?;
+    assert!(
+        service
+            .authentication_current(&proof)
+            .await
+            .map_err(|_| "proof")?
+    );
+    let keys = service.list(id).await.map_err(|_| "keys")?;
+    service.remove(id, keys[1]).await.map_err(|_| "remove")?;
+    assert_eq!(service.list(id).await.map_err(|_| "keys")?.len(), 1);
+    assert!(
+        !service
+            .authentication_current(&proof)
+            .await
+            .map_err(|_| "proof")?
+    );
+    db.close().await
 }

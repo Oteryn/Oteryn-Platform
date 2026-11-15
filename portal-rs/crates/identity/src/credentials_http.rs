@@ -226,11 +226,18 @@ async fn check(
     session: &BrowserSession,
     peer: SocketAddr,
     policy: NamedPolicy,
-) -> Result<(), StatusCode> {
-    let id = session.account_id().await.ok_or(StatusCode::UNAUTHORIZED)?;
+    language: Language,
+) -> Result<(), Box<Response>> {
+    let id = session
+        .account_id()
+        .await
+        .ok_or_else(|| Box::new(StatusCode::UNAUTHORIZED.into_response()))?;
     let mut keys = Keys::source(peer.ip());
     keys.account = Some(id.to_string());
-    limiter.check(policy, &[keys]).await.map_err(|e| e.status())
+    limiter
+        .check(policy, &[keys])
+        .await
+        .map_err(|e| Box::new(e.response(language, false)))
 }
 async fn change(
     Extension(lang): Extension<Language>,
@@ -241,13 +248,17 @@ async fn change(
     headers: HeaderMap,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
-    check(
+    if let Err(response) = check(
         &limiter,
         &session,
         peer,
         NamedPolicy::IdentityPasswordChange,
+        lang,
     )
-    .await?;
+    .await
+    {
+        return Ok(*response);
+    }
     let hash = session_hash(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
     match service
         .change(
@@ -279,13 +290,17 @@ async fn sudo(
     headers: HeaderMap,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
-    check(
+    if let Err(response) = check(
         &limiter,
         &session,
         peer,
         NamedPolicy::IdentitySecurityMutation,
+        lang,
     )
-    .await?;
+    .await
+    {
+        return Ok(*response);
+    }
     let hash = session_hash(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
     let mut tx = service
         .pool
@@ -302,6 +317,9 @@ async fn sudo(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
     {
+        tx.rollback()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         return refuse(lang, &session, "account/sudo").await;
     }
     let until = sqlx::types::time::OffsetDateTime::now_utc() + std::time::Duration::from_secs(900);
@@ -312,15 +330,13 @@ async fn sudo(
     .execute(&mut *tx)
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    session::rotate(&session, PrivilegeChange::Sudo(until))
+    let rotation = session::rotate_in_transaction(&session, &mut tx, until)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if tx.commit().await.is_err() {
-        session::rotate(&session, PrivilegeChange::Logout)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
-    }
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    session::apply_rotation(&session, rotation).await;
     Ok(redirect(&format!("/{}/account/security", lang.code())))
 }
 

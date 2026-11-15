@@ -379,3 +379,171 @@ async fn postgres_integrated_recovery_proof_confirm_revert_and_refusals() -> Tes
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn audit02_registration_respects_pending_and_backup_claims() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    assert_eq!(s.request(id, input(true, false)).await?, Outcome::Requested);
+    let (token, _) = tokens(&db.pool).await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(
+        crate::accounts::Accounts::create(&mut tx, "NEW@example.invalid", "unused", "en")
+            .await?
+            .is_none()
+    );
+    tx.commit().await?;
+    assert_eq!(s.confirm(&token).await?, Outcome::Changed);
+    sqlx::query("INSERT INTO account_backup_emails(account_id,email,verified_at) VALUES($1,'backup@example.invalid',now())").bind(id).execute(&db.pool).await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(
+        crate::accounts::Accounts::create(&mut tx, "backup@example.invalid", "unused", "en")
+            .await?
+            .is_none()
+    );
+    tx.commit().await?;
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_worker_pages_past_hundred_blocked_changes() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    assert_eq!(
+        s.request(id, input(false, false)).await?,
+        Outcome::Requested
+    );
+    let (token, _) = tokens(&db.pool).await?;
+    assert_eq!(s.confirm(&token).await?, Outcome::Confirmed);
+    sqlx::query("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) SELECT 'blocked'||n||'@example.invalid','unused','suspended','en',now() FROM generate_series(1,100) n").execute(&db.pool).await?;
+    sqlx::query("INSERT INTO account_email_changes(account_id,kind,old_email,new_email,confirmation_hash,revert_hash,immediate,confirmed_at,apply_after,expires_at,revert_until) SELECT id,'primary',email,'next-'||email,sha256(convert_to(email,'UTF8')),sha256(convert_to('revert-'||email,'UTF8')),false,now(),now()-interval '2 days',now()+interval '2 days',now()+interval '3 days' FROM accounts WHERE status='suspended'").execute(&db.pool).await?;
+    sqlx::query(
+        "UPDATE account_email_changes SET apply_after=now()-interval '1 day' WHERE account_id=$1",
+    )
+    .bind(id)
+    .execute(&db.pool)
+    .await?;
+    assert_eq!(s.apply_due().await?, 0);
+    assert_eq!(s.apply_due().await?, 1);
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_email_change_revokes_preexisting_reset_link() -> TestResult {
+    struct ProofAndRevocation;
+    impl Security for ProofAndRevocation {
+        fn proof<'a>(
+            &'a self,
+            _: &'a mut PgConnection,
+            _: Uuid,
+            _: bool,
+            _: &'a str,
+        ) -> FutureResult<'a, bool> {
+            Box::pin(async { Ok(true) })
+        }
+        fn revoke<'a>(&'a self, conn: &'a mut PgConnection, id: Uuid) -> FutureResult<'a, bool> {
+            Box::pin(async move {
+                crate::recovery_key::revoke_authorizations(conn, id).await?;
+                Ok(true)
+            })
+        }
+    }
+    let Some((db, mut s, id)) = setup().await? else {
+        return Ok(());
+    };
+    s.security = Arc::new(ProofAndRevocation);
+    let raw = "c".repeat(64);
+    sqlx::query("INSERT INTO account_password_resets(account_id,token_hash,expires_at) VALUES($1,$2,now()+interval '1 hour')").bind(id).bind(token_hash(&raw)).execute(&db.pool).await?;
+    assert_eq!(s.request(id, input(true, false)).await?, Outcome::Requested);
+    let (confirmation, _) = tokens(&db.pool).await?;
+    assert_eq!(s.confirm(&confirmation).await?, Outcome::Changed);
+    assert!(
+        !crate::reset::complete(
+            &db.pool,
+            crate::reset::Input {
+                email: "new@example.invalid".into(),
+                token: raw,
+                password: "attacker password".into(),
+                password_confirmation: "attacker password".into()
+            }
+        )
+        .await?
+    );
+    let hash: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(password::verify("test-password", &hash));
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_reversion_expires_after_waiting_for_account_lock() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    assert_eq!(s.request(id, input(true, false)).await?, Outcome::Requested);
+    let (confirm, revert) = tokens(&db.pool).await?;
+    assert_eq!(s.confirm(&confirm).await?, Outcome::Changed);
+    sqlx::query("UPDATE account_email_changes SET revert_until=clock_timestamp()+interval '300 milliseconds' WHERE account_id=$1").bind(id).execute(&db.pool).await?;
+    let mut lock = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .execute(&mut *lock)
+        .await?;
+    let task = tokio::spawn(async move { s.revert(&revert).await });
+    tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+    assert!(!task.is_finished());
+    lock.commit().await?;
+    assert_eq!(task.await??, Outcome::Refused);
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_concurrent_registration_and_reservation_have_one_winner() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    let create = async {
+        let mut tx = db.pool.begin().await?;
+        let account =
+            crate::accounts::Accounts::create(&mut tx, "new@example.invalid", "unused", "en")
+                .await?;
+        tx.commit().await?;
+        Ok::<_, sqlx::Error>(account)
+    };
+    let (registration, reservation) = tokio::join!(create, s.request(id, input(true, false)));
+    let registration = registration?;
+    let reservation = reservation?;
+    assert_ne!(registration.is_some(), reservation == Outcome::Requested);
+    if reservation == Outcome::Requested {
+        let (token, _) = tokens(&db.pool).await?;
+        assert_eq!(s.confirm(&token).await?, Outcome::Changed);
+    }
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_reversion_rechecks_deadline_after_normalized_address_lock_wait() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    sqlx::query("UPDATE accounts SET email='OLD@EXAMPLE.INVALID' WHERE id=$1")
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(s.request(id, input(true, false)).await?, Outcome::Requested);
+    let (confirm, revert) = tokens(&db.pool).await?;
+    assert_eq!(s.confirm(&confirm).await?, Outcome::Changed);
+    sqlx::query("UPDATE account_email_changes SET revert_until=clock_timestamp()+interval '300 milliseconds' WHERE account_id=$1").bind(id).execute(&db.pool).await?;
+    let mut claim = db.pool.begin().await?;
+    crate::accounts::claim_lock(&mut claim, "old@example.invalid").await?;
+    let task = tokio::spawn(async move { s.revert(&revert).await });
+    tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+    assert!(!task.is_finished());
+    claim.commit().await?;
+    assert_eq!(task.await??, Outcome::Refused);
+    db.close().await
+}

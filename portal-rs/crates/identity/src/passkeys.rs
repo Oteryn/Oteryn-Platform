@@ -218,6 +218,13 @@ impl Passkeys {
         binding: &str,
         input: Completion,
     ) -> Result<Uuid, Error> {
+        Ok(self.finish_authorized(binding, input).await?.account)
+    }
+    pub async fn finish_authorized(
+        &self,
+        binding: &str,
+        input: Completion,
+    ) -> Result<Authentication, Error> {
         let state: DiscoverableAuthentication = self
             .consume(binding, &input.token, "authenticate", None)
             .await?;
@@ -240,9 +247,25 @@ impl Passkeys {
         }
         sqlx::query("UPDATE account_passkeys SET credential=$3,updated_at=now() WHERE account_id=$1 AND credential_id=$2")
             .bind(account).bind(credential_id).bind(encode(&key)?).execute(&mut *tx).await?;
+        let generation =
+            sqlx::query_scalar("SELECT native_security_generation FROM accounts WHERE id=$1")
+                .bind(account)
+                .fetch_one(&mut *tx)
+                .await?;
         audit_tx(&mut tx, Some(account), "passkey.authenticated").await?;
         tx.commit().await?;
-        Ok(account)
+        Ok(Authentication {
+            account,
+            generation,
+            credential_id: credential_id.to_vec(),
+        })
+    }
+    pub async fn authentication_current(&self, proof: &Authentication) -> Result<bool, Error> {
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts a JOIN account_passkeys p ON p.account_id=a.id WHERE a.id=$1 AND a.native_security_generation=$2 AND p.credential_id=$3 AND a.status='active' AND a.email_verified_at IS NOT NULL AND NOT a.login_mfa_required)")
+            .bind(proof.account).bind(proof.generation).bind(&proof.credential_id).fetch_one(&self.pool).await?)
+    }
+    pub fn pool(&self) -> PgPool {
+        self.pool.clone()
     }
     pub async fn list(&self, account: Uuid) -> Result<Vec<Uuid>, Error> {
         let mut tx = self.pool.begin().await?;
@@ -288,6 +311,7 @@ async fn eligible(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(
     Ok(())
 }
 async fn revoke(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(), Error> {
+    sqlx::query("UPDATE accounts SET native_security_generation=native_security_generation+1,updated_at=clock_timestamp() WHERE id=$1").bind(account).execute(&mut **tx).await?;
     sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
         .bind(account)
         .execute(&mut **tx)
@@ -296,8 +320,7 @@ async fn revoke(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(),
         .bind(account)
         .execute(&mut **tx)
         .await?;
-    // A passkey change advances no generation, so it ends the account's native
-    // recovery handles itself (gateway login contract §19.3).
+    // End native recovery handles in the same transaction (gateway login contract §19.3).
     sqlx::query("UPDATE native_recovery_handles SET revoked_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE account_id=$1 AND revoked_at IS NULL")
         .bind(account)
         .execute(&mut **tx)
@@ -330,5 +353,23 @@ impl oteryn_db::outbox::Cleanup for PasskeyCleanup {
                 .execute(&self.pool).await.map_err(|e| e.to_string())?;
             Ok(())
         })
+    }
+}
+
+pub struct Authentication {
+    pub account: Uuid,
+    generation: i64,
+    credential_id: Vec<u8>,
+}
+
+impl std::fmt::Debug for Authentication {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Authentication([redacted])")
+    }
+}
+
+impl Authentication {
+    pub fn generation(&self) -> i64 {
+        self.generation
     }
 }

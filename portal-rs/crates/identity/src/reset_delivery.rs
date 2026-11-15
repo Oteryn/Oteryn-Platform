@@ -106,7 +106,7 @@ impl Mailer {
             .key
             .open(&payload.ciphertext)
             .ok_or("invalid reset ciphertext")?;
-        let account:Option<(String,String)>=sqlx::query_as("SELECT a.email,a.locale FROM accounts a JOIN account_password_resets r ON r.account_id=a.id WHERE a.id=$1 AND a.status IN ('active','pending_verification') AND r.token_hash=$2 AND r.used_at IS NULL AND r.expires_at>clock_timestamp()")
+        let account:Option<(String,String)>=sqlx::query_as("SELECT coalesce(r.recovery_email,a.email),a.locale FROM accounts a JOIN account_password_resets r ON r.account_id=a.id WHERE a.id=$1 AND a.status IN ('active','pending_verification') AND r.token_hash=$2 AND r.used_at IS NULL AND r.expires_at>clock_timestamp() AND (r.backup_verified_at IS NULL OR EXISTS(SELECT 1 FROM account_backup_emails b WHERE b.account_id=a.id AND lower(b.email)=r.recovery_email AND b.verified_at=r.backup_verified_at))")
         .bind(payload.account_id).bind(token_hash(&token)).fetch_optional(&self.pool).await.map_err(|_|"reset delivery unavailable")?;
         let Some((email, locale)) = account else {
             return Ok(None);

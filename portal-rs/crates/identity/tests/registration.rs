@@ -69,6 +69,9 @@ impl Database {
             },
             "static",
         )
+        .layer(axum::Extension(axum::extract::ConnectInfo(
+            std::net::SocketAddr::from(([192, 0, 2, 60], 1234)),
+        )))
     }
     async fn close(self) -> Result {
         self.pool.close().await;
@@ -405,6 +408,12 @@ async fn resend_invalidates_old_token_and_requires_authenticated_csrf() -> Resul
         .ok_or("missing cookie")?
         .to_owned();
     let old = token(&db).await?;
+    let id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM accounts WHERE lower(email)='new@example.test'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert!(!verify::resend(&db.pool, id).await?);
+    sqlx::query("UPDATE account_email_tokens SET created_at=clock_timestamp()-interval '61 seconds' WHERE account_id=$1").bind(id).execute(&db.pool).await?;
     let response = app
         .clone()
         .oneshot(

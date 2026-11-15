@@ -180,14 +180,19 @@ async fn login_started_before_reset_cannot_restore_session()
     .execute(p)
     .await;
     assert!(result.is_err());
-    // A fresh request verifies the replacement password before rotating the session.
+    // Activity refresh cannot authorize the earlier anonymous session.
     sqlx::query("UPDATE web_sessions SET last_seen_at=clock_timestamp() WHERE id_hash=decode(repeat('cd',32),'hex')").execute(p).await?;
-    sqlx::query(
-        "UPDATE web_sessions SET account_id=$1 WHERE id_hash=decode(repeat('cd',32),'hex')",
-    )
-    .bind(id)
-    .execute(p)
-    .await?;
+    assert!(
+        sqlx::query(
+            "UPDATE web_sessions SET account_id=$1 WHERE id_hash=decode(repeat('cd',32),'hex')"
+        )
+        .bind(id)
+        .execute(p)
+        .await
+        .is_err()
+    );
+    // A fresh password proof carries the immutable current security generation.
+    sqlx::query("UPDATE web_sessions SET authorization_generation=(SELECT native_security_generation FROM accounts WHERE id=$1),account_id=$1 WHERE id_hash=decode(repeat('cd',32),'hex')").bind(id).execute(p).await?;
     db.close().await
 }
 
@@ -216,5 +221,258 @@ async fn audit_failure_rolls_back_password_token_and_sessions()
         .fetch_one(p)
         .await?;
     assert_eq!(sessions, 1);
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_password_proof_is_revoked_despite_anonymous_activity_refresh()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = db::Database::open().await? else {
+        return Ok(());
+    };
+    let id = account(&db.pool).await?;
+    let hash = password::hash("initial password")?;
+    sqlx::query("UPDATE accounts SET password_hash=$2 WHERE id=$1")
+        .bind(id)
+        .bind(hash)
+        .execute(&db.pool)
+        .await?;
+    let proof = crate::login::authenticate_authorized(
+        &db.pool,
+        crate::login::Credentials {
+            email: "reset@example.test".into(),
+            password: "initial password".into(),
+        },
+    )
+    .await?
+    .ok_or("authentication")?;
+    assert!(proof.current(&db.pool).await?);
+    request(&db.pool, "reset@example.test", &key()).await?;
+    let token = token(&db.pool).await?;
+    assert!(complete(&db.pool, input("reset@example.test", &token)).await?);
+    // Refreshing anonymous activity after reset cannot change the proof generation.
+    sqlx::query("INSERT INTO web_sessions(id_hash,last_seen_at,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token) VALUES(decode(repeat('ef',32),'hex'),clock_timestamp(),now()+interval '1 hour',now()+interval '1 day','test',repeat('d',64))").execute(&db.pool).await?;
+    sqlx::query("UPDATE web_sessions SET last_seen_at=clock_timestamp() WHERE account_id IS NULL")
+        .execute(&db.pool)
+        .await?;
+    assert!(!proof.current(&db.pool).await?);
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_revoker_invalidates_outstanding_reset_without_replacing_password()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = db::Database::open().await? else {
+        return Ok(());
+    };
+    let id = account(&db.pool).await?;
+    request(&db.pool, "reset@example.test", &key()).await?;
+    let old = token(&db.pool).await?;
+    let mut tx = db.pool.begin().await?;
+    crate::recovery_key::revoke_authorizations(&mut tx, id).await?;
+    sqlx::query("UPDATE accounts SET password_hash=$2,native_security_generation=native_security_generation+1 WHERE id=$1").bind(id).bind(password::hash("replacement password")?).execute(&mut *tx).await?;
+    tx.commit().await?;
+    assert!(!complete(&db.pool, input("reset@example.test", &old)).await?);
+    let hash: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(password::verify("replacement password", &hash));
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_confirmed_backup_recovers_and_replacement_invalidates_link()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = db::Database::open().await? else {
+        return Ok(());
+    };
+    let id = account(&db.pool).await?;
+    request(&db.pool, "backup@example.test", &key()).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM account_password_resets")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    sqlx::query("INSERT INTO account_backup_emails(account_id,email,verified_at) VALUES($1,'backup@example.test',clock_timestamp())").bind(id).execute(&db.pool).await?;
+    request(&db.pool, "backup@example.test", &key()).await?;
+    let old = token(&db.pool).await?;
+    sqlx::query("UPDATE account_backup_emails SET email='replacement@example.test',verified_at=clock_timestamp() WHERE account_id=$1").bind(id).execute(&db.pool).await?;
+    assert!(!complete(&db.pool, input("backup@example.test", &old)).await?);
+    assert!(!complete(&db.pool, input("reset@example.test", &old)).await?);
+    sqlx::query("UPDATE account_password_resets SET created_at=now()-interval '61 seconds'")
+        .execute(&db.pool)
+        .await?;
+    request(&db.pool, "replacement@example.test", &key()).await?;
+    let new = token(&db.pool).await?;
+    assert!(complete(&db.pool, input("replacement@example.test", &new)).await?);
+    assert!(!complete(&db.pool, input("replacement@example.test", &new)).await?);
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_verification_and_session_expire_while_waiting_for_account_lock()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = db::Database::open().await? else {
+        return Ok(());
+    };
+    let id = account(&db.pool).await?;
+    sqlx::query(
+        "UPDATE accounts SET status='pending_verification',email_verified_at=NULL WHERE id=$1",
+    )
+    .bind(id)
+    .execute(&db.pool)
+    .await?;
+    let token = "a".repeat(64);
+    sqlx::query("INSERT INTO account_email_tokens(account_id,token_hash,purpose,expires_at) VALUES($1,$2,'verify_email',clock_timestamp()+interval '300 milliseconds')").bind(id).bind(crate::verify::token_hash(&token)).execute(&db.pool).await?;
+    let mut lock = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .execute(&mut *lock)
+        .await?;
+    let pool = db.pool.clone();
+    let consume = tokio::spawn(async move { crate::verify::consume(&pool, &token).await });
+    tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+    assert!(!consume.is_finished());
+    lock.commit().await?;
+    assert!(!consume.await??);
+    sqlx::query("UPDATE accounts SET status='active',email_verified_at=now() WHERE id=$1")
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+    let hash = vec![7_u8; 32];
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,repeat('a',64),'audit',clock_timestamp()+interval '300 milliseconds',now()+interval '1 day')").bind(&hash).bind(id).execute(&db.pool).await?;
+    let mut lock = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .execute(&mut *lock)
+        .await?;
+    let pool = db.pool.clone();
+    let authorize = tokio::spawn(async move {
+        let mut tx = pool.begin().await?;
+        crate::credentials::authenticated(&mut tx, &hash).await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+    assert!(!authorize.is_finished());
+    lock.commit().await?;
+    assert!(authorize.await??.is_none());
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_password_change_refuses_preexisting_reset_link()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = db::Database::open().await? else {
+        return Ok(());
+    };
+    let id = account(&db.pool).await?;
+    sqlx::query("UPDATE accounts SET password_hash=$2 WHERE id=$1")
+        .bind(id)
+        .bind(password::hash("initial password")?)
+        .execute(&db.pool)
+        .await?;
+    let hash = vec![8_u8; 32];
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,repeat('a',64),'audit',now()+interval '1 hour',now()+interval '1 day')").bind(&hash).bind(id).execute(&db.pool).await?;
+    request(&db.pool, "reset@example.test", &key()).await?;
+    let old = token(&db.pool).await?;
+    let service = crate::credentials::Credentials {
+        pool: db.pool.clone(),
+        enabled: true,
+        revoker: std::sync::Arc::new(crate::credentials::TransactionalRevoker),
+        notifications: std::sync::Arc::new(
+            crate::sessions::security_notifications(db.pool.clone()).map_err(|e| e.to_string())?,
+        ),
+    };
+    assert_eq!(
+        service
+            .change(
+                &hash,
+                crate::credentials::PasswordChange {
+                    current_password: "initial password".into(),
+                    password: "replacement password".into(),
+                    password_confirmation: "replacement password".into()
+                }
+            )
+            .await?,
+        crate::credentials::Outcome::Changed
+    );
+    assert!(!complete(&db.pool, input("reset@example.test", &old)).await?);
+    let hash: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(password::verify("replacement password", &hash));
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_mfa_challenge_expires_during_account_lock_wait()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = db::Database::open().await? else {
+        return Ok(());
+    };
+    let id = account(&db.pool).await?;
+    sqlx::query("UPDATE accounts SET password_hash=$2 WHERE id=$1")
+        .bind(id)
+        .bind(password::hash("test password")?)
+        .execute(&db.pool)
+        .await?;
+    let mfa = crate::mfa::Mfa::new(db.pool.clone(), [7; 32]);
+    let enrollment = mfa.enroll(id, "test password").await?.ok_or("enroll")?;
+    let bytes = totp_rs::Secret::Encoded(enrollment.secret).to_bytes()?;
+    let code = totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, bytes)?.generate_current()?;
+    let codes = mfa
+        .confirm(id, "test password", &code)
+        .await?
+        .ok_or("confirm")?;
+    let challenge = mfa
+        .begin_login(&crate::login::Credentials {
+            email: "reset@example.test".into(),
+            password: "test password".into(),
+        })
+        .await?
+        .ok_or("challenge")?;
+    sqlx::query("UPDATE account_mfa_tokens SET expires_at=clock_timestamp()+interval '300 milliseconds' WHERE account_id=$1 AND purpose='challenge'").bind(id).execute(&db.pool).await?;
+    let mut lock = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .execute(&mut *lock)
+        .await?;
+    let task = tokio::spawn(async move { mfa.complete(&challenge.token, &codes[0], false).await });
+    tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+    assert!(!task.is_finished());
+    lock.commit().await?;
+    assert!(task.await??.is_none());
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_backup_recovery_refuses_legacy_cross_account_address_collision()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = db::Database::open().await? else {
+        return Ok(());
+    };
+    let id = account(&db.pool).await?;
+    sqlx::query("INSERT INTO account_backup_emails(account_id,email,verified_at) VALUES($1,'colliding@example.test',now())").bind(id).execute(&db.pool).await?;
+    // Reproduce the historical registration defect, bypassing the repaired claim API.
+    sqlx::query("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('colliding@example.test',$1,'active','en',now())").bind(password::hash("foreign owner password")?).execute(&db.pool).await?;
+    request(&db.pool, "colliding@example.test", &key()).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM account_password_resets")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    let raw = "a".repeat(64);
+    sqlx::query("INSERT INTO account_password_resets(account_id,token_hash,expires_at,recovery_email,backup_verified_at) SELECT $1,$2,now()+interval '1 hour',email,verified_at FROM account_backup_emails WHERE account_id=$1").bind(id).bind(token_hash(&raw)).execute(&db.pool).await?;
+    assert!(!complete(&db.pool, input("colliding@example.test", &raw)).await?);
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT password_hash FROM accounts WHERE id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?,
+        "old"
+    );
     db.close().await
 }

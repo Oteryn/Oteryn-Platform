@@ -163,6 +163,24 @@ async fn browser_flow() -> Result<(), Box<dyn std::error::Error>> {
             .fetch_one(&db.pool)
             .await?;
     assert!(mfa.satisfied(id, &grant).await?);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM security_events WHERE account_id=$1 AND kind='login_succeeded'"
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?,
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM email_outbox WHERE account_id=$1 AND category='security'"
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?,
+        1
+    );
     let stale = app.clone().oneshot(challenge_request(&codes[1])?).await?;
     assert_eq!(stale.status(), StatusCode::FORBIDDEN);
     let response = app
@@ -346,6 +364,24 @@ async fn postgres_password_browser_rotation_releases_account_lock()
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM security_events WHERE account_id=$1 AND kind='login_succeeded'"
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?,
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM email_outbox WHERE account_id=$1 AND category='security'"
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?,
+        1
+    );
     db.close().await?;
     Ok(())
 }

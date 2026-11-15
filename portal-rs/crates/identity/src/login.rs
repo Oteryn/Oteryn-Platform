@@ -39,6 +39,26 @@ pub async fn authenticate(
     pool: &PgPool,
     input: Credentials,
 ) -> Result<Option<AccountId>, sqlx::Error> {
+    Ok(authenticate_authorized(pool, input)
+        .await?
+        .map(|proof| proof.account))
+}
+
+/// Immutable credential generation captured by the successful password check.
+pub struct Authorization {
+    pub account: AccountId,
+    pub generation: i64,
+}
+impl Authorization {
+    pub async fn current(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND native_security_generation=$2 AND status='active' AND email_verified_at IS NOT NULL AND NOT login_mfa_required)")
+            .bind(self.account).bind(self.generation).fetch_one(pool).await
+    }
+}
+pub async fn authenticate_authorized(
+    pool: &PgPool,
+    input: Credentials,
+) -> Result<Option<Authorization>, sqlx::Error> {
     if !input.valid() {
         return Ok(None);
     }
@@ -69,8 +89,12 @@ pub async fn authenticate(
     let replacement = replacement.transpose().map_err(sqlx::Error::Protocol)?;
     // Compare-and-swap prevents a concurrent password change from being overwritten.
     // Recheck authorization after hashing, including the explicit MFA import guard.
-    sqlx::query_scalar("UPDATE accounts SET password_hash=COALESCE($3,password_hash), updated_at=CASE WHEN $3::text IS NULL THEN updated_at ELSE now() END WHERE id=$1 AND password_hash=$2 AND status='active' AND email_verified_at IS NOT NULL AND login_mfa_required=false RETURNING id")
-        .bind(account.id).bind(original).bind(replacement).fetch_optional(pool).await
+    let row: Option<(AccountId, i64)> = sqlx::query_as("UPDATE accounts SET password_hash=COALESCE($3,password_hash), updated_at=CASE WHEN $3::text IS NULL THEN updated_at ELSE now() END WHERE id=$1 AND password_hash=$2 AND native_security_generation=$4 AND status='active' AND email_verified_at IS NOT NULL AND login_mfa_required=false RETURNING id,native_security_generation")
+        .bind(account.id).bind(original).bind(replacement).bind(account.native_security_generation).fetch_optional(pool).await?;
+    Ok(row.map(|(account, generation)| Authorization {
+        account,
+        generation,
+    }))
 }
 
 /// Session key of the post-login return target. The OAuth authorize adapter stores
@@ -96,3 +120,9 @@ pub fn authorize_return(target: &str) -> bool {
 #[cfg(test)]
 #[path = "login_tests.rs"]
 mod tests;
+
+impl std::fmt::Debug for Authorization {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Authorization([redacted])")
+    }
+}

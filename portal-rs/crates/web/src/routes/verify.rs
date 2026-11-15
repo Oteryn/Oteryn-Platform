@@ -107,8 +107,28 @@ async fn resend(
     State(state): State<AppState>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
+    peer: Option<Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Response, StatusCode> {
     let id = session.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
+    let limiter = crate::ratelimit::RateLimiter::new(state.db.clone());
+    let Some(Extension(axum::extract::ConnectInfo(peer))) = peer else {
+        return Ok(crate::ratelimit::Denial::Unavailable.response(language, false));
+    };
+    let source = match limiter.trusted_proxies.client_ip(peer, &headers) {
+        Ok(source) => source,
+        Err(error) => return Ok(error.response(language, false)),
+    };
+    let mut keys = crate::ratelimit::Keys::source(source);
+    keys.account = Some(id.to_string());
+    for policy in [
+        crate::ratelimit::NamedPolicy::IdentityRegistration,
+        crate::ratelimit::NamedPolicy::IdentitySecurityMutation,
+    ] {
+        if let Err(error) = limiter.check(policy, &[keys.clone()]).await {
+            return Ok(error.response(language, false));
+        }
+    }
     verify::resend(&state.db, id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -135,3 +155,7 @@ pub async fn protect_token(
     }
     next.run(request).await
 }
+
+#[cfg(test)]
+#[path = "verify_budget_tests.rs"]
+mod budget_tests;

@@ -296,8 +296,22 @@ async fn end_authenticate(
     if session.account_id().await.is_some() {
         return Err(Error::Refused);
     }
-    let account = service.finish_authentication(binding, input).await?;
-    session::rotate(session, PrivilegeChange::Login(account)).await?;
+    let proof = service.finish_authorized(binding, input).await?;
+    let account = proof.account;
+    session::rotate(
+        session,
+        PrivilegeChange::AuthorizedLogin(account, proof.generation()),
+    )
+    .await?;
+    let valid = service.authentication_current(&proof).await;
+    if !matches!(valid, Ok(true)) {
+        session::rotate(session, PrivilegeChange::Logout).await?;
+        valid?;
+        return Err(Error::Refused);
+    }
+    crate::sessions_http::complete_login(&service.pool(), session, account)
+        .await
+        .map_err(|_| Error::Refused)?;
     Ok(serde_json::json!({"ok":true}))
 }
 async fn delete_key(
