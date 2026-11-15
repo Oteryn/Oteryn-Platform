@@ -863,3 +863,93 @@ async fn enforcement_routes_bind_their_two_identities_behind_their_flag() -> Tes
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn global_registry_refuses_analytics_and_public_before_dispatch() -> TestResult {
+    let mut values = enabled();
+    values.remove("PORTAL_GAME_RESTORE_NOTICE_ENABLED");
+    values.insert(
+        "OTERYN_ADMIN_ANALYTICS_PEER_SAN".into(),
+        "game-admin-analytics".into(),
+    );
+    values.insert(PUBLIC_IDENTITY.into(), "game-admin-analytics".into());
+    let analytics = oteryn_admin::analytics::router(
+        pool()?,
+        oteryn_admin::analytics::Config {
+            ingest: true,
+            authority: AUTHORITY.into(),
+            privacy: "test-policy".into(),
+            requests_per_minute: 1200,
+            max_staging_bytes: 268435456,
+            ..Default::default()
+        },
+        Arc::new(IdentityMap::new(vec![Binding {
+            identity: Identity::san("game-admin-analytics")?,
+            group: "game-admin-analytics".into(),
+        }])?),
+    );
+    assert_eq!(
+        call(
+            &analytics,
+            "game-admin-analytics",
+            "/internal/v1/admin-analytics/page",
+            "not json"
+        )
+        .await?
+        .0,
+        StatusCode::BAD_REQUEST,
+        "the independent analytics guard would accept this overlapping identity"
+    );
+    let configuration = Configuration::new(values)?;
+    let app = mount(
+        analytics,
+        pool()?,
+        oteryn_core::Environment::Testing,
+        configuration,
+    )
+    .await;
+    for path in [
+        "/internal/v1/admin-analytics/page",
+        ONLINE_SESSION_PATH,
+        oteryn_community::v2_watermark::PATH,
+    ] {
+        let (status, body) = call(&app, "game-admin-analytics", path, "not json").await?;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        assert!(body.is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn binary_configuration_refuses_store_with_restore() -> TestResult {
+    let mut values = enabled();
+    assert!(Configuration::new(values.clone()).is_err());
+    values.remove("PORTAL_GAME_RESTORE_NOTICE_ENABLED");
+    assert!(Configuration::new(values.clone()).is_ok());
+    values.insert("PORTAL_GAME_RESTORE_NOTICE_ENABLED".into(), "true".into());
+    values.remove("PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED");
+    assert!(Configuration::new(values).is_ok());
+    Ok(())
+}
+
+#[test]
+fn global_registry_includes_control_agent_identities() -> TestResult {
+    let mut values = Values::new();
+    values.insert(
+        "OTERYN_ADMIN_ANALYTICS_PEER_SAN".into(),
+        "game-admin-analytics".into(),
+    );
+    values.insert(
+        "PORTAL_ADMIN_CONTROL_AGENTS_JSON".into(),
+        r#"[{"cn":"oteryn-admin-agent/agent-a","identity":{"san":"game-admin-analytics"}}]"#.into(),
+    );
+    assert!(bindings(&values).is_err());
+    values.remove("OTERYN_ADMIN_ANALYTICS_PEER_SAN");
+    assert!(bindings(&values).is_ok());
+    values.insert(
+        "PORTAL_ADMIN_CONTROL_AGENTS_JSON".into(),
+        r#"[{"identity":{"spki":"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc"}}]"#.into(),
+    );
+    assert!(bindings(&values).is_ok());
+    Ok(())
+}

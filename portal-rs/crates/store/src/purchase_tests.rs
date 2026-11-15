@@ -1728,3 +1728,21 @@ async fn postgres_transfer_prepares_complete_identity_set_before_wallets() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[test]
+fn preprod_lookup_uses_core_environment_spelling() {
+    let configured = Settings::from_lookup(|key| match key {
+        "OTERYN_ENV" => Some("preprod".into()),
+        "PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED"
+        | "PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED" => Some("true".into()),
+        "PRODUCTS_ENTITLEMENTS_STORE_SOURCE_AUTHORITY" => Some(SOURCE.into()),
+        "PRODUCTS_ENTITLEMENTS_STORE_MTLS_CLIENT_IDENTITY" => Some(PEER.into()),
+        _ => None,
+    });
+    assert!(configured.valid());
+    let production = Settings {
+        environment: "production".into(),
+        ..configured
+    };
+    assert!(!production.valid());
+}
