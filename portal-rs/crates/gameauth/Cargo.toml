@@ -25,6 +25,8 @@ base64 = "0.22.1"
 getrandom = "0.4.3"
 
 [dev-dependencies]
+oteryn-identity = { path = "../identity" }
+oteryn-notify = { path = "../notify" }
 oteryn-db = { path = "../db" }
 oteryn-gateway = { path = "../gateway" }
 tower = { version = "0.5.3", features = ["util"] }
