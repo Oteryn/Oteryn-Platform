@@ -1,9 +1,6 @@
 //! Delivery of registration verification jobs through the existing outbox worker.
 use crate::worker::{Handler, HandlerFuture, Registry};
-use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    transport::smtp::authentication::Credentials,
-};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use oteryn_identity::verify::token_hash;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -32,21 +29,20 @@ pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std
     {
         return Err("registration mail origin must be an HTTPS origin".into());
     }
-    let smtp = AsyncSmtpTransport::<Tokio1Executor>::relay(&host)?
-        .credentials(Credentials::new(
-            std::env::var("OTERYN_SMTP_USERNAME")?,
-            std::env::var("OTERYN_SMTP_PASSWORD")?,
-        ))
-        .build();
-    registry.register(
-        "email.verify",
-        Arc::new(Mailer {
-            pool,
-            smtp,
-            from: std::env::var("OTERYN_MAIL_FROM")?.parse()?,
-            origin: origin.trim_end_matches('/').into(),
-        }),
-    )?;
+    let smtp = oteryn_notify::smtp::transport(
+        &host,
+        std::env::var("OTERYN_SMTP_USERNAME")?,
+        std::env::var("OTERYN_SMTP_PASSWORD")?,
+    )
+    .map_err(|_| "SMTP configuration invalid")?;
+    let mailer = Arc::new(Mailer {
+        pool,
+        smtp,
+        from: std::env::var("OTERYN_MAIL_FROM")?.parse()?,
+        origin: origin.trim_end_matches('/').into(),
+    });
+    registry.register("email.verify", mailer.clone())?;
+    registry.register("email.account_exists", mailer)?;
     Ok(())
 }
 #[derive(serde::Deserialize)]
@@ -55,7 +51,47 @@ struct Payload {
     locale: String,
     token: String,
 }
+#[derive(serde::Deserialize)]
+struct ExistingPayload {
+    account_id: uuid::Uuid,
+    locale: String,
+    email: Option<String>,
+}
 impl Mailer {
+    async fn prepare_existing(&self, payload: &ExistingPayload) -> Result<Option<Message>, String> {
+        let account: Option<(String, String)> = sqlx::query_as(
+            "SELECT email,locale FROM accounts WHERE id=$1 AND ($2::text IS NULL OR lower(email)=$2) AND status IN ('active','pending_verification','suspended')"
+        ).bind(payload.account_id).bind(&payload.email).fetch_optional(&self.pool).await
+            .map_err(|_| "account-exists delivery unavailable")?;
+        let Some((email, locale)) = account else {
+            return Ok(None);
+        };
+        if !matches!(payload.locale.as_str(), "en" | "pl")
+            || !matches!(locale.as_str(), "en" | "pl")
+        {
+            return Err("invalid account-exists locale".into());
+        }
+        let (subject, body) = if locale == "pl" {
+            (
+                "Konto już istnieje",
+                "Ten adres e-mail jest już powiązany z kontem. Jeśli to Ty próbujesz się zarejestrować, zaloguj się lub odzyskaj hasło.",
+            )
+        } else {
+            (
+                "Account already exists",
+                "This email address already belongs to an account. If you tried to register, sign in or reset your password.",
+            )
+        };
+        Message::builder()
+            .from(self.from.clone())
+            .to(email
+                .parse()
+                .map_err(|_| "invalid account-exists recipient")?)
+            .subject(subject)
+            .body(format!("{body}\n\n{}/{locale}/login", self.origin))
+            .map(Some)
+            .map_err(|_| "account-exists message unavailable".into())
+    }
     async fn prepare(&self, payload: &Payload) -> Result<Option<Message>, String> {
         if payload.token.len() != 64 || !payload.token.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err("invalid verification payload".into());
@@ -98,9 +134,16 @@ impl Mailer {
 impl Handler for Mailer {
     fn run<'a>(&'a self, job: &'a oteryn_db::outbox::Job) -> HandlerFuture<'a> {
         Box::pin(async move {
-            let payload: Payload =
-                serde_json::from_str(&job.payload).map_err(|_| "invalid verification payload")?;
-            let Some(message) = self.prepare(&payload).await? else {
+            let message = if job.kind == "email.account_exists" {
+                let payload = serde_json::from_str(&job.payload)
+                    .map_err(|_| "invalid account-exists payload")?;
+                self.prepare_existing(&payload).await?
+            } else {
+                let payload = serde_json::from_str(&job.payload)
+                    .map_err(|_| "invalid verification payload")?;
+                self.prepare(&payload).await?
+            };
+            let Some(message) = message else {
                 return Ok(());
             };
             self.smtp
@@ -168,5 +211,55 @@ mod tests {
         payload.token = "invalid".into();
         assert!(mailer.prepare(&payload).await.is_err());
         db.close().await
+    }
+}
+
+#[cfg(test)]
+mod account_exists_tests {
+    use super::*;
+    #[tokio::test]
+    async fn account_exists_delivery_revalidates_current_address_and_account_state()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let started = std::time::Instant::now();
+        let db = crate::reset_http::tests::db::Database::open()
+            .await?
+            .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+        let id: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,locale,status,email_verified_at) VALUES('existing@example.test','unused','en','active',now()) RETURNING id")
+            .fetch_one(&db.pool).await?;
+        let mailer = Mailer {
+            pool: db.pool.clone(),
+            smtp: AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous("127.0.0.1").build(),
+            from: "portal@example.test".parse()?,
+            origin: "https://portal.example.test".into(),
+        };
+        let payload = ExistingPayload {
+            account_id: id,
+            locale: "en".into(),
+            email: Some("existing@example.test".into()),
+        };
+        assert!(mailer.prepare_existing(&payload).await?.is_some());
+        // Pending jobs created by the reviewed base carry only account ID/locale.
+        let legacy: ExistingPayload =
+            serde_json::from_value(serde_json::json!({"account_id": id, "locale": "en"}))?;
+        assert!(mailer.prepare_existing(&legacy).await?.is_some());
+        sqlx::query("UPDATE accounts SET email='changed@example.test' WHERE id=$1")
+            .bind(id)
+            .execute(&db.pool)
+            .await?;
+        assert!(mailer.prepare_existing(&payload).await?.is_none());
+        sqlx::query(
+            "UPDATE accounts SET email='existing@example.test',status='closed' WHERE id=$1",
+        )
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+        assert!(mailer.prepare_existing(&payload).await?.is_none());
+        assert!(mailer.prepare_existing(&legacy).await?.is_none());
+        db.close().await?;
+        eprintln!(
+            "PG account_exists_delivery_revalidates_current_address_and_account_state {:.3}s",
+            started.elapsed().as_secs_f64()
+        );
+        Ok(())
     }
 }

@@ -83,7 +83,7 @@ impl Registry {
         Ok(())
     }
     /// Batch jobs start together and renew leases while handlers are in flight.
-    async fn batch(&self, pool: &PgPool) -> Result<usize, Box<dyn std::error::Error>> {
+    pub(crate) async fn batch(&self, pool: &PgPool) -> Result<usize, Box<dyn std::error::Error>> {
         // Preserve connection hooks (including tenant/search_path settings), but
         // reserve independent capacity before handlers can occupy the shared pool.
         let leases = pool
@@ -222,7 +222,7 @@ fn register_journal_cleanup(registry: &mut Registry, pool: &PgPool) -> Result<()
         Arc::new(oteryn_playerdata::retention::Retention(pool.clone())),
     )
 }
-pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
     crate::wallet_topup::register(&mut registry, pool.clone())?;
     if let Some(runtime) = oteryn_bazaar::game::runtime::Runtime::configured(pool.clone()).await? {
@@ -359,6 +359,11 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         3600,
         Arc::new(oteryn_stats::online::Retention { pool: pool.clone() }),
     )?;
+    Ok(registry)
+}
+
+pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let registry = configured(pool.clone()).await?;
     #[cfg(unix)]
     let shutdown = {
         let mut terminate =

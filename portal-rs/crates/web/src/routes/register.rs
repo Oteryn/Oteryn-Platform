@@ -122,15 +122,9 @@ async fn submit(
         *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
         return Ok(response);
     }
-    let account = register::register(
-        &state.db,
-        input,
-        &config,
-        language.code(),
-        peer.map(|Extension(ConnectInfo(peer))| peer.ip()),
-    )
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let account = register::register(&state.db, input, &config, language.code(), Some(source))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if let Some(id) = account {
         session::rotate(&session, PrivilegeChange::Login(id))
             .await

@@ -1,8 +1,7 @@
-# Apply with the pinned Platform Compose contract and public-platform override.
-# Game reaches this listener only through the private Docker network.
+# Rust terminates mTLS itself, preserving certificate identity at the handler.
+# No TLS-terminating nginx hop or forwarded identity headers are trusted.
 services:
-  internal-mtls:
-    ports: !reset []
+  platform:
     networks:
       private:
         ipv4_address: 172.18.0.12

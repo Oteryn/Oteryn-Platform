@@ -57,8 +57,13 @@ pub async fn serve(listener: tokio::net::TcpListener, config: rustls::ServerConf
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
     let slots = Arc::new(tokio::sync::Semaphore::new(64));
     loop {
-        let Ok((socket, peer)) = listener.accept().await else {
-            continue;
+        let Ok((socket, peer)) = crate::accept::accept_with_retry(
+            || listener.accept(),
+            |error| eprintln!("native TLS listener accept failed: {error}"),
+        )
+        .await
+        else {
+            return;
         };
         let Ok(permit) = slots.clone().try_acquire_owned() else {
             continue;

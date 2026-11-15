@@ -350,14 +350,7 @@ async fn observe_login(State(pool): State<PgPool>, request: Request, next: Next)
 pub fn delivery(
     pool: PgPool,
 ) -> Result<Option<oteryn_notify::Delivery>, Box<dyn std::error::Error>> {
-    if ![
-        "OTERYN_ACCOUNT_SESSIONS",
-        "OTERYN_ACCOUNT_LOGIN",
-        "OTERYN_ACCOUNT_PASSKEYS",
-    ]
-    .iter()
-    .any(|flag| std::env::var(flag).is_ok_and(|v| v == "true"))
-    {
+    if std::env::var("OTERYN_SMTP_HOST").is_err() {
         return Ok(None);
     }
     let notifications = oteryn_identity::sessions::security_notifications(pool)

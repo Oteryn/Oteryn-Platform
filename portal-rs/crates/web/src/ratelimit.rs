@@ -157,6 +157,44 @@ impl Keys {
 #[derive(Clone, Debug, Default)]
 pub struct TrustedProxies(pub Vec<IpAddr>);
 impl TrustedProxies {
+    /// Parse exact addresses; CIDRs and malformed/empty entries fail closed.
+    pub fn parse(value: &str) -> Result<Self, &'static str> {
+        if value.trim().is_empty() {
+            return Ok(Self(Vec::new()));
+        }
+        value
+            .split(',')
+            .map(|address| {
+                address
+                    .trim()
+                    .parse::<IpAddr>()
+                    .map_err(|_| "invalid TRUSTED_PROXIES address")
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Self)
+    }
+    pub fn configured() -> Self {
+        static POLICY: std::sync::OnceLock<TrustedProxies> = std::sync::OnceLock::new();
+        POLICY
+            .get_or_init(|| {
+                let value = match std::env::var("TRUSTED_PROXIES") {
+                    Ok(value) => value,
+                    Err(std::env::VarError::NotPresent) => String::new(),
+                    Err(_) => {
+                        tracing::error!("invalid TRUSTED_PROXIES encoding");
+                        std::process::exit(78);
+                    }
+                };
+                match Self::parse(&value) {
+                    Ok(policy) => policy,
+                    Err(error) => {
+                        tracing::error!(error, "proxy configuration rejected");
+                        std::process::exit(78);
+                    }
+                }
+            })
+            .clone()
+    }
     pub fn client_ip(&self, peer: SocketAddr, headers: &HeaderMap) -> Result<IpAddr, Denial> {
         if !self.0.contains(&peer.ip()) {
             return Ok(peer.ip());
@@ -196,7 +234,7 @@ impl RateLimiter {
     pub fn new(pool: PgPool) -> Self {
         Self {
             pool,
-            trusted_proxies: TrustedProxies::default(),
+            trusted_proxies: TrustedProxies::configured(),
             last_error_windows: Arc::new(
                 NamedPolicy::ALL.iter().map(|_| AtomicU64::new(0)).collect(),
             ),
@@ -428,4 +466,19 @@ impl oteryn_db::outbox::Cleanup for RateLimitCleanup {
 /// The main portal router already applies this policy to its mounted modules.
 pub fn finish_routes(router: axum::Router) -> axum::Router {
     crate::surface::finish(router).layer(axum::middleware::from_fn(api_errors))
+}
+
+#[cfg(test)]
+mod proxy_configuration_tests {
+    use super::*;
+    #[test]
+    fn proxy_configuration_rejects_malformed_allowlists() -> Result<(), Box<dyn std::error::Error>>
+    {
+        assert!(TrustedProxies::parse("")?.0.is_empty());
+        assert_eq!(TrustedProxies::parse(" 127.0.0.1, ::1 ")?.0.len(), 2);
+        for value in ["127.0.0.1,", "192.0.2.0/24", "proxy", "1.2.3.999"] {
+            assert!(TrustedProxies::parse(value).is_err());
+        }
+        Ok(())
+    }
 }

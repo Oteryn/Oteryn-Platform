@@ -55,3 +55,11 @@ All default to off; `bin/oteryn-portal` mounts the ingest only on a qualified in
 Ownership comes from the character projection and a receipt chain: the committed `CreateCharacter` receipt is the initial cut (an accepted `pd_ownership_baselines` row only where no create receipt exists), and each committed transfer must name the previous owner as its seller. A pending transfer, missing creation evidence or a broken chain answers 503; a wrong owner or a stale cut answers 409. At the transfer cut the character's earlier login sessions are hidden from both accounts (G-11): the seller sees none of them, and the buyer sees only sessions after its cut. A sold character, or one whose ownership cannot be proven, is hidden from the login history; the rest of the page stays readable.
 
 Operators can run `oteryn-portal catalog import <file> --actor <account-uuid>` (prints the revision), then `oteryn-portal catalog activate <catalog_revision> --actor <account-uuid>`. The active account needs `store.catalog.import` or `store.catalog.activate`, respectively; the explicit command enables catalog operations and audits changes.
+
+All production email senders share `OTERYN_SMTP_TLS_MODE` (`starttls`, the default,
+or `implicit`) and optional `OTERYN_SMTP_PORT` (default 587 or 465 respectively).
+Both modes require certificate validation and SMTP credentials. There is no
+plaintext production mode. `TRUSTED_PROXIES` is a comma-separated list of exact IP
+addresses, validated once per process; absent/empty trusts no forwarding headers.
+Every browser limiter and abuse adapter uses this policy. Invalid entries refuse
+startup. Proxies must append/overwrite `X-Forwarded-For` correctly.

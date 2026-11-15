@@ -279,6 +279,33 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             .await
         },
     );
+    let badge_routes = get(
+        |State(state): State<AppState>,
+         axum::Extension(session): axum::Extension<session::BrowserSession>,
+         axum::Extension(lang): axum::Extension<Language>| async move {
+            oteryn_characters::badges::http::show(
+                &oteryn_characters::badges::http::configured(state.db),
+                session.account_id().await,
+                lang.code(),
+                session.csrf_token().await,
+            )
+            .await
+        },
+    )
+    .post(
+        |State(state): State<AppState>,
+         axum::Extension(session): axum::Extension<session::BrowserSession>,
+         axum::Extension(lang): axum::Extension<Language>,
+         axum::Form(fields): axum::Form<Vec<(String, String)>>| async move {
+            oteryn_characters::badges::http::save(
+                &oteryn_characters::badges::http::configured(state.db),
+                session.account_id().await,
+                lang.code(),
+                fields,
+            )
+            .await
+        },
+    );
     let router = Router::new()
         .route("/", get(home))
         .route("/healthz", get(healthz))
@@ -426,36 +453,9 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                 },
             ),
         )
-        .route(
-            "/account/badges",
-            get(
-                |State(state): State<AppState>,
-                 axum::Extension(session): axum::Extension<session::BrowserSession>,
-                 axum::Extension(lang): axum::Extension<Language>| async move {
-                    oteryn_characters::badges::http::show(
-                        &oteryn_characters::badges::http::configured(state.db),
-                        session.account_id().await,
-                        lang.code(),
-                        session.csrf_token().await,
-                    )
-                    .await
-                },
-            )
-            .post(
-                |State(state): State<AppState>,
-                 axum::Extension(session): axum::Extension<session::BrowserSession>,
-                 axum::Extension(lang): axum::Extension<Language>,
-                 axum::Form(fields): axum::Form<Vec<(String, String)>>| async move {
-                    oteryn_characters::badges::http::save(
-                        &oteryn_characters::badges::http::configured(state.db),
-                        session.account_id().await,
-                        lang.code(),
-                        fields,
-                    )
-                    .await
-                },
-            ),
-        )
+        .route("/account/badges", badge_routes.clone())
+        .route("/en/account/badges", badge_routes.clone())
+        .route("/pl/account/badges", badge_routes)
         .route("/account/characters/{name}/profile", profile_routes.clone())
         .route(
             "/pl/account/characters/{name}/profile",
@@ -539,7 +539,7 @@ async fn resolve_client_ip(
         .extensions()
         .get::<ratelimit::RateLimiter>()
         .map(|limiter| limiter.trusted_proxies.clone())
-        .unwrap_or_default();
+        .unwrap_or_else(ratelimit::TrustedProxies::configured);
     match proxies.client_ip(peer, request.headers()) {
         Ok(ip) => {
             request
