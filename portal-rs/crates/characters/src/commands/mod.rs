@@ -3,7 +3,7 @@
 //! Callers must authorize the user or Bazaar saga and supply its immutable decision
 //! ID. Account state is rechecked through `AccountStateReader`; projections never
 //! establish ownership. Mount `router` only on the private verified TLS listener.
-mod http;
+pub(crate) mod http;
 mod storage;
 mod wire;
 

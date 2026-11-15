@@ -23,3 +23,6 @@ stale = Powiązanie z grą jest nieaktualne
 invalid = Nie udało się zweryfikować powiązania z grą
 availability = Dostępność w grze
 available = Dostępna
+
+main-character = Główna postać
+profile-preferences = Preferencje profilu

@@ -628,11 +628,45 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         reservation: Uuid,
         capture: bool,
     ) -> Result<Receipt, Error> {
+        self.settle_existing_in::<false>(tx, key, account, reservation, capture)
+            .await
+    }
+    /// Trusted reconciliation of an existing reservation may settle a known inactive
+    /// account. Unknown accounts still fail closed; this never authorizes new spending.
+    pub async fn reconcile_reservation_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        key: Uuid,
+        account: Uuid,
+        reservation: Uuid,
+        capture: bool,
+    ) -> Result<Receipt, Error> {
+        self.settle_existing_in::<true>(tx, key, account, reservation, capture)
+            .await
+    }
+    async fn settle_existing_in<const RECONCILE: bool>(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        key: Uuid,
+        account: Uuid,
+        reservation: Uuid,
+        capture: bool,
+    ) -> Result<Receipt, Error> {
         self.enabled()?;
         valid_key(key)?;
         valid_id(account)?;
         valid_key(reservation)?;
-        self.active(tx, account).await?;
+        if RECONCILE {
+            if !matches!(
+                self.accounts.state(tx, account).await,
+                AccountState::Active | AccountState::Inactive
+            ) {
+                return Err(Refusal::AccountDenied.into());
+            }
+        } else {
+            self.active(tx, account).await?;
+        }
+
         lock(tx, account).await?;
         let row = sqlx::query("SELECT amount-COALESCE((to_jsonb(wallet_reservations)->>'consumed')::bigint,0) AS amount, status FROM wallet_reservations WHERE id=$1 AND account_id=$2 FOR UPDATE")
             .bind(reservation).bind(account).fetch_optional(&mut **tx).await?.ok_or(Refusal::ReservationMissing)?;

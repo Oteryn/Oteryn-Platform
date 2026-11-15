@@ -308,34 +308,6 @@ async fn peer_flag_and_transport_failures_need_no_database() -> TestResult {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert!(body(response).await?.is_empty());
     }
-    for (key, value, status) in [
-        (header::CONTENT_TYPE, "text/plain", StatusCode::BAD_REQUEST),
-        (
-            header::TRANSFER_ENCODING,
-            "chunked",
-            StatusCode::BAD_REQUEST,
-        ),
-        (header::CONTENT_ENCODING, "gzip", StatusCode::BAD_REQUEST),
-        (
-            header::CONTENT_LENGTH,
-            "16385",
-            StatusCode::PAYLOAD_TOO_LARGE,
-        ),
-    ] {
-        let mut request = request(SNAPSHOT_PATH, SNAPSHOT, Some("character-projection"))?;
-        request.headers_mut().insert(key, value.parse()?);
-        let response = app.clone().oneshot(request).await?;
-        assert_eq!(response.status(), status);
-        assert!(body(response).await?.is_empty());
-    }
-    let response = app
-        .oneshot(request(
-            WATERMARK_PATH,
-            "x".repeat(513),
-            Some("character-projection"),
-        )?)
-        .await?;
-    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     {
         let mut projection = projection.clone();
         projection.settings.environment = Environment::Local;
@@ -797,5 +769,78 @@ async fn db_concurrent_equal_revision_conflict_stays_invalid_until_higher_pair()
             .state,
         ReadState::Ready
     );
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit_a210_db_malformed_lcfa_bodies_consume_admission_budget() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let mut p = db.projection();
+    p.settings.requests_per_minute = 1;
+    let app = router(p, identities()?);
+    assert_eq!(
+        app.clone()
+            .oneshot(request(SNAPSHOT_PATH, "{", Some("character-projection"))?)
+            .await?
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    for path in [SNAPSHOT_PATH, WATERMARK_PATH] {
+        for raw in ["{".to_owned(), "x".repeat(70000)] {
+            assert_eq!(
+                app.clone()
+                    .oneshot(request(path, raw.clone(), Some("character-projection"))?)
+                    .await?
+                    .status(),
+                StatusCode::TOO_MANY_REQUESTS
+            );
+        }
+    }
+    db.close().await?;
+    eprintln!(
+        "audit_a210_db_malformed_lcfa_bodies_consume_admission_budget duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn db_transport_validation_after_admission() -> TestResult {
+    // Valid peers now enter durable admission before transport validation.
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let admitted = router(db.projection(), identities()?);
+    for (key, value, status) in [
+        (header::CONTENT_TYPE, "text/plain", StatusCode::BAD_REQUEST),
+        (
+            header::TRANSFER_ENCODING,
+            "chunked",
+            StatusCode::BAD_REQUEST,
+        ),
+        (header::CONTENT_ENCODING, "gzip", StatusCode::BAD_REQUEST),
+        (
+            header::CONTENT_LENGTH,
+            "16385",
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+    ] {
+        let mut request = request(SNAPSHOT_PATH, SNAPSHOT, Some("character-projection"))?;
+        request.headers_mut().insert(key, value.parse()?);
+        let response = admitted.clone().oneshot(request).await?;
+        assert_eq!(response.status(), status);
+        assert!(body(response).await?.is_empty());
+    }
+    let response = admitted
+        .oneshot(request(
+            WATERMARK_PATH,
+            "x".repeat(513),
+            Some("character-projection"),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     db.close().await
 }

@@ -62,23 +62,26 @@ impl Settings {
 /// internal read API after binding the account to their authenticated principal.
 pub fn router(projection: Projection, identities: Arc<IdentityMap>) -> Router {
     let settings = projection.settings.clone();
-    let mount =
-        |path, max| {
-            let routes = Router::new().route(path, post(publish)).route_layer(
-                middleware::from_fn_with_state(projection.clone(), bounds_and_rate),
-            );
-            guard::protect(
-                routes,
-                identities.clone(),
-                RoutePolicy {
-                    enabled: settings.available(),
-                    group: GROUP.into(),
-                    max_body_bytes: max,
-                    max_json_depth: 4,
-                    json: JsonRule::Object,
-                },
-            )
+    let mount = |path, max| {
+        let policy = RoutePolicy {
+            enabled: settings.available(),
+            group: GROUP.into(),
+            max_body_bytes: max,
+            max_json_depth: 4,
+            json: JsonRule::Object,
         };
+        let routes = Router::new()
+            .route(path, post(publish))
+            .route_layer(middleware::from_fn_with_state(
+                policy.clone(),
+                guard::check_body,
+            ))
+            .route_layer(middleware::from_fn_with_state(
+                projection.clone(),
+                bounds_and_rate,
+            ));
+        guard::protect_peer(routes, identities.clone(), policy)
+    };
     mount(SNAPSHOT_PATH, wire::SNAPSHOT_MAX_BYTES)
         .merge(mount(WATERMARK_PATH, wire::WATERMARK_MAX_BYTES))
         .with_state(projection)
@@ -155,10 +158,6 @@ async fn bounds_and_rate(
 ) -> Response {
     let (parts, body) = request.into_parts();
     let result = async {
-        if let Some(length) = parts.headers.get(header::CONTENT_LENGTH) {
-            let length = length.to_str().map_err(|_| Error::BadInput)?;
-            if length.len() > 5 { return Ok(Some(guard::failure(StatusCode::PAYLOAD_TOO_LARGE))); }
-        }
         let client = parts.extensions.get::<VerifiedClient>().ok_or(Error::Unauthorized)?;
         // This opaque bucket key grants no authority: T15 already authenticated
         // the complete verified client. Never log the representation or digest.
