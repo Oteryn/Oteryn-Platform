@@ -39,37 +39,7 @@ impl Db {
             })
             .connect(&url)
             .await?;
-        sqlx::raw_sql(include_str!(
-            "../../../migrations/20261105152830_t57_bazaar_core.sql"
-        ))
-        .execute(&pool)
-        .await?;
-        sqlx::raw_sql(include_str!(
-            "../../../migrations/20261105230107_t64_moderation.sql"
-        ))
-        .execute(&pool)
-        .await?;
-        sqlx::raw_sql(
-            include_str!("../../../migrations/20261115110004_fix_04_scheduling.sql")
-                .split(
-                    "-- Moderation lock order. Statement triggers run before implicit row locks;",
-                )
-                .nth(1)
-                .ok_or("missing moderation migration")?
-                .split("-- Character transfer publication")
-                .next()
-                .ok_or("missing moderation fence")?,
-        )
-        .execute(&pool)
-        .await?;
-        sqlx::raw_sql(
-            include_str!("../../../migrations/20261115120005_fix_a2-04-bazaar_invalidation.sql")
-                .split("-- Accepted bids")
-                .next()
-                .ok_or("missing invalidation migration")?,
-        )
-        .execute(&pool)
-        .await?;
+        oteryn_db::migrate(&pool).await?;
         sqlx::raw_sql("CREATE TABLE test_promotion_debits(id uuid PRIMARY KEY,amount bigint)")
             .execute(&pool)
             .await?;

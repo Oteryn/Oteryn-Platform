@@ -229,6 +229,10 @@ impl Authority {
         {
             return Err(Error::Denied);
         }
+        // Row-level conflict state prevents a concurrent quarantine from being
+        // overwritten by a reader that verified an earlier snapshot.
+        sqlx::query("UPDATE bazaar_disposition_fences SET no_effect_generation=$2::text::numeric,terminal_committed=$3 WHERE operation_id=$1 AND NOT quarantined")
+            .bind(operation).bind(if r.committed { "0".to_owned() } else { self.fence.recovery_generation.to_string() }).bind(r.committed).execute(&mut *db).await?;
         Ok(Some((i, r)))
     }
     pub(super) async fn custody(
@@ -241,7 +245,7 @@ impl Authority {
             return Ok(None);
         }
         let held: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1) OR EXISTS(SELECT 1 FROM bazaar_listings WHERE id=$1 AND kind='item' AND state='active' AND EXISTS(SELECT 1 FROM bazaar_item_restrictions))",
+            "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1) OR EXISTS(SELECT 1 FROM bazaar_listings WHERE id=$1 AND kind='item' AND state='active' AND bazaar_item_restricted(id,price))",
         )
         .bind(listing.id)
         .fetch_one(&mut *db)
@@ -327,7 +331,7 @@ impl Authority {
                         return Ok(None);
                     }
                     if text(definition, "family")? != "item"
-                        || !self.tradeable(db, &s, item).await?
+                        || !self.tradeable(db, &s, item, listing.price).await?
                     {
                         return Ok(None);
                     }
@@ -344,14 +348,27 @@ impl Authority {
         db: &mut PgConnection,
         s: &Value,
         item: &Value,
+        value: i64,
     ) -> Result<bool, Error> {
         let world = id(text(s, "world_id")?)?;
         let Some(policy) = self.projection(db, "POLICY", world).await? else {
             return Ok(false);
         };
         let definition = item.get("definition").ok_or(Error::Invalid)?;
-        let restricted:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_item_restrictions WHERE world_id=$1 AND family=$2 AND production_key=$3 AND revision_ref=$4)").bind(world).bind(text(definition,"family")?).bind(text(definition,"production_key")?).bind(text(definition,"revision_ref")?).fetch_one(&mut *db).await?;
-        if restricted {
+        if !crate::moderation::item_allowed(
+            db,
+            world,
+            (
+                text(definition, "family")?,
+                text(definition, "production_key")?,
+                text(definition, "revision_ref")?,
+            ),
+            Some(true),
+            value,
+        )
+        .await
+        .map_err(|_| Error::Denied)?
+        {
             return Ok(false);
         }
         let Some(Value::Array(definitions)) = policy.get("definitions") else {
