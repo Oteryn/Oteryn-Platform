@@ -452,7 +452,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         sqlx::query("SELECT pg_advisory_xact_lock(71010)")
             .execute(&mut *tx)
             .await?;
-        let row: Option<(Uuid,Uuid)> = sqlx::query_as("SELECT requested_by,evidence FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2 AND approved_by IS NULL AND expires_at>now() FOR UPDATE").bind(request).bind(id).fetch_optional(&mut *tx).await?;
+        let row: Option<(Uuid,Uuid)> = sqlx::query_as("SELECT requested_by,evidence FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2 AND approved_by IS NULL AND expires_at>clock_timestamp() FOR UPDATE").bind(request).bind(id).fetch_optional(&mut *tx).await?;
         let (requester, evidence) = row.ok_or(Error::Denied)?;
         if context.account == requester || context.account == id {
             return Err(Error::Denied);
@@ -467,6 +467,17 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         )
         .await?;
         if !self.accounts.verified(&mut tx, id, evidence).await? {
+            return Err(Error::Denied);
+        }
+        // Authorization and evidence checks can wait on other locks. Recheck the
+        // live clock while holding the request lock immediately before mutation.
+        let unexpired: bool = sqlx::query_scalar(
+            "SELECT expires_at>clock_timestamp() FROM player_mfa_reset_requests WHERE id=$1",
+        )
+        .bind(request)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !unexpired {
             return Err(Error::Denied);
         }
         self.accounts.reset_mfa(&mut tx, id, evidence).await?;
