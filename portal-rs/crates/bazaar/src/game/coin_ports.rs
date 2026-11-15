@@ -44,7 +44,8 @@ impl Accounts for PlatformAccounts {
         .bind(account)
         .fetch_one(&mut *db)
         .await?;
-        let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sanctions WHERE account_id=$1 AND category IN ('restriction','suspension') AND status='active' AND effective_at<=now() AND (expires_at IS NULL OR expires_at>now()))").bind(account).fetch_one(&mut *db).await?;
+        let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sanctions WHERE account_id=$1 AND (category NOT IN ('warning','restriction','suspension') OR status NOT IN ('pending','active','expired','revoked') OR (category IN ('restriction','suspension') AND status='active' AND effective_at<=clock_timestamp() AND (expires_at IS NULL OR expires_at>clock_timestamp()))))").bind(account).fetch_one(&mut *db).await?;
+        let typed_ban: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM (SELECT DISTINCT ON (r.sanction_id) r.active,r.expires_at FROM support_sanction_revisions r JOIN support_sanction_identities i USING(sanction_id) WHERE r.account_id=$1 AND i.kind='ban' ORDER BY r.sanction_id,r.revision DESC) latest WHERE active AND (expires_at IS NULL OR expires_at>clock_timestamp()))").bind(account).fetch_one(&mut *db).await?;
         let sudo = if let Some(hash) = self.session_hash {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND sudo_until>now() AND idle_expires_at>now() AND absolute_expires_at>now())").bind(hash.to_vec()).bind(account).fetch_one(&mut *db).await?
         } else {
@@ -55,7 +56,7 @@ impl Accounts for PlatformAccounts {
             email_verified: row.try_get("verified")?,
             mfa,
             sudo,
-            bazaar_blocked: blocked || row.try_get::<bool, _>("blocked")?,
+            bazaar_blocked: blocked || typed_ban || row.try_get::<bool, _>("blocked")?,
         }))
     }
 }
@@ -74,14 +75,17 @@ impl CoinReservations {
         })
     }
 
-    async fn account(db: &mut PgConnection, account: Uuid) -> Result<(), Error> {
+    async fn account(db: &mut PgConnection, account: Uuid, obligation: bool) -> Result<(), Error> {
+        // Existing obligations accept suspended identities; new reserves require active.
         // The complete identity set is acquired before any wallet row.
         let status: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
                 .bind(account)
                 .fetch_optional(&mut *db)
                 .await?;
-        if status.as_deref() != Some("active") {
+        if status.as_deref() != Some("active")
+            && !(obligation && status.as_deref() == Some("suspended"))
+        {
             return Err(Error::Denied);
         }
         Ok(())
@@ -131,7 +135,7 @@ impl Reservations for CoinReservations {
             return Err(Error::InvalidInput);
         }
         for account in accounts {
-            Self::account(db, *account).await?;
+            Self::account(db, *account, true).await?;
         }
         for &account in accounts {
             sqlx::query(
@@ -157,7 +161,7 @@ impl Reservations for CoinReservations {
         if h.currency != Currency::Coins || h.amount <= 0 {
             return Err(Error::Denied);
         }
-        Self::account(db, h.account).await?;
+        Self::account(db, h.account, false).await?;
         let old=sqlx::query("SELECT amount,settlement_id,completed FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(h.id).bind(h.account).fetch_optional(&mut *db).await?;
         let amount = if let Some(old) = old {
             if old.try_get::<Option<Uuid>, _>("settlement_id")?.is_some()
@@ -199,7 +203,7 @@ impl Reservations for CoinReservations {
     }
     async fn release(&self, db: &mut PgConnection, id: Uuid, account: Uuid) -> Result<(), Error> {
         self.fence(db).await?;
-        Self::account(db, account).await?;
+        Self::account(db, account, true).await?;
         let row=sqlx::query("SELECT amount,settlement_id FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(id).bind(account).fetch_optional(&mut *db).await?;
         let Some(row) = row else {
             if let Some(hold) =

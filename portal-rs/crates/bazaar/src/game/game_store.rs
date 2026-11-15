@@ -22,7 +22,8 @@ pub struct Outbox {
 impl Outbox {
     /// Prepare immutable bytes for later qualification, even with game dispatch off.
     /// This never reserves gold, certifies custody or makes an intent executable.
-    /// Only first attempts are preparable: terminal refusal mappings are unresolved.
+    /// Attempts are immutable. Replacements require distinct step keys and the
+    /// runtime's audited terminal no-effect fence before publication.
     #[allow(clippy::too_many_arguments)]
     pub async fn stage(
         &self,
@@ -64,7 +65,7 @@ impl Outbox {
             .ok_or(Error::Denied)?;
         let compensation = matches!(
             intent.command,
-            Command::Return | Command::Unlock | Command::Release
+            Command::Return | Command::Unlock | Command::Release | Command::Payout
         ) || (intent.command == Command::Bind
             && text(&intent.value, "purpose")? == "BAZAAR_ESCROW_RETURN");
         let allows = if compensation {

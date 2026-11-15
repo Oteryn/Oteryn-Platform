@@ -3,7 +3,7 @@ use crate::{Evidence, State};
 use askama::Template;
 use axum::{
     Extension, Form as BrowserForm, Router,
-    extract::{Path, State as HttpState},
+    extract::{Path, Query, State as HttpState},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -14,6 +14,10 @@ use sha2::{Digest, Sha256};
 struct Card {
     id: Uuid,
     name: String,
+    snapshot: Option<crate::characters::SaleSnapshot>,
+    publication: Option<crate::items::Publication>,
+    quantity: i64,
+    ends_at: String,
     kind: String,
     state: String,
     price: i64,
@@ -25,7 +29,7 @@ struct Card {
 }
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title></head><body><header><a href=\"/{{ lang }}/bazaar\">{{ title }}</a> <a href=\"/{{ lang }}/account/bazaar\">{{ own_label }}</a> <a href=\"/{{ lang }}/account/bazaar/sell\">{{ sell_label }}</a></header><main><h1>{{ title }}</h1>{% if !message.is_empty() %}<p role=\"status\">{{ message }}</p>{% endif %}{% if create %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/sell\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><label>{{ kind_label }}<select name=\"kind\"><option value=\"character\">{{ character_label }}</option><option value=\"item\">{{ item_label }}</option></select></label><label>{{ world_label }}<input required name=\"world_id\"></label><label>{{ character_label }} ID<input required name=\"seller_character_id\"></label><label>{{ asset_label }}<input required name=\"asset_id\"></label><label>{{ revision_label }}<input name=\"expected_revision\" required value=\"7\"></label><label>{{ quantity_label }}<input name=\"quantity\" required type=\"number\" min=\"1\" value=\"1\"></label><label>{{ definition_label }}<input name=\"definition_key\" value=\"item\"></label><label>{{ version_label }}<input name=\"definition_revision\" value=\"v1\"></label><label>{{ currency_label }}<select name=\"currency\"><option value=\"COINS\">Coins</option><option value=\"GOLD\">Gold</option></select></label><label>{{ price_label }}<input name=\"starting_bid\" required type=\"number\" min=\"1\"></label><label>{{ days_label }}<input name=\"duration_days\" required type=\"number\" min=\"1\" max=\"14\" value=\"1\"></label><label><input type=\"checkbox\" name=\"publish_snapshot\" value=\"true\" required>{{ consent_label }}</label><button type=\"submit\">{{ sell_label }}</button></form>{% endif %}{% for card in cards %}<article data-listing=\"{{ card.id }}\" data-state=\"{{ card.state }}\"><h2><a href=\"/{{ lang }}/bazaar/{{ card.id }}\">{{ card.name }}</a></h2><p>{% if card.kind == \"character\" %}{{ character_label }}{% else %}{{ item_label }}{% endif %} · {{ card.price }} {{ card.currency }}</p><p role=\"status\">{% if card.refused %}{{ refused_label }}{% elif card.cancelled %}{{ cancelled_label }}{% elif card.completed %}{{ complete_label }}{% elif card.state == \"active\" %}{{ active_label }}{% else %}{{ pending_label }}{% endif %}</p>{% if detail && card.owner && !card.completed && !card.refused %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/{{ card.id }}/control\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><button name=\"action\" value=\"resume\">{{ resume_label }}</button><button name=\"action\" value=\"cancel\">{{ cancel_label }}</button></form>{% endif %}{% if detail && card.state == \"active\" && !card.owner %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/{{ card.id }}/bids\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><label>{{ destination_label }}<input name=\"buyer_character_id\" required></label><label>{{ maximum_label }}<input name=\"maximum\" type=\"number\" min=\"1\" required></label><button type=\"submit\">{{ bid_label }}</button></form>{% endif %}</article>{% endfor %}</main></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title></head><body><header><a href=\"/{{ lang }}/bazaar\">{{ title }}</a> <a href=\"/{{ lang }}/account/bazaar\">{{ own_label }}</a> <a href=\"/{{ lang }}/account/bazaar/sell\">{{ sell_label }}</a></header><main><h1>{{ title }}</h1>{% if !message.is_empty() %}<p role=\"status\">{{ message }}</p>{% endif %}{% if create %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/sell\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><label>{{ kind_label }}<select name=\"kind\"><option value=\"character\">{{ character_label }}</option><option value=\"item\">{{ item_label }}</option></select></label><label>{{ world_label }}<input required name=\"world_id\"></label><label>{{ character_label }} ID<input required name=\"seller_character_id\"></label><label>{{ asset_label }}<input required name=\"asset_id\"></label><label>{{ revision_label }}<input name=\"expected_revision\" required value=\"7\"></label><label>{{ quantity_label }}<input name=\"quantity\" required type=\"number\" min=\"1\" value=\"1\"></label><label>{{ definition_label }}<input name=\"definition_key\" value=\"item\"></label><label>{{ version_label }}<input name=\"definition_revision\" value=\"v1\"></label><label>{{ currency_label }}<select name=\"currency\"><option value=\"COINS\">Coins</option><option value=\"GOLD\">Gold</option></select></label><label>{{ price_label }}<input name=\"starting_bid\" required type=\"number\" min=\"1\"></label><label>{{ days_label }}<input name=\"duration_days\" required type=\"number\" min=\"1\" max=\"14\" value=\"1\"></label><label><input type=\"checkbox\" name=\"publish_snapshot\" value=\"true\" required>{{ consent_label }}</label><button type=\"submit\">{{ sell_label }}</button></form>{% endif %}{% for card in cards %}<article data-listing=\"{{ card.id }}\" data-state=\"{{ card.state }}\"><h2><a href=\"/{{ lang }}/bazaar/{{ card.id }}\">{{ card.name }}</a></h2><p>{% if card.kind == \"character\" %}{{ character_label }}{% else %}{{ item_label }}{% endif %} · {{ card.price }} {{ card.currency }}</p><p role=\"status\">{% if card.refused %}{{ refused_label }}{% elif card.cancelled %}{{ cancelled_label }}{% elif card.completed %}{{ complete_label }}{% elif card.state == \"active\" %}{{ active_label }}{% else %}{{ pending_label }}{% endif %}</p><p>{{ self.text(\"deadline\") }}: {{ card.ends_at }}</p>{% if detail %}{% if let Some(snapshot) = card.snapshot %}<dl><dt>{{ self.text(\"world\") }}</dt><dd>{{ snapshot.world }}</dd><dt>{{ self.text(\"level\") }}</dt><dd>{{ snapshot.level }}</dd><dt>{{ self.text(\"vocation\") }}</dt><dd>{{ snapshot.vocation }}</dd><dt>{{ self.text(\"health\") }}</dt><dd>{{ snapshot.health }}</dd><dt>{{ self.text(\"health_max\") }}</dt><dd>{{ snapshot.health_max }}</dd><dt>{{ self.text(\"mana\") }}</dt><dd>{{ snapshot.mana }}</dd><dt>{{ self.text(\"mana_max\") }}</dt><dd>{{ snapshot.mana_max }}</dd><dt>{{ self.text(\"capacity_centi_oz\") }}</dt><dd>{{ snapshot.capacity_centi_oz }}</dd><dt>{{ self.text(\"speed\") }}</dt><dd>{{ snapshot.speed }}</dd><dt>{{ self.text(\"experience\") }}</dt><dd>{{ snapshot.experience }}</dd><dt>{{ self.text(\"snapshot_hash\") }}</dt><dd>{{ snapshot.snapshot_hash }}</dd><dt>{{ self.text(\"captured_at\") }}</dt><dd><time data-unix=\"{{ snapshot.captured_at }}\">{{ self.timestamp(snapshot.captured_at) }}</time></dd>{% if let Some(value) = snapshot.created_at %}<dt>{{ self.text(\"created_at\") }}</dt><dd>{{ self.timestamp(value) }}</dd>{% endif %}{% if let Some(value) = snapshot.world_transfer_eligible %}<dt>{{ self.text(\"world_transfer_eligible\") }}</dt><dd>{{ value }}</dd>{% endif %}</dl><h3>{{ self.text(\"skills\") }}</h3><ul>{% for skill in snapshot.skills %}<li>{{ skill.key }}: {{ skill.level }} ({{ self.progress(skill.progress_bps) }})</li>{% endfor %}</ul><ul>{% for value in snapshot.blessings %}<li>{{ value }}</li>{% endfor %}</ul>{% if let Some(values) = snapshot.outfits %}<section><h3>{{ self.text(\"outfits\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.mounts %}<section><h3>{{ self.text(\"mounts\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.achievements %}<section><h3>{{ self.text(\"achievements\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.quests %}<section><h3>{{ self.text(\"quests\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.items %}<section><h3>{{ self.text(\"items\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.quantity }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.store_grants %}<section><h3>{{ self.text(\"store_grants\") }}</h3><ul>{% for value in values %}<li>{{ value }}</li>{% endfor %}</ul></section>{% endif %}{% endif %}{% if let Some(item) = card.publication %}<dl><dt>{{ quantity_label }}</dt><dd>{{ card.quantity }}</dd>{% for (key,value) in item.attributes %}<dt>{{ self.text(key) }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>{% endif %}{% endif %}{% if detail && card.owner && !card.completed && !card.refused %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/{{ card.id }}/control\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><button name=\"action\" value=\"resume\">{{ resume_label }}</button><button name=\"action\" value=\"cancel\">{{ cancel_label }}</button></form>{% endif %}{% if detail && card.state == \"active\" && !card.owner %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/{{ card.id }}/bids\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><label>{{ destination_label }}<input name=\"buyer_character_id\" required></label><label>{{ maximum_label }}<input name=\"maximum\" type=\"number\" min=\"1\" required></label><button type=\"submit\">{{ bid_label }}</button></form>{% endif %}</article>{% endfor %}{% if !next.is_empty() %}<a rel=\"next\" href=\"?before={{ next }}\">{{ self.text(\"next\") }}</a>{% endif %}</main></body></html>",
     ext = "html"
 )]
 struct Page<'a> {
@@ -62,6 +66,7 @@ struct Page<'a> {
     create: bool,
     detail: bool,
     cards: Vec<Card>,
+    next: String,
 }
 fn translated(lang: &str, key: &str) -> String {
     let Ok(id) = lang.parse::<unic_langid::LanguageIdentifier>() else {
@@ -86,6 +91,18 @@ fn translated(lang: &str, key: &str) -> String {
         .unwrap_or_default()
 }
 impl<'a> Page<'a> {
+    fn text(&self, key: &str) -> String {
+        translated(self.lang, key)
+    }
+    fn progress(&self, bps: &u16) -> String {
+        format!("{}.{:02}%", bps / 100, bps % 100)
+    }
+    fn timestamp(&self, value: &u64) -> String {
+        i64::try_from(*value)
+            .ok()
+            .and_then(|seconds| OffsetDateTime::from_unix_timestamp(seconds).ok())
+            .map_or_else(|| value.to_string(), |time| time.to_string())
+    }
     fn new(lang: &'a str) -> Self {
         Self {
             lang,
@@ -121,6 +138,7 @@ impl<'a> Page<'a> {
             create: false,
             detail: false,
             cards: vec![],
+            next: String::new(),
         }
     }
 }
@@ -194,104 +212,146 @@ impl Runtime {
         actor: Option<Uuid>,
         listing: Option<Uuid>,
         only_own: bool,
-    ) -> Result<Vec<Card>, Error> {
+        cursor: Option<(OffsetDateTime, Uuid)>,
+    ) -> Result<(Vec<Card>, String), Error> {
         self.config.current()?;
         let mut tx = self.pool.begin().await?;
         let mut cards = vec![];
-        let mut cursor = None;
-        loop {
-            let rows = candidate_page(&mut tx, actor, listing, only_own, cursor).await?;
-            if rows.is_empty() {
-                break;
-            }
-            cursor = rows.last().map(|row| (row.created_at, row.id));
-            for candidate in rows {
-                let row = candidate.row;
-                let owner = actor == Some(row.owner);
-                let refused: bool = sqlx::query_scalar(
+        let rows = candidate_page(&mut tx, actor, listing, only_own, cursor).await?;
+        let next = if rows.len() == 50 {
+            rows.last()
+                .map(|r| format!("{}:{}", r.created_at.unix_timestamp_nanos(), r.id))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        tx.commit().await?;
+        // Bound work to one candidate page; release issuer locks between candidates.
+        for candidate in rows {
+            let mut tx = self.pool.begin().await?;
+            sqlx::query("SET LOCAL statement_timeout='2s'")
+                .execute(&mut *tx)
+                .await?;
+            let row = candidate.row;
+            let owner = actor == Some(row.owner);
+            let refused: bool = sqlx::query_scalar(
                 "SELECT refusal_code IS NOT NULL FROM bazaar_authority_assets WHERE listing_id=$1",
             )
             .bind(row.id)
             .fetch_one(&mut *tx)
             .await?;
-                let completed = row.state == State::Completed;
-                let buyer: bool = if let Some(actor) = actor {
-                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_settlements WHERE listing_id=$1 AND buyer=$2 UNION ALL SELECT 1 FROM bazaar_authority_gold_sales WHERE listing_id=$1 AND buyer=$2)").bind(row.id).bind(actor).fetch_one(&mut *tx).await?
-                } else {
-                    false
-                };
-                let eligible = row.state == State::Active
-                    && self
-                        .authority()
-                        .escrow_ready(&mut tx, &row)
-                        .await
-                        .map_err(core_error)?;
-                if !eligible && !owner && !buyer {
-                    continue;
-                }
-                let name = if eligible && row.kind == Kind::Character {
-                    use crate::characters::CharacterEvidence;
-                    self.authority()
-                        .approved(&mut tx, &row)
-                        .await
-                        .map_err(core_error)?
-                        .ok_or(Error::Unavailable)?
-                        .name
-                } else if eligible {
-                    use crate::items::ItemAuthority;
-                    self.authority()
-                        .publication(&mut tx, &row)
-                        .await
-                        .map_err(core_error)?
-                        .ok_or(Error::Unavailable)?
-                        .name
-                } else {
-                    translated(
-                        "en",
-                        if row.kind == Kind::Character {
-                            "character"
-                        } else {
-                            "item"
-                        },
-                    )
-                };
-                cards.push(Card {
-                    id: row.id,
-                    name,
-                    kind: if row.kind == Kind::Character {
-                        "character".into()
+            let completed = row.state == State::Completed;
+            let buyer: bool = if let Some(actor) = actor {
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_settlements WHERE listing_id=$1 AND buyer=$2 UNION ALL SELECT 1 FROM bazaar_authority_gold_sales WHERE listing_id=$1 AND buyer=$2)").bind(row.id).bind(actor).fetch_one(&mut *tx).await?
+            } else {
+                false
+            };
+            let eligible = row.state == State::Active
+                && self
+                    .authority()
+                    .escrow_ready(&mut tx, &row)
+                    .await
+                    .map_err(core_error)?;
+            if !eligible && !owner && !buyer {
+                continue;
+            }
+            let mut snapshot = None;
+            let mut publication = None;
+            let mut quantity = 0;
+            let name = if eligible && row.kind == Kind::Character {
+                use crate::characters::CharacterEvidence;
+                let approved = self
+                    .authority()
+                    .approved(&mut tx, &row)
+                    .await
+                    .map_err(core_error)?
+                    .ok_or(Error::Unavailable)?;
+                let name = approved.name.clone();
+                snapshot = Some(approved);
+                name
+            } else if eligible {
+                use crate::items::ItemAuthority;
+                let approved = self
+                    .authority()
+                    .publication(&mut tx, &row)
+                    .await
+                    .map_err(core_error)?
+                    .ok_or(Error::Unavailable)?;
+                quantity = sqlx::query_scalar(
+                    "SELECT quantity FROM bazaar_authority_assets WHERE listing_id=$1",
+                )
+                .bind(row.id)
+                .fetch_one(&mut *tx)
+                .await?;
+                let name = approved.name.clone();
+                publication = Some(approved);
+                name
+            } else {
+                translated(
+                    "en",
+                    if row.kind == Kind::Character {
+                        "character"
                     } else {
-                        "item".into()
+                        "item"
                     },
-                    state: format!("{:?}", row.state).to_ascii_lowercase(),
-                    price: row.price,
-                    currency: if row.currency == Currency::Gold {
-                        "Gold"
-                    } else {
-                        "Coins"
-                    }
-                    .into(),
-                    owner,
-                    refused,
-                    completed,
-                    cancelled: row.state == State::Cancelled,
-                });
-                if cards.len() >= 50 {
-                    break;
+                )
+            };
+            tx.commit().await?;
+            cards.push(Card {
+                snapshot,
+                publication,
+                quantity,
+                ends_at: row.ends_at.to_string(),
+                id: row.id,
+                name,
+                kind: if row.kind == Kind::Character {
+                    "character".into()
+                } else {
+                    "item".into()
+                },
+                state: format!("{:?}", row.state).to_ascii_lowercase(),
+                price: row.price,
+                currency: if row.currency == Currency::Gold {
+                    "Gold"
+                } else {
+                    "Coins"
                 }
-            }
-            if cards.len() >= 50 {
-                break;
-            }
+                .into(),
+                owner,
+                refused,
+                completed,
+                cancelled: row.state == State::Cancelled,
+            });
         }
         if listing.is_some() && cards.is_empty() {
             return Err(Error::NotFound);
         }
-        tx.commit().await?;
-        Ok(cards)
+        Ok((cards, next))
+    }
+}
+#[derive(Default, Deserialize)]
+struct CatalogueQuery {
+    before: Option<String>,
+}
+impl CatalogueQuery {
+    fn cursor(&self) -> Result<Option<(OffsetDateTime, Uuid)>, Error> {
+        self.before
+            .as_deref()
+            .map(|v| {
+                let (time, id) = v.split_once(':').ok_or(Error::Invalid)?;
+                Ok((
+                    OffsetDateTime::from_unix_timestamp_nanos(
+                        time.parse().map_err(|_| Error::Invalid)?,
+                    )
+                    .map_err(|_| Error::Invalid)?,
+                    id.parse().map_err(|_| Error::Invalid)?,
+                ))
+            })
+            .transpose()
     }
 }
 async fn index(
+    Query(query): Query<CatalogueQuery>,
     HttpState(runtime): HttpState<Runtime>,
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
@@ -300,13 +360,24 @@ async fn index(
         return failure("en", e);
     }
     let mut page = Page::new(&lang);
-    match runtime.cards(session.account_id().await, None, false).await {
-        Ok(cards) => page.cards = cards,
+    let cursor = match query.cursor() {
+        Ok(c) => c,
+        Err(e) => return failure(&lang, e),
+    };
+    match runtime
+        .cards(session.account_id().await, None, false, cursor)
+        .await
+    {
+        Ok((cards, next)) => {
+            page.cards = cards;
+            page.next = next;
+        }
         Err(e) => return failure(&lang, e),
     };
     answer(page, StatusCode::OK)
 }
 async fn own(
+    Query(query): Query<CatalogueQuery>,
     HttpState(runtime): HttpState<Runtime>,
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
@@ -318,8 +389,15 @@ async fn own(
         return failure(&lang, Error::Denied);
     };
     let mut page = Page::new(&lang);
-    match runtime.cards(Some(actor), None, true).await {
-        Ok(cards) => page.cards = cards,
+    let cursor = match query.cursor() {
+        Ok(c) => c,
+        Err(e) => return failure(&lang, e),
+    };
+    match runtime.cards(Some(actor), None, true, cursor).await {
+        Ok((cards, next)) => {
+            page.cards = cards;
+            page.next = next;
+        }
         Err(e) => return failure(&lang, e),
     };
     answer(page, StatusCode::OK)
@@ -336,10 +414,13 @@ async fn detail(
     page.detail = true;
     page.csrf = session.csrf_token().await.unwrap_or_default();
     match runtime
-        .cards(session.account_id().await, Some(id), false)
+        .cards(session.account_id().await, Some(id), false, None)
         .await
     {
-        Ok(cards) => page.cards = cards,
+        Ok((cards, next)) => {
+            page.cards = cards;
+            page.next = next;
+        }
         Err(e) => return failure(&lang, e),
     };
     answer(page, StatusCode::OK)

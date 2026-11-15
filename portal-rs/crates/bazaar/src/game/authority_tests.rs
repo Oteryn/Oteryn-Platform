@@ -2,6 +2,7 @@
 use super::authority_wire::{decode, number};
 use super::game_wire::{digest, id, text};
 use super::*;
+use crate::{Evidence, Listing};
 use oteryn_internal_api::canonical::{self, Value};
 use prost::Message;
 use sha2::{Digest, Sha256};
@@ -231,7 +232,7 @@ async fn postgres_exact_receipt_replay_conflict_audit_rollback_and_nonrollback_f
         .unwrap();
     let intent = PreparedIntent::parse(&vector("escrow_intent")).unwrap();
     let op = id(text(&intent.value, "operation_id").unwrap()).unwrap();
-    sqlx::query("INSERT INTO bazaar_game_outbox(operation_id,issuance_key,listing_id,actor_id,command,source_revision,intent,binding_digest,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,18,$6,$7,3,3)").bind(op).bind(format!("fixture:{}",Uuid::now_v7())).bind(uid("20")).bind(uid("11")).bind(intent.command().wire()).bind(std::str::from_utf8(intent.bytes()).unwrap()).bind(intent.binding_digest()).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_game_outbox(operation_id,issuance_key,listing_id,actor_id,command,source_revision,intent,binding_digest,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,18,$6,$7,3,3)").bind(op).bind(format!("fixture:{}",Uuid::now_v7())).bind(id(text(&intent.value,"listing_id").unwrap()).unwrap()).bind(uid("11")).bind(intent.command().wire()).bind(std::str::from_utf8(intent.bytes()).unwrap()).bind(intent.binding_digest()).execute(&mut *tx).await.unwrap();
     let raw = vector("escrow_receipt");
     assert_eq!(
         a.receive(
@@ -364,6 +365,14 @@ async fn postgres_exact_receipt_replay_conflict_audit_rollback_and_nonrollback_f
             .unwrap();
     assert_eq!(count, 0);
     pool.close().await;
+}
+#[tokio::test]
+async fn postgres_suspended_delivered_settlement_captures_once() {
+    item_wallet_scenario(false, true).await;
+}
+#[tokio::test]
+async fn postgres_suspended_compensation_refunds_once() {
+    item_wallet_scenario(true, true).await;
 }
 #[test]
 fn all_nine_exact_result_schemas_reject_unknown_and_reordered_fields() {
@@ -622,23 +631,31 @@ async fn savepoint(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &'static
     sqlx::query(sql).execute(&mut **tx).await.unwrap();
 }
 async fn store_intent(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, intent: &PreparedIntent) {
-    sqlx::query("INSERT INTO bazaar_game_outbox(operation_id,issuance_key,listing_id,actor_id,command,source_revision,intent,binding_digest,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6::text::numeric,$7,$8,3,3)").bind(id(text(&intent.value,"operation_id").unwrap()).unwrap()).bind(format!("fixture:{}",Uuid::now_v7())).bind(uid("20")).bind(uid("11")).bind(intent.command().wire()).bind(text(&intent.value,"source_revision").unwrap()).bind(std::str::from_utf8(intent.bytes()).unwrap()).bind(intent.binding_digest()).execute(&mut **tx).await.unwrap();
+    store_intent_with_key(tx, intent, &format!("fixture:{}", Uuid::now_v7())).await;
+}
+async fn store_intent_with_key(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    intent: &PreparedIntent,
+    key: &str,
+) {
+    sqlx::query("INSERT INTO bazaar_game_outbox(operation_id,issuance_key,listing_id,actor_id,command,source_revision,intent,binding_digest,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6::text::numeric,$7,$8,3,3)").bind(id(text(&intent.value,"operation_id").unwrap()).unwrap()).bind(key).bind(id(text(&intent.value,"listing_id").unwrap()).unwrap()).bind(uid("11")).bind(intent.command().wire()).bind(text(&intent.value,"source_revision").unwrap()).bind(std::str::from_utf8(intent.bytes()).unwrap()).bind(intent.binding_digest()).execute(&mut **tx).await.unwrap();
 }
 #[tokio::test]
 async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
-    item_wallet_scenario(false).await;
+    item_wallet_scenario(false, false).await;
 }
 #[tokio::test]
 async fn postgres_delivery_refusal_allows_return_and_refunds_fenced_coins() {
     let started = std::time::Instant::now();
     std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
-    item_wallet_scenario(true).await;
+    item_wallet_scenario(true, false).await;
     eprintln!(
         "postgres_delivery_refusal_allows_return_and_refunds_fenced_coins: {:?}",
         started.elapsed()
     );
 }
-async fn item_wallet_scenario(compensate: bool) {
+async fn item_wallet_scenario(compensate: bool, suspended: bool) {
+    let started = std::time::Instant::now();
     use crate::{Currency, Evidence, Listing, Reservation, Reservations, Settlement};
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIP PostgreSQL PLAT3: PORTAL_TEST_DATABASE_URL unset");
@@ -897,6 +914,13 @@ async fn item_wallet_scenario(compensate: bool) {
             .await
             .unwrap();
         assert!(a.finish_compensation(&mut tx, &listing).await.is_err());
+        if suspended {
+            sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+                .bind(sale.buyer)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+        }
         funds.release(&mut tx, hold.id, hold.account).await.unwrap();
         funds.release(&mut tx, hold.id, hold.account).await.unwrap();
         a.finish_compensation(&mut tx, &listing).await.unwrap();
@@ -1005,6 +1029,10 @@ async fn item_wallet_scenario(compensate: bool) {
             refused
         );
         tx.rollback().await.unwrap();
+        eprintln!(
+            "postgres_suspended_compensation_refunds_once: {:?}",
+            started.elapsed()
+        );
         return;
     }
     let delivered = vector("delivered_status").replace("1790000002", &now.to_string());
@@ -1069,6 +1097,14 @@ async fn item_wallet_scenario(compensate: bool) {
         .unwrap();
     audit(&a, &mut tx, &delivery, &receipt, now).await;
     assert!(a.delivered(&mut tx, &sale).await.unwrap());
+    if suspended {
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id IN ($1,$2)")
+            .bind(sale.buyer)
+            .bind(sale.seller)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
     // The seller's proceeds repay the seller's debt first. A buyer debt that
     // arose after the reservation does not stop the fill from completing.
     savepoint(&mut tx, "SAVEPOINT seller_debt").await;
@@ -1140,6 +1176,10 @@ async fn item_wallet_scenario(compensate: bool) {
     assert!(!restored.delivered(&mut tx, &sale).await.unwrap());
     tx.rollback().await.unwrap();
     pool.close().await;
+    eprintln!(
+        "postgres_suspended_delivered_settlement_captures_once: {:?}",
+        started.elapsed()
+    );
 }
 #[test]
 fn all_nine_intent_schemas_and_exact_source_files() {
@@ -2101,4 +2141,760 @@ async fn bzb_receipt_admission_precedes_oversized_version_selection() {
             }
         }
     }
+}
+
+struct BrowserFixture {
+    pool: sqlx::PgPool,
+    admin: sqlx::PgPool,
+    schema: String,
+    directory: std::path::PathBuf,
+    runtime: runtime::Runtime,
+}
+impl BrowserFixture {
+    async fn new() -> Self {
+        let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+        let admin = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&url)
+            .await
+            .unwrap();
+        let schema = format!("bazaar_browser_{}", Uuid::now_v7().simple());
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&admin)
+            .await
+            .unwrap();
+        let path = schema.clone();
+        let pool = PgPoolOptions::new()
+            .max_connections(4)
+            .after_connect(move |db, _| {
+                let path = path.clone();
+                Box::pin(async move {
+                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                        .bind(path)
+                        .execute(db)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&url)
+            .await
+            .unwrap();
+        oteryn_db::migrate(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=3,recovery_generation=3")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let a = authority();
+        let now: i64 =
+            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        let now = now as u64;
+        for (who, email) in [
+            (uid("11"), "plat3-seller@invalid.test"),
+            (uid("13"), "plat3-buyer@invalid.test"),
+        ] {
+            sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,$2,now(),'synthetic','active','en')").bind(who).bind(email).execute(&mut *tx).await.unwrap();
+        }
+        sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,'item','auction','coins',10000,false,now()+interval '2 days')").bind(uid("20")).bind(uid("11")).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO bazaar_item_details(id,definition_key,definition_revision,world_id,seller_character_id,item_instance_id,quantity) VALUES($1,'fixture-sword','v1',$2,$3,$4,1)").bind(uid("20")).bind(uid("12")).bind(uid("21")).bind(uid("22")).execute(&mut *tx).await.unwrap();
+        let listing: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
+            .bind(uid("20"))
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        assert!(!a.escrow_ready(&mut tx, &listing).await.unwrap());
+        let escrow = PreparedIntent::parse(&vector("escrow_intent")).unwrap();
+        store_intent(&mut tx, &escrow).await;
+        let receipt = vector("escrow_receipt");
+        a.receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            receipt.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            audit(&a, &mut tx, &escrow, &receipt, now).await,
+            ReceiptResult::Stored
+        );
+        let outbox = Outbox {
+            settings: Settings {
+                preparation_enabled: true,
+                game_enabled: false,
+            },
+        };
+        let status = vector("delivered_status")
+            .replace(
+                "\"projection_revision\":\"2\"",
+                "\"projection_revision\":\"1\"",
+            )
+            .replace("\"1790000002\"", &format!("\"{now}\""))
+            .replace("DELIVERED", "ESCROWED")
+            .replace("\"custody_revision\":\"2\"", "\"custody_revision\":\"1\"")
+            .replace("000000000004", "000000000002");
+        outbox
+            .ingest(
+                &mut tx,
+                &a.config.projection_authority,
+                status.as_bytes(),
+                now,
+            )
+            .await
+            .unwrap();
+        let policy = format!(
+            "{{\"contract_version\":2,\"operation\":\"PublishBazaarTransferabilityV1\",\"source_authority\":\"oteryn:game:primary\",\"world_id\":\"{}\",\"projection_epoch\":\"3\",\"projection_revision\":\"4\",\"source_observed_at\":\"{now}\",\"eligibility_revision\":\"4\",\"definitions\":[{{\"definition\":{{\"family\":\"item\",\"production_key\":\"fixture-sword\",\"revision_ref\":\"v1\"}},\"tradeable\":true,\"max_quantity\":1,\"allowed_attribute_keys\":[\"tier\"]}}]}}",
+            uid("12")
+        );
+        outbox
+            .ingest(
+                &mut tx,
+                &a.config.projection_authority,
+                policy.as_bytes(),
+                now,
+            )
+            .await
+            .unwrap();
+        let watermark = format!(
+            "{{\"contract_version\":2,\"operation\":\"PublishBazaarWatermarkV1\",\"source_authority\":\"oteryn:game:primary\",\"projection_epoch\":\"3\",\"complete_through\":\"{now}\",\"observed_at\":\"{now}\"}}"
+        );
+        outbox
+            .ingest(
+                &mut tx,
+                &a.config.projection_authority,
+                watermark.as_bytes(),
+                now,
+            )
+            .await
+            .unwrap();
+        a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+        assert!(a.escrow_ready(&mut tx, &listing).await.unwrap());
+
+        sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$4,7,$5,1,true,'browser-fixture')")
+            .bind(listing.id).bind(uid("12")).bind(uid("21")).bind(uid("22")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
+        sqlx::query("UPDATE bazaar_listings SET state='active' WHERE id=$1")
+            .bind(listing.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let directory = std::env::temp_dir().join(format!("bazaar-fixture-{}", Uuid::now_v7()));
+        std::fs::create_dir(&directory).unwrap();
+        let runtime = runtime::Runtime {
+            pool: pool.clone(),
+            config: std::sync::Arc::new(runtime::Config::fixture(a, &directory)),
+        };
+        Self {
+            pool,
+            admin,
+            schema,
+            directory,
+            runtime,
+        }
+    }
+    async fn end(self) {
+        self.pool.close().await;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.admin)
+        .await
+        .unwrap();
+        self.admin.close().await;
+        std::fs::remove_dir_all(self.directory).unwrap();
+    }
+}
+
+impl BrowserFixture {
+    async fn get(&self, path: &str) -> (axum::http::StatusCode, String) {
+        use tower::ServiceExt;
+        let response = self
+            .runtime
+            .browser_router()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(path)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        (status, String::from_utf8(body.to_vec()).unwrap())
+    }
+    async fn bid(&self, maximum: i64) -> axum::http::StatusCode {
+        use tower::ServiceExt;
+        let token = "b".repeat(64);
+        let csrf = "c".repeat(64);
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'test',now()+interval '1 hour',now()+interval '1 day') ON CONFLICT(id_hash) DO NOTHING")
+            .bind(Sha256::digest(token.as_bytes()).to_vec()).bind(uid("13")).bind(&csrf).execute(&self.pool).await.unwrap();
+        let mut request = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/en/account/bazaar/{}/bids", uid("20")))
+            .header(
+                "cookie",
+                format!("{}={token}", oteryn_web::session::COOKIE_NAME),
+            )
+            .header("origin", "https://portal.test")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(axum::body::Body::from(format!(
+                "_csrf={csrf}&request_id={}&maximum={maximum}&buyer_character_id={}",
+                Uuid::now_v7(),
+                uid("14")
+            )))
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                12345,
+            ))));
+        self.runtime
+            .browser_router()
+            .oneshot(request)
+            .await
+            .unwrap()
+            .status()
+    }
+}
+#[tokio::test]
+async fn postgres_browser_typed_bans_unknown_states_and_lifted_expired_bids() {
+    let started = std::time::Instant::now();
+    let db = BrowserFixture::new().await;
+    let seed = Uuid::now_v7();
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+        .bind(uid("13"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,20000)",
+    )
+    .bind(seed)
+    .bind(uid("13"))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,20000,0)").bind(Uuid::now_v7()).bind(seed).bind(uid("13")).execute(&db.pool).await.unwrap();
+    let ban = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES($1,$2,'ban')",
+    )
+    .bind(ban)
+    .bind(uid("13"))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at) VALUES($1,1,$2,'{}',true,now())").bind(uid("13")).bind(ban).execute(&db.pool).await.unwrap();
+    assert_eq!(db.bid(10000).await, axum::http::StatusCode::FORBIDDEN);
+    let reserved: i64 = sqlx::query_scalar(
+        "SELECT coalesce(sum(reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1",
+    )
+    .bind(uid("13"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(reserved, 0);
+    sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at) VALUES($1,2,$2,'{}',false,now())").bind(uid("13")).bind(ban).execute(&db.pool).await.unwrap();
+    assert_eq!(db.bid(10000).await, axum::http::StatusCode::SEE_OTHER);
+    sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) VALUES($1,3,$2,'{}',true,now()-interval '2 days',now()-interval '1 day')").bind(uid("13")).bind(ban).execute(&db.pool).await.unwrap();
+    assert_eq!(db.bid(11000).await, axum::http::StatusCode::SEE_OTHER);
+    // Future legacy states must fail closed even before the application understands them.
+    sqlx::raw_sql("ALTER TABLE sanctions DROP CONSTRAINT sanctions_category_check; ALTER TABLE sanctions DROP CONSTRAINT sanctions_status_check").execute(&db.pool).await.unwrap();
+    for (category, status) in [("future", "pending"), ("warning", "future")] {
+        let sanction = Uuid::now_v7();
+        sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,effective_at,created_by) VALUES($1,$2,$3,$4,'test future state',now(),$5)").bind(sanction).bind(uid("13")).bind(category).bind(status).bind(uid("11")).execute(&db.pool).await.unwrap();
+        assert_eq!(db.bid(12000).await, axum::http::StatusCode::FORBIDDEN);
+        sqlx::query("DELETE FROM sanctions WHERE id=$1")
+            .bind(sanction)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    db.end().await;
+    eprintln!(
+        "postgres_browser_typed_bans_unknown_states_and_lifted_expired_bids: {:?}",
+        started.elapsed()
+    );
+}
+#[tokio::test]
+async fn postgres_browser_approved_item_attributes_quantity_and_deadline() {
+    let started = std::time::Instant::now();
+    let db = BrowserFixture::new().await;
+    for path in [
+        format!("/en/bazaar/{}", uid("20")),
+        format!("/en/bazaar/items/{}", uid("20")),
+    ] {
+        let (status, body) = db.get(&path).await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert!(body.contains("fixture-sword"));
+        assert!(body.contains("<dt>Tier</dt><dd>2</dd>"));
+        assert!(body.contains("<dt>Quantity</dt><dd>1</dd>"));
+        assert!(body.contains("Deadline:"));
+    }
+    db.end().await;
+    eprintln!(
+        "postgres_browser_approved_item_attributes_quantity_and_deadline: {:?}",
+        started.elapsed()
+    );
+}
+#[tokio::test]
+async fn postgres_browser_unavailable_catalogue_has_bounded_work_and_continuation() {
+    let started = std::time::Instant::now();
+    let db = BrowserFixture::new().await;
+    for _ in 0..110 {
+        let listing = Uuid::now_v7();
+        sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'item','auction','coins',100,false,'active',now()+interval '1 day')").bind(listing).bind(uid("11")).execute(&db.pool).await.unwrap();
+        sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$1,7,$4,1,true,'unavailable')").bind(listing).bind(uid("12")).bind(uid("21")).bind([1_u8;32].as_slice()).execute(&db.pool).await.unwrap();
+    }
+    let issuer = async {
+        let mut tx = db.pool.begin().await.unwrap();
+        tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            db.runtime.authority().lock(&mut tx),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        tx.rollback().await.unwrap();
+    };
+    let ((status, body), ()) = tokio::join!(db.get("/en/bazaar"), issuer);
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert!(!body.contains("fixture-sword"));
+    assert!(body.contains("rel=\"next\""));
+    let before = body
+        .split("?before=")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let (_, second) = db.get(&format!("/en/bazaar?before={before}")).await;
+    assert!(!second.contains("fixture-sword"));
+    let before = second
+        .split("?before=")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let (_, third) = db.get(&format!("/en/bazaar?before={before}")).await;
+    assert!(third.contains("fixture-sword"));
+    let mut tx = db.pool.begin().await.unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        db.runtime.authority().lock(&mut tx),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    tx.rollback().await.unwrap();
+    db.end().await;
+    eprintln!(
+        "postgres_browser_unavailable_catalogue_has_bounded_work_and_continuation: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_expired_gold_release_restarts_with_audited_immutable_attempt() {
+    gold_release_retry_scenario(false).await;
+}
+#[tokio::test]
+async fn postgres_accepted_bid_cleanup_retains_admission_after_release_retry() {
+    gold_release_retry_scenario(true).await;
+}
+async fn gold_release_retry_scenario(accepted: bool) {
+    use crate::Listing;
+    let started = std::time::Instant::now();
+    let db = BrowserFixture::new().await;
+    let request = Uuid::now_v7();
+    let hold = Uuid::now_v7();
+    let mut tx = db.pool.begin().await.unwrap();
+    let hold_operation = gold_fact(&mut tx, Command::Hold, 10, request, hold, (0, 1, 12000)).await;
+    sqlx::query("UPDATE bazaar_game_issuer SET source_revision=10")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let listing: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
+        .bind(uid("20"))
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    // A historical dispatch expires before Game executes it; replacement uses
+    // today's clock throughout, including the eventual committed receipt.
+    let game_now = runtime::now(&mut tx).await.unwrap();
+    let original = Uuid::now_v7();
+    let Value::Object(common) = decode(vector("escrow_intent").as_bytes(), 4096).unwrap() else {
+        panic!("intent")
+    };
+    let mut fields = common[..10].to_vec();
+    for (name, value) in &mut fields {
+        *value = match name.as_str() {
+            "command" => Value::String(Command::Release.wire().into()),
+            "operation_id" | "issuer_decision_id" => Value::String(original.to_string()),
+            "source_revision" => Value::String("11".into()),
+            _ => value.clone(),
+        };
+    }
+    for (key, value) in [
+        ("buyer_account_id", uid("13").to_string()),
+        ("hold_id", hold.to_string()),
+        ("expected_hold_revision", "1".into()),
+        ("release_reason", "EXCESS".into()),
+        ("amount", "12000".into()),
+        ("issued_at_source", (game_now - 301).to_string()),
+        ("expires_at_source", (game_now - 1).to_string()),
+    ] {
+        fields.push((key.into(), Value::String(value)));
+    }
+    fields.push(common.last().unwrap().clone());
+    let historical = PreparedIntent::parse(
+        &String::from_utf8(canonical::encode(&Value::Object(fields)).unwrap()).unwrap(),
+    )
+    .unwrap();
+    store_intent_with_key(
+        &mut tx,
+        &historical,
+        &format!("bazaar:{}:ReleaseBazaarGold:{request}:1", listing.id),
+    )
+    .await;
+    sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,3,3)").bind(original).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE bazaar_game_issuer SET source_revision=11")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_gold_bids(request_id,listing_id,buyer,character_id,maximum,hold_operation_id,phase,release_operation_id,release_accepted) VALUES($1,$2,$3,$4,12000,$5,'releasing',$6,$7)")
+        .bind(request).bind(listing.id).bind(uid("13")).bind(uid("14")).bind(hold_operation).bind(original).bind(accepted).execute(&mut *tx).await.unwrap();
+    let raw: String =
+        sqlx::query_scalar("SELECT intent FROM bazaar_game_outbox WHERE operation_id=$1")
+            .bind(original)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    let intent = PreparedIntent::parse(&raw).unwrap();
+    // Game executes after the original 300-second deadline.
+    assert!(number(&intent.value, "expires_at_source").unwrap() < game_now);
+    let rejection = format!(
+        "{{\"contract_version\":2,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"ReleaseBazaarGold\",\"operation_id\":\"{original}\",\"outcome\":\"REJECTED\",\"result_code\":\"CHAR_CMD_INTENT_EXPIRED\",\"result_data\":null,\"recovery_generation\":\"3\",\"decided_at\":\"{game_now}\"}}"
+    );
+    db.runtime
+        .authority()
+        .receive(
+            &mut tx,
+            &authority().config.receipt_authority,
+            rejection.as_bytes(),
+            game_now,
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    // A receipt without the matching audit cannot authorize replacement.
+    db.runtime.tick_gold_bids().await.unwrap();
+    let current: Uuid = sqlx::query_scalar(
+        "SELECT release_operation_id FROM bazaar_authority_gold_bids WHERE request_id=$1",
+    )
+    .bind(request)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(current, original);
+    let mut tx = db.pool.begin().await.unwrap();
+    audit(
+        db.runtime.authority(),
+        &mut tx,
+        &intent,
+        &rejection,
+        game_now,
+    )
+    .await;
+    tx.commit().await.unwrap();
+    let restarted = db.runtime.clone();
+    restarted.tick_gold_bids().await.unwrap();
+    let replacement: Uuid = sqlx::query_scalar(
+        "SELECT release_operation_id FROM bazaar_authority_gold_bids WHERE request_id=$1",
+    )
+    .bind(request)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_ne!(replacement, original);
+    let mut tx = db.pool.begin().await.unwrap();
+    let original_retained = db
+        .runtime
+        .authority()
+        .retained(&mut tx, original)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(original_retained.0.raw, raw);
+    assert_eq!(original_retained.1.raw, rejection);
+    let raw: String =
+        sqlx::query_scalar("SELECT intent FROM bazaar_game_outbox WHERE operation_id=$1")
+            .bind(replacement)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    let replacement_intent = PreparedIntent::parse(&raw).unwrap();
+    assert!(
+        number(&replacement_intent.value, "source_revision").unwrap()
+            > number(&intent.value, "source_revision").unwrap()
+    );
+    let now = runtime::now(&mut tx).await.unwrap();
+    let receipt = format!(
+        "{{\"contract_version\":2,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"ReleaseBazaarGold\",\"operation_id\":\"{replacement}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"result_data\":{{\"hold_id\":\"{hold}\",\"hold_revision\":\"2\",\"released_amount\":\"12000\",\"remaining_held\":\"0\",\"hold_state\":\"RELEASED\"}},\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}"
+    );
+    db.runtime
+        .authority()
+        .receive(
+            &mut tx,
+            &authority().config.receipt_authority,
+            receipt.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+    audit(
+        db.runtime.authority(),
+        &mut tx,
+        &replacement_intent,
+        &receipt,
+        now,
+    )
+    .await;
+    tx.commit().await.unwrap();
+    restarted.tick_gold_bids().await.unwrap();
+    restarted.tick_gold_bids().await.unwrap();
+    let phase: String =
+        sqlx::query_scalar("SELECT phase FROM bazaar_authority_gold_bids WHERE request_id=$1")
+            .bind(request)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(phase, if accepted { "accepted" } else { "refused" });
+    let mut tx = db.pool.begin().await.unwrap();
+    assert_eq!(
+        runtime::gold::current_hold(db.runtime.authority(), &mut tx, listing.id, uid("13"), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .amount,
+        0
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+    eprintln!(
+        "{}: {:?}",
+        if accepted {
+            "postgres_accepted_bid_cleanup_retains_admission_after_release_retry"
+        } else {
+            "postgres_expired_gold_release_restarts_with_audited_immutable_attempt"
+        },
+        started.elapsed()
+    );
+}
+
+fn character_intent(command: Command, revision: u64, extra: Vec<(&str, Value)>) -> PreparedIntent {
+    let Value::Object(common) = decode(vector("escrow_intent").as_bytes(), 4096).unwrap() else {
+        panic!("object")
+    };
+    let mut fields = common[..10].to_vec();
+    for (name, value) in &mut fields {
+        *value = match name.as_str() {
+            "command" => Value::String(command.wire().into()),
+            "listing_id" => Value::String(uid("30").to_string()),
+            "operation_id" | "issuer_decision_id" => Value::String(Uuid::now_v7().to_string()),
+            "source_revision" => Value::String(revision.to_string()),
+            _ => value.clone(),
+        };
+    }
+    fields.extend(extra.into_iter().map(|(k, v)| (k.into(), v)));
+    let now = time::OffsetDateTime::now_utc().unix_timestamp() as u64;
+    fields.extend([
+        ("issued_at_source".into(), Value::String(now.to_string())),
+        (
+            "expires_at_source".into(),
+            Value::String((now + 300).to_string()),
+        ),
+        common.last().unwrap().clone(),
+    ]);
+    PreparedIntent::parse(
+        &String::from_utf8(canonical::encode(&Value::Object(fields)).unwrap()).unwrap(),
+    )
+    .unwrap()
+}
+async fn committed_fact(
+    a: &Authority,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    intent: &PreparedIntent,
+    data: &str,
+    now: u64,
+) {
+    store_intent(tx, intent).await;
+    let operation = text(&intent.value, "operation_id").unwrap();
+    let receipt = format!(
+        "{{\"contract_version\":2,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"{}\",\"operation_id\":\"{operation}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"result_data\":{data},\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}",
+        intent.command().wire()
+    );
+    assert_eq!(
+        a.receive(tx, &a.config.receipt_authority, receipt.as_bytes(), now)
+            .await
+            .unwrap_or_else(|error| panic!("{:?} receipt: {error}", intent.command())),
+        ReceiptResult::Stored
+    );
+    assert_eq!(
+        audit(a, tx, intent, &receipt, now).await,
+        ReceiptResult::Stored
+    );
+}
+#[tokio::test]
+async fn postgres_browser_verified_character_snapshot_facts() {
+    let started = std::time::Instant::now();
+    let mut db = BrowserFixture::new().await;
+    std::sync::Arc::make_mut(&mut db.runtime.config)
+        .authority
+        .config
+        .escrow_account_id = Some(uid("40"));
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let listing = uid("30");
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'character','auction','coins',100,false,'active',now()+interval '1 day')").bind(listing).bind(uid("11")).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$3,7,$4,1,true,'character-browser')").bind(listing).bind(uid("12")).bind(uid("31")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
+    let strval = |value: Uuid| Value::String(value.to_string());
+    let lock = character_intent(
+        Command::Lock,
+        101,
+        vec![
+            ("character_id", strval(uid("31"))),
+            ("expected_character_revision", Value::String("7".into())),
+            ("eligibility_revision", Value::String("4".into())),
+            ("snapshot_schema_version", Value::Unsigned(1)),
+        ],
+    );
+    let data = format!(
+        "{{\"character_id\":\"{}\",\"lock_id\":\"{}\",\"lock_revision\":\"1\",\"eligibility_revision\":\"4\",\"signed_snapshot\":{}}}",
+        uid("31"),
+        uid("32"),
+        vector("locked_character_snapshot")
+    );
+    committed_fact(a, &mut tx, &lock, &data, now).await;
+    let operation = Uuid::now_v7();
+    let Value::Object(mut fields) = transfer_fixture(operation, 102, now) else {
+        panic!("transfer")
+    };
+    for (name, value) in &mut fields {
+        *value = match name.as_str() {
+            "expected_from_account_id" => strval(uid("11")),
+            "to_account_id" => strval(uid("40")),
+            "purpose" => Value::String("BAZAAR_LISTING_ESCROW".into()),
+            _ => value.clone(),
+        };
+    }
+    let transfer = Value::Object(fields);
+    stage_transfer_fixture(&mut tx, listing, &transfer).await;
+    let raw = canonical::encode(&transfer).unwrap();
+    runtime::worker::publish_transfer(
+        &mut tx,
+        listing,
+        "BAZAAR_LISTING_ESCROW",
+        operation,
+        &transfer,
+        &raw,
+    )
+    .await
+    .unwrap();
+    let receipt = format!(
+        "{{\"contract_version\":1,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"TransferCharacterOwnership\",\"operation_id\":\"{operation}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"character_id\":\"{}\",\"from_account_id\":\"{}\",\"to_account_id\":\"{}\",\"character_revision\":\"8\",\"projection_epoch\":\"3\",\"from_projection_revision\":\"5\",\"to_projection_revision\":\"6\",\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}",
+        uid("31"),
+        uid("11"),
+        uid("40")
+    );
+    sqlx::query("UPDATE character_commands SET state='TERMINAL',receipt_json=$2 WHERE id=$1")
+        .bind(operation)
+        .bind(receipt)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let bind = character_intent(
+        Command::Bind,
+        103,
+        vec![
+            ("character_id", strval(uid("31"))),
+            ("lock_id", strval(uid("32"))),
+            ("expected_lock_revision", Value::String("1".into())),
+            ("transfer_operation_id", strval(operation)),
+            ("transfer_binding_digest", Value::String(digest(&raw))),
+            ("purpose", Value::String("BAZAAR_LISTING_ESCROW".into())),
+            ("sale_id", Value::Null),
+            ("funding", Value::Null),
+        ],
+    );
+    let data = format!(
+        "{{\"character_id\":\"{}\",\"lock_id\":\"{}\",\"lock_revision\":\"2\",\"transfer_operation_id\":\"{operation}\",\"transfer_binding_digest\":\"{}\"}}",
+        uid("31"),
+        uid("32"),
+        digest(&raw)
+    );
+    committed_fact(a, &mut tx, &bind, &data, now).await;
+    let snapshot = decode(vector("locked_character_snapshot").as_bytes(), 262144).unwrap();
+    let hash = text(&snapshot, "snapshot_hash").unwrap();
+    let Value::Object(mut status) = decode(vector("delivered_status").as_bytes(), 4096).unwrap()
+    else {
+        panic!("status")
+    };
+    for (name, value) in &mut status {
+        *value = match name.as_str() {
+            "listing_id" => strval(listing),
+            "asset_kind" => Value::String("CHARACTER".into()),
+            "asset_id" => strval(uid("31")),
+            "state" => Value::String("locked".into()),
+            "custody_id" => strval(uid("32")),
+            "snapshot_hash" => Value::String(hash.into()),
+            "last_operation_id" => strval(operation),
+            "source_observed_at" => Value::String(now.to_string()),
+            _ => value.clone(),
+        };
+    }
+    let status = String::from_utf8(canonical::encode(&Value::Object(status)).unwrap()).unwrap();
+    Outbox {
+        settings: Settings {
+            preparation_enabled: true,
+            game_enabled: false,
+        },
+    }
+    .ingest(
+        &mut tx,
+        &a.config.projection_authority,
+        status.as_bytes(),
+        now,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    let (status, body) = db.get(&format!("/en/bazaar/{listing}")).await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    for fact in [
+        "Aldric",
+        "<dt>Level</dt><dd>100</dd>",
+        "distance",
+        "distance: 75",
+        hash,
+        "1790000002",
+        "Deadline:",
+    ] {
+        assert!(body.contains(fact), "missing {fact}");
+    }
+    db.end().await;
+    eprintln!(
+        "postgres_browser_verified_character_snapshot_facts: {:?}",
+        started.elapsed()
+    );
 }

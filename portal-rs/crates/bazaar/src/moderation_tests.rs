@@ -62,6 +62,14 @@ impl Db {
         )
         .execute(&pool)
         .await?;
+        sqlx::raw_sql(
+            include_str!("../../../migrations/20261115120005_fix_a2-04-bazaar_invalidation.sql")
+                .split("-- Accepted bids")
+                .next()
+                .ok_or("missing invalidation migration")?,
+        )
+        .execute(&pool)
+        .await?;
         sqlx::raw_sql("CREATE TABLE test_promotion_debits(id uuid PRIMARY KEY,amount bigint)")
             .execute(&pool)
             .await?;
@@ -317,6 +325,7 @@ async fn postgres_four_eyes_queues_once_and_retains_value() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> TestResult {
+    let started = std::time::Instant::now();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -339,6 +348,37 @@ async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> Tes
             .await,
         Err(Error::Denied)
     ));
+    let replacement = Uuid::now_v7();
+    db.staff(
+        first,
+        StaffCommand::RequestInvalidation {
+            id: replacement,
+            listing,
+            reason: "Current hold revision request".into(),
+        },
+    )
+    .await?;
+    db.staff(
+        Uuid::now_v7(),
+        StaffCommand::ApproveInvalidation { id: replacement },
+    )
+    .await?;
+    let requests: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM bazaar_invalidation_requests WHERE listing_id=$1")
+            .bind(listing)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(requests, 2);
+    let dispatched: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM bazaar_moderation_outbox WHERE listing_id=$1")
+            .bind(listing)
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(dispatched, vec![replacement]);
+    eprintln!(
+        "postgres_changed_hold_and_started_transfer_refuse_invalidation: {:?}",
+        started.elapsed()
+    );
     let late = db.listing(Uuid::now_v7()).await;
     sqlx::query("UPDATE bazaar_listings SET state='awaiting_delivery' WHERE id=$1")
         .bind(late)
