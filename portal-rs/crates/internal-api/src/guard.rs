@@ -60,6 +60,14 @@ impl VerifiedClient {
         Self(identity)
     }
 }
+/// Authenticated publisher key, inserted only after all existing guard checks pass.
+#[derive(Clone, Debug)]
+pub struct PublisherKey(Vec<u8>);
+impl PublisherKey {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
 /// Purpose-specific group; Store and Premium must use distinct names even though
 /// both URLs share the products-entitlements prefix.
 #[derive(Debug, Clone)]
@@ -234,6 +242,11 @@ async fn check(State(guard): State<Guard>, request: Request, next: Next) -> Resp
             parts.extensions.insert(value);
         }
         Err(_) => return failure(StatusCode::BAD_REQUEST),
+    }
+    if let Some(client) = parts.extensions.get::<VerifiedClient>() {
+        let mut key = vec![client.0.kind, client.0.len];
+        key.extend_from_slice(&client.0.bytes[..usize::from(client.0.len)]);
+        parts.extensions.insert(PublisherKey(key));
     }
     next.run(Request::from_parts(parts, Body::from(bytes)))
         .await
