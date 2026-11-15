@@ -312,9 +312,6 @@ impl Logins {
             let rows: Vec<Row> = sqlx::query_as("SELECT login_event_id,character_id,world_id,projection_epoch::text AS epoch,recovery_generation::text AS recovery,character_revision::text AS character_revision,projection_revision::text AS revision,source_revision::text AS source,entered_at,left_at,end_reason FROM pd_game_logins WHERE account_id=$1 AND entered_at >= $2 AND projection_epoch=$3::text::numeric AND recovery_generation=$4::text::numeric AND ($5::bigint IS NULL OR (entered_at,login_event_id)<($5,$6::uuid)) ORDER BY entered_at DESC,login_event_id DESC LIMIT 100")
             .bind(actor).bind(now - 30 * 86_400_000).bind(base.epoch.to_string()).bind(base.recovery_generation.to_string()).bind(cursor.map(|v| v.0)).bind(cursor.map(|v| v.1)).fetch_all(&mut *tx).await?;
             if rows.is_empty() {
-                if entries.is_empty() && now - base.observed_at_ms > 10_000 {
-                    return Err(Error::Unavailable);
-                }
                 break;
             }
             let exhausted = rows.len() < 100;
@@ -367,6 +364,9 @@ impl Logins {
             if exhausted || entries.len() == 100 {
                 break;
             }
+        }
+        if entries.is_empty() && now - base.observed_at_ms > 10_000 {
+            return Err(Error::Unavailable);
         }
         tx.commit().await?;
         Ok(entries)

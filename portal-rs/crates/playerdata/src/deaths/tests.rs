@@ -763,3 +763,45 @@ async fn postgres_production_retention_erases_death_payloads_preserves_fences() 
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn postgres_pd2_01_production_lifecycle_dispatches_death_erasure() {
+    let started = std::time::Instant::now();
+    let Some(database) = Database::with_migrations(true).await else {
+        return;
+    };
+    let repo = database.repo();
+    let r = record(Family::DeathRecap);
+    let accepted = repo.ingest(&bytes(&r), NOW).await.unwrap();
+    sqlx::query("INSERT INTO pd_erasure_jobs(account_id,character_id) VALUES($1,$2)")
+        .bind(ACCOUNT)
+        .bind(CHARACTER)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    crate::retention::Retention(database.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    let count:i64=sqlx::query_scalar("SELECT count(*) FROM pd_t78_records WHERE payload IS NOT NULL OR entity_key<>'' OR occurred_at_ms<>0").fetch_one(&database.pool).await.unwrap();
+    assert_eq!(count, 0);
+    assert_eq!(repo.ingest(&bytes(&r), NOW).await.unwrap(), accepted);
+    sqlx::query("INSERT INTO pd_erasure_jobs(account_id) VALUES($1)")
+        .bind(ACCOUNT)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    crate::retention::Retention(database.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert!(matches!(
+        repo.ingest(&bytes(&r), NOW).await,
+        Err(Failure::Conflict)
+    ));
+    database.close().await;
+    eprintln!(
+        "postgres_pd2_01_production_lifecycle_dispatches_death_erasure duration={:?}",
+        started.elapsed()
+    );
+}

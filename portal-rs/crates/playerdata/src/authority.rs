@@ -347,15 +347,27 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
         return Ok(Admission::Owner);
     };
     let character_id = uuid(character).map_err(|_| Error::Conflict)?;
-    let deleted = crate::store::character_deleted(tx, &scope.account, character).await?;
+    let deleted = crate::store::character_deleted(tx, &scope.account, character, None).await?;
     let proof = ownership(tx, account_id, character_id).await;
     let cut = match proof {
-        Ok(Ownership::Owner(_)) | Err(_) if deleted => return Ok(Admission::Deleted),
+        Err(_) if deleted => return Ok(Admission::Deleted),
         Ok(Ownership::Owner(cut)) => cut,
         Ok(Ownership::Former) => return Ok(Admission::Transferred),
         Ok(Ownership::Stranger) => return Err(Error::Conflict),
         Err(e) => return Err(e),
     };
+    // A pending purge of an older period must not consume a new period's
+    // revision as a terminal deletion. Retry after cleanup establishes its fence.
+    let awaiting_purge: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$1 AND character_id=$2 AND closed_revision<$3::text::numeric)")
+        .bind(&scope.account).bind(character).bind(cut.character_revision.to_string()).fetch_one(&mut *tx).await?;
+    if awaiting_purge {
+        return Err(Error::Unavailable);
+    }
+    if crate::store::character_deleted(tx, &scope.account, character, Some(cut.character_revision))
+        .await?
+    {
+        return Ok(Admission::Deleted);
+    }
     if opt_uuid(scope.world.as_deref())? != cut.world {
         return Err(Error::Conflict);
     }
