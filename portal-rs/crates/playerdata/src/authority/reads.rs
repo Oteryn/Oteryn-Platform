@@ -154,6 +154,10 @@ impl logins::Authority for JournalLoginAuthority {
 pub struct LoginPromoter {
     pub logins: Logins,
 }
+#[cfg(test)]
+pub(super) static PROMOTION_BATCH_MAX: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 impl LoginPromoter {
     async fn run(
         &self,
@@ -167,58 +171,71 @@ impl LoginPromoter {
             return Ok(());
         }
         let account_id = Uuid::parse_str(&scope.account).map_err(|_| Error::Invalid)?;
-        let rows = sqlx::query("SELECT source_revision::text AS revision,kind,entity_key,character_id,payload FROM pd_records WHERE stream_key=$1 AND source_revision>$2::numeric AND source_revision<=$3::numeric ORDER BY source_revision")
+        let mut after = after;
+        loop {
+            let rows = sqlx::query("SELECT source_revision::text AS revision,kind,entity_key,character_id,payload FROM pd_records WHERE stream_key=$1 AND source_revision>$2::numeric AND source_revision<=$3::numeric ORDER BY source_revision LIMIT 128")
             .bind(key)
             .bind(after.to_string())
             .bind(through.to_string())
             .fetch_all(&mut **tx)
             .await?;
-        for row in rows {
-            let entity: String = row.try_get("entity_key")?;
-            if row.try_get::<String, _>("kind")? == "REMOVE" {
-                let id = Uuid::parse_str(&entity).map_err(|_| Error::Unavailable)?;
-                Logins::remove(tx, account_id, id)
-                    .await
-                    .map_err(from_login)?;
-                continue;
+            #[cfg(test)]
+            PROMOTION_BATCH_MAX.fetch_max(rows.len(), std::sync::atomic::Ordering::Relaxed);
+            if rows.is_empty() {
+                break;
             }
-            // Expired payloads and terminal refusals project nothing.
-            let Some(payload) = row.try_get::<Option<Vec<u8>>, _>("payload")? else {
-                continue;
-            };
-            let character = row
-                .try_get::<Option<String>, _>("character_id")?
-                .map(|c| Uuid::parse_str(&c))
-                .transpose()
-                .map_err(|_| Error::Unavailable)?;
-            if let Some(character) = character {
-                // A character sold since the record stays out of the seller's view.
-                if !matches!(
-                    ownership(tx, account_id, character).await?,
-                    Ownership::Owner(_)
-                ) {
+            let exhausted = rows.len() < 128;
+            for row in rows {
+                after = super::counter(&row.try_get::<String, _>("revision")?)?;
+                let entity: String = row.try_get("entity_key")?;
+                if row.try_get::<String, _>("kind")? == "REMOVE" {
+                    let id = Uuid::parse_str(&entity).map_err(|_| Error::Unavailable)?;
+                    Logins::remove(tx, account_id, id)
+                        .await
+                        .map_err(from_login)?;
                     continue;
                 }
+                // Expired payloads and terminal refusals project nothing.
+                let Some(payload) = row.try_get::<Option<Vec<u8>>, _>("payload")? else {
+                    continue;
+                };
+                let character = row
+                    .try_get::<Option<String>, _>("character_id")?
+                    .map(|c| Uuid::parse_str(&c))
+                    .transpose()
+                    .map_err(|_| Error::Unavailable)?;
+                if let Some(character) = character {
+                    // A character sold since the record stays out of the seller's view.
+                    if !matches!(
+                        ownership(tx, account_id, character).await?,
+                        Ownership::Owner(_)
+                    ) {
+                        continue;
+                    }
+                }
+                let cut = self
+                    .logins
+                    .authority
+                    .current(tx, account_id, character)
+                    .await
+                    .map_err(from_login)?;
+                let record = PromotedLogin {
+                    account: account_id,
+                    character,
+                    // The fence admitted the record at or above the ownership cut.
+                    character_revision: cut.ownership_character_revision,
+                    cut,
+                    source_revision: super::counter(&row.try_get::<String, _>("revision")?)?,
+                    login: Login::parse(&payload).map_err(from_login)?,
+                };
+                match self.logins.apply(tx, &record).await {
+                    // Before the transfer floor or ahead of the trusted clock: not shown.
+                    Err(logins::Error::Denied) => continue,
+                    other => other.map_err(from_login)?,
+                }
             }
-            let cut = self
-                .logins
-                .authority
-                .current(tx, account_id, character)
-                .await
-                .map_err(from_login)?;
-            let record = PromotedLogin {
-                account: account_id,
-                character,
-                // The fence admitted the record at or above the ownership cut.
-                character_revision: cut.ownership_character_revision,
-                cut,
-                source_revision: super::counter(&row.try_get::<String, _>("revision")?)?,
-                login: Login::parse(&payload).map_err(from_login)?,
-            };
-            match self.logins.apply(tx, &record).await {
-                // Before the transfer floor or ahead of the trusted clock: not shown.
-                Err(logins::Error::Denied) => continue,
-                other => other.map_err(from_login)?,
+            if exhausted {
+                break;
             }
         }
         Ok(())

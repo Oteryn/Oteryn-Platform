@@ -527,3 +527,60 @@ async fn nwave_expired_session_payload_preserves_recent_logout_activity() {
     assert!(service.history(record.account).await.unwrap().is_empty());
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_authorized_epoch_rebuild_reuses_retained_occurrence() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let (mut service, mut record) = fixture(&db.pool).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    service.apply(&mut tx, &record).await.unwrap();
+    tx.commit().await.unwrap();
+    // Another retained occurrence is absent from the replacement baseline.
+    let omitted = Uuid::now_v7();
+    sqlx::query("INSERT INTO pd_game_logins SELECT account_id,$2,character_id,world_id,projection_epoch,recovery_generation,projection_revision,character_revision,source_revision,entered_at,left_at,end_reason,created_at,updated_at FROM pd_game_logins WHERE account_id=$1")
+        .bind(record.account).bind(omitted).execute(&db.pool).await.unwrap();
+    record.cut.epoch = 2;
+    service.authority = Arc::new(TestAuthority {
+        account: record.account,
+        cut: record.cut.clone(),
+    });
+    let mut tx = db.pool.begin().await.unwrap();
+    service
+        .apply(&mut tx, &record)
+        .await
+        .expect("authorized rebuild");
+    tx.commit().await.unwrap();
+    let history = service.history(record.account).await.expect("new history");
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].login_event_id, record.login.login_event_id);
+    db.close().await;
+    eprintln!(
+        "PG postgres_authorized_epoch_rebuild_reuses_retained_occurrence {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_visible_login_behind_sold_character_candidates() {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let (service, record) = fixture(&db.pool).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    service.apply(&mut tx, &record).await.unwrap();
+    tx.commit().await.unwrap();
+    sqlx::query("INSERT INTO pd_game_logins(account_id,login_event_id,character_id,world_id,projection_revision,character_revision,projection_epoch,recovery_generation,source_revision,entered_at) SELECT $1,gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),1,1,1,1,1,$2 FROM generate_series(1,101)")
+        .bind(record.account).bind(record.cut.observed_at_ms).execute(&db.pool).await.unwrap();
+    let history = service.history(record.account).await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].login_event_id, record.login.login_event_id);
+    db.close().await;
+    eprintln!(
+        "PG postgres_visible_login_behind_sold_character_candidates {:?}",
+        started.elapsed()
+    );
+}

@@ -264,6 +264,9 @@ struct Database {
 }
 impl Database {
     async fn new() -> Option<Self> {
+        Self::with_migrations(false).await
+    }
+    async fn with_migrations(all: bool) -> Option<Self> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("PostgreSQL T78 test skipped: PORTAL_TEST_DATABASE_URL is unset");
             return None;
@@ -282,12 +285,18 @@ impl Database {
             .options([("search_path", schema.as_str())]);
         let pool = PgPool::connect_with(options).await.unwrap();
         let mut connection = pool.acquire().await.unwrap();
-        connection
-            .execute(sqlx::raw_sql(include_str!(
-                "../../../../migrations/20261105230114_t78_deaths.sql"
-            )))
-            .await
-            .unwrap();
+        if all {
+            drop(connection);
+            oteryn_db::migrate(&pool).await.unwrap();
+            connection = pool.acquire().await.unwrap();
+        } else {
+            connection
+                .execute(sqlx::raw_sql(include_str!(
+                    "../../../../migrations/20261105230114_t78_deaths.sql"
+                )))
+                .await
+                .unwrap();
+        }
         connection
             .execute(
                 "CREATE TABLE test_authority (id integer PRIMARY KEY, allowed boolean NOT NULL)",
@@ -648,4 +657,109 @@ async fn postgres_http_owner_page_success_denial_and_bad_input() {
             .is_empty()
     );
     database.close().await;
+}
+
+#[tokio::test]
+async fn postgres_expired_death_entities_do_not_hide_recent_history() {
+    let started = std::time::Instant::now();
+    let Some(database) = Database::new().await else {
+        return;
+    };
+    let repo = database.repo();
+    let mut r = record(Family::DeathRecap);
+    r.occurred_at_unix_ms = (NOW - HISTORY_MS).to_string();
+    for seq in 1..=201 {
+        r.source_revision = seq.to_string();
+        r.record_id = Uuid::now_v7().to_string();
+        r.entity_key = Uuid::now_v7().to_string();
+        if let Some(Payload::Death(p)) = &mut r.payload {
+            p.death_occurrence_id = r.entity_key.clone();
+        }
+        repo.ingest(&bytes(&r), NOW).await.unwrap();
+    }
+    r.source_revision = "202".into();
+    r.record_id = Uuid::now_v7().to_string();
+    r.entity_key = Uuid::now_v7().to_string();
+    r.occurred_at_unix_ms = NOW.to_string();
+    if let Some(Payload::Death(p)) = &mut r.payload {
+        p.death_occurrence_id = r.entity_key.clone();
+    }
+    repo.ingest(&bytes(&r), NOW).await.unwrap();
+    repo.watermark(&bytes(&mark(&r, NOW)), NOW).await.unwrap();
+    let owner = Actor::Owner(id(ACCOUNT).unwrap());
+    assert_eq!(
+        repo.read(owner, &r.stream(), id(CHARACTER).unwrap(), NOW)
+            .await
+            .unwrap()
+            .records,
+        vec![r.clone()]
+    );
+    repo.purge_expired(NOW).await.unwrap();
+    assert_eq!(
+        repo.read(owner, &r.stream(), id(CHARACTER).unwrap(), NOW)
+            .await
+            .unwrap()
+            .records,
+        vec![r]
+    );
+    database.close().await;
+    eprintln!(
+        "PG postgres_expired_death_entities_do_not_hide_recent_history {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_production_retention_erases_death_payloads_preserves_fences() {
+    use oteryn_db::outbox::Cleanup;
+    let started = std::time::Instant::now();
+    let Some(database) = Database::with_migrations(true).await else {
+        return;
+    };
+    let repo = database.repo();
+    let r = record(Family::DeathRecap);
+    let accepted = repo.ingest(&bytes(&r), NOW).await.unwrap();
+    sqlx::query("UPDATE pd_t78_records SET occurred_at_ms=0")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    let mut retained = r.clone();
+    retained.source_revision = "2".into();
+    retained.record_id = Uuid::now_v7().to_string();
+    retained.entity_key = Uuid::now_v7().to_string();
+    retained.occurred_at_unix_ms = (now - 31 * 86400000_i64).to_string();
+    if let Some(Payload::Death(p)) = &mut retained.payload {
+        p.death_occurrence_id = retained.entity_key.clone();
+    }
+    repo.ingest(&bytes(&retained), now as u64).await.unwrap();
+    crate::retention::Retention(database.pool.clone())
+        .clean()
+        .await
+        .unwrap();
+    let state: (i64, i64) = sqlx::query_as("SELECT count(*),count(payload) FROM pd_t78_records")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(state, (2, 1));
+    let retained_payload: bool =
+        sqlx::query_scalar("SELECT payload IS NOT NULL FROM pd_t78_records WHERE record_id=$1")
+            .bind(id(&retained.record_id).unwrap())
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert!(
+        retained_payload,
+        "death history retains its full ninety-day window"
+    );
+    assert_eq!(repo.ingest(&bytes(&r), NOW).await.unwrap(), accepted);
+    database.close().await;
+    eprintln!(
+        "PG postgres_production_retention_erases_death_payloads_preserves_fences {:?}",
+        started.elapsed()
+    );
 }

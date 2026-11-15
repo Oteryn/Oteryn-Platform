@@ -261,9 +261,12 @@ impl Repository {
             .await?
             .filter(|c| c.valid())
             .ok_or(Error::Unavailable)?;
-        let rows: Vec<(Json<Session>,)> = sqlx::query_as("SELECT payload FROM pd_drop_sessions WHERE account_id=$1 AND character_id=$2 AND character_revision=$3 AND projection_revision=$4 AND projection_epoch=$5 AND recovery_generation=$6 ORDER BY session_id")
+        let rows: Vec<(Json<Session>,)> = sqlx::query_as("SELECT payload FROM pd_drop_sessions WHERE account_id=$1 AND character_id=$2 AND character_revision=$3 AND projection_revision=$4 AND projection_epoch=$5 AND recovery_generation=$6 ORDER BY session_id LIMIT 4097")
             .bind(account).bind(character).bind(cut.character_revision).bind(cut.projection_revision)
             .bind(cut.projection_epoch).bind(cut.recovery_generation).fetch_all(&mut *tx).await?;
+        if rows.len() > 4096 {
+            return Err(Error::Unavailable);
+        }
         let mut sessions = Vec::with_capacity(rows.len());
         for (Json(session),) in rows {
             session.validate()?;

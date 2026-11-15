@@ -15,3 +15,5 @@ pub mod store;
 
 /// Shared portal navigation registration.
 pub mod navigation;
+
+pub mod retention;

@@ -273,8 +273,8 @@ impl<A: Authority> Deaths<A> {
             return Err(Failure::Unavailable);
         }
         let complete: String = row.try_get("complete_through").map_err(db)?;
-        let rows = sqlx::query("SELECT payload FROM (SELECT DISTINCT ON (world_id,entity_key) payload,source_revision FROM pd_t78_records WHERE source_authority=$1 AND account_id=$2 AND projection_epoch=$3::text::numeric AND recovery_generation=$4::text::numeric AND family=$5 AND character_id=$6 AND source_revision <= $7::text::numeric ORDER BY world_id,entity_key,source_revision DESC) latest ORDER BY source_revision DESC LIMIT 201")
-            .bind(&stream.source_authority).bind(account).bind(&stream.projection_epoch).bind(&stream.recovery_generation).bind(stream.family.key()).bind(character).bind(complete)
+        let rows = sqlx::query("SELECT payload FROM (SELECT DISTINCT ON (world_id,entity_key) payload,source_revision,occurred_at_ms FROM pd_t78_records WHERE source_authority=$1 AND account_id=$2 AND projection_epoch=$3::text::numeric AND recovery_generation=$4::text::numeric AND family=$5 AND character_id=$6 AND source_revision <= $7::text::numeric ORDER BY world_id,entity_key,source_revision DESC) latest WHERE payload IS NOT NULL AND ($8::boolean OR occurred_at_ms>$9) ORDER BY source_revision DESC LIMIT 201")
+            .bind(&stream.source_authority).bind(account).bind(&stream.projection_epoch).bind(&stream.recovery_generation).bind(stream.family.key()).bind(character).bind(complete).bind(stream.family == Family::Skull).bind(now_ms.saturating_sub(HISTORY_MS) as i64)
             .fetch_all(&mut *tx).await.map_err(db)?;
         if rows.len() > 200 {
             return Err(Failure::Unavailable);

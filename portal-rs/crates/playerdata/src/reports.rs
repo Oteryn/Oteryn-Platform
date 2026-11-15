@@ -354,7 +354,35 @@ impl Reports {
             return Err(Error::Disabled);
         }
         self.weekly(account, start, now).await?;
+        // The account adapter may use this same pool. Prepare before reserving
+        // a connection, then lock and revalidate the database identity below.
+        let prepared = notify
+            .accounts
+            .active_verified(account)
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .ok_or(Error::Denied)?;
         let mut tx = self.pool.begin().await?;
+        let current: Option<(String, String)> = sqlx::query_as("SELECT email,locale FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL FOR SHARE")
+            .bind(account).fetch_optional(&mut *tx).await?;
+        let locale_code = match prepared.locale {
+            oteryn_notify::Locale::Pl => "pl",
+            oteryn_notify::Locale::En => "en",
+        };
+        if current
+            .as_ref()
+            .is_none_or(|(email, locale)| email != &prepared.email || locale != locale_code)
+        {
+            return Err(Error::Denied);
+        }
+        let prepared_notify = oteryn_notify::Notifications {
+            pool: notify.pool.clone(),
+            accounts: Arc::new(PreparedNotificationAccount {
+                id: account,
+                state: prepared,
+            }),
+            unsubscribe: notify.unsubscribe.clone(),
+        };
         let enabled: Option<bool> = sqlx::query_scalar(
             "SELECT email_enabled FROM pd_report_preferences WHERE account_id=$1 FOR UPDATE",
         )
@@ -382,7 +410,7 @@ impl Reports {
                 locale.code()
             ),
         };
-        if notify
+        if prepared_notify
             .enqueue(&mut tx, account, &template)
             .await
             .map_err(|_| Error::Unavailable)?
@@ -481,3 +509,19 @@ pub fn csv(report: &Report, drops: bool) -> String {
 #[cfg(test)]
 #[path = "reports_tests.rs"]
 mod tests;
+
+/// Immutable account preparation, used only while its database row is locked
+/// and revalidated by email_week. It never performs another pool acquisition.
+#[derive(Debug)]
+struct PreparedNotificationAccount {
+    id: Uuid,
+    state: oteryn_notify::Account,
+}
+impl oteryn_notify::AccountState for PreparedNotificationAccount {
+    fn active_verified(
+        &self,
+        account: Uuid,
+    ) -> oteryn_notify::NotifyFuture<'_, Option<oteryn_notify::Account>> {
+        Box::pin(async move { Ok((account == self.id).then(|| self.state.clone())) })
+    }
+}

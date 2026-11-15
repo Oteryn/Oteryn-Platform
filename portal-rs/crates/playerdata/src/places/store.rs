@@ -300,8 +300,11 @@ impl PlacesStore {
         sqlx::query("DELETE FROM pd_places_replay_fences WHERE expires_at<=now()")
             .execute(&mut *tx)
             .await?;
-        let rows: Vec<serde_json::Value>=sqlx::query_scalar("SELECT s.snapshot FROM pd_places_sessions s JOIN pd_places_preferences p USING(account_id) JOIN accounts a ON a.id=s.account_id WHERE p.participating AND p.privacy_revision=s.privacy_revision AND a.status='active' AND a.email_verified_at IS NOT NULL AND s.ended_at<=date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'-interval '24 hours'")
+        let rows: Vec<serde_json::Value>=sqlx::query_scalar("SELECT s.snapshot FROM pd_places_sessions s JOIN pd_places_preferences p USING(account_id) JOIN accounts a ON a.id=s.account_id WHERE p.participating AND p.privacy_revision=s.privacy_revision AND a.status='active' AND a.email_verified_at IS NOT NULL AND s.ended_at<=date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'-interval '24 hours' LIMIT 4097")
             .fetch_all(&mut *tx).await?;
+        if rows.len() > 4096 {
+            return Err(Error::Denied);
+        }
         let mut sessions = Vec::new();
         for row in rows {
             let session: Session = serde_json::from_value(row).map_err(|_| Error::Denied)?;

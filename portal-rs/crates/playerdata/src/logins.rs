@@ -280,7 +280,7 @@ impl Logins {
         }) {
             return Err(Error::Conflict);
         }
-        let changed = sqlx::query("INSERT INTO pd_game_logins(account_id,login_event_id,character_id,world_id,projection_epoch,recovery_generation,projection_revision,character_revision,source_revision,entered_at,left_at,end_reason) VALUES($1,$2,$3,$12,$4::text::numeric,$5::text::numeric,$6::text::numeric,$7::text::numeric,$8::text::numeric,$9,$10,$11) ON CONFLICT(account_id,login_event_id) DO UPDATE SET character_id=EXCLUDED.character_id,world_id=EXCLUDED.world_id,projection_epoch=EXCLUDED.projection_epoch,recovery_generation=EXCLUDED.recovery_generation,projection_revision=EXCLUDED.projection_revision,character_revision=EXCLUDED.character_revision,source_revision=EXCLUDED.source_revision,left_at=EXCLUDED.left_at,end_reason=EXCLUDED.end_reason,updated_at=now() WHERE pd_game_logins.source_revision < EXCLUDED.source_revision AND pd_game_logins.projection_epoch=EXCLUDED.projection_epoch AND pd_game_logins.recovery_generation=EXCLUDED.recovery_generation")
+        let changed = sqlx::query("INSERT INTO pd_game_logins(account_id,login_event_id,character_id,world_id,projection_epoch,recovery_generation,projection_revision,character_revision,source_revision,entered_at,left_at,end_reason) VALUES($1,$2,$3,$12,$4::text::numeric,$5::text::numeric,$6::text::numeric,$7::text::numeric,$8::text::numeric,$9,$10,$11) ON CONFLICT(account_id,login_event_id) DO UPDATE SET character_id=EXCLUDED.character_id,world_id=EXCLUDED.world_id,projection_epoch=EXCLUDED.projection_epoch,recovery_generation=EXCLUDED.recovery_generation,projection_revision=EXCLUDED.projection_revision,character_revision=EXCLUDED.character_revision,source_revision=EXCLUDED.source_revision,left_at=EXCLUDED.left_at,end_reason=EXCLUDED.end_reason,updated_at=now() WHERE pd_game_logins.projection_epoch<>EXCLUDED.projection_epoch OR pd_game_logins.recovery_generation<>EXCLUDED.recovery_generation OR pd_game_logins.source_revision < EXCLUDED.source_revision")
             .bind(record.account).bind(record.login.login_event_id).bind(record.character).bind(current.epoch.to_string()).bind(current.recovery_generation.to_string()).bind(current.projection_revision.map(|v| v.to_string())).bind(record.character_revision.map(|v| v.to_string())).bind(record.source_revision.to_string()).bind(entered).bind(left).bind(reason).bind(current.world_id).execute(&mut **tx).await?.rows_affected();
         if changed != 1 {
             return Err(Error::Conflict);
@@ -297,54 +297,76 @@ impl Logins {
         let now = now(&mut tx).await?;
         let base = self.authority.current(&mut tx, actor, None).await?;
         check_cut(&base, None, now)?;
-        let rows: Vec<Row> = sqlx::query_as("SELECT login_event_id,character_id,world_id,projection_epoch::text AS epoch,recovery_generation::text AS recovery,character_revision::text AS character_revision,projection_revision::text AS revision,source_revision::text AS source,entered_at,left_at,end_reason FROM pd_game_logins WHERE account_id=$1 AND entered_at >= $2 ORDER BY entered_at DESC,login_event_id DESC LIMIT 100")
-            .bind(actor).bind(now - 30 * 86_400_000).fetch_all(&mut *tx).await?;
-        if rows.is_empty() && now - base.observed_at_ms > 10_000 {
+        // A future generation cannot belong to the currently authorized cut.
+        // Older retained generations are excluded from its completed baseline.
+        let future: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_game_logins WHERE account_id=$1 AND entered_at >= $2 AND (projection_epoch>$3::text::numeric OR (projection_epoch=$3::text::numeric AND recovery_generation>$4::text::numeric)))")
+            .bind(actor).bind(now - 30 * 86_400_000).bind(base.epoch.to_string()).bind(base.recovery_generation.to_string()).fetch_one(&mut *tx).await?;
+        if future {
             return Err(Error::Unavailable);
         }
         let mut entries = Vec::new();
-        // One proven period per subject; `None` hides that character's rows.
         let mut periods: HashMap<Option<Uuid>, Option<Cut>> = HashMap::new();
-        for row in rows {
-            let cut = match periods.entry(row.character_id) {
-                Slot::Occupied(known) => known.into_mut(),
-                Slot::Vacant(slot) => {
-                    slot.insert(self.period(&mut tx, actor, row.character_id, now).await?)
+        let mut cursor: Option<(i64, Uuid)> = None;
+        loop {
+            periods.clear();
+            let rows: Vec<Row> = sqlx::query_as("SELECT login_event_id,character_id,world_id,projection_epoch::text AS epoch,recovery_generation::text AS recovery,character_revision::text AS character_revision,projection_revision::text AS revision,source_revision::text AS source,entered_at,left_at,end_reason FROM pd_game_logins WHERE account_id=$1 AND entered_at >= $2 AND projection_epoch=$3::text::numeric AND recovery_generation=$4::text::numeric AND ($5::bigint IS NULL OR (entered_at,login_event_id)<($5,$6::uuid)) ORDER BY entered_at DESC,login_event_id DESC LIMIT 100")
+            .bind(actor).bind(now - 30 * 86_400_000).bind(base.epoch.to_string()).bind(base.recovery_generation.to_string()).bind(cursor.map(|v| v.0)).bind(cursor.map(|v| v.1)).fetch_all(&mut *tx).await?;
+            if rows.is_empty() {
+                if entries.is_empty() && now - base.observed_at_ms > 10_000 {
+                    return Err(Error::Unavailable);
                 }
-            };
-            let Some(cut) = cut else {
-                continue;
-            };
-            let character_revision = row
-                .character_revision
-                .as_deref()
-                .map(str::parse::<u64>)
-                .transpose()
-                .map_err(|_| Error::Unavailable)?;
-            if row.entered_at > now
-                || row.left_at.is_some_and(|left| left > now)
-                || row.world_id != cut.world_id
-                || character_revision
-                    .zip(cut.ownership_character_revision)
-                    .is_some_and(|(actual, floor)| actual < floor)
-                || cut.epoch != base.epoch
-                || cut.recovery_generation != base.recovery_generation
-                || row.epoch != cut.epoch.to_string()
-                || row.recovery != cut.recovery_generation.to_string()
-                || row.revision != cut.projection_revision.map(|v| v.to_string())
-                || row.source.parse::<u64>().map_err(|_| Error::Unavailable)? > cut.complete_through
-                || row.entered_at < cut.visibility_floor_ms
-            {
-                return Err(Error::Unavailable);
+                break;
             }
-            entries.push(Entry {
-                login_event_id: row.login_event_id,
-                character: row.character_id,
-                entered_at: row.entered_at,
-                left_at: row.left_at,
-                end_reason: row.end_reason,
-                stale: now - base.observed_at_ms > 10_000 || now - cut.observed_at_ms > 10_000,
-            });
+            let exhausted = rows.len() < 100;
+            cursor = rows.last().map(|row| (row.entered_at, row.login_event_id));
+            for row in rows {
+                let cut = match periods.entry(row.character_id) {
+                    Slot::Occupied(known) => known.into_mut(),
+                    Slot::Vacant(slot) => {
+                        slot.insert(self.period(&mut tx, actor, row.character_id, now).await?)
+                    }
+                };
+                let Some(cut) = cut else {
+                    continue;
+                };
+                let character_revision = row
+                    .character_revision
+                    .as_deref()
+                    .map(str::parse::<u64>)
+                    .transpose()
+                    .map_err(|_| Error::Unavailable)?;
+                if row.entered_at > now
+                    || row.left_at.is_some_and(|left| left > now)
+                    || row.world_id != cut.world_id
+                    || character_revision
+                        .zip(cut.ownership_character_revision)
+                        .is_some_and(|(actual, floor)| actual < floor)
+                    || cut.epoch != base.epoch
+                    || cut.recovery_generation != base.recovery_generation
+                    || row.epoch != cut.epoch.to_string()
+                    || row.recovery != cut.recovery_generation.to_string()
+                    || row.revision != cut.projection_revision.map(|v| v.to_string())
+                    || row.source.parse::<u64>().map_err(|_| Error::Unavailable)?
+                        > cut.complete_through
+                    || row.entered_at < cut.visibility_floor_ms
+                {
+                    return Err(Error::Unavailable);
+                }
+                entries.push(Entry {
+                    login_event_id: row.login_event_id,
+                    character: row.character_id,
+                    entered_at: row.entered_at,
+                    left_at: row.left_at,
+                    end_reason: row.end_reason,
+                    stale: now - base.observed_at_ms > 10_000 || now - cut.observed_at_ms > 10_000,
+                });
+                if entries.len() == 100 {
+                    break;
+                }
+            }
+            if exhausted || entries.len() == 100 {
+                break;
+            }
         }
         tx.commit().await?;
         Ok(entries)

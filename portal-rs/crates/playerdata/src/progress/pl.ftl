@@ -26,3 +26,5 @@ axe = Walka toporem
 distance = Walka dystansowa
 shielding = Obrona tarczą
 fishing = Łowienie ryb
+
+progress-stale = Nieaktualna obserwacja; obecny stan nie jest potwierdzony.

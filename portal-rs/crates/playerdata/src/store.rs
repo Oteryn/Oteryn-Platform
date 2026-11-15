@@ -331,6 +331,15 @@ async fn lock(tx: &mut Transaction<'_, Postgres>, authority: &str) -> Result<()>
         .await?;
     Ok(())
 }
+// Ordinary operations share the authority fence: per-account locks serialize
+// their streams, while lifecycle and legacy expiration retain the exclusive fence.
+async fn shared_authority(tx: &mut Transaction<'_, Postgres>, authority: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1,72))")
+        .bind(authority)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
 async fn stream(tx: &mut Transaction<'_, Postgres>, s: &Scope, progress: bool) -> Result<Cursor> {
     let key = stream_key(s);
     sqlx::query("INSERT INTO pd_streams(stream_key,authority,account_id,family,progress) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING").bind(&key).bind(&s.authority).bind(&s.account).bind(&s.family).bind(progress).execute(&mut **tx).await?;
@@ -385,7 +394,12 @@ impl Store {
         let lease = self.authority.acquire(&r.scope).await?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &r.scope.account).await?;
-        lock(&mut tx, &r.scope.authority).await?;
+        shared_authority(&mut tx, &r.scope.authority).await?;
+        // Record IDs are authority-wide, even across independent account locks.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,74))")
+            .bind(format!("{}:{}", r.scope.authority, r.id))
+            .execute(&mut *tx)
+            .await?;
         let admission = lease.fence(&mut tx, &r.scope).await?;
         lease.validate(&r)?;
         // A G-11 stream is account-wide, so a record of a deleted character is a
@@ -480,6 +494,10 @@ impl Store {
         };
         sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) VALUES($1,$2::numeric,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
    .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).bind(&r.entity).bind(&r.scope.character).bind(subject_key(&r.scope)).bind(&r.kind).bind(r.occurred_ms as i64).bind(r.coverage_ms as i64).bind(digest).bind(payload).bind(expires as i64).execute(&mut *tx).await?;
+        if r.scope.family == "BANK" {
+            sqlx::query("INSERT INTO pd_bank_continuations(stream_key,entry_id,balance_after,coverage_ms) VALUES($1,$2,$3,$4) ON CONFLICT(stream_key) DO UPDATE SET entry_id=EXCLUDED.entry_id,balance_after=EXCLUDED.balance_after,coverage_ms=EXCLUDED.coverage_ms")
+                .bind(&key).bind(&r.entity).bind(playerdata::text(playerdata::get(&r.payload, "balance_after")?)?).bind(r.coverage_ms as i64).execute(&mut *tx).await?;
+        }
         if r.scope.family == "ITEMS" && r.kind == "ITEMS_END" {
             self.finish_snapshot(&mut tx, &r, &key, now).await?;
         }
@@ -514,7 +532,7 @@ impl Store {
         let lease = self.authority.acquire(s).await?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &s.account).await?;
-        lock(&mut tx, &s.authority).await?;
+        shared_authority(&mut tx, &s.authority).await?;
         if lease.fence(&mut tx, s).await? != Admission::Owner {
             return Err(Error::Conflict);
         }
@@ -569,7 +587,7 @@ impl Store {
         let lease = self.authority.acquire(&scope).await?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &scope.account).await?;
-        lock(&mut tx, &scope.authority).await?;
+        shared_authority(&mut tx, &scope.authority).await?;
         if lease.fence(&mut tx, &scope).await? != Admission::Owner {
             return Err(Error::Conflict);
         }
@@ -629,7 +647,8 @@ impl Store {
         let now = time.now(progress)?;
         let lease = self.authority.acquire(s).await?;
         let mut tx = self.pool.begin().await?;
-        lock(&mut tx, &s.authority).await?;
+        lock_account(&mut tx, &s.account).await?;
+        shared_authority(&mut tx, &s.authority).await?;
         if lease.fence(&mut tx, s).await? != Admission::Owner {
             return Err(Error::Unavailable);
         }
@@ -646,12 +665,16 @@ impl Store {
                 return Err(Error::Unavailable);
             };
             through = decimal_row(&row, "published_through")?;
-            if observed > now || now.saturating_sub(observed) > 86400000 {
+            if observed > now
+                || now.saturating_sub(observed) > 86400000
+                || (matches!(s.family.as_str(), "boss_cooldown" | "house_rent" | "skull")
+                    && now.saturating_sub(observed) > 10000)
+            {
                 return Err(Error::Unavailable);
             };
             // Only the latest entity inside the proven prefix can be presented. A later
             // REMOVE or expired value cannot reveal an earlier retained replacement.
-            sqlx::query("SELECT DISTINCT ON (entity_key) kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND scope_key=$2 AND source_revision<=$3::numeric ORDER BY entity_key,source_revision DESC")
+            sqlx::query("SELECT DISTINCT ON (entity_key) kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND scope_key=$2 AND source_revision<=$3::numeric ORDER BY entity_key,source_revision DESC LIMIT 4097")
    .bind(&key).bind(subject_key(s)).bind(through.to_string()).fetch_all(&mut *tx).await?
         } else if s.family == "ITEMS" {
             let head=sqlx::query("SELECT begin_revision::text,end_revision::text,occurred_ms FROM pd_item_heads WHERE stream_key=$1").bind(&key).fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
@@ -661,7 +684,7 @@ impl Store {
             if now.saturating_sub(observed) >= 30 * 86400000 {
                 return Err(Error::Unavailable);
             };
-            sqlx::query("SELECT kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND source_revision BETWEEN $2::numeric AND $3::numeric ORDER BY source_revision")
+            sqlx::query("SELECT kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND source_revision BETWEEN $2::numeric AND $3::numeric ORDER BY source_revision LIMIT 4097")
    .bind(&key).bind(head.try_get::<String,_>("begin_revision")?).bind(head.try_get::<String,_>("end_revision")?).fetch_all(&mut *tx).await?
         } else {
             let coverage = sqlx::query("SELECT min(coverage_ms) AS start,max(occurred_ms) AS observed FROM pd_records WHERE stream_key=$1 AND scope_key=$2").bind(&key).bind(subject_key(s)).fetch_one(&mut *tx).await?;
@@ -673,8 +696,11 @@ impl Store {
                 .ok_or(Error::Unavailable)? as u64;
             // History completeness and the initial ledger boundary must be independently
             // proven by the authority lease; an empty query alone proves nothing.
-            sqlx::query("SELECT kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND scope_key=$2 ORDER BY source_revision").bind(&key).bind(subject_key(s)).fetch_all(&mut *tx).await?
+            sqlx::query("SELECT kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND scope_key=$2 ORDER BY source_revision LIMIT 4097").bind(&key).bind(subject_key(s)).fetch_all(&mut *tx).await?
         };
+        if rows.len() > 4096 {
+            return Err(Error::Unavailable);
+        }
         let mut records = Vec::new();
         for row in rows {
             let kind = row.try_get::<String, _>("kind")?;
@@ -762,6 +788,7 @@ impl Store {
         .await?;
         sqlx::query("UPDATE pd_records SET payload=NULL WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM pd_bank_continuations WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
         tombstone(&mut tx, account, None, now).await?;
         tx.commit().await?;
         Ok(())
@@ -809,23 +836,36 @@ impl Store {
         r: &Record,
         key: &str,
     ) -> Result<()> {
-        let rows=sqlx::query("SELECT entity_key,coverage_ms,payload FROM pd_records WHERE stream_key=$1 ORDER BY source_revision DESC LIMIT 1").bind(key).fetch_all(&mut **tx).await?;
-        if let Some(last) = rows.first() {
-            if last.try_get::<i64, _>("coverage_ms")? != r.coverage_ms as i64 {
-                return Err(Error::Conflict);
-            };
-            if r.scope.family == "BANK" {
-                let prior = last
-                    .try_get::<Option<Vec<u8>>, _>("payload")?
-                    .ok_or(Error::Unavailable)?;
-                let prior = canonical::decode(&prior, 65536, 9).map_err(|_| Error::Unavailable)?;
-                let previous = playerdata::get(&r.payload, "previous_entry_id")?;
-                if playerdata::text(previous)? != last.try_get::<String, _>("entity_key")?
-                    || playerdata::get(&prior, "balance_after")?
-                        != playerdata::get(&r.payload, "balance_before")?
+        if r.scope.family == "BANK" {
+            let last = sqlx::query("SELECT entry_id,balance_after,coverage_ms FROM pd_bank_continuations WHERE stream_key=$1")
+                .bind(key).fetch_optional(&mut **tx).await?;
+            if let Some(last) = last {
+                if last.try_get::<i64, _>("coverage_ms")? != r.coverage_ms as i64
+                    || playerdata::text(playerdata::get(&r.payload, "previous_entry_id")?)?
+                        != last.try_get::<String, _>("entry_id")?
+                    || playerdata::text(playerdata::get(&r.payload, "balance_before")?)?
+                        != last.try_get::<String, _>("balance_after")?
                 {
                     return Err(Error::Conflict);
-                };
+                }
+            } else {
+                // A pre-migration stream whose last payload was already erased
+                // needs an explicitly validated new generation, never a guessed balance.
+                let stored: String = sqlx::query_scalar(
+                    "SELECT stored_through::text FROM pd_streams WHERE stream_key=$1",
+                )
+                .bind(key)
+                .fetch_one(&mut **tx)
+                .await?;
+                if stored != "0" {
+                    return Err(Error::Unavailable);
+                }
+            }
+        } else {
+            let coverage: Option<i64> = sqlx::query_scalar("SELECT coverage_ms FROM pd_records WHERE stream_key=$1 ORDER BY source_revision DESC LIMIT 1")
+                .bind(key).fetch_optional(&mut **tx).await?;
+            if coverage.is_some_and(|v| v != r.coverage_ms as i64) {
+                return Err(Error::Conflict);
             }
         }
         let duplicate:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_records WHERE authority=$1 AND entity_key=$2 AND stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$3 AND family=$4))").bind(&r.scope.authority).bind(&r.entity).bind(&r.scope.account).bind(&r.scope.family).fetch_one(&mut **tx).await?;
