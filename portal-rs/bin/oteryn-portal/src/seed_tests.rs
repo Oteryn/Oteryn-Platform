@@ -812,3 +812,122 @@ async fn signing_custody_runs_only_in_testing_or_preprod() -> TestResult {
     assert_ne!(run_in(Some("preprod"), &args).await, gate);
     Ok(())
 }
+
+#[tokio::test]
+async fn custody_deadline_bounds_locked_publication_and_releases_custody() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let directory = scratch.path().join("custody");
+    let input = custody_input(&directory);
+    db.seed("signing-custody", input.clone()).await?;
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM native_game_signing_trust_profiles FOR UPDATE")
+        .execute(&mut *blocker)
+        .await?;
+    let budget = std::time::Duration::from_millis(250);
+    let activation_started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        signing_custody_with_budget(&db.pool, &db.settings(), &Args::new(&input)?, budget),
+    )
+    .await?;
+    assert_eq!(
+        result,
+        Err(SeedError::Unavailable(
+            "signing custody publication timeout"
+        ))
+    );
+    assert!(activation_started.elapsed() < std::time::Duration::from_secs(1));
+    // Reopen before releasing the DB lock: cancellation must relinquish custody.
+    let storage = keys::EncryptedFileStorage::from_key_file(
+        directory.join(CUSTODY_FILE),
+        &directory.join(WRAPPING_KEY_FILE),
+    )?;
+    drop(storage);
+    blocker.rollback().await?;
+    // A timed-out pooled connection must not leave a live SQL lock waiter.
+    db.seed("signing-custody", input).await?;
+    db.close().await?;
+    eprintln!(
+        "PG custody_deadline_bounds_locked_publication_and_releases_custody duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn custody_deadline_bounds_activation_and_validation_snapshots() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    db.seed(
+        "signing-custody",
+        custody_input(&scratch.path().join("custody")),
+    )
+    .await?;
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM native_game_signing_trust_profiles FOR UPDATE")
+        .execute(&mut *blocker)
+        .await?;
+    for stage in [
+        "signing custody activation snapshot timeout",
+        "signing custody validation snapshot timeout",
+    ] {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(250);
+        let registry = PublicTrustRegistry::new(
+            db.pool.clone(),
+            keys::Settings {
+                enabled: true,
+                key_purpose: CUSTODY_PURPOSE.into(),
+                clock_uncertainty_seconds: CUSTODY_CLOCK_UNCERTAINTY,
+            },
+            db.witness.path().to_path_buf(),
+        )?
+        .with_deadline(deadline);
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            activation_stage(deadline, stage, async {
+                registry.snapshot().await.map_err(trust_error)
+            }),
+        )
+        .await?;
+        assert!(matches!(result, Err(SeedError::Unavailable(s)) if s == stage));
+    }
+    blocker.rollback().await?;
+    db.close().await?;
+    eprintln!(
+        "PG custody_deadline_bounds_activation_and_validation_snapshots duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn custody_activation_stages_share_one_deadline() {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(100);
+    activation_stage(deadline, "publication", async {
+        tokio::time::sleep(std::time::Duration::from_millis(70)).await;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let result = activation_stage(deadline, "final validation timeout", async {
+        tokio::time::sleep(std::time::Duration::from_millis(70)).await;
+        Ok(())
+    })
+    .await;
+    assert_eq!(
+        result,
+        Err(SeedError::Unavailable("final validation timeout"))
+    );
+    // Ready futures must not bypass an already-expired overall deadline.
+    assert_eq!(
+        activation_stage(deadline, "expired stage timeout", async { Ok(()) }).await,
+        Err(SeedError::Unavailable("expired stage timeout"))
+    );
+}

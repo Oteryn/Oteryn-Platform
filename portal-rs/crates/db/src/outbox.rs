@@ -52,6 +52,18 @@ pub async fn claim_with_deadline(
     lease_seconds: i32,
     budget: Duration,
 ) -> Result<Vec<Job>, Error> {
+    claim_excluding_with_deadline(pool, batch, lease_seconds, budget, &[]).await
+}
+
+/// Disabled consumers are excluded before claiming, without spending retries or
+/// starving deliverable jobs behind a backlog of disabled work.
+pub async fn claim_excluding_with_deadline(
+    pool: &PgPool,
+    batch: i64,
+    lease_seconds: i32,
+    budget: Duration,
+    disabled: &[String],
+) -> Result<Vec<Job>, Error> {
     if !(1..=1000).contains(&batch) || !(1..=86400).contains(&lease_seconds) {
         return Err(Error::Protocol(
             "invalid outbox batch or lease duration".into(),
@@ -71,7 +83,7 @@ pub async fn claim_with_deadline(
         sqlx::query(
             "WITH exhausted AS (
            SELECT id FROM outbox WHERE state = 'running' AND leased_until <= now()
-             AND attempts >= max_attempts ORDER BY leased_until
+             AND attempts >= max_attempts AND NOT (kind = ANY($2)) ORDER BY leased_until
            FOR UPDATE SKIP LOCKED LIMIT $1
          )
          UPDATE outbox o SET state = 'dead', leased_until = NULL,
@@ -79,13 +91,14 @@ pub async fn claim_with_deadline(
          FROM exhausted WHERE o.id = exhausted.id",
         )
         .bind(batch)
+        .bind(disabled)
         .execute(&mut *tx)
         .await?;
         let rows: Vec<(Uuid, String, String, i32)> = sqlx::query_as(
             "WITH due AS (
-           SELECT id FROM outbox WHERE
+           SELECT id FROM outbox WHERE NOT (kind = ANY($3)) AND (
              (state = 'pending' AND run_after <= now()) OR
-             (state = 'running' AND leased_until <= now() AND attempts < max_attempts)
+             (state = 'running' AND leased_until <= now() AND attempts < max_attempts))
            ORDER BY run_after, id FOR UPDATE SKIP LOCKED LIMIT $1
          )
          UPDATE outbox o SET state = 'running', attempts = attempts + 1,
@@ -94,6 +107,7 @@ pub async fn claim_with_deadline(
         )
         .bind(batch)
         .bind(f64::from(lease_seconds))
+        .bind(disabled)
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;

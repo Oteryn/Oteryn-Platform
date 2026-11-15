@@ -26,6 +26,29 @@ impl Cleanup for TicketBudgetCleanup {
         Box::pin(async move { self.0.prune().await.map(|_| ()).map_err(|e| e.to_string()) })
     }
 }
+/// Deletes obsolete verification history in bounded batches, retaining the
+/// entire resend-rate window even when a token was consumed immediately.
+#[derive(Debug)]
+struct VerificationTokenCleanup(PgPool);
+impl Cleanup for VerificationTokenCleanup {
+    fn clean(&self) -> HandlerFuture<'_> {
+        Box::pin(async move {
+            sqlx::query(
+                "WITH obsolete AS (
+                SELECT token_hash FROM account_email_tokens
+                WHERE purpose='verify_email'
+                  AND created_at <= clock_timestamp()-interval '60 seconds'
+                  AND (used_at IS NOT NULL OR expires_at <= clock_timestamp())
+                ORDER BY created_at,token_hash LIMIT 1000 FOR UPDATE SKIP LOCKED
+            ) DELETE FROM account_email_tokens t USING obsolete o WHERE t.token_hash=o.token_hash",
+            )
+            .execute(&self.0)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        })
+    }
+}
 /// Placeholder until the owning domain supplies its retention implementation.
 #[derive(Debug)]
 pub struct NoopCleanup;
@@ -37,6 +60,7 @@ impl Cleanup for NoopCleanup {
 
 #[derive(Debug)]
 pub struct Registry {
+    disabled: Vec<String>,
     handlers: BTreeMap<String, Arc<dyn Handler>>,
     schedules: BTreeMap<String, i32>,
     execution_budget: Duration,
@@ -46,6 +70,7 @@ pub struct Registry {
 impl Default for Registry {
     fn default() -> Self {
         Self {
+            disabled: Vec::new(),
             handlers: BTreeMap::new(),
             schedules: BTreeMap::new(),
             execution_budget: Duration::from_secs(30),
@@ -60,6 +85,7 @@ impl Registry {
         if kind.trim().is_empty() || kind.len() > 128 || self.handlers.contains_key(kind) {
             return Err("invalid or duplicate job kind".into());
         }
+        self.disabled.retain(|disabled| disabled != kind);
         self.handlers.insert(kind.into(), handler);
         Ok(())
     }
@@ -94,7 +120,14 @@ impl Registry {
             .acquire_timeout(Duration::from_secs(5))
             .connect_with((*pool.connect_options()).clone())
             .await?;
-        let jobs = outbox::claim_with_deadline(pool, 16, 60, self.execution_budget).await?;
+        let jobs = outbox::claim_excluding_with_deadline(
+            pool,
+            16,
+            60,
+            self.execution_budget,
+            &self.disabled,
+        )
+        .await?;
         let count = jobs.len();
         let mut tasks = tokio::task::JoinSet::new();
         for job in jobs {
@@ -242,7 +275,11 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
             adapter,
         })?;
     }
-    crate::wallet_topup::register(&mut registry, pool.clone())?;
+    if std::env::var("OTERYN_PAYMENTS_ENABLED").as_deref() == Ok("true")
+        && std::env::var("OTERYN_WALLET_ENABLED").as_deref() == Ok("true")
+    {
+        crate::wallet_topup::register(&mut registry, pool.clone())?;
+    }
     if let Some(runtime) = oteryn_bazaar::game::runtime::Runtime::configured(pool.clone()).await? {
         registry.cleanup("bazaar.authority", 1, Arc::new(runtime))?;
     }
@@ -344,9 +381,12 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         3600,
         Arc::new(oteryn_playerdata::places::PlacesRetention { pool: pool.clone() }),
     )?;
-    for kind in ["cleanup.tokens", "cleanup.support"] {
-        registry.cleanup(kind, 3600, Arc::new(NoopCleanup))?;
-    }
+    registry.cleanup(
+        "cleanup.tokens",
+        3600,
+        Arc::new(VerificationTokenCleanup(pool.clone())),
+    )?;
+    registry.cleanup("cleanup.support", 3600, Arc::new(NoopCleanup))?;
     registry.cleanup(
         "cleanup.support-tickets",
         3600,
@@ -375,6 +415,25 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         3600,
         Arc::new(oteryn_stats::online::Retention { pool: pool.clone() }),
     )?;
+    // Known consumers without an enabled handler must keep their queued work.
+    // Unknown kinds still reach execute() and are permanently refused.
+    for kind in [
+        "commerce.refund",
+        "wallet.top_up",
+        "email.password-reset",
+        "email.verify",
+        "email.account_exists",
+        oteryn_notify::EMAIL_JOB,
+        "bazaar.authority",
+        "league.ingest",
+        "identity.account-closure-audit",
+        "identity.email-change",
+        "admin.control.expire",
+    ] {
+        if !registry.handlers.contains_key(kind) {
+            registry.disabled.push(kind.into());
+        }
+    }
     Ok(registry)
 }
 

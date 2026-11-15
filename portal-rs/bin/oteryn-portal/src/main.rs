@@ -123,7 +123,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             };
             let closure = account_closure::configured(db.clone())?;
             let closure_listener = account_closure::start_listener(db.clone(), &closure).await?;
-            let _admission_listener = game_login::start_admission_listener(db.clone()).await?;
+            let admission_listener = game_login::start_admission_listener(db.clone()).await?;
             let static_dir =
                 std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
             let app = oteryn_web::router(AppState { db: db.clone() }, &static_dir);
@@ -416,18 +416,16 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = public_app;
             let native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
-            let mut private_listeners = tokio::task::JoinSet::new();
-            for (name, handle) in [
-                ("internal-mtls", internal_listener),
-                ("native-tls", native_listener),
-                ("league", league_listener),
-                ("bazaar", bazaar_listener),
-                ("account-closure", closure_listener),
-            ] {
-                if let Some(handle) = handle {
-                    private_listeners.spawn(async move { (name, handle.await) });
-                }
-            }
+            let private_listeners = register_private_listeners(
+                [
+                    ("internal-mtls", internal_listener),
+                    ("native-tls", native_listener),
+                    ("league", league_listener),
+                    ("bazaar", bazaar_listener),
+                    ("account-closure", closure_listener),
+                ],
+                admission_listener,
+            );
             supervise_private_listeners(private_listeners, async move {
                 axum::serve(listener, app)
                     .with_graceful_shutdown(async {
@@ -441,7 +439,24 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-type ListenerCompletion = (&'static str, Result<(), tokio::task::JoinError>);
+type ListenerCompletion = (
+    &'static str,
+    Result<std::io::Result<()>, tokio::task::JoinError>,
+);
+
+fn register_private_listeners(
+    handles: [(&'static str, Option<tokio::task::JoinHandle<()>>); 5],
+    admission: tokio::task::JoinHandle<std::io::Result<()>>,
+) -> tokio::task::JoinSet<ListenerCompletion> {
+    let mut listeners = tokio::task::JoinSet::new();
+    for (name, handle) in handles {
+        if let Some(handle) = handle {
+            listeners.spawn(async move { (name, handle.await.map(|()| Ok(()))) });
+        }
+    }
+    listeners.spawn(async move { ("admission", admission.await) });
+    listeners
+}
 
 async fn supervise_private_listeners(
     mut listeners: tokio::task::JoinSet<ListenerCompletion>,
@@ -480,7 +495,7 @@ mod tests {
         ] {
             let handle = tokio::spawn(async {});
             let mut tasks = tokio::task::JoinSet::new();
-            tasks.spawn(async move { (name, handle.await) });
+            tasks.spawn(async move { (name, handle.await.map(|()| Ok(()))) });
             let result = tokio::time::timeout(
                 std::time::Duration::from_secs(1),
                 supervise_private_listeners(tasks, std::future::pending()),
@@ -492,6 +507,43 @@ mod tests {
                 .to_string();
             assert!(error.contains(name));
             assert!(error.contains("stopped unexpectedly"));
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn production_admission_registration_preserves_termination_cause()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for panic in [false, true] {
+            let admission = tokio::spawn(async move {
+                assert!(!panic, "admission task panic");
+                Err(std::io::Error::other("admission serve failed"))
+            });
+            let listeners = register_private_listeners(
+                [
+                    ("internal-mtls", None),
+                    ("native-tls", None),
+                    ("league", None),
+                    ("bazaar", None),
+                    ("account-closure", None),
+                ],
+                admission,
+            );
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                supervise_private_listeners(listeners, std::future::pending()),
+            )
+            .await?;
+            let error = result
+                .err()
+                .ok_or("serve accepted admission termination")?
+                .to_string();
+            assert!(error.contains("admission"));
+            assert!(error.contains(if panic {
+                "admission task panic"
+            } else {
+                "admission serve failed"
+            }));
         }
         Ok(())
     }
