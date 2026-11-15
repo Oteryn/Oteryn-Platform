@@ -32,6 +32,11 @@ async fn database() -> Result<Option<PgPool>> {
     .execute(&pool)
     .await?;
     sqlx::raw_sql(include_str!(
+        "../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+    ))
+    .execute(&pool)
+    .await?;
+    sqlx::raw_sql(include_str!(
         "../../../migrations/20261105231101_t24d_deaths.sql"
     ))
     .execute(&pool)
@@ -753,6 +758,158 @@ async fn postgres_death_batches_progress_with_advancing_watermark() -> Result {
     dispose(db).await?;
     eprintln!(
         "postgres_death_batches_progress_with_advancing_watermark duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn audit_w3_01_quarantined_deaths_derivation_and_history() -> Result {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use oteryn_internal_api::guard::{Binding, Identity, IdentityMap, VerifiedClient};
+    use tower::ServiceExt;
+    let started = std::time::Instant::now();
+    let db = database()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    // The publisher uses the current replay and admission schema.
+    for migration in [
+        include_str!("../../../migrations/20261105190000_t25_world_registry.sql"),
+        include_str!("../../../migrations/20261105231103_t24f_houses.sql"),
+        include_str!("../../../migrations/20261115110006_fix_06_projection_read_bounds.sql"),
+    ] {
+        sqlx::raw_sql(migration).execute(&db).await?;
+    }
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261115110016_fix_w2a_ingest_budget.sql"
+    ))
+    .execute(&db)
+    .await?;
+    let character = Uuid::now_v7();
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let day = OffsetDateTime::now_utc().date();
+    let identity = Identity::san("stats-deaths-test").map_err(|e| format!("{e:?}"))?;
+    let identities = IdentityMap::new(vec![Binding {
+        identity: identity.clone(),
+        group: "game-public".into(),
+    }])
+    .map_err(|e| format!("{e:?}"))?;
+    let app = oteryn_community::deaths::ingest_router(
+        db.clone(),
+        std::sync::Arc::new(identities),
+        oteryn_community::deaths::IngestConfig {
+            enabled: true,
+            source_authority: "oteryn:game:primary".into(),
+            requests_per_minute: 6000,
+        },
+    );
+    let post = |path: &str, value: String| {
+        let request = Request::post(format!("/internal/v2/game-public/{path}"))
+            .header("content-type", "application/json")
+            .extension(VerifiedClient::from_verified_tls13_http11(identity.clone()))
+            .body(Body::from(value));
+        let app = app.clone();
+        async move { Ok::<_, Box<dyn std::error::Error>>(app.oneshot(request?).await?.status()) }
+    };
+    let occurrence = Uuid::now_v7();
+    let publication = format!(
+        r#"{{"contract_version":2,"operation":"PublishCharacterDeathsV2","source_authority":"oteryn:game:primary","character_id":"{character}","projection_epoch":"1","projection_revision":"1","source_observed_at":"{now}","deaths":[{{"death_occurrence_id":"{occurrence}","occurred_at":"{}","level":"10","pvp":false,"killers":[]}}]}}"#,
+        now - 10
+    );
+    assert_eq!(
+        post("character-deaths", publication.clone()).await?,
+        StatusCode::OK
+    );
+    assert_eq!(post("watermark", format!(r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"oteryn:game:primary","family":"character_deaths","projection_epoch":"1","complete_through":"{now}","observed_at":"{now}"}}"#)).await?, StatusCode::OK);
+    let job = StatisticsJob {
+        pool: db.clone(),
+        enabled: true,
+    };
+    let policy = Policy {
+        hidden: None,
+        fields: true,
+    };
+    let mut snap = sample();
+    snap.character_ref = character;
+    snap.day = day;
+    let mut tx = db.begin().await?;
+    partitions(&mut tx, day).await?;
+    snapshot(&mut tx, &snap).await?;
+    tx.commit().await?;
+    // Derive once, then quarantine: already copied evidence must disappear from readers.
+    assert_eq!(job.run().await?, 1);
+    assert_eq!(
+        history(&db, character, day, day, &policy)
+            .await?
+            .events
+            .iter()
+            .filter(|e| e.kind == "death")
+            .count(),
+        1
+    );
+    let publication = publication.replace(r#""level":"10""#, r#""level":"11""#);
+    assert_eq!(
+        post("character-deaths", publication).await?,
+        StatusCode::CONFLICT
+    );
+    assert!(
+        history(&db, character, day, day, &policy)
+            .await?
+            .events
+            .iter()
+            .all(|e| e.kind != "death")
+    );
+    let report = crate::world::read(
+        &db,
+        crate::world::Config { enabled: true },
+        snap.world,
+        day,
+        day,
+        &policy,
+    )
+    .await
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(report.days[0].deaths, None);
+    // Simulate polling for the first time after the same conflict, with the V2 watermark intact.
+    sqlx::query("DELETE FROM stats_projection_cursors")
+        .execute(&db)
+        .await?;
+    sqlx::query("DELETE FROM stats_character_events WHERE kind='death'")
+        .execute(&db)
+        .await?;
+    assert_eq!(job.run().await?, 0);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM stats_projection_cursors")
+            .fetch_one(&db)
+            .await?,
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM stats_character_events WHERE kind='death'"
+        )
+        .fetch_one(&db)
+        .await?,
+        0
+    );
+    // Only authoritative reconciliation releases the persistent fence.
+    sqlx::query("DELETE FROM public_projection_conflicts WHERE family='character_deaths'")
+        .execute(&db)
+        .await?;
+    assert_eq!(job.run().await?, 1);
+    assert!(
+        history(&db, character, day, day, &policy)
+            .await?
+            .events
+            .iter()
+            .any(|e| e.kind == "death")
+    );
+    dispose(db).await?;
+    eprintln!(
+        "audit_w3_01_quarantined_deaths_derivation_and_history duration: {:?}",
         started.elapsed()
     );
     Ok(())

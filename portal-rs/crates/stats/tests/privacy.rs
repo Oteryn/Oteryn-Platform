@@ -26,6 +26,7 @@ async fn current_statistics_switches_and_missing_state_deny()
     )
     .await?;
     for sql in [
+        include_str!("../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"),
         include_str!("../../../migrations/20261105155256_t03_accounts.sql"),
         include_str!("../../../migrations/20261105145653_t18_account_characters.sql"),
         include_str!("../../../migrations/20261105220226_t09c_privacy.sql"),

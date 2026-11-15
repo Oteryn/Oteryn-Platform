@@ -964,3 +964,45 @@ async fn record_fences_profiles_streams_and_revisions_on_postgres() -> TestResul
     assert_eq!(committed, 3);
     db.cleanup().await
 }
+
+#[tokio::test]
+async fn audit_w3_03_terminal_below_pending_refused_on_postgres() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    db.record(&apply()).await?;
+    let app = router(db.pool.clone(), on(6000), identities()?);
+    let post = |body: String| request(RESULTS_PATH, body, Some(RESULTS));
+    let pending = result_with(
+        r#""receipt_revision":1,"state":"APPLIED","result_code":"OK""#,
+        r#""receipt_revision":2,"state":"ACCEPTED_PENDING","result_code":"PENDING_RUNTIME""#,
+    );
+    assert_eq!(status(&app, post(pending)).await?, StatusCode::OK);
+    assert_eq!(
+        status(&app, post(String::from_utf8(RESULT_APPLIED.to_vec())?)).await?,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(db.count("support_enforcement_results").await?, 1);
+    let terminal = result_with(r#""receipt_revision":1"#, r#""receipt_revision":3"#);
+    assert_eq!(status(&app, post(terminal)).await?, StatusCode::OK);
+    let (_, bytes, _) = send(
+        &app,
+        request(RECONCILE_PATH, RECONCILE_REQUEST, Some(READER)),
+    )
+    .await?;
+    let page: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(page["items"][0]["state"], "APPLIED");
+    assert_eq!(page["items"][0]["receipt_revision"], 3);
+    let late = result_with(
+        r#""state":"APPLIED","result_code":"OK""#,
+        r#""state":"ACCEPTED_PENDING","result_code":"PENDING_RUNTIME""#,
+    );
+    assert_eq!(status(&app, post(late)).await?, StatusCode::OK);
+    db.cleanup().await?;
+    eprintln!(
+        "audit_w3_03_terminal_below_pending_refused_on_postgres duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

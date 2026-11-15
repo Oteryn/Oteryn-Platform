@@ -121,6 +121,11 @@ async fn postgres_character_history_privacy_and_comparison()
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+    ))
+    .execute(&db)
+    .await?;
     let a = Uuid::now_v7();
     let b = Uuid::now_v7();
     let mut tx = db.begin().await?;
@@ -311,6 +316,11 @@ async fn postgres_comparison_rejects_revoked_disclosures() -> Result<(), Box<dyn
         .await?;
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261105210000_t65_statistics.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
     ))
     .execute(&db)
     .await?;

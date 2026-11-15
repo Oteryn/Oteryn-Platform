@@ -220,7 +220,7 @@ fn fail(error: Error, language: &str) -> Response {
         Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         Error::NotFound => StatusCode::NOT_FOUND,
         Error::Denied => StatusCode::FORBIDDEN,
-        Error::Conflict => StatusCode::CONFLICT,
+        Error::Conflict | Error::RequestKeyConflict => StatusCode::CONFLICT,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
     (code, text::text(language, "error")).into_response()
@@ -546,7 +546,13 @@ async fn create(
         .await
     {
         Ok(ticket) => redirect(&language, false, ticket.id),
-        Err(Error::Conflict) => {
+        Err(error @ (Error::Conflict | Error::RequestKeyConflict)) => {
+            let mut form = form;
+            if matches!(error, Error::RequestKeyConflict) {
+                // The edited draft is a new submission. Keep its text, but do
+                // not replay the key already bound to the original ticket.
+                form.request_key = Uuid::now_v7();
+            }
             if session.set(DRAFT, &Some(form)).await.is_err() {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
             }
