@@ -4053,7 +4053,7 @@ async fn a3_l6_01_coin_payout_capacity_precedes_item_and_character_handoff() {
         .await
         .unwrap();
     sqlx::raw_sql(include_str!(
-        "../../../../migrations/2026111522500_fix_a3-l6_incoming_capacity.sql"
+        "../../../../migrations/20261115225000_fix_a3-l6_incoming_capacity.sql"
     ))
     .execute(&pool)
     .await

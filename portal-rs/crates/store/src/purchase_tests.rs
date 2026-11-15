@@ -1480,7 +1480,7 @@ async fn db_wallet_upgrade_preserves_existing_rows_and_uuid_history() {
     .await
     .unwrap();
     sqlx::raw_sql(
-        include_str!("../../../migrations/2026111522500_fix_a3-l6_incoming_capacity.sql")
+        include_str!("../../../migrations/20261115225000_fix_a3-l6_incoming_capacity.sql")
             .split("-- Preserve")
             .next()
             .unwrap(),

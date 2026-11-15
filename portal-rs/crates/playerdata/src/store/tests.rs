@@ -1772,7 +1772,7 @@ async fn postgres_a3_core_expiry_at_publication()
         .execute(&db.pool)
         .await?;
     sqlx::raw_sql(include_str!(
-        "../../../../migrations/2026111521300_fix_a3-03-playerdata_publication_expiry.sql"
+        "../../../../migrations/20261115213000_fix_a3-03-playerdata_publication_expiry.sql"
     ))
     .execute(&db.pool)
     .await?;
@@ -1789,6 +1789,11 @@ async fn postgres_a3_core_expiry_at_publication()
     db.close().await?;
     eprintln!(
         "postgres_a3_core_expiry_at_publication duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
 const MIGRATION_BACKFILL_SYNC: &str =
     include_str!("../../../../migrations/20261115224000_fix_a3-15-migrations_backfill_sync.sql");
 

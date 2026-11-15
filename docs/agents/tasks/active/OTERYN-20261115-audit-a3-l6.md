@@ -41,7 +41,7 @@ owned_paths:
   - portal-rs/crates/store/src/codes_tests.rs
   - portal-rs/crates/store/src/purchase_tests.rs
   - portal-rs/crates/wallet/
-  - portal-rs/migrations/2026111522500_fix_a3-l6_incoming_capacity.sql
+  - portal-rs/migrations/20261115225000_fix_a3-l6_incoming_capacity.sql
 proven:
   - all findings confirmed against requested base
   - repository identity and open governing issue verified
@@ -66,7 +66,7 @@ changed_paths:
   - portal-rs/crates/wallet/src/lib.rs
   - portal-rs/crates/wallet/src/wire.rs
   - portal-rs/crates/wallet/tests/coin_http/mod.rs
-  - portal-rs/migrations/2026111522500_fix_a3-l6_incoming_capacity.sql
+  - portal-rs/migrations/20261115225000_fix_a3-l6_incoming_capacity.sql
   - docs/agents/tasks/active/OTERYN-20261115-audit-a3-l6.md
 validation:
   - command: cargo fmt --all --check

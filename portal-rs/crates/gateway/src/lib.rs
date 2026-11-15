@@ -1083,7 +1083,8 @@ mod proxy_tests {
             );
         }
         assert_eq!(
-            source_of(&request(proxy, "198.51.100.1, 198.51.100.2")?, &[proxy]).map_err(|_| "source")?,
+            source_of(&request(proxy, "198.51.100.1, 198.51.100.2")?, &[proxy])
+                .map_err(|_| "source")?,
             proxy.to_string()
         );
         Ok(())

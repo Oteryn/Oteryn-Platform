@@ -262,8 +262,10 @@ Registration requires mail delivery in both `serve` and `worker`. Supply
 also supplies the origin used by password reset, email change, referrals and
 Bazaar workers when their existing flags are enabled. `OTERYN_SMTP_TLS_MODE`
 (default `starttls`) and `OTERYN_SMTP_PORT` may select the authenticated TLS
-transport. The worker refuses startup when registration delivery is incomplete;
-serve refuses registration POSTs with 503 until restarted with valid delivery
+transport. The worker refuses startup when registration delivery is incomplete
+(some mail settings present, others missing or invalid); with no mail settings at
+all it starts and keeps verification jobs queued as a disabled consumer. In both
+cases serve refuses registration POSTs with 503 until restarted with valid delivery
 configuration. Existing queued verification jobs remain untouched during that
 configuration failure. Configure enabled reset/email-change/referral/Bazaar
 consumers' additional settings before starting the worker.
