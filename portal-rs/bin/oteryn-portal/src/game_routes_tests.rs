@@ -158,7 +158,9 @@ async fn app(values: &Values) -> Result<Router, Box<dyn std::error::Error>> {
         oteryn_community::v2_watermark::PATH,
         post(|| async { "community" }),
     );
-    let app = Routes::configured(pool()?, values).await.mount(community);
+    let app = Routes::configured(pool()?, values, environment(values))
+        .await
+        .mount(community);
     let lcfa = crate::game_login::lcfa_router(
         pool()?,
         values.get("PORTAL_LCFA_INTERNAL_IDENTITY").cloned(),
@@ -365,7 +367,9 @@ async fn app_without_lcfa(values: &Values) -> Result<Router, Box<dyn std::error:
         oteryn_community::v2_watermark::PATH,
         post(|| async { "community" }),
     );
-    Ok(Routes::configured(pool()?, values).await.mount(community))
+    Ok(Routes::configured(pool()?, values, environment(values))
+        .await
+        .mount(community))
 }
 
 #[tokio::test]
@@ -723,6 +727,32 @@ async fn store_purchases_stay_off_outside_testing_and_preproduction() -> TestRes
                 );
             }
         }
+    }
+    Ok(())
+}
+
+pub(super) fn environment(values: &Values) -> oteryn_core::Environment {
+    oteryn_core::Environment::parse(
+        values
+            .get("OTERYN_ENV")
+            .map(String::as_str)
+            .unwrap_or("local"),
+    )
+    .unwrap_or(oteryn_core::Environment::Local)
+}
+
+#[tokio::test]
+async fn preprod_reaches_every_enabled_environment_gated_surface() -> TestResult {
+    let mut values = enabled();
+    values.insert("OTERYN_ENV".into(), "preprod".into());
+    let app = app_without_lcfa(&values).await?;
+    for (path, identity, _, expected) in surfaces() {
+        assert_eq!(status(&app, identity, path).await?, expected, "{path}");
+        assert_eq!(
+            status(&app, STRANGER, path).await?,
+            StatusCode::UNAUTHORIZED,
+            "{path} enabled guard"
+        );
     }
     Ok(())
 }

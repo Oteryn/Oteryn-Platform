@@ -21,11 +21,12 @@
 //! | `playerdata/progress/{record,watermark}` (G-11) | `PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED` | `PORTAL_PLAYERDATA_JOURNAL_PROGRESS_SAN` |
 //!
 //! Character commands and both character-service exchanges also require
-//! `OTERYN_ENV` `testing` or `preproduction`, as the enablement runbook states.
+//! `OTERYN_ENV` `testing` or `preprod`, as the enablement runbook states.
 //! So do both journal ingest purposes (T72, G-11 §9 rollout), which also need
 //! their source authority and family list (`oteryn_playerdata::journal`).
-//! Store purchases require the same, and an `APP_ENV` set to one of those two
-//! (unset refuses): a production sale is impossible under the proposed store wire.
+//! Store purchases require the same, and separately require `APP_ENV` set to
+//! `testing` or `preproduction` (unset refuses): a production sale is impossible
+//! under the proposed store wire.
 //! `PORTAL_CHARACTER_COMMAND_IDENTITIES` is a JSON object keyed by one DNS SAN
 //! per Character Authority host, each value `[]`; those identities are bound to
 //! the command routes only, so every other route refuses them.
@@ -73,11 +74,11 @@ const WATERMARK_BUFFER: usize = 4096;
 type Values = BTreeMap<String, String>;
 
 /// Merge every route below into the internal-listener router.
-pub async fn mount(app: Router, pool: PgPool) -> Router {
+pub async fn mount(app: Router, pool: PgPool, environment: oteryn_core::Environment) -> Router {
     let values: Values = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect();
-    let routes = Routes::configured(pool, &values).await;
+    let routes = Routes::configured(pool, &values, environment).await;
     if !routes.identities_valid {
         tracing::error!(
             "internal identity configuration is invalid or reuses an identity; game routes unavailable"
@@ -100,12 +101,16 @@ struct Diverted {
 }
 
 impl Routes {
-    pub async fn configured(pool: PgPool, values: &Values) -> Self {
+    pub async fn configured(
+        pool: PgPool,
+        values: &Values,
+        environment: oteryn_core::Environment,
+    ) -> Self {
         let get = |key: &str| values.get(key).cloned();
         let on = |key: &str| values.get(key).map(String::as_str) == Some("true");
         let qualified = matches!(
-            values.get("OTERYN_ENV").map(String::as_str),
-            Some("testing" | "preproduction")
+            environment,
+            oteryn_core::Environment::Testing | oteryn_core::Environment::Preprod
         );
         let bindings = bindings(values);
         let valid = bindings.is_ok();
@@ -200,6 +205,15 @@ impl Routes {
         );
 
         let mut store_settings = purchase::Settings::from_lookup(get);
+        // Store's domain settings use the contract's legacy environment labels.
+        // Adapt the parsed process environment here, never the raw OTERYN_ENV.
+        store_settings.environment = match environment {
+            oteryn_core::Environment::Local => "local",
+            oteryn_core::Environment::Testing => "testing",
+            oteryn_core::Environment::Preprod => "preproduction",
+            oteryn_core::Environment::Production => "production",
+        }
+        .into();
         store_settings.delivery_enabled &= valid;
         let mut purchase_settings = store_settings.clone();
         purchase_settings.purchase_enabled &= qualified

@@ -99,16 +99,16 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     ),
                 }
             });
-            let _league_listener =
+            let league_listener =
                 oteryn_minigames::league::transport::start_private_listener(db.clone()).await?;
             let bazaar = oteryn_bazaar::game::runtime::Runtime::configured(db.clone()).await?;
-            let _bazaar_listener = if let Some(runtime) = &bazaar {
+            let bazaar_listener = if let Some(runtime) = &bazaar {
                 Some(runtime.start_private_listener().await?)
             } else {
                 None
             };
             let closure = account_closure::configured(db.clone())?;
-            let _closure_listener = account_closure::start_listener(db.clone(), &closure).await?;
+            let closure_listener = account_closure::start_listener(db.clone(), &closure).await?;
             let _admission_listener = game_login::start_admission_listener(db.clone()).await?;
             let static_dir =
                 std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
@@ -366,24 +366,82 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             };
             // Game-facing internal routes, each behind its own default-off flag
             // and client identity; composition and variables in game_routes.rs.
-            let app = game_routes::mount(app, db.clone()).await;
+            let app = game_routes::mount(app, db.clone(), config.environment).await;
             let _internal_listener = internal_tls::start(app.clone()).await?;
             let app = public_app;
             let _native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = tokio::signal::ctrl_c().await;
-                })
-                .await?;
+            let mut private_listeners = tokio::task::JoinSet::new();
+            for (name, handle) in [
+                ("league", league_listener),
+                ("bazaar", bazaar_listener),
+                ("account-closure", closure_listener),
+            ] {
+                if let Some(handle) = handle {
+                    private_listeners.spawn(async move { (name, handle.await) });
+                }
+            }
+            supervise_private_listeners(private_listeners, async move {
+                axum::serve(listener, app)
+                    .with_graceful_shutdown(async {
+                        let _ = tokio::signal::ctrl_c().await;
+                    })
+                    .await
+            })
+            .await?;
         }
     }
     Ok(())
 }
 
+type ListenerCompletion = (&'static str, Result<(), tokio::task::JoinError>);
+
+async fn supervise_private_listeners(
+    mut listeners: tokio::task::JoinSet<ListenerCompletion>,
+    server: impl std::future::Future<Output = std::io::Result<()>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tokio::select! {
+        result = listeners.join_next(), if !listeners.is_empty() => {
+            Err(listener_stopped(result).into())
+        }
+        result = server => { result?; Ok(()) }
+    }
+}
+
+fn listener_stopped(result: Option<Result<ListenerCompletion, tokio::task::JoinError>>) -> String {
+    match result {
+        Some(Ok((name, result))) => {
+            format!("{name} private listener stopped unexpectedly: {result:?}")
+        }
+        other => format!("private listener supervisor stopped unexpectedly: {other:?}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn all_private_listener_completions_are_supervised()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for name in ["league", "bazaar", "account-closure"] {
+            let handle = tokio::spawn(async {});
+            let mut tasks = tokio::task::JoinSet::new();
+            tasks.spawn(async move { (name, handle.await) });
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                supervise_private_listeners(tasks, std::future::pending()),
+            )
+            .await?;
+            let error = result
+                .err()
+                .ok_or("a stopped listener must fail serve")?
+                .to_string();
+            assert!(error.contains(name));
+            assert!(error.contains("stopped unexpectedly"));
+        }
+        Ok(())
+    }
 
     #[test]
     fn roles_parse_with_serve_as_default() {

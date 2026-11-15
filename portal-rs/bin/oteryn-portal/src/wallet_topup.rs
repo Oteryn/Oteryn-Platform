@@ -4,7 +4,7 @@ use oteryn_db::outbox::{Job, PgPool};
 use oteryn_payments::TopUpJob;
 use oteryn_wallet::{self as wallet, AdjustmentKind, Ledger, WalletFlags};
 use serde_json::json;
-use sqlx::{PgConnection, Row};
+use sqlx::{Acquire, PgConnection, Row};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -78,9 +78,26 @@ impl Delivery {
         if !self.payments_enabled || !self.wallet_enabled {
             return Err("top-up features disabled");
         }
-        let mut tx = self
+        let mut connection = self
             .pool
+            .acquire()
+            .await
+            .map_err(|_| "top-up storage unavailable")?;
+        // A cancelled lock wait must not return a still-busy session to the pool.
+        // This dedicated payment session is closed even when the future is dropped.
+        connection.close_on_drop();
+        let mut tx = connection
             .begin()
+            .await
+            .map_err(|_| "top-up storage unavailable")?;
+        // PostgreSQL also bounds server-side work if the client disappears while
+        // waiting on a lock. Both limits fit inside the worker execution budget.
+        sqlx::query("SET LOCAL lock_timeout = '10s'")
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| "top-up storage unavailable")?;
+        sqlx::query("SET LOCAL statement_timeout = '20s'")
+            .execute(&mut *tx)
             .await
             .map_err(|_| "top-up storage unavailable")?;
         // Lock the intent first, as webhook processing does. A refund that wins

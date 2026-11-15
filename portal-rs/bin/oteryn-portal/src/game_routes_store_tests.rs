@@ -226,7 +226,7 @@ impl Database {
         })
     }
     async fn app(&self, values: &Values) -> Router {
-        Routes::configured(self.pool.clone(), values)
+        Routes::configured(self.pool.clone(), values, super::tests::environment(values))
             .await
             .mount(Router::new())
     }
@@ -699,4 +699,29 @@ async fn db_account_gate_refuses_every_barred_buyer_and_writes_nothing() {
         assert_eq!(db.available_of(&buyer).await, 750, "{state:?}");
     }
     db.finish().await;
+}
+
+#[tokio::test]
+async fn db_preprod_core_environment_accepts_purchase() {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    db.fund(1000).await;
+    let mut values = values();
+    values.insert("OTERYN_ENV".into(), "preprod".into());
+    values.insert("APP_ENV".into(), "preproduction".into());
+    let app = db.app(&values).await;
+    let (status, bytes) = call(&app, STORE, PURCHASE, &request(&db.revision, None)).await;
+    assert_eq!(
+        (status, result(&bytes).as_str()),
+        (StatusCode::OK, "ACCEPTED")
+    );
+    assert_eq!(db.written().await, [1, 1, 1, 1, 1]);
+    assert_eq!(db.available().await, 750);
+    db.finish().await;
+    eprintln!(
+        "PG db_preprod_core_environment_accepts_purchase duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
 }

@@ -35,10 +35,22 @@ impl Cleanup for NoopCleanup {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Registry {
     handlers: BTreeMap<String, Arc<dyn Handler>>,
     schedules: BTreeMap<String, i32>,
+    execution_budget: Duration,
+    shutdown_budget: Duration,
+}
+impl Default for Registry {
+    fn default() -> Self {
+        Self {
+            handlers: BTreeMap::new(),
+            schedules: BTreeMap::new(),
+            execution_budget: Duration::from_secs(30),
+            shutdown_budget: Duration::from_secs(10),
+        }
+    }
 }
 impl Registry {
     /// Duplicate registrations are refused instead of silently changing ownership.
@@ -76,7 +88,20 @@ impl Registry {
         for job in jobs {
             let pool = pool.clone();
             let handler = self.handlers.get(&job.kind).cloned();
-            tasks.spawn(async move { execute(&pool, job, handler).await });
+            let budget = self.execution_budget;
+            tasks.spawn(async move {
+                let id = job.id;
+                // Covers the handler, lease renewals and acknowledgement. Dropping
+                // transactional work queues rollback; no acknowledgement is made
+                // on timeout, so lease expiry and domain idempotency own retry.
+                match tokio::time::timeout(budget, execute(&pool, job, handler)).await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        tracing::warn!(%id, "outbox execution deadline exceeded; lease left for retry");
+                        Ok(())
+                    }
+                }
+            });
         }
         // Drain in-flight work even if another job loses its lease or a database call fails.
         let mut failure = None;
@@ -144,7 +169,16 @@ async fn run_until(
         tokio::pin!(batch);
         let count = tokio::select! {
             biased;
-            () = &mut shutdown => { batch.await?; return Ok(()); }
+            () = &mut shutdown => {
+                if let Ok(result) = tokio::time::timeout(registry.shutdown_budget, &mut batch).await {
+                    result?;
+                } else {
+                    // Dropping batch drops its JoinSet, aborting every remaining
+                    // delivery. Their unacknowledged leases remain retryable.
+                    tracing::warn!("outbox shutdown drain deadline exceeded; cancelling batch");
+                }
+                return Ok(());
+            }
             result = &mut batch => result?,
         };
         if count == 0 {
