@@ -157,7 +157,7 @@ fn fresh(through: i64, now: u64) -> bool {
         .is_ok_and(|t| t <= now.saturating_add(1) && now.saturating_sub(t).saturating_add(1) <= 30)
 }
 async fn evidence(s: &StateData) -> Result<String, Unavailable> {
-    let row = sqlx::query("SELECT d.epoch::text, d.complete_through, p.watermark AS profile_through FROM public_deaths_v2_watermark d JOIN public_projection_state f ON f.id=1 AND f.highest_epoch=d.epoch JOIN public_snapshots p ON p.family='character_profile' AND p.is_watermark AND p.epoch=d.epoch WHERE d.id=1 AND d.authority=$1").bind(&s.config.source_authority).fetch_optional(&s.db).await.map_err(|_| Unavailable)?.ok_or(Unavailable)?;
+    let row = sqlx::query("SELECT d.epoch::text, d.complete_through, p.watermark AS profile_through FROM public_deaths_v2_watermark d JOIN public_projection_state f ON f.id=1 AND f.highest_epoch=d.epoch JOIN public_snapshots p ON p.family='character_profile' AND p.is_watermark AND p.epoch=d.epoch WHERE d.id=1 AND NOT public_projection_conflicted('character_deaths') AND NOT public_projection_conflicted('character_profile') AND d.authority=$1").bind(&s.config.source_authority).fetch_optional(&s.db).await.map_err(|_| Unavailable)?.ok_or(Unavailable)?;
     let through: i64 = row.try_get("complete_through").map_err(|_| Unavailable)?;
     let profile: i64 = row.try_get("profile_through").map_err(|_| Unavailable)?;
     if !fresh(through, now()) || !fresh(profile, now()) {
@@ -208,7 +208,7 @@ async fn load_inner(
     if !s.privacy.ready().await? {
         return Err(Unavailable);
     }
-    let subjects: Vec<String> = sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='character_profile' AND NOT is_watermark AND epoch=$1::numeric AND ($2::text IS NULL OR payload->'profile'->0->>'name'=$2) ORDER BY subject LIMIT $3").bind(&epoch).bind(name).bind(if name.is_some() { 2_i64 } else { 10001_i64 }).fetch_all(&s.db).await.map_err(|_| Unavailable)?;
+    let subjects: Vec<String> = sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='character_profile' AND NOT public_projection_conflicted('character_profile') AND NOT is_watermark AND epoch=$1::numeric AND ($2::text IS NULL OR payload->'profile'->0->>'name'=$2) ORDER BY subject LIMIT $3").bind(&epoch).bind(name).bind(if name.is_some() { 2_i64 } else { 10001_i64 }).fetch_all(&s.db).await.map_err(|_| Unavailable)?;
     if subjects.len() > 10000 {
         return Err(Unavailable);
     }

@@ -42,8 +42,9 @@ async fn database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::err
         .clone()
         .options([("search_path", schema.as_str())]);
     let db = PgPool::connect_with(options).await?;
-    sqlx::raw_sql(include_str!(
-        "../../../migrations/20261105180000_t24_public_snapshots.sql"
+    sqlx::raw_sql(concat!(
+        include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
+        include_str!("../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql")
     ))
     .execute(&db)
     .await?;

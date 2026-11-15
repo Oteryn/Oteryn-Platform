@@ -990,3 +990,135 @@ async fn audit_w2_c02_owner_body_wait_rechecks_epoch_for_every_family() {
         started.elapsed()
     );
 }
+
+struct SuppressDuringPrivacy(Router);
+impl SkillsPrivacy for SuppressDuringPrivacy {
+    fn allows_skills<'a>(&'a self, _: &'a str, _: &'a str) -> PrivacyFuture<'a> {
+        Box::pin(async move {
+            assert_eq!(
+                post(&self.0, "character-skills", SUPPRESSION.to_vec(), true)
+                    .await
+                    .0,
+                StatusCode::OK
+            );
+            Ok(true)
+        })
+    }
+}
+#[tokio::test]
+async fn postgres_skills_suppression_during_privacy_denies_old_snapshot() {
+    let started = std::time::Instant::now();
+    let db = Db::open().await.expect("real PostgreSQL is required");
+    let app = ingest(db.pool.clone(), true);
+    let now = super::now();
+    assert_eq!(
+        post(&app, "character-skills", SKILLS.to_vec(), true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(&app, "watermark", watermark(Family::Skills, now), true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let profile = format!(
+        r#"{{"character_id":"{CHARACTER}","profile":[{{"world_id":"{WORLD}","name":"Aldric"}}]}}"#
+    );
+    db.exec("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile',$1,false,1,1,0,$2::jsonb)", &[CHARACTER, &profile]).await;
+    db.exec("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,1,1,$1::bigint,'{}'::jsonb)", &[&now.to_string()]).await;
+    let site = router(
+        db.pool.clone(),
+        Arc::new(SuppressDuringPrivacy(app)),
+        serving(true),
+        SessionLayer::new(db.pool.clone()),
+    );
+    let (status, body) = get_page(&site, "/en/characters/Aldric/skills", None).await;
+    assert!(
+        status == StatusCode::NOT_FOUND || status == StatusCode::SERVICE_UNAVAILABLE,
+        "{status}: {body}"
+    );
+    assert!(!body.contains("<dd>412</dd>"));
+    db.close().await;
+    eprintln!(
+        "PG postgres_skills_suppression_during_privacy_denies_old_snapshot {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}
+
+#[tokio::test]
+async fn postgres_equipment_conflict_quarantines_owner_and_stalls_completeness() {
+    let started = std::time::Instant::now();
+    let db = Db::open().await.expect("real PostgreSQL is required");
+    let owner = Uuid::now_v7().to_string();
+    db.account(&owner).await;
+    db.exec("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1::uuid,$2::uuid,$3::uuid,'Aldric','AVAILABLE')", &[&owner, CHARACTER, WORLD]).await;
+    db.exec("INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,from_projection_revision,to_projection_revision,projection_epoch,recovery_generation) VALUES($2::uuid,$1::uuid,$3::uuid,19,1,1,1,1)", &[&owner, CHARACTER, WORLD]).await;
+    let app = ingest(db.pool.clone(), true);
+    let now = now();
+    assert_eq!(
+        post(&app, "character-equipment", EQUIPMENT.to_vec(), true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(
+            &app,
+            "watermark",
+            watermark(Family::Equipment, now - 1),
+            true
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let site = site(&db.pool, Some(true), true);
+    let cookie = login(&site, &owner).await;
+    assert_eq!(
+        get_page(
+            &site,
+            "/en/account/characters/Aldric/equipment",
+            Some(&cookie)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(&app, "character-equipment", CONFLICT.to_vec(), true)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        post(&app, "watermark", watermark(Family::Equipment, now), true)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(db.through(Family::Equipment).await, Some((now - 1) as i64));
+    assert_eq!(
+        get_page(
+            &site,
+            "/en/account/characters/Aldric/equipment",
+            Some(&cookie)
+        )
+        .await
+        .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        post(&app, "watermark", watermark(Family::Skills, now), true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(db.stored(Family::Equipment).await.unwrap().0, "9");
+    db.close().await;
+    eprintln!(
+        "PG postgres_equipment_conflict_quarantines_owner_and_stalls_completeness {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

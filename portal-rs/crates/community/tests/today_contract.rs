@@ -113,7 +113,12 @@ impl Database {
         .await?;
         for migration in [
             include_str!("../../../migrations/20261105151225_t14_world_store.sql"),
-            include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
+            concat!(
+                include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
+                include_str!(
+                    "../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+                )
+            ),
             include_str!("../../../migrations/20261105190000_t25_world_registry.sql"),
             include_str!("../../../migrations/20261105220207_t14c_world_names.sql"),
             include_str!("../../../migrations/20261105231303_t88_world_daily.sql"),
@@ -817,6 +822,46 @@ async fn audit_w2_c02_today_catalogue_wait_revalidates_invalidations() -> Result
     eprintln!(
         "audit_w2_c02_today_catalogue_wait_revalidates_invalidations {:?}",
         started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn configured_parent_off_refuses_fresh_retained_daily_data() -> Result {
+    let started = std::time::Instant::now();
+    let d = Database::new().await?.expect("real PostgreSQL is required");
+    let now = at();
+    d.publish(now).await;
+    assert!(d.view(now).await.is_ok());
+    let c = Config::from_lookup(|key| {
+        Some(
+            match key {
+                "APP_ENV" => "testing",
+                "PORTAL_PUBLIC_PROJECTIONS_ENABLED" => "false",
+                "PORTAL_WORLD_DAILY_PUBLIC_ENABLED" | "PORTAL_WORLD_DAILY_INGEST_ENABLED" => "true",
+                "PORTAL_PUBLIC_PROJECTIONS_AUTHORITY" => "oteryn:game:primary",
+                "PORTAL_WORLD_DAILY_WORLDS" => WORLD,
+                _ => return None,
+            }
+            .to_owned(),
+        )
+    });
+    assert!(matches!(
+        today::read(&d.db, &c, Uuid::parse_str(WORLD)?, "en", now).await,
+        Err(Error::Unavailable)
+    ));
+    let site = today::mount(Router::new(), d.db.clone(), c);
+    for path in ["/en/today", "/en/today/data", "/en/today/widget"] {
+        let r = site
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty())?)
+            .await?;
+        assert_ne!(r.status(), StatusCode::OK);
+    }
+    d.close().await?;
+    eprintln!(
+        "PG configured_parent_off_refuses_fresh_retained_daily_data {:.3}s",
+        started.elapsed().as_secs_f64()
     );
     Ok(())
 }

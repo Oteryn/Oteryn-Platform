@@ -243,6 +243,9 @@ impl Database {
         let db = PgPool::connect_with(options).await?;
         for migration in [
             include_str!("../../../../migrations/20261105180000_t24_public_snapshots.sql"),
+            include_str!(
+                "../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+            ),
             include_str!("../../../../migrations/20261105190000_t25_world_registry.sql"),
             include_str!("../../../../migrations/20261105231101_t24d_deaths.sql"),
             include_str!("../../../../migrations/20261105231103_t24f_houses.sql"),
@@ -304,6 +307,15 @@ async fn postgres_replay_conflict_suppression_and_epoch_fence() -> TestResult {
     s.projection_revision = "1".into();
     assert_eq!(storage::snapshot(&d.db, &s).await.unwrap(), "superseded");
     let mut w = watermark();
+    assert!(matches!(
+        storage::watermark(&d.db, &w).await,
+        Err(storage::Error::Conflict)
+    ));
+    // Only explicit authoritative reconciliation in this isolated fixture
+    // releases the fence before testing independent epoch ordering.
+    sqlx::query("DELETE FROM public_projection_conflicts WHERE family='character_deaths'")
+        .execute(&d.db)
+        .await?;
     assert_eq!(storage::watermark(&d.db, &w).await.unwrap(), "accepted");
     assert_eq!(storage::watermark(&d.db, &w).await.unwrap(), "superseded");
     w.projection_epoch = "2".into();

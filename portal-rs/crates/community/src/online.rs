@@ -175,8 +175,15 @@ async fn load_inner(
         .fetch_one(&mut *fence)
         .await
         .map_err(|_| Unavailable)?;
+    if sqlx::query_scalar::<_, bool>("SELECT public_projection_conflicted('world_online')")
+        .fetch_one(&mut *fence)
+        .await
+        .map_err(|_| Unavailable)?
+    {
+        return Err(Unavailable);
+    }
     let mut visible_refs = Vec::new();
-    let rows = sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 257").fetch_all(&mut *fence).await.map_err(|_| Unavailable)?;
+    let rows = sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT public_projection_conflicted('world_online') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 257").fetch_all(&mut *fence).await.map_err(|_| Unavailable)?;
     if rows.len() > 256 {
         return Err(Unavailable);
     }
@@ -238,7 +245,7 @@ async fn load_inner(
                 name
             }
         });
-        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='world_online' AND NOT is_watermark AND subject=$1 AND payload=$2 AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1))").bind(&id).bind(&payload).fetch_one(&state.db).await.map_err(|_|Unavailable)?;
+        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='world_online' AND NOT public_projection_conflicted('world_online') AND NOT is_watermark AND subject=$1 AND payload=$2 AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1))").bind(&id).bind(&payload).fetch_one(&state.db).await.map_err(|_|Unavailable)?;
         if !current {
             return Err(Unavailable);
         }

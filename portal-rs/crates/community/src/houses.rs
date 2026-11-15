@@ -222,7 +222,7 @@ async fn load(
         return Err(unavailable);
     }
     // One committed cut covers the watermark, shared epoch and all catalogue rows.
-    let rows=sqlx::query("SELECT m.epoch::text AS generation,m.complete_through,h.payload,h.observed FROM public_houses_v2_watermark m JOIN public_projection_state s ON s.id=1 AND s.highest_epoch=m.epoch LEFT JOIN public_houses_v2 h ON h.epoch=m.epoch AND h.source_authority=m.source_authority AND ($2::text IS NULL OR h.payload->>'world_id'=$2) AND ($3::text IS NULL OR h.payload->>'house_key'=$3) WHERE m.id=1 AND m.source_authority=$1 ORDER BY h.subject LIMIT 257") .bind(&state.config.ingest.source_authority).bind(world).bind(key).fetch_all(&state.db).await.map_err(|_|unavailable)?;
+    let rows=sqlx::query("SELECT m.epoch::text AS generation,m.complete_through,h.payload,h.observed FROM public_houses_v2_watermark m JOIN public_projection_state s ON s.id=1 AND s.highest_epoch=m.epoch LEFT JOIN public_houses_v2 h ON h.epoch=m.epoch AND h.source_authority=m.source_authority AND ($2::text IS NULL OR h.payload->>'world_id'=$2) AND ($3::text IS NULL OR h.payload->>'house_key'=$3) WHERE m.id=1 AND NOT public_projection_conflicted('house') AND m.source_authority=$1 ORDER BY h.subject LIMIT 257") .bind(&state.config.ingest.source_authority).bind(world).bind(key).fetch_all(&state.db).await.map_err(|_|unavailable)?;
     if rows.len() > 256 {
         return Err(unavailable);
     }

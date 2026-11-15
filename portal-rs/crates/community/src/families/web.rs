@@ -278,7 +278,7 @@ async fn public_skills(
     let (epoch, through) = storage::fresh(&mut db, Family::Skills, authority, now()).await?;
     // The one current eligible profile of this name on the same epoch, with a fresh
     // profile watermark. Unknown, hidden and ambiguous names share one not-found.
-    let profiles: Vec<(String, String)> = sqlx::query_as("SELECT s.subject,s.payload->'profile'->0->>'world_id' FROM public_snapshots s WHERE s.family='character_profile' AND NOT s.is_watermark AND s.epoch=$1::numeric AND jsonb_array_length(s.payload->'profile')=1 AND s.payload->'profile'->0->>'name'=$2 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM now()))::bigint-29 AND floor(extract(epoch FROM now()))::bigint+1) LIMIT 2")
+    let profiles: Vec<(String, String)> = sqlx::query_as("SELECT s.subject,s.payload->'profile'->0->>'world_id' FROM public_snapshots s WHERE s.family='character_profile' AND NOT public_projection_conflicted('character_profile') AND NOT s.is_watermark AND s.epoch=$1::numeric AND jsonb_array_length(s.payload->'profile')=1 AND s.payload->'profile'->0->>'name'=$2 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM now()))::bigint-29 AND floor(extract(epoch FROM now()))::bigint+1) LIMIT 2")
         .bind(&epoch)
         .bind(name)
         .fetch_all(&mut *db)
@@ -334,7 +334,7 @@ async fn public_skills(
     {
         return Err(Refusal::Unavailable);
     }
-    let profile_current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots s WHERE s.family='character_profile' AND s.subject=$1 AND NOT s.is_watermark AND s.epoch=$2::numeric AND jsonb_array_length(s.payload->'profile')=1 AND s.payload->'profile'->0->>'name'=$3 AND s.payload->'profile'->0->>'world_id'=$4 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM clock_timestamp()))::bigint-29 AND floor(extract(epoch FROM clock_timestamp()))::bigint+1))")
+    let profile_current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots s WHERE s.family='character_profile' AND NOT public_projection_conflicted('character_profile') AND s.subject=$1 AND NOT s.is_watermark AND s.epoch=$2::numeric AND jsonb_array_length(s.payload->'profile')=1 AND s.payload->'profile'->0->>'name'=$3 AND s.payload->'profile'->0->>'world_id'=$4 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM clock_timestamp()))::bigint-29 AND floor(extract(epoch FROM clock_timestamp()))::bigint+1))")
         .bind(subject).bind(&epoch).bind(name).bind(world).fetch_one(&mut *tx).await?;
     if !profile_current {
         return Err(Refusal::Unavailable);

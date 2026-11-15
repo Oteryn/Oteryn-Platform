@@ -243,7 +243,7 @@ fn hash(bytes: &[u8]) -> Vec<u8> {
 const TOMBSTONE_MS: u64 = 120 * 86400000;
 /// SHA-256 of the canonical deleted-scope key: the account, or the account and
 /// one of its characters. No identifier is stored in clear.
-fn scope_digest(account: &str, character: Option<&str>) -> Vec<u8> {
+pub(crate) fn scope_digest(account: &str, character: Option<&str>) -> Vec<u8> {
     hash(tuple(vec![Some("deleted-scope"), Some(account), character]).as_bytes())
 }
 async fn tombstone(
@@ -840,6 +840,7 @@ impl Store {
         }
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT r.stream_key FROM pd_records r JOIN pd_streams s USING(stream_key) WHERE s.account_id=$1 AND r.character_id=$2)").bind(account).bind(character).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_records SET payload=NULL,entity_key='',occurred_ms=0,coverage_ms=0,scope_key='',character_id=NULL,expires_ms=$3 WHERE character_id=$2 AND stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).bind(character).bind(now.saturating_add(TOMBSTONE_MS-31*86400000) as i64).execute(&mut *tx).await?;
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=COALESCE(purged_at,$3) WHERE account_id=$1::uuid AND character_id=$2::uuid").bind(account).bind(character).bind((now/1000) as i64).execute(&mut *tx).await?;
         tombstone(&mut tx, account, Some(character), now, closed_revision).await?;
         tx.commit().await?;
         Ok(())
@@ -870,6 +871,11 @@ impl Store {
         sqlx::query("UPDATE pd_records SET payload=NULL,entity_key='',occurred_ms=0,coverage_ms=0,scope_key='',character_id=NULL,expires_ms=$2 WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).bind(now as i64).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_bank_continuations WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
+        sqlx::query("UPDATE pd_g9_streams SET blocked=true WHERE account_id=$1::uuid")
+            .bind(account)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=COALESCE(purged_at,$2) WHERE account_id=$1::uuid").bind(account).bind((now/1000) as i64).execute(&mut *tx).await?;
         tombstone(&mut tx, account, None, now, None).await?;
         tx.commit().await?;
         Ok(())

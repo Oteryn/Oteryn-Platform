@@ -144,6 +144,11 @@ async fn database_families_ordering_rollback_and_watermarks() -> TestResult {
     .execute(&db)
     .await?;
     sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
         "../../../../migrations/20261115110016_fix_w2a_ingest_budget.sql"
     ))
     .execute(&db)
@@ -190,6 +195,10 @@ async fn database_families_ordering_rollback_and_watermarks() -> TestResult {
         1790000100,
     )
     .unwrap();
+    assert!(matches!(apply(&db, &p).await, Err(ApplyError::Conflict)));
+    sqlx::query("DELETE FROM public_projection_conflicts")
+        .execute(&db)
+        .await?;
     assert_eq!(apply(&db, &p).await.unwrap(), "accepted");
     assert_eq!(apply(&db, &p).await.unwrap(), "superseded");
     let mut old = p;
