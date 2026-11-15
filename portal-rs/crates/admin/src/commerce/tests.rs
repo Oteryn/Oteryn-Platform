@@ -1054,3 +1054,124 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn a3_l6_02_staff_routes_refuse_restricted_acquisitions() {
+    let started = std::time::Instant::now();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let app_for = |actor| {
+        crate::web::guarded(
+            http::configured_routes(h.pool.clone(), flags(), None),
+            h.pool.clone(),
+            crate::web::PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            Session(actor),
+            Authority(h.pool.clone()),
+            rbac::Permission::Access,
+        )
+    };
+    async fn login(app: axum::Router) -> (String, String) {
+        let response = app
+            .oneshot(
+                HttpRequest::get("/admin/commerce")
+                    .header("host", "staff.test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let cookie = response.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), 200000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        let csrf = html
+            .split("name=\"_csrf\" value=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .to_owned();
+        (cookie, csrf)
+    }
+    let app = app_for(h.actor);
+    let second = app_for(h.second);
+    let (cookie, csrf) = login(app.clone()).await;
+    let (second_cookie, second_csrf) = login(second.clone()).await;
+    for restriction in ["restriction", "suspension", "termination", "cooldown"] {
+        let adjustment_id = Uuid::now_v7();
+        let response = app.clone().oneshot(HttpRequest::post("/admin/commerce/adjust").header("host","staff.test").header("origin","https://staff.test").header("cookie",&cookie).header("content-type","application/x-www-form-urlencoded").body(Body::from(format!("_csrf={csrf}&request_id={adjustment_id}&target={}&reason=Reviewed+support+request&amount=77",h.target))).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        match restriction {
+            "restriction" | "suspension" => {
+                sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,$2,'active','test',now()-interval '1 hour',now()+interval '1 day',$1)").bind(h.target).bind(restriction).execute(&h.pool).await.unwrap();
+            }
+            "termination" => {
+                sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')").bind(h.target).execute(&h.pool).await.unwrap();
+            }
+            _ => {
+                sqlx::query("UPDATE accounts SET email_change_blocked_until=now()+interval '1 day' WHERE id=$1").bind(h.target).execute(&h.pool).await.unwrap();
+            }
+        }
+        let response = app.clone().oneshot(HttpRequest::post("/admin/commerce/grant").header("host","staff.test").header("origin","https://staff.test").header("cookie",&cookie).header("content-type","application/x-www-form-urlencoded").body(Body::from(format!("_csrf={csrf}&request_id={}&target={}&reason=Reviewed+support+request&days=2",Uuid::now_v7(),h.target))).unwrap()).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "grant {restriction}"
+        );
+        let response = second
+            .clone()
+            .oneshot(
+                HttpRequest::post(format!("/admin/commerce/approvals/{adjustment_id}"))
+                    .header("host", "staff.test")
+                    .header("origin", "https://staff.test")
+                    .header("cookie", &second_cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={second_csrf}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "approval {restriction}"
+        );
+        for table in ["premium_ledger", "wallet_entries", "premium_authority"] {
+            assert_eq!(h.count(table).await, 0, "{restriction} {table}");
+        }
+        sqlx::query("UPDATE sanctions SET status='revoked' WHERE account_id=$1")
+            .bind(h.target)
+            .execute(&h.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE account_terminations SET cancelled_at=now() WHERE account_id=$1")
+            .bind(h.target)
+            .execute(&h.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE accounts SET email_change_blocked_until='-infinity' WHERE id=$1")
+            .bind(h.target)
+            .execute(&h.pool)
+            .await
+            .unwrap();
+    }
+    h.close().await;
+    eprintln!(
+        "PG a3_l6_02_staff_routes_refuse_restricted_acquisitions {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

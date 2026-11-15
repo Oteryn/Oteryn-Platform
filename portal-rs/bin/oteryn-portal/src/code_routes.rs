@@ -27,6 +27,28 @@ impl wallet::AccountStateReader for Policy {
         crate::wallet_topup::Policy.state(conn, account).await
     }
 }
+// Gift-code mutations acquire new value; snapshot existence is insufficient.
+impl premium::Accounts for Policy {
+    fn state<'a>(
+        &'a self,
+        account: Uuid,
+        conn: &'a mut PgConnection,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<premium::AccountState, premium::Error>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            Ok(if wallet::value_eligible_in(conn, account).await? {
+                premium::AccountState::Known
+            } else {
+                premium::AccountState::Unknown
+            })
+        })
+    }
+}
 impl wallet::TransferBlockCheck for Policy {
     async fn permission(&self, _: &mut PgConnection, _: Uuid) -> wallet::TransferPermission {
         wallet::TransferPermission::Unknown
@@ -79,11 +101,7 @@ fn context(pool: PgPool, wallet_enabled: bool) -> Context {
                 Policy,
                 Policy,
             ),
-            premium::repository::Ledger::new(
-                pool,
-                Arc::new(oteryn_store::loyalty::stream::http::DatabaseAccounts),
-                true,
-            ),
+            premium::repository::Ledger::new(pool, Arc::new(Policy), true),
             Attempts(limiter.clone()),
         )),
         limiter,

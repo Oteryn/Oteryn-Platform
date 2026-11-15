@@ -839,6 +839,12 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool) {
     sqlx::query("INSERT INTO bazaar_settlements(id,listing_id,buyer,seller,currency,amount,commission,seller_net,reservation,idempotency_key) VALUES($1,$2,$3,$4,'coins',10000,1000,9000,$5,'fixture')").bind(sale.id).bind(sale.listing_id).bind(sale.buyer).bind(sale.seller).bind(sale.reservation).execute(&mut *tx).await.unwrap();
     funds.settle(&mut tx, &sale).await.unwrap();
     funds.settle(&mut tx, &sale).await.unwrap();
+    assert_eq!(
+        oteryn_wallet::incoming_capacity_in(&mut tx, sale.seller)
+            .await
+            .unwrap(),
+        sale.seller_net
+    );
     assert!(funds.release(&mut tx, hold.id, hold.account).await.is_err());
     assert!(funds.complete(&mut tx, &sale).await.is_err());
     let delivery = PreparedIntent::parse(
@@ -936,6 +942,12 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool) {
         }
         funds.release(&mut tx, hold.id, hold.account).await.unwrap();
         funds.release(&mut tx, hold.id, hold.account).await.unwrap();
+        assert_eq!(
+            oteryn_wallet::incoming_capacity_in(&mut tx, sale.seller)
+                .await
+                .unwrap(),
+            0
+        );
         a.finish_compensation(&mut tx, &listing).await.unwrap();
         a.finish_compensation(&mut tx, &listing).await.unwrap();
         let disposition: (String,i64) = sqlx::query_as("SELECT l.state::text,(SELECT count(*) FROM bazaar_authority_compensations c WHERE c.listing_id=l.id) FROM bazaar_listings l WHERE l.id=$1")
@@ -1125,6 +1137,12 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool) {
     owe(&mut tx, sale.buyer, 500).await;
     funds.complete(&mut tx, &sale).await.unwrap();
     funds.complete(&mut tx, &sale).await.unwrap();
+    assert_eq!(
+        oteryn_wallet::incoming_capacity_in(&mut tx, sale.seller)
+            .await
+            .unwrap(),
+        0
+    );
     let seller: i64 = sqlx::query_scalar(
         "SELECT sum(available_delta)::bigint FROM wallet_entries WHERE account_id=$1",
     )
@@ -1165,6 +1183,12 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool) {
     // Without debt the fill completes exactly as before.
     funds.complete(&mut tx, &sale).await.unwrap();
     funds.complete(&mut tx, &sale).await.unwrap();
+    assert_eq!(
+        oteryn_wallet::incoming_capacity_in(&mut tx, sale.seller)
+            .await
+            .unwrap(),
+        0
+    );
     let settled: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM coin_debt_settlements WHERE account_id IN ($1,$2)",
     )
@@ -3898,5 +3922,155 @@ async fn postgres_return_publication_uses_live_dispositions_and_revokes_conflict
     eprintln!(
         "postgres_return_publication_uses_live_dispositions_and_revokes_conflicts: {:?}",
         started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a3_l6_01_coin_payout_capacity_precedes_item_and_character_handoff() {
+    use crate::{Currency, Reservation, Reservations, Settlement};
+    let started = std::time::Instant::now();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    let root = sqlx::PgPool::connect(&url).await.unwrap();
+    let schema = format!("capacity_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&root)
+        .await
+        .unwrap();
+    let search = schema.clone();
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(move |db, _| {
+            let search = search.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(search)
+                    .execute(db)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+    sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=3,recovery_generation=3")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let funds = CoinReservations {
+        authority: authority(),
+    };
+    for kind in ["item", "character"] {
+        let seller = Uuid::now_v7();
+        let buyer = Uuid::now_v7();
+        let listing = Uuid::now_v7();
+        let sale_id = Uuid::now_v7();
+        let mut tx = pool.begin().await.unwrap();
+        for (account, amount) in [(seller, oteryn_wallet::MAX_BALANCE), (buyer, 100)] {
+            sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',now(),'en')").bind(account).execute(&mut *tx).await.unwrap();
+            funds.lock_accounts(&mut tx, &[account]).await.unwrap();
+            let op = Uuid::now_v7();
+            sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,$3)").bind(op).bind(account).bind(amount).execute(&mut *tx).await.unwrap();
+            oteryn_wallet::credit_in(&mut tx, op, account, amount)
+                .await
+                .unwrap();
+        }
+        sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,$3::bazaar_kind,'auction','coins',100,false,now()+interval '1 day')").bind(listing).bind(seller).bind(kind).execute(&mut *tx).await.unwrap();
+        funds
+            .reserve(
+                &mut tx,
+                Reservation {
+                    id: listing,
+                    account: buyer,
+                    currency: Currency::Coins,
+                    amount: 100,
+                },
+            )
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO bazaar_settlements(id,listing_id,buyer,seller,currency,amount,commission,seller_net,reservation,idempotency_key) VALUES($1,$2,$3,$4,'coins',100,10,90,$2,'capacity')").bind(sale_id).bind(listing).bind(buyer).bind(seller).execute(&mut *tx).await.unwrap();
+        let sale = Settlement {
+            id: sale_id,
+            listing_id: listing,
+            buyer,
+            seller,
+            currency: Currency::Coins,
+            amount: 100,
+            commission: 10,
+            seller_net: 90,
+            reservation: listing,
+        };
+        assert!(
+            matches!(
+                funds.settle(&mut tx, &sale).await,
+                Err(crate::Error::Overflow)
+            ),
+            "{kind} seller at cap must refuse freeze"
+        );
+        let dispositions: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM bazaar_coin_dispositions WHERE settlement_id=$1",
+        )
+        .bind(sale_id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(dispositions, 0);
+        let outbox: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_game_outbox")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(outbox, 0);
+        // Make exactly the payout capacity available and freeze it durably.
+        let op = Uuid::now_v7();
+        sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,-90)").bind(op).bind(seller).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,-90,0)").bind(Uuid::now_v7()).bind(op).bind(seller).execute(&mut *tx).await.unwrap();
+        funds.settle(&mut tx, &sale).await.unwrap();
+        funds.handoff_capacity(&mut tx, &sale).await.unwrap();
+        tx.commit().await.unwrap();
+        let competing_pool = pool.clone();
+        tokio::spawn(async move {
+            let mut credit = competing_pool.begin().await.unwrap();
+            CoinReservations { authority: authority() }.lock_accounts(&mut credit,&[seller]).await.unwrap();
+            let op = Uuid::now_v7();
+            sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,1)").bind(op).bind(seller).execute(&mut *credit).await.unwrap();
+            assert!(matches!(oteryn_wallet::credit_in(&mut credit,op,seller,1).await,Err(oteryn_wallet::Error::Refused(oteryn_wallet::Refusal::Overflow))));
+            credit.rollback().await.unwrap();
+        }).await.unwrap();
+        let capacity: i64 =
+            sqlx::query_scalar("SELECT amount FROM wallet_incoming_capacity WHERE id=$1")
+                .bind(sale_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(capacity, 90);
+        let mut handoff = pool.begin().await.unwrap();
+        funds.handoff_capacity(&mut handoff, &sale).await.unwrap();
+        handoff.rollback().await.unwrap();
+    }
+    // Exercise upgrade backfill as well as the fresh migration path above.
+    sqlx::query("DROP TABLE wallet_incoming_capacity")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/2026111522500_fix_a3-l6_incoming_capacity.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let promises: (i64, i64) =
+        sqlx::query_as("SELECT count(*),sum(amount)::bigint FROM wallet_incoming_capacity")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(promises, (2, 180));
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await
+        .unwrap();
+    eprintln!(
+        "PG a3_l6_01_coin_payout_capacity_precedes_item_and_character_handoff {:.3}s",
+        started.elapsed().as_secs_f64()
     );
 }

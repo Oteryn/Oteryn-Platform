@@ -897,3 +897,90 @@ async fn sw3_02_suspended_seller_cancels_through_coin_router() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn a3_l6_04_cancellation_returns_suspended_holder_once() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let ledger = production_wallet(&db).await;
+    let (a, _, _, offer) = ids();
+    ledger.reserve_offer(offer, a, 100, 100).await.unwrap();
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(a)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let router = wire::router(ledger, enabled(), map());
+    for _ in 0..2 {
+        let (status, body) = call(
+            router.clone(),
+            "/internal/v1/coins/market/cancellations",
+            Some(fixture("cancellations-request.json")),
+            true,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    }
+    let reserved: i64 = sqlx::query_scalar(
+        "SELECT sum(reserved_delta)::bigint FROM wallet_entries WHERE account_id=$1",
+    )
+    .bind(a)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(reserved, 0);
+    let releases: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM wallet_operations WHERE kind='release'")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(releases, 1);
+    sqlx::query("UPDATE accounts SET status='closed' WHERE id=$1")
+        .bind(a)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let (_, body) = call(
+        router,
+        "/internal/v1/coins/market/cancellations",
+        Some(fixture("cancellations-request.json")),
+        true,
+    )
+    .await;
+    assert_eq!(member(&parse(&body), "result"), "account_inactive");
+    let mut absent = parse(&fixture("cancellations-request.json"));
+    set(
+        &mut absent,
+        "operation_id",
+        Value::String(Uuid::now_v7().to_string()),
+    );
+    set(
+        &mut absent,
+        "seller_account_id",
+        Value::String(Uuid::now_v7().to_string()),
+    );
+    let missing_router = wire::router(
+        Ledger::new(
+            db.pool.clone(),
+            WalletFlags { enabled: true },
+            wire::DatabasePolicy,
+            wire::DatabasePolicy,
+            wire::DatabasePolicy,
+        ),
+        enabled(),
+        map(),
+    );
+    let (_, body) = call(
+        missing_router,
+        "/internal/v1/coins/market/cancellations",
+        Some(canonical::encode(&absent).unwrap()),
+        true,
+    )
+    .await;
+    assert_eq!(member(&parse(&body), "result"), "unknown_account");
+    db.close().await;
+    eprintln!(
+        "PG a3_l6_04_cancellation_returns_suspended_holder_once {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

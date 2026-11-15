@@ -64,6 +64,40 @@ pub struct CoinReservations {
     pub authority: Authority,
 }
 impl CoinReservations {
+    /// Recheck the durable promise before either item delivery or character
+    /// ownership transfer, including obligations frozen by an older runtime.
+    pub(super) async fn handoff_capacity(
+        &self,
+        db: &mut PgConnection,
+        s: &Settlement,
+    ) -> Result<(), Error> {
+        let mut accounts = [s.buyer, s.seller];
+        accounts.sort();
+        self.lock_accounts(db, &accounts).await?;
+        let promised: Option<i64> = sqlx::query_scalar(
+            "SELECT amount FROM wallet_incoming_capacity WHERE id=$1 AND account_id=$2",
+        )
+        .bind(s.id)
+        .bind(s.seller)
+        .fetch_optional(&mut *db)
+        .await?;
+        if promised != Some(s.seller_net) {
+            return Err(Error::Denied);
+        }
+        let total: i64 = sqlx::query_scalar("SELECT COALESCE(sum(available_delta::numeric+reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1")
+            .bind(s.seller).fetch_one(&mut *db).await?;
+        let incoming = oteryn_wallet::incoming_capacity_in(db, s.seller)
+            .await
+            .map_err(wallet_error)?;
+        if total
+            .checked_add(incoming)
+            .is_none_or(|n| n > oteryn_wallet::MAX_BALANCE)
+        {
+            return Err(Error::Overflow);
+        }
+        Ok(())
+    }
+
     // Share the issuer/restore fence with evidence before taking any Wallet
     // locks. The same ordering is used by every Bazaar monetary port call.
     async fn fence(&self, db: &mut PgConnection) -> Result<(), Error> {
@@ -269,6 +303,11 @@ impl Reservations for CoinReservations {
             .execute(&mut *db)
             .await?;
         if let Some(sale) = settlement {
+            // compensation_ready above proved that no delivery can execute.
+            sqlx::query("DELETE FROM wallet_incoming_capacity WHERE id=$1")
+                .bind(sale)
+                .execute(&mut *db)
+                .await?;
             sqlx::query(
                 "UPDATE bazaar_coin_holds SET completed=true WHERE id=$1 AND account_id=$2",
             )
@@ -331,6 +370,9 @@ impl Reservations for CoinReservations {
         {
             return Err(Error::Denied);
         }
+        oteryn_wallet::reserve_incoming_in(db, s.id, s.seller, s.seller_net)
+            .await
+            .map_err(wallet_error)?;
         sqlx::query("INSERT INTO bazaar_coin_dispositions(settlement_id,binding) VALUES($1,$2)")
             .bind(s.id)
             .bind(Self::binding(s))
@@ -389,6 +431,13 @@ impl Reservations for CoinReservations {
             .ok_or(Error::InsufficientFunds)?;
         let op = Self::operation(db, "capture", s.buyer, s.amount, s.id, Some(s.seller)).await?;
         Self::entry(db, op, s.buyer, excess, -held).await?;
+        // Consume only our promise under both wallet locks, in the payout
+        // transaction; every other pending sale retains its capacity.
+        sqlx::query("DELETE FROM wallet_incoming_capacity WHERE id=$1 AND account_id=$2")
+            .bind(s.id)
+            .bind(s.seller)
+            .execute(&mut *db)
+            .await?;
         // Proceeds are a credit: they repay the seller's coin debt first.
         oteryn_wallet::credit_in(db, op, s.seller, s.seller_net)
             .await
