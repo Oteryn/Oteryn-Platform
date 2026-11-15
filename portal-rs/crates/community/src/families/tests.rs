@@ -168,6 +168,8 @@ impl Db {
         .unwrap()
     }
     async fn account(&self, id: &str) {
+        // Match a live LCFA publication; snapshots alone cannot prove ownership.
+        self.exec("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1", &[]).await;
         self.exec(
             "INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1::uuid,$1||'@example.test','x','active','en')",
             &[id],
@@ -506,6 +508,24 @@ async fn login(app: &Router, account: &str) -> String {
 }
 
 #[tokio::test]
+async fn postgres_family_owner_fixture_has_live_lcfa_evidence() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let account = Uuid::now_v7();
+    db.account(&account.to_string()).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    assert_eq!(
+        oteryn_playerdata::authority::account_epoch(&mut tx, account)
+            .await
+            .unwrap(),
+        1
+    );
+    tx.rollback().await.unwrap();
+    db.close().await;
+}
+
+#[tokio::test]
 async fn postgres_owner_only_families_serve_only_the_current_owner() {
     let Some(db) = Db::open().await else {
         return;
@@ -545,6 +565,28 @@ async fn postgres_owner_only_families_serve_only_the_current_owner() {
     }
     let site = site(&db.pool, Some(true), true);
     let owner_cookie = login(&site, &owner).await;
+    // LCFA freshness is independent of the public-family watermark.
+    db.exec(
+        "UPDATE account_character_feed SET watermark_epoch=NULL WHERE id=1",
+        &[],
+    )
+    .await;
+    assert_eq!(
+        get_page(
+            &site,
+            "/en/account/characters/Aldric/achievements",
+            Some(&owner_cookie)
+        )
+        .await
+        .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    db.exec(
+        "UPDATE account_character_feed SET watermark_epoch='1' WHERE id=1",
+        &[],
+    )
+    .await;
+
     let other_cookie = login(&site, &other).await;
     let staff_cookie = login(&site, &staff).await;
     for (segment, expected) in [
