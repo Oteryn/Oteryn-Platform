@@ -196,7 +196,7 @@ impl From<Error> for Refusal {
 pub(super) struct RecoveryRequest {
     pub attempt_ref: Uuid,
     pub character_id: Uuid,
-    handle_hash: [u8; 32],
+    pub(super) handle_hash: [u8; 32],
     digest: [u8; 32],
     proof: Option<DeviceProof>,
 }
@@ -429,17 +429,26 @@ struct Bound {
     channel: Uuid,
     security_generation: i64,
 }
-async fn serialize_identity(tx: &mut PgConnection) -> Result<(), RecoveryError> {
-    // Recovery locks the handle before Identity (§19.4). Fence account writers
-    // before either row lock, including writers whose triggers revoke handles.
-    // EXCLUSIVE also conflicts with SELECT FOR UPDATE/SHARE's table lock, so
-    // admission, devices and credentials cannot hold accounts and await handles.
-    // Plain readers still run. Acquire after attempt/epoch, before resource rows.
-    sqlx::query("LOCK TABLE accounts IN EXCLUSIVE MODE")
-        .execute(tx)
-        .await
-        .map_err(|_| Error::Unavailable)?;
-    Ok(())
+async fn serialize_identity(
+    tx: &mut PgConnection,
+    request: &RecoveryRequest,
+) -> Result<Option<Uuid>, RecoveryError> {
+    // Locate without locking, then take the same account-first order as credential
+    // writers. The handle and all bindings are re-read under lock below.
+    let account: Option<Uuid> =
+        sqlx::query_scalar("SELECT account_id FROM native_recovery_handles WHERE handle_hash=$1")
+            .bind(&request.handle_hash[..])
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+    if let Some(account) = account {
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(account)
+            .fetch_optional(tx)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+    }
+    Ok(account)
 }
 
 /// §19.4 step 2 against current state: handle, Identity,
@@ -453,19 +462,25 @@ async fn authenticate(
     tx: &mut PgConnection,
     request: &RecoveryRequest,
     accounts: &dyn AccountStateLookup,
-    now: i64,
+    _now: i64,
 ) -> Result<Bound, RecoveryError> {
-    serialize_identity(tx).await?;
+    let located = serialize_identity(tx, request)
+        .await?
+        .ok_or(RecoveryError::HandleRejected)?;
     let get = |_: sqlx::Error| RecoveryError::Unavailable;
     let row = sqlx::query("SELECT account_id, character_id, world_id, channel_id, security_generation, play_generation, device_family_id, device_key_thumbprint, expires_at, revoked_at IS NULL AS live FROM native_recovery_handles WHERE handle_hash=$1 FOR UPDATE")
         .bind(&request.handle_hash[..]).fetch_optional(&mut *tx).await.map_err(get)?
         .ok_or(RecoveryError::HandleRejected)?;
+    let now = store::now(tx).await?.div_euclid(1000);
     let live: bool = row.try_get("live").map_err(get)?;
     let expires: i64 = row.try_get("expires_at").map_err(get)?;
     if !live || now >= expires {
         return Err(RecoveryError::HandleRejected);
     }
     let account: Uuid = row.try_get("account_id").map_err(get)?;
+    if account != located {
+        return Err(RecoveryError::HandleRejected);
+    }
     let security_generation: i64 = row.try_get("security_generation").map_err(get)?;
     let identity = sqlx::query("SELECT status, native_security_generation::text AS native FROM accounts WHERE id=$1 FOR SHARE")
         .bind(account).fetch_optional(&mut *tx).await.map_err(get)?
@@ -486,11 +501,27 @@ async fn authenticate(
         return Err(RecoveryError::HandleRejected);
     }
     let mut device_key = None;
+    let mut family_expires = None;
     if let Some(family) = family {
-        let current = sqlx::query("SELECT d.device_public_key, d.device_key_thumbprint FROM device_sessions d JOIN accounts a ON a.id=d.account_id WHERE d.id=$1 AND d.account_id=$2 AND d.revoked_at IS NULL AND d.absolute_expires_at > $3 AND d.idle_expires_at > $3 AND d.game_generation=a.game_auth_generation AND d.native_generation=a.native_security_generation FOR SHARE OF d")
+        let current = sqlx::query("SELECT d.device_public_key, d.device_key_thumbprint, d.absolute_expires_at, d.idle_expires_at FROM device_sessions d JOIN accounts a ON a.id=d.account_id WHERE d.id=$1 AND d.account_id=$2 AND d.revoked_at IS NULL AND d.absolute_expires_at > $3 AND d.idle_expires_at > $3 AND d.game_generation=a.game_auth_generation AND d.native_generation=a.native_security_generation FOR SHARE OF d")
             .bind(family).bind(account).bind(now)
             .fetch_optional(&mut *tx).await.map_err(get)?
             .ok_or(RecoveryError::HandleRejected)?;
+        family_expires = Some(
+            current
+                .try_get::<i64, _>("absolute_expires_at")
+                .map_err(get)?
+                .min(current.try_get::<i64, _>("idle_expires_at").map_err(get)?),
+        );
+        let now = store::now(tx).await?.div_euclid(1000);
+        if now
+            >= current
+                .try_get::<i64, _>("absolute_expires_at")
+                .map_err(get)?
+            || now >= current.try_get::<i64, _>("idle_expires_at").map_err(get)?
+        {
+            return Err(RecoveryError::HandleRejected);
+        }
         if let Some(proof) = &request.proof {
             let key: Option<Vec<u8>> = current.try_get("device_public_key").map_err(get)?;
             let thumbprint: Option<String> =
@@ -528,6 +559,10 @@ async fn authenticate(
             &Signature::from_bytes(&proof.sig),
         )
         .map_err(|_| RecoveryError::DeviceProofRejected)?;
+    }
+    let now = store::now(tx).await?.div_euclid(1000);
+    if now >= expires || family_expires.is_some_and(|expiry| now >= expiry) {
+        return Err(RecoveryError::HandleRejected);
     }
     Ok(Bound {
         account,
@@ -639,7 +674,7 @@ async fn recover_inner(
     if epoch.is_none() {
         return Err(RecoveryError::Unavailable.into());
     }
-    serialize_identity(&mut tx).await?;
+    serialize_identity(&mut tx, request).await?;
     let existing = sqlx::query("SELECT handle_hash, request_digest, response_body, expires_at_ms FROM native_recoveries WHERE attempt_ref=$1 FOR UPDATE")
         .bind(request.attempt_ref).fetch_optional(&mut *tx).await.map_err(|_| Error::Unavailable)?;
     let now_ms = store::now(&mut tx).await?;
@@ -676,11 +711,12 @@ async fn recover_inner(
         }
         let reconcile = |_| RecoveryError::ReconciliationRequired;
         success.grant.token = signer
-            .resign(
+            .resign_async(
                 &input,
                 u64::try_from(expires / 1000).map_err(reconcile)?,
                 u64::try_from(at / 1000).map_err(reconcile)?,
             )
+            .await
             .map_err(|_| RecoveryError::ReconciliationRequired)?;
         if expires - at < 1000 {
             return Err(RecoveryError::GrantExpired.into());
@@ -718,6 +754,15 @@ async fn recover_inner(
     // The trust self-check is refreshed before the issuer clock is read.
     signer.prepare_on(&mut tx).await?;
     let iat = u64::try_from(store::now(&mut tx).await? / 1000).map_err(|_| Error::Unavailable)?;
+    grant::revalidate(
+        &mut tx,
+        runtime,
+        bound.world,
+        &candidate.route,
+        &candidate.report,
+        iat as i64,
+    )
+    .await?;
     let payload = payload(&Claims {
         iat,
         ttl: issuer.ttl_seconds,
@@ -730,7 +775,17 @@ async fn recover_inner(
         report: &candidate.report,
     })?;
     let exp = iat + u64::from(issuer.ttl_seconds);
-    let token = signer.sign(&payload, exp, iat)?;
+    let token = signer.sign_async(&payload, exp, iat).await?;
+    let signed_at = store::now(&mut tx).await?.div_euclid(1000);
+    grant::revalidate(
+        &mut tx,
+        runtime,
+        bound.world,
+        &candidate.route,
+        &candidate.report,
+        signed_at,
+    )
+    .await?;
     let input = token
         .rsplit_once('.')
         .map(|(input, _)| input)
@@ -776,9 +831,27 @@ async fn recover_inner(
 
 /// §19.7: revokes only that handle, idempotently; unknown, dead and live
 /// handles get the same answer, and no generation advances.
-pub(super) async fn revoke(pool: &PgPool, hash: &[u8; 32]) -> Result<(), RecoveryError> {
+pub(super) async fn revoke(
+    pool: &PgPool,
+    hash: &[u8; 32],
+    deadline: tokio::time::Instant,
+) -> Result<(), RecoveryError> {
+    let mut tx = pool.begin().await.map_err(|_| RecoveryError::Unavailable)?;
+    // Cancel the statement at PostgreSQL too: dropping a timed-out SQLx future
+    // alone can leave its connection draining a query behind the row blocker.
+    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+    let millis = remaining.as_millis().saturating_sub(50).min(2000);
+    if millis == 0 {
+        return Err(RecoveryError::Unavailable);
+    }
+    sqlx::query("SELECT set_config('statement_timeout', $1, true)")
+        .bind(format!("{millis}ms"))
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| RecoveryError::Unavailable)?;
     sqlx::query("UPDATE native_recovery_handles SET revoked_at = floor(extract(epoch FROM clock_timestamp()))::bigint WHERE handle_hash=$1 AND revoked_at IS NULL")
-        .bind(&hash[..]).execute(pool).await.map_err(|_| RecoveryError::Unavailable)?;
+        .bind(&hash[..]).execute(&mut *tx).await.map_err(|_| RecoveryError::Unavailable)?;
+    tx.commit().await.map_err(|_| RecoveryError::Unavailable)?;
     Ok(())
 }
 

@@ -3,7 +3,7 @@
 use super::{
     KeyError, PublicKey, Scope, Settings, SigningTrust, TrustedKey, check_settings, valid_id,
 };
-use crate::evidence::{Witness, trust_state_namespace};
+use crate::evidence::{AsyncWitness, trust_state_namespace};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use sqlx::{PgConnection, PgPool, Row, postgres::PgRow};
 use std::{collections::BTreeMap, path::PathBuf};
@@ -18,7 +18,7 @@ pub struct PublicTrustRegistry {
 }
 /// A bounded self-check cache. Refresh before every signing operation (no later
 /// than 5 seconds); a stale snapshot cannot authorize signing or key destruction.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TrustSnapshot {
     scope: Scope,
     purpose: String,
@@ -72,7 +72,7 @@ impl PublicTrustRegistry {
             witness_directory,
         })
     }
-    fn witness(&self) -> Result<(String, Witness), KeyError> {
+    async fn witness(&self) -> Result<(String, AsyncWitness), KeyError> {
         check_settings(&self.settings)?;
         let namespace = trust_state_namespace(
             self.scope.issuer(),
@@ -80,7 +80,8 @@ impl PublicTrustRegistry {
             &self.settings.key_purpose,
         )
         .map_err(|_| KeyError::Unavailable)?;
-        let witness = Witness::lock(&self.witness_directory, &namespace)
+        let witness = AsyncWitness::lock(&self.witness_directory, &namespace)
+            .await
             .map_err(|_| KeyError::Unavailable)?;
         Ok((namespace, witness))
     }
@@ -91,7 +92,7 @@ impl PublicTrustRegistry {
         if !valid_id(&key.key_id) {
             return Err(KeyError::BadInput);
         }
-        let (namespace, witness) = self.witness()?;
+        let (namespace, witness) = self.witness().await?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
         // One transaction lock for both scopes, including their first publication.
         sqlx::query("SELECT pg_advisory_xact_lock(715110005)")
@@ -102,6 +103,7 @@ impl PublicTrustRegistry {
             .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
         let floor = witness
             .floor(&namespace)
+            .await
             .map_err(|_| KeyError::Unavailable)?;
         let (id, revision) = if let Some(row) = profile {
             let revision: i64 = row
@@ -164,6 +166,7 @@ impl PublicTrustRegistry {
             .bind(id).bind(next).execute(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
         witness
             .advance(&namespace, next)
+            .await
             .map_err(|_| KeyError::Unavailable)?;
         tx.commit().await.map_err(|_| KeyError::Unavailable)
     }
@@ -172,7 +175,7 @@ impl PublicTrustRegistry {
         if !valid_id(kid) {
             return Err(KeyError::BadInput);
         }
-        let (namespace, witness) = self.witness()?;
+        let (namespace, witness) = self.witness().await?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
         let row = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
             .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?.ok_or(KeyError::InvalidState)?;
@@ -185,6 +188,7 @@ impl PublicTrustRegistry {
             || revision <= 0
             || witness
                 .floor(&namespace)
+                .await
                 .map_err(|_| KeyError::Unavailable)?
                 != Some(revision)
         {
@@ -211,6 +215,7 @@ impl PublicTrustRegistry {
             .bind(id).bind(next).execute(&mut *tx).await.map_err(|_| KeyError::Unavailable)?;
         witness
             .advance(&namespace, next)
+            .await
             .map_err(|_| KeyError::Unavailable)?;
         tx.commit().await.map_err(|_| KeyError::Unavailable)
     }
@@ -224,7 +229,7 @@ impl PublicTrustRegistry {
         &self,
         tx: &mut PgConnection,
     ) -> Result<TrustSnapshot, KeyError> {
-        let (namespace, witness) = self.witness()?;
+        let (namespace, witness) = self.witness().await?;
         let row = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
             .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?.ok_or(KeyError::InvalidState)?;
         let revision: i64 = row
@@ -233,6 +238,7 @@ impl PublicTrustRegistry {
         if revision <= 0
             || witness
                 .floor(&namespace)
+                .await
                 .map_err(|_| KeyError::Unavailable)?
                 != Some(revision)
         {

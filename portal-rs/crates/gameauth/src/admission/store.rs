@@ -209,11 +209,13 @@ async fn admit_inner(
         let at_ms = now(&mut tx).await?;
         let response = wire::replay(&body, expires, at_ms)?;
         let at = at_ms / 1000;
-        let token = signer.resign(
-            &input,
-            u64::try_from(expires / 1000).map_err(|_| Error::ReconciliationRequired)?,
-            u64::try_from(at).map_err(|_| Error::ReconciliationRequired)?,
-        )?;
+        let token = signer
+            .resign_async(
+                &input,
+                u64::try_from(expires / 1000).map_err(|_| Error::ReconciliationRequired)?,
+                u64::try_from(at).map_err(|_| Error::ReconciliationRequired)?,
+            )
+            .await?;
         let response = wire::with_token(&response, &token)?;
         let response = finish_replay(&mut tx, v3, request, &body, response).await?;
         let response = final_validity(&mut tx, request, &response, expires).await?;

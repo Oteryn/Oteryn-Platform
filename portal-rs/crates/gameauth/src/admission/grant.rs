@@ -115,18 +115,31 @@ pub trait GrantSigner: Send + Sync + fmt::Debug {
     /// Sign `base64url(header) "." base64url(payload)` with the current key and
     /// return the compact token.
     fn sign(&self, payload: &[u8], expires_at: u64, now: u64) -> Result<String, Error>;
+    /// Async request boundary; storage-backed signers override this to offload I/O.
+    fn sign_async<'a>(
+        &'a self,
+        payload: &'a [u8],
+        expires_at: u64,
+        now: u64,
+    ) -> Future<'a, String> {
+        Box::pin(async move { self.sign(payload, expires_at, now) })
+    }
+    fn resign_async<'a>(&'a self, input: &'a str, expires_at: u64, now: u64) -> Future<'a, String> {
+        Box::pin(async move { self.resign(input, expires_at, now) })
+    }
     /// Re-sign a committed signing input with the key its header names (§6.2).
     fn resign(&self, input: &str, expires_at: u64, now: u64) -> Result<String, Error>;
 }
 
 /// Key custody (`keys::Keyring`) with the public trust registry as self-check.
 pub struct KeyringSigner<S> {
-    ring: Mutex<Keyring<S>>,
+    ring: Arc<Mutex<Keyring<S>>>,
     /// The header `typ` of the ring's scope (§8.1, §19.4 step 6).
     header_type: &'static str,
     registry: PublicTrustRegistry,
-    trust: Mutex<Option<(Instant, TrustSnapshot)>>,
+    trust: Arc<Mutex<Option<(Instant, TrustSnapshot)>>>,
     refresh: tokio::sync::Mutex<()>,
+    storage_gate: Arc<tokio::sync::Semaphore>,
 }
 impl<S> fmt::Debug for KeyringSigner<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -144,11 +157,22 @@ impl<S: KeyStorage> KeyringSigner<S> {
     }
     fn typed(ring: Keyring<S>, registry: PublicTrustRegistry, header_type: &'static str) -> Self {
         Self {
-            ring: Mutex::new(ring),
+            ring: Arc::new(Mutex::new(ring)),
             header_type,
             registry,
-            trust: Mutex::new(None),
+            trust: Arc::new(Mutex::new(None)),
             refresh: tokio::sync::Mutex::new(()),
+            storage_gate: Arc::new(tokio::sync::Semaphore::new(1)),
+        }
+    }
+    fn shared(&self) -> Self {
+        Self {
+            ring: self.ring.clone(),
+            trust: self.trust.clone(),
+            registry: self.registry.clone(),
+            header_type: self.header_type,
+            refresh: tokio::sync::Mutex::new(()),
+            storage_gate: self.storage_gate.clone(),
         }
     }
     fn with_trust<T>(
@@ -156,16 +180,56 @@ impl<S: KeyStorage> KeyringSigner<S> {
         failure: Error,
         f: impl FnOnce(&mut Keyring<S>, &TrustSnapshot) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        let trust = self.trust.lock().map_err(|_| failure)?;
-        let (at, snapshot) = trust.as_ref().ok_or(failure)?;
-        if at.elapsed() > TRUST_REFRESH * 2 {
-            return Err(failure);
-        }
+        // Never retain the cache mutex during durable custody I/O: prepare_on
+        // reads this cache on async workers while a previous save may be stalled.
+        let snapshot = {
+            let trust = self.trust.lock().map_err(|_| failure)?;
+            let (at, snapshot) = trust.as_ref().ok_or(failure)?;
+            if at.elapsed() > TRUST_REFRESH * 2 {
+                return Err(failure);
+            }
+            snapshot.clone()
+        };
         let mut ring = self.ring.lock().map_err(|_| failure)?;
-        f(&mut ring, snapshot)
+        f(&mut ring, &snapshot)
     }
 }
 impl<S: KeyStorage + Send + 'static> GrantSigner for KeyringSigner<S> {
+    fn sign_async<'a>(
+        &'a self,
+        payload: &'a [u8],
+        expires_at: u64,
+        now: u64,
+    ) -> Future<'a, String> {
+        Box::pin(async move {
+            let permit = crate::blocking::serial(self.storage_gate.clone())
+                .await
+                .map_err(|_| Error::Unavailable)?;
+            let signer = self.shared();
+            let payload = payload.to_vec();
+            crate::blocking::run(move || {
+                let _permit = permit;
+                signer.sign(&payload, expires_at, now)
+            })
+            .await
+            .map_err(|_| Error::Unavailable)?
+        })
+    }
+    fn resign_async<'a>(&'a self, input: &'a str, expires_at: u64, now: u64) -> Future<'a, String> {
+        Box::pin(async move {
+            let permit = crate::blocking::serial(self.storage_gate.clone())
+                .await
+                .map_err(|_| Error::ReconciliationRequired)?;
+            let signer = self.shared();
+            let input = input.to_owned();
+            crate::blocking::run(move || {
+                let _permit = permit;
+                signer.resign(&input, expires_at, now)
+            })
+            .await
+            .map_err(|_| Error::ReconciliationRequired)?
+        })
+    }
     fn prepare(&self) -> Future<'_, ()> {
         Box::pin(async move {
             let _serial = self.refresh.lock().await;
@@ -615,6 +679,23 @@ pub(super) async fn candidates(
         }
     }
     Ok(found)
+}
+/// Revalidate the selected report after trust refresh and immediately before signing.
+pub(super) async fn revalidate(
+    db: &mut PgConnection,
+    settings: &runtime::Settings,
+    world: Uuid,
+    route: &Route,
+    report: &Value,
+    at: i64,
+) -> Result<(), Error> {
+    let observation = runtime::read_in(db, settings, world, route.channel, at)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    if observation.state != EvidenceState::Fresh || observation.content.as_ref() != Some(report) {
+        return Err(Error::RouteUnavailable);
+    }
+    current(db, world, route.channel, &route.endpoint, &route.revision).await
 }
 fn runtime_matches(report: &Value, revision: &str) -> bool {
     matches!(report.get("ready"), Some(Value::Bool(true)))

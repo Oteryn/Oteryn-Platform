@@ -529,12 +529,10 @@ async fn audit05_04_recovery_waits_for_account_without_holding_handle() {
         .execute(&mut *writer)
         .await
         .unwrap();
-    let fenced: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND relation='accounts'::regclass AND mode='ExclusiveLock' AND NOT granted)")
+    // The wait must be on this account's row, with no handle lock retained.
+    let table_fence: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND relation='accounts'::regclass AND mode='ExclusiveLock')")
         .bind(pid).fetch_one(&mut *writer).await.unwrap();
-    assert!(
-        fenced,
-        "recovery must serialize before its contract's handle-first row lock"
-    );
+    assert!(!table_fence, "recovery must never fence unrelated accounts");
     // Fresh login advances the generation and revokes handles under its account lock.
     let advanced = protocol3::advance(&mut writer, account).await;
     assert!(
@@ -546,6 +544,46 @@ async fn audit05_04_recovery_waits_for_account_without_holding_handle() {
     close(admin, pool, schema).await;
     eprintln!(
         "audit05_04_recovery_waits_for_account_without_holding_handle duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn wave2_03_handle_expiry_rechecked_after_handle_lock() {
+    let started = std::time::Instant::now();
+    let (admin, pool, schema) = database().await.expect("PORTAL_TEST_DATABASE_URL required");
+    let request = RecoveryRequest::decode(&fixture("recover-request.json"), false).unwrap();
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'hash','active','en',now())").bind(account).bind(format!("{account}@example.test")).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO native_play_generations(account_id,generation) VALUES($1,1)")
+        .bind(account)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO native_recovery_handles(handle_hash,account_id,character_id,world_id,channel_id,security_generation,play_generation,attempt_ref,issued_at,expires_at) VALUES($1,$2,$3,uuidv7(),uuidv7(),1,1,$4,$5,$6)")
+        .bind(&request.handle_hash[..]).bind(account).bind(request.character_id).bind(request.attempt_ref).bind(now-1).bind(now+1).execute(&pool).await.unwrap();
+    let mut blocker = pool.begin().await.unwrap();
+    sqlx::query("SELECT handle_hash FROM native_recovery_handles FOR UPDATE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let mut reader = pool.begin().await.unwrap();
+    let task = tokio::spawn(async move {
+        authenticate(&mut reader, &request, &Accounts, now)
+            .await
+            .map(|_| ())
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    blocker.rollback().await.unwrap();
+    assert_eq!(task.await.unwrap(), Err(RecoveryError::HandleRejected));
+    close(admin, pool, schema).await;
+    eprintln!(
+        "wave2_03_handle_expiry_rechecked_after_handle_lock duration: {:?}",
         started.elapsed()
     );
 }

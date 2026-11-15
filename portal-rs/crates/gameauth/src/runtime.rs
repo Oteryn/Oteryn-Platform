@@ -435,9 +435,22 @@ pub async fn read_in(
         .peers
         .iter()
         .any(|p| p.name == identity && p.scopes.contains(&(world, channel)));
+    // Both assignment and ownership checks can wait for writers. Freshness is
+    // measured only after those waits, using the database's wall clock.
+    let matches = if invalid || !authorized {
+        false
+    } else {
+        assignment_matches(tx, &identity, &report, false).await?
+    };
+    let current: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| unavailable())?;
+    let at = at.max(current);
     result.state = if invalid
         || !authorized
-        || !assignment_matches(tx, &identity, &report, false).await?
+        || !matches
         || observed > at.saturating_add(i64::from(settings.clock_uncertainty_seconds))
     {
         EvidenceState::Invalid
@@ -683,7 +696,37 @@ pub(crate) type Configuration = (
     crate::locator::Settings,
     IdentityMap,
 );
+pub(crate) fn purpose_isolated(lookup: &impl Fn(&str) -> Option<String>) -> Option<()> {
+    let mut bindings = Vec::new();
+    for (key, group) in [
+        (
+            "GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES",
+            "native-scope-assignments",
+        ),
+        (
+            "GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES",
+            "native-runtime-status",
+        ),
+        (crate::locator::IDENTITIES, "native-recovery-locators"),
+    ] {
+        if let Some(raw) = lookup(key) {
+            bindings.extend(scoped_identities(&raw)?.into_iter().map(|p| Binding {
+                identity: p.identity,
+                group: group.into(),
+            }));
+        }
+    }
+    if let Some(san) = lookup("GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY") {
+        bindings.push(Binding {
+            identity: Identity::san(&san).ok()?,
+            group: "native-evidence".into(),
+        });
+    }
+    IdentityMap::new(bindings).ok()?;
+    Some(())
+}
 pub(crate) fn configuration(lookup: impl Fn(&str) -> Option<String>) -> Option<Configuration> {
+    purpose_isolated(&lookup)?;
     let number = |key: &str, min: u64, max: u64, default: u64| -> Option<u64> {
         let raw = lookup(key).unwrap_or_else(|| default.to_string());
         let n = decimal(&raw, false).ok()?;
