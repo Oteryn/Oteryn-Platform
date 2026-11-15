@@ -277,13 +277,14 @@ impl CatalogStore {
             return Err(Error::InvalidRevision);
         }
         let mut tx = self.pool.begin().await?;
+        // Purchases lock accounts (including referral participants) before this pointer.
+        self.authorize(actor, Action::Activate, access, &mut tx)
+            .await?;
         let current: Option<String> = sqlx::query_scalar(
             "SELECT catalog_revision FROM store_active_catalog WHERE id=1 FOR UPDATE",
         )
         .fetch_one(&mut *tx)
         .await?;
-        self.authorize(actor, Action::Activate, access, &mut tx)
-            .await?;
         let exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM store_price_list_imports WHERE catalog_revision=$1)",
         )

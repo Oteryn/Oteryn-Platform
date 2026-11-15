@@ -8,7 +8,7 @@ use axum::{
     routing::get,
 };
 use oteryn_identity::{
-    accounts::Accounts,
+    sessions::NotificationAccounts as AccountState,
     termination::{self, ActorProof, BoundaryFuture},
 };
 use oteryn_web::{
@@ -25,30 +25,6 @@ struct Services {
     pool: PgPool,
     notifications: Arc<oteryn_notify::Notifications>,
     termination: termination::Terminations,
-}
-#[derive(Debug)]
-struct AccountState(Accounts);
-impl oteryn_notify::AccountState for AccountState {
-    fn active_verified(
-        &self,
-        id: Uuid,
-    ) -> oteryn_notify::NotifyFuture<'_, Option<oteryn_notify::Account>> {
-        Box::pin(async move {
-            Ok(self
-                .0
-                .find_by_id(id)
-                .await?
-                .filter(|a| a.status == "active" && a.email_verified_at.is_some())
-                .map(|a| oteryn_notify::Account {
-                    email: a.email,
-                    locale: if a.locale == "pl" {
-                        oteryn_notify::Locale::Pl
-                    } else {
-                        oteryn_notify::Locale::En
-                    },
-                }))
-        })
-    }
 }
 #[derive(Debug)]
 pub(crate) struct TerminationBoundary;
@@ -120,7 +96,7 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
     };
     let notifications = Arc::new(oteryn_notify::Notifications {
         pool: pool.clone(),
-        accounts: Arc::new(AccountState(Accounts { pool: pool.clone() })),
+        accounts: Arc::new(AccountState(pool.clone())),
         unsubscribe: signing,
     });
     let mut sessions = SessionLayer::new(pool.clone());

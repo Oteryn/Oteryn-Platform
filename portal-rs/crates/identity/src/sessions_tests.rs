@@ -184,3 +184,69 @@ async fn audit02_bulk_revocation_reports_current_session_without_identifier_coll
     db.close().await.map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[tokio::test]
+async fn lk_configured_notification_accounts_use_one_connection() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = database::Database::open()
+        .await
+        .unwrap()
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let account = account(&db.pool).await;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(move |connection, _| {
+            let schema = schema.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(schema)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?)
+        .await?;
+    let notifications = security_notifications(pool.clone())?;
+    let mut tx = pool.begin().await?;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        notifications
+            .preferences(&mut tx, account, oteryn_notify::Category::News, true, true)
+            .await?;
+        notifications
+            .enqueue(&mut tx, account, &EmailTemplate::PasswordChanged)
+            .await?;
+        let token = notifications.unsubscribe.token(
+            account,
+            oteryn_notify::Category::News,
+            OffsetDateTime::now_utc().unix_timestamp() + 60,
+        )?;
+        notifications.unsubscribe(&mut tx, &token).await?;
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+    })
+    .await??;
+    tx.commit().await?;
+    // A new call observes revocation; transaction reuse must not become caching.
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(account)
+        .execute(&pool)
+        .await?;
+    let mut tx = pool.begin().await?;
+    assert!(
+        notifications
+            .enqueue(&mut tx, account, &EmailTemplate::PasswordChanged)
+            .await
+            .is_err()
+    );
+    tx.rollback().await?;
+    pool.close().await;
+    db.close().await.unwrap();
+    eprintln!(
+        "lk_configured_notification_accounts_use_one_connection duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

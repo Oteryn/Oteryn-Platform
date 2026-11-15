@@ -337,7 +337,7 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
         let state = self
             .notifications
             .accounts
-            .active_verified(account)
+            .active_verified_in(tx, account)
             .await
             .map_err(|_| Error::Denied)?
             .ok_or(Error::Denied)?;

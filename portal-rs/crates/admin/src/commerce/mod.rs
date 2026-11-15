@@ -146,6 +146,15 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         }
     }
     async fn authorize(&self, context: rbac::CheckContext, command: &Command) -> Result<(), Error> {
+        let mut connection = self.pool.acquire().await?;
+        self.authorize_in(&mut connection, context, command).await
+    }
+    async fn authorize_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: rbac::CheckContext,
+        command: &Command,
+    ) -> Result<(), Error> {
         // Caller-controlled relaxation of the MFA requirement is never honored.
         if !context.mfa_verified || !valid_id(context.account) {
             return Err(Error::Denied);
@@ -155,7 +164,7 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             ..context
         };
         for permission in [rbac::Permission::Access, command.permission()] {
-            self.auth.check(context, permission).await?;
+            self.auth.check_in(connection, context, permission).await?;
         }
         Ok(())
     }
@@ -180,7 +189,7 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         sqlx::query("SELECT pg_advisory_xact_lock(71010)")
             .execute(&mut *tx)
             .await?;
-        if let Err(error) = self.authorize(context, &request.command).await {
+        if let Err(error) = self.authorize_in(&mut tx, context, &request.command).await {
             if matches!(error, Error::Denied) {
                 record(
                     &mut tx,
@@ -265,7 +274,7 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         let command: Command =
             serde_json::from_value(row.try_get("command")?).map_err(|_| Error::Unavailable)?;
         command.validate(self.flags)?;
-        self.authorize(context, &command).await?;
+        self.authorize_in(&mut tx, context, &command).await?;
         if actor == context.account || !row.try_get::<bool, _>("requires_approval")? {
             return Err(Error::Denied);
         }
@@ -282,7 +291,8 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         }
         // The original actor must still be active and hold the permission. The
         // second actor supplies fresh MFA; the original MFA was verified at submit.
-        self.authorize(
+        self.authorize_in(
+            &mut tx,
             rbac::CheckContext {
                 account: actor,
                 require_staff_mfa: true,

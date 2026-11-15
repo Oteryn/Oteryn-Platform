@@ -91,6 +91,39 @@ pub fn configured_staff_router(
     oteryn_admin::support::web::configured_router(pool.clone(), StaffSupport::configured(pool)?)
 }
 impl Backend for StaffSupport {
+    async fn prepare(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        actor: Uuid,
+        id: Uuid,
+        command: &Command,
+    ) -> std::result::Result<(), StaffError> {
+        self.available(command.area())?;
+        if matches!(
+            command,
+            Command::Reply { .. } | Command::TicketStatus { .. }
+        ) {
+            let tickets = self.tickets.as_ref().ok_or(StaffError::NotFound)?;
+            let owner: Uuid = sqlx::query_scalar("SELECT account_id FROM tickets WHERE id=$1")
+                .bind(id)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?
+                .ok_or(StaffError::NotFound)?;
+            for account in if actor < owner {
+                [actor, owner]
+            } else {
+                [owner, actor]
+            } {
+                tickets
+                    .lock_account(tx, account)
+                    .await
+                    .map_err(ticket_error)?;
+            }
+        }
+        Ok(())
+    }
+
     async fn list(&self, area: Area, page: u32) -> std::result::Result<Vec<Record>, StaffError> {
         self.available(area)?;
         let query = match area {

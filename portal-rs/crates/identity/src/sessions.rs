@@ -16,6 +16,28 @@ fn denied() -> Box<dyn std::error::Error + Send + Sync> {
 #[derive(Debug, Clone)]
 pub struct NotificationAccounts(pub PgPool);
 impl AccountState for NotificationAccounts {
+    fn active_verified_in<'a>(
+        &'a self,
+        tx: &'a mut Transaction<'_, Postgres>,
+        id: Uuid,
+    ) -> NotifyFuture<'a, Option<Account>> {
+        Box::pin(async move {
+            Ok(Accounts::find_by_id_in(tx, id).await?.and_then(|a| {
+                if a.status != "active" || a.email_verified_at.is_none() {
+                    return None;
+                }
+                let locale = match a.locale.as_str() {
+                    "pl" => Locale::Pl,
+                    "en" => Locale::En,
+                    _ => return None,
+                };
+                Some(Account {
+                    email: a.email,
+                    locale,
+                })
+            }))
+        })
+    }
     fn active_verified(&self, id: Uuid) -> NotifyFuture<'_, Option<Account>> {
         Box::pin(async move {
             let account = Accounts {

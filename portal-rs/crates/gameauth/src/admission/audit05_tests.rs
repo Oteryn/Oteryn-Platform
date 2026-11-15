@@ -308,6 +308,7 @@ async fn audit05_04_replay_waits_for_account_before_attempt() -> TestResult {
     });
     tokio::time::timeout(Duration::from_secs(2),async {
         loop {
+            sqlx::query("SELECT pg_stat_clear_snapshot()").execute(&mut *writer).await?;
             let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%accounts WHERE id=%' AND pid<>pg_backend_pid())").fetch_one(&mut *writer).await?;
             if waiting { break; }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -392,6 +393,7 @@ async fn audit05_05_handle_replacement_rechecks_expiry_after_lock_wait() -> Test
     });
     tokio::time::timeout(Duration::from_secs(2),async {
         loop {
+            sqlx::query("SELECT pg_stat_clear_snapshot()").execute(&mut *writer).await?;
             let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock')").bind(pid).fetch_one(&mut *writer).await?;
             if waiting { break; }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -405,4 +407,76 @@ async fn audit05_05_handle_replacement_rechecks_expiry_after_lock_wait() -> Test
         "expired handle was returned after its lock wait"
     );
     f.close().await
+}
+
+#[tokio::test]
+async fn lk_signing_cold_and_expired_cache_with_sixteen_held_transactions() -> TestResult {
+    let started = std::time::Instant::now();
+    let f = Fixture::new().await?;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&f.db.pool)
+        .await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(16)
+        .after_connect(move |db, _| {
+            let schema = schema.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(schema)
+                    .execute(db)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?)
+        .await?;
+    let settings = keys::Settings {
+        enabled: true,
+        key_purpose: "fresh_entry".into(),
+        clock_uncertainty_seconds: 0,
+    };
+    let registry =
+        keys::PublicTrustRegistry::new(pool.clone(), settings.clone(), f.directory.clone())?;
+    let mut ring = keys::Keyring::create(settings, Memory::default())?;
+    let key = ring.generate_next("sixteen-slot")?;
+    registry.publish(&key).await?;
+    sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=trusted_at-interval '60 seconds'").execute(&pool).await?;
+    let at: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+        .fetch_one(&pool)
+        .await?;
+    ring.activate("sixteen-slot", at as u64, &registry.snapshot().await?)?;
+    let signer: Arc<dyn GrantSigner> = Arc::new(KeyringSigner::new(ring, registry));
+    for expired in [false, true] {
+        if expired {
+            tokio::time::sleep(Duration::from_millis(2100)).await;
+        }
+        let barrier = Arc::new(tokio::sync::Barrier::new(16));
+        let mut tasks = tokio::task::JoinSet::new();
+        for _ in 0..16 {
+            // Reserve every slot before releasing the barrier. Signing refresh
+            // has no spare pool capacity, exactly as in saturated admissions.
+            let mut tx = pool.begin().await?;
+            let barrier = barrier.clone();
+            let signer = signer.clone();
+            tasks.spawn(async move {
+                barrier.wait().await;
+                signer.prepare_on(&mut tx).await?;
+                tx.commit().await.map_err(|_| Error::Unavailable)
+            });
+        }
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while let Some(result) = tasks.join_next().await {
+                result??;
+            }
+            Ok::<_, Box<dyn std::error::Error>>(())
+        })
+        .await??;
+    }
+    pool.close().await;
+    f.close().await?;
+    eprintln!(
+        "lk_signing_cold_and_expired_cache_with_sixteen_held_transactions duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }
