@@ -47,6 +47,7 @@ pub struct Ticket {
 }
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Message {
+    pub id: Uuid,
     pub body: String,
     pub author_kind: String,
     pub internal: bool,
@@ -117,13 +118,26 @@ impl Tickets {
         }
         let mut tx = self.pool.begin().await?;
         self.lock_account(&mut tx, account).await?;
-        if let Some(ticket) =
-            sqlx::query_as("SELECT * FROM tickets WHERE account_id=$1 AND request_key=$2")
-                .bind(account)
-                .bind(key)
-                .fetch_optional(&mut *tx)
-                .await?
+        if let Some(ticket) = sqlx::query_as::<_, Ticket>(
+            "SELECT * FROM tickets WHERE account_id=$1 AND request_key=$2",
+        )
+        .bind(account)
+        .bind(key)
+        .fetch_optional(&mut *tx)
+        .await?
         {
+            let original: String = sqlx::query_scalar(
+                "SELECT body FROM ticket_messages WHERE ticket_id=$1 ORDER BY id LIMIT 1",
+            )
+            .bind(ticket.id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if ticket.category != category
+                || ticket.subject != subject.trim()
+                || original != body.trim()
+            {
+                return Err(Error::Conflict);
+            }
             tx.commit().await?;
             return Ok(ticket);
         }
@@ -289,6 +303,15 @@ impl Tickets {
         staff: bool,
         id: Uuid,
     ) -> Result<(Ticket, Vec<Message>)> {
+        self.show_page(account, staff, id, None).await
+    }
+    pub async fn show_page(
+        &self,
+        account: Uuid,
+        staff: bool,
+        id: Uuid,
+        after: Option<Uuid>,
+    ) -> Result<(Ticket, Vec<Message>)> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
         let ticket = sqlx::query_as(
@@ -301,10 +324,11 @@ impl Tickets {
         .await?
         .ok_or(Error::NotFound)?;
         let messages = sqlx::query_as(
-            "SELECT * FROM ticket_messages WHERE ticket_id=$1 AND ($2 OR NOT internal) ORDER BY id",
+            "SELECT * FROM ticket_messages WHERE ticket_id=$1 AND ($2 OR NOT internal) AND ($3::uuid IS NULL OR id>$3) ORDER BY id LIMIT 50",
         )
         .bind(id)
         .bind(staff)
+        .bind(after)
         .fetch_all(&mut *tx)
         .await?;
         if !staff {

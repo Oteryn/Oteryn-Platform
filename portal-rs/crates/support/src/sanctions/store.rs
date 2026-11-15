@@ -408,8 +408,11 @@ impl Service {
         if let Some(character) = character {
             valid_id(character)?;
         }
-        let rows = sqlx::query("WITH latest AS (SELECT DISTINCT ON (sanction_id) sanction_id,revision,active,expires_at FROM support_sanction_revisions WHERE account_id=$1 ORDER BY sanction_id,revision DESC) SELECT c.revision AS account_revision,l.sanction_id,l.revision,l.expires_at,i.kind FROM support_sanction_counters c LEFT JOIN (latest l JOIN support_sanction_identities i ON i.sanction_id=l.sanction_id) ON l.active AND (l.expires_at IS NULL OR l.expires_at > statement_timestamp()) AND (i.kind='ban' OR (i.kind='namelock' AND i.character_id=$2)) WHERE c.account_id=$1 ORDER BY l.revision")
+        let rows = sqlx::query("WITH latest AS (SELECT DISTINCT ON (sanction_id) sanction_id,revision,active,expires_at FROM support_sanction_revisions WHERE account_id=$1 ORDER BY sanction_id,revision DESC) SELECT c.revision AS account_revision,l.sanction_id,l.revision,l.expires_at,i.kind FROM support_sanction_counters c LEFT JOIN (latest l JOIN support_sanction_identities i ON i.sanction_id=l.sanction_id) ON l.active AND (l.expires_at IS NULL OR l.expires_at > statement_timestamp()) AND (i.kind='ban' OR (i.kind='namelock' AND i.character_id=$2)) WHERE c.account_id=$1 ORDER BY l.revision LIMIT 1001")
             .bind(account).bind(character).fetch_all(connection).await?;
+        if rows.len() > 1000 {
+            return Err(Error::Conflict);
+        }
         let mut state = super::EffectiveState::default();
         for row in rows {
             state.revision = row.try_get("account_revision")?;

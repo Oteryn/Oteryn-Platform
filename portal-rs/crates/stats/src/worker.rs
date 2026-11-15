@@ -48,7 +48,13 @@ impl StatisticsJob {
             .fetch_one(&mut *tx)
             .await?;
         store::partitions(&mut tx, today).await?;
-        let rows = sqlx::query("SELECT s.family,s.subject,s.epoch::text,s.version::text,s.watermark,s.payload FROM public_snapshots s JOIN public_snapshots w ON w.family=s.family AND w.is_watermark AND w.epoch=s.epoch JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch LEFT JOIN stats_projection_cursors c ON c.family=s.family AND c.subject=s.subject WHERE NOT s.is_watermark AND s.family IN ('character_profile','character_deaths','world_online') AND s.watermark <= w.watermark AND (c.subject IS NULL OR (s.epoch,s.version,s.watermark) > (c.epoch,c.version,c.watermark)) ORDER BY s.watermark,s.family,s.subject").fetch_all(&mut *tx).await?;
+        // Hold the publisher's epoch fence while copying complete projections.
+        sqlx::query("SELECT highest_epoch FROM public_projection_state WHERE id=1 FOR SHARE")
+            .fetch_one(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM stats_character_events WHERE kind='death' AND details ? '_statistics_epoch' AND ((details->>'_statistics_epoch')::numeric IS DISTINCT FROM (SELECT highest_epoch FROM public_projection_state WHERE id=1) OR (details->>'occurred_at')::bigint < extract(epoch FROM now())::bigint-30*86400)")
+            .execute(&mut *tx).await?;
+        let rows = sqlx::query("WITH qualified AS (SELECT s.family,s.subject,s.epoch,s.version,s.watermark,s.payload FROM public_snapshots s JOIN public_snapshots w ON w.family=s.family AND w.is_watermark AND w.epoch=s.epoch JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch WHERE NOT s.is_watermark AND s.family IN ('character_profile','world_online') AND s.watermark <= w.watermark UNION ALL SELECT 'character_deaths_v2',d.subject,d.epoch,d.revision,w.complete_through,jsonb_build_object('deaths',d.deaths) FROM public_deaths_v2 d JOIN public_deaths_v2_watermark w ON w.id=1 AND w.epoch=d.epoch AND w.authority=d.authority JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=d.epoch WHERE w.complete_through <= extract(epoch FROM now())::bigint+1) SELECT s.family,s.subject,s.epoch::text,s.version::text,s.watermark,s.payload FROM qualified s LEFT JOIN stats_projection_cursors c ON c.family=s.family AND c.subject=s.subject WHERE c.subject IS NULL OR (s.epoch,s.version,s.watermark) > (c.epoch,c.version,c.watermark) ORDER BY s.watermark,s.family,s.subject LIMIT 100").fetch_all(&mut *tx).await?;
         let count = rows.len();
         for row in rows {
             let family: String = row.try_get("family")?;
@@ -87,20 +93,46 @@ impl StatisticsJob {
                         store::snapshot(&mut tx, &s).await?;
                     }
                 }
-                "character_deaths" => {
+                "character_deaths_v2" => {
+                    // A V2 publication replaces the entire retained death window,
+                    // including an empty suppression. Timestamp is not identity.
+                    sqlx::query("DELETE FROM stats_character_events WHERE character_ref=$1 AND kind='death'")
+                        .bind(character).execute(&mut *tx).await?;
                     for death in payload
                         .get("deaths")
                         .and_then(Value::as_array)
                         .ok_or_else(invalid)?
                     {
-                        let key = text(death, "occurred_at")?;
+                        let occurred: i64 =
+                            text(death, "occurred_at")?.parse().map_err(|_| invalid())?;
+                        let now = OffsetDateTime::now_utc().unix_timestamp();
+                        if occurred <= 0
+                            || occurred > observed
+                            || occurred > now
+                            || occurred < now - 30 * 86400
+                        {
+                            continue;
+                        }
+                        let key = text(death, "death_occurrence_id")?;
+                        let occurrence = Uuid::parse_str(key).map_err(|_| invalid())?;
+                        if occurrence.is_nil()
+                            || occurrence.get_version_num() != 7
+                            || occurrence.to_string() != key
+                        {
+                            return Err(invalid());
+                        }
+                        let mut details = death.clone();
+                        details.as_object_mut().ok_or_else(invalid)?.insert(
+                            "_statistics_epoch".into(),
+                            Value::String(row.try_get::<String, _>("epoch")?),
+                        );
                         store::source_event(
                             &mut tx,
                             character,
-                            date(key.parse().map_err(|_| invalid())?)?,
+                            date(occurred)?,
                             "death",
                             key,
-                            death,
+                            &details,
                         )
                         .await?;
                     }
@@ -111,8 +143,10 @@ impl StatisticsJob {
                         .and_then(Value::as_array)
                         .ok_or_else(invalid)?
                         .len();
+                    // Buckets older than 90 days are finalized. Replays and corrections
+                    // to finalized buckets are refused; retained samples are first-write wins.
                     // Observation time prevents manufacturing samples from stale projections.
-                    sqlx::query("INSERT INTO stats_world_samples (world,sampled_at,players_online) VALUES ($1,to_timestamp(($2::bigint / 300) * 300),$3) ON CONFLICT DO NOTHING").bind(character).bind(observed).bind(i32::try_from(online).map_err(|_|invalid())?).execute(&mut *tx).await?;
+                    sqlx::query("INSERT INTO stats_world_samples (world,sampled_at,players_online) SELECT $1,to_timestamp(($2::bigint / 300) * 300),$3 WHERE to_timestamp(($2::bigint / 300) * 300) >= now() - interval '90 days' ON CONFLICT DO NOTHING").bind(character).bind(observed).bind(i32::try_from(online).map_err(|_|invalid())?).execute(&mut *tx).await?;
                 }
                 _ => return Err(invalid()),
             }

@@ -102,50 +102,62 @@ pub async fn snapshot(tx: &mut Transaction<'_, Postgres>, s: &Snapshot) -> Resul
     if updated.rows_affected() == 0 {
         return Ok(());
     }
-    let previous = sqlx::query("SELECT name,world,guild,level FROM stats_character_daily WHERE character_ref=$1 AND day < $2 ORDER BY day DESC LIMIT 1")
-        .bind(s.character_ref).bind(s.day).fetch_optional(&mut **tx).await?;
-    if let Some(p) = previous {
-        let old_name: String = p.try_get("name")?;
-        let old_world: Uuid = p.try_get("world")?;
-        let old_guild: Option<Uuid> = p.try_get("guild")?;
-        let old_level: i64 = p.try_get("level")?;
-        for (kind, changed, details) in [
-            (
-                "name_change",
-                old_name != s.name,
-                serde_json::json!({"from":old_name,"to":s.name}),
-            ),
-            (
-                "world_change",
-                old_world != s.world,
-                serde_json::json!({"from":old_world.to_string(),"to":s.world.to_string()}),
-            ),
-            (
-                "guild_leave",
-                old_guild != s.guild && old_guild.is_some(),
-                serde_json::json!({"guild":old_guild.map(|v|v.to_string())}),
-            ),
-            (
-                "guild_join",
-                old_guild != s.guild && s.guild.is_some(),
-                serde_json::json!({"guild":s.guild.map(|v|v.to_string())}),
-            ),
-            (
-                "level_up",
-                s.level > old_level,
-                serde_json::json!({"from":old_level,"to":s.level}),
-            ),
-        ] {
-            if changed {
-                event(
-                    tx,
-                    s.character_ref,
-                    s.day,
-                    kind,
-                    &format!("{}:{details}", s.day),
-                    &details,
-                )
-                .await?;
+    // Rebuild both affected daily comparisons: revising a predecessor also
+    // changes the observation attributed to the next retained snapshot.
+    let days: Vec<Date> = sqlx::query_scalar("SELECT day FROM stats_character_daily WHERE character_ref=$1 AND day >= $2 ORDER BY day LIMIT 2")
+        .bind(s.character_ref).bind(s.day).fetch_all(&mut **tx).await?;
+    for day in days {
+        sqlx::query("DELETE FROM stats_character_events WHERE character_ref=$1 AND day=$2 AND kind IN ('name_change','world_change','guild_leave','guild_join','level_up')")
+            .bind(s.character_ref).bind(day).execute(&mut **tx).await?;
+        let pair = sqlx::query("SELECT c.name,c.world,c.guild,c.level,p.name AS old_name,p.world AS old_world,p.guild AS old_guild,p.level AS old_level FROM stats_character_daily c JOIN LATERAL (SELECT * FROM stats_character_daily WHERE character_ref=c.character_ref AND day<c.day ORDER BY day DESC LIMIT 1) p ON true WHERE c.character_ref=$1 AND c.day=$2")
+            .bind(s.character_ref).bind(day).fetch_optional(&mut **tx).await?;
+        if let Some(p) = pair {
+            let name: String = p.try_get("name")?;
+            let world: Uuid = p.try_get("world")?;
+            let guild: Option<Uuid> = p.try_get("guild")?;
+            let level: i64 = p.try_get("level")?;
+            let old_name: String = p.try_get("old_name")?;
+            let old_world: Uuid = p.try_get("old_world")?;
+            let old_guild: Option<Uuid> = p.try_get("old_guild")?;
+            let old_level: i64 = p.try_get("old_level")?;
+            for (kind, changed, details) in [
+                (
+                    "name_change",
+                    old_name != name,
+                    serde_json::json!({"from":old_name,"to":name}),
+                ),
+                (
+                    "world_change",
+                    old_world != world,
+                    serde_json::json!({"from":old_world.to_string(),"to":world.to_string()}),
+                ),
+                (
+                    "guild_leave",
+                    old_guild != guild && old_guild.is_some(),
+                    serde_json::json!({"guild":old_guild.map(|v|v.to_string())}),
+                ),
+                (
+                    "guild_join",
+                    old_guild != guild && guild.is_some(),
+                    serde_json::json!({"guild":guild.map(|v|v.to_string())}),
+                ),
+                (
+                    "level_up",
+                    level > old_level,
+                    serde_json::json!({"from":old_level,"to":level}),
+                ),
+            ] {
+                if changed {
+                    event(
+                        tx,
+                        s.character_ref,
+                        day,
+                        kind,
+                        &format!("{day}:{details}"),
+                        &details,
+                    )
+                    .await?;
+                }
             }
         }
     }
@@ -186,6 +198,9 @@ pub async fn history(
     visibility: &impl Visibility,
 ) -> Result<History> {
     range(start, end)?;
+    if (end - start).whole_days() > 365 {
+        return Err(invalid());
+    }
     let p = visibility.current_permissions(character).await;
     let mut result = History {
         daily: Vec::new(),
@@ -194,12 +209,13 @@ pub async fn history(
     if !p.visible {
         return Ok(result);
     }
-    for row in sqlx::query("SELECT day,level,experience::text,skills,achievement_points,minutes_online FROM stats_character_daily WHERE character_ref=$1 AND day BETWEEN $2 AND $3 ORDER BY day")
+    for row in sqlx::query("SELECT day,level,experience::text,skills,achievement_points,minutes_online FROM stats_character_daily WHERE character_ref=$1 AND day BETWEEN $2 AND $3 ORDER BY day LIMIT 366")
         .bind(character).bind(start).bind(end).fetch_all(db).await? {
         result.daily.push(Daily { day: row.try_get("day")?, level: row.try_get("level")?, experience: row.try_get("experience")?, skills: if p.skills {row.try_get("skills")?} else {None}, achievement_points: row.try_get("achievement_points")?, minutes_online: if p.online {row.try_get("minutes_online")?} else {None} });
     }
-    for row in sqlx::query("SELECT day,kind,details FROM stats_character_events WHERE character_ref=$1 AND day BETWEEN $2 AND $3 ORDER BY day,kind,event_key")
-        .bind(character).bind(start).bind(end).fetch_all(db).await? {
+    for row in sqlx::query("SELECT day,kind,details FROM stats_character_events WHERE character_ref=$1 AND day BETWEEN $2 AND $3 AND ($4 OR kind NOT LIKE 'guild_%') AND ($5 OR kind<>'death') ORDER BY day,kind,event_key LIMIT 1001")
+        .bind(character).bind(start).bind(end).bind(p.guild).bind(p.deaths).fetch_all(db).await? {
+        if result.events.len() == 1000 { return Err(invalid()); }
         let kind: String = row.try_get("kind")?;
         if (kind.starts_with("guild_") && !p.guild) || (kind == "death" && !p.deaths) {continue;}
         result.events.push(Event {day:row.try_get("day")?,kind,details:row.try_get("details")?});
@@ -218,18 +234,26 @@ pub async fn top_growth(
     if !(1..=1000).contains(&limit) {
         return Err(invalid());
     }
-    let rows = sqlx::query("SELECT a.character_ref,(b.experience-a.experience)::text AS gain FROM stats_character_daily a JOIN stats_character_daily b USING(character_ref) WHERE a.day=$1 AND b.day=$2 AND a.experience IS NOT NULL AND b.experience IS NOT NULL ORDER BY b.experience-a.experience DESC,a.character_ref")
-        .bind(start).bind(end).fetch_all(db).await?;
     let mut result = Vec::new();
-    for row in rows {
-        let character_ref = row.try_get("character_ref")?;
-        if visibility.current_permissions(character_ref).await.visible {
-            result.push(Growth {
-                character_ref,
-                experience_gain: row.try_get("gain")?,
-            });
-            if result.len() == limit {
-                break;
+    let mut cursor: Option<(String, Uuid)> = None;
+    loop {
+        let rows = sqlx::query("SELECT a.character_ref,(b.experience-a.experience)::text AS gain FROM stats_character_daily a JOIN stats_character_daily b USING(character_ref) WHERE a.day=$1 AND b.day=$2 AND a.experience IS NOT NULL AND b.experience IS NOT NULL AND ($3::text IS NULL OR b.experience-a.experience < $3::text::numeric OR (b.experience-a.experience = $3::text::numeric AND a.character_ref>$4)) ORDER BY b.experience-a.experience DESC,a.character_ref LIMIT 100")
+            .bind(start).bind(end).bind(cursor.as_ref().map(|v|v.0.as_str())).bind(cursor.as_ref().map(|v|v.1)).fetch_all(db).await?;
+        if rows.is_empty() {
+            break;
+        }
+        for row in rows {
+            let character_ref: Uuid = row.try_get("character_ref")?;
+            let gain: String = row.try_get("gain")?;
+            cursor = Some((gain.clone(), character_ref));
+            if visibility.current_permissions(character_ref).await.visible {
+                result.push(Growth {
+                    character_ref,
+                    experience_gain: gain,
+                });
+                if result.len() == limit {
+                    return Ok(result);
+                }
             }
         }
     }
