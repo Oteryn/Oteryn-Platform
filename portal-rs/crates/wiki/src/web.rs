@@ -164,6 +164,7 @@ struct Index<'a> {
     query: String,
     rows: Vec<Translation>,
     next: i64,
+    has_next: bool,
 }
 impl Index<'_> {
     fn t(&self, key: &str) -> String {
@@ -196,12 +197,24 @@ async fn index(
         .search(lang, &query.q, number, !uri.path().ends_with("/search"))
         .await
     {
-        Ok(rows) => page(Index {
-            lang,
-            query: query.q,
-            rows,
-            next: number + 1,
-        }),
+        Ok(rows) => {
+            let has_next = rows.len() == 12
+                && crate::domain::search(&query.q, number + 1).is_ok()
+                && match repo
+                    .search(lang, &query.q, number + 1, !uri.path().ends_with("/search"))
+                    .await
+                {
+                    Ok(next) => !next.is_empty(),
+                    Err(e) => return failure(e, lang),
+                };
+            page(Index {
+                has_next,
+                lang,
+                query: query.q,
+                rows,
+                next: number + 1,
+            })
+        }
         Err(e) => failure(e, lang),
     }
 }

@@ -308,3 +308,89 @@ fn home_excerpt_and_date() {
     assert_eq!(super::display_date("pl", "2026-11-07"), "07.11.2026");
     assert_eq!(super::display_date("en", "2026-11-07"), "2026-11-07");
 }
+
+#[tokio::test]
+async fn postgres_pagination_language_and_caps() {
+    let started = std::time::Instant::now();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")
+        .expect("PORTAL_TEST_DATABASE_URL required for pagination regression");
+    let root = PgPool::connect(&url).await.unwrap();
+    let schema = format!("t11_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&root)
+        .await
+        .unwrap();
+    let path = format!("SET search_path TO {schema}");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .after_connect(move |c, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query(sqlx::AssertSqlSafe(path)).execute(c).await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+
+    sqlx::query("INSERT INTO news(slug,title,body,published_at) SELECT 'pagination-'||n,'English news','English body',now() FROM generate_series(1,26) n").execute(&pool).await.unwrap();
+    let app = public_router(pool.clone());
+    let response = app
+        .clone()
+        .oneshot(Request::get("/news?lang=en").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("?page=2&amp;lang=en"));
+    let response = app
+        .oneshot(
+            Request::get("/news?page=2&lang=en")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("English news"));
+    let context = CheckContext {
+        account: Uuid::now_v7(),
+        require_staff_mfa: true,
+        mfa_verified: true,
+    };
+    for number in [100000, 4] {
+        let q = Options {
+            lang: Some("en".into()),
+            page: Some(number),
+        };
+        assert!(!listing(&pool, "en", &q).await.unwrap().0.contains("?page="));
+        assert!(
+            !admin_index(State(pool.clone()), Extension(context), Query(q))
+                .await
+                .unwrap()
+                .0
+                .contains("?page=")
+        );
+    }
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await
+        .unwrap();
+    eprintln!(
+        "postgres_pagination_language_and_caps duration: {:?}",
+        started.elapsed()
+    );
+}

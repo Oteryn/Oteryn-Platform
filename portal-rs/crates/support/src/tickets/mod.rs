@@ -295,7 +295,7 @@ impl Tickets {
     pub async fn list(&self, account: Uuid, staff: bool, page: u32) -> Result<Vec<Ticket>> {
         self.enabled()?;
         sqlx::query_as("SELECT * FROM tickets WHERE ($1 OR account_id=$2) ORDER BY last_message_at DESC,id DESC LIMIT 20 OFFSET $3")
-            .bind(staff).bind(account).bind(i64::from(page.min(10000))*20).fetch_all(&self.pool).await.map_err(Into::into)
+            .bind(staff).bind(account).bind(i64::from(page)*20).fetch_all(&self.pool).await.map_err(Into::into)
     }
     pub async fn show(
         &self,

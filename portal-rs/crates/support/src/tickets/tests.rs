@@ -780,3 +780,72 @@ async fn postgres_message_pages_and_payload_binding() -> TestResult {
 
     db.finish().await
 }
+
+#[tokio::test]
+async fn postgres_pagination_ticket_boundary() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let account = db.account("en").await?;
+    sqlx::query("INSERT INTO tickets(account_id,request_key,category,subject,last_message_at) SELECT $1,uuidv7(),'technical','Boundary ticket '||n,now()-n*interval '1 second' FROM generate_series(1,200021) n").bind(account).execute(&db.pool).await?;
+    let tickets = db.tickets(3)?;
+    for staff in [false, true] {
+        let previous = tickets.list(account, staff, 10000).await?;
+        let last = tickets.list(account, staff, 10001).await?;
+        assert_eq!(previous.len(), 20);
+        assert_eq!(last.len(), 1);
+        assert_eq!(last[0].subject, "Boundary ticket 200021");
+        assert!(previous.iter().all(|row| row.id != last[0].id));
+        assert!(tickets.list(account, staff, 10002).await?.is_empty());
+    }
+    let (cookie, _) = db.cookie(account).await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(account).execute(&db.pool).await?;
+    let adapter = StaffAdapter {
+        mfa: true,
+        state: oteryn_admin::rbac::AccountState::Active,
+    };
+    let staff_app = staff_router(
+        tickets.clone(),
+        oteryn_admin::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        adapter.clone(),
+        adapter,
+    );
+    let app = router(tickets, "http://localhost:3000");
+    for (number, has_next) in [(10000, true), (10001, false), (10002, false)] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/en/support/tickets?page={number}"))
+                    .header("cookie", &cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+        assert_eq!(html.contains(&format!("?page={}\"", number + 1)), has_next);
+    }
+    for (number, has_next) in [(10000, true), (10001, false)] {
+        let response = staff_app
+            .clone()
+            .oneshot(
+                Request::get(format!("/en/admin/support/tickets?page={number}"))
+                    .header("host", "staff.test")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+        assert_eq!(html.contains(&format!("?page={}\"", number + 1)), has_next);
+    }
+    db.finish().await?;
+    eprintln!(
+        "postgres_pagination_ticket_boundary duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

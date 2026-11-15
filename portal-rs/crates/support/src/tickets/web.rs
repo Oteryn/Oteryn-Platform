@@ -281,6 +281,7 @@ struct Page {
     can_reply: bool,
     previous: u32,
     next: u32,
+    has_next: bool,
 }
 impl Page {
     fn new(language: &str, staff: bool) -> Self {
@@ -335,6 +336,7 @@ impl Page {
             can_reply: false,
             previous: 0,
             next: 1,
+            has_next: false,
         }
     }
     fn response(self) -> Response {
@@ -364,6 +366,18 @@ async fn index(
     page.next = p.page.saturating_add(1);
     match t.list(account, staff.is_some(), p.page).await {
         Ok(rows) => {
+            page.has_next = if rows.len() == 20 {
+                if let Some(next) = p.page.checked_add(1) {
+                    match t.list(account, staff.is_some(), next).await {
+                        Ok(rows) => !rows.is_empty(),
+                        Err(e) => return fail(e, &language),
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             page.rows = rows
                 .into_iter()
                 .map(|r| Row {
