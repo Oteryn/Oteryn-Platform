@@ -1,5 +1,5 @@
 //! Current unique ownership, saved T45 state and T09c bounds; never a cached allow.
-use crate::{deaths, guilds, online, profiles, rankings};
+use crate::{deaths, families, guilds, online, profiles, rankings};
 use oteryn_characters::profile::Preferences;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -129,6 +129,30 @@ impl deaths::Privacy for Authority {
                 .await
                 .map_err(|_| deaths::Unavailable)?
                 .is_some_and(|p| !p.hidden && p.show_deaths))
+        })
+    }
+}
+impl families::SkillsPrivacy for Authority {
+    fn allows_skills<'a>(&'a self, id: &'a str, epoch: &'a str) -> families::PrivacyFuture<'a> {
+        Box::pin(async move {
+            self.privacy
+                .ready()
+                .await
+                .map_err(|_| families::Unavailable)?;
+            let Some(profile) = self
+                .profile(id, epoch)
+                .await
+                .map_err(|_| families::Unavailable)?
+            else {
+                return Ok(false);
+            };
+            let world = profile["world_id"].as_str().ok_or(families::Unavailable)?;
+            let name = profile["name"].as_str().ok_or(families::Unavailable)?;
+            Ok(self
+                .reference(id, world, name)
+                .await
+                .map_err(|_| families::Unavailable)?
+                .is_some_and(|p| !p.hidden && p.show_skills))
         })
     }
 }

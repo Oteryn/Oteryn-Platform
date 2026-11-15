@@ -9,6 +9,7 @@ pub mod rankings;
 pub mod worlds;
 
 pub mod deaths;
+pub mod families;
 pub mod guilds;
 pub mod houses;
 pub mod party;
