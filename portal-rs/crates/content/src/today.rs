@@ -68,7 +68,7 @@ impl Card {
 pub async fn cards(pool: &PgPool, lang: &str, at: OffsetDateTime) -> Vec<Card> {
     let announcements = Announcements::new(pool.clone()).active(lang, at, 3).await;
     let events = crate::events::Events::new(pool.clone())
-        .public(lang, None)
+        .digest(lang, at)
         .await;
     let news = latest_news(pool, lang, at).await;
     vec![

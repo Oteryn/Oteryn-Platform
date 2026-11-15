@@ -25,6 +25,14 @@ impl Events {
         Ok(sqlx::query_as("SELECT e.id,t.title,t.slug,t.summary,t.body,e.starts_at,e.ends_at FROM events e JOIN event_translations t ON t.event_id=e.id WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1 AND ($2::text IS NULL OR t.slug=$2) ORDER BY e.featured DESC,e.starts_at,e.id LIMIT 200")
             .bind(locale).bind(slug).fetch_all(&self.pool).await?)
     }
+    pub(crate) async fn digest(
+        &self,
+        locale: &str,
+        at: time::OffsetDateTime,
+    ) -> Result<Vec<PublicEvent>, Error> {
+        Ok(sqlx::query_as("SELECT e.id,t.title,t.slug,t.summary,t.body,e.starts_at,e.ends_at FROM events e JOIN event_translations t ON t.event_id=e.id WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1 AND e.ends_at>$2 ORDER BY (e.starts_at>$2),e.featured DESC,e.starts_at,e.id LIMIT 1")
+            .bind(locale).bind(at).fetch_all(&self.pool).await?)
+    }
     pub async fn list(&self) -> Result<Vec<Event>, Error> {
         Ok(sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version FROM events ORDER BY updated_at DESC,id DESC LIMIT 200").fetch_all(&self.pool).await?)
     }

@@ -6,7 +6,7 @@ WITH documents AS (
  SELECT 'pages',p.slug,e.title,e.body FROM pages p
  JOIN editorial_pages e ON e.page_id=p.id AND e.locale=$1
  JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en'
- WHERE e.published_at<=now() AND source.published_at<=now()
+ WHERE p.slug <> 'getting-started' AND e.published_at<=now() AND source.published_at<=now()
  AND (e.locale='en' OR e.source_revision=source.revision)
  AND (p.slug NOT IN ('terms-of-service','privacy-policy','cookie-policy') OR (e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL))
  UNION ALL

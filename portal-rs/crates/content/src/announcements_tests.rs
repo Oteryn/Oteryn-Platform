@@ -145,8 +145,45 @@ async fn postgres_announcements_and_today() {
         sqlx::query("INSERT INTO events(id,status,starts_at,ends_at,featured,created_by,updated_by,published_by) VALUES ($1,'published',$2,$3,$4,$5,$5,$5)").bind(event).bind(start).bind(end).bind(featured).bind(actor).execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO event_translations(event_id,locale,title,slug,summary,body) VALUES ($1,'en',$2,$2,'Summary','Body')").bind(event).bind(slug).execute(&pool).await.unwrap();
     }
+    for n in 0..200 {
+        let event = Uuid::now_v7();
+        sqlx::query("INSERT INTO events(id,status,starts_at,ends_at,featured,created_by,updated_by,published_by) VALUES($1,'published',$2,$3,true,$4,$4,$4)").bind(event).bind(at-time::Duration::days(3)).bind(at-time::Duration::days(2)).bind(actor).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO event_translations(event_id,locale,title,slug,summary,body) VALUES($1,'en','Expired',$2,'Expired','Expired')").bind(event).bind(format!("expired-{n}")).execute(&pool).await.unwrap();
+    }
     let cards = crate::today::cards(&pool, "en", at).await;
     assert_eq!(cards[2].items[0].title, "active-event");
+    sqlx::raw_sql("INSERT INTO pages(id,slug) VALUES(uuidv7(),'support'); INSERT INTO editorial_pages(page_id,locale,title,body,published_at) SELECT id,'en','Assistance dragon','Help body',now() FROM pages WHERE slug='support'").execute(&pool).await.unwrap();
+    let search = oteryn_web::search::routes(oteryn_web::search::SearchState {
+        pool: pool.clone(),
+        world: None,
+        characters: None,
+    });
+    let mut request = Request::get("/en/search?q=assistance&kind=pages")
+        .body(Body::empty())
+        .unwrap();
+    request.extensions_mut().insert(axum::extract::ConnectInfo(
+        "127.0.0.1:42148".parse::<std::net::SocketAddr>().unwrap(),
+    ));
+    let response = search.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let href = html
+        .split("href=\"")
+        .filter_map(|part| part.split_once('"').map(|(href, _)| href))
+        .find(|href| *href == "/en/support")
+        .unwrap();
+    let response = crate::pages::router(pool.clone())
+        .oneshot(Request::get(href).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
     let ticker = crate::today::render_ticker(&pool, "en", at).await;
     assert!(ticker.contains("&lt;script&gt;title"));
     assert!(!ticker.contains("<script>"));

@@ -245,6 +245,13 @@ pub(super) async fn persist(
             .execute(&mut *tx)
             .await?;
     } else {
+        if locale != "en" {
+            let source_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM editorial_pages WHERE page_id=$1 AND locale='en' AND body <> '')")
+                .bind(id).fetch_one(&mut *tx).await?;
+            if !source_exists {
+                return Err(Error::InvalidInput);
+            }
+        }
         let content =
             json!({"title":form.title,"body":form.body,"effective":form.legal_effective_date});
         if legal(slug) && !form.published_at.is_empty() {
@@ -254,7 +261,7 @@ pub(super) async fn persist(
             }
             sqlx::query("INSERT INTO page_legal_versions(page_id,locale,version,content) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING").bind(id).bind(locale).bind(&form.legal_version).bind(content).execute(&mut *tx).await?;
         }
-        sqlx::query("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=editorial_pages.revision+1,updated_at=now()")
+        sqlx::query("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=nextval('editorial_page_revision_seq'),updated_at=now()")
             .bind(id).bind(locale).bind(&form.title).bind(&form.body).bind(&form.published_at).bind(if legal(slug){form.legal_version.as_str()}else{""}).bind(if legal(slug){form.legal_effective_date.as_str()}else{""}).execute(&mut *tx).await?;
     }
     audit::append(
