@@ -65,3 +65,6 @@ workspace = true
 
 [dependencies.oteryn-store]
 workspace = true
+
+[dependencies.oteryn-playerdata]
+workspace = true
