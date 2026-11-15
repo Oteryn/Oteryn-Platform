@@ -392,6 +392,46 @@ async fn audit02_challenge_locales_share_source_budget_without_more_writes() -> 
 }
 
 #[tokio::test]
+async fn challenge_budget_is_keyed_by_resolved_client_ip_not_proxy_peer() -> TestResult {
+    use tower::ServiceExt;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
+        .execute(&db.pool)
+        .await?;
+    let app = http::routes::<()>(db.pool.clone());
+    let proxy = "10.0.0.1:443".parse::<std::net::SocketAddr>()?;
+    let first: std::net::IpAddr = "203.0.113.7".parse()?;
+    let second: std::net::IpAddr = "203.0.113.8".parse()?;
+    for (n, (client, expected)) in [
+        (first, axum::http::StatusCode::OK),
+        (first, axum::http::StatusCode::OK),
+        (first, axum::http::StatusCode::OK),
+        (first, axum::http::StatusCode::OK),
+        (first, axum::http::StatusCode::OK),
+        (first, axum::http::StatusCode::TOO_MANY_REQUESTS),
+        // Another client behind the same proxy keeps its own budget.
+        (second, axum::http::StatusCode::OK),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let request = axum::http::Request::post("/en/register/abuse/challenge")
+            .header("x-csrf-token", format!("{n:064x}"))
+            .extension(axum::extract::ConnectInfo(proxy))
+            .extension(http::ClientIp(client))
+            .body(axum::body::Body::empty())?;
+        assert_eq!(
+            app.clone().oneshot(request).await?.status(),
+            expected,
+            "{n}"
+        );
+    }
+    db.close().await
+}
+
+#[tokio::test]
 async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions() -> TestResult {
     use tower::ServiceExt;
     let Some(db) = Database::new().await? else {

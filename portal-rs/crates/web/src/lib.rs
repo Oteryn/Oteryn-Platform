@@ -511,10 +511,44 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http().make_span_with(request_span));
-    let router = router.layer(axum::middleware::from_fn(verify::protect_token));
+    let router = router
+        .layer(axum::middleware::from_fn(resolve_client_ip))
+        .layer(axum::middleware::from_fn(verify::protect_token));
     security_headers(router)
         // OAuth keeps its protocol envelopes outside the site error renderer.
         .merge(oauth_routes)
+}
+
+/// Resolves the browser client address once, through the same trusted-proxy
+/// policy as the registration form limiter, for budgets owned by other crates
+/// (`oteryn_identity::abuse`). A malformed forwarding chain from a trusted proxy
+/// is refused here; without a socket peer the request passes unchanged and the
+/// consumer refuses it.
+async fn resolve_client_ip(
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let Some(axum::extract::ConnectInfo(peer)) = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .copied()
+    else {
+        return next.run(request).await;
+    };
+    let proxies = request
+        .extensions()
+        .get::<ratelimit::RateLimiter>()
+        .map(|limiter| limiter.trusted_proxies.clone())
+        .unwrap_or_default();
+    match proxies.client_ip(peer, request.headers()) {
+        Ok(ip) => {
+            request
+                .extensions_mut()
+                .insert(oteryn_identity::abuse::http::ClientIp(ip));
+            next.run(request).await
+        }
+        Err(denial) => denial.response(Language::Pl, false),
+    }
 }
 
 // Raw query strings and compatibility path segments can carry bearer credentials.
@@ -537,6 +571,73 @@ mod tests {
     fn app() -> Result<Router, sqlx::Error> {
         let db = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
         Ok(router(AppState { db }, "static"))
+    }
+
+    async fn resolved(
+        limiter: Option<ratelimit::RateLimiter>,
+        peer: &str,
+        forwarded: Option<&str>,
+    ) -> Result<(StatusCode, String), Box<dyn std::error::Error>> {
+        let mut app = Router::new()
+            .route(
+                "/",
+                axum::routing::get(|request: axum::extract::Request| async move {
+                    request
+                        .extensions()
+                        .get::<oteryn_identity::abuse::http::ClientIp>()
+                        .map(|ip| ip.0.to_string())
+                        .unwrap_or_default()
+                }),
+            )
+            .layer(axum::middleware::from_fn(resolve_client_ip));
+        if let Some(limiter) = limiter {
+            app = app.layer(axum::Extension(limiter));
+        }
+        let mut request = Request::get("/").extension(axum::extract::ConnectInfo(
+            peer.parse::<std::net::SocketAddr>()?,
+        ));
+        if let Some(forwarded) = forwarded {
+            request = request.header("x-forwarded-for", forwarded);
+        }
+        let response = app.oneshot(request.body(Body::empty())?).await?;
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 64 * 1024).await?;
+        Ok((status, String::from_utf8(body.to_vec())?))
+    }
+
+    #[tokio::test]
+    async fn client_ip_follows_only_configured_trusted_proxies()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Without configured proxies a forwarding header is ignored.
+        assert_eq!(
+            resolved(None, "10.0.0.1:443", Some("203.0.113.7")).await?,
+            (StatusCode::OK, "10.0.0.1".to_owned())
+        );
+        let db = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+        let mut limiter = ratelimit::RateLimiter::new(db);
+        limiter.trusted_proxies = ratelimit::TrustedProxies(vec!["10.0.0.1".parse()?]);
+        assert_eq!(
+            resolved(Some(limiter.clone()), "10.0.0.1:443", Some("203.0.113.7")).await?,
+            (StatusCode::OK, "203.0.113.7".to_owned())
+        );
+        // An untrusted peer cannot choose its budget key.
+        assert_eq!(
+            resolved(
+                Some(limiter.clone()),
+                "198.51.100.4:443",
+                Some("203.0.113.7")
+            )
+            .await?,
+            (StatusCode::OK, "198.51.100.4".to_owned())
+        );
+        // A malformed chain from a trusted proxy is refused.
+        assert_eq!(
+            resolved(Some(limiter), "10.0.0.1:443", Some("not-an-ip"))
+                .await?
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+        Ok(())
     }
 
     #[tokio::test]
