@@ -62,6 +62,8 @@ fn page(lang: &str, title: &str, body: String) -> Html<String> {
     use askama::Template;
     Html(NewsPage { lang, title, body }.render().unwrap_or_default())
 }
+const MAX_PAGE: i64 = 100000;
+
 #[derive(Debug, Default, Deserialize)]
 struct Options {
     lang: Option<String>,
@@ -77,7 +79,7 @@ impl Options {
     }
     fn offset(&self, size: i64) -> Result<i64, StatusCode> {
         let n = self.page.unwrap_or(1);
-        if !(1..=100000).contains(&n) {
+        if !(1..=MAX_PAGE).contains(&n) {
             Err(StatusCode::UNPROCESSABLE_ENTITY)
         } else {
             Ok((n - 1) * size)
@@ -214,20 +216,23 @@ fn excerpt(body: &str, limit: usize) -> String {
     format!("{}…", cut.trim_end_matches([',', '.', ';', ':', '-', '–']))
 }
 async fn listing(pool: &PgPool, lang: &str, q: &Options) -> Result<Html<String>, StatusCode> {
-    let rows=sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 10 OFFSET $2").bind(lang).bind(q.offset(10)?).fetch_all(pool).await.map_err(unavailable)?;
+    let rows=sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 11 OFFSET $2").bind(lang).bind(q.offset(10)?).fetch_all(pool).await.map_err(unavailable)?;
     let mut html = String::new();
-    for row in rows {
+    let has_next = rows.len() > 10 && q.page.unwrap_or(1) < MAX_PAGE;
+    for row in rows.into_iter().take(10) {
         html.push_str(&format!(
             "<p><a href=\"/{lang}/news/{}\">{}</a></p>",
             escape(row.get("slug")),
             escape(row.get("title"))
         ));
     }
-    html.push_str(&format!(
-        "<a href=\"?page={}\">{}</a>",
-        q.page.unwrap_or(1) + 1,
-        label(lang, "next")
-    ));
+    if has_next {
+        html.push_str(&format!(
+            "<a href=\"?page={}&amp;lang={lang}\">{}</a>",
+            q.page.unwrap_or(1) + 1,
+            label(lang, "next")
+        ));
+    }
     Ok(page(lang, &label(lang, "news"), html))
 }
 async fn show(
@@ -264,7 +269,7 @@ async fn admin_index(
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
     let rows = sqlx::query(
-        "SELECT id,title FROM news ORDER BY updated_at DESC,id DESC LIMIT 25 OFFSET $1",
+        "SELECT id,title FROM news ORDER BY updated_at DESC,id DESC LIMIT 26 OFFSET $1",
     )
     .bind(q.offset(25)?)
     .fetch_all(&pool)
@@ -275,18 +280,21 @@ async fn admin_index(
         "<a href=\"/admin/news/create?lang={lang}\">{}</a>",
         label(lang, "new")
     );
-    for row in rows {
+    let has_next = rows.len() > 25 && q.page.unwrap_or(1) < MAX_PAGE;
+    for row in rows.into_iter().take(25) {
         let id: Uuid = row.get("id");
         html.push_str(&format!(
             "<p><a href=\"/admin/news/{id}/edit?lang={lang}\">{}</a></p>",
             escape(row.get("title"))
         ));
     }
-    html.push_str(&format!(
-        "<a href=\"?page={}&amp;lang={lang}\">{}</a>",
-        q.page.unwrap_or(1) + 1,
-        label(lang, "next")
-    ));
+    if has_next {
+        html.push_str(&format!(
+            "<a href=\"?page={}&amp;lang={lang}\">{}</a>",
+            q.page.unwrap_or(1) + 1,
+            label(lang, "next")
+        ));
+    }
     Ok(page(lang, &label(lang, "news"), html))
 }
 async fn new(

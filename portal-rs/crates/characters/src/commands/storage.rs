@@ -11,13 +11,14 @@ fn status(row: sqlx::postgres::PgRow) -> Result<CommandStatus, Error> {
     })
 }
 impl Commands {
-    pub(crate) async fn replay(
+    pub(crate) async fn replay_in(
         &self,
+        conn: &mut sqlx::PgConnection,
         decision: Uuid,
         key: &str,
         intent: &Intent,
     ) -> Result<Option<CommandStatus>, Error> {
-        let row = sqlx::query("SELECT id,command,intent_json,receipt_json,binding_json,issuer_decision_id FROM character_commands WHERE request_key=$1").bind(key).fetch_optional(&self.pool).await?;
+        let row = sqlx::query("SELECT id,command,intent_json,receipt_json,binding_json,issuer_decision_id FROM character_commands WHERE request_key=$1").bind(key).fetch_optional(conn).await?;
         let Some(row) = row else {
             return Ok(None);
         };
@@ -46,45 +47,56 @@ impl Commands {
         key: &str,
         intent: Intent,
     ) -> Result<CommandStatus, Error> {
+        let mut tx = self.pool.begin().await?;
+        let status = self.issue_in(&mut tx, decision, key, intent).await?;
+        tx.commit().await?;
+        Ok(status)
+    }
+    pub(crate) async fn issue_in(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        decision: Uuid,
+        key: &str,
+        intent: Intent,
+    ) -> Result<CommandStatus, Error> {
         let binding = binding(&intent);
         let binding_json = encode(&binding)?;
-        let mut tx = self.pool.begin().await?;
         // Hold the issuer lock through commit so no visible key lands behind the cursor.
         sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await?;
-        if let Some(row)=sqlx::query("SELECT id,command,intent_json,receipt_json,binding_json,issuer_decision_id FROM character_commands WHERE request_key=$1").bind(key).fetch_optional(&mut *tx).await? {
+        if let Some(row)=sqlx::query("SELECT id,command,intent_json,receipt_json,binding_json,issuer_decision_id FROM character_commands WHERE request_key=$1").bind(key).fetch_optional(&mut *conn).await? {
             if row.try_get::<String,_>("command")? != intent.command() || row.try_get::<String,_>("binding_json")? != binding_json || row.try_get::<Uuid,_>("issuer_decision_id")? != decision { return Err(Error::Conflict); }
             return status(row);
         }
         if let Intent::Transfer { character_id, .. } = &intent {
             // V2 services and ownership transfer share one issuance fence. V1
             // wire bytes and ordinary v1-only issuance keep their existing behavior.
-            let service_pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_commands WHERE state='PENDING' AND command IN ('ScheduleCharacterDeletion','CancelCharacterDeletion','RenameCharacter') AND binding_json::jsonb->>'character_id'=$1)").bind(character_id.to_string()).fetch_one(&mut *tx).await?;
+            let service_pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_commands WHERE state='PENDING' AND command IN ('ScheduleCharacterDeletion','CancelCharacterDeletion','RenameCharacter') AND binding_json::jsonb->>'character_id'=$1)").bind(character_id.to_string()).fetch_one(&mut *conn).await?;
             if service_pending {
                 return Err(Error::Conflict);
             }
         }
         let count: i64 =
             sqlx::query_scalar("SELECT count(*) FROM character_commands WHERE state='PENDING'")
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut *conn)
                 .await?;
         if count >= i64::from(self.settings.max_pending) {
             return Err(Error::BacklogFull);
         }
         let issued: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut *conn)
                 .await?;
         let id = Uuid::now_v7();
         let (account, target) = intent.accounts();
         let revision: i64=sqlx::query_scalar("INSERT INTO character_commands (id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json) VALUES ($1,$2,$3,$4,$5,$6,$7,'') RETURNING source_revision")
-            .bind(id).bind(decision).bind(key).bind(intent.command()).bind(account).bind(target).bind(binding_json).fetch_one(&mut *tx).await?;
+            .bind(id).bind(decision).bind(key).bind(intent.command()).bind(account).bind(target).bind(binding_json).fetch_one(&mut *conn).await?;
         let behind: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM character_commands WHERE source_revision > $1)",
         )
         .bind(revision)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut *conn)
         .await?;
         if revision <= 0 || behind {
             return Err(Error::Unavailable);
@@ -101,9 +113,8 @@ impl Commands {
         sqlx::query("UPDATE character_commands SET intent_json=$2 WHERE id=$1")
             .bind(id)
             .bind(&raw)
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await?;
-        tx.commit().await?;
         Ok(CommandStatus {
             operation_id: id,
             command: intent.command().into(),
@@ -210,6 +221,15 @@ impl Commands {
         self.source(&v)?;
         let id = uuid(get(&v, "operation_id")?)?;
         let mut tx = self.pool.begin().await?;
+        if self.restore_lock {
+            let found: Option<i16> =
+                sqlx::query_scalar("SELECT id FROM character_restore_locks WHERE id=1 FOR SHARE")
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if found.is_none() {
+                return Err(Error::Unavailable);
+            }
+        }
         let row=sqlx::query("SELECT command,binding_json,receipt_json FROM character_commands WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         if row.try_get::<String, _>("command")? != get(&v, "command")? {
             return Err(Error::Conflict);

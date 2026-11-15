@@ -101,6 +101,10 @@ impl std::fmt::Debug for ActorProof {
 /// Revocation includes web sessions, OAuth families, devices, MFA, passkeys,
 /// recovery credentials and outstanding email/reset tokens on finalization.
 pub trait Boundary: std::fmt::Debug + Send + Sync {
+    /// Resolution delivery outlives local cancellation and finalization.
+    fn reconcile<'a>(&'a self, _: &'a PgPool, _: i64) -> BoundaryFuture<'a> {
+        Box::pin(async { Ok(()) })
+    }
     /// Lifecycle hooks commit with the account transaction; never perform network I/O.
     fn requested<'a>(
         &'a self,
@@ -329,6 +333,7 @@ impl Terminations {
         if !self.config.enabled {
             return Ok(WorkerResult::default());
         }
+        self.boundary.reconcile(&self.pool, limit).await?;
         let accounts: Vec<AccountId> = sqlx::query_scalar("SELECT account_id FROM account_terminations WHERE cancelled_at IS NULL AND finalized_at IS NULL AND scheduled_for<=now() ORDER BY updated_at,account_id LIMIT $1")
             .bind(limit).fetch_all(&self.pool).await?;
         let mut result = WorkerResult::default();

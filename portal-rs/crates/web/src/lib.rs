@@ -149,16 +149,26 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                     Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
                 };
                 let account = session.account_id().await;
+                let mut mfa_grant_hash = None;
                 if let (Some(account), Some(mfa)) = (account, &oauth_mfa) {
                     let key =
                         session::SessionKey::<String>::new(oteryn_identity::mfa::SESSION_GRANT_KEY);
                     if let Ok(Some(grant)) = session.get(key).await
                         && mfa.satisfied(account, &grant).await.unwrap_or(false)
                     {
+                        mfa_grant_hash = Some(oteryn_identity::mfa::digest(&grant));
                         request
                             .extensions_mut()
                             .insert(oteryn_gameauth::oauth::MfaSession { account });
                     }
+                }
+                if let Some(session_hash) = session.identity_hash().await {
+                    request
+                        .extensions_mut()
+                        .insert(oteryn_gameauth::oauth::BrowserProof {
+                            session_hash,
+                            mfa_grant_hash,
+                        });
                 }
                 request
                     .extensions_mut()
@@ -500,11 +510,21 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(oteryn_gameauth::devices::routes(state.db.clone()))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
-        .layer(TraceLayer::new_for_http());
+        .layer(TraceLayer::new_for_http().make_span_with(request_span));
     let router = router.layer(axum::middleware::from_fn(verify::protect_token));
     security_headers(router)
         // OAuth keeps its protocol envelopes outside the site error renderer.
         .merge(oauth_routes)
+}
+
+// Raw query strings and compatibility path segments can carry bearer credentials.
+// Unmatched routes deliberately have no path field.
+fn request_span(request: &axum::http::Request<axum::body::Body>) -> tracing::Span {
+    let route = request
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map_or("<unmatched>", axum::extract::MatchedPath::as_str);
+    tracing::debug_span!("request", method = %request.method(), route, version = ?request.version())
 }
 
 #[cfg(test)]
@@ -611,3 +631,8 @@ pub async fn internal_character_services_router(
 pub mod chrome;
 
 pub mod favicon;
+
+#[cfg(test)]
+mod trace_tests;
+
+pub mod decoration;

@@ -190,6 +190,17 @@ pub struct Message {
 }
 
 pub trait Backend: Clone + Send + Sync + 'static {
+    /// Acquire domain account locks before the RBAC fence and its actor SHARE lock.
+    fn prepare(
+        &self,
+        _tx: &mut Transaction<'_, Postgres>,
+        _actor: Uuid,
+        _id: Uuid,
+        _command: &Command,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
+        async { Ok(()) }
+    }
+
     fn list(
         &self,
         area: Area,
@@ -250,16 +261,31 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
     if !context.require_staff_mfa || !context.mfa_verified {
         return Err(Error::Denied);
     }
-    let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
-    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| Error::Unavailable)?;
     for permission in [Permission::Access, command.area().permission()] {
         auth.check(context, permission).await.map_err(|e| match e {
             crate::rbac::Error::Storage(_) => Error::Unavailable,
             _ => Error::Denied,
         })?;
+    }
+    let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
+    // Preparation precedes the RBAC fence, but retains its bounded lock waits.
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    backend
+        .prepare(&mut tx, context.account, id, command)
+        .await?;
+    crate::rbac::lock_mutation(&mut tx)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    for permission in [Permission::Access, command.area().permission()] {
+        auth.check_in(&mut tx, context, permission)
+            .await
+            .map_err(|e| match e {
+                crate::rbac::Error::Storage(_) => Error::Unavailable,
+                _ => Error::Denied,
+            })?;
     }
     let (before, after) = backend
         .apply(&mut tx, context.account, id, version, command)

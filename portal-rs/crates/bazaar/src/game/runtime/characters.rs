@@ -58,7 +58,7 @@ pub(crate) async fn staged(
     db: &mut PgConnection,
     operation: Uuid,
 ) -> Result<Value, Error> {
-    let row=sqlx::query("SELECT intent,intent_digest,projection_epoch::text AS epoch,recovery_generation::text AS generation FROM bazaar_authority_transfers WHERE operation_id=$1").bind(operation).fetch_optional(&mut *db).await?.ok_or(Error::Unavailable)?;
+    let row=sqlx::query("SELECT intent,intent_digest,projection_epoch::text AS epoch,recovery_generation::text AS generation FROM bazaar_all_transfers WHERE operation_id=$1").bind(operation).fetch_optional(&mut *db).await?.ok_or(Error::Unavailable)?;
     let raw: String = row.try_get("intent")?;
     if digest(raw.as_bytes()) != row.try_get::<String, _>("intent_digest")?
         || decimal(row.try_get("epoch")?, false, u64::MAX)? != a.fence.projection_epoch
@@ -192,7 +192,7 @@ pub(crate) async fn proof(
     listing: Uuid,
     purpose: &str,
 ) -> Result<Option<(Value, Value, PreparedIntent, Receipt)>, Error> {
-    let row=sqlx::query("SELECT t.operation_id,t.intent,t.intent_digest,c.intent_json,c.receipt_json FROM bazaar_authority_transfers t JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND t.purpose=$2 AND c.state='TERMINAL'").bind(listing).bind(purpose).fetch_optional(&mut *db).await?;
+    let row=sqlx::query("SELECT t.operation_id,t.intent,t.intent_digest,c.intent_json,c.receipt_json FROM bazaar_current_transfers t JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND t.purpose=$2 AND c.state='TERMINAL'").bind(listing).bind(purpose).fetch_optional(&mut *db).await?;
     let Some(row) = row else {
         return Ok(None);
     };
@@ -206,6 +206,9 @@ pub(crate) async fn proof(
     }
     let receipt: String = row.try_get("receipt_json")?;
     let r = decode(receipt.as_bytes(), 1024)?;
+    if rejected_receipt(a, &r, &intent, now(db).await?)? {
+        return Ok(None);
+    }
     ordered(
         &r,
         &[
@@ -450,7 +453,7 @@ pub(crate) async fn verify_unlock(
     current: Option<&Value>,
 ) -> Result<(), Error> {
     let listing = id(text(&i.value, "listing_id")?)?;
-    let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_transfers t LEFT JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND (c.id IS NULL OR c.state='PENDING'))").bind(listing).fetch_one(&mut *db).await?;
+    let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_current_transfers t LEFT JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND (c.id IS NULL OR c.state='PENDING'))").bind(listing).fetch_one(&mut *db).await?;
     if pending {
         return Err(Error::Unavailable);
     }
@@ -468,4 +471,87 @@ pub(crate) async fn verify_unlock(
         return Err(Error::Denied);
     }
     Ok(())
+}
+
+fn rejected_receipt(
+    a: &Authority,
+    receipt: &Value,
+    intent: &Value,
+    now: u64,
+) -> Result<bool, Error> {
+    if text(receipt, "outcome")? != "REJECTED" {
+        return Ok(false);
+    }
+    // Use the owning parser's closed code set; unknown or malformed refusals
+    // cannot retire an operation. A terminal CC1 rejection is immutable no-effect
+    // evidence, not a timeout or an ownership projection.
+    let raw = canonical::encode(receipt).map_err(|_| Error::Invalid)?;
+    oteryn_characters::commands::parse_receipt(&raw).map_err(|_| Error::Invalid)?;
+    Ok(
+        text(receipt, "source_authority")? == a.config.receipt_authority
+            && text(receipt, "command")? == "TransferCharacterOwnership"
+            && text(receipt, "operation_id")? == text(intent, "operation_id")?
+            && number(receipt, "recovery_generation")? == a.fence.recovery_generation
+            && number(receipt, "decided_at")? >= number(intent, "issued_at_source")?
+            && number(receipt, "decided_at")? <= now.saturating_add(1),
+    )
+}
+
+pub(crate) async fn reconcile_transfer(
+    a: &Authority,
+    db: &mut PgConnection,
+    listing: Uuid,
+    purpose: &str,
+) -> Result<Option<Uuid>, Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+        .execute(&mut *db)
+        .await?;
+    let row=sqlx::query("SELECT t.operation_id,t.intent,c.intent_json,c.receipt_json,c.state FROM bazaar_current_transfers t LEFT JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND t.purpose=$2 ORDER BY t.source_revision DESC LIMIT 1").bind(listing).bind(purpose).fetch_optional(&mut *db).await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let operation: Uuid = row.try_get("operation_id")?;
+    let transfer = staged(a, db, operation).await?;
+    let published: Option<String> = row.try_get("intent_json")?;
+    let evidence = if let Some(published) = published {
+        if published != row.try_get::<String, _>("intent")? {
+            return Err(Error::Conflict);
+        }
+        if let Some(raw) = row.try_get::<Option<String>, _>("receipt_json")? {
+            let receipt = decode(raw.as_bytes(), 1024)?;
+            if row.try_get::<String, _>("state")? == "TERMINAL"
+                && rejected_receipt(a, &receipt, &transfer, now(db).await?)?
+            {
+                Some(operation)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        let bind:Option<Uuid>=sqlx::query_scalar("SELECT operation_id FROM bazaar_game_outbox WHERE listing_id=$1 AND command='BindBazaarCharacterTransfer' AND intent::jsonb->>'transfer_operation_id'=$2 ORDER BY source_revision DESC LIMIT 1").bind(listing).bind(operation.to_string()).fetch_optional(&mut *db).await?;
+        if let Some(bind) = bind {
+            if let Some((intent, receipt)) = a.retained(db, bind).await? {
+                if !receipt.committed
+                    && text(&receipt.value, "result_code")? == "CHAR_CMD_INTENT_EXPIRED"
+                    && text(&intent.value, "transfer_binding_digest")?
+                        == digest(&canonical::encode(&transfer).map_err(|_| Error::Invalid)?)
+                {
+                    Some(bind)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+    if let Some(evidence) = evidence {
+        sqlx::query("INSERT INTO bazaar_authority_transfer_retirements(operation_id,evidence_operation_id,recovery_generation) VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING").bind(operation).bind(evidence).bind(a.fence.recovery_generation.to_string()).execute(db).await?;
+        return Ok(None);
+    }
+    Ok(Some(operation))
 }

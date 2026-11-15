@@ -596,10 +596,10 @@ async fn invalid_input_overflow_and_recipient_failure_roll_back() {
         Refusal::Disabled,
     );
     fund(&ledger, a, 10).await;
-    fund(&ledger, b, i64::MAX).await;
+    fund(&ledger, b, MAX_BALANCE).await;
     refused(ledger.transfer(id(), a, b, 1).await, Refusal::Overflow);
     assert_eq!(ledger.balance(a).await.unwrap().available, 10);
-    assert_eq!(ledger.balance(b).await.unwrap().available, i64::MAX);
+    assert_eq!(ledger.balance(b).await.unwrap().available, MAX_BALANCE);
     db.close().await;
 }
 
@@ -707,7 +707,7 @@ async fn one_coin_balance_store_debit_and_audited_grants() {
             .await,
         Refusal::AuditDenied,
     );
-    fund(&ledger, b, i64::MAX).await;
+    fund(&ledger, b, MAX_BALANCE).await;
     refused(
         ledger
             .grant(id(), b, 1, actor, "Overflow", GrantKind::StaffGrant)

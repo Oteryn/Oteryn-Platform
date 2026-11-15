@@ -49,6 +49,19 @@ impl Db {
         ))
         .execute(&pool)
         .await?;
+        sqlx::raw_sql(
+            include_str!("../../../migrations/20261115110004_fix_04_scheduling.sql")
+                .split(
+                    "-- Moderation lock order. Statement triggers run before implicit row locks;",
+                )
+                .nth(1)
+                .ok_or("missing moderation migration")?
+                .split("-- Character transfer publication")
+                .next()
+                .ok_or("missing moderation fence")?,
+        )
+        .execute(&pool)
+        .await?;
         sqlx::raw_sql("CREATE TABLE test_promotion_debits(id uuid PRIMARY KEY,amount bigint)")
             .execute(&pool)
             .await?;
@@ -587,5 +600,92 @@ async fn postgres_report_review_requires_independent_staff_and_pending_state() -
         Err(Error::IllegalTransition)
     ));
     db.end().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_restriction_does_not_wait_for_or_lock_listing_history() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let listing = db.listing(Uuid::now_v7()).await;
+    let mut trading = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM bazaar_listings WHERE id=$1 FOR UPDATE")
+        .bind(listing)
+        .execute(&mut *trading)
+        .await?;
+    let command = StaffCommand::RestrictItem {
+        id: Uuid::now_v7(),
+        world: Uuid::now_v7(),
+        family: "item".into(),
+        production_key: "rare".into(),
+        revision_ref: "v1".into(),
+        minimum_value: 100,
+        denied: false,
+        reason: "Restrict low value trading".into(),
+    };
+    tokio::time::timeout(
+        std::time::Duration::from_millis(200),
+        db.staff(Uuid::now_v7(), command),
+    )
+    .await??;
+    let refused = sqlx::query("UPDATE bazaar_listings SET price=101 WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *trading)
+        .await;
+    assert!(
+        matches!(refused,Err(sqlx::Error::Database(ref e)) if e.code().as_deref()==Some("23514"))
+    );
+    trading.rollback().await?;
+    db.end().await;
+    eprintln!(
+        "postgres_restriction_does_not_wait_for_or_lock_listing_history: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_raw_trading_waits_before_rows_and_observes_committed_restriction() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let listing = db.listing(Uuid::now_v7()).await;
+    let mut staff = db.pool.begin().await?;
+    let command = StaffCommand::RestrictItem {
+        id: Uuid::now_v7(),
+        world: Uuid::now_v7(),
+        family: "item".into(),
+        production_key: "rare".into(),
+        revision_ref: "v1".into(),
+        minimum_value: 100,
+        denied: false,
+        reason: "Restrict low value trading".into(),
+    };
+    execute_staff(&mut staff, Uuid::now_v7(), &command).await?;
+    let pool = db.pool.clone();
+    let (started_tx, ready) = tokio::sync::oneshot::channel();
+    let mut trading = tokio::spawn(async move {
+        let _ = started_tx.send(());
+        sqlx::query("UPDATE bazaar_listings SET state='matched',leader=$2,leader_max=100,reservation=id WHERE id=$1").bind(listing).bind(Uuid::now_v7()).execute(&pool).await
+    });
+    ready.await?;
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), &mut trading)
+            .await
+            .is_err()
+    );
+    staff.commit().await?;
+    let outcome = trading.await?;
+    assert!(
+        matches!(outcome,Err(sqlx::Error::Database(ref e)) if e.code().as_deref()==Some("23514"))
+    );
+    db.end().await;
+    eprintln!(
+        "postgres_raw_trading_waits_before_rows_and_observes_committed_restriction: {:?}",
+        started.elapsed()
+    );
     Ok(())
 }

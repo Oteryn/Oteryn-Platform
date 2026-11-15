@@ -187,7 +187,10 @@ async fn browser_form(
             db: db.pool.clone(),
         },
         "static",
-    );
+    )
+    .layer(axum::Extension(axum::extract::ConnectInfo(
+        "192.0.2.50:1234".parse::<std::net::SocketAddr>()?,
+    )));
     let response = app
         .clone()
         .oneshot(Request::get("/en/register").body(Body::empty())?)
@@ -329,7 +332,10 @@ async fn challenge_requires_csrf_and_disabled_registration_denies() -> TestResul
             db: db.pool.clone(),
         },
         "static",
-    );
+    )
+    .layer(axum::Extension(axum::extract::ConnectInfo(
+        "192.0.2.50:1234".parse::<std::net::SocketAddr>()?,
+    )));
     assert_eq!(
         app.clone()
             .oneshot(Request::get("/en/register").body(Body::empty())?)
@@ -342,6 +348,109 @@ async fn challenge_requires_csrf_and_disabled_registration_denies() -> TestResul
             .await?
             .status(),
         StatusCode::FORBIDDEN
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_challenge_locales_share_source_budget_without_more_writes() -> TestResult {
+    use tower::ServiceExt;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
+        .execute(&db.pool)
+        .await?;
+    let app = http::routes::<()>(db.pool.clone());
+    for n in 0..7 {
+        let path = if n % 2 == 0 {
+            "/en/register/abuse/challenge"
+        } else {
+            "/pl/register/abuse/challenge"
+        };
+        let request = axum::http::Request::post(path)
+            .header("x-csrf-token", format!("{n:064x}"))
+            .extension(axum::extract::ConnectInfo(
+                "192.0.2.90:1234".parse::<std::net::SocketAddr>()?,
+            ))
+            .body(axum::body::Body::empty())?;
+        let response = app.clone().oneshot(request).await?;
+        assert_eq!(
+            response.status(),
+            if n < 5 {
+                axum::http::StatusCode::OK
+            } else {
+                axum::http::StatusCode::TOO_MANY_REQUESTS
+            }
+        );
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM registration_work")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 5);
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions() -> TestResult {
+    use tower::ServiceExt;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    db.enable().await?;
+    db.range("a fresh registration passphrase", false).await?;
+    // Prepare every form and solve its work token first, so that only the
+    // submissions fall inside the one-minute registration budget window.
+    let mut forms = Vec::new();
+    for _ in 0..7 {
+        let (app, cookie, csrf) = browser_form(&db).await?;
+        let token = issue(&db.pool, &csrf).await.map_err(|e| e.to_string())?;
+        let nonce = solve(&token);
+        let body = serde_urlencoded::to_string([
+            ("_csrf", csrf.as_str()),
+            ("work_token", token.as_str()),
+            ("work_nonce", nonce.as_str()),
+            ("email", "registration-budget@example.test"),
+            ("password", "a fresh registration passphrase"),
+            ("password_confirmation", "a fresh registration passphrase"),
+            ("terms", "2026-11-05"),
+            ("privacy", "2026-11-05"),
+        ])?;
+        forms.push((app, cookie, body));
+    }
+    for (n, (app, cookie, body)) in forms.into_iter().enumerate() {
+        let response = app
+            .oneshot(
+                axum::http::Request::post(if n % 2 == 0 {
+                    "/en/register"
+                } else {
+                    "/pl/register"
+                })
+                .header("cookie", cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(axum::body::Body::from(body))?,
+            )
+            .await?;
+        assert_eq!(
+            response.status(),
+            if n < 5 {
+                axum::http::StatusCode::SEE_OTHER
+            } else {
+                axum::http::StatusCode::TOO_MANY_REQUESTS
+            }
+        );
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM accounts")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM outbox WHERE kind='email.verify'")
+            .fetch_one(&db.pool)
+            .await?,
+        1
     );
     db.close().await
 }

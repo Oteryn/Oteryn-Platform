@@ -62,30 +62,31 @@ pub fn router(services: Services, identities: Arc<IdentityMap>) -> Router {
             true,
         ),
     ] {
+        let policy = RoutePolicy {
+            enabled: if projection {
+                services.settings.projection_ready()
+            } else {
+                services.settings.exchange_enabled
+                    && valid_authority(&services.settings.command_authority)
+            },
+            group: if projection {
+                PROJECTION_GROUP
+            } else {
+                commands::GROUP
+            }
+            .into(),
+            max_body_bytes: limit,
+            max_json_depth: 3,
+            json: JsonRule::Object,
+        };
         let route = Router::new()
             .route(path, handler)
+            .route_layer(middleware::from_fn_with_state(
+                policy.clone(),
+                guard::check_body,
+            ))
             .route_layer(middleware::from_fn_with_state(state.clone(), rate));
-        router = router.merge(guard::protect(
-            route,
-            identities.clone(),
-            RoutePolicy {
-                enabled: if projection {
-                    services.settings.projection_ready()
-                } else {
-                    services.settings.exchange_enabled
-                        && valid_authority(&services.settings.command_authority)
-                },
-                group: if projection {
-                    PROJECTION_GROUP
-                } else {
-                    commands::GROUP
-                }
-                .into(),
-                max_body_bytes: limit,
-                max_json_depth: 3,
-                json: JsonRule::Object,
-            },
-        ));
+        router = router.merge(guard::protect_peer(route, identities.clone(), policy));
     }
     router
         .with_state(state)

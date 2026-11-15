@@ -127,8 +127,10 @@ impl CoinHost for Host {
             // Serializes restriction/closure against order creation and delivery.
             // Every restriction state the identity domain has: account status,
             // unverified email, the email-change security lock, a pending account
-            // termination (erasure) and an effective restriction or suspension
-            // sanction. A missing account is restricted.
+            // termination (erasure), an effective restriction or suspension
+            // sanction, a sanction of unknown category or status and an effective
+            // typed ban (the Store buyer gate and game-access guard refuse the
+            // same states). A missing account is restricted.
             let reason: Option<Option<String>> = sqlx::query_scalar(
                 "SELECT CASE \
                    WHEN a.status<>'active' THEN 'account_'||a.status \
@@ -139,6 +141,14 @@ impl CoinHost for Host {
                    WHEN EXISTS(SELECT 1 FROM sanctions s WHERE s.account_id=a.id AND s.status='active' \
                      AND s.category IN ('restriction','suspension') AND s.effective_at<=clock_timestamp() \
                      AND (s.expires_at IS NULL OR s.expires_at>clock_timestamp())) THEN 'sanction' \
+                   WHEN EXISTS(SELECT 1 FROM sanctions s WHERE s.account_id=a.id \
+                     AND (s.category NOT IN ('warning','restriction','suspension') \
+                     OR s.status NOT IN ('pending','active','expired','revoked'))) THEN 'sanction_unknown' \
+                   WHEN EXISTS(SELECT 1 FROM (SELECT DISTINCT ON (r.sanction_id) r.active,r.expires_at \
+                     FROM support_sanction_revisions r JOIN support_sanction_identities i USING(sanction_id) \
+                     WHERE r.account_id=a.id AND i.kind='ban' ORDER BY r.sanction_id,r.revision DESC) latest \
+                     WHERE latest.active AND (latest.expires_at IS NULL OR latest.expires_at>clock_timestamp())) \
+                     THEN 'ban' \
                  END FROM accounts a WHERE a.id=$1 FOR SHARE OF a",
             )
             .bind(payer)

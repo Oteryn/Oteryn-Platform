@@ -20,7 +20,8 @@ pub enum Environment {
 }
 
 impl Environment {
-    fn parse(raw: &str) -> Result<Self, ConfigError> {
+    /// Parses the canonical OTERYN_ENV spelling.
+    pub fn parse(raw: &str) -> Result<Self, ConfigError> {
         match raw {
             "local" => Ok(Self::Local),
             "testing" => Ok(Self::Testing),

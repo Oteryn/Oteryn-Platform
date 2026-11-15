@@ -13,6 +13,18 @@ use tower::ServiceExt;
 #[derive(Debug, Clone)]
 struct Authority(PgPool);
 impl rbac::AccountStateReader for Authority {
+    async fn state_in(
+        &self,
+        connection: &mut PgConnection,
+        id: Uuid,
+    ) -> Result<rbac::AccountState, rbac::AccountStateUnavailable> {
+        rbac::AccountStateReader::state_in(
+            &crate::web::PortalIdentity::configured(self.0.clone()),
+            connection,
+            id,
+        )
+        .await
+    }
     async fn state(&self, id: Uuid) -> Result<rbac::AccountState, rbac::AccountStateUnavailable> {
         let active: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND status='active')",
@@ -120,6 +132,9 @@ fn request(target: Uuid, command: Command) -> Request {
 }
 impl Harness {
     async fn new() -> Option<Self> {
+        Self::with_connections(8).await
+    }
+    async fn with_connections(maximum: u32) -> Option<Self> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("Skipping PostgreSQL commerce test: PORTAL_TEST_DATABASE_URL is unset");
             return None;
@@ -132,7 +147,7 @@ impl Harness {
             .unwrap();
         let path = format!("SET search_path TO {schema}");
         let pool = PgPoolOptions::new()
-            .max_connections(8)
+            .max_connections(maximum)
             .after_connect(move |c, _| {
                 let path = path.clone();
                 Box::pin(async move {
@@ -569,4 +584,74 @@ async fn postgres_audit_failure_rolls_back_domain_effect_and_request() {
     assert_eq!(h.count("premium_audit").await, 0);
     assert_eq!(h.count("commerce_operations").await, 0);
     h.close().await;
+}
+
+#[tokio::test]
+async fn lk_commerce_single_connection_and_sixteen_mutations() {
+    let started = std::time::Instant::now();
+    for maximum in [1, 16] {
+        let h = Harness::with_connections(maximum)
+            .await
+            .expect("PORTAL_TEST_DATABASE_URL required");
+        let service = Arc::new(Commerce::new(
+            h.pool.clone(),
+            crate::web::PortalIdentity::configured(h.pool.clone()),
+            h.effects(),
+            flags(),
+        ));
+        let barrier = Arc::new(tokio::sync::Barrier::new(16));
+        let mut tasks = tokio::task::JoinSet::new();
+        for _ in 0..16 {
+            let service = service.clone();
+            let barrier = barrier.clone();
+            let actor = h.actor;
+            let target = h.target;
+            tasks.spawn(async move {
+                barrier.wait().await;
+                service
+                    .submit(context(actor), request(target, Command::Grant { days: 1 }))
+                    .await
+            });
+        }
+        // Poll all requests concurrently without needing a second pool for auth.
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while let Some(result) = tasks.join_next().await {
+                result.unwrap().unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        let barrier = Arc::new(tokio::sync::Barrier::new(16));
+        let mut logins = tokio::task::JoinSet::new();
+        for index in 0..16 {
+            let hash = Sha256::digest(format!("lk-browser-{}-{index}", h.target)).to_vec();
+            sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,$4,now()+interval '1 hour',now()+interval '2 hours')")
+                .bind(&hash).bind(h.target).bind(format!("Browser {index}")).bind("c".repeat(64)).execute(&h.pool).await.unwrap();
+            let sessions = oteryn_identity::sessions::Sessions {
+                pool: h.pool.clone(),
+            };
+            let actor = oteryn_identity::sessions::Actor {
+                account: h.target,
+                hash,
+            };
+            let barrier = barrier.clone();
+            logins.spawn(async move {
+                barrier.wait().await;
+                sessions.record_login(&actor).await
+            });
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while let Some(result) = logins.join_next().await {
+                result.unwrap().unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(h.count("email_outbox").await, 16);
+        h.close().await;
+    }
+    eprintln!(
+        "lk_commerce_single_connection_and_sixteen_mutations duration: {:?}",
+        started.elapsed()
+    );
 }

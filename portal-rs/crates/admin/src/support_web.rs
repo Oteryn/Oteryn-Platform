@@ -1,4 +1,4 @@
-//! Guarded SSR support routes; missing domain adapters return 503.
+//! Guarded SSR support routes composed with an authoritative support domain adapter.
 use super::*;
 use crate::web::{self, PanelConfig, StaffSession};
 use axum::{
@@ -16,6 +16,8 @@ struct Panel<A, B> {
     auth: Authorizer<A>,
     backend: B,
 }
+const MAX_PAGE: u32 = 10000;
+
 #[derive(Deserialize, Default)]
 struct Paging {
     page: Option<u32>,
@@ -29,18 +31,33 @@ struct Input {
     command: Command,
 }
 
-pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
+pub fn configured_router<B: Backend>(
+    pool: PgPool,
+    backend: B,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    configured_router_from(pool, backend, &|key| std::env::var(key).ok())
+}
+/// [`configured_router`] reading its configuration through `lookup`.
+pub fn configured_router_from<B: Backend>(
+    pool: PgPool,
+    backend: B,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
     let mut routes = Router::new();
     for area in [Area::Tickets, Area::Reports, Area::Enforcement] {
         let state = Arc::new(Panel {
             pool: pool.clone(),
-            auth: Authorizer::new(pool.clone(), web::PortalIdentity::configured(pool.clone())),
-            backend: ReadSupport(pool.clone()),
+            auth: Authorizer::new(
+                pool.clone(),
+                web::PortalIdentity::configured_from(pool.clone(), lookup),
+            ),
+            backend: backend.clone(),
         });
-        routes = routes.merge(web::configured_guard(
+        routes = routes.merge(web::configured_guard_from(
             area_routes(area, state),
             pool.clone(),
             area.permission(),
+            lookup,
         )?);
     }
     Ok(routes)
@@ -170,7 +187,7 @@ async fn list<A: AccountStateReader, B: Backend>(
     headers: HeaderMap,
 ) -> Response {
     let page = paging.page.unwrap_or(1);
-    if page == 0 || page > 10000 {
+    if page == 0 || page > MAX_PAGE {
         return status(Error::Invalid);
     }
     let records = match s.backend.list(area, page).await {
@@ -181,6 +198,14 @@ async fn list<A: AccountStateReader, B: Backend>(
         return status(Error::Unavailable);
     }
     let lang = language(&headers);
+    let has_next = if records.len() == 30 && page < MAX_PAGE {
+        match s.backend.list(area, page + 1).await {
+            Ok(rows) => !rows.is_empty(),
+            Err(e) => return status(e),
+        }
+    } else {
+        false
+    };
     let mut body = String::from("<ul>");
     if area == Area::Enforcement {
         body.push_str(&format!(
@@ -197,12 +222,14 @@ async fn list<A: AccountStateReader, B: Backend>(
         ));
     }
     body.push_str("</ul>");
-    body.push_str(&format!(
-        "<a href=\"{}?page={}\">{}</a>",
-        base(area),
-        page + 1,
-        text(lang, "next")
-    ));
+    if has_next {
+        body.push_str(&format!(
+            "<a href=\"{}?page={}\">{}</a>",
+            base(area),
+            page + 1,
+            text(lang, "next")
+        ));
+    }
     shell(lang, body)
 }
 async fn show<A: AccountStateReader, B: Backend>(
@@ -398,49 +425,6 @@ mod tests {
     }
 }
 
-/// Staff queue reads use the owning domain tables; mutations remain at the domain seam.
-#[derive(Clone)]
-struct ReadSupport(PgPool);
-impl Backend for ReadSupport {
-    async fn list(&self, area: Area, page: u32) -> Result<Vec<Record>, Error> {
-        let query = match area {
-            Area::Tickets => {
-                "SELECT id,lock_version,subject,status FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
-            }
-            Area::Reports => {
-                "SELECT id,lock_version,target_reference,status FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
-            }
-            Area::Enforcement => {
-                "SELECT id,lock_version,public_reason,status FROM sanctions WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
-            }
-        };
-        let rows: Vec<(Uuid, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
-            .bind(i64::from(page.saturating_sub(1)) * 30)
-            .fetch_all(&self.0)
-            .await
-            .map_err(|_| Error::Unavailable)?;
-        Ok(rows
-            .into_iter()
-            .map(|(id, version, title, status)| Record {
-                id,
-                version,
-                title,
-                status,
-                messages: vec![],
-            })
-            .collect())
-    }
-    async fn load(&self, _: Area, _: Uuid) -> Result<Record, Error> {
-        Err(Error::Unavailable)
-    }
-    async fn apply(
-        &self,
-        _: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        _: Uuid,
-        _: Uuid,
-        _: i64,
-        _: &Command,
-    ) -> Result<(serde_json::Value, serde_json::Value), Error> {
-        Err(Error::Unavailable)
-    }
-}
+#[cfg(test)]
+#[path = "support_pagination_tests.rs"]
+mod pagination_tests;

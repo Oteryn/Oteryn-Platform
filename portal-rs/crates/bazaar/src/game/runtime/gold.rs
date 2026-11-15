@@ -5,6 +5,7 @@ use crate::{Evidence, Reservation, Settlement};
 #[derive(Debug)]
 pub(crate) struct Hold {
     pub id: Uuid,
+    pub offer: Uuid,
     pub revision: u64,
     pub amount: u64,
 }
@@ -15,14 +16,23 @@ pub(crate) async fn current_hold(
     buyer: Uuid,
     exclude: Option<Uuid>,
 ) -> Result<Option<Hold>, Error> {
-    let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox o LEFT JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id AND r.recovery_generation=$4::text::numeric AND r.source_authority=$5 WHERE o.listing_id=$1 AND o.intent::jsonb->>'buyer_account_id'=$2 AND o.command IN ('HoldBazaarGold','ReleaseBazaarGold','PayoutBazaarGold') AND ($3::uuid IS NULL OR o.operation_id<>$3) AND (r.operation_id IS NULL OR NOT EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation AND d.source_authority=$6) OR EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id)))").bind(listing).bind(buyer.to_string()).bind(exclude).bind(a.fence.recovery_generation.to_string()).bind(&a.config.receipt_authority).bind(&a.config.projection_authority).fetch_one(&mut *db).await?;
+    // A zero-revision Hold opens an immutable lifecycle. Later revisions are
+    // comparable only within that lifecycle, including when an old hold is RELEASED.
+    let lifecycle = sqlx::query("SELECT source_revision::text AS revision,intent::jsonb->>'offer_id' AS offer FROM bazaar_game_outbox WHERE listing_id=$1 AND intent::jsonb->>'buyer_account_id'=$2 AND command='HoldBazaarGold' AND intent::jsonb->>'expected_hold_revision'='0' ORDER BY source_revision DESC LIMIT 1")
+        .bind(listing).bind(buyer.to_string()).fetch_optional(&mut *db).await?;
+    let Some(lifecycle) = lifecycle else {
+        return Ok(None);
+    };
+    let start: String = lifecycle.try_get("revision")?;
+    let offer = id(lifecycle.try_get("offer")?)?;
+    let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox o LEFT JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id AND r.recovery_generation=$4::text::numeric AND r.source_authority=$5 WHERE o.listing_id=$1 AND o.intent::jsonb->>'buyer_account_id'=$2 AND o.source_revision >= $7::text::numeric AND o.command IN ('HoldBazaarGold','ReleaseBazaarGold','PayoutBazaarGold') AND ($3::uuid IS NULL OR o.operation_id<>$3) AND (r.operation_id IS NULL OR NOT EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation AND d.source_authority=$6) OR EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id)))").bind(listing).bind(buyer.to_string()).bind(exclude).bind(a.fence.recovery_generation.to_string()).bind(&a.config.receipt_authority).bind(&a.config.projection_authority).bind(&start).fetch_one(&mut *db).await?;
     if pending {
         return Err(Error::Unavailable);
     }
     // Bound reads independently of a listing's bid history. Previous effects were
     // admitted under the same issuer lock; re-verify the newest two exact records
     // and reject duplicate Game revisions rather than imposing a lifetime bid cap.
-    let operations:Vec<Uuid>=sqlx::query_scalar("SELECT o.operation_id FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=$1 AND o.intent::jsonb->>'buyer_account_id'=$2 AND o.command IN ('HoldBazaarGold','ReleaseBazaarGold','PayoutBazaarGold') AND ($3::uuid IS NULL OR o.operation_id<>$3) AND r.recovery_generation=$4::text::numeric AND r.source_authority=$5 AND r.outcome='COMMITTED' ORDER BY (r.receipt::jsonb->'result_data'->>'hold_revision')::numeric DESC LIMIT 2").bind(listing).bind(buyer.to_string()).bind(exclude).bind(a.fence.recovery_generation.to_string()).bind(&a.config.receipt_authority).fetch_all(&mut *db).await?;
+    let operations:Vec<Uuid>=sqlx::query_scalar("SELECT o.operation_id FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=$1 AND o.intent::jsonb->>'buyer_account_id'=$2 AND o.source_revision >= $6::text::numeric AND o.command IN ('HoldBazaarGold','ReleaseBazaarGold','PayoutBazaarGold') AND ($3::uuid IS NULL OR o.operation_id<>$3) AND r.recovery_generation=$4::text::numeric AND r.source_authority=$5 AND r.outcome='COMMITTED' ORDER BY (r.receipt::jsonb->'result_data'->>'hold_revision')::numeric DESC LIMIT 2").bind(listing).bind(buyer.to_string()).bind(exclude).bind(a.fence.recovery_generation.to_string()).bind(&a.config.receipt_authority).bind(&start).fetch_all(&mut *db).await?;
     let mut current: Option<Hold> = None;
     for operation in operations {
         let Some((i, r)) = a.retained(db, operation).await? else {
@@ -36,6 +46,7 @@ pub(crate) async fn current_hold(
         }
         let d = r.value.get("result_data").ok_or(Error::Invalid)?;
         let hold = Hold {
+            offer,
             id: id(text(d, "hold_id")?)?,
             revision: number(d, "hold_revision")?,
             amount: decimal(
@@ -191,11 +202,19 @@ pub(crate) async fn validate_release(
     .fetch_one(&mut *db)
     .await?;
     if fenced {
-        let Some((_, payout)) = record(a, db, listing, Command::Payout).await? else {
-            return Err(Error::Unavailable);
-        };
-        if !payout.committed || text(&i.value, "release_reason")? != "EXCESS" {
-            return Err(Error::Denied);
+        let listing_row: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
+            .bind(listing)
+            .fetch_one(&mut *db)
+            .await?;
+        let compensation = text(&i.value, "release_reason")? == "TERMINAL_REFUSAL"
+            && a.compensation_ready(db, &listing_row).await?;
+        if !compensation {
+            let Some((_, payout)) = record(a, db, listing, Command::Payout).await? else {
+                return Err(Error::Unavailable);
+            };
+            if !payout.committed || text(&i.value, "release_reason")? != "EXCESS" {
+                return Err(Error::Denied);
+            }
         }
     }
     if let Some(facts) = facts
@@ -324,4 +343,11 @@ pub(crate) async fn settled(
         }
     }
     Ok(())
+}
+
+pub(crate) fn hold_binding(_listing: Uuid, hold: Option<&Hold>, request: Uuid) -> (Uuid, u64) {
+    match hold {
+        Some(hold) if hold.amount > 0 => (hold.offer, hold.revision),
+        _ => (request, 0),
+    }
 }

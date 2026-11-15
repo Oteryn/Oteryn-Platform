@@ -503,3 +503,65 @@ async fn postgres_optional_email_deduplicates_and_denies_unknown_owner() -> Test
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_email_week_real_account_adapter_one_connection() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+    let path = db.schema.clone();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(2))
+        .after_connect(move |c, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(c)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await?;
+    let (mut service, _) = db.service();
+    service.pool = pool.clone();
+    service.email_preference(id(1), true).await?;
+    sqlx::query("INSERT INTO account_notification_prefs(account_id,category,email_enabled,portal_enabled) VALUES($1,'news',true,false)").bind(id(1)).execute(&pool).await?;
+    let notify = oteryn_notify::Notifications {
+        pool: pool.clone(),
+        accounts: Arc::new(oteryn_identity::sessions::NotificationAccounts(
+            pool.clone(),
+        )),
+        unsubscribe: oteryn_notify::Unsubscribe::new(
+            vec![7; 32],
+            "https://portal.example.invalid/unsubscribe".into(),
+        )
+        .map_err(|e| e.to_string())?,
+    };
+    assert!(
+        service
+            .email_week(id(1), START, NOW, Locale::En, &notify)
+            .await?
+    );
+    assert!(
+        !service
+            .email_week(id(1), START, NOW, Locale::En, &notify)
+            .await?
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM email_outbox WHERE account_id=$1")
+        .bind(id(1))
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(count, 1);
+    pool.close().await;
+    db.close().await?;
+    eprintln!(
+        "PG postgres_email_week_real_account_adapter_one_connection {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

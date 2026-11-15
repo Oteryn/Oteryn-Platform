@@ -138,7 +138,7 @@ impl Config {
             .collect::<Result<Vec<_>, _>>()?;
         worlds.sort();
         worlds.dedup();
-        if worlds.is_empty() {
+        if worlds.is_empty() || worlds.len() > 32 {
             return Err(Error::Unavailable);
         }
         let bazaar_spki = hex(&env("OTERYN_BAZAAR_CLIENT_SPKI_SHA256")?)?;

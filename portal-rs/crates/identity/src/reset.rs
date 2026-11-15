@@ -82,7 +82,7 @@ pub async fn request(pool: &PgPool, email: &str, key: &DeliveryKey) -> Result<()
         audit(&mut tx, None, "identity.password_reset_bad_input").await?;
         return tx.commit().await;
     }
-    let id: Option<AccountId> = sqlx::query_scalar("SELECT id FROM accounts WHERE lower(email)=$1 AND status IN ('active','pending_verification') FOR UPDATE")
+    let id: Option<AccountId> = sqlx::query_scalar("SELECT a.id FROM accounts a WHERE (lower(a.email)=$1 OR EXISTS(SELECT 1 FROM account_backup_emails b WHERE b.account_id=a.id AND lower(b.email)=$1 AND b.verified_at<=clock_timestamp())) AND NOT EXISTS(SELECT 1 FROM accounts other WHERE other.id<>a.id AND (lower(other.email)=$1 OR EXISTS(SELECT 1 FROM account_backup_emails b WHERE b.account_id=other.id AND lower(b.email)=$1 AND b.verified_at<=clock_timestamp()))) AND a.status IN ('active','pending_verification') FOR UPDATE OF a")
         .bind(normalize_email(email)).fetch_optional(&mut *tx).await?;
     if let Some(id) = id {
         let recent: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_password_resets WHERE account_id=$1 AND created_at>now()-interval '60 seconds')")
@@ -91,8 +91,8 @@ pub async fn request(pool: &PgPool, email: &str, key: &DeliveryKey) -> Result<()
             let mut random = [0; 32];
             getrandom::fill(&mut random).map_err(|_| unavailable())?;
             let token: String = random.iter().map(|b| format!("{b:02x}")).collect();
-            sqlx::query("INSERT INTO account_password_resets(account_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '60 minutes') ON CONFLICT(account_id) DO UPDATE SET token_hash=$2,expires_at=now()+interval '60 minutes',used_at=NULL,created_at=now(),updated_at=now()")
-                .bind(id).bind(token_hash(&token)).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO account_password_resets(account_id,token_hash,expires_at,recovery_email,backup_verified_at) VALUES ($1,$2,clock_timestamp()+interval '60 minutes',$3,(SELECT verified_at FROM account_backup_emails WHERE account_id=$1 AND lower(email)=$3)) ON CONFLICT(account_id) DO UPDATE SET token_hash=$2,expires_at=clock_timestamp()+interval '60 minutes',recovery_email=$3,backup_verified_at=EXCLUDED.backup_verified_at,used_at=NULL,created_at=clock_timestamp(),updated_at=clock_timestamp()")
+                .bind(id).bind(token_hash(&token)).bind(normalize_email(email)).execute(&mut *tx).await?;
             let payload =
                 serde_json::json!({"account_id": id,"ciphertext": key.seal(&token)?}).to_string();
             oteryn_db::outbox::enqueue(
@@ -118,14 +118,14 @@ pub async fn complete(pool: &PgPool, input: Input) -> Result<bool, sqlx::Error> 
         .map_err(|_| unavailable())?
         .map_err(sqlx::Error::Protocol)?;
     let mut tx = pool.begin().await?;
-    let id: Option<AccountId> = sqlx::query_scalar("SELECT id FROM accounts WHERE lower(email)=$1 AND status IN ('active','pending_verification') FOR UPDATE")
+    let id: Option<AccountId> = sqlx::query_scalar("SELECT a.id FROM accounts a WHERE (lower(a.email)=$1 OR EXISTS(SELECT 1 FROM account_backup_emails b WHERE b.account_id=a.id AND lower(b.email)=$1 AND b.verified_at<=clock_timestamp())) AND NOT EXISTS(SELECT 1 FROM accounts other WHERE other.id<>a.id AND (lower(other.email)=$1 OR EXISTS(SELECT 1 FROM account_backup_emails b WHERE b.account_id=other.id AND lower(b.email)=$1 AND b.verified_at<=clock_timestamp()))) AND a.status IN ('active','pending_verification') FOR UPDATE OF a")
         .bind(normalize_email(&input.email)).fetch_optional(&mut *tx).await?;
     let mut accepted = false;
     if let Some(id) = id {
-        let stored: Option<Vec<u8>> = sqlx::query_scalar("SELECT token_hash FROM account_password_resets WHERE account_id=$1 AND used_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE")
-            .bind(id).fetch_optional(&mut *tx).await?;
+        let stored: Option<Vec<u8>> = sqlx::query_scalar("SELECT token_hash FROM account_password_resets WHERE account_id=$1 AND used_at IS NULL AND expires_at>clock_timestamp() AND (recovery_email IS NULL OR recovery_email=$2) AND (backup_verified_at IS NULL OR EXISTS(SELECT 1 FROM account_backup_emails b WHERE b.account_id=$1 AND lower(b.email)=recovery_email AND b.verified_at=backup_verified_at)) FOR UPDATE")
+            .bind(id).bind(normalize_email(&input.email)).fetch_optional(&mut *tx).await?;
         if stored.is_some_and(|s| bool::from(s.ct_eq(&token_hash(&input.token)))) {
-            sqlx::query("UPDATE accounts SET password_hash=$2,updated_at=now() WHERE id=$1")
+            sqlx::query("UPDATE accounts SET password_hash=$2,native_security_generation=native_security_generation+1,updated_at=now() WHERE id=$1")
                 .bind(id)
                 .bind(hash)
                 .execute(&mut *tx)
@@ -135,6 +135,7 @@ pub async fn complete(pool: &PgPool, input: Input) -> Result<bool, sqlx::Error> 
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
+            crate::recovery_key::revoke_authorizations(&mut tx, id).await?;
             accepted = true;
         }
     }

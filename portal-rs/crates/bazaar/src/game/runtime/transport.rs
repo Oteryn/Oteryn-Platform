@@ -2,7 +2,7 @@ use super::*;
 use axum::{
     Extension, Router,
     body::Bytes,
-    extract::{DefaultBodyLimit, State},
+    extract::{DefaultBodyLimit, FromRequest, Request, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::post,
@@ -71,18 +71,13 @@ async fn event(
     State(state): State<EventState>,
     peer: Option<Extension<AuditPeer>>,
     headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Response {
+    let mut body_failure = None;
     let result = async {
+        state.runtime.config.current()?;
         if peer.is_none() {
             return Err(Error::Denied);
-        }
-        if headers
-            .get(header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            != Some("application/x-protobuf")
-        {
-            return Err(Error::Invalid);
         }
         let allowed = state.rate.lock().is_ok_and(|mut rate| {
             if rate.0.elapsed() >= StdDuration::from_secs(60) {
@@ -98,8 +93,21 @@ async fn event(
         if !allowed {
             return Err(Error::Backlog);
         }
+        if headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            != Some("application/x-protobuf")
+        {
+            return Err(Error::Invalid);
+        }
+        let body = Bytes::from_request(request, &state)
+            .await
+            .map_err(|rejection| {
+                body_failure = Some(rejection.status());
+                Error::Invalid
+            })?;
         state.runtime.config.current()?;
-        let mut tx = state.runtime.pool.begin().await?;
+        let mut tx = crate::game::authority_http::begin_exchange(&state.runtime.pool).await?;
         let time = now(&mut tx).await?;
         let result = state
             .runtime
@@ -127,7 +135,7 @@ async fn event(
         Err(e) => guard::failure(match e {
             Error::Denied => StatusCode::UNAUTHORIZED,
             Error::Conflict => StatusCode::CONFLICT,
-            Error::Invalid => StatusCode::BAD_REQUEST,
+            Error::Invalid => body_failure.unwrap_or(StatusCode::BAD_REQUEST),
             Error::Backlog => StatusCode::TOO_MANY_REQUESTS,
             _ => StatusCode::SERVICE_UNAVAILABLE,
         }),

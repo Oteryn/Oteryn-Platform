@@ -555,7 +555,7 @@ async fn postgres_real_identity_lookup_safe_projection_and_missing_character_wat
         accounts: oteryn_identity::accounts::Accounts {
             pool: db.pool.clone(),
         },
-        projection: Some(projection::configured(db.pool.clone(), true)),
+        projection: Some(projection::configured(db.pool.clone(), true, &|_| None)),
     };
     let account = adapter
         .search("PLAYER@example.invalid")
@@ -1287,4 +1287,335 @@ async fn postgres_reset_rechecks_live_expiry_after_advisory_lock() {
         "postgres_reset_rechecks_live_expiry_after_advisory_lock duration={:?}",
         started.elapsed()
     );
+}
+
+#[tokio::test]
+async fn postgres_identity_adapter_sessions_logout_and_two_person_reset() {
+    let started = std::time::Instant::now();
+    let db = Db::open().await.expect("PORTAL_TEST_DATABASE_URL required");
+    for id in [db.target, db.support, db.approver] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'synthetic-hash','active','en',now())")
+            .bind(id).bind(format!("{id}@example.invalid")).execute(&db.pool).await.unwrap();
+    }
+    let adapter = IdentityAccounts {
+        accounts: oteryn_identity::accounts::Accounts {
+            pool: db.pool.clone(),
+        },
+        projection: None,
+    };
+    let service = Players::new(
+        db.pool.clone(),
+        Flags {
+            players: true,
+            ..Flags::default()
+        },
+        Staff,
+        adapter.clone(),
+    );
+    let ticket: Uuid = sqlx::query_scalar("INSERT INTO tickets(account_id,request_key,category,subject) VALUES($1,$2,'account','Identity review') RETURNING id")
+        .bind(db.target).bind(Uuid::now_v7()).fetch_one(&db.pool).await.unwrap();
+    // Seed every credential class, with no real bearer material.
+    for statement in [
+        "INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,decode('01','hex'),true)",
+        "INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token) VALUES(decode(repeat('01',32),'hex'),$1,now()+interval '1 hour',now()+interval '1 hour','private-device',repeat('a',64))",
+        "INSERT INTO oauth_authorization_codes(code_hash,account_id,client_id,redirect_uri,challenge,credential_hash) VALUES(decode(repeat('02',32),'hex'),$1,'test','https://example.invalid','test',decode(repeat('03',32),'hex'))",
+        "INSERT INTO oauth_token_families(id,account_id,client_id,credential_hash) VALUES(uuidv7(),$1,'test',decode(repeat('04',32),'hex'))",
+        "INSERT INTO oauth_tokens(id,family_id,access_hash,refresh_hash) SELECT uuidv7(),id,decode(repeat('08',32),'hex'),decode(repeat('09',32),'hex') FROM oauth_token_families WHERE account_id=$1",
+        "INSERT INTO account_password_resets(account_id,token_hash,expires_at) VALUES($1,decode(repeat('0a',32),'hex'),now()+interval '1 hour')",
+        "INSERT INTO passkey_ceremonies(token_hash,session_hash,account_id,purpose,state) VALUES(decode(repeat('0b',32),'hex'),decode(repeat('0c',32),'hex'),$1,'authenticate','{}')",
+        "INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at) VALUES(uuidv7(),$1,uuidv7(),'test-enrollment',1,1,extract(epoch FROM now()+interval '1 hour')::bigint,extract(epoch FROM now()+interval '1 hour')::bigint)",
+        "INSERT INTO device_session_credentials(secret_hash,family_id,sequence) SELECT decode(repeat('0d',32),'hex'),id,0 FROM device_sessions WHERE account_id=$1",
+        "INSERT INTO game_login_tickets(ticket_hash,account_id,game_generation,native_generation,audience,expires_at) VALUES(decode(repeat('05',32),'hex'),$1,'1','1','oteryn-native-game-gateway',now()+interval '1 hour')",
+        "INSERT INTO account_recovery_codes(account_id,code_hash) VALUES($1,decode(repeat('06',32),'hex'))",
+        "INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES(decode(repeat('07',32),'hex'),$1,uuidv7(),decode('01','hex'),'trusted',now()+interval '1 hour')",
+    ] {
+        sqlx::query(statement)
+            .bind(db.target)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let sessions = adapter.sessions(db.target).await.unwrap();
+    // This assertion fails against the base's production IdentityAccounts stub.
+    assert!(sessions.iter().any(|session| session.kind == "web"));
+    assert!(sessions.iter().any(|session| session.kind == "oauth"));
+    assert!(sessions.iter().any(|session| session.kind == "device"));
+    assert!(
+        sessions
+            .iter()
+            .any(|session| session.kind == "game-authorization")
+    );
+    // Use the production composition and real PortalIdentity/session guards.
+    let host = "staff.test".to_owned();
+    let lookup = |key: &str| match key {
+        "OTERYN_ADMIN_PLAYERS" | "OTERYN_ADMIN_PANEL" => Some("true".to_owned()),
+        "OTERYN_ADMIN_HOST" => Some(host.clone()),
+        // Synthetic test key; grant checks never decrypt the fixture secret.
+        "OTERYN_MFA_KEY" => Some("ab".repeat(32)),
+        _ => None,
+    };
+    let app = http::configured_router_from(db.pool.clone(), &lookup).unwrap();
+    let staff_cookie = staff_security_cookie(&db.pool, db.support, 'b').await;
+    let approver_cookie = staff_security_cookie(&db.pool, db.approver, 'c').await;
+    let path = format!("/admin/players/{}", db.target);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(&path)
+                .header("host", &host)
+                .header("cookie", &staff_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = staff_cookie;
+    let body = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(!body.contains("private-device"));
+    let csrf = body
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    sqlx::query("CREATE FUNCTION reject_staff_security_audit() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''test audit failure''; END'").execute(&db.pool).await.unwrap();
+    sqlx::query("CREATE TRIGGER reject_staff_security_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_staff_security_audit()").execute(&db.pool).await.unwrap();
+    assert_eq!(
+        staff_security_post(
+            &app,
+            &path,
+            &host,
+            &cookie,
+            csrf,
+            "action=logout&reason=Support"
+        )
+        .await,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM web_sessions WHERE account_id=$1")
+            .bind(db.target)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap(),
+        1
+    );
+    sqlx::query("DROP TRIGGER reject_staff_security_audit ON audit_log")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post(&path)
+                .header("host", &host)
+                .header("origin", format!("https://{host}"))
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "_csrf={csrf}&action=logout&reason=Support"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let active_credentials = [
+        "SELECT count(*) FROM web_sessions WHERE account_id=$1",
+        "SELECT count(*) FROM oauth_authorization_codes WHERE account_id=$1 AND revoked_at IS NULL",
+        "SELECT count(*) FROM oauth_token_families WHERE account_id=$1 AND revoked_at IS NULL",
+        "SELECT count(*) FROM device_sessions WHERE account_id=$1 AND revoked_at IS NULL",
+        "SELECT count(*) FROM game_login_tickets WHERE account_id=$1 AND used_at IS NULL",
+        "SELECT count(*) FROM oauth_tokens t JOIN oauth_token_families f ON f.id=t.family_id WHERE f.account_id=$1 AND f.revoked_at IS NULL",
+        "SELECT count(*) FROM device_session_credentials c JOIN device_sessions d ON d.id=c.family_id WHERE d.account_id=$1 AND d.revoked_at IS NULL",
+        "SELECT count(*) FROM account_password_resets WHERE account_id=$1 AND used_at IS NULL",
+        "SELECT count(*) FROM passkey_ceremonies WHERE account_id=$1",
+        "SELECT count(*) FROM account_mfa_tokens WHERE account_id=$1",
+    ];
+    for statement in active_credentials {
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(statement)
+                .bind(db.target)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    // Issue new state after logout, so reset independently proves full revocation.
+    for statement in [
+        "INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token) VALUES(decode(repeat('10',32),'hex'),$1,now()+interval '1 hour',now()+interval '1 hour','reset-device',repeat('a',64))",
+        "INSERT INTO oauth_authorization_codes(code_hash,account_id,client_id,redirect_uri,challenge,credential_hash) VALUES(decode(repeat('11',32),'hex'),$1,'test','https://example.invalid','test',decode('01','hex'))",
+        "INSERT INTO oauth_token_families(id,account_id,client_id,credential_hash) VALUES(uuidv7(),$1,'reset-client',decode('01','hex'))",
+        "INSERT INTO oauth_tokens(id,family_id,access_hash,refresh_hash) SELECT uuidv7(),id,decode(repeat('12',32),'hex'),decode(repeat('13',32),'hex') FROM oauth_token_families WHERE account_id=$1 AND client_id='reset-client'",
+        "INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at) VALUES(uuidv7(),$1,uuidv7(),'reset-enrollment',1,1,extract(epoch FROM now()+interval '1 hour')::bigint,extract(epoch FROM now()+interval '1 hour')::bigint)",
+        "INSERT INTO device_session_credentials(secret_hash,family_id,sequence) SELECT decode(repeat('14',32),'hex'),id,0 FROM device_sessions WHERE account_id=$1 AND enrollment_token_id='reset-enrollment'",
+        "INSERT INTO game_login_tickets(ticket_hash,account_id,game_generation,native_generation,audience,expires_at) VALUES(decode(repeat('15',32),'hex'),$1,'1','1','oteryn-native-game-gateway',now()+interval '1 hour')",
+        "UPDATE account_password_resets SET used_at=NULL WHERE account_id=$1",
+        "INSERT INTO passkey_ceremonies(token_hash,session_hash,account_id,purpose,state) VALUES(decode(repeat('16',32),'hex'),decode(repeat('17',32),'hex'),$1,'authenticate','{}')",
+        "INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES(decode(repeat('18',32),'hex'),$1,uuidv7(),decode('01','hex'),'trusted',now()+interval '1 hour')",
+    ] {
+        sqlx::query(statement)
+            .bind(db.target)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let evidence = service
+        .attest_reset_evidence(context(db.support), ticket)
+        .await
+        .unwrap();
+    assert!(
+        service
+            .request_reset(context(db.support), db.target, Uuid::now_v7(), "Unverified")
+            .await
+            .is_err()
+    );
+    sqlx::query("UPDATE support_mfa_reset_evidence SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1").bind(evidence).execute(&db.pool).await.unwrap();
+    assert!(
+        service
+            .request_reset(context(db.support), db.target, evidence, "Expired")
+            .await
+            .is_err()
+    );
+    sqlx::query("UPDATE support_mfa_reset_evidence SET expires_at=clock_timestamp()+interval '1 hour' WHERE id=$1").bind(evidence).execute(&db.pool).await.unwrap();
+    let response = staff_security_post(
+        &app,
+        &path,
+        &host,
+        &cookie,
+        csrf,
+        &format!("action=request-reset&evidence={evidence}&reason=Verified"),
+    )
+    .await;
+    assert_eq!(response, StatusCode::SEE_OTHER);
+    let request: Uuid =
+        sqlx::query_scalar("SELECT id FROM player_mfa_reset_requests WHERE account_id=$1")
+            .bind(db.target)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        staff_security_post(
+            &app,
+            &path,
+            &host,
+            &cookie,
+            csrf,
+            &format!("action=approve-reset&request={request}")
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(&path)
+                .header("host", &host)
+                .header("cookie", &approver_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let approval_body = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let approval_csrf = approval_body
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    assert_eq!(
+        staff_security_post(
+            &app,
+            &path,
+            &host,
+            &approver_cookie,
+            approval_csrf,
+            &format!("action=approve-reset&request={request}")
+        )
+        .await,
+        StatusCode::SEE_OTHER
+    );
+    assert!(
+        service
+            .request_reset(context(db.support), db.target, evidence, "Replay")
+            .await
+            .is_err()
+    );
+    for statement in [
+        "SELECT count(*) FROM account_mfa_totp WHERE account_id=$1",
+        "SELECT count(*) FROM account_recovery_codes WHERE account_id=$1",
+    ] {
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(statement)
+                .bind(db.target)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    for statement in active_credentials {
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(statement)
+                .bind(db.target)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    db.close().await;
+    eprintln!(
+        "postgres_identity_adapter_sessions_logout_and_two_person_reset duration: {:?}",
+        started.elapsed()
+    );
+}
+
+async fn staff_security_cookie(pool: &PgPool, account: Uuid, marker: char) -> String {
+    let bearer = marker.to_string().repeat(64);
+    let grant = oteryn_identity::mfa::random_token().unwrap();
+    let generation: Uuid = sqlx::query_scalar("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,decode('01','hex'),true) RETURNING generation").bind(account).fetch_one(pool).await.unwrap();
+    sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '1 hour')").bind(oteryn_identity::mfa::digest(&grant)).bind(account).bind(generation).bind(oteryn_identity::mfa::digest("synthetic-hash")).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 hour','test',repeat('a',64),$3)").bind(oteryn_identity::mfa::digest(&bearer)).bind(account).bind(json!({"mfa_grant":grant})).execute(pool).await.unwrap();
+    format!("__Host-oteryn_session={bearer}")
+}
+async fn staff_security_post(
+    app: &axum::Router,
+    path: &str,
+    host: &str,
+    cookie: &str,
+    csrf: &str,
+    action: &str,
+) -> StatusCode {
+    app.clone()
+        .oneshot(
+            Request::post(path)
+                .header("host", host)
+                .header("origin", format!("https://{host}"))
+                .header("cookie", cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}&{action}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
 }

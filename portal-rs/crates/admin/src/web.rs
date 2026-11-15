@@ -54,7 +54,11 @@ pub struct PortalIdentity {
 }
 impl PortalIdentity {
     pub fn configured(pool: PgPool) -> Self {
-        let mfa = oteryn_identity::mfa::Mfa::configured(pool.clone()).ok();
+        Self::configured_from(pool, &|key| std::env::var(key).ok())
+    }
+    /// [`Self::configured`] reading its configuration through `lookup`.
+    pub fn configured_from(pool: PgPool, lookup: &dyn Fn(&str) -> Option<String>) -> Self {
+        let mfa = oteryn_identity::mfa::Mfa::configured_from(pool.clone(), lookup).ok();
         Self { pool, mfa }
     }
 }
@@ -77,6 +81,24 @@ impl StaffSession for PortalIdentity {
     }
 }
 impl AccountStateReader for PortalIdentity {
+    async fn state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> Result<AccountState, AccountStateUnavailable> {
+        let state: Option<(String, bool)> = sqlx::query_as(
+            "SELECT status,email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR SHARE",
+        )
+        .bind(account)
+        .fetch_optional(connection)
+        .await
+        .map_err(|_| AccountStateUnavailable)?;
+        Ok(match state {
+            Some((status, true)) if status == "active" => AccountState::Active,
+            Some(_) => AccountState::Disabled,
+            None => AccountState::Unknown,
+        })
+    }
     async fn state(&self, account: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         let state: Option<(String, bool)> =
             sqlx::query_as("SELECT status,email_verified_at IS NOT NULL FROM accounts WHERE id=$1")
@@ -106,8 +128,14 @@ struct Panel<I, A> {
 }
 
 pub(crate) fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
-    let enabled = std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|v| v == "true");
-    let host = std::env::var("OTERYN_ADMIN_HOST").unwrap_or_default();
+    config_from(&|key| std::env::var(key).ok())
+}
+
+pub(crate) fn config_from(
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<PanelConfig, Box<dyn std::error::Error>> {
+    let enabled = lookup("OTERYN_ADMIN_PANEL").is_some_and(|v| v == "true");
+    let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
     if enabled && (host.is_empty() || host.parse::<axum::http::uri::Authority>().is_err()) {
         return Err("invalid admin host".into());
     }
@@ -133,12 +161,22 @@ pub fn configured_guard(
     pool: PgPool,
     permission: Permission,
 ) -> Result<Router, Box<dyn std::error::Error>> {
+    configured_guard_from(routes, pool, permission, &|key| std::env::var(key).ok())
+}
+
+/// [`configured_guard`] reading its configuration through `lookup`.
+pub fn configured_guard_from(
+    routes: Router,
+    pool: PgPool,
+    permission: Permission,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
     Ok(guarded(
         routes,
         pool.clone(),
-        config_from_env()?,
-        PortalIdentity::configured(pool.clone()),
-        PortalIdentity::configured(pool),
+        config_from(lookup)?,
+        PortalIdentity::configured_from(pool.clone(), lookup),
+        PortalIdentity::configured_from(pool, lookup),
         permission,
     ))
 }
@@ -362,7 +400,7 @@ fn text(lang: &str, key: &str) -> String {
         .unwrap_or_default()
 }
 #[derive(Template)]
-#[template(path = "admin/panel.html", config = "src/web_askama.toml")]
+#[template(path = "admin/roles.html", config = "src/web_askama.toml")]
 struct Page {
     lang: &'static str,
     title: String,
@@ -374,6 +412,11 @@ struct Page {
     csrf: String,
     roles: Vec<(Uuid, String)>,
     manage: bool,
+}
+impl Page {
+    fn permission_catalog(&self) -> &'static [Permission] {
+        Permission::ALL
+    }
 }
 async fn page<I: StaffSession, A: AccountStateReader>(
     State(s): State<Arc<Panel<I, A>>>,
@@ -421,36 +464,51 @@ async fn page<I: StaffSession, A: AccountStateReader>(
 }
 #[derive(Deserialize)]
 struct RoleForm {
+    #[serde(default)]
     account: Uuid,
+    #[serde(default)]
     role: Uuid,
     action: String,
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    permissions: String,
 }
 async fn change<I: StaffSession, A: AccountStateReader>(
     State(s): State<Arc<Panel<I, A>>>,
     Extension(context): Extension<CheckContext>,
     Form(form): Form<RoleForm>,
 ) -> Response {
-    if form.account.is_nil()
-        || form.role.is_nil()
-        || !matches!(form.action.as_str(), "grant" | "revoke")
-    {
-        return StatusCode::BAD_REQUEST.into_response();
-    }
-    // Privileged grants require a future four-eyes workflow; this shell fails closed.
-    let privileged: Result<bool,_>=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM role_permissions WHERE role_id=$1 AND permission='admin.roles.manage')").bind(form.role).fetch_one(&s.pool).await;
-    match privileged {
-        Ok(true) if form.action == "grant" => {
-            return match refusal(&s.pool, context.account, "/admin/roles").await {
-                Ok(()) => StatusCode::FORBIDDEN.into_response(),
-                Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    let result = match form.action.as_str() {
+        "create" | "set-permissions" => {
+            let permissions: Result<Vec<Permission>, _> = form
+                .permissions
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .filter(|value| !value.is_empty())
+                .map(str::parse)
+                .collect();
+            let Ok(permissions) = permissions else {
+                return StatusCode::BAD_REQUEST.into_response();
             };
+            let change = if form.action == "create" {
+                Change::CreateRole {
+                    key: &form.key,
+                    permissions: &permissions,
+                }
+            } else {
+                Change::SetPermissions {
+                    role: form.role,
+                    permissions: &permissions,
+                }
+            };
+            s.auth
+                .change_from_panel(context, Uuid::now_v7(), change)
+                .await
+                .map(|_| ())
         }
-        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        _ => {}
-    }
-    let result = if form.action == "grant" {
-        s.auth
-            .change(
+        "grant" if !form.account.is_nil() && !form.role.is_nil() => s
+            .auth
+            .change_from_panel(
                 context,
                 Uuid::now_v7(),
                 Change::Grant {
@@ -459,9 +517,9 @@ async fn change<I: StaffSession, A: AccountStateReader>(
                 },
             )
             .await
-            .map(|_| ())
-    } else {
-        revoke(&s, context, form.account, form.role).await
+            .map(|_| ()),
+        "revoke" => revoke(&s, context, form.account, form.role).await,
+        _ => return StatusCode::BAD_REQUEST.into_response(),
     };
     match result {
         Ok(()) => Redirect::to("/admin/roles").into_response(),
@@ -485,10 +543,10 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
         return Err(Error::InvalidInput);
     }
     let mut tx = s.pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-        .execute(&mut *tx)
-        .await?;
-    s.auth.check(context, Permission::ManageRoles).await?;
+    crate::rbac::lock_mutation(&mut tx).await?;
+    for permission in [Permission::Access, Permission::ManageRoles] {
+        s.auth.check_in(&mut tx, context, permission).await?;
+    }
     let key: Option<String> = sqlx::query_scalar("SELECT key FROM roles WHERE id=$1")
         .bind(role)
         .fetch_optional(&mut *tx)
@@ -502,13 +560,16 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     .fetch_one(&mut *tx)
     .await?;
     if assigned && matches!(key.as_str(), "owner" | "platform_admin") {
-        let others: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1 AND account_id<>$2)",
-        )
-        .bind(role)
-        .bind(account)
-        .fetch_one(&mut *tx)
-        .await?;
+        let candidates: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT account_id FROM account_roles WHERE role_id=$1 AND account_id<>$2 ORDER BY account_id",
+        ).bind(role).bind(account).fetch_all(&mut *tx).await?;
+        let mut others = false;
+        for candidate in candidates {
+            if s.auth.account_active_in(&mut tx, candidate).await {
+                others = true;
+                break;
+            }
+        }
         if !others {
             return Err(Error::Denied);
         }

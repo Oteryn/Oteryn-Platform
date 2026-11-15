@@ -641,6 +641,39 @@ async fn unknown_order_is_refused_and_stored() -> TestResult {
 }
 
 #[tokio::test]
+async fn l4_03_space_order_references_are_persisted_and_replayed() -> TestResult {
+    let started = std::time::Instant::now();
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
+    let app = h.app();
+    for kind in ["refund", "chargeback"] {
+        let id = format!("space_{kind}");
+        let body = event(&id, kind, " missing order ", 499);
+        assert_eq!(
+            deliver(&app, &body).await.0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(h.outcome(&id).await.as_deref(), Some("unknown_order"));
+        let stored: String = sqlx::query_scalar(
+            "SELECT order_reference FROM payment_provider_webhook_events WHERE event_id=$1",
+        )
+        .bind(&id)
+        .fetch_one(&h.pool)
+        .await?;
+        assert_eq!(stored, " missing order ");
+        let (status, reply) = deliver(&app, &body).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(reply["replay"], true);
+        assert_eq!(reply["outcome"], "unknown_order");
+    }
+    h.finish().await?;
+    eprintln!(
+        "PG l4_03_space_order_references_are_persisted_and_replayed: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn unknown_type_is_stored_and_ignored() -> TestResult {
     let Some(h) = Harness::new().await? else {
         return Ok(());

@@ -51,7 +51,11 @@ impl Policy for Deny {
     ) -> PolicyFuture<'a, bool> {
         Box::pin(async { Ok(false) })
     }
-    fn locale(&self, _: Uuid) -> PolicyFuture<'_, Locale> {
+    fn locale<'a>(
+        &'a self,
+        _: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+        _: Uuid,
+    ) -> PolicyFuture<'a, Locale> {
         Box::pin(async { Err(invalid()) })
     }
 }

@@ -157,13 +157,9 @@ async fn wrap_document(response: Response, chrome: &oteryn_ui::Chrome) -> Respon
         return response;
     }
     let (mut parts, body) = response.into_parts();
-    let bytes = match axum::body::to_bytes(body, WRAP_LIMIT).await {
+    let bytes = match crate::decoration::buffer(body, WRAP_LIMIT, None).await {
         Ok(bytes) => bytes,
-        Err(_) => {
-            parts.status = axum::http::StatusCode::INTERNAL_SERVER_ERROR;
-            parts.headers.remove(header::CONTENT_LENGTH);
-            return Response::from_parts(parts, Body::empty());
-        }
+        Err(body) => return Response::from_parts(parts, body),
     };
     let wrapped = std::str::from_utf8(&bytes).ok().and_then(|page| {
         let (top, bottom) = oteryn_ui::shell_parts(chrome)?;
@@ -181,9 +177,6 @@ async fn wrap_document(response: Response, chrome: &oteryn_ui::Chrome) -> Respon
 /// Insert the shell into a complete HTML document. Returns None when the page already has
 /// the shell or is not a full document (fragments, widgets).
 pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
-    if page.contains(oteryn_ui::SHELL_MARKER) {
-        return None;
-    }
     let lower = page.to_ascii_lowercase();
     let html_open = lower.find("<html")?;
     if !lower.contains("<body") {
@@ -209,6 +202,9 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
     let html_end = html_open + lower[html_open..].find('>')?;
     let html_tag = without_attribute(&page[html_open..html_end], "data-theme");
     let body_tag = &page[body_open..body_end];
+    if has_shell_classes(body_tag) {
+        return None;
+    }
     let body_tag = match body_tag.to_ascii_lowercase().find("class=\"") {
         Some(at) => format!(
             "{}class=\"{} {}",
@@ -242,6 +238,39 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         content,
         &page[body_close..]
     ))
+}
+
+// Inspect only actual attributes of the opening body element.
+fn has_shell_classes(tag: &str) -> bool {
+    let mut rest = &tag[5..];
+    while !rest.trim_start().is_empty() {
+        rest = rest.trim_start();
+        let end = rest
+            .find(|c: char| c.is_ascii_whitespace() || c == '=')
+            .unwrap_or(rest.len());
+        let name = &rest[..end];
+        rest = rest[end..].trim_start();
+        if !rest.starts_with('=') {
+            continue;
+        }
+        rest = rest[1..].trim_start();
+        let (value, tail) = if rest.starts_with(['"', '\'']) {
+            let quote = rest.as_bytes()[0] as char;
+            let value = &rest[1..];
+            let end = value.find(quote).unwrap_or(value.len());
+            (&value[..end], value.get(end + 1..).unwrap_or_default())
+        } else {
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            (&rest[..end], &rest[end..])
+        };
+        if name.eq_ignore_ascii_case("class") {
+            return ["op-theme", "op-shell"]
+                .iter()
+                .all(|class| value.split_ascii_whitespace().any(|token| token == *class));
+        }
+        rest = tail;
+    }
+    false
 }
 
 // Older standalone documents have a main landmark but no skip-link target.
@@ -300,6 +329,34 @@ fn without_attribute(tag: &str, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{content_landmark, inject, shell_asset_policy};
+
+    #[test]
+    fn article_shell_phrase_does_not_suppress_composition() -> Result<(), &'static str> {
+        let page =
+            "<html><body data-note='op-theme op-shell'><p>op-theme op-shell</p></body></html>";
+        let out = inject(
+            page,
+            "<header>Navigation</header>",
+            "<footer>Footer</footer>",
+        )
+        .ok_or("article must be composed")?;
+        assert_eq!(out.matches("<header>Navigation</header>").count(), 1);
+        assert_eq!(out.matches("<footer>Footer</footer>").count(), 1);
+        assert!(out.contains("components.css"));
+        assert!(inject(&out, "H", "F").is_none());
+        for classes in [
+            "class='op-shell other op-theme'",
+            "CLASS=op-shell",
+            "class=\"op-shell op-theme\"",
+        ] {
+            let page = format!("<html><body {classes}><p>article</p></body></html>");
+            assert_eq!(
+                inject(&page, "H", "F").is_none(),
+                classes != "CLASS=op-shell"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn skip_target_is_focusable_without_duplicate_landmark_ids() {
@@ -381,6 +438,40 @@ mod response_tests {
         routing::get,
     };
     use tower::ServiceExt;
+    #[tokio::test]
+    async fn article_phrase_keeps_shared_navigation_and_footer()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+        let app = Router::new()
+            .route(
+                "/en/wiki/articles/phrase",
+                get(|| async {
+                    axum::response::Html(
+                        "<html><body><article><p>op-theme op-shell</p></article></body></html>",
+                    )
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Shell {
+                    registry: Registry::default(),
+                    sessions: SessionLayer::new(pool),
+                },
+                middleware,
+            ));
+        let response = app
+            .oneshot(Request::get("/en/wiki/articles/phrase").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 100000).await?;
+        let html = std::str::from_utf8(&bytes)?;
+        assert_eq!(html.matches("class=\"hx-head\"").count(), 1);
+        assert_eq!(html.matches("class=\"hx-foot\"").count(), 1);
+        assert!(html.contains("components.css"));
+        assert!(html.contains("<p>op-theme op-shell</p>"));
+        Ok(())
+    }
+
     #[tokio::test]
     async fn public_refusals_are_documents_and_api_statuses_stay_intact()
     -> Result<(), Box<dyn std::error::Error>> {

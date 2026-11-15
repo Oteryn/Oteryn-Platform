@@ -121,11 +121,21 @@ impl Authority {
                 d,
                 "escrow_revision",
             )?;
-            // Serialize competing dispositions with the issuer lock. A timeout or
-            // rejection does not erase the prior executable operation.
-            let competing:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_dispatch d JOIN bazaar_game_outbox o USING(operation_id) WHERE o.listing_id=$1 AND o.command IN ('DeliverBazaarItem','ReturnBazaarItem') AND o.operation_id<>$2)").bind(id(text(&i.value,"listing_id")?)?).bind(operation).fetch_one(&mut **db).await?;
-            if competing {
-                return Err(Error::Conflict);
+            // The issuer lock makes no-effect verification and compensation
+            // publication atomic. Keep every dispatch and receipt for audit.
+            let competing: Vec<Uuid> = sqlx::query_scalar("SELECT o.operation_id FROM bazaar_authority_dispatch d JOIN bazaar_game_outbox o USING(operation_id) WHERE o.listing_id=$1 AND o.command IN ('DeliverBazaarItem','ReturnBazaarItem') AND o.operation_id<>$2")
+                .bind(id(text(&i.value,"listing_id")?)?).bind(operation).fetch_all(&mut **db).await?;
+            for previous in competing {
+                let safe = if let Some((_, receipt)) = self.retained(db, previous).await? {
+                    i.command == Command::Return
+                        && receipt.command == Command::Deliver
+                        && !receipt.committed
+                } else {
+                    false
+                };
+                if !safe {
+                    return Err(Error::Conflict);
+                }
             }
             if i.command == Command::Deliver {
                 let f = i.value.get("funding").ok_or(Error::Invalid)?;
@@ -155,6 +165,68 @@ impl Authority {
             }
         }
         sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,$2::text::numeric,$3::text::numeric) ON CONFLICT DO NOTHING").bind(operation).bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).execute(&mut **db).await?;
+        Ok(())
+    }
+    /// Every published delivery must have current, audited terminal no-effect
+    /// evidence before compensation can consume the settlement fence.
+    pub(crate) async fn delivery_refused(
+        &self,
+        db: &mut sqlx::PgConnection,
+        listing: Uuid,
+    ) -> Result<bool, Error> {
+        let operations: Vec<Uuid> = sqlx::query_scalar("SELECT o.operation_id FROM bazaar_authority_dispatch d JOIN bazaar_game_outbox o USING(operation_id) WHERE o.listing_id=$1 AND o.command IN ('DeliverBazaarItem','PayoutBazaarGold')")
+            .bind(listing).fetch_all(&mut *db).await?;
+        let mut delivery = false;
+        for operation in operations {
+            let Some((_, receipt)) = self.retained(db, operation).await? else {
+                return Ok(false);
+            };
+            if receipt.committed {
+                return Ok(false);
+            }
+            delivery |= receipt.command == Command::Deliver;
+        }
+        Ok(delivery)
+    }
+    pub(crate) async fn compensation_ready(
+        &self,
+        db: &mut sqlx::PgConnection,
+        listing: &crate::Listing,
+    ) -> Result<bool, Error> {
+        Ok(listing.kind == crate::Kind::Item
+            && self.delivery_refused(db, listing.id).await?
+            && self.custody(db, listing, "RETURNED").await?.is_some())
+    }
+    /// Close only after the return and financial release are both durable in
+    /// this transaction. The append-only record authorizes the terminal state.
+    pub(crate) async fn finish_compensation(
+        &self,
+        db: &mut sqlx::PgConnection,
+        listing: &crate::Listing,
+    ) -> Result<(), Error> {
+        self.lock(db).await?;
+        if !self.compensation_ready(db, listing).await? {
+            return Err(Error::Unavailable);
+        }
+        let released = if listing.currency == crate::Currency::Gold {
+            let sale = super::runtime::gold::sale(db, listing.id).await?;
+            super::runtime::gold::current_hold(self, db, listing.id, sale.buyer, None)
+                .await?
+                .is_some_and(|hold| hold.id == sale.reservation && hold.amount == 0)
+        } else {
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_settlements s JOIN bazaar_coin_dispositions d ON d.settlement_id=s.id JOIN bazaar_coin_holds h ON h.settlement_id=s.id AND h.id=s.reservation AND h.account_id=s.buyer WHERE s.listing_id=$1 AND d.completed AND h.completed AND h.amount=0)")
+                .bind(listing.id).fetch_one(&mut *db).await?
+        };
+        if !released {
+            return Err(Error::Unavailable);
+        }
+        let Some((_, returning, _)) = self.custody(db, listing, "RETURNED").await? else {
+            return Err(Error::Unavailable);
+        };
+        sqlx::query("INSERT INTO bazaar_authority_compensations(listing_id,return_operation_id,recovery_generation) VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING")
+            .bind(listing.id).bind(id(text(&returning.value, "operation_id")?)?).bind(self.fence.recovery_generation.to_string()).execute(&mut *db).await?;
+        sqlx::query("UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1 AND state='awaiting_delivery'")
+            .bind(listing.id).execute(db).await?;
         Ok(())
     }
     pub async fn exchange(

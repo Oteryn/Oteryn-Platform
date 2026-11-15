@@ -60,6 +60,14 @@ impl VerifiedClient {
         Self(identity)
     }
 }
+/// Authenticated publisher key, inserted only after all existing guard checks pass.
+#[derive(Clone, Debug)]
+pub struct PublisherKey(Vec<u8>);
+impl PublisherKey {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
 /// Purpose-specific group; Store and Premium must use distinct names even though
 /// both URLs share the products-entitlements prefix.
 #[derive(Debug, Clone)]
@@ -143,10 +151,30 @@ pub fn protect<S: Clone + Send + Sync + 'static>(
     identities: Arc<IdentityMap>,
     policy: RoutePolicy,
 ) -> Router<S> {
+    protect_peer(validate_body(router, policy.clone()), identities, policy)
+}
+/// Internal router-composition probe: stop after configuration and peer checks.
+/// Never inserted from wire input; lets a version selector reuse the facility's
+/// exact admission policy without decoding a body or invoking its handler.
+#[derive(Clone, Debug)]
+pub struct PeerAdmissionProbe;
+/// Apply configuration and peer refusals before caller middleware and body work.
+pub fn protect_peer<S: Clone + Send + Sync + 'static>(
+    router: Router<S>,
+    identities: Arc<IdentityMap>,
+    policy: RoutePolicy,
+) -> Router<S> {
     router.route_layer(middleware::from_fn_with_state(
         Guard { identities, policy },
-        check,
+        check_peer,
     ))
+}
+/// Validate encoding after caller admission middleware.
+pub fn validate_body<S: Clone + Send + Sync + 'static>(
+    router: Router<S>,
+    policy: RoutePolicy,
+) -> Router<S> {
+    router.route_layer(middleware::from_fn_with_state(policy, check_body))
 }
 /// Peer failures: empty body, no challenge, diagnostics or application headers.
 pub fn failure(status: StatusCode) -> Response {
@@ -188,7 +216,7 @@ fn transport(headers: &HeaderMap, max: usize) -> Result<(), StatusCode> {
     }
     Ok(())
 }
-async fn check(State(guard): State<Guard>, request: Request, next: Next) -> Response {
+async fn check_peer(State(guard): State<Guard>, request: Request, next: Next) -> Response {
     let policy = &guard.policy;
     if !policy.enabled
         || policy.max_body_bytes == 0
@@ -204,6 +232,22 @@ async fn check(State(guard): State<Guard>, request: Request, next: Next) -> Resp
     {
         return failure(StatusCode::UNAUTHORIZED);
     }
+    if request.extensions().get::<PeerAdmissionProbe>().is_some() {
+        return failure(StatusCode::NO_CONTENT);
+    }
+    let (mut parts, body) = request.into_parts();
+    if let Some(client) = parts.extensions.get::<VerifiedClient>() {
+        let mut key = vec![client.0.kind, client.0.len];
+        key.extend_from_slice(&client.0.bytes[..usize::from(client.0.len)]);
+        parts.extensions.insert(PublisherKey(key));
+    }
+    next.run(Request::from_parts(parts, body)).await
+}
+pub async fn check_body(
+    State(policy): State<RoutePolicy>,
+    request: Request,
+    next: Next,
+) -> Response {
     if let Err(status) = transport(request.headers(), policy.max_body_bytes) {
         return failure(status);
     }

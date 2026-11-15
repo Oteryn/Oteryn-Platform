@@ -1,7 +1,7 @@
 use super::names;
 use crate::commands::{self, AccountState, AccountStateReader, Commands, Intent};
 use oteryn_identity::accounts::Accounts;
-use sqlx::{PgPool, Row};
+use sqlx::{PgConnection, PgPool, Row};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Default)]
@@ -98,11 +98,14 @@ impl Creation {
         if account.get_version_num() != 7 {
             return Err(Error::Denied);
         }
-        let current = Accounts {
-            pool: self.pool.clone(),
+        let mut conn = self.pool.acquire().await?;
+        self.eligible_in(&mut conn, account).await
+    }
+    async fn eligible_in(&self, conn: &mut PgConnection, account: Uuid) -> Result<(), Error> {
+        if account.get_version_num() != 7 {
+            return Err(Error::Denied);
         }
-        .find_by_id(account)
-        .await?;
+        let current = Accounts::find_by_id_in(conn, account).await?;
         match current {
             Some(current)
                 if current.status == "active" || current.status == "pending_verification" =>
@@ -113,9 +116,18 @@ impl Creation {
         }
     }
     pub async fn limit(&self, account: Uuid, surface: &str) -> Result<(), Error> {
+        let mut conn = self.pool.acquire().await?;
+        self.limit_in(&mut conn, account, surface).await
+    }
+    async fn limit_in(
+        &self,
+        conn: &mut PgConnection,
+        account: Uuid,
+        surface: &str,
+    ) -> Result<(), Error> {
         let maximum = if surface == "create" { 5 } else { 60 };
         let count: i32 = sqlx::query_scalar("INSERT INTO character_create_web_limits (account_id,surface,window_start,requests) VALUES ($1,$2,clock_timestamp(),1) ON CONFLICT (account_id,surface) DO UPDATE SET window_start=CASE WHEN character_create_web_limits.window_start <= clock_timestamp()-interval '1 minute' THEN clock_timestamp() ELSE character_create_web_limits.window_start END, requests=CASE WHEN character_create_web_limits.window_start <= clock_timestamp()-interval '1 minute' THEN 1 ELSE LEAST(character_create_web_limits.requests+1,1000000) END RETURNING requests")
-            .bind(account).bind(surface).fetch_one(&self.pool).await?;
+            .bind(account).bind(surface).fetch_one(conn).await?;
         if count > maximum {
             return Err(Error::Limited);
         }
@@ -125,9 +137,16 @@ impl Creation {
         if !self.available() {
             return Err(Error::Unavailable);
         }
+        let mut conn = self.pool.acquire().await?;
+        self.worlds_in(&mut conn).await
+    }
+    async fn worlds_in(&self, conn: &mut PgConnection) -> Result<Vec<World>, Error> {
+        if !self.available() {
+            return Err(Error::Unavailable);
+        }
         // Registry metadata is advisory. Game rechecks world acceptance at execution.
         sqlx::query("SELECT id,name,pvp_type,location FROM world_status ORDER BY name,id LIMIT 256")
-            .fetch_all(&self.pool)
+            .fetch_all(conn)
             .await?
             .into_iter()
             .map(|row| {
@@ -154,8 +173,12 @@ impl Creation {
         Err(Error::Unavailable)
     }
     async fn reserved(&self, name: &str) -> Result<bool, Error> {
+        let mut conn = self.pool.acquire().await?;
+        self.reserved_in(&mut conn, name).await
+    }
+    async fn reserved_in(&self, conn: &mut PgConnection, name: &str) -> Result<bool, Error> {
         Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM reserved_names WHERE name=lower($1) AND expires_at>clock_timestamp())")
-            .bind(name).fetch_one(&self.pool).await?)
+            .bind(name).fetch_one(conn).await?)
     }
     pub async fn submit(&self, account: Uuid, input: Submission) -> Result<Uuid, Error> {
         let name = names::canonicalize(&input.name).map_err(|e| match e {
@@ -170,7 +193,7 @@ impl Creation {
         }
         self.eligible(account).await?;
         // Serialize with identity changes. Keep this lock until the command is durable.
-        // The public command API owns its transaction and idempotency lock.
+        // All checks and command issuance share this transaction.
         let mut tx = self.pool.begin().await?;
         let found: Option<Uuid> =
             sqlx::query_scalar("SELECT id FROM accounts WHERE id=$1 FOR NO KEY UPDATE")
@@ -180,31 +203,36 @@ impl Creation {
         if found.is_none() {
             return Err(Error::Denied);
         }
-        self.eligible(account).await?;
+        self.eligible_in(&mut tx, account).await?;
         let intent = Intent::Create {
             account_id: account,
             world_id: input.world,
             name: name.clone(),
         };
         let key = format!("web-create:{account}:{}", input.id);
-        if let Some(status) = self.commands.replay(input.id, &key, &intent).await? {
+        if let Some(status) = self
+            .commands
+            .replay_in(&mut tx, input.id, &key, &intent)
+            .await?
+        {
             return Ok(status.operation_id);
         }
-        self.limit(account, "create").await?;
+        self.limit_in(&mut tx, account, "create").await?;
         if !self
-            .worlds()
+            .worlds_in(&mut tx)
             .await?
             .iter()
             .any(|world| world.id == input.world)
         {
             return Err(Error::Invalid);
         }
-        if self.reserved(&name).await? {
+        if self.reserved_in(&mut tx, &name).await? {
             return Err(Error::Reserved);
         }
         let status = self
             .commands
-            .enqueue(
+            .enqueue_in(
+                &mut tx,
                 &Eligible(account),
                 input.id,
                 &format!("web-create:{account}:{}", input.id),

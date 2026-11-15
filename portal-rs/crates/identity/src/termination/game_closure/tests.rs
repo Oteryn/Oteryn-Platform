@@ -1152,3 +1152,113 @@ async fn postgres_lifecycle_current_state_and_unknown_refusal() -> TestResult {
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn audit02_terminal_cancel_and_finalize_refusals_reconcile() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let s = service(&db, b.clone());
+    for decision in ["CANCEL", "FINALIZE"] {
+        let account = db.account().await?;
+        let (_, close) = issue(&db, &s, account).await;
+        if decision == "CANCEL" {
+            s.cancel(
+                account,
+                &ActorProof(account.to_string()),
+                "termination test password",
+            )
+            .await?;
+        } else {
+            publish(&db, &b, &close, true).await;
+            assert!(s.finalize(account).await?);
+        }
+        let pending = b.pending_intents(&db.pool, 0, 40).await?;
+        let intent = pending
+            .iter()
+            .filter_map(|raw| Intent::parse(raw).ok())
+            .find(|i| {
+                i.account_id == account.to_string() && i.decision.as_deref() == Some(decision)
+            })
+            .ok_or("resolution")?;
+        let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
+        receipt.command = intent.command.clone();
+        receipt.operation_id = intent.operation_id.clone();
+        receipt.outcome = "REJECTED".into();
+        receipt.result_code = "CHAR_CMD_INTENT_EXPIRED".into();
+        receipt.result_data = None;
+        receipt.recovery_generation = "3".into();
+        receipt.decided_at = intent.issued_at_source.clone();
+        let raw = serde_json::to_vec(&receipt)?;
+        b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+            .await?;
+        s.run_worker(100).await?;
+        let pending = b.pending_intents(&db.pool, 0, 40).await?;
+        let fresh = pending
+            .iter()
+            .filter_map(|raw| Intent::parse(raw).ok())
+            .find(|i| {
+                i.account_id == account.to_string() && i.decision.as_deref() == Some(decision)
+            })
+            .ok_or("fresh resolution")?;
+        assert_ne!(fresh.operation_id, intent.operation_id);
+        assert_eq!(fresh.decision, intent.decision);
+        assert_eq!(fresh.close_operation_id, intent.close_operation_id);
+        assert!(
+            wire::number(&fresh.source_revision, true)?
+                > wire::number(&intent.source_revision, true)?
+        );
+    }
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_private_closure_throttling_supplies_retry_after() -> TestResult {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode, header},
+    };
+    use oteryn_internal_api::guard::{Binding, Identity, IdentityMap, VerifiedClient};
+    use tower::ServiceExt;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let identity = Identity::san("audit-closure-client")?;
+    let identities = Arc::new(IdentityMap::new(vec![Binding {
+        identity: identity.clone(),
+        group: http::GROUP.into(),
+    }])?);
+    let app = http::router(
+        db.pool.clone(),
+        boundary(settings(), Arc::new(Recovery(AtomicU64::new(3)))),
+        "audit-key".into(),
+        identities,
+    );
+    for n in 0..601 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/internal/v1/game-auth/character-commands/pending")
+                    .header("content-type", "application/json")
+                    .extension(VerifiedClient::from_verified_tls13_http11(identity.clone()))
+                    .body(Body::from("{}"))?,
+            )
+            .await?;
+        if n < 600 {
+            assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        } else {
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert!(
+                response
+                    .headers()
+                    .get(header::RETRY_AFTER)
+                    .ok_or("retry")?
+                    .to_str()?
+                    .parse::<u64>()?
+                    > 0
+            );
+        }
+    }
+    db.close().await
+}

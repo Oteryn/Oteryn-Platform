@@ -480,3 +480,72 @@ async fn db_activation_history_failure_rolls_back_pointer() {
     assert_eq!(count, 1);
     db.finish().await;
 }
+
+#[tokio::test]
+async fn lk_catalog_account_before_pointer() {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let actor = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts VALUES($1)")
+        .bind(actor)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let revision = db.store().import(VALID, actor, &access()).await.unwrap();
+    struct LockedAccess(tokio::sync::Notify);
+    impl CatalogAccess for LockedAccess {
+        async fn account_state(
+            &self,
+            actor: Uuid,
+            db: &mut PgConnection,
+        ) -> Result<AccountState, Error> {
+            self.0.notify_one();
+            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+                .bind(actor)
+                .execute(db)
+                .await?;
+            Ok(AccountState::Active)
+        }
+        async fn permitted(&self, _: Uuid, _: Action, _: &mut PgConnection) -> Result<bool, Error> {
+            Ok(true)
+        }
+    }
+    let access = std::sync::Arc::new(LockedAccess(tokio::sync::Notify::new()));
+    let mut purchase = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(actor)
+        .execute(&mut *purchase)
+        .await
+        .unwrap();
+    let store = db.store();
+    let other = access.clone();
+    let activation = tokio::spawn(async move { store.activate(&revision, actor, &*other).await });
+    access.0.notified().await;
+    // Activation has reached its account check. A purchaser already owning that
+    // account must still be able to lock the pointer and release the account.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        sqlx::query("SELECT catalog_revision FROM store_active_catalog WHERE id=1 FOR SHARE")
+            .execute(&mut *purchase),
+    )
+    .await
+    .expect("catalog/account cycle")
+    .unwrap();
+    purchase.commit().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), activation)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    db.finish().await;
+    eprintln!(
+        "lk_catalog_account_before_pointer duration: {:?}",
+        started.elapsed()
+    );
+}

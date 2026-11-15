@@ -317,12 +317,18 @@ impl Authority for SessionAuthority {
     }
     async fn authorize(
         &self,
+        _connection: &mut sqlx::PgConnection,
         _: &BrowserSession,
         _: &str,
     ) -> Result<(Identity, Operation), Refusal> {
         Err(Refusal::Unavailable)
     }
-    async fn approver(&self, _: Uuid, _: &Operation) -> Result<(), Refusal> {
+    async fn approver(
+        &self,
+        _connection: &mut sqlx::PgConnection,
+        _: Uuid,
+        _: &Operation,
+    ) -> Result<(), Refusal> {
         Err(Refusal::Unavailable)
     }
 }

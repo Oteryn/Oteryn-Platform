@@ -233,10 +233,25 @@ async fn postgres_browser_login_logout_csrf_and_limits() -> TestResult {
         .bind(id)
         .execute(&pool)
         .await?;
-    sqlx::query("DELETE FROM accounts WHERE id=$1")
+    // Security history is durable; isolated-schema teardown owns cleanup.
+    assert!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM security_events WHERE account_id=$1 AND kind='login_succeeded'"
+        )
         .bind(id)
-        .execute(&pool)
-        .await?;
+        .fetch_one(&pool)
+        .await?
+            > 0
+    );
+    assert!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM email_outbox WHERE account_id=$1 AND category='security'"
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await?
+            > 0
+    );
     database.close().await?;
     Ok(())
 }
@@ -264,6 +279,16 @@ async fn postgres_source_limit_bad_input_and_missing_transport() -> TestResult {
         app.clone().oneshot(no_peer).await?.status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+    // The source budget uses fixed 60-second windows on the database clock.
+    // Start the 21 requests early in a window so a boundary cannot reset it.
+    let remaining: f64 = sqlx::query_scalar(
+        "SELECT (60 - mod(extract(epoch FROM statement_timestamp()), 60))::float8",
+    )
+    .fetch_one(&database.pool)
+    .await?;
+    if remaining < 30.0 {
+        tokio::time::sleep(std::time::Duration::from_secs_f64(remaining + 0.2)).await;
+    }
     for _ in 0..20 {
         let response = app
             .clone()
@@ -360,10 +385,115 @@ async fn postgres_login_returns_to_stored_authorize_target_once() -> TestResult 
         .bind(id)
         .execute(&pool)
         .await?;
-    sqlx::query("DELETE FROM accounts WHERE id=$1")
+    // Security history is durable; isolated-schema teardown owns cleanup.
+    assert!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM security_events WHERE account_id=$1 AND kind='login_succeeded'"
+        )
         .bind(id)
-        .execute(&pool)
-        .await?;
+        .fetch_one(&pool)
+        .await?
+            > 0
+    );
+    assert!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM email_outbox WHERE account_id=$1 AND category='security'"
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await?
+            > 0
+    );
     database.close().await?;
     Ok(())
+}
+
+#[tokio::test]
+async fn audit02_paused_password_completion_refuses_reset_even_after_anonymous_get() -> TestResult {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let id:uuid::Uuid=sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('paused-login@example.test',$1,'active','en',now()) RETURNING id").bind(oteryn_identity::password::hash("test password")?).fetch_one(&db.pool).await?;
+    let proof = login::authenticate_authorized(
+        &db.pool,
+        Credentials {
+            email: "paused-login@example.test".into(),
+            password: "test password".into(),
+        },
+    )
+    .await?
+    .ok_or("proof")?;
+    let app = router(db.pool.clone(), true, SessionLayer::new(db.pool.clone()));
+    let response = app
+        .clone()
+        .oneshot(request("GET", "/en/login", "", "")?)
+        .await?;
+    let guest = cookie(&response)?;
+    let html = body(response).await?;
+    let csrf = csrf(&html)?.to_owned();
+    let key = oteryn_identity::reset::DeliveryKey::parse(&"11".repeat(32)).ok_or("key")?;
+    oteryn_identity::reset::request(&db.pool, "paused-login@example.test", &key).await?;
+    let payload: serde_json::Value =
+        sqlx::query_scalar("SELECT payload FROM outbox WHERE kind='email.password-reset'")
+            .fetch_one(&db.pool)
+            .await?;
+    let token = key
+        .open(&serde_json::from_value::<Vec<u8>>(
+            payload["ciphertext"].clone(),
+        )?)
+        .ok_or("ciphertext")?;
+    assert!(
+        oteryn_identity::reset::complete(
+            &db.pool,
+            oteryn_identity::reset::Input {
+                email: "paused-login@example.test".into(),
+                token,
+                password: "replacement password".into(),
+                password_confirmation: "replacement password".into()
+            }
+        )
+        .await?
+    );
+    // A real ordinary GET refreshes the same anonymous session after revocation.
+    assert_eq!(
+        app.oneshot(request("GET", "/en/login", &guest, "")?)
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+    let proof = std::sync::Arc::new(tokio::sync::Mutex::new(Some(proof)));
+    let pool = db.pool.clone();
+    let completion = Router::new()
+        .route(
+            "/resume",
+            post(move |Extension(session): Extension<BrowserSession>| {
+                let proof = proof.clone();
+                let pool = pool.clone();
+                async move {
+                    let proof = proof.lock().await.take().ok_or(StatusCode::UNAUTHORIZED)?;
+                    establish(&pool, Language::En, &session, proof).await
+                }
+            }),
+        )
+        .route_layer(axum::middleware::from_fn_with_state(
+            SessionLayer::new(db.pool.clone()),
+            session::middleware,
+        ));
+    let response = completion
+        .oneshot(request(
+            "POST",
+            "/resume",
+            &guest,
+            &format!("_csrf={csrf}"),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM web_sessions WHERE account_id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await
 }

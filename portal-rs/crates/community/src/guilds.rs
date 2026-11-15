@@ -87,6 +87,7 @@ fn now() -> u64 {
 async fn handle(
     State(state): State<Ingest>,
     uri: axum::extract::OriginalUri,
+    Extension(publisher): Extension<guard::PublisherKey>,
     Extension(value): Extension<canonical::Value>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
@@ -103,6 +104,21 @@ async fn handle(
     };
     if publication.authority != state.config.source_authority {
         return guard::failure(StatusCode::UNAUTHORIZED);
+    }
+    let route = if publication.watermark {
+        "v2/guild/watermark"
+    } else {
+        "v2/guild"
+    };
+    if let Err(response) = crate::ingest::budget::check(
+        &state.db,
+        &publisher,
+        route,
+        crate::ingest::budget::configured_limit(),
+    )
+    .await
+    {
+        return response;
     }
     match apply(&state.db, &publication).await {
         Ok(result) => {

@@ -416,6 +416,8 @@ pub async fn read_in(
     if lock.is_none() {
         return Err(unavailable());
     }
+    sqlx::query("SELECT world_id FROM native_scope_assignments WHERE world_id=$1 AND channel_id=$2 FOR SHARE")
+        .bind(world).bind(channel).fetch_optional(&mut *tx).await.map_err(|_| unavailable())?;
     let row = sqlx::query("SELECT content_json, observed_at, invalid, node_identity FROM native_runtime_status_reports WHERE world_id=$1 AND channel_id=$2").bind(world).bind(channel).fetch_optional(&mut *tx).await.map_err(|_| unavailable())?;
     let Some(row) = row else { return Ok(result) };
     let content: String = row.try_get("content_json").map_err(|_| unavailable())?;

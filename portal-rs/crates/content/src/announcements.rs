@@ -122,7 +122,7 @@ impl Announcements {
         sqlx::query("SELECT pg_advisory_xact_lock(71010)")
             .execute(&mut *tx)
             .await?;
-        auth.check(context, Permission::ManagePortalAnnouncements)
+        auth.check_in(&mut tx, context, Permission::ManagePortalAnnouncements)
             .await?;
         input.validate()?;
         let id = existing.map_or_else(Uuid::now_v7, |v| v.0);
@@ -187,9 +187,8 @@ pub async fn banner(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::{
-        body::{Body, to_bytes},
-        http::{HeaderValue, Method, StatusCode, header},
-        response::IntoResponse,
+        body::Body,
+        http::{HeaderValue, Method, header},
     };
     let path = request.uri().path();
     let eligible = request.method() == Method::GET
@@ -215,6 +214,7 @@ pub async fn banner(
     };
     let mut response = next.run(request).await;
     if !eligible
+        || response.headers().contains_key(header::CONTENT_ENCODING)
         || !response.status().is_success()
         || !response
             .headers()
@@ -224,11 +224,12 @@ pub async fn banner(
         return response;
     }
     let (mut parts, body) = response.into_parts();
-    let Ok(bytes) = to_bytes(body, 2 * 1024 * 1024).await else {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    let bytes = match oteryn_web::decoration::buffer(body, 2 * 1024 * 1024, None).await {
+        Ok(bytes) => bytes,
+        Err(body) => return axum::response::Response::from_parts(parts, body),
     };
     let Ok(mut html) = String::from_utf8(bytes.to_vec()) else {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        return axum::response::Response::from_parts(parts, Body::from(bytes));
     };
     // Fragments and non-page responses are left intact.
     if let Some(position) = html.find("<main") {
@@ -243,3 +244,7 @@ pub async fn banner(
     response = axum::response::Response::from_parts(parts, Body::from(html));
     response
 }
+
+#[path = "announcements_staff.rs"]
+mod staff;
+pub use staff::{admin_router, configured_router, staff_router};

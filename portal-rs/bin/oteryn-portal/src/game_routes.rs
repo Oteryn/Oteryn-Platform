@@ -25,11 +25,12 @@
 //! The enforcement results group stays off while the restore notice is on:
 //! the notice does not yet reopen enforcement results (wire contract §6.4, E6).
 //! Character commands and both character-service exchanges also require
-//! `OTERYN_ENV` `testing` or `preproduction`, as the enablement runbook states.
+//! `OTERYN_ENV` `testing` or `preprod`, as the enablement runbook states.
 //! So do both journal ingest purposes (T72, G-11 §9 rollout), which also need
 //! their source authority and family list (`oteryn_playerdata::journal`).
-//! Store purchases require the same, and an `APP_ENV` set to one of those two
-//! (unset refuses): a production sale is impossible under the proposed store wire.
+//! Store purchases require the same, and separately require `APP_ENV` set to
+//! `testing` or `preproduction` (unset refuses): a production sale is impossible
+//! under the proposed store wire.
 //! `PORTAL_CHARACTER_COMMAND_IDENTITIES` is a JSON object keyed by one DNS SAN
 //! per Character Authority host, each value `[]`; those identities are bound to
 //! the command routes only, so every other route refuses them.
@@ -46,6 +47,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post_service,
 };
+use base64::Engine;
 use oteryn_characters::{bootstrap, commands, overview, restore, services};
 use oteryn_community::families;
 use oteryn_internal_api::{
@@ -77,18 +79,58 @@ const WATERMARK_BUFFER: usize = 4096;
 
 type Values = BTreeMap<String, String>;
 
-/// Merge every route below into the internal-listener router.
-pub async fn mount(app: Router, pool: PgPool) -> Router {
-    let values: Values = std::env::vars_os()
-        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
-        .collect();
-    let routes = Routes::configured(pool, &values).await;
+/// One startup snapshot of every purpose on the shared internal listener.
+pub struct Configuration {
+    values: Values,
+    registry: Result<Vec<Binding>, ConfigError>,
+}
+impl Configuration {
+    pub fn from_env() -> Result<Self, ConfigError> {
+        Self::new(
+            std::env::vars_os()
+                .filter_map(|(key, value)| {
+                    Some((key.into_string().ok()?, value.into_string().ok()?))
+                })
+                .collect(),
+        )
+    }
+    fn new(values: Values) -> Result<Self, ConfigError> {
+        validate_store_restore(&values)?;
+        let registry = bindings(&values);
+        Ok(Self { values, registry })
+    }
+}
+
+pub async fn mount(
+    app: Router,
+    pool: PgPool,
+    environment: oteryn_core::Environment,
+    configuration: Configuration,
+) -> Router {
+    let Configuration { values, registry } = configuration;
+    let routes = Routes::with_registry(pool, &values, environment, registry).await;
     if !routes.identities_valid {
         tracing::error!(
             "internal identity configuration is invalid or reuses an identity; game routes unavailable"
         );
     }
     routes.mount(app)
+}
+
+/// Restore does not yet reconcile Store receipts or include them in its fence.
+fn validate_store_restore(values: &Values) -> Result<(), ConfigError> {
+    if values
+        .get("PORTAL_GAME_RESTORE_NOTICE_ENABLED")
+        .map(String::as_str)
+        == Some("true")
+        && values
+            .get("PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED")
+            .map(String::as_str)
+            == Some("true")
+    {
+        return Err(ConfigError);
+    }
+    Ok(())
 }
 
 /// Built routers; `stats` and `families` also answer their own families on the
@@ -105,14 +147,28 @@ struct Diverted {
 }
 
 impl Routes {
-    pub async fn configured(pool: PgPool, values: &Values) -> Self {
+    #[cfg(test)]
+    pub async fn configured(
+        pool: PgPool,
+        values: &Values,
+        environment: oteryn_core::Environment,
+    ) -> Self {
+        Self::with_registry(pool, values, environment, bindings(values)).await
+    }
+
+    async fn with_registry(
+        pool: PgPool,
+        values: &Values,
+        environment: oteryn_core::Environment,
+        registry: Result<Vec<Binding>, ConfigError>,
+    ) -> Self {
         let get = |key: &str| values.get(key).cloned();
         let on = |key: &str| values.get(key).map(String::as_str) == Some("true");
         let qualified = matches!(
-            values.get("OTERYN_ENV").map(String::as_str),
-            Some("testing" | "preproduction")
+            environment,
+            oteryn_core::Environment::Testing | oteryn_core::Environment::Preprod
         );
-        let bindings = bindings(values);
+        let bindings = registry;
         let valid = bindings.is_ok();
         let bindings = bindings.unwrap_or_default();
         // Validated in `bindings`; the empty map refuses every peer.
@@ -205,6 +261,15 @@ impl Routes {
         );
 
         let mut store_settings = purchase::Settings::from_lookup(get);
+        // Store's domain settings use the contract's legacy environment labels.
+        // Adapt the parsed process environment here, never the raw OTERYN_ENV.
+        store_settings.environment = match environment {
+            oteryn_core::Environment::Local => "local",
+            oteryn_core::Environment::Testing => "testing",
+            oteryn_core::Environment::Preprod => "preproduction",
+            oteryn_core::Environment::Production => "production",
+        }
+        .into();
         store_settings.delivery_enabled &= valid;
         let mut purchase_settings = store_settings.clone();
         purchase_settings.purchase_enabled &= qualified
@@ -302,8 +367,19 @@ impl Routes {
     }
 
     pub fn mount(self, app: Router) -> Router {
+        let valid = self.identities_valid;
         app.merge(self.routes)
             .layer(middleware::from_fn_with_state(self.diverted, watermark))
+            .layer(middleware::from_fn(
+                move |request: Request, next: Next| async move {
+                    if !valid && request.uri().path().starts_with("/internal/") {
+                        return oteryn_internal_api::guard::failure(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                        );
+                    }
+                    next.run(request).await
+                },
+            ))
     }
 }
 
@@ -357,6 +433,35 @@ fn bindings(values: &Values) -> Result<Vec<Binding>, ConfigError> {
             bindings.push(Binding {
                 identity: Identity::san(raw)?,
                 group: group.into(),
+            });
+        }
+    }
+    if let Some(raw) = values.get("PORTAL_ADMIN_CONTROL_AGENTS_JSON") {
+        let agents: serde_json::Value = serde_json::from_str(raw).map_err(|_| ConfigError)?;
+        for agent in agents.as_array().ok_or(ConfigError)? {
+            let identity = agent
+                .get("identity")
+                .and_then(serde_json::Value::as_object)
+                .ok_or(ConfigError)?;
+            if identity.len() != 1 {
+                return Err(ConfigError);
+            }
+            let identity = if let Some(san) = identity.get("san") {
+                Identity::san(san.as_str().ok_or(ConfigError)?)?
+            } else if let Some(spki) = identity.get("spki") {
+                Identity::spki_sha256(
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD
+                        .decode(spki.as_str().ok_or(ConfigError)?)
+                        .map_err(|_| ConfigError)?
+                        .try_into()
+                        .map_err(|_| ConfigError)?,
+                )
+            } else {
+                return Err(ConfigError);
+            };
+            bindings.push(Binding {
+                identity,
+                group: "admin-control".into(),
             });
         }
     }

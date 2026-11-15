@@ -25,8 +25,8 @@ impl Runtime {
         if !state.allows_trade() {
             return Err(Error::Denied);
         }
-        if let Some(old)=sqlx::query("SELECT listing_id,buyer,character_id,maximum FROM bazaar_authority_gold_bids WHERE request_id=$1").bind(key).fetch_optional(&mut **tx).await? {
-            if old.try_get::<Uuid,_>("listing_id")?!=l.id || old.try_get::<Uuid,_>("buyer")?!=buyer || old.try_get::<Uuid,_>("character_id")?!=character || old.try_get::<i64,_>("maximum")?!=maximum{return Err(Error::Conflict);}return Ok(());
+        if check_bid_request(tx, key, l.id, buyer, character, maximum).await? {
+            return Ok(());
         }
         if l.ends_at.unix_timestamp() <= now(tx).await? as i64
             || !self
@@ -43,6 +43,7 @@ impl Runtime {
             return Err(Error::Unavailable);
         }
         let hold = current_hold(self.authority(), tx, l.id, buyer, None).await?;
+        let (offer, expected_revision) = super::gold::hold_binding(l.id, hold.as_ref(), key);
         let operation = self
             .issue(
                 tx,
@@ -54,13 +55,10 @@ impl Runtime {
                 vec![
                     ("buyer_account_id", string(buyer)),
                     ("buyer_character_id", string(character)),
-                    ("offer_id", string(l.id)),
+                    ("offer_id", string(offer)),
                     ("hold_purpose", string("RESERVE")),
                     ("amount", string(maximum)),
-                    (
-                        "expected_hold_revision",
-                        string(hold.map_or(0, |h| h.revision)),
-                    ),
+                    ("expected_hold_revision", string(expected_revision)),
                 ],
             )
             .await?;
@@ -68,8 +66,9 @@ impl Runtime {
         Ok(())
     }
     pub(super) async fn tick_gold_bids(&self) -> Result<(), Error> {
-        let requests:Vec<Uuid>=sqlx::query_scalar("SELECT request_id FROM bazaar_authority_gold_bids WHERE phase IN ('pending','releasing') ORDER BY request_id LIMIT 24").fetch_all(&self.pool).await?;
+        let requests = gold_batch(&self.pool).await?;
         for request in requests {
+            crate::scheduling::advance(&self.pool, "gold-bids", request).await?;
             match self.accept_gold_bid(request).await {
                 Ok(()) => {}
                 Err(Error::Database(e)) => return Err(Error::Database(e)),
@@ -86,6 +85,7 @@ impl Runtime {
         .bind(request)
         .fetch_one(&mut *tx)
         .await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
             .bind(listing)
             .fetch_one(&mut *tx)
@@ -228,7 +228,7 @@ impl Runtime {
         tx.commit().await?;
         Ok(())
     }
-    async fn gold_release(
+    pub(super) async fn gold_release(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         l: &Listing,
@@ -418,4 +418,13 @@ impl Runtime {
         }
         Ok(())
     }
+}
+
+pub(super) async fn gold_batch(pool: &PgPool) -> Result<Vec<Uuid>, Error> {
+    let cursor = crate::scheduling::cursor(pool, "gold-bids").await?;
+    let requests:Vec<Uuid>=sqlx::query_scalar("SELECT request_id FROM bazaar_authority_gold_bids WHERE phase IN ('pending','releasing') ORDER BY (request_id <= $1),request_id LIMIT 24").bind(cursor).fetch_all(pool).await?;
+    if let Some(last) = requests.last() {
+        crate::scheduling::advance(pool, "gold-bids", *last).await?;
+    }
+    Ok(requests)
 }

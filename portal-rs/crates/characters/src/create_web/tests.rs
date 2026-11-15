@@ -210,7 +210,7 @@ impl Database {
             .after_connect(move |conn, _| {
                 let search = search.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                    sqlx::query("SELECT set_config('search_path',$1,false),set_config('application_name',$1,false)")
                         .bind(search)
                         .execute(conn)
                         .await?;
@@ -221,6 +221,9 @@ impl Database {
             .await?;
         for migration in [
             include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
+            include_str!(
+                "../../../../migrations/20261105220209_accounts_native_security_generation.sql"
+            ),
             include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
             include_str!("../../../../migrations/20261105190000_t25_world_registry.sql"),
             include_str!("../../../../migrations/20261105220231_t22c_creation_policy.sql"),
@@ -548,4 +551,61 @@ async fn db_receipts_decide_outcome_and_expiry_alone_stays_pending() -> TestResu
         Outcome::Rejected("name-unavailable")
     );
     db.close().await
+}
+
+#[tokio::test]
+async fn db_all_pool_connections_can_submit_concurrently() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let world = db.world().await?;
+    let mut accounts = Vec::new();
+    for _ in 0..8 {
+        accounts.push(db.account("active").await?);
+    }
+    // Hold all account rows from a separate pool until every submission owns
+    // its transaction connection and is waiting at the account lock.
+    let mut fence = db.admin.begin().await?;
+    sqlx::query("SELECT set_config('search_path',$1,true)")
+        .bind(&db.schema)
+        .execute(&mut *fence)
+        .await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) FOR UPDATE")
+        .bind(&accounts)
+        .fetch_all(&mut *fence)
+        .await?;
+    let mut submissions = Vec::new();
+    for account in accounts {
+        let service = Creation::new(db.pool.clone(), settings());
+        submissions.push(tokio::spawn(async move {
+            service.submit(account, input(world)).await
+        }));
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'").bind(&db.schema).fetch_one(&db.admin).await?;
+            if waiting == 8 { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        Ok::<(), sqlx::Error>(())
+    }).await??;
+    fence.commit().await?;
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        for submission in submissions {
+            submission.await??;
+        }
+        Ok::<(), Box<dyn std::error::Error>>(())
+    })
+    .await??;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM character_commands")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 8);
+    db.close().await?;
+    eprintln!(
+        "db_all_pool_connections_can_submit_concurrently duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

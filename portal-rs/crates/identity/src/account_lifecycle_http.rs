@@ -8,7 +8,7 @@ use axum::{
     routing::get,
 };
 use oteryn_identity::{
-    accounts::Accounts,
+    sessions::NotificationAccounts as AccountState,
     termination::{self, ActorProof, BoundaryFuture},
 };
 use oteryn_web::{
@@ -27,30 +27,6 @@ struct Services {
     termination: termination::Terminations,
 }
 #[derive(Debug)]
-struct AccountState(Accounts);
-impl oteryn_notify::AccountState for AccountState {
-    fn active_verified(
-        &self,
-        id: Uuid,
-    ) -> oteryn_notify::NotifyFuture<'_, Option<oteryn_notify::Account>> {
-        Box::pin(async move {
-            Ok(self
-                .0
-                .find_by_id(id)
-                .await?
-                .filter(|a| a.status == "active" && a.email_verified_at.is_some())
-                .map(|a| oteryn_notify::Account {
-                    email: a.email,
-                    locale: if a.locale == "pl" {
-                        oteryn_notify::Locale::Pl
-                    } else {
-                        oteryn_notify::Locale::En
-                    },
-                }))
-        })
-    }
-}
-#[derive(Debug)]
 pub(crate) struct TerminationBoundary;
 impl termination::Boundary for TerminationBoundary {
     fn authorize<'a>(
@@ -60,7 +36,7 @@ impl termination::Boundary for TerminationBoundary {
         proof: &'a ActorProof,
     ) -> BoundaryFuture<'a> {
         Box::pin(async move {
-            let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND idle_expires_at>now() AND absolute_expires_at>now() AND sudo_until>now() AND sudo_until<=now()+interval '15 minutes')").bind(Sha256::digest(proof.0.as_bytes()).to_vec()).bind(account).fetch_one(&mut **tx).await?;
+            let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp() AND sudo_until>clock_timestamp() AND sudo_until<=clock_timestamp()+interval '15 minutes')").bind(Sha256::digest(proof.0.as_bytes()).to_vec()).bind(account).fetch_one(&mut **tx).await?;
             if valid {
                 Ok(())
             } else {
@@ -79,7 +55,7 @@ impl termination::Boundary for TerminationBoundary {
                 .bind(account)
                 .execute(&mut **tx)
                 .await?;
-            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active') OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery')) OR EXISTS(SELECT 1 FROM account_email_changes WHERE account_id=$1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>now()) OR EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1)").bind(account).fetch_one(&mut **tx).await?;
+            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active') OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery')) OR EXISTS(SELECT 1 FROM account_email_changes WHERE account_id=$1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp()) OR EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1)").bind(account).fetch_one(&mut **tx).await?;
             if blocked {
                 Err(termination::Error::UnknownState)
             } else {
@@ -120,7 +96,7 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
     };
     let notifications = Arc::new(oteryn_notify::Notifications {
         pool: pool.clone(),
-        accounts: Arc::new(AccountState(Accounts { pool: pool.clone() })),
+        accounts: Arc::new(AccountState(pool.clone())),
         unsubscribe: signing,
     });
     let mut sessions = SessionLayer::new(pool.clone());

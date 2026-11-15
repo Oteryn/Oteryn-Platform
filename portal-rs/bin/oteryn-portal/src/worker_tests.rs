@@ -30,7 +30,7 @@ impl Database {
             .after_connect(move |connection, _| {
                 let sql = search_path.clone();
                 Box::pin(async move {
-                    query("SELECT set_config('search_path', $1, false)")
+                    query("SELECT set_config('search_path', $1, false), set_config('application_name', $1, false)")
                         .bind(sql)
                         .execute(connection)
                         .await?;
@@ -632,4 +632,413 @@ async fn topup_refusals_are_audited_and_dead_lettered_without_credit() -> TestRe
             .await?;
     assert_eq!(audit, 21);
     db.close().await
+}
+
+// Exercise the actual payment-intent FOR UPDATE, not a simulated slow handler.
+async fn locked_topup(
+    db: &Database,
+) -> Result<(Uuid, sqlx::Transaction<'static, sqlx::Postgres>), Box<dyn std::error::Error>> {
+    let account = Uuid::now_v7();
+    let intent = Uuid::now_v7();
+    query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'deadline@example.invalid',now(),'unused','active','en')")
+        .bind(account).execute(&db.pool).await?;
+    query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,250,'PLN','succeeded')")
+        .bind(intent).bind(account).bind(intent.to_string()).execute(&db.pool).await?;
+    query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'fixed',1234,250,'PLN',$3)")
+        .bind(Uuid::now_v7()).bind(account).bind(intent).execute(&db.pool).await?;
+    let payload = serde_json::to_string(&oteryn_payments::TopUpJob {
+        intent_id: intent,
+        account_id: account,
+        amount: 250,
+        currency: "PLN".into(),
+    })?;
+    let mut tx = db.pool.begin().await?;
+    outbox::enqueue(
+        &mut tx,
+        "wallet.top_up",
+        &payload,
+        &intent.to_string(),
+        OffsetDateTime::now_utc(),
+        5,
+    )
+    .await?;
+    tx.commit().await?;
+    let mut lock = db.pool.begin().await?;
+    query("SELECT id FROM payment_intents WHERE id=$1 FOR UPDATE")
+        .bind(intent)
+        .execute(&mut *lock)
+        .await?;
+    Ok((intent, lock))
+}
+
+fn topup_registry(db: &Database) -> Result<Registry, String> {
+    let mut registry = Registry::default();
+    registry.register(
+        "wallet.top_up",
+        Arc::new(crate::wallet_topup::Delivery {
+            pool: db.pool.clone(),
+            payments_enabled: true,
+            wallet_enabled: true,
+        }),
+    )?;
+    Ok(registry)
+}
+
+#[tokio::test]
+async fn locked_topup_deadline_allows_later_batch_and_idempotent_retry() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let (intent, lock) = locked_topup(&db).await?;
+    let mut registry = topup_registry(&db)?;
+    registry.execution_budget = Duration::from_millis(200);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(3), registry.batch(&db.pool)).await??,
+        1
+    );
+    assert_eq!(outbox::counts(&db.pool).await?.running, 1);
+    let counter = Arc::new(AtomicUsize::new(0));
+    registry.register("later", Arc::new(Counter(counter.clone())))?;
+    db.enqueue("later", "later", 5).await?;
+    assert_eq!(registry.batch(&db.pool).await?, 1);
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    // The cancelled transaction must not resume and credit after this unlock.
+    lock.rollback().await?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let entries: i64 = query_scalar("SELECT count(*) FROM wallet_entries")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(
+        entries, 0,
+        "cancelled delivery must never resume after unlock"
+    );
+    query("UPDATE outbox SET leased_until=now()-interval '1 second' WHERE kind='wallet.top_up'")
+        .execute(&db.pool)
+        .await?;
+    registry.execution_budget = Duration::from_secs(5);
+    registry.batch(&db.pool).await?;
+    let entries: i64 = query_scalar("SELECT count(*) FROM wallet_entries WHERE operation_id=$1")
+        .bind(intent)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(entries, 1);
+    assert_eq!(outbox::counts(&db.pool).await?.done, 2);
+    db.close().await?;
+    eprintln!(
+        "PG locked_topup_deadline_allows_later_batch_and_idempotent_retry duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn shutdown_budget_cancels_locked_topup_and_leaves_retryable_lease() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let (_, lock) = locked_topup(&db).await?;
+    let mut registry = topup_registry(&db)?;
+    registry.shutdown_budget = Duration::from_millis(100);
+    let shutdown = tokio::sync::Notify::new();
+    let control = async {
+        // Observe the real lock wait before sending the shutdown signal.
+        loop {
+            let waiting: i64 = query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT account_id,amount,currency,state FROM payment_intents%'").bind(&db.schema).fetch_one(&db.pool).await?;
+            if waiting > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let signalled = std::time::Instant::now();
+        shutdown.notify_one();
+        Ok::<_, Box<dyn std::error::Error>>(signalled)
+    };
+    let (result, signalled) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            run_until(db.pool.clone(), registry, shutdown.notified()),
+            control
+        )
+    })
+    .await?;
+    result?;
+    assert!(signalled?.elapsed() < Duration::from_secs(1));
+    lock.rollback().await?;
+    let entries: i64 = query_scalar("SELECT count(*) FROM wallet_entries")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(entries, 0);
+    assert_eq!(outbox::counts(&db.pool).await?.running, 1);
+    query("UPDATE outbox SET leased_until=now()-interval '1 second'")
+        .execute(&db.pool)
+        .await?;
+    topup_registry(&db)?.batch(&db.pool).await?;
+    assert_eq!(outbox::counts(&db.pool).await?.done, 1);
+    db.close().await?;
+    eprintln!(
+        "PG shutdown_budget_cancels_locked_topup_and_leaves_retryable_lease duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn sixteen_locked_topups_finish_after_heartbeat_with_exhausted_handler_pool() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let (intent, lock) = locked_topup(&db).await?;
+    let payload: String =
+        query_scalar("SELECT payload::text FROM outbox WHERE kind='wallet.top_up'")
+            .fetch_one(&db.pool)
+            .await?;
+    for index in 1..16 {
+        let mut tx = db.pool.begin().await?;
+        outbox::enqueue(
+            &mut tx,
+            "wallet.top_up",
+            &payload,
+            &format!("saturation-{index}"),
+            OffsetDateTime::now_utc(),
+            5,
+        )
+        .await?;
+        tx.commit().await?;
+    }
+    let handlers = db
+        .pool
+        .options()
+        .clone()
+        .max_connections(16)
+        .min_connections(0)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect_with((*db.pool.connect_options()).clone())
+        .await?;
+    let mut registry = Registry {
+        heartbeat_interval: Duration::from_millis(100),
+        ..Default::default()
+    };
+    registry.register(
+        "wallet.top_up",
+        Arc::new(crate::wallet_topup::Delivery {
+            pool: handlers.clone(),
+            payments_enabled: true,
+            wallet_enabled: true,
+        }),
+    )?;
+    let unlock = async {
+        loop {
+            let waiting: i64 = query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT account_id,amount,currency,state FROM payment_intents%'")
+                .bind(&db.schema).fetch_one(&db.pool).await?;
+            if waiting == 16 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        lock.rollback().await?;
+        Ok::<_, Box<dyn std::error::Error>>(())
+    };
+    let (batch, unlock) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(registry.batch(&handlers), unlock)
+    })
+    .await?;
+    unlock?;
+    assert_eq!(batch?, 16);
+    assert_eq!(outbox::counts(&db.pool).await?.done, 16);
+    let entries: i64 = query_scalar("SELECT count(*) FROM wallet_entries WHERE operation_id=$1")
+        .bind(intent)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(entries, 1);
+    db.enqueue("wallet.top_up", "later", 1).await?;
+    assert_eq!(registry.batch(&handlers).await?, 1);
+    handlers.close().await;
+    db.close().await?;
+    eprintln!(
+        "PG sixteen_locked_topups_finish_after_heartbeat_with_exhausted_handler_pool duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn handler_finishes_while_renewal_waits_for_capacity() -> TestResult {
+    let started_at = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    db.enqueue("gated", "renewal-pending", 5).await?;
+    let job = outbox::claim(&db.pool, 1, 60)
+        .await?
+        .pop()
+        .ok_or("job missing")?;
+    let leases = db
+        .pool
+        .options()
+        .clone()
+        .max_connections(1)
+        .min_connections(0)
+        .connect_with((*db.pool.connect_options()).clone())
+        .await?;
+    let held = leases.acquire().await?;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let handler = Arc::new(GatedHandler {
+        started: started.clone(),
+        release: release.clone(),
+    });
+    let control = async {
+        started.notified().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        release.notify_one();
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::join!(
+            execute(
+                &db.pool,
+                &leases,
+                job,
+                Some(handler),
+                Duration::from_secs(15)
+            ),
+            control
+        )
+    })
+    .await?;
+    result?;
+    assert_eq!(outbox::counts(&db.pool).await?.done, 1);
+    drop(held);
+    leases.close().await;
+    db.close().await?;
+    eprintln!(
+        "PG handler_finishes_while_renewal_waits_for_capacity duration={:.3}s",
+        started_at.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_journal_registry_expires_and_erases_lifecycle_payloads() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    let character = Uuid::now_v7();
+    let transferred = Uuid::now_v7();
+    query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'journal@example.test','x','active','en')").bind(account).execute(&db.pool).await?;
+    // Payload rows represent each retention class and an unexpired sibling.
+    for (key, family, progress, expired) in [
+        ("bank", "BANK", false, true),
+        ("login", "game_login", true, true),
+        ("stamina", "stamina", true, true),
+        ("live", "stamina", true, false),
+    ] {
+        query("INSERT INTO pd_streams(stream_key,authority,account_id,family,progress) VALUES($1,'journal-test',$2,$3,$4)").bind(key).bind(account.to_string()).bind(family).bind(progress).execute(&db.pool).await?;
+        let record: serde_json::Value = serde_json::from_str(if family == "BANK" {
+            include_str!(
+                "../../../../docs/contracts/fixtures/game-journal-items-v1/record-bank-entry.valid.json"
+            )
+        } else {
+            include_str!(
+                "../../../../docs/contracts/fixtures/game-journal-progress-v1/record-stamina.valid.json"
+            )
+        })?;
+        let payload = if family == "game_login" {
+            include_bytes!("../../../../docs/contracts/fixtures/game-journal-progress-v1/payload-game-login.valid.json").to_vec()
+        } else {
+            serde_json::to_vec(&record["payload"])?
+        };
+        query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) VALUES($1,1,'journal-test','3',$1,$1,$2,'test','UPSERT',0,0,decode(repeat('00',32),'hex'),$4,CASE WHEN $3 THEN 0 ELSE 9000000000000 END)").bind(key).bind(character.to_string()).bind(expired).bind(payload).execute(&db.pool).await?;
+    }
+    let mut registry = Registry::default();
+    register_journal_cleanup(&mut registry, &db.pool)?;
+    registry.schedule(&db.pool).await?;
+    assert_eq!(registry.batch(&db.pool).await?, 1);
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_records WHERE payload IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    for (key, subject) in [
+        ("transferred", Some(transferred.to_string())),
+        ("account", None),
+    ] {
+        query("INSERT INTO pd_records SELECT stream_key,2,'journal-test','3',$1,$1,$2,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms FROM pd_records WHERE stream_key='live' AND source_revision=1")
+            .bind(key).bind(subject).execute(&db.pool).await?;
+        // Distinct revisions in the same stream retain independent subjects.
+        query("UPDATE pd_records SET source_revision=3 WHERE record_id='transferred'")
+            .execute(&db.pool)
+            .await?;
+    }
+    // A scheduled deletion is not terminal and must retain current payloads.
+    query("INSERT INTO character_service_states(account_id,character_id,epoch,revision,character_revision,snapshot_json) VALUES($1,$2,1,1,'1','{\"lifecycle\":\"DELETION_PENDING\"}')").bind(account).bind(character).execute(&db.pool).await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_erasure_jobs")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    query("UPDATE character_service_states SET snapshot_json='{\"lifecycle\":\"DELETED\"}',revision=2").execute(&db.pool).await?;
+    db.enqueue("cleanup.journal-payloads", "character-erasure", 3)
+        .await?;
+    registry.batch(&db.pool).await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_records WHERE payload IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await?,
+        2
+    );
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_deleted_scopes")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    // The same authoritative handoff also covers transfers and account closure.
+    query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json,receipt_json,state) VALUES($1,$1,'transfer','TransferCharacterOwnership',$2,$3,'{}','{}',json_build_object('outcome','COMMITTED','from_account_id',$2::text,'character_id',$4::text)::text,'TERMINAL')").bind(Uuid::now_v7()).bind(account).bind(Uuid::now_v7()).bind(transferred).execute(&db.pool).await?;
+    db.enqueue("cleanup.journal-payloads", "transfer-erasure", 3)
+        .await?;
+    registry.batch(&db.pool).await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_records WHERE payload IS NOT NULL")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    query("UPDATE accounts SET status='closed' WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_erasure_jobs")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    db.enqueue("cleanup.journal-payloads", "account-erasure", 3)
+        .await?;
+    registry.batch(&db.pool).await?;
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_streams WHERE NOT erased")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    assert_eq!(
+        query_scalar::<_, i64>("SELECT count(*) FROM pd_erasure_jobs")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await?;
+    eprintln!(
+        "postgres_journal_registry_expires_and_erases_lifecycle_payloads duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

@@ -6,6 +6,12 @@
 mod http;
 mod storage;
 mod wire;
+
+/// Validate the unchanged CC1 receipt contract for durable saga reconciliation.
+pub fn parse_receipt(raw: &[u8]) -> Result<oteryn_internal_api::canonical::Value, Error> {
+    wire::receipt(raw)
+}
+
 pub use http::router;
 use sqlx::PgPool;
 use std::{future::Future, sync::Arc};
@@ -163,13 +169,19 @@ pub struct CommandStatus {
 pub struct Commands {
     pool: PgPool,
     settings: Arc<Settings>,
+    restore_lock: bool,
 }
 impl Commands {
     pub fn new(pool: PgPool, settings: Settings) -> Self {
         Self {
             pool,
             settings: Arc::new(settings),
+            restore_lock: false,
         }
+    }
+    pub(crate) fn with_restore_lock(mut self) -> Self {
+        self.restore_lock = true;
+        self
     }
     /// One key per authorized submission/saga step. An exact retry returns the
     /// original operation even after expiry or receipt; changed intent conflicts.
@@ -180,6 +192,30 @@ impl Commands {
         key: &str,
         intent: Intent,
     ) -> Result<CommandStatus, Error> {
+        self.validate_submission(accounts, decision_id, key, &intent)
+            .await?;
+        self.issue(decision_id, key, intent).await
+    }
+    /// Caller must resolve account eligibility on this connection before calling.
+    pub(crate) async fn enqueue_in(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        accounts: &impl AccountStateReader,
+        decision_id: Uuid,
+        key: &str,
+        intent: Intent,
+    ) -> Result<CommandStatus, Error> {
+        self.validate_submission(accounts, decision_id, key, &intent)
+            .await?;
+        self.issue_in(conn, decision_id, key, intent).await
+    }
+    async fn validate_submission(
+        &self,
+        accounts: &impl AccountStateReader,
+        decision_id: Uuid,
+        key: &str,
+        intent: &Intent,
+    ) -> Result<(), Error> {
         if !self.settings.available()
             || !(match intent {
                 Intent::Create { .. } => self.settings.create_enabled,
@@ -202,7 +238,7 @@ impl Commands {
         {
             return Err(Error::Denied);
         }
-        self.issue(decision_id, key, intent).await
+        Ok(())
     }
     /// Internal saga API; callers must apply object authorization before showing
     /// any returned private intent or receipt to a player.

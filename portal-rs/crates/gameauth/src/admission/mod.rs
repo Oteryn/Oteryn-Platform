@@ -32,3 +32,6 @@ pub use wire::{AdmissionRequest, Channel, Endpoint, Error, Material, Recovery, c
 mod protocol3_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod audit05_tests;

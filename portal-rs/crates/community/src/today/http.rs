@@ -2,8 +2,8 @@ use super::{Config, Error, schema, store, view::read_current};
 use crate::v2_watermark::Part;
 use askama::Template;
 use axum::{
-    Router,
-    body::{Body, Bytes, to_bytes},
+    Extension, Router,
+    body::{Body, Bytes},
     extract::{OriginalUri, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{Next, from_fn, from_fn_with_state},
@@ -12,10 +12,7 @@ use axum::{
 };
 use oteryn_internal_api::guard::{self, IdentityMap, JsonRule, RoutePolicy};
 use sqlx::PgPool;
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-};
+use std::sync::Arc;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 #[derive(Clone)]
@@ -27,12 +24,6 @@ struct Surface {
 struct Ingest {
     surface: Surface,
     watermark: bool,
-    rate: Arc<Mutex<Rate>>,
-}
-#[derive(Default)]
-struct Rate {
-    snapshots: VecDeque<i64>,
-    watermarks: VecDeque<i64>,
 }
 fn now() -> i64 {
     OffsetDateTime::now_utc().unix_timestamp()
@@ -43,7 +34,6 @@ pub fn router(db: PgPool, identities: Arc<IdentityMap>, config: Config) -> Route
 }
 fn routes(db: PgPool, identities: Arc<IdentityMap>, config: Config, part: Part) -> Router {
     let mut router = Router::new();
-    let rate = Arc::new(Mutex::new(Rate::default()));
     for watermark in [false, true] {
         let path = if watermark {
             "watermark"
@@ -61,7 +51,6 @@ fn routes(db: PgPool, identities: Arc<IdentityMap>, config: Config, part: Part) 
                     config: config.clone(),
                 },
                 watermark,
-                rate: rate.clone(),
             });
         router = router.merge(guard::protect(
             route,
@@ -86,7 +75,12 @@ async fn ingest_headers(request: Request, next: Next) -> Response {
     no_store(&mut r);
     r
 }
-async fn ingest(State(state): State<Ingest>, headers: HeaderMap, body: Bytes) -> Response {
+async fn ingest(
+    State(state): State<Ingest>,
+    Extension(publisher): Extension<guard::PublisherKey>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     if headers
         .get(header::CONTENT_LENGTH)
         .is_some_and(|v| v.to_str().ok().and_then(|s| s.parse::<usize>().ok()) != Some(body.len()))
@@ -105,30 +99,15 @@ async fn ingest(State(state): State<Ingest>, headers: HeaderMap, body: Bytes) ->
     if authority != &state.surface.config.source_authority {
         return guard::failure(StatusCode::UNAUTHORIZED);
     }
-    let allowed = {
-        let Ok(mut rate) = state.rate.lock() else {
-            return guard::failure(StatusCode::SERVICE_UNAVAILABLE);
-        };
-        let (times, limit) = if state.watermark {
-            (&mut rate.watermarks, 60)
-        } else {
-            (&mut rate.snapshots, 120)
-        };
-        while times.front().is_some_and(|t| *t <= now - 60) {
-            times.pop_front();
-        }
-        if times.len() >= limit {
-            false
-        } else {
-            times.push_back(now);
-            true
-        }
+    let (route, limit) = if state.watermark {
+        ("v2/world-daily/watermark", 60)
+    } else {
+        ("v2/world-daily", 120)
     };
-    if !allowed {
-        let mut r = guard::failure(StatusCode::TOO_MANY_REQUESTS);
-        r.headers_mut()
-            .insert(header::RETRY_AFTER, HeaderValue::from_static("60"));
-        return r;
+    if let Err(response) =
+        crate::ingest::budget::check(&state.surface.db, &publisher, route, limit).await
+    {
+        return response;
     }
     match store::apply(&state.surface.db, &state.surface.config, &publication).await {
         Ok(result) => {
@@ -314,10 +293,11 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     let uri = request.uri().clone();
     let today = matches!(uri.path(), "/today" | "/pl/today" | "/en/today");
     let response = next.run(request).await;
-    if !response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .is_some_and(|v| v.as_bytes().starts_with(b"text/html"))
+    if response.headers().contains_key(header::CONTENT_ENCODING)
+        || !response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .is_some_and(|v| v.as_bytes().starts_with(b"text/html"))
     {
         return response;
     }
@@ -326,17 +306,20 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     let view = result.as_ref().ok().map(|(v, _)| v);
     let lang = result.as_ref().map_or(lang, |(_, l)| *l);
     let (mut parts, body) = response.into_parts();
-    let bytes =
-        match tokio::time::timeout(std::time::Duration::from_secs(3), to_bytes(body, 2_097_152))
-            .await
-        {
-            Ok(Ok(b)) => b,
-            _ => return guard::failure(StatusCode::SERVICE_UNAVAILABLE),
-        };
+    let bytes = match oteryn_web::decoration::buffer(
+        body,
+        2_097_152,
+        Some(std::time::Duration::from_secs(3)),
+    )
+    .await
+    {
+        Ok(bytes) => bytes,
+        Err(body) => return Response::from_parts(parts, body),
+    };
     let view = view.filter(|v| v.eligible(now()));
     let mut html = match String::from_utf8(bytes.to_vec()) {
         Ok(s) => s,
-        Err(_) => return guard::failure(StatusCode::SERVICE_UNAVAILABLE),
+        Err(_) => return Response::from_parts(parts, Body::from(bytes)),
     };
     // The new source participates in the existing page's overall availability.
     if today

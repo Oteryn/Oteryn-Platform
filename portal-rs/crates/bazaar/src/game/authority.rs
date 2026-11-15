@@ -328,9 +328,14 @@ impl Authority {
             id(&value.to_string())?;
         }
         let p = BazaarAuthorityDecisionV1::decode(raw).map_err(|_| Error::Invalid)?;
-        let old=sqlx::query("SELECT envelope_semantics,event_id,operation_id,transaction_id,ordinal,event_count,payload,source_authority FROM bazaar_authority_decisions WHERE event_id=$1 OR (transaction_id=$2 AND ordinal=$3)").bind(e.event_id).bind(e.transaction_id).bind(e.ordinal as i32).fetch_optional(&mut **db).await?;
-        if let Some(old) = old {
-            if old.try_get::<Vec<u8>, _>("envelope_semantics")? == semantics
+        let old=sqlx::query("SELECT envelope_semantics,event_id,operation_id,transaction_id,ordinal,event_count,payload,source_authority FROM bazaar_authority_decisions WHERE event_id=$1 OR (transaction_id=$2 AND ordinal=$3)").bind(e.event_id).bind(e.transaction_id).bind(e.ordinal as i32).fetch_all(&mut **db).await?;
+        if !old.is_empty() {
+            let first = &old[0];
+            let exact = old.len() == 1;
+            let old_rows = &old;
+            let old = first;
+            if exact
+                && old.try_get::<Vec<u8>, _>("envelope_semantics")? == semantics
                 && old.try_get::<Uuid, _>("event_id")? == e.event_id
                 && old.try_get::<Uuid, _>("operation_id")? == e.operation_id
                 && old.try_get::<Uuid, _>("transaction_id")? == e.transaction_id
@@ -342,6 +347,11 @@ impl Authority {
                 return Ok(ReceiptResult::Duplicate);
             }
             sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'DECISION')").bind(e.operation_id).bind(digest(raw)).execute(&mut **db).await?;
+            for existing in old_rows {
+                sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'DECISION')")
+                    .bind(existing.try_get::<Uuid, _>("operation_id")?)
+                    .bind(digest(raw)).execute(&mut **db).await?;
+            }
             return Ok(ReceiptResult::Quarantined);
         }
         let row=sqlx::query("SELECT o.intent,r.receipt FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.operation_id=$1 AND r.recovery_generation=$2::text::numeric").bind(e.operation_id).bind(self.fence.recovery_generation.to_string()).fetch_optional(&mut **db).await?.ok_or(Error::Unavailable)?;

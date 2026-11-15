@@ -79,9 +79,11 @@ pub struct Intent {
 /// Trusted current operation authority. Implementations must check current
 /// account status, staff MFA, session ownership,
 /// operation permission and advertisement. No wildcard or fallback authorization.
+/// Authorization and approver reads must use the supplied connection, never the pool.
 pub trait Authority: Send + Sync + 'static {
     fn authorize(
         &self,
+        _connection: &mut sqlx::PgConnection,
         session: &BrowserSession,
         operation: &str,
     ) -> impl Future<Output = Result<(Identity, Operation), Refusal>> + Send;
@@ -89,6 +91,7 @@ pub trait Authority: Send + Sync + 'static {
     -> impl Future<Output = Result<Uuid, Refusal>> + Send;
     fn approver(
         &self,
+        _connection: &mut sqlx::PgConnection,
         admin: Uuid,
         operation: &Operation,
     ) -> impl Future<Output = Result<(), Refusal>> + Send;
@@ -149,6 +152,7 @@ impl TotpVerifier for Unavailable {
 impl Authority for Unavailable {
     async fn authorize(
         &self,
+        _connection: &mut sqlx::PgConnection,
         _: &BrowserSession,
         _: &str,
     ) -> Result<(Identity, Operation), Refusal> {
@@ -157,7 +161,12 @@ impl Authority for Unavailable {
     async fn staff(&self, _: &BrowserSession) -> Result<Uuid, Refusal> {
         Err(Refusal::Unavailable)
     }
-    async fn approver(&self, _: Uuid, _: &Operation) -> Result<(), Refusal> {
+    async fn approver(
+        &self,
+        _connection: &mut sqlx::PgConnection,
+        _: Uuid,
+        _: &Operation,
+    ) -> Result<(), Refusal> {
         Err(Refusal::Unavailable)
     }
 }
@@ -348,7 +357,17 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
         name: &str,
     ) -> Result<(Identity, Operation), Refusal> {
         self.enabled()?;
-        let (identity, operation) = self.authority.authorize(session, name).await?;
+        let mut connection = self.pool.acquire().await?;
+        self.authorized_in(&mut connection, session, name).await
+    }
+    async fn authorized_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        session: &BrowserSession,
+        name: &str,
+    ) -> Result<(Identity, Operation), Refusal> {
+        self.enabled()?;
+        let (identity, operation) = self.authority.authorize(connection, session, name).await?;
         if identity.admin_id.is_nil()
             || session.account_id().await != Some(identity.admin_id)
             || operation.name != name
@@ -358,9 +377,13 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
         Ok((identity, operation))
     }
     async fn now(&self) -> Result<i64, Refusal> {
+        let mut connection = self.pool.acquire().await?;
+        Self::now_in(&mut connection).await
+    }
+    async fn now_in(connection: &mut sqlx::PgConnection) -> Result<i64, Refusal> {
         Ok(
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
-                .fetch_one(&self.pool)
+                .fetch_one(connection)
                 .await?,
         )
     }
@@ -421,7 +444,11 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
         Ok(())
     }
     async fn preview(&self, id: Uuid) -> Result<Preview, Refusal> {
-        let r = sqlx::query("SELECT id,requester,operation,permission,preview_digest,preview,reason FROM admin_control_previews WHERE id=$1").bind(id).fetch_optional(&self.pool).await?.ok_or(Refusal::DryRunRequired)?;
+        let mut connection = self.pool.acquire().await?;
+        Self::preview_in(&mut connection, id).await
+    }
+    async fn preview_in(connection: &mut sqlx::PgConnection, id: Uuid) -> Result<Preview, Refusal> {
+        let r = sqlx::query("SELECT id,requester,operation,permission,preview_digest,preview,reason FROM admin_control_previews WHERE id=$1").bind(id).fetch_optional(connection).await?.ok_or(Refusal::DryRunRequired)?;
         Ok(Preview {
             id: r.try_get("id")?,
             requester: r.try_get("requester")?,

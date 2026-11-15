@@ -247,6 +247,7 @@ impl Database {
             include_str!("../../../../migrations/20261105231101_t24d_deaths.sql"),
             include_str!("../../../../migrations/20261105231103_t24f_houses.sql"),
             include_str!("../../../../migrations/20261115110006_fix_06_projection_read_bounds.sql"),
+            include_str!("../../../../migrations/20261115110016_fix_w2a_ingest_budget.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&db).await?;
         }

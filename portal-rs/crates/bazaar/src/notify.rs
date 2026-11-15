@@ -172,22 +172,25 @@ impl<E: NoticeEvidence, S: NoticeSink> BazaarNotifications<E, S> {
 
     /// One bounded transaction per event. Disabled dispatch does not claim or alter rows.
     /// Failed evidence is retained as suppressed; sink errors roll back and remain pending.
-    /// SKIP LOCKED allows concurrent workers without duplicate channel effects.
+    /// Evidence precedes the outbox lock in both recording and dispatch.
+    /// SKIP LOCKED and a pending-state recheck prevent duplicate channel effects.
     pub async fn dispatch_one(&self) -> Result<bool, Error> {
         if !self.flags.enabled {
             return Err(Error::Disabled);
         }
-        let mut tx = self.pool.begin().await?;
+        let cursor = crate::scheduling::cursor(&self.pool, "notifications").await?;
         let row: Option<(Uuid, Uuid, Uuid, Uuid, Uuid, String)> = sqlx::query_as(
             "SELECT id,transition_id,listing_id,recipient_id,evidence_id,kind
              FROM bazaar_notification_outbox WHERE state='pending'
-             ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1",
+             ORDER BY (id <= $1),id LIMIT 1",
         )
-        .fetch_optional(&mut *tx)
+        .bind(cursor)
+        .fetch_optional(&self.pool)
         .await?;
         let Some((id, transition, listing, recipient, evidence, kind)) = row else {
             return Ok(false);
         };
+        crate::scheduling::advance(&self.pool, "notifications", id).await?;
         let notice = BazaarNotice {
             transition,
             listing,
@@ -195,11 +198,17 @@ impl<E: NoticeEvidence, S: NoticeSink> BazaarNotifications<E, S> {
             evidence,
             kind: NoticeKind::parse(&kind)?,
         };
-        let state = if self
+        let mut tx = self.pool.begin().await?;
+        let valid = self
             .evidence
             .verify(&mut tx, &notice, OffsetDateTime::now_utc())
-            .await?
-        {
+            .await?;
+        // Record and dispatch both verify evidence before locking the outbox.
+        let pending:Option<Uuid>=sqlx::query_scalar("SELECT id FROM bazaar_notification_outbox WHERE id=$1 AND state='pending' FOR UPDATE SKIP LOCKED").bind(id).fetch_optional(&mut *tx).await?;
+        if pending.is_none() {
+            return Ok(false);
+        }
+        let state = if valid {
             self.sink.enqueue(&mut tx, id, &notice).await?;
             "delivered"
         } else {

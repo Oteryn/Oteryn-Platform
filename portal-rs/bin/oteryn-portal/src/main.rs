@@ -84,6 +84,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tokio::signal::ctrl_c().await?;
         }
         Role::Serve => {
+            let internal_configuration = game_routes::Configuration::from_env()?;
             let catalog_db = db.clone();
             let catalog_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let refresh_ready = catalog_ready.clone();
@@ -99,16 +100,16 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     ),
                 }
             });
-            let _league_listener =
+            let league_listener =
                 oteryn_minigames::league::transport::start_private_listener(db.clone()).await?;
             let bazaar = oteryn_bazaar::game::runtime::Runtime::configured(db.clone()).await?;
-            let _bazaar_listener = if let Some(runtime) = &bazaar {
+            let bazaar_listener = if let Some(runtime) = &bazaar {
                 Some(runtime.start_private_listener().await?)
             } else {
                 None
             };
             let closure = account_closure::configured(db.clone())?;
-            let _closure_listener = account_closure::start_listener(db.clone(), &closure).await?;
+            let closure_listener = account_closure::start_listener(db.clone(), &closure).await?;
             let _admission_listener = game_login::start_admission_listener(db.clone()).await?;
             let static_dir =
                 std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
@@ -151,7 +152,6 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Legacy redirects are the site fallback (oteryn_web::router), so
             // module routes on the same paths never overlap with them.
             let app = app.merge(oteryn_web::seo::router(seo));
-            let app = oteryn_web::register::configured(app);
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::web::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
@@ -167,6 +167,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_wiki::web::configured_router(db.clone())?);
             let app = app.merge(oteryn_world::admin::configured_router(db.clone())?);
             let app = app.merge(oteryn_content::news::configured_router(db.clone())?);
+            let app = app.merge(oteryn_content::announcements::configured_router(
+                db.clone(),
+            )?);
             let app = app.merge(oteryn_stats::character::http::configured_router(db.clone()));
             let app = app.merge(oteryn_stats::watch::http::configured_router(db.clone()));
             let app = app.merge(oteryn_stats::rankings::configured_router(db.clone()));
@@ -174,6 +177,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_stats::guilds::http::configured_router(db.clone()));
             let app = app.merge(oteryn_content::media::configured_router(db.clone())?);
             let app = app.merge(game_login::player_router(db.clone()));
+            let app = app.layer(axum::Extension(game_login::device_authority(
+                oteryn_gameauth::oauth::Config::from_env(),
+                std::env::var("OTERYN_NATIVE_DEVICE_PROJECTION_AUTHORITY").unwrap_or_default(),
+            )));
             let app = app.merge(oteryn_support::reports::configured_router(db.clone()));
             let app = app.merge(oteryn_admin::players::http::configured_router(db.clone())?);
             let wizard_pool = db.clone();
@@ -227,7 +234,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             ));
             let app = app.merge(shop_web::router(db.clone()));
             let app = app.merge(oteryn_player_api::account_feed::configured_router());
-            let app = app.merge(oteryn_admin::support::web::configured_router(db.clone())?);
+            let app = app.merge(oteryn_support::tickets::configured_staff_router(
+                db.clone(),
+            )?);
             let app = app.merge(oteryn_atlas::spawns::configured_router(db.clone()));
             let app = app.layer(axum::middleware::from_fn(
                 oteryn_atlas::spawns::viewer_policy,
@@ -363,6 +372,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Same router behind verified mTLS; the only adapter that admits /internal/v1 peers.
             let app = app.merge(oteryn_wallet::wire::configured_router(db.clone()));
             // Internal-only exports stay off the public and native listeners.
+            // Apply browser configuration after all public modules are merged.
+            let app = oteryn_web::register::configured(app);
             let public_app = app.clone();
             let app = app.merge(oteryn_support::sanctions::export::configured_router(
                 db.clone(),
@@ -383,24 +394,84 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             };
             // Game-facing internal routes, each behind its own default-off flag
             // and client identity; composition and variables in game_routes.rs.
-            let app = game_routes::mount(app, db.clone()).await;
+            let app =
+                game_routes::mount(app, db.clone(), config.environment, internal_configuration)
+                    .await;
             let _internal_listener = internal_tls::start(app.clone()).await?;
             let app = public_app;
             let _native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = tokio::signal::ctrl_c().await;
-                })
-                .await?;
+            let mut private_listeners = tokio::task::JoinSet::new();
+            for (name, handle) in [
+                ("league", league_listener),
+                ("bazaar", bazaar_listener),
+                ("account-closure", closure_listener),
+            ] {
+                if let Some(handle) = handle {
+                    private_listeners.spawn(async move { (name, handle.await) });
+                }
+            }
+            supervise_private_listeners(private_listeners, async move {
+                axum::serve(listener, app)
+                    .with_graceful_shutdown(async {
+                        let _ = tokio::signal::ctrl_c().await;
+                    })
+                    .await
+            })
+            .await?;
         }
     }
     Ok(())
 }
 
+type ListenerCompletion = (&'static str, Result<(), tokio::task::JoinError>);
+
+async fn supervise_private_listeners(
+    mut listeners: tokio::task::JoinSet<ListenerCompletion>,
+    server: impl std::future::Future<Output = std::io::Result<()>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tokio::select! {
+        result = listeners.join_next(), if !listeners.is_empty() => {
+            Err(listener_stopped(result).into())
+        }
+        result = server => { result?; Ok(()) }
+    }
+}
+
+fn listener_stopped(result: Option<Result<ListenerCompletion, tokio::task::JoinError>>) -> String {
+    match result {
+        Some(Ok((name, result))) => {
+            format!("{name} private listener stopped unexpectedly: {result:?}")
+        }
+        other => format!("private listener supervisor stopped unexpectedly: {other:?}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn all_private_listener_completions_are_supervised()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for name in ["league", "bazaar", "account-closure"] {
+            let handle = tokio::spawn(async {});
+            let mut tasks = tokio::task::JoinSet::new();
+            tasks.spawn(async move { (name, handle.await) });
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                supervise_private_listeners(tasks, std::future::pending()),
+            )
+            .await?;
+            let error = result
+                .err()
+                .ok_or("a stopped listener must fail serve")?
+                .to_string();
+            assert!(error.contains(name));
+            assert!(error.contains("stopped unexpectedly"));
+        }
+        Ok(())
+    }
 
     #[test]
     fn roles_parse_with_serve_as_default() {
@@ -452,3 +523,29 @@ mod account_lifecycle_http;
 mod account_closure;
 
 mod catalog_cli;
+
+#[cfg(test)]
+mod browser_configuration_tests {
+    #[test]
+    fn csrf_configuration_wraps_coin_and_moderation_routes() {
+        let source = include_str!("main.rs");
+        let composition = source.split("#[cfg(test)]").next().unwrap_or_default();
+        let configuration = composition
+            .find("let app = oteryn_web::register::configured(app);")
+            .unwrap_or_default();
+        for route in [
+            "coin_purchases::configured_router",
+            "oteryn_bazaar::moderation::web::configured_router",
+        ] {
+            assert!(composition.find(route).is_some_and(|at| at < configuration));
+        }
+        assert!(
+            composition
+                .find("let public_app = app.clone();")
+                .is_some_and(|at| at > configuration)
+        );
+    }
+}
+
+#[cfg(test)]
+mod large_pages_tests;

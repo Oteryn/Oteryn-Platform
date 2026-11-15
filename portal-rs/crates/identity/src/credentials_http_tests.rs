@@ -216,3 +216,171 @@ impl credentials::AuthorizationRevoker for TestRevoker {
         Box::pin(async { Ok(()) })
     }
 }
+
+#[tokio::test]
+async fn audit02_sudo_uses_one_connection_and_preserves_retry_after()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let path: String = sqlx::query_scalar("SHOW search_path")
+        .fetch_one(&db.pool)
+        .await?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(2))
+        .after_connect(move |conn, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with((*db.pool.connect_options()).clone())
+        .await?;
+    let id: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('sudo-audit@example.test',$1,'active','en',now()) RETURNING id").bind(oteryn_identity::password::hash("test password")?).fetch_one(&pool).await?;
+    let raw = "a".repeat(64);
+    let csrf = "b".repeat(64);
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'audit',now()+interval '1 hour',now()+interval '1 day')").bind(Sha256::digest(raw.as_bytes()).to_vec()).bind(id).bind(&csrf).execute(&pool).await?;
+    let service = Credentials {
+        pool: pool.clone(),
+        enabled: true,
+        revoker: Arc::new(credentials::TransactionalRevoker),
+        notifications: Arc::new(
+            oteryn_identity::sessions::security_notifications(pool.clone())
+                .map_err(|e| e.to_string())?,
+        ),
+    };
+    let app = router(service);
+    let cookie = format!("{}={raw}", session::COOKIE_NAME);
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        app.clone().oneshot(request(
+            "POST",
+            "/en/account/sudo",
+            &cookie,
+            &csrf,
+            "current_password=test+password",
+        )?),
+    )
+    .await??;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .ok_or("cookie")?
+        .to_str()?
+        .split(';')
+        .next()
+        .ok_or("cookie")?
+        .to_owned();
+    let hash = Sha256::digest(cookie.split_once('=').ok_or("cookie")?.1.as_bytes()).to_vec();
+    let csrf: String = sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE id_hash=$1")
+        .bind(hash)
+        .fetch_one(&pool)
+        .await?;
+    // Charge the same source/account policy to its boundary, then assert the real route.
+    let mut keys = Keys::source("192.0.2.4".parse()?);
+    keys.account = Some(id.to_string());
+    let limiter = RateLimiter::new(pool.clone());
+    for _ in 1..NamedPolicy::IdentitySecurityMutation.limit() {
+        limiter
+            .check(NamedPolicy::IdentitySecurityMutation, &[keys.clone()])
+            .await
+            .map_err(|_| "limiter")?;
+    }
+    let response = app
+        .oneshot(request(
+            "POST",
+            "/en/account/sudo",
+            &cookie,
+            &csrf,
+            "current_password=test+password",
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(
+        response
+            .headers()
+            .get(header::RETRY_AFTER)
+            .ok_or("retry")?
+            .to_str()?
+            .parse::<u64>()?
+            > 0
+    );
+    pool.close().await;
+    db.close().await
+}
+
+#[tokio::test]
+async fn audit02_sudo_succeeds_when_sixteen_requests_fill_pool()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let path: String = sqlx::query_scalar("SHOW search_path")
+        .fetch_one(&db.pool)
+        .await?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(16)
+        .acquire_timeout(std::time::Duration::from_secs(3))
+        .after_connect(move |conn, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with((*db.pool.connect_options()).clone())
+        .await?;
+    let service = Credentials {
+        pool: pool.clone(),
+        enabled: true,
+        revoker: Arc::new(credentials::TransactionalRevoker),
+        notifications: Arc::new(
+            oteryn_identity::sessions::security_notifications(pool.clone())
+                .map_err(|e| e.to_string())?,
+        ),
+    };
+    let app = router(service);
+    let password = oteryn_identity::password::hash("test password")?;
+    let mut requests = Vec::new();
+    for n in 1..=16 {
+        let id:uuid::Uuid=sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'active','en',now()) RETURNING id").bind(format!("sudo-{n}@example.test")).bind(&password).fetch_one(&pool).await?;
+        let raw = format!("{n:064x}");
+        let csrf = "c".repeat(64);
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'audit',now()+interval '1 hour',now()+interval '1 day')").bind(Sha256::digest(raw.as_bytes()).to_vec()).bind(id).bind(&csrf).execute(&pool).await?;
+        requests.push(request(
+            "POST",
+            "/en/account/sudo",
+            &format!("{}={raw}", session::COOKIE_NAME),
+            &csrf,
+            "current_password=test+password",
+        )?);
+    }
+    let barrier = Arc::new(tokio::sync::Barrier::new(16));
+    let mut tasks = Vec::new();
+    for request in requests {
+        let app = app.clone();
+        let barrier = barrier.clone();
+        tasks.push(tokio::spawn(async move {
+            barrier.wait().await;
+            app.oneshot(request).await
+        }));
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        for task in tasks {
+            assert_eq!(task.await??.status(), StatusCode::FOUND);
+        }
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })
+    .await??;
+    pool.close().await;
+    db.close().await
+}

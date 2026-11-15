@@ -8,6 +8,12 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Duration};
 use tower::ServiceExt;
+async fn exchange_deadline<F: std::future::Future>(
+    duration: Duration,
+    exchange: F,
+) -> Result<F::Output, tokio::time::error::Elapsed> {
+    tokio::time::timeout(duration, exchange).await
+}
 impl Runtime {
     pub async fn start_private_listener(&self) -> Result<tokio::task::JoinHandle<()>, Error> {
         self.config.current()?;
@@ -47,7 +53,16 @@ impl Runtime {
         let runtime = self.clone();
         let connections = Arc::new(tokio::sync::Semaphore::new(64));
         Ok(tokio::spawn(async move {
-            while let Ok((stream, _)) = listener.accept().await {
+            loop {
+                let (stream, _) = match accept_with_retry(
+                    || listener.accept(),
+                    |error| eprintln!("bazaar private listener accept failed: {error}"),
+                )
+                .await
+                {
+                    Ok(connection) => connection,
+                    Err(_) => return,
+                };
                 let Ok(permit) = connections.clone().try_acquire_owned() else {
                     continue;
                 };
@@ -99,11 +114,14 @@ impl Runtime {
                             }
                         },
                     );
-                    let _ = hyper::server::conn::http1::Builder::new()
-                        .header_read_timeout(Duration::from_secs(5))
-                        .timer(hyper_util::rt::TokioTimer::new())
-                        .serve_connection(TokioIo::new(tls), service)
-                        .await;
+                    let _ = exchange_deadline(Duration::from_secs(30), async {
+                        hyper::server::conn::http1::Builder::new()
+                            .header_read_timeout(Duration::from_secs(5))
+                            .timer(hyper_util::rt::TokioTimer::new())
+                            .serve_connection(TokioIo::new(tls), service)
+                            .await
+                    })
+                    .await;
                 });
             }
         }))
@@ -165,4 +183,148 @@ fn spki(cert: &[u8]) -> Result<&[u8], Error> {
         return Err(Error::Invalid);
     }
     Ok(&tbs[..end])
+}
+
+// Accept failures (including descriptor exhaustion) must not silently remove a
+// private surface. Retry with capped backoff; sustained failure completes the
+// task so the process supervisor can fail the process.
+async fn accept_with_retry<T, F, Fut, Report>(
+    mut accept: F,
+    mut report: Report,
+) -> std::io::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = std::io::Result<T>>,
+    Report: FnMut(&std::io::Error),
+{
+    let mut delay = std::time::Duration::from_millis(25);
+    for attempt in 0..8 {
+        match accept().await {
+            Ok(connection) => return Ok(connection),
+            Err(error) => {
+                report(&error);
+                if attempt == 7 {
+                    return Err(error);
+                }
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(std::time::Duration::from_secs(1));
+            }
+        }
+    }
+    unreachable!("accept loop returns on its final attempt")
+}
+
+#[cfg(test)]
+mod accept_tests {
+    use super::accept_with_retry;
+
+    #[tokio::test]
+    async fn recoverable_accept_error_is_recorded_and_next_connection_is_served()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let client = tokio::net::TcpStream::connect(listener.local_addr()?).await?;
+        let mut first = true;
+        let mut recorded = Vec::new();
+        let (mut socket, _) = accept_with_retry(
+            || {
+                let fail = std::mem::take(&mut first);
+                let listener = &listener;
+                async move {
+                    if fail {
+                        Err(std::io::Error::from(std::io::ErrorKind::ConnectionAborted))
+                    } else {
+                        listener.accept().await
+                    }
+                }
+            },
+            |error| recorded.push(error.kind()),
+        )
+        .await?;
+        assert_eq!(recorded, [std::io::ErrorKind::ConnectionAborted]);
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        socket.write_all(b"served").await?;
+        let mut bytes = [0; 6];
+        let mut client = client;
+        client.read_exact(&mut bytes).await?;
+        assert_eq!(&bytes, b"served");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn sustained_accept_failure_returns_to_supervisor() {
+        let mut recorded = 0;
+        let result = accept_with_retry(
+            || async { Err::<(), _>(std::io::Error::from(std::io::ErrorKind::PermissionDenied)) },
+            |_| recorded += 1,
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(recorded, 8);
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn stalled_body_deadline_releases_connection_permit()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use tokio::io::AsyncWriteExt;
+        let permits = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = permits.clone().acquire_owned().await?;
+        let (server, mut client) = tokio::io::duplex(4096);
+        let task = tokio::spawn(async move {
+            let _permit = permit;
+            let service = hyper::service::service_fn(
+                |request: hyper::Request<hyper::body::Incoming>| async move {
+                    let _ = axum::body::to_bytes(Body::new(request.into_body()), 1024).await;
+                    Ok::<_, std::convert::Infallible>(hyper::Response::new(Body::empty()))
+                },
+            );
+            exchange_deadline(Duration::from_millis(100), async {
+                hyper::server::conn::http1::Builder::new()
+                    .serve_connection(TokioIo::new(server), service)
+                    .await
+            })
+            .await
+        });
+        client
+            .write_all(b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\nx")
+            .await?;
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), task)
+                .await??
+                .is_err()
+        );
+        assert_eq!(permits.available_permits(), 1);
+        Ok(())
+    }
+    #[tokio::test]
+    async fn postgres_exchange_deadline_cancels_issuer_wait_and_releases_pool()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&url)
+            .await?;
+        oteryn_db::migrate(&pool).await?;
+        let mut blocker = pool.begin().await?;
+        sqlx::query("SELECT singleton FROM bazaar_game_issuer FOR UPDATE")
+            .execute(&mut *blocker)
+            .await?;
+        let result = exchange_deadline(Duration::from_millis(100), async {
+            let mut waiting = crate::game::authority_http::begin_exchange(&pool).await?;
+            sqlx::query("SELECT singleton FROM bazaar_game_issuer FOR UPDATE")
+                .execute(&mut *waiting)
+                .await?;
+            waiting.commit().await
+        })
+        .await;
+        assert!(result.is_err());
+        let mut connection = tokio::time::timeout(Duration::from_secs(7), pool.acquire()).await??;
+        sqlx::query("SELECT 1").execute(&mut *connection).await?;
+        blocker.rollback().await?;
+        Ok(())
+    }
 }

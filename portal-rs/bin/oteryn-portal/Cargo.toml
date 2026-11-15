@@ -68,6 +68,7 @@ path = "../../crates/bazaar"
 [dependencies.oteryn-playerdata]
 workspace = true
 [dev-dependencies]
+prost = "0.14"
 tower = { version = "0.5.3", features = ["util"] }
 rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
 tempfile = "3"

@@ -108,12 +108,13 @@ impl ProgressStore {
         let mut tx = self.pool.begin().await?;
         sqlx::query("INSERT INTO pd_progress_streams (account_id,family,authority,epoch,recovery) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
             .bind(w.account_id).bind(&w.family).bind(&w.source_authority).bind(&w.projection_epoch).bind(&w.recovery_generation).execute(&mut *tx).await?;
-        let row = sqlx::query("SELECT authority,epoch,recovery,complete_through::text AS cut,observed_at FROM pd_progress_streams WHERE account_id=$1 AND family=$2 FOR UPDATE").bind(w.account_id).bind(&w.family).fetch_one(&mut *tx).await?;
+        let row = sqlx::query("SELECT authority,epoch,recovery,complete_through::text AS cut,observed_at,baseline_complete FROM pd_progress_streams WHERE account_id=$1 AND family=$2 FOR UPDATE").bind(w.account_id).bind(&w.family).fetch_one(&mut *tx).await?;
         if row.try_get::<String, _>("authority")? != w.source_authority
             || row.try_get::<String, _>("epoch")? != w.projection_epoch
             || row.try_get::<String, _>("recovery")? != w.recovery_generation
             || decimal(&row.try_get::<String, _>("cut")?, false).is_none_or(|v| through < v)
             || observed < row.try_get::<i64, _>("observed_at")? as u64
+            || (row.try_get::<bool, _>("baseline_complete")? && !w.baseline_complete)
         {
             return Err(Error::Conflict);
         }
@@ -140,6 +141,24 @@ impl ProgressStore {
         authority: &impl Authority,
         now_ms: u64,
     ) -> Result<Vec<Payload>> {
+        let observation = self
+            .read_observation(actor, scope, authority, now_ms)
+            .await?;
+        // Legacy consumers receive payloads only and cannot display freshness.
+        // They must opt into read_observation to present stale non-timer state.
+        if observation.stale {
+            return Err(Error::Unavailable);
+        }
+        Ok(observation.payloads)
+    }
+    /// Freshness accompanies all non-timer observations; timers fail closed after ten seconds.
+    pub async fn read_observation(
+        &self,
+        actor: Actor,
+        scope: &ReadScope<'_>,
+        authority: &impl Authority,
+        now_ms: u64,
+    ) -> Result<Observation> {
         self.enabled(scope.family, false)?;
         actor.check(scope.account)?;
         let stream = sqlx::query("SELECT epoch,recovery,authority,baseline_complete,observed_at FROM pd_progress_streams WHERE account_id=$1 AND family=$2")
@@ -149,6 +168,7 @@ impl ProgressStore {
             || observed < 0
             || observed as u64 > now_ms
             || now_ms - observed as u64 > 86400000
+            || (scope.family == "boss_cooldown" && now_ms - observed as u64 > 10000)
             || stream.try_get::<String, _>("authority")? != authority.source()
             || !authority.permits(Subject {
                 account: scope.account,
@@ -162,8 +182,11 @@ impl ProgressStore {
         {
             return Err(Error::Unavailable);
         }
-        let rows: Vec<Vec<u8>> = sqlx::query_scalar("SELECT canonical FROM (SELECT DISTINCT ON (r.entity_key) r.entity_key,r.canonical FROM pd_progress_records r JOIN pd_progress_streams s USING (account_id,family) WHERE r.account_id=$1 AND r.family=$2 AND r.character_id IS NOT DISTINCT FROM $3 AND r.source_revision <= s.complete_through ORDER BY r.entity_key,r.source_revision DESC) p ORDER BY entity_key")
+        let rows: Vec<Vec<u8>> = sqlx::query_scalar("SELECT canonical FROM (SELECT DISTINCT ON (r.entity_key) r.entity_key,r.canonical FROM pd_progress_records r JOIN pd_progress_streams s USING (account_id,family) WHERE r.account_id=$1 AND r.family=$2 AND r.character_id IS NOT DISTINCT FROM $3 AND r.source_revision <= s.complete_through ORDER BY r.entity_key,r.source_revision DESC) p ORDER BY entity_key LIMIT 4097")
             .bind(scope.account).bind(scope.family).bind(scope.character).fetch_all(&self.pool).await?;
+        if rows.len() > 4096 {
+            return Err(Error::Unavailable);
+        }
         let mut result = Vec::new();
         for bytes in rows {
             let r = Record::decode(&bytes)?;
@@ -178,7 +201,11 @@ impl ProgressStore {
                 result.push(p);
             }
         }
-        Ok(result)
+        Ok(Observation {
+            observed_at_ms: observed as u64,
+            stale: now_ms - observed as u64 > 10000,
+            payloads: result,
+        })
     }
     /// Session/CSRF validation belongs to the future browser adapter.
     pub async fn save_goal(
@@ -230,8 +257,12 @@ impl ProgressStore {
         }) {
             return Err(Error::Denied);
         }
-        Ok(sqlx::query_as("SELECT id,kind,entity_key,target FROM pd_progress_goals WHERE account_id=$1 AND character_id=$2 AND ownership_cut=$3 ORDER BY created_at,id")
-            .bind(scope.account).bind(scope.character).bind(scope.cut()).fetch_all(&self.pool).await?)
+        let goals = sqlx::query_as("SELECT id,kind,entity_key,target FROM pd_progress_goals WHERE account_id=$1 AND character_id=$2 AND ownership_cut=$3 ORDER BY created_at,id LIMIT 4097")
+            .bind(scope.account).bind(scope.character).bind(scope.cut()).fetch_all(&self.pool).await?;
+        if goals.len() > 4096 {
+            return Err(Error::Unavailable);
+        }
+        Ok(goals)
     }
 }
 #[derive(Debug)]
@@ -318,4 +349,12 @@ impl ProgressStore {
         let samples = pace.samples(goal).await?;
         forecast(&samples, goal.target, now_ms)
     }
+}
+
+/// Proven observation time and presentation freshness, distinct from timer evidence.
+#[derive(Debug)]
+pub struct Observation {
+    pub observed_at_ms: u64,
+    pub stale: bool,
+    pub payloads: Vec<Payload>,
 }

@@ -97,15 +97,6 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
         if !state.allows_listing() {
             return Err(Error::Denied);
         }
-        if !self
-            .game
-            .choices(&mut tx, actor)
-            .await?
-            .iter()
-            .any(|c| c.id == character)
-        {
-            return Err(Error::Denied);
-        }
         // Serialize retries, backlog and duplicate Character requests for this authenticated owner.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,59))")
             .bind(actor.to_string())
@@ -122,6 +113,15 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
                 return Err(Error::IdempotencyConflict);
             }
             return Ok(id);
+        }
+        if !self
+            .game
+            .choices(&mut tx, actor)
+            .await?
+            .iter()
+            .any(|c| c.id == character)
+        {
+            return Err(Error::Denied);
         }
         let duplicate: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_character_intents i JOIN bazaar_listings l ON l.id=i.listing_id WHERE i.character_id=$1 AND l.state NOT IN ('completed','cancelled','expired'))")
             .bind(character).fetch_one(&mut *tx).await?;
@@ -163,6 +163,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
             return Err(Error::Disabled);
         }
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let l: Listing = sqlx::query_as(
             "SELECT * FROM bazaar_listings WHERE id=$1 AND kind='character' FOR UPDATE",
         )
@@ -273,6 +274,28 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
             return Err(Error::Disabled);
         }
         super::id(key)?;
+        let mut replay = self.pool.begin().await?;
+        let state = self
+            .accounts
+            .state(&mut replay, actor)
+            .await?
+            .ok_or(Error::Denied)?;
+        if !state.allows_trade() {
+            return Err(Error::Denied);
+        }
+        let old: Option<(Uuid,i64,Uuid,i64,OffsetDateTime,Currency)> = sqlx::query_as("SELECT b.account,b.maximum,b.leader,b.price,b.ends_at,l.currency FROM bazaar_bids b JOIN bazaar_listings l ON l.id=b.listing_id WHERE b.listing_id=$1 AND b.idempotency_key=$2 AND l.kind='character'")
+            .bind(id).bind(key).fetch_optional(&mut *replay).await?;
+        if let Some((who, maximum_stored, leader, price, ends_at, currency)) = old {
+            if who != actor || maximum_stored != amount(maximum, currency)? {
+                return Err(Error::IdempotencyConflict);
+            }
+            return Ok(BidOutcome {
+                leader,
+                price,
+                ends_at,
+            });
+        }
+        replay.rollback().await?;
         let card = self.detail(id).await?;
         let max = amount(maximum, card.currency)?;
         // The account adapter rechecks evidence under the core's listing lock, so a restore or

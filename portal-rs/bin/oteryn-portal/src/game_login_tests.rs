@@ -1446,3 +1446,6 @@ async fn pg_grant_is_never_stored_without_the_composed_replay_signer() -> TestRe
 
 #[path = "game_login_protocol3_tests.rs"]
 mod protocol3;
+
+#[path = "game_login_devices_sanctions_tests.rs"]
+mod device_sanctions;

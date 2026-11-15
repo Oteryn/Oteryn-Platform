@@ -1002,3 +1002,80 @@ async fn postgres_loyalty_publication_bounded_and_eventually_complete() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn stream_does_not_export_or_retain_authority_for_uncredited_inviter() {
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let owner = Uuid::now_v7();
+    let invitee = Uuid::now_v7();
+    for account in [owner, invitee] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'test-only','active','en',clock_timestamp())")
+            .bind(account).bind(format!("{account}@example.test"))
+            .execute(&db.pool).await.unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO referral_campaign_invitations(inviter_id,invitee_id,kind) VALUES($1,$2,'new')",
+    )
+    .bind(owner)
+    .bind(invitee)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    db.account(invitee).await;
+    let stream = db.stream();
+    let page = stream.read(None, 500).await.unwrap();
+    assert_eq!(
+        page.items,
+        vec![Item {
+            account_id: invitee,
+            spent_premium_days: 0,
+            loyalty_points: 0,
+            platform_revision: 1,
+        }]
+    );
+    let owner_authority: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM premium_authority WHERE account_id=$1)")
+            .bind(owner)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert!(
+        !owner_authority,
+        "lock preparation must not make an inviter eligible on the next poll"
+    );
+    assert!(
+        stream
+            .read(Some(page.next), 500)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    // Qualification in this very poll must still export a newly credited inviter.
+    sqlx::query("UPDATE referral_campaign_settings SET enabled=true")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.days(invitee, 1, 6).await;
+    let credited = stream.read(Some(page.next), 500).await.unwrap();
+    assert_eq!(
+        credited.items,
+        vec![
+            Item {
+                account_id: owner,
+                spent_premium_days: 0,
+                loyalty_points: 1,
+                platform_revision: 1,
+            },
+            Item {
+                account_id: invitee,
+                spent_premium_days: 6,
+                loyalty_points: 6,
+                platform_revision: 2,
+            },
+        ]
+    );
+    db.close().await;
+}

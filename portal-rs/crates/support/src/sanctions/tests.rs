@@ -988,3 +988,30 @@ async fn db_effective_state_refuses_oversized_materialization() -> TestResult {
     assert!(matches!(state(&db, None).await, Err(Error::Conflict)));
     db.cleanup().await
 }
+
+#[tokio::test]
+async fn lk_sanction_authorization_with_one_available_connection() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let decision = db.decision(Category::Warning, false).await?;
+    let mut held = Vec::new();
+    for _ in 0..7 {
+        held.push(db.pool.acquire().await?);
+    }
+    let receipt = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        db.service()
+            .create(staff(db.actor), Uuid::now_v7(), decision),
+    )
+    .await??;
+    assert!(!receipt.pending);
+    drop(held);
+    db.cleanup().await?;
+    eprintln!(
+        "lk_sanction_authorization_with_one_available_connection duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

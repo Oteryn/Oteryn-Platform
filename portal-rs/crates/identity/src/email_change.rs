@@ -165,7 +165,7 @@ impl Service {
             return Ok(Outcome::Refused);
         }
         let mut tx = self.pool.begin().await?;
-        let row: Option<(String,String,String)> = sqlx::query_as("SELECT email,password_hash,locale FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=now() FOR UPDATE")
+        let row: Option<(String,String,String)> = sqlx::query_as("SELECT email,password_hash,locale FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp() FOR UPDATE")
             .bind(account).fetch_optional(&mut *tx).await?;
         let Some((old, hash, locale)) = row else {
             return Ok(Outcome::Refused);
@@ -187,10 +187,7 @@ impl Service {
             return Ok(Outcome::Refused);
         }
         // Serialize cross-account reservations without relying on check-then-insert.
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-            .bind(&new)
-            .execute(&mut *tx)
-            .await?;
+        crate::accounts::claim_lock(&mut tx, &new).await?;
         if !available(&mut tx, account, &new).await? {
             return Ok(Outcome::Refused);
         }
@@ -243,7 +240,7 @@ impl Service {
             return Ok(Outcome::Refused);
         };
         let change: Change = sqlx::query_as("SELECT * FROM account_email_changes WHERE (NOT $2 AND confirmation_hash=$1) OR ($2 AND revert_hash=$1) FOR UPDATE").bind(token_hash(token)).bind(revert).fetch_one(&mut *tx).await?;
-        let now: OffsetDateTime = sqlx::query_scalar("SELECT now()")
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
             .fetch_one(&mut *tx)
             .await?;
         if change.cancelled_at.is_some() || change.reverted_at.is_some() {
@@ -286,10 +283,14 @@ impl Service {
             .execute(&mut *tx)
             .await?;
             if change.kind == "backup" {
-                sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-                    .bind(&change.new_email)
-                    .execute(&mut *tx)
+                crate::accounts::claim_lock(&mut tx, &change.new_email).await?;
+                let live: bool = sqlx::query_scalar("SELECT $1::timestamptz>clock_timestamp()")
+                    .bind(change.expires_at)
+                    .fetch_one(&mut *tx)
                     .await?;
+                if !live {
+                    return Ok(Outcome::Refused);
+                }
                 if !available(&mut tx, account, &change.new_email).await? {
                     return Ok(Outcome::Refused);
                 }
@@ -316,10 +317,14 @@ impl Service {
         revert: bool,
     ) -> Result<bool, sqlx::Error> {
         let email = if revert { &c.old_email } else { &c.new_email };
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-            .bind(email)
-            .execute(&mut **tx)
+        crate::accounts::claim_lock(tx, email).await?;
+        let live: bool = sqlx::query_scalar("SELECT $1::timestamptz>clock_timestamp()")
+            .bind(if revert { c.revert_until } else { c.expires_at })
+            .fetch_one(&mut **tx)
             .await?;
+        if !live {
+            return Ok(false);
+        }
         if !available(tx, c.account_id, email).await?
             || !self.security.revoke(tx, c.account_id).await?
         {
@@ -340,17 +345,23 @@ impl Service {
         if !self.ready() {
             return Ok(0);
         }
-        let ids: Vec<(Uuid,Uuid)> = sqlx::query_as("SELECT id,account_id FROM account_email_changes WHERE kind='primary' AND confirmed_at IS NOT NULL AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND apply_after<=now() AND expires_at>now() ORDER BY apply_after LIMIT 100").fetch_all(&self.pool).await?;
+        let ids: Vec<(Uuid,Uuid)> = sqlx::query_as("SELECT c.id,c.account_id FROM account_email_changes c JOIN accounts a ON a.id=c.account_id WHERE a.status='active' AND a.email_verified_at IS NOT NULL AND a.email_change_blocked_until<=clock_timestamp() AND a.email=c.old_email AND kind='primary' AND confirmed_at IS NOT NULL AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND apply_after<=clock_timestamp() AND expires_at>clock_timestamp() ORDER BY next_attempt_at,apply_after,c.id LIMIT 100").fetch_all(&self.pool).await?;
         let mut count = 0;
         for (id, account) in ids {
             let mut tx = self.pool.begin().await?;
-            let current: Option<String> = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=now() FOR UPDATE").bind(account).fetch_optional(&mut *tx).await?;
+            let current: Option<String> = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp() FOR UPDATE").bind(account).fetch_optional(&mut *tx).await?;
             let c: Change =
                 sqlx::query_as("SELECT * FROM account_email_changes WHERE id=$1 FOR UPDATE")
                     .bind(id)
                     .fetch_one(&mut *tx)
                     .await?;
-            let now: OffsetDateTime = sqlx::query_scalar("SELECT now()")
+            sqlx::query(
+                "UPDATE account_email_changes SET next_attempt_at=clock_timestamp() WHERE id=$1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
                 .fetch_one(&mut *tx)
                 .await?;
             if current.as_deref() != Some(&c.old_email)
@@ -361,12 +372,15 @@ impl Service {
                 || c.apply_after > now
                 || c.expires_at <= now
             {
+                tx.commit().await?;
                 continue;
             }
             if self.replace(&mut tx, &c, false).await? {
                 mark_applied(&mut tx, id).await?;
                 tx.commit().await?;
                 count += 1;
+            } else {
+                tx.commit().await?;
             }
         }
         Ok(count)
@@ -377,7 +391,7 @@ async fn available(
     account: Uuid,
     email: &str,
 ) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM accounts WHERE lower(email)=lower($2) AND id<>$1) AND NOT EXISTS(SELECT 1 FROM account_backup_emails WHERE lower(email)=lower($2) AND account_id<>$1) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE lower(new_email)=lower($2) AND account_id<>$1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>now())").bind(account).bind(email).fetch_one(&mut **tx).await
+    crate::accounts::address_available(tx, Some(account), email).await
 }
 async fn mark_applied(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE account_email_changes SET applied_at=now(),updated_at=now() WHERE id=$1")
@@ -396,7 +410,7 @@ async fn mark_reverted(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<(
 /// Consumer seam for wallet and bazaar: call inside their transaction before trade.
 /// The shared account lock serializes the check with an email change. Missing state denies.
 pub async fn trade_allowed(db: &mut PgConnection, account: AccountId) -> Result<bool, sqlx::Error> {
-    Ok(sqlx::query_scalar::<_,bool>("SELECT status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=now() FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(db).await?.unwrap_or(false))
+    Ok(sqlx::query_scalar::<_,bool>("SELECT status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp() FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(db).await?.unwrap_or(false))
 }
 #[cfg(test)]
 #[path = "email_change_tests.rs"]
@@ -428,4 +442,9 @@ impl oteryn_wallet::TransferBlockCheck for TransferRestrictions {
             Err(_) => oteryn_wallet::TransferPermission::Unknown,
         }
     }
+}
+
+/// Only a confirmed, current backup earns security-assessment credit.
+pub async fn confirmed_backup(pool: &PgPool, id: AccountId) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_backup_emails WHERE account_id=$1 AND verified_at<=clock_timestamp())").bind(id).fetch_one(pool).await
 }

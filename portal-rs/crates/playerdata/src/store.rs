@@ -267,8 +267,10 @@ pub(crate) async fn character_deleted(
     character: &str,
 ) -> Result<bool> {
     Ok(
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1)")
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1) OR EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$2 AND (character_id IS NULL OR character_id=$3))")
             .bind(scope_digest(account, Some(character)))
+            .bind(account)
+            .bind(character)
             .fetch_one(conn)
             .await?,
     )
@@ -300,13 +302,19 @@ async fn deleted(tx: &mut Transaction<'_, Postgres>, s: &Scope) -> Result<Delete
     .bind(digests)
     .fetch_all(&mut **tx)
     .await?;
-    Ok(if found.contains(&account) {
-        Deleted::Account
-    } else if found.is_empty() {
-        Deleted::No
-    } else {
-        Deleted::Character
-    })
+    // Authoritative writers enqueue in their own transaction. Hide immediately;
+    // the worker replaces the pending handoff with durable tombstones on purge.
+    let pending = sqlx::query("SELECT EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$1 AND character_id IS NULL) AS account, EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$1 AND character_id=$2) AS character")
+        .bind(&s.account).bind(&s.character).fetch_one(&mut **tx).await?;
+    Ok(
+        if found.contains(&account) || pending.try_get::<bool, _>("account")? {
+            Deleted::Account
+        } else if found.is_empty() && !pending.try_get::<bool, _>("character")? {
+            Deleted::No
+        } else {
+            Deleted::Character
+        },
+    )
 }
 fn decimal_row(row: &sqlx::postgres::PgRow, name: &str) -> Result<u64> {
     row.try_get::<String, _>(name)?
@@ -331,18 +339,53 @@ async fn lock(tx: &mut Transaction<'_, Postgres>, authority: &str) -> Result<()>
         .await?;
     Ok(())
 }
+// Ordinary operations share the authority fence: per-account locks serialize
+// their streams, while lifecycle and legacy expiration retain the exclusive fence.
+async fn shared_authority(tx: &mut Transaction<'_, Postgres>, authority: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1,72))")
+        .bind(authority)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
 async fn stream(tx: &mut Transaction<'_, Postgres>, s: &Scope, progress: bool) -> Result<Cursor> {
     let key = stream_key(s);
     sqlx::query("INSERT INTO pd_streams(stream_key,authority,account_id,family,progress) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING").bind(&key).bind(&s.authority).bind(&s.account).bind(&s.family).bind(progress).execute(&mut **tx).await?;
-    let row=sqlx::query("SELECT highest_seen::text,stored_through::text,applied_through::text,erased FROM pd_streams WHERE stream_key=$1 FOR UPDATE").bind(&key).fetch_one(&mut **tx).await?;
+    let row=sqlx::query("SELECT highest_seen::text,stored_through::text,applied_through::text,erased,GREATEST(recovery_high_water,watermark_recovery)::text AS recovery_high_water FROM pd_streams WHERE stream_key=$1 FOR UPDATE").bind(&key).fetch_one(&mut **tx).await?;
     if row.try_get::<bool, _>("erased")? {
         return Err(Error::Conflict);
     };
+    if progress {
+        let recovery = s.recovery.parse::<u64>().map_err(|_| Error::Invalid)?;
+        let accepted = row
+            .try_get::<Option<String>, _>("recovery_high_water")?
+            .map(|v| v.parse::<u64>().map_err(|_| Error::Unavailable))
+            .transpose()?;
+        if accepted.is_some_and(|high| recovery < high) {
+            return Err(Error::Conflict);
+        }
+    }
     Ok(Cursor {
         highest_seen: decimal_row(&row, "highest_seen")?,
         stored: decimal_row(&row, "stored_through")?,
         applied: decimal_row(&row, "applied_through")?,
     })
+}
+// Called only on successful admission: conflict alarms commit independently
+// and must never advance the accepted recovery fence.
+async fn accept_recovery(
+    tx: &mut Transaction<'_, Postgres>,
+    scope: &Scope,
+    progress: bool,
+) -> Result<()> {
+    if progress {
+        sqlx::query("UPDATE pd_streams SET recovery_high_water=$2::numeric WHERE stream_key=$1")
+            .bind(stream_key(scope))
+            .bind(&scope.recovery)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
 }
 fn retention(r: &Record) -> u64 {
     let days = if !r.progress {
@@ -385,7 +428,12 @@ impl Store {
         let lease = self.authority.acquire(&r.scope).await?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &r.scope.account).await?;
-        lock(&mut tx, &r.scope.authority).await?;
+        shared_authority(&mut tx, &r.scope.authority).await?;
+        // Record IDs are authority-wide, even across independent account locks.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,74))")
+            .bind(format!("{}:{}", r.scope.authority, r.id))
+            .execute(&mut *tx)
+            .await?;
         let admission = lease.fence(&mut tx, &r.scope).await?;
         lease.validate(&r)?;
         // A G-11 stream is account-wide, so a record of a deleted character is a
@@ -406,7 +454,7 @@ impl Store {
         let key = stream_key(&r.scope);
         let c = stream(&mut tx, &r.scope, r.progress).await?;
         let digest = hash(&r.bytes);
-        let existing=sqlx::query("SELECT stream_key,source_revision::text,digest,kind FROM pd_records WHERE (stream_key=$1 AND source_revision=$2::numeric) OR (authority=$3 AND recovery_generation=$4 AND record_id=$5)").bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).fetch_all(&mut *tx).await?;
+        let existing=sqlx::query("SELECT stream_key,source_revision::text,digest,kind,record_id,authority FROM pd_records WHERE (stream_key=$1 AND source_revision=$2::numeric) OR (authority=$3 AND recovery_generation=$4 AND record_id=$5)").bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).fetch_all(&mut *tx).await?;
         if !existing.is_empty() {
             if existing.len() != 1
                 || existing[0].try_get::<String, _>("stream_key")? != key
@@ -415,6 +463,36 @@ impl Store {
             {
                 sqlx::query("INSERT INTO pd_conflicts(reference,reason,expires_ms) VALUES($1,'IMMUTABLE_BINDING',$2) ON CONFLICT DO NOTHING")
                     .bind(&digest).bind(now.saturating_add(7*86400000) as i64).execute(&mut *tx).await?;
+                // One durable operator alarm per accepted binding per UTC week.
+                // Deduplication does not depend on attacker-controlled conflicting bytes.
+                let mut accepted = existing
+                    .iter()
+                    .map(|row| -> std::result::Result<_, sqlx::Error> {
+                        let stream: String = row.try_get("stream_key")?;
+                        let revision: String = row.try_get("source_revision")?;
+                        Ok((
+                            stream,
+                            revision,
+                            row.try_get::<String, _>("record_id")?,
+                            row.try_get::<String, _>("authority")?,
+                        ))
+                    })
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                accepted.sort();
+                let binding = hex_digest(format!("{}:{}", accepted[0].0, accepted[0].1).as_bytes());
+                let metadata = serde_json::json!({
+                    "reason":"IMMUTABLE_BINDING", "authority":r.scope.authority,
+                    "family":r.scope.family, "record_id":r.id, "source_revision":r.revision.to_string(),
+                    "stream_reference":hex_digest(key.as_bytes()), "incoming_digest":hex_digest(&r.bytes),
+                    "accepted_bindings":accepted.iter().map(|(stream,revision,id,authority)| serde_json::json!({
+                        "stream_reference":hex_digest(stream.as_bytes()), "source_revision":revision,
+                        "record_id":id, "authority":authority
+                    })).collect::<Vec<_>>()
+                });
+                // The append-only audit store is also the operational alert source.
+                // A PK derived from the binding/window makes concurrent retries atomic.
+                sqlx::query("WITH alarm AS (INSERT INTO audit_log(id,actor,action,target,before,after,request_id) VALUES(md5('ops.playerdata_binding_conflict:' || $1 || ':' || floor(extract(epoch FROM clock_timestamp())/604800)::text)::uuid,NULL,'ops.playerdata_binding_conflict',$1,'null'::jsonb,$2,uuidv7()) ON CONFLICT(id) DO NOTHING RETURNING id) SELECT pg_notify('oteryn_operator_alerts',id::text) FROM alarm")
+                    .bind(binding).bind(metadata).execute(&mut *tx).await?;
                 tx.commit().await?;
                 return Err(Error::Conflict);
             };
@@ -422,6 +500,7 @@ impl Store {
                 return Err(Error::Conflict);
             }
             let kind = existing[0].try_get::<String, _>("kind")?;
+            accept_recovery(&mut tx, &r.scope, r.progress).await?;
             tx.commit().await?;
             if let Some(reason) = TERMINAL_REFUSALS.iter().find(|reason| **reason == kind) {
                 return Ok(refusal(&r, reason));
@@ -451,6 +530,7 @@ impl Store {
             sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) VALUES($1,$2::numeric,$3,'',$4,'',NULL,'',$5,0,0,$6,NULL,$7)")
                 .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(&r.id).bind(reason).bind(&digest).bind(now as i64).execute(&mut *tx).await?;
             sqlx::query("UPDATE pd_streams SET highest_seen=$2::numeric,stored_through=$2::numeric,applied_through=$2::numeric,last_record_id=$3 WHERE stream_key=$1").bind(&key).bind(r.revision.to_string()).bind(&r.id).execute(&mut *tx).await?;
+            accept_recovery(&mut tx, &r.scope, r.progress).await?;
             tx.commit().await?;
             return Ok(refusal(&r, reason));
         }
@@ -480,6 +560,10 @@ impl Store {
         };
         sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) VALUES($1,$2::numeric,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
    .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).bind(&r.entity).bind(&r.scope.character).bind(subject_key(&r.scope)).bind(&r.kind).bind(r.occurred_ms as i64).bind(r.coverage_ms as i64).bind(digest).bind(payload).bind(expires as i64).execute(&mut *tx).await?;
+        if r.scope.family == "BANK" {
+            sqlx::query("INSERT INTO pd_bank_continuations(stream_key,entry_id,balance_after,coverage_ms) VALUES($1,$2,$3,$4) ON CONFLICT(stream_key) DO UPDATE SET entry_id=EXCLUDED.entry_id,balance_after=EXCLUDED.balance_after,coverage_ms=EXCLUDED.coverage_ms")
+                .bind(&key).bind(&r.entity).bind(playerdata::text(playerdata::get(&r.payload, "balance_after")?)?).bind(r.coverage_ms as i64).execute(&mut *tx).await?;
+        }
         if r.scope.family == "ITEMS" && r.kind == "ITEMS_END" {
             self.finish_snapshot(&mut tx, &r, &key, now).await?;
         }
@@ -504,6 +588,7 @@ impl Store {
             r.revision
         };
         sqlx::query("UPDATE pd_streams SET highest_seen=$2::numeric,stored_through=$2::numeric,applied_through=$3::numeric,last_record_id=$4 WHERE stream_key=$1").bind(&key).bind(r.revision.to_string()).bind(applied.to_string()).bind(&r.id).execute(&mut *tx).await?;
+        accept_recovery(&mut tx, &r.scope, r.progress).await?;
         tx.commit().await?;
         acknowledgement(&r)
     }
@@ -514,7 +599,7 @@ impl Store {
         let lease = self.authority.acquire(s).await?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &s.account).await?;
-        lock(&mut tx, &s.authority).await?;
+        shared_authority(&mut tx, &s.authority).await?;
         if lease.fence(&mut tx, s).await? != Admission::Owner {
             return Err(Error::Conflict);
         }
@@ -569,7 +654,7 @@ impl Store {
         let lease = self.authority.acquire(&scope).await?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &scope.account).await?;
-        lock(&mut tx, &scope.authority).await?;
+        shared_authority(&mut tx, &scope.authority).await?;
         if lease.fence(&mut tx, &scope).await? != Admission::Owner {
             return Err(Error::Conflict);
         }
@@ -609,6 +694,7 @@ impl Store {
                 }
             }
         }
+        accept_recovery(&mut tx, &scope, true).await?;
         tx.commit().await?;
         Ok(format!(
             "{{\"contract_version\":1,\"result\":\"accepted\",\"complete_through\":\"{}\"}}",
@@ -629,7 +715,8 @@ impl Store {
         let now = time.now(progress)?;
         let lease = self.authority.acquire(s).await?;
         let mut tx = self.pool.begin().await?;
-        lock(&mut tx, &s.authority).await?;
+        lock_account(&mut tx, &s.account).await?;
+        shared_authority(&mut tx, &s.authority).await?;
         if lease.fence(&mut tx, s).await? != Admission::Owner {
             return Err(Error::Unavailable);
         }
@@ -646,12 +733,16 @@ impl Store {
                 return Err(Error::Unavailable);
             };
             through = decimal_row(&row, "published_through")?;
-            if observed > now || now.saturating_sub(observed) > 86400000 {
+            if observed > now
+                || now.saturating_sub(observed) > 86400000
+                || (matches!(s.family.as_str(), "boss_cooldown" | "house_rent" | "skull")
+                    && now.saturating_sub(observed) > 10000)
+            {
                 return Err(Error::Unavailable);
             };
             // Only the latest entity inside the proven prefix can be presented. A later
             // REMOVE or expired value cannot reveal an earlier retained replacement.
-            sqlx::query("SELECT DISTINCT ON (entity_key) kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND scope_key=$2 AND source_revision<=$3::numeric ORDER BY entity_key,source_revision DESC")
+            sqlx::query("SELECT DISTINCT ON (entity_key) kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND scope_key=$2 AND source_revision<=$3::numeric ORDER BY entity_key,source_revision DESC LIMIT 4097")
    .bind(&key).bind(subject_key(s)).bind(through.to_string()).fetch_all(&mut *tx).await?
         } else if s.family == "ITEMS" {
             let head=sqlx::query("SELECT begin_revision::text,end_revision::text,occurred_ms FROM pd_item_heads WHERE stream_key=$1").bind(&key).fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
@@ -661,7 +752,7 @@ impl Store {
             if now.saturating_sub(observed) >= 30 * 86400000 {
                 return Err(Error::Unavailable);
             };
-            sqlx::query("SELECT kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND source_revision BETWEEN $2::numeric AND $3::numeric ORDER BY source_revision")
+            sqlx::query("SELECT kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND source_revision BETWEEN $2::numeric AND $3::numeric ORDER BY source_revision LIMIT 4097")
    .bind(&key).bind(head.try_get::<String,_>("begin_revision")?).bind(head.try_get::<String,_>("end_revision")?).fetch_all(&mut *tx).await?
         } else {
             let coverage = sqlx::query("SELECT min(coverage_ms) AS start,max(occurred_ms) AS observed FROM pd_records WHERE stream_key=$1 AND scope_key=$2").bind(&key).bind(subject_key(s)).fetch_one(&mut *tx).await?;
@@ -673,8 +764,11 @@ impl Store {
                 .ok_or(Error::Unavailable)? as u64;
             // History completeness and the initial ledger boundary must be independently
             // proven by the authority lease; an empty query alone proves nothing.
-            sqlx::query("SELECT kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND scope_key=$2 ORDER BY source_revision").bind(&key).bind(subject_key(s)).fetch_all(&mut *tx).await?
+            sqlx::query("SELECT kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND scope_key=$2 ORDER BY source_revision LIMIT 4097").bind(&key).bind(subject_key(s)).fetch_all(&mut *tx).await?
         };
+        if rows.len() > 4096 {
+            return Err(Error::Unavailable);
+        }
         let mut records = Vec::new();
         for row in rows {
             let kind = row.try_get::<String, _>("kind")?;
@@ -762,6 +856,7 @@ impl Store {
         .await?;
         sqlx::query("UPDATE pd_records SET payload=NULL WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM pd_bank_continuations WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
         tombstone(&mut tx, account, None, now).await?;
         tx.commit().await?;
         Ok(())
@@ -809,23 +904,36 @@ impl Store {
         r: &Record,
         key: &str,
     ) -> Result<()> {
-        let rows=sqlx::query("SELECT entity_key,coverage_ms,payload FROM pd_records WHERE stream_key=$1 ORDER BY source_revision DESC LIMIT 1").bind(key).fetch_all(&mut **tx).await?;
-        if let Some(last) = rows.first() {
-            if last.try_get::<i64, _>("coverage_ms")? != r.coverage_ms as i64 {
-                return Err(Error::Conflict);
-            };
-            if r.scope.family == "BANK" {
-                let prior = last
-                    .try_get::<Option<Vec<u8>>, _>("payload")?
-                    .ok_or(Error::Unavailable)?;
-                let prior = canonical::decode(&prior, 65536, 9).map_err(|_| Error::Unavailable)?;
-                let previous = playerdata::get(&r.payload, "previous_entry_id")?;
-                if playerdata::text(previous)? != last.try_get::<String, _>("entity_key")?
-                    || playerdata::get(&prior, "balance_after")?
-                        != playerdata::get(&r.payload, "balance_before")?
+        if r.scope.family == "BANK" {
+            let last = sqlx::query("SELECT entry_id,balance_after,coverage_ms FROM pd_bank_continuations WHERE stream_key=$1")
+                .bind(key).fetch_optional(&mut **tx).await?;
+            if let Some(last) = last {
+                if last.try_get::<i64, _>("coverage_ms")? != r.coverage_ms as i64
+                    || playerdata::text(playerdata::get(&r.payload, "previous_entry_id")?)?
+                        != last.try_get::<String, _>("entry_id")?
+                    || playerdata::text(playerdata::get(&r.payload, "balance_before")?)?
+                        != last.try_get::<String, _>("balance_after")?
                 {
                     return Err(Error::Conflict);
-                };
+                }
+            } else {
+                // A pre-migration stream whose last payload was already erased
+                // needs an explicitly validated new generation, never a guessed balance.
+                let stored: String = sqlx::query_scalar(
+                    "SELECT stored_through::text FROM pd_streams WHERE stream_key=$1",
+                )
+                .bind(key)
+                .fetch_one(&mut **tx)
+                .await?;
+                if stored != "0" {
+                    return Err(Error::Unavailable);
+                }
+            }
+        } else {
+            let coverage: Option<i64> = sqlx::query_scalar("SELECT coverage_ms FROM pd_records WHERE stream_key=$1 ORDER BY source_revision DESC LIMIT 1")
+                .bind(key).fetch_optional(&mut **tx).await?;
+            if coverage.is_some_and(|v| v != r.coverage_ms as i64) {
+                return Err(Error::Conflict);
             }
         }
         let duplicate:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_records WHERE authority=$1 AND entity_key=$2 AND stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$3 AND family=$4))").bind(&r.scope.authority).bind(&r.entity).bind(&r.scope.account).bind(&r.scope.family).fetch_one(&mut **tx).await?;
@@ -1038,4 +1146,11 @@ fn acknowledgement(r: &Record) -> Result<Vec<u8>> {
 /// exact replay returns the same bytes.
 fn refusal(r: &Record, reason: &str) -> Vec<u8> {
     format!("{{\"contract_version\":1,\"result\":\"refused\",\"record_id\":\"{}\",\"consumed_source_revision\":\"{}\",\"reason\":\"{reason}\"}}",r.id,r.revision).into_bytes()
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }

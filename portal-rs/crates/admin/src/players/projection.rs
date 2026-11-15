@@ -28,10 +28,14 @@ impl AccountStateLookup for Identity {
         })
     }
 }
-pub(super) fn configured(pool: PgPool, enabled: bool) -> Projection {
-    let environment = match std::env::var("OTERYN_ENV").as_deref() {
-        Ok("testing") => oteryn_core::Environment::Testing,
-        Ok("preprod") => oteryn_core::Environment::Preprod,
+pub(super) fn configured(
+    pool: PgPool,
+    enabled: bool,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Projection {
+    let environment = match lookup("OTERYN_ENV").as_deref() {
+        Some("testing") => oteryn_core::Environment::Testing,
+        Some("preprod") => oteryn_core::Environment::Preprod,
         _ => oteryn_core::Environment::Local,
     };
     Projection::new(
@@ -39,8 +43,7 @@ pub(super) fn configured(pool: PgPool, enabled: bool) -> Projection {
         lcfa::Settings {
             enabled,
             environment,
-            source_authority: std::env::var("OTERYN_ACCOUNT_CHARACTERS_AUTHORITY")
-                .unwrap_or_default(),
+            source_authority: lookup("OTERYN_ACCOUNT_CHARACTERS_AUTHORITY").unwrap_or_default(),
             ..lcfa::Settings::default()
         },
         Arc::new(Identity(oteryn_identity::accounts::Accounts { pool })),

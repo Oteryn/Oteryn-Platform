@@ -719,3 +719,93 @@ async fn database_history_pages_bound_response_and_retain_older_revisions() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn database_queued_create_edit_restore_recheck_revocation() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    for operation in 0..3 {
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin' ON CONFLICT DO NOTHING").bind(db.identity.actor).execute(&db.pool).await.unwrap();
+        let repo = db.repo();
+        let context = db.context();
+        let mut initial = input();
+        for value in &mut initial {
+            value.slug = format!("guide-{operation}");
+        }
+        let id = repo.create(context, &initial, None, "").await.unwrap();
+        let mut blocker = db.pool.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(20261105220206)")
+            .execute(&mut *blocker)
+            .await
+            .unwrap();
+        let task = tokio::spawn(async move {
+            match operation {
+                0 => {
+                    let mut fresh = input();
+                    for value in &mut fresh {
+                        value.slug = "new-guide".into();
+                    }
+                    repo.create(context, &fresh, None, "").await.map(|_| ())
+                }
+                1 => repo.edit(context, id, 1, &input(), "").await,
+                _ => repo.restore(context, id, 1, 1).await,
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query='SELECT pg_advisory_xact_lock(20261105220206)')").fetch_one(&db.root).await.unwrap();
+                if waiting { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }).await.unwrap();
+        let mut writer = db.pool.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+            .bind(context.account)
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        writer.commit().await.unwrap();
+        blocker.commit().await.unwrap();
+        assert!(matches!(
+            task.await.unwrap(),
+            Err(Error::Authorization(oteryn_admin::rbac::Error::Denied))
+        ));
+        let version: i64 = sqlx::query_scalar("SELECT version FROM wiki_guides WHERE id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(version, 1);
+    }
+    db.close().await;
+    eprintln!(
+        "database_queued_create_edit_restore_recheck_revocation duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_pagination_wiki_ceiling() {
+    let started = std::time::Instant::now();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    sqlx::query("INSERT INTO wiki_guides(id,status,published_at) SELECT uuidv7(),'published',now() FROM generate_series(1,12000)").execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO wiki_revisions(id,guide_id,version,locale,title,slug,summary,markdown,editor,change_note) SELECT uuidv7(),id,1,'en','Boundary guide','boundary-'||row_number() OVER (), 'Boundary summary','Boundary article',id,'Pagination fixture' FROM wiki_guides").execute(&db.pool).await.unwrap();
+    for path in ["/en/wiki?page=1000", "/en/wiki/search?q=Boundary&page=1000"] {
+        let response = get(db.app(), path).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body(response).await;
+        assert_eq!(html.matches("<article").count(), 12);
+        assert!(!html.contains("value=\"1001\""));
+    }
+    db.close().await;
+    eprintln!(
+        "postgres_pagination_wiki_ceiling duration: {:?}",
+        started.elapsed()
+    );
+}

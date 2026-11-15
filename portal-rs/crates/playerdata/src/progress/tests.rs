@@ -367,3 +367,150 @@ async fn postgres_goals_owner_input_and_cut_fences() {
     assert!(s.goals(Actor::Owner(t.account), &g, &t).await.is_err());
     cleanup(pool, schema).await;
 }
+
+#[tokio::test]
+async fn postgres_complete_baseline_cannot_be_revoked() {
+    let started = std::time::Instant::now();
+    let Some((pool, schema)) = db().await else {
+        return;
+    };
+    let s = store(pool.clone());
+    let t = trust();
+    for revision in 1..=128 {
+        s.ingest(&bytes(&record(&t, &revision.to_string())), &t)
+            .await
+            .expect("ingest");
+    }
+    s.watermark(&wm(&t, "128"), &t, NOW)
+        .await
+        .expect("baseline");
+    let mut w: Watermark = serde_json::from_slice(&wm(&t, "128")).expect("watermark");
+    w.baseline_complete = false;
+    assert!(matches!(
+        s.watermark(&serde_json::to_vec(&w).expect("encode"), &t, NOW)
+            .await,
+        Err(Error::Conflict)
+    ));
+    let scope = ReadScope {
+        account: t.account,
+        character: Some(t.character),
+        family: "bestiary",
+    };
+    assert_eq!(
+        s.read(Actor::Owner(t.account), &scope, &t, NOW)
+            .await
+            .expect("original baseline")
+            .len(),
+        1
+    );
+    cleanup(pool, schema).await;
+    eprintln!(
+        "PG postgres_complete_baseline_cannot_be_revoked {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_stale_boss_timer_is_unavailable_and_progress_is_labelled() {
+    let started = std::time::Instant::now();
+    let Some((pool, schema)) = db().await else {
+        return;
+    };
+    let s = ProgressStore::new(
+        pool.clone(),
+        Flags {
+            ingest: true,
+            read: true,
+        },
+        vec!["bestiary".into(), "boss_cooldown".into()],
+    );
+    let t = trust();
+    for revision in 1..=128 {
+        s.ingest(&bytes(&record(&t, &revision.to_string())), &t)
+            .await
+            .expect("bestiary");
+    }
+    s.watermark(&wm(&t, "128"), &t, NOW)
+        .await
+        .expect("bestiary baseline");
+    let mut boss = record(&t, "1");
+    boss.family = "boss_cooldown".into();
+    boss.entity_key = "boss/example".into();
+    boss.payload = Some(serde_json::value::RawValue::from_string(format!("{{\"boss_key\":\"boss/example\",\"definition_revision\":\"r1\",\"kill_count\":\"2\",\"available_at_unix_ms\":\"{}\",\"last_death_occurrence_id\":null}}", NOW - 1)).expect("boss payload"));
+    s.ingest(&bytes(&boss), &t).await.expect("boss");
+    let mut watermark: Watermark = serde_json::from_slice(&wm(&t, "1")).expect("watermark");
+    watermark.family = "boss_cooldown".into();
+    s.watermark(&serde_json::to_vec(&watermark).expect("encode"), &t, NOW)
+        .await
+        .expect("boss baseline");
+    let scope = ReadScope {
+        account: t.account,
+        character: Some(t.character),
+        family: "boss_cooldown",
+    };
+    assert!(matches!(
+        s.read(Actor::Owner(t.account), &scope, &t, NOW + 10001)
+            .await,
+        Err(Error::Unavailable)
+    ));
+    let html = s
+        .page(
+            Actor::Owner(t.account),
+            t.account,
+            t.character,
+            &t,
+            ProgressLanguage::English,
+            NOW + 10001,
+        )
+        .await
+        .expect("page");
+    assert!(html.contains("Stale observation"));
+    assert!(!html.contains("Remaining cooldown (ms): 0"));
+    cleanup(pool, schema).await;
+    eprintln!(
+        "PG postgres_stale_boss_timer_is_unavailable_and_progress_is_labelled {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_goal_limit_refuses_overflow_instead_of_truncating() {
+    let started = std::time::Instant::now();
+    let Some((pool, schema)) = db().await else {
+        return;
+    };
+    let s = store(pool.clone());
+    let t = trust();
+    let g = Goal {
+        account: t.account,
+        character: t.character,
+        epoch: "1".into(),
+        recovery: "3".into(),
+        projection: "12".into(),
+        character_revision: "9".into(),
+        kind: "level".into(),
+        entity_key: "level".into(),
+        target: 100,
+    };
+    sqlx::query("INSERT INTO pd_progress_goals(id,account_id,character_id,ownership_cut,kind,entity_key,target) SELECT gen_random_uuid(),$1,$2,'1:3:12:9','level','level',100 FROM generate_series(1,4096)")
+        .bind(t.account).bind(t.character).execute(&pool).await.expect("goals");
+    assert_eq!(
+        s.goals(Actor::Owner(t.account), &g, &t)
+            .await
+            .expect("bounded complete goals")
+            .len(),
+        4096
+    );
+    s.save_goal(Actor::Owner(t.account), &g, &t)
+        .await
+        .expect("overflow goal");
+    assert!(matches!(
+        s.goals(Actor::Owner(t.account), &g, &t).await,
+        Err(Error::Unavailable)
+    ));
+    cleanup(pool, schema).await;
+    eprintln!(
+        "PG postgres_goal_limit_refuses_overflow_instead_of_truncating {:?}",
+        started.elapsed()
+    );
+}

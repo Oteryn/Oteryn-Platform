@@ -1366,3 +1366,260 @@ async fn postgres_lost_response_replay_after_deletion_stays_accepted()
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_bank_continues_after_payload_and_metadata_expiry()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let first = playerdata::items(&bank(1, None, 0, 100))?;
+    a.allow(first.scope.clone()).await;
+    let store = db.store(&a);
+    store.ingest(first.clone(), clock()).await?;
+    for (seq, days, prior) in [(2, 31, first.entity)] {
+        let time = TrustedTime {
+            unix_ms: NOW + days * 86400000,
+            uncertainty_ms: 0,
+        };
+        store.expire(time).await?;
+        let fresh = |before| -> std::result::Result<Record, Box<dyn std::error::Error>> {
+            let raw = String::from_utf8(bank(seq, Some(&prior), before, 100))?.replace(
+                &format!("\"occurred_at\":\"{}\"", NOW / 1000),
+                &format!("\"occurred_at\":\"{}\"", time.unix_ms / 1000),
+            );
+            Ok(playerdata::items(raw.as_bytes())?)
+        };
+        assert_eq!(store.ingest(fresh(99)?, time).await, Err(Error::Conflict));
+        let second = fresh(100)?;
+        store.ingest(second.clone(), time).await?;
+        let later = TrustedTime {
+            unix_ms: NOW + 100 * 86400000,
+            uncertainty_ms: 0,
+        };
+        store.expire(later).await?;
+        let third = |before| -> std::result::Result<Record, Box<dyn std::error::Error>> {
+            let raw = String::from_utf8(bank(3, Some(&second.entity), before, 100))?.replace(
+                &format!("\"occurred_at\":\"{}\"", NOW / 1000),
+                &format!("\"occurred_at\":\"{}\"", later.unix_ms / 1000),
+            );
+            Ok(playerdata::items(raw.as_bytes())?)
+        };
+        assert_eq!(store.ingest(third(199)?, later).await, Err(Error::Conflict));
+        store.ingest(third(200)?, later).await?;
+    }
+    db.close().await?;
+    eprintln!(
+        "PG postgres_bank_continues_after_payload_and_metadata_expiry {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_production_retention_dispatch_erases_payload_preserves_replay()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    use oteryn_db::outbox::Cleanup;
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+            .fetch_one(&db.pool)
+            .await?;
+    let old = now as u64 - 31 * 86400000;
+    let time = TrustedTime {
+        unix_ms: old,
+        uncertainty_ms: 0,
+    };
+    let r = playerdata::progress(
+        String::from_utf8(progress(1))?
+            .replace(&NOW.to_string(), &old.to_string())
+            .as_bytes(),
+    )?;
+    a.allow(r.scope.clone()).await;
+    let store = db.store(&a);
+    store.ingest(r.clone(), time).await?;
+    for revision in 2..=513 {
+        let raw =
+            String::from_utf8(progress(revision))?.replace(&NOW.to_string(), &old.to_string());
+        store
+            .ingest(playerdata::progress(raw.as_bytes())?, time)
+            .await?;
+    }
+    let event = Uuid::now_v7();
+    let login = format!(
+        "{{\"login_event_id\":\"{event}\",\"entered_at\":\"{old}\",\"left_at\":null,\"end_reason\":null}}"
+    );
+    let stamina_payload = canonical::encode(&r.payload)?;
+    let raw = String::from_utf8(r.bytes.clone())?
+        .replace(&r.id, &Uuid::now_v7().to_string())
+        .replace("\"family\":\"stamina\"", "\"family\":\"game_login\"")
+        .replace(
+            "\"entity_key\":\"stamina\"",
+            &format!("\"entity_key\":\"{event}\""),
+        )
+        .replace(std::str::from_utf8(&stamina_payload)?, &login);
+    let login = playerdata::progress(raw.as_bytes())?;
+    a.allow(login.scope.clone()).await;
+    store.ingest(login.clone(), time).await?;
+    crate::retention::Retention(db.pool.clone()).clean().await?;
+    let state: (i64, i64) = sqlx::query_as("SELECT count(*),count(payload) FROM pd_records")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(
+        state,
+        (514, 2),
+        "one dispatch must expire at most 512 payloads"
+    );
+    crate::retention::Retention(db.pool.clone()).clean().await?;
+    let state: (i64, i64) = sqlx::query_as("SELECT count(*),count(payload) FROM pd_records")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(state, (514, 1), "only current progress remains");
+    assert_eq!(
+        store.ingest(login.clone(), time).await?,
+        acknowledgement(&login)?
+    );
+    assert_eq!(store.ingest(r.clone(), time).await?, acknowledgement(&r)?);
+    db.close().await?;
+    eprintln!(
+        "PG postgres_production_retention_dispatch_erases_payload_preserves_replay {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_shared_authority_preserves_cross_account_record_binding()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let raw = bank(1, None, 0, 100);
+    let first = playerdata::items(&raw)?;
+    let other_account = Uuid::now_v7().to_string();
+    let second = playerdata::items(
+        String::from_utf8(raw)?
+            .replace(ACCOUNT, &other_account)
+            .as_bytes(),
+    )?;
+    a.allow(first.scope.clone()).await;
+    a.allow(second.scope.clone()).await;
+    let store = db.store(&a);
+    let (one, two) = tokio::join!(store.ingest(first, clock()), store.ingest(second, clock()));
+    assert!(matches!(
+        (one, two),
+        (Ok(_), Err(Error::Conflict)) | (Err(Error::Conflict), Ok(_))
+    ));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_records")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 1);
+    db.close().await?;
+    eprintln!(
+        "PG postgres_shared_authority_preserves_cross_account_record_binding {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_conflicting_bindings_raise_one_durable_operator_alarm()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let db = Db::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    for progress_route in [false, true] {
+        let a = TestAuthority::default();
+        let raw = if progress_route {
+            progress(1)
+        } else {
+            bank(1, None, 0, 100)
+        };
+        let r = if progress_route {
+            playerdata::progress(&raw)?
+        } else {
+            playerdata::items(&raw)?
+        };
+        a.allow(r.scope.clone()).await;
+        let identity = Identity::san("journal-alarm-test")?;
+        let app = http::router(
+            http::HttpState::new(db.store(&a), Arc::new(TestClock))
+                .with_sources(sources(progress_route)),
+            Arc::new(IdentityMap::new(vec![Binding {
+                identity: identity.clone(),
+                group: if progress_route {
+                    http::PROGRESS_GROUP
+                } else {
+                    http::ITEMS_GROUP
+                }
+                .into(),
+            }])?),
+        );
+        let request = |body: Vec<u8>| {
+            let mut req = Request::post(if progress_route {
+                http::PROGRESS_RECORD_PATH
+            } else {
+                http::RECORDS_PATH
+            })
+            .header("content-type", "application/json")
+            .header("content-length", body.len())
+            .body(Body::from(body))
+            .unwrap();
+            req.extensions_mut()
+                .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+            req
+        };
+        assert_eq!(
+            app.clone().oneshot(request(raw.clone())).await?.status(),
+            StatusCode::OK
+        );
+        for amount in [101, 102, 101] {
+            let changed = if progress_route {
+                String::from_utf8(raw.clone())?.replace(
+                    "\"stamina_minutes\":2400",
+                    &format!("\"stamina_minutes\":{amount}"),
+                )
+            } else {
+                String::from_utf8(raw.clone())?
+                    .replace("\"amount\":\"100\"", &format!("\"amount\":\"{amount}\""))
+                    .replace(
+                        "\"balance_after\":\"100\"",
+                        &format!("\"balance_after\":\"{amount}\""),
+                    )
+            };
+            assert_eq!(
+                app.clone()
+                    .oneshot(request(changed.into_bytes()))
+                    .await?
+                    .status(),
+                StatusCode::CONFLICT
+            );
+        }
+        let alarms: Vec<serde_json::Value> = sqlx::query_scalar("SELECT after FROM audit_log WHERE action='ops.playerdata_binding_conflict' ORDER BY created_at,id").fetch_all(&db.pool).await?;
+        assert_eq!(alarms.len(), if progress_route { 2 } else { 1 });
+        let alarm = alarms.last().ok_or("alarm missing")?;
+        assert_eq!(alarm["reason"], "IMMUTABLE_BINDING");
+        assert_eq!(alarm["record_id"], r.id);
+        assert_eq!(alarm["source_revision"], "1");
+        let serialized = alarm.to_string();
+        assert!(!serialized.contains("stamina_minutes"));
+        assert!(!serialized.contains("balance_after"));
+        assert!(!serialized.contains(ACCOUNT));
+        assert_eq!(db.store(&a).cursor(&r.scope).await?.0.stored, 1);
+    }
+    db.close().await?;
+    eprintln!(
+        "postgres_conflicting_bindings_raise_one_durable_operator_alarm duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

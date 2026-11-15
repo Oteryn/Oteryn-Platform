@@ -19,10 +19,24 @@ pub const SESSION_GRANT_KEY: &str = "mfa_grant";
 pub struct SessionAuthorization {
     pub account: AccountId,
     password_hash: String,
+    security_generation: i64,
     grant: Option<String>,
 }
 impl SessionAuthorization {
+    pub fn generation(&self) -> i64 {
+        self.security_generation
+    }
     pub async fn current(&self, mfa: &Mfa) -> Result<bool, sqlx::Error> {
+        let current: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND native_security_generation=$2)",
+        )
+        .bind(self.account)
+        .bind(self.security_generation)
+        .fetch_one(&mfa.pool)
+        .await?;
+        if !current {
+            return Ok(false);
+        }
         if let Some(grant) = &self.grant {
             return mfa.satisfied(self.account, grant).await;
         }
@@ -71,6 +85,9 @@ struct State {
     generation: Uuid,
 }
 impl Mfa {
+    pub fn pool(&self) -> PgPool {
+        self.pool.clone()
+    }
     pub fn new(pool: PgPool, key: [u8; 32]) -> Self {
         Self { pool, key }
     }
@@ -86,9 +103,15 @@ impl Mfa {
             Self::refuse(transaction, Some(auth.account)).await?;
             return Ok(None);
         };
+        let security_generation =
+            sqlx::query_scalar("SELECT native_security_generation FROM accounts WHERE id=$1")
+                .bind(account)
+                .fetch_one(&mut *transaction)
+                .await?;
         transaction.commit().await?;
         Ok(Some(SessionAuthorization {
             account,
+            security_generation,
             password_hash,
             grant: Some(auth.grant.clone()),
         }))
@@ -99,9 +122,10 @@ impl Mfa {
         input: Credentials,
     ) -> Result<Option<SessionAuthorization>, sqlx::Error> {
         let password = input.password.clone();
-        let Some(id) = crate::login::authenticate(&self.pool, input).await? else {
+        let Some(proof) = crate::login::authenticate_authorized(&self.pool, input).await? else {
             return Ok(None);
         };
+        let id = proof.account;
         let mut transaction = self.pool.begin().await?;
         let current = Self::lock(&mut transaction, id).await?;
         let required: bool =
@@ -109,7 +133,14 @@ impl Mfa {
                 .bind(id)
                 .fetch_one(&mut *transaction)
                 .await?;
-        if required
+        if !sqlx::query_scalar::<_, bool>(
+            "SELECT native_security_generation=$2 FROM accounts WHERE id=$1",
+        )
+        .bind(id)
+        .bind(proof.generation)
+        .fetch_one(&mut *transaction)
+        .await?
+            || required
             || current.is_none()
             || !Self::password(&password, current.as_deref().unwrap_or("")).await?
         {
@@ -118,8 +149,14 @@ impl Mfa {
         }
         Self::audit(&mut transaction, Some(id), "mfa.password_login").await?;
         let password_hash = current.ok_or_else(error)?;
+        let security_generation =
+            sqlx::query_scalar("SELECT native_security_generation FROM accounts WHERE id=$1")
+                .bind(id)
+                .fetch_one(&mut *transaction)
+                .await?;
         transaction.commit().await?;
         Ok(Some(SessionAuthorization {
+            security_generation,
             account: id,
             password_hash,
             grant: None,
@@ -131,16 +168,18 @@ impl Mfa {
         tx.commit().await
     }
     pub async fn enrolled(&self, id: AccountId) -> Result<bool, sqlx::Error> {
-        sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM account_mfa_totp WHERE account_id=$1 AND confirmed)",
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await
+        confirmed(&self.pool, id).await
     }
     /// Configuration uses exactly 64 hexadecimal characters; malformed/missing keys deny startup.
     pub fn configured(pool: PgPool) -> Result<Self, sqlx::Error> {
-        let raw = std::env::var("OTERYN_MFA_KEY").map_err(|_| error())?;
+        Self::configured_from(pool, &|key| std::env::var(key).ok())
+    }
+    /// [`Self::configured`] reading `OTERYN_MFA_KEY` through `lookup`.
+    pub fn configured_from(
+        pool: PgPool,
+        lookup: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<Self, sqlx::Error> {
+        let raw = lookup("OTERYN_MFA_KEY").ok_or_else(error)?;
         if !valid_token(&raw) {
             return Err(error());
         }
@@ -367,10 +406,16 @@ impl Mfa {
             return Ok(None);
         };
         let current = Self::lock(&mut tx, account.id).await?;
+        let generation_current: bool =
+            sqlx::query_scalar("SELECT native_security_generation=$2 FROM accounts WHERE id=$1")
+                .bind(account.id)
+                .bind(account.native_security_generation)
+                .fetch_one(&mut *tx)
+                .await?;
         let state = Self::state(&mut tx, account.id).await?;
-        let Some(state) =
-            state.filter(|s| s.confirmed && current.as_deref() == Some(hash.as_str()))
-        else {
+        let Some(state) = state.filter(|s| {
+            generation_current && s.confirmed && current.as_deref() == Some(hash.as_str())
+        }) else {
             Self::refuse(tx, None).await?;
             return Ok(None);
         };
@@ -405,7 +450,7 @@ impl Mfa {
         let (Some(hash), Some(state)) = (hash, state) else {
             return Ok(None);
         };
-        let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_mfa_tokens WHERE token_hash=$1 AND purpose=$2 AND expires_at>now() AND generation=$3 AND credential_hash=$4)").bind(digest(token)).bind(purpose).bind(state.generation).bind(digest(&hash)).fetch_one(&mut **tx).await?;
+        let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_mfa_tokens WHERE token_hash=$1 AND purpose=$2 AND expires_at>clock_timestamp() AND generation=$3 AND credential_hash=$4)").bind(digest(token)).bind(purpose).bind(state.generation).bind(digest(&hash)).fetch_one(&mut **tx).await?;
         Ok((valid && state.confirmed).then_some((id, state, hash)))
     }
     pub async fn pending_account(&self, token: &str) -> Result<Option<AccountId>, sqlx::Error> {
@@ -471,7 +516,7 @@ impl Mfa {
                 true
             } else {
                 factor = "email";
-                sqlx::query("DELETE FROM account_mfa_tokens WHERE token_hash=$1 AND parent_hash=$2 AND purpose='email' AND account_id=$3 AND generation=$4 AND credential_hash=$5 AND expires_at>now()").bind(digest(code)).bind(digest(challenge)).bind(id).bind(state.generation).bind(digest(&hash)).execute(&mut *tx).await?.rows_affected()==1
+                sqlx::query("DELETE FROM account_mfa_tokens WHERE token_hash=$1 AND parent_hash=$2 AND purpose='email' AND account_id=$3 AND generation=$4 AND credential_hash=$5 AND expires_at>clock_timestamp()").bind(digest(code)).bind(digest(challenge)).bind(id).bind(state.generation).bind(digest(&hash)).execute(&mut *tx).await?.rows_affected()==1
             }
         } else {
             false
@@ -510,7 +555,7 @@ impl Mfa {
             return Ok(None);
         };
         // Lock order remains account first; never acquire a second account lock for a foreign device.
-        let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_mfa_tokens WHERE token_hash=$1 AND account_id=$2 AND purpose='trusted' AND expires_at>now() AND generation=$3 AND credential_hash=$4)").bind(digest(device)).bind(id).bind(state.generation).bind(digest(&hash)).fetch_one(&mut *tx).await?;
+        let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_mfa_tokens WHERE token_hash=$1 AND account_id=$2 AND purpose='trusted' AND expires_at>clock_timestamp() AND generation=$3 AND credential_hash=$4)").bind(digest(device)).bind(id).bind(state.generation).bind(digest(&hash)).fetch_one(&mut *tx).await?;
         if !valid {
             Self::refuse(tx, Some(id)).await?;
             return Ok(None);
@@ -615,7 +660,7 @@ impl Mfa {
     }
     /// Safe identifiers only; bearer material is never listed.
     pub async fn devices(&self, id: AccountId) -> Result<Vec<String>, sqlx::Error> {
-        sqlx::query_scalar("SELECT encode(token_hash,'hex') FROM account_mfa_tokens WHERE account_id=$1 AND purpose='trusted' AND expires_at>now() ORDER BY created_at").bind(id).fetch_all(&self.pool).await
+        sqlx::query_scalar("SELECT encode(token_hash,'hex') FROM account_mfa_tokens WHERE account_id=$1 AND purpose='trusted' AND expires_at>clock_timestamp() ORDER BY created_at DESC,token_hash LIMIT 50").bind(id).fetch_all(&self.pool).await
     }
     pub async fn remove_device(
         &self,
@@ -684,4 +729,58 @@ impl oteryn_db::outbox::Cleanup for MfaCleanup {
             Ok(())
         })
     }
+}
+
+/// Authoritative non-secret enrollment fact for account security assessment.
+pub async fn confirmed(pool: &PgPool, id: AccountId) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM account_mfa_totp WHERE account_id=$1 AND confirmed)",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+}
+
+/// Lock current support evidence until the caller commits its staff action.
+pub async fn staff_reset_verified(
+    connection: &mut sqlx::PgConnection,
+    account: AccountId,
+    evidence: Uuid,
+) -> Result<bool, sqlx::Error> {
+    // Account first, matching credential issuance and revocation lock order.
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(account)
+        .fetch_one(&mut *connection)
+        .await?;
+    Ok(sqlx::query_scalar::<_, Uuid>("SELECT e.id FROM support_mfa_reset_evidence e WHERE e.id=$1 AND e.account_id=$2 AND e.consumed_at IS NULL AND e.expires_at>clock_timestamp() AND EXISTS(SELECT 1 FROM tickets t WHERE t.id=e.ticket_id AND t.account_id=e.account_id AND t.category='account') AND EXISTS(SELECT 1 FROM accounts a WHERE a.id=e.verified_by AND a.status='active' AND a.email_verified_at IS NOT NULL) FOR UPDATE OF e")
+        .bind(evidence).bind(account).fetch_optional(connection).await?.is_some())
+}
+
+/// Consume verified evidence and clear MFA in the staff authorization transaction.
+pub async fn staff_reset(
+    connection: &mut sqlx::PgConnection,
+    account: AccountId,
+    evidence: Uuid,
+) -> Result<bool, sqlx::Error> {
+    if !staff_reset_verified(connection, account, evidence).await? {
+        return Ok(false);
+    }
+    let consumed = sqlx::query("UPDATE support_mfa_reset_evidence SET consumed_at=clock_timestamp() WHERE id=$1 AND account_id=$2 AND consumed_at IS NULL AND expires_at>clock_timestamp()")
+        .bind(evidence).bind(account).execute(&mut *connection).await?.rows_affected();
+    if consumed != 1 {
+        return Ok(false);
+    }
+    crate::sessions::staff_revoke_all(connection, account).await?;
+    for statement in [
+        "DELETE FROM account_mfa_tokens WHERE account_id=$1",
+        "DELETE FROM account_recovery_codes WHERE account_id=$1",
+        "DELETE FROM account_mfa_totp WHERE account_id=$1",
+        "UPDATE accounts SET login_mfa_required=false,updated_at=clock_timestamp() WHERE id=$1",
+    ] {
+        sqlx::query(statement)
+            .bind(account)
+            .execute(&mut *connection)
+            .await?;
+    }
+    Ok(true)
 }

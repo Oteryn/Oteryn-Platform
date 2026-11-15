@@ -303,6 +303,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         if count >= 20 || duplicate {
             return Err(Error::Denied);
         }
+        crate::bounded::admit_offer(&mut tx, id).await?;
         let offer_id = oteryn_core::new_id();
         if listing.form == Form::FixedPrice {
             self.funds_lock(&mut tx, vec![account]).await?;
@@ -336,73 +337,91 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     /// Want-to-buy reverses buyer/seller roles. Integration evidence must cover the selected offer.
     pub async fn accept_offer(&self, id: Uuid, owner: Uuid, offer_id: Uuid) -> Result<(), Error> {
         self.enabled()?;
-        let mut tx = self.pool.begin().await?;
-        let listing = locked(&mut tx, id).await?;
-        self.currency(listing.currency)?;
-        if listing.owner != owner
-            || listing.state != State::Active
-            || listing.form == Form::Auction
-            || listing.ends_at <= clock(&mut tx).await?
-        {
-            return Err(Error::IllegalTransition);
-        }
-        let offers = pending(&mut tx, id).await?;
-        let selected = offers
-            .iter()
-            .find(|o| o.id == offer_id)
-            .ok_or(Error::NotFound)?;
-        self.authorize_many(&mut tx, vec![(owner, true), (selected.account, false)])
-            .await?;
-        if !self
-            .evidence
-            .offer_ready(&mut tx, &listing, selected)
+        loop {
+            let mut tx = self.pool.begin().await?;
+            let listing = locked(&mut tx, id).await?;
+            self.currency(listing.currency)?;
+            let continuing =
+                listing.state == State::Matched && listing.reservation == Some(offer_id);
+            if listing.owner != owner
+                || (!continuing
+                    && (listing.state != State::Active
+                        || listing.form == Form::Auction
+                        || listing.ends_at <= clock(&mut tx).await?))
+            {
+                return Err(Error::IllegalTransition);
+            }
+            if continuing {
+                let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_offers WHERE listing_id=$1 AND state='pending')").bind(id).fetch_one(&mut *tx).await?;
+                if !pending {
+                    return Err(Error::IllegalTransition);
+                }
+            }
+            let selected: Offer = sqlx::query_as(
+                "SELECT * FROM bazaar_offers WHERE listing_id=$1 AND id=$2 FOR UPDATE",
+            )
+            .bind(id)
+            .bind(offer_id)
+            .fetch_optional(&mut *tx)
             .await?
-        {
-            return Err(Error::Denied);
-        }
-        let mut accounts: Vec<Uuid> = offers.iter().map(|o| o.account).collect();
-        accounts.push(owner);
-        self.funds_lock(&mut tx, accounts).await?;
-        if listing.form == Form::WantToBuy {
-            self.reservations
-                .reserve(
-                    &mut tx,
-                    Reservation {
-                        id: offer_id,
-                        account: owner,
-                        currency: listing.currency,
-                        amount: selected.amount,
-                    },
-                )
+            .ok_or(Error::NotFound)?;
+            let resumed = listing.state == State::Matched
+                && listing.reservation == Some(offer_id)
+                && selected.state == "accepted";
+            if listing.owner != owner
+                || (!resumed
+                    && (listing.state != State::Active
+                        || listing.form == Form::Auction
+                        || listing.ends_at <= clock(&mut tx).await?
+                        || selected.state != "pending"))
+            {
+                return Err(Error::IllegalTransition);
+            }
+            self.authorize_many(&mut tx, vec![(owner, true), (selected.account, false)])
                 .await?;
-        }
-        for offer in &offers {
-            if offer.id != offer_id && listing.form == Form::FixedPrice {
-                self.reservations
-                    .release(&mut tx, offer.id, offer.account)
-                    .await?;
+            if !resumed
+                && !self
+                    .evidence
+                    .offer_ready(&mut tx, &listing, &selected)
+                    .await?
+            {
+                return Err(Error::Denied);
+            }
+            let offers = crate::bounded::offers(&mut tx, id, Some(offer_id)).await?;
+            let mut accounts: Vec<_> = offers.iter().map(|offer| offer.account).collect();
+            accounts.extend([owner, selected.account]);
+            self.funds_lock(&mut tx, accounts).await?;
+            if !resumed {
+                if listing.form == Form::WantToBuy {
+                    self.reservations
+                        .reserve(
+                            &mut tx,
+                            Reservation {
+                                id: offer_id,
+                                account: owner,
+                                currency: listing.currency,
+                                amount: selected.amount,
+                            },
+                        )
+                        .await?;
+                }
+                sqlx::query("UPDATE bazaar_offers SET state='accepted',updated_at=clock_timestamp() WHERE id=$1").bind(offer_id).execute(&mut *tx).await?;
+                sqlx::query("UPDATE bazaar_listings SET leader=$2,leader_max=$3,price=$3,reservation=$4,state='matched',updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(selected.account).bind(selected.amount).bind(offer_id).execute(&mut *tx).await?;
+            }
+            if listing.form == Form::FixedPrice {
+                for offer in &offers {
+                    self.reservations
+                        .release(&mut tx, offer.id, offer.account)
+                        .await?;
+                }
+            }
+            crate::bounded::finish(&mut tx, &offers, "rejected").await?;
+            let remaining:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_offers WHERE listing_id=$1 AND state='pending')").bind(id).fetch_one(&mut *tx).await?;
+            tx.commit().await?;
+            if !remaining {
+                return Ok(());
             }
         }
-        sqlx::query(
-            "UPDATE bazaar_offers SET state=CASE WHEN id=$2 THEN 'accepted' ELSE 'rejected' END,
-            updated_at=clock_timestamp() WHERE listing_id=$1 AND state='pending'",
-        )
-        .bind(id)
-        .bind(offer_id)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "UPDATE bazaar_listings SET leader=$2,leader_max=$3,price=$3,reservation=$4,
-            state='matched',updated_at=clock_timestamp() WHERE id=$1",
-        )
-        .bind(id)
-        .bind(selected.account)
-        .bind(selected.amount)
-        .bind(offer_id)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(())
     }
 
     pub async fn reject_offer(&self, id: Uuid, owner: Uuid, offer_id: Uuid) -> Result<(), Error> {
@@ -414,11 +433,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         if listing.owner != owner || listing.state != State::Active {
             return Err(Error::IllegalTransition);
         }
-        let offer = pending(&mut tx, id)
-            .await?
-            .into_iter()
-            .find(|o| o.id == offer_id)
-            .ok_or(Error::NotFound)?;
+        let offer:Offer=sqlx::query_as("SELECT * FROM bazaar_offers WHERE listing_id=$1 AND id=$2 AND state='pending' FOR UPDATE").bind(id).bind(offer_id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         if listing.form == Form::FixedPrice {
             self.funds_lock(&mut tx, vec![offer.account]).await?;
             self.reservations
@@ -466,33 +481,39 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
 
     pub async fn expire(&self, id: Uuid) -> Result<(), Error> {
         self.enabled()?;
-        let mut tx = self.pool.begin().await?;
-        let listing = locked(&mut tx, id).await?;
-        self.currency(listing.currency)?;
-        if listing.state != State::Active
-            || listing.leader.is_some()
-            || listing.ends_at > clock(&mut tx).await?
-        {
-            return Err(Error::IllegalTransition);
-        }
-        let offers = pending(&mut tx, id).await?;
-        self.funds_lock(&mut tx, offers.iter().map(|o| o.account).collect())
-            .await?;
-        if !self.evidence.cancellation_ready(&mut tx, &listing).await? {
-            return Err(Error::Denied);
-        }
-        if listing.form == Form::FixedPrice {
-            for offer in offers {
-                self.reservations
-                    .release(&mut tx, offer.id, offer.account)
-                    .await?;
+        loop {
+            let mut tx = self.pool.begin().await?;
+            let listing = locked(&mut tx, id).await?;
+            self.currency(listing.currency)?;
+            if listing.state != State::Active
+                || listing.leader.is_some()
+                || listing.ends_at > clock(&mut tx).await?
+            {
+                return Err(Error::IllegalTransition);
+            }
+            let offers = crate::bounded::offers(&mut tx, id, None).await?;
+            self.funds_lock(&mut tx, offers.iter().map(|o| o.account).collect())
+                .await?;
+            if !self.evidence.cancellation_ready(&mut tx, &listing).await? {
+                return Err(Error::Denied);
+            }
+            if listing.form == Form::FixedPrice {
+                for offer in &offers {
+                    self.reservations
+                        .release(&mut tx, offer.id, offer.account)
+                        .await?;
+                }
+            }
+            crate::bounded::finish(&mut tx, &offers, "expired").await?;
+            let complete = offers.len() < crate::bounded::OFFER_BATCH;
+            if complete {
+                set_state(&mut tx, id, State::Expired).await?;
+            }
+            tx.commit().await?;
+            if complete {
+                return Ok(());
             }
         }
-        sqlx::query("UPDATE bazaar_offers SET state='expired',updated_at=clock_timestamp() WHERE listing_id=$1 AND state='pending'")
-            .bind(id).execute(&mut *tx).await?;
-        set_state(&mut tx, id, State::Expired).await?;
-        tx.commit().await?;
-        Ok(())
     }
 
     /// Proceeds remain pending until delivery. Retries return the original settlement.
@@ -521,6 +542,15 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             _ => listing.state == State::Matched,
         };
         if !eligible {
+            return Err(Error::IllegalTransition);
+        }
+        let pending: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM bazaar_offers WHERE listing_id=$1 AND state='pending')",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if pending {
             return Err(Error::IllegalTransition);
         }
         let participant = listing.leader.ok_or(Error::IllegalTransition)?;
@@ -589,6 +619,7 @@ async fn clock(db: &mut PgConnection) -> Result<OffsetDateTime, Error> {
         .await?)
 }
 async fn locked(db: &mut PgConnection, id: Uuid) -> Result<Listing, Error> {
+    crate::locking::listing_gate(db).await?;
     sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
         .bind(id)
         .fetch_optional(db)
@@ -602,10 +633,6 @@ async fn set_state(db: &mut PgConnection, id: Uuid, state: State) -> Result<(), 
         .execute(db)
         .await?;
     Ok(())
-}
-async fn pending(db: &mut PgConnection, id: Uuid) -> Result<Vec<Offer>, Error> {
-    Ok(sqlx::query_as("SELECT * FROM bazaar_offers WHERE listing_id=$1 AND state='pending' ORDER BY id FOR UPDATE")
-        .bind(id).fetch_all(db).await?)
 }
 async fn settlement(db: &mut PgConnection, id: Uuid) -> Result<Settlement, Error> {
     sqlx::query_as("SELECT * FROM bazaar_settlements WHERE listing_id=$1 FOR UPDATE")

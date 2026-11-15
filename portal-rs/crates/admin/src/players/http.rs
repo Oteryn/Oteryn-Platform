@@ -14,26 +14,34 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
+    configured_router_from(pool, &|key| std::env::var(key).ok())
+}
+
+/// [`configured_router`] reading its configuration through `lookup`.
+pub(crate) fn configured_router_from(
+    pool: PgPool,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
     let flags = Flags {
-        players: std::env::var("OTERYN_ADMIN_PLAYERS").is_ok_and(|v| v == "true"),
-        characters: std::env::var("OTERYN_ADMIN_PLAYER_CHARACTERS").is_ok_and(|v| v == "true"),
-        coin_holds: oteryn_payments::coin::CoinSettings::from_lookup(|key| std::env::var(key).ok())
-            .enabled,
+        players: lookup("OTERYN_ADMIN_PLAYERS").is_some_and(|v| v == "true"),
+        characters: lookup("OTERYN_ADMIN_PLAYER_CHARACTERS").is_some_and(|v| v == "true"),
+        coin_holds: oteryn_payments::coin::CoinSettings::from_lookup(lookup).enabled,
     };
     let characters_enabled = flags.characters;
     let routes = routes(Players::new(
         pool.clone(),
         flags,
-        PortalIdentity::configured(pool.clone()),
+        PortalIdentity::configured_from(pool.clone(), lookup),
         IdentityAccounts {
             accounts: oteryn_identity::accounts::Accounts { pool: pool.clone() },
             projection: Some(super::projection::configured(
                 pool.clone(),
                 characters_enabled,
+                lookup,
             )),
         },
     ));
-    web::configured_guard(routes, pool, Permission::ManageSupportTickets)
+    web::configured_guard_from(routes, pool, Permission::ManageSupportTickets, lookup)
 }
 pub fn router<A, I, S>(
     pool: PgPool,

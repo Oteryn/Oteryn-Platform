@@ -1777,7 +1777,7 @@ async fn restricted_payers_are_refused_before_any_provider_call() -> TestResult 
     };
     let staff = db.account().await?;
     let service = db.service(vec![]);
-    let restrictions: [(&str, &str); 8] = [
+    let restrictions: [(&str, &str); 9] = [
         (
             "UPDATE accounts SET status='suspended' WHERE id=$1",
             "account_suspended",
@@ -1809,6 +1809,10 @@ async fn restricted_payers_are_refused_before_any_provider_call() -> TestResult 
         (
             "INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','test',now()-interval '1 minute',now()+interval '1 day',$2)",
             "sanction",
+        ),
+        (
+            "WITH i AS (INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES(gen_random_uuid(),$1,'ban') RETURNING sanction_id) INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) SELECT $1,1,sanction_id,jsonb_build_object('staff',$2::uuid),true,now()-interval '1 minute',now()+interval '1 day' FROM i",
+            "ban",
         ),
     ];
     for (restrict, reason) in restrictions {
@@ -1879,12 +1883,26 @@ async fn restricted_payers_are_refused_before_any_provider_call() -> TestResult 
             "{reason}"
         );
     }
-    // A warning or an expired sanction does not restrict.
+    // A warning, an expired sanction, a lifted typed ban and an expired typed
+    // ban do not restrict.
     let payer = db.account().await?;
     let token = db.token(payer).await?;
     sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'warning','active','test',now()-interval '1 minute',now()+interval '1 day',$2),($1,'suspension','expired','test',now()-interval '2 days',now()-interval '1 day',$2)")
         .bind(payer)
         .bind(staff)
+        .execute(&db.pool)
+        .await?;
+    let (lifted, expired) = (Uuid::now_v7(), Uuid::now_v7());
+    sqlx::query("INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES($2,$1,'ban'),($3,$1,'ban')")
+        .bind(payer)
+        .bind(lifted)
+        .bind(expired)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO support_sanction_revisions(account_id,revision,sanction_id,intent,active,decision_at,expires_at) VALUES($1,1,$2,'{}',true,now()-interval '2 days',NULL),($1,2,$2,'{}',false,now()-interval '1 day',NULL),($1,3,$3,'{}',true,now()-interval '2 days',now()-interval '1 day')")
+        .bind(payer)
+        .bind(lifted)
+        .bind(expired)
         .execute(&db.pool)
         .await?;
     let (order, _, _) = awaiting_order(&db, &service, payer, &token).await?;
@@ -1893,4 +1911,166 @@ async fn restricted_payers_are_refused_before_any_provider_call() -> TestResult 
         OrderState::Paid
     );
     db.close().await
+}
+
+#[derive(Clone, Copy)]
+struct AnalyticsStaff(oteryn_admin::web::StaffIdentity);
+impl oteryn_admin::web::StaffSession for AnalyticsStaff {
+    async fn resolve(
+        &self,
+        _: &oteryn_web::session::BrowserSession,
+    ) -> Option<oteryn_admin::web::StaffIdentity> {
+        Some(self.0)
+    }
+}
+impl oteryn_admin::rbac::AccountStateReader for AnalyticsStaff {
+    async fn state(
+        &self,
+        _: Uuid,
+    ) -> Result<oteryn_admin::rbac::AccountState, oteryn_admin::rbac::AccountStateUnavailable> {
+        Ok(oteryn_admin::rbac::AccountState::Active)
+    }
+}
+
+#[tokio::test]
+async fn l4_04_native_purchase_reaches_real_analytics_once() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::open().await?.ok_or("PostgreSQL is required")?;
+    let payer = db.account().await?;
+    let service = db.service(vec![]);
+    let day = oteryn_admin::analytics::now() / 86400 * 86400 - 2 * 86400;
+    // The fixture's credit is created on an eligible day; immutable entries
+    // are never rewritten after settlement.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "ALTER TABLE wallet_entries ALTER COLUMN created_at SET DEFAULT to_timestamp({day})"
+    )))
+    .execute(&db.pool)
+    .await?;
+    let (_, intent, _) = paid_order(&db, &service, payer).await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(payer).execute(&db.pool).await?;
+    let staff = AnalyticsStaff(oteryn_admin::web::StaffIdentity {
+        account: payer,
+        mfa_satisfied: true,
+    });
+    let app = oteryn_admin::analytics::web::router(
+        db.pool.clone(),
+        oteryn_admin::analytics::Config {
+            present: true,
+            authority: "test-game".into(),
+            privacy: "policy-1".into(),
+            ..Default::default()
+        },
+        oteryn_admin::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        staff,
+        staff,
+    );
+    for replay in [false, true] {
+        if replay {
+            // Even if both checkout bindings name the same intent it counts once.
+            sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'fixed',500,499,'EUR',$3)")
+                .bind(Uuid::now_v7()).bind(payer).bind(intent).execute(&db.pool).await?;
+            let event = coin_event(
+                intent,
+                &format!("coin-checkout:{intent}:paid"),
+                EventState::Succeeded,
+            );
+            // sandbox_complete signed and persisted this exact event already.
+            assert_eq!(deliver(&service, &event).await?, WebhookOutcome::Replay);
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!(
+                    "/admin/analytics/economy/data?start={day}&end={}",
+                    day + 86400
+                ))
+                .header("host", "staff.test")
+                .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let value: Value = serde_json::from_slice(&to_bytes(response.into_body(), 200000).await?)?;
+        let group = &value["groups"][5];
+        assert_eq!(group["cells"][0]["values"], serde_json::json!(["1", "500"]));
+        assert_eq!(group["cells"][1]["key"], "paid/EUR/minor_units");
+        assert_eq!(group["cells"][1]["values"], serde_json::json!(["1", "499"]));
+    }
+    db.close().await?;
+    eprintln!(
+        "PG l4_04_native_purchase_reaches_real_analytics_once: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn l2_01_shared_transfer_ceiling_refuses_atomically_and_native_balance_reads() -> TestResult {
+    use oteryn_internal_api::guard::{Identity, VerifiedClient};
+    let started = std::time::Instant::now();
+    let db = Database::open().await?.ok_or("PostgreSQL is required")?;
+    let sender = db.account().await?;
+    let recipient = db.account().await?;
+    let service = db.service(vec![]);
+    let host = Host {
+        pool: db.pool.clone(),
+        oauth: db.config.clone(),
+        projection: lcfa::Projection::new(
+            db.pool.clone(),
+            lcfa::Settings::default(),
+            Arc::new(lcfa::DenyAccounts),
+        ),
+    };
+    let policy = oteryn_wallet::wire::DatabasePolicy;
+    let ledger = oteryn_wallet::Ledger::new(
+        db.pool.clone(),
+        WalletFlags { enabled: true },
+        policy,
+        policy,
+        policy,
+    );
+    let max = oteryn_payments::coin::MAX_COINS;
+    let mut tx = db.pool.begin().await?;
+    host.credit_in(&mut tx, Uuid::now_v7(), sender, 1).await?;
+    host.credit_in(&mut tx, Uuid::now_v7(), recipient, max)
+        .await?;
+    tx.commit().await?;
+    let identities = oteryn_wallet::wire::identities(vec![(
+        "PORTAL_GAME_COINS_IDENTITIES".into(),
+        r#"{"coins.test.invalid":[]}"#.into(),
+    )])?;
+    let app = oteryn_wallet::wire::router(
+        ledger,
+        oteryn_wallet::wire::Flags {
+            transfers: true,
+            market: false,
+        },
+        identities,
+    );
+    let key = Uuid::now_v7();
+    let mut request = Request::post("/internal/v1/coins/transfers").header("content-type", "application/json")
+        .body(Body::from(format!(r#"{{"operation_id":"{key}","sender_account_id":"{sender}","recipient_account_id":"{recipient}","amount":"1"}}"#)))?;
+    request
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(Identity::san(
+            "coins.test.invalid",
+        )?));
+    let response = app.oneshot(request).await?;
+    let value: Value = serde_json::from_slice(&to_bytes(response.into_body(), 10000).await?)?;
+    assert_eq!(value["result"], "invalid");
+    assert_eq!(host.ledger().balance(sender).await?.available, 1);
+    assert_eq!(db.count("SELECT count(*) FROM wallet_transfers").await?, 0);
+    let token = db.token(recipient).await?;
+    let (status, body) = get(db.app(&service), &format!("{API}/balance"), &token).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json(&body)["total_coins"], max);
+    db.close().await?;
+    eprintln!(
+        "PG l2_01_shared_transfer_ceiling_refuses_atomically_and_native_balance_reads: {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
 }

@@ -15,6 +15,8 @@ use sqlx::PgPool;
 pub fn routes<S: Clone + Send + Sync + 'static>(pool: PgPool) -> Router<S> {
     Router::new()
         .route("/register/abuse/challenge", post(challenge))
+        .route("/pl/register/abuse/challenge", post(challenge))
+        .route("/en/register/abuse/challenge", post(challenge))
         .route("/register/abuse.js", get(script))
         .with_state(pool)
 }
@@ -62,6 +64,23 @@ async fn script() -> impl IntoResponse {
     )
 }
 async fn challenge(State(pool): State<PgPool>, request: Request) -> Response {
+    let Some(peer) = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+    else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    if let Err(response) = budget(
+        &pool,
+        "identity-registration-challenge",
+        &peer.ip().to_string(),
+        5,
+        60,
+    )
+    .await
+    {
+        return *response;
+    }
     let csrf = request
         .headers()
         .get("x-csrf-token")
@@ -90,6 +109,23 @@ pub async fn protect(State(pool): State<PgPool>, mut request: Request, next: Nex
     }
     if request.method() != Method::POST {
         return next.run(request).await;
+    }
+    let Some(peer) = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+    else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    if let Err(response) = budget(
+        &pool,
+        "identity-registration-attempt",
+        &peer.ip().to_string(),
+        5,
+        60,
+    )
+    .await
+    {
+        return *response;
     }
     let body = std::mem::replace(request.body_mut(), Body::empty());
     let bytes = match to_bytes(body, 16 * 1024).await {
@@ -137,4 +173,28 @@ pub async fn protect(State(pool): State<PgPool>, mut request: Request, next: Nex
     }
     *request.body_mut() = Body::from(bytes);
     next.run(request).await
+}
+
+/// Atomic, process-independent fixed-window budget for identity-owned adapters.
+pub async fn budget(
+    pool: &PgPool,
+    policy: &str,
+    key: &str,
+    limit: i64,
+    seconds: i64,
+) -> Result<(), Box<Response>> {
+    use sha2::{Digest, Sha256};
+    let result: Result<(i64,i64),_> = sqlx::query_as("WITH clock AS MATERIALIZED (SELECT clock_timestamp() AS t), bucket AS (SELECT to_timestamp((floor(extract(epoch FROM t)/$3::bigint)*$3)::double precision) AS start,greatest(1,ceil($3::bigint-mod(extract(epoch FROM t),$3::bigint)))::bigint AS retry FROM clock), charged AS (INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count) SELECT $1,$2,start,1 FROM bucket ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE SET count=least(web_rate_limits.count+1,$4+1) RETURNING count) SELECT count,retry FROM charged CROSS JOIN bucket")
+        .bind(policy).bind(Sha256::digest(key.as_bytes()).to_vec()).bind(seconds).bind(limit).fetch_one(pool).await;
+    match result {
+        Ok((count, _)) if count <= limit => Ok(()),
+        Ok((_, retry)) => {
+            let mut response = StatusCode::TOO_MANY_REQUESTS.into_response();
+            if let Ok(value) = retry.to_string().parse() {
+                response.headers_mut().insert(header::RETRY_AFTER, value);
+            }
+            Err(Box::new(response))
+        }
+        Err(_) => Err(Box::new(StatusCode::SERVICE_UNAVAILABLE.into_response())),
+    }
 }

@@ -11,7 +11,10 @@ purpose is introduced.
 
 ## Compatibility and activation
 
-Protocol 1 retains every existing member, code, digest, alphabet and size limit. Existing
+Protocol 1 retains every existing member, digest, alphabet and size limit. The refusal
+table below governs HTTP codes, superseding the proposed client contract: invalid
+enrollment proofs, reused enrollment tokens and reused device keys all return the
+same generic 401 refusal. Existing
 PHP clients can send the original two-member remembered enrollment request unchanged.
 Device-key enrollment is an additive four-member request variant, also protocol 1.
 Old clients need not implement it to use remembered rotation; an unbound family cannot

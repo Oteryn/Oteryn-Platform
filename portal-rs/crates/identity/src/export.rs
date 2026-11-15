@@ -23,11 +23,11 @@ struct ExportState {
 }
 
 /// No account identifier is accepted from the caller. Ownership comes from the session.
-pub async fn download(
+pub async fn stream_download(
     pool: &PgPool,
     config: &ExportConfig,
     session: &str,
-) -> Result<Value, StatusCode> {
+) -> Result<axum::body::Body, StatusCode> {
     if !config.enabled {
         return Err(StatusCode::NOT_FOUND);
     }
@@ -51,37 +51,50 @@ pub async fn download(
     let id = id.ok_or(StatusCode::FORBIDDEN)?;
     let account: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'email',email,'email_verified_at',email_verified_at,'status',status,'locale',locale,'public_account_association',public_account_association,'public_status_visible',public_status_visible,'created_at',created_at,'updated_at',updated_at) FROM accounts WHERE id=$1")
         .bind(id).fetch_one(&mut *tx).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let mut result = serde_json::json!({"schema_version":1,"account":account});
-    // Ordered aggregates make each section stable and preserve empty sections as arrays.
-    for (key, query) in [
-        (
-            "consents",
-            "SELECT COALESCE(jsonb_agg(jsonb_build_object('document_kind',document_kind,'document_version',document_version,'granted',granted,'accepted_at',accepted_at,'actor',actor,'source',source,'ip',host(ip)) ORDER BY document_kind,document_version,accepted_at,id),'[]'::jsonb) FROM account_consents WHERE account_id=$1",
-        ),
-        (
-            "sessions",
-            "SELECT COALESCE(jsonb_agg(jsonb_build_object('created_at',created_at,'last_seen_at',last_seen_at,'ip',host(ip),'device',user_agent_summary,'expires_at',absolute_expires_at) ORDER BY created_at,id_hash),'[]'::jsonb) FROM web_sessions WHERE account_id=$1",
-        ),
-        (
-            "notification_preferences",
-            "SELECT COALESCE(jsonb_agg(jsonb_build_object('category',category,'email_enabled',email_enabled,'portal_enabled',portal_enabled) ORDER BY category),'[]'::jsonb) FROM account_notification_prefs WHERE account_id=$1",
-        ),
-        (
-            "notifications",
-            "SELECT COALESCE(jsonb_agg(jsonb_build_object('id',id,'category',category,'subject',subject,'body',body,'read_at',read_at,'created_at',created_at) ORDER BY created_at,id),'[]'::jsonb) FROM notifications WHERE account_id=$1",
-        ),
-    ] {
-        let section: Value = sqlx::query_scalar(sqlx::AssertSqlSafe(query))
-            .bind(id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        result[key] = section;
-    }
-    tx.commit()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(result)
+    let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(1);
+    tokio::spawn(async move {
+        let outcome: Result<(), sqlx::Error> = async {
+            let prefix = format!("{{\"schema_version\":1,\"account\":{account}");
+            if sender.send(Ok(prefix.into_bytes())).await.is_err() { return Ok(()); }
+            for (key, query) in [
+            ("consents", "SELECT jsonb_build_object('document_kind',document_kind,'document_version',document_version,'granted',granted,'accepted_at',accepted_at,'actor',actor,'source',source,'ip',host(ip)) FROM account_consents WHERE account_id=$1 ORDER BY document_kind,document_version,accepted_at,id"),
+            ("sessions", "SELECT jsonb_build_object('created_at',created_at,'last_seen_at',last_seen_at,'ip',host(ip),'device',user_agent_summary,'expires_at',absolute_expires_at) FROM web_sessions WHERE account_id=$1 ORDER BY created_at,id_hash"),
+            ("notification_preferences", "SELECT jsonb_build_object('category',category,'email_enabled',email_enabled,'portal_enabled',portal_enabled) FROM account_notification_prefs WHERE account_id=$1 ORDER BY category"),
+            ("notifications", "SELECT jsonb_build_object('id',id,'category',category,'subject',subject,'body',body,'read_at',read_at,'created_at',created_at) FROM notifications WHERE account_id=$1 ORDER BY created_at,id"),
+            ] {
+                if sender.send(Ok(format!(",\"{key}\":[").into_bytes())).await.is_err() { return Ok(()); }
+                // A server cursor bounds both PostgreSQL and application-side batches.
+                sqlx::query(sqlx::AssertSqlSafe(format!("DECLARE export_rows NO SCROLL CURSOR FOR {query}")))
+                    .bind(id).execute(&mut *tx).await?;
+                let mut first = true;
+                loop {
+                    let rows: Vec<Value> = sqlx::query_scalar("FETCH FORWARD 64 FROM export_rows")
+                        .fetch_all(&mut *tx).await?;
+                    let done = rows.len() < 64;
+                    for row in rows {
+                        let chunk = format!("{}{row}", if first { "" } else { "," });
+                        first = false;
+                        if sender.send(Ok(chunk.into_bytes())).await.is_err() { return Ok(()); }
+                    }
+                    if done { break; }
+                }
+                sqlx::query("CLOSE export_rows").execute(&mut *tx).await?;
+                if sender.send(Ok(b"]".to_vec())).await.is_err() { return Ok(()); }
+            }
+            tx.commit().await?;
+            let _ = sender.send(Ok(b"}".to_vec())).await;
+            Ok(())
+        }.await;
+        if outcome.is_err() {
+            let _ = sender
+                .send(Err(std::io::Error::other("account export failed")))
+                .await;
+        }
+    });
+    Ok(axum::body::Body::from_stream(futures_util::stream::unfold(
+        receiver,
+        |mut receiver| async { receiver.recv().await.map(|chunk| (chunk, receiver)) },
+    )))
 }
 
 fn session_cookie(headers: &HeaderMap) -> Option<&str> {
@@ -100,7 +113,7 @@ fn session_cookie(headers: &HeaderMap) -> Option<&str> {
 }
 
 async fn handler(State(state): State<ExportState>, headers: HeaderMap) -> Response {
-    let response = match download(
+    let response = match stream_download(
         &state.pool,
         &state.config,
         session_cookie(&headers).unwrap_or_default(),
@@ -112,7 +125,8 @@ async fn handler(State(state): State<ExportState>, headers: HeaderMap) -> Respon
                 header::CONTENT_DISPOSITION,
                 "attachment; filename=\"account-data.json\"",
             )],
-            axum::Json(value),
+            [(header::CONTENT_TYPE, "application/json")],
+            value,
         )
             .into_response(),
         Err(status) => status.into_response(),
@@ -149,3 +163,16 @@ pub fn configured_router(pool: PgPool) -> Router {
 #[cfg(test)]
 #[path = "export_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub async fn download(
+    pool: &PgPool,
+    config: &ExportConfig,
+    session: &str,
+) -> Result<Value, StatusCode> {
+    let body = stream_download(pool, config, session).await?;
+    let bytes = axum::body::to_bytes(body, usize::MAX)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    serde_json::from_slice(&bytes).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+}

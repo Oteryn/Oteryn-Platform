@@ -40,6 +40,27 @@ impl oteryn_notify::AccountState for NotifyAccounts {
                 }))
         })
     }
+    fn active_verified_in<'a>(
+        &'a self,
+        tx: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: Uuid,
+    ) -> oteryn_notify::NotifyFuture<'a, Option<oteryn_notify::Account>> {
+        Box::pin(async move {
+            let account = oteryn_identity::accounts::Accounts::find_by_id_in(tx, id).await?;
+            Ok(account
+                .filter(|a| a.status == "active" && a.email_verified_at.is_some())
+                .and_then(|a| {
+                    Some(oteryn_notify::Account {
+                        email: a.email,
+                        locale: match a.locale.as_str() {
+                            "pl" => oteryn_notify::Locale::Pl,
+                            "en" => oteryn_notify::Locale::En,
+                            _ => return None,
+                        },
+                    })
+                }))
+        })
+    }
 }
 pub fn configured_router(pool: PgPool) -> std::result::Result<Router, Box<dyn std::error::Error>> {
     if std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() != Ok("true") {
@@ -281,6 +302,7 @@ struct Page {
     can_reply: bool,
     previous: u32,
     next: u32,
+    has_next: bool,
 }
 impl Page {
     fn new(language: &str, staff: bool) -> Self {
@@ -335,6 +357,7 @@ impl Page {
             can_reply: false,
             previous: 0,
             next: 1,
+            has_next: false,
         }
     }
     fn response(self) -> Response {
@@ -364,6 +387,18 @@ async fn index(
     page.next = p.page.saturating_add(1);
     match t.list(account, staff.is_some(), p.page).await {
         Ok(rows) => {
+            page.has_next = if rows.len() == 20 {
+                if let Some(next) = p.page.checked_add(1) {
+                    match t.list(account, staff.is_some(), next).await {
+                        Ok(rows) => !rows.is_empty(),
+                        Err(e) => return fail(e, &language),
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             page.rows = rows
                 .into_iter()
                 .map(|r| Row {

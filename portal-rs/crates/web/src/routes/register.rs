@@ -73,10 +73,33 @@ async fn submit(
     State(state): State<AppState>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
+    (limiter, headers): (
+        Option<Extension<crate::ratelimit::RateLimiter>>,
+        axum::http::HeaderMap,
+    ),
     value: Option<Extension<ConsentConfig>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     form: Result<Form<Registration>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    let limiter = limiter
+        .map(|v| v.0)
+        .unwrap_or_else(|| crate::ratelimit::RateLimiter::new(state.db.clone()));
+    let Some(Extension(ConnectInfo(peer_addr))) = peer else {
+        return Ok(crate::ratelimit::Denial::Unavailable.response(language, false));
+    };
+    let source = match limiter.trusted_proxies.client_ip(peer_addr, &headers) {
+        Ok(source) => source,
+        Err(error) => return Ok(error.response(language, false)),
+    };
+    if let Err(error) = limiter
+        .check(
+            crate::ratelimit::NamedPolicy::IdentityRegistration,
+            &[crate::ratelimit::Keys::source(source)],
+        )
+        .await
+    {
+        return Ok(error.response(language, false));
+    }
     let config = config(value)?;
     let input = form.map(|Form(input)| input).unwrap_or_default();
     let errors = register::validate(&input, &config);

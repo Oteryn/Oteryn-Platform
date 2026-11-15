@@ -106,6 +106,14 @@ impl Harness {
         ))
         .execute(&pool)
         .await?;
+        sqlx::raw_sql(
+            include_str!("../../../../migrations/20261115110004_fix_04_scheduling.sql")
+                .split("-- Authority resync")
+                .next()
+                .ok_or("missing cursor schema")?,
+        )
+        .execute(&pool)
+        .await?;
         sqlx::query("CREATE TABLE test_deliveries(id uuid PRIMARY KEY)")
             .execute(&pool)
             .await?;
@@ -240,4 +248,97 @@ async fn postgres_concurrent_dispatch_has_one_effect() -> TestResult {
     assert_eq!(usize::from(a?) + usize::from(b?), 1);
     assert_eq!(h.count("test_deliveries").await?, 1);
     h.finish().await
+}
+
+struct FailRecipient(Uuid);
+impl NoticeSink for FailRecipient {
+    async fn enqueue(
+        &self,
+        db: &mut PgConnection,
+        id: Uuid,
+        notice: &BazaarNotice,
+    ) -> Result<(), Error> {
+        if notice.recipient == self.0 {
+            return Err(Error::Denied);
+        }
+        sqlx::query("INSERT INTO test_deliveries VALUES($1)")
+            .bind(id)
+            .execute(db)
+            .await?;
+        Ok(())
+    }
+}
+#[tokio::test]
+async fn postgres_failing_sink_does_not_starve_later_notice() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let blocked = notice(NoticeKind::NewOffer);
+    h.record(&blocked).await?;
+    h.record(&notice(NoticeKind::Won)).await?;
+    let api = BazaarNotifications {
+        pool: h.api.pool.clone(),
+        evidence: Evidence(AtomicBool::new(true)),
+        sink: FailRecipient(blocked.recipient),
+        flags: NotificationFlags { enabled: true },
+    };
+    assert!(api.dispatch_one().await.is_err());
+    assert!(api.dispatch_one().await?);
+    assert_eq!(h.count("test_deliveries").await?, 1);
+    h.finish().await?;
+    eprintln!(
+        "postgres_failing_sink_does_not_starve_later_notice: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+struct FencedEvidence(std::sync::Arc<tokio::sync::Notify>);
+impl NoticeEvidence for FencedEvidence {
+    async fn verify(
+        &self,
+        db: &mut PgConnection,
+        _: &BazaarNotice,
+        _: OffsetDateTime,
+    ) -> Result<bool, Error> {
+        self.0.notify_one();
+        sqlx::query("SELECT pg_advisory_xact_lock(64006)")
+            .execute(db)
+            .await?;
+        Ok(true)
+    }
+}
+#[tokio::test]
+async fn postgres_notification_record_and_dispatch_share_evidence_lock_order() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let event = notice(NoticeKind::Won);
+    let id = h.record(&event).await?;
+    let entered = std::sync::Arc::new(tokio::sync::Notify::new());
+    let api = std::sync::Arc::new(BazaarNotifications {
+        pool: h.api.pool.clone(),
+        evidence: FencedEvidence(entered.clone()),
+        sink: Sink(AtomicBool::new(false)),
+        flags: NotificationFlags { enabled: true },
+    });
+    let mut record = h.api.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(64006)")
+        .execute(&mut *record)
+        .await?;
+    let dispatch = api.clone();
+    let task = tokio::spawn(async move { dispatch.dispatch_one().await });
+    entered.notified().await;
+    assert_eq!(api.record(&mut record, &event).await?, id);
+    record.commit().await?;
+    assert!(task.await??);
+    assert_eq!(h.count("test_deliveries").await?, 1);
+    h.finish().await?;
+    eprintln!(
+        "postgres_notification_record_and_dispatch_share_evidence_lock_order: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

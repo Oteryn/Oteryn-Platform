@@ -471,3 +471,66 @@ async fn terminal_cancellation_and_expiry_require_return_evidence() -> TestResul
     assert_eq!(h.api.get(listing.id).await?.state, State::Active);
     h.finish().await
 }
+
+#[tokio::test]
+async fn postgres_core_legacy_offer_cleanup_keeps_every_reservation_accounted_for() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let listing = h.listing(Form::FixedPrice, Currency::Coins, 100).await?;
+    let expiring = h.listing(Form::FixedPrice, Currency::Coins, 100).await?;
+    let mut ledger = h.ledger().await?;
+    let mut selected = Uuid::nil();
+    for listing in [listing.id, expiring.id] {
+        for _ in 0..140 {
+            selected = Uuid::now_v7();
+            let account = Uuid::now_v7();
+            h.accounts
+                .0
+                .write()
+                .map_err(|_| "account test lock")?
+                .insert(
+                    account,
+                    AccountState {
+                        active: true,
+                        email_verified: true,
+                        mfa: true,
+                        sudo: true,
+                        bazaar_blocked: false,
+                    },
+                );
+            ledger
+                .balances
+                .insert(MemoryLedger::key(account, Currency::Coins), 1000);
+            ledger.reserve(Reservation {
+                id: selected,
+                account,
+                currency: Currency::Coins,
+                amount: 100,
+            })?;
+            sqlx::query("INSERT INTO bazaar_offers(id,listing_id,account,amount,idempotency_key) VALUES($1,$2,$3,100,$1::text)").bind(selected).bind(listing).bind(account).execute(&h.pool).await?;
+        }
+    }
+    sqlx::query("UPDATE test_ledger SET snapshot=$1 WHERE id=1")
+        .bind(serde_json::to_string(&ledger)?)
+        .execute(&h.pool)
+        .await?;
+    h.api.accept_offer(expiring.id, h.owner, selected).await?;
+    h.end_in(listing.id, -1).await?;
+    h.api.expire(listing.id).await?;
+    let ledger = h.ledger().await?;
+    assert_eq!(ledger.holds.len(), 1);
+    let pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM bazaar_offers WHERE state='pending'")
+            .fetch_one(&h.pool)
+            .await?;
+    assert_eq!(pending, 0);
+    h.api.settle(expiring.id, "legacy-cleanup-sale").await?;
+    h.finish().await?;
+    eprintln!(
+        "postgres_core_legacy_offer_cleanup_keeps_every_reservation_accounted_for: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

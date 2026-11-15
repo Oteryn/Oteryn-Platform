@@ -247,15 +247,6 @@ async fn db_evidence_fresh_recovery_share_revision_and_persist_exact_bytes() -> 
         .execute(&db.pool)
         .await?;
     let req = EvidenceRequest::decode(&account(FRESH_ACCOUNT))?;
-    // Device revocation advances the account generation on suspension. Retained
-    // evidence must refuse until the owning writer acknowledges that generation.
-    assert_eq!(
-        observe(&db.pool, &options, &req).await,
-        req.failure("unavailable")
-    );
-    let witness = Witness::lock(&directory.0, &req.state_namespace)?;
-    witness.advance(&req.state_namespace, 2)?;
-    drop(witness);
     let value = observe(&db.pool, &options, &req).await;
     assert_eq!(value.get("allowed"), Some(&Value::Bool(false)));
     assert_eq!(text(&value, "minimum_valid_generation")?, "2");
@@ -383,16 +374,16 @@ async fn db_evidence_generation_mismatch_missing_floor_and_history_fail_closed()
     let options = settings(&directory);
     let req = EvidenceRequest::decode(&account(FRESH_ACCOUNT))?;
     observe(&db.pool, &options, &req).await;
-    sqlx::query("UPDATE accounts SET native_security_generation=2")
-        .execute(&db.pool)
-        .await?;
+    let state = Witness::lock(&directory.0, &req.state_namespace)?;
+    state.advance(&req.state_namespace, 2)?;
+    drop(state);
     assert_eq!(
         observe(&db.pool, &options, &req).await,
         req.failure("unavailable")
     );
-    let state = Witness::lock(&directory.0, &req.state_namespace)?;
-    state.advance(&req.state_namespace, 2)?;
-    drop(state);
+    sqlx::query("UPDATE accounts SET native_security_generation=2")
+        .execute(&db.pool)
+        .await?;
     assert_eq!(
         text(&observe(&db.pool, &options, &req).await, "result")?,
         "observed"
@@ -511,6 +502,146 @@ async fn evidence_capacity_refusal_uses_exact_unavailable_wire_without_queueing(
     assert_eq!(
         to_bytes(response.into_body(), 8192).await?.as_ref(),
         b"{\"version\":1,\"operation\":\"ReadAccountSecurityV1\",\"result\":\"unavailable\"}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn db_evidence_password_generation_and_all_persisted_statuses() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    sources(&db).await?;
+    let directory = Directory::new()?;
+    let options = settings(&directory);
+    let req = EvidenceRequest::decode(&account(FRESH_ACCOUNT))?;
+    assert_eq!(
+        text(&observe(&db.pool, &options, &req).await, "result")?,
+        "observed"
+    );
+    let id = ACCOUNT.parse::<sqlx::types::Uuid>()?;
+    let password_hash =
+        oteryn_identity::password::hash("old password").map_err(|_| "password hashing failed")?;
+    sqlx::query("UPDATE accounts SET password_hash=$1,email_verified_at=now() WHERE id=$2")
+        .bind(password_hash)
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')")
+        .bind(vec![1u8;32]).bind(id).bind("a".repeat(64)).execute(&db.pool).await?;
+    let credentials = oteryn_identity::credentials::Credentials {
+        pool: db.pool.clone(),
+        enabled: true,
+        revoker: std::sync::Arc::new(oteryn_identity::credentials::TransactionalRevoker),
+        notifications: std::sync::Arc::new(oteryn_notify::Notifications {
+            pool: db.pool.clone(),
+            accounts: std::sync::Arc::new(EvidenceAccounts(db.pool.clone())),
+            unsubscribe: oteryn_notify::Unsubscribe::new(
+                vec![7; 32],
+                "https://example.test/unsubscribe".into(),
+            )
+            .map_err(|_| "unsubscribe configuration failed")?,
+        }),
+    };
+    assert_eq!(
+        credentials
+            .change(
+                &[1; 32],
+                oteryn_identity::credentials::PasswordChange {
+                    current_password: "old password".into(),
+                    password: "new password".into(),
+                    password_confirmation: "new password".into(),
+                }
+            )
+            .await?,
+        oteryn_identity::credentials::Outcome::Changed
+    );
+    for status in ["active", "suspended", "closed", "pending_verification"] {
+        sqlx::query("UPDATE accounts SET status=$1")
+            .bind(status)
+            .execute(&db.pool)
+            .await?;
+        for operation in [FRESH_ACCOUNT, RECOVERY_ACCOUNT] {
+            let req = EvidenceRequest::decode(&account(operation))?;
+            let value = observe(&db.pool, &options, &req).await;
+            assert_eq!(text(&value, "result")?, "observed", "{status}");
+            assert_eq!(value.get("allowed"), Some(&Value::Bool(status == "active")));
+        }
+    }
+    let witness = Witness::lock(&directory.0, &req.state_namespace)?;
+    witness.advance(&req.state_namespace, 999)?;
+    drop(witness);
+    assert_eq!(
+        observe(&db.pool, &options, &req).await,
+        req.failure("unavailable")
+    );
+    db.close().await?;
+    eprintln!(
+        "db_evidence_password_generation_and_all_persisted_statuses duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[derive(Debug)]
+struct EvidenceAccounts(sqlx::PgPool);
+impl oteryn_notify::AccountState for EvidenceAccounts {
+    fn active_verified(
+        &self,
+        id: sqlx::types::Uuid,
+    ) -> oteryn_notify::NotifyFuture<'_, Option<oteryn_notify::Account>> {
+        Box::pin(async move {
+            let email: Option<String> = sqlx::query_scalar("SELECT email::text FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL")
+                .bind(id).fetch_optional(&self.0).await?;
+            Ok(email.map(|email| oteryn_notify::Account {
+                email,
+                locale: oteryn_notify::Locale::En,
+            }))
+        })
+    }
+}
+
+#[tokio::test]
+async fn db_evidence_persisted_status_vocabulary() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    sources(&db).await?;
+    let directory = Directory::new()?;
+    let options = settings(&directory);
+    for status in ["active", "suspended", "closed", "pending_verification"] {
+        sqlx::query("UPDATE accounts SET status=$1")
+            .bind(status)
+            .execute(&db.pool)
+            .await?;
+        let req = EvidenceRequest::decode(&account(FRESH_ACCOUNT))?;
+        let generation: i64 = sqlx::query_scalar("SELECT native_security_generation FROM accounts")
+            .fetch_one(&db.pool)
+            .await?;
+        let state = Witness::lock(&directory.0, &req.state_namespace)?;
+        state.advance(&req.state_namespace, generation)?;
+        drop(state);
+        let value = observe(&db.pool, &options, &req).await;
+        assert_eq!(text(&value, "result")?, "observed", "{status}");
+        assert_eq!(value.get("allowed"), Some(&Value::Bool(status == "active")));
+    }
+    sqlx::query("ALTER TABLE accounts DROP CONSTRAINT accounts_status_check")
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("UPDATE accounts SET status='unknown'")
+        .execute(&db.pool)
+        .await?;
+    let req = EvidenceRequest::decode(&account(FRESH_ACCOUNT))?;
+    assert_eq!(
+        observe(&db.pool, &options, &req).await,
+        req.failure("unavailable")
+    );
+    db.close().await?;
+    eprintln!(
+        "db_evidence_persisted_status_vocabulary duration: {:?}",
+        started.elapsed()
     );
     Ok(())
 }

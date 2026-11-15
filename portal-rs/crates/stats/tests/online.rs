@@ -950,3 +950,42 @@ async fn postgres_policy_outage_and_authority_change_deny_existing_data() -> Tes
     );
     dispose(db).await
 }
+
+#[tokio::test]
+async fn postgres_committed_watermark_fixture_uses_real_route() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let app = app(db.clone(), config());
+    let fixture = include_str!("fixtures/watermark.json").trim_end();
+    let response = send(app.clone(), "watermark", fixture, Some("projection-test")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut bad: serde_json::Value = serde_json::from_str(fixture)?;
+    bad["complete_through"] = serde_json::json!(1790035201u64);
+    assert_eq!(
+        send(
+            app.clone(),
+            "watermark",
+            &bad.to_string(),
+            Some("projection-test")
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let mut bad: serde_json::Value = serde_json::from_str(fixture)?;
+    bad["unexpected"] = serde_json::json!(true);
+    assert_eq!(
+        send(app, "watermark", &bad.to_string(), Some("projection-test"))
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    dispose(db).await?;
+    eprintln!(
+        "postgres_committed_watermark_fixture_uses_real_route duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

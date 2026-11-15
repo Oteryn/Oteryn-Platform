@@ -382,3 +382,63 @@ async fn audit06_ancestry_work_bound_with_unrelated_graph() {
     assert!(svc.invite(&invitation(Kind::Returning)).await.is_ok());
     d.close().await;
 }
+
+#[tokio::test]
+async fn lk_referral_notification_uses_transaction_connection() {
+    let started = std::time::Instant::now();
+    let db = Database::create()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    #[derive(Debug)]
+    struct DbAccounts(PgPool);
+    impl oteryn_notify::AccountState for DbAccounts {
+        fn active_verified(
+            &self,
+            id: Uuid,
+        ) -> oteryn_notify::NotifyFuture<'_, Option<oteryn_notify::Account>> {
+            Box::pin(async move {
+                let row: Option<(String,)> = sqlx::query_as("SELECT email FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL").bind(id).fetch_optional(&self.0).await?;
+                Ok(row.map(|(email,)| oteryn_notify::Account {
+                    email,
+                    locale: oteryn_notify::Locale::En,
+                }))
+            })
+        }
+        fn active_verified_in<'a>(
+            &'a self,
+            tx: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+            id: Uuid,
+        ) -> oteryn_notify::NotifyFuture<'a, Option<oteryn_notify::Account>> {
+            Box::pin(async move {
+                let row: Option<(String,)> = sqlx::query_as("SELECT email FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL").bind(id).fetch_optional(&mut **tx).await?;
+                Ok(row.map(|(email,)| oteryn_notify::Account {
+                    email,
+                    locale: oteryn_notify::Locale::En,
+                }))
+            })
+        }
+    }
+    let account: Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('referral@example.test','test-only','active','en',now()) RETURNING id").fetch_one(&db.pool).await.unwrap();
+    let mut svc = service(db.pool.clone(), Checks::new(), true);
+    svc.notifications.accounts = Arc::new(DbAccounts(db.pool.clone()));
+    let mut held = Vec::new();
+    for _ in 0..9 {
+        held.push(db.pool.acquire().await.unwrap());
+    }
+    let mut tx = db.pool.begin().await.unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        svc.notify(&mut tx, account, "invited"),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    tx.commit().await.unwrap();
+    drop(held);
+    assert_eq!(db.count("notifications").await, 1);
+    db.close().await;
+    eprintln!(
+        "lk_referral_notification_uses_transaction_connection duration: {:?}",
+        started.elapsed()
+    );
+}

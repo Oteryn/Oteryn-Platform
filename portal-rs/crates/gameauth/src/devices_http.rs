@@ -1,6 +1,6 @@
 use super::*;
 use axum::{
-    Router,
+    Extension, Router,
     body::to_bytes,
     extract::{ConnectInfo, Request, State},
     http::{StatusCode, header},
@@ -13,9 +13,10 @@ use std::net::SocketAddr;
 const BASE: &str = "/api/v1/game-auth/device-sessions";
 fn failure(error: Failure) -> Response {
     let (status, message) = match error {
-        Failure::Forbidden => (StatusCode::FORBIDDEN, "device_authorization_unavailable"),
-        Failure::Conflict => (StatusCode::CONFLICT, "device_authorization_unavailable"),
-        Failure::Denied => (StatusCode::UNAUTHORIZED, "device_authorization_unavailable"),
+        // The accepted session contract supersedes the proposed 403/409 table.
+        Failure::Forbidden | Failure::Conflict | Failure::Denied => {
+            (StatusCode::UNAUTHORIZED, "device_authorization_unavailable")
+        }
         Failure::Unavailable | Failure::Retryable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "device_authorization_unavailable",
@@ -70,23 +71,28 @@ pub fn routes<S: Clone + Send + Sync + 'static>(pool: PgPool) -> Router<S> {
         environment: std::env::var("APP_ENV").unwrap_or_default(),
         ..Settings::default()
     };
-    let authority: Arc<dyn NativeAuthority> = if settings.enabled {
-        Arc::new(PlatformAuthority {
-            oauth: crate::oauth::Config::from_env(),
-            projection_authority: std::env::var("OTERYN_NATIVE_DEVICE_PROJECTION_AUTHORITY")
-                .unwrap_or_default(),
-        })
-    } else {
-        Arc::new(UnavailableAuthority)
-    };
-    router(Sessions::new(pool, settings, authority))
+    // The application supplies its guarded authority through the same explicit
+    // authority injection used by the OAuth ticket composition. Missing wiring denies.
+    router(Sessions::new(
+        pool,
+        settings,
+        Arc::new(UnavailableAuthority),
+    ))
 }
-async fn handle(State(sessions): State<Sessions>, request: Request) -> Response {
+async fn handle(
+    State(mut sessions): State<Sessions>,
+    authority: Option<Extension<Arc<dyn NativeAuthority>>>,
+    request: Request,
+) -> Response {
+    if let Some(Extension(authority)) = authority {
+        sessions.authority = authority;
+    }
     match dispatch(sessions, request).await {
         Ok(value) => axum::Json(value).into_response(),
         Err(error) => failure(error),
     }
 }
+
 async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Value> {
     sessions.settings.check()?;
     if request.extensions().get::<VerifiedHttps>().is_none() {
@@ -191,7 +197,7 @@ async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Va
     sessions.rotate(secret, client, purpose).await
 }
 pub(super) async fn throttle(sessions: &Sessions, source: &str) -> Result<()> {
-    sqlx::query("DELETE FROM device_session_source_limits WHERE source_hash IN (SELECT source_hash FROM device_session_source_limits WHERE window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1 LIMIT 128)")
+    sqlx::query("DELETE FROM device_session_source_limits WHERE source_hash IN (SELECT source_hash FROM device_session_source_limits WHERE window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1 LIMIT 128 FOR UPDATE SKIP LOCKED) AND window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1")
         .bind(60_i64).execute(&sessions.pool).await.map_err(unavailable)?;
     let attempts: i32 = sqlx::query_scalar("INSERT INTO device_session_source_limits(source_hash,window_start,attempts) VALUES($1,floor(extract(epoch FROM clock_timestamp()))::bigint,1) ON CONFLICT(source_hash) DO UPDATE SET window_start=CASE WHEN device_session_source_limits.window_start <= EXCLUDED.window_start-60 THEN EXCLUDED.window_start ELSE device_session_source_limits.window_start END, attempts=CASE WHEN device_session_source_limits.window_start <= EXCLUDED.window_start-60 THEN 1 ELSE least(device_session_source_limits.attempts+1,61) END RETURNING attempts")
         .bind(hash(source)).fetch_one(&sessions.pool).await.map_err(unavailable)?;

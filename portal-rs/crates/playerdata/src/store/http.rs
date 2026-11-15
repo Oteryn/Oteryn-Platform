@@ -158,8 +158,16 @@ async fn progress(State(state): State<HttpState>, bytes: Bytes) -> Response {
     response(result)
 }
 async fn watermark(State(state): State<HttpState>, bytes: Bytes) -> Response {
+    let w = match playerdata::watermark(&bytes) {
+        Ok(w) => w,
+        Err(e) => return response(Err(e.into())),
+    };
+    match state.accounts.admit(&w.account) {
+        Ok(true) => {}
+        Ok(false) => return too_many("60"),
+        Err(e) => return response(Err(e)),
+    }
     let result = async {
-        let w = playerdata::watermark(&bytes)?;
         state
             .store
             .watermark(w, state.clock.trusted_time().await?)

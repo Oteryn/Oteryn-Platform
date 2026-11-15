@@ -355,11 +355,15 @@ async fn establish(
         .set(PENDING, &String::new())
         .await
         .map_err(unavailable)?;
-    session::rotate(session, PrivilegeChange::Login(auth.account))
-        .await
-        .map_err(unavailable)?;
+    session::rotate(
+        session,
+        PrivilegeChange::AuthorizedLogin(auth.account, authorization.generation()),
+    )
+    .await
+    .map_err(unavailable)?;
     session.set(GRANT, &auth.grant).await.map_err(unavailable)?;
     validate_rotated_session(context, session, &authorization).await?;
+    crate::sessions_http::complete_login(&context.mfa.pool(), session, auth.account).await?;
     let mut response = home_or_return(language, session).await?;
     if let Some(device) = auth.trusted {
         let value = HeaderValue::from_str(&format!(
@@ -466,10 +470,14 @@ async fn login(
             .set(PENDING, &String::new())
             .await
             .map_err(unavailable)?;
-        session::rotate(&session, PrivilegeChange::Login(account))
-            .await
-            .map_err(unavailable)?;
+        session::rotate(
+            &session,
+            PrivilegeChange::AuthorizedLogin(account, authorization.generation()),
+        )
+        .await
+        .map_err(unavailable)?;
         validate_rotated_session(&context, &session, &authorization).await?;
+        crate::sessions_http::complete_login(&context.mfa.pool(), &session, account).await?;
         return home_or_return(language, &session).await;
     }
     refusal(language, &session, "/login").await

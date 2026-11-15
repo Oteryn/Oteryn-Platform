@@ -26,3 +26,5 @@ axe = Axe fighting
 distance = Distance fighting
 shielding = Shielding
 fishing = Fishing
+
+progress-stale = Stale observation; current state is unconfirmed.

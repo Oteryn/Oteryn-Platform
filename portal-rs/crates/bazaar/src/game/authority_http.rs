@@ -42,20 +42,21 @@ pub fn router(authority: Authority, pool: PgPool, identities: Arc<IdentityMap>) 
         ("status", post(ingest), 2048),
         ("watermark", post(ingest), 512),
     ] {
+        let policy = RoutePolicy {
+            enabled: state.authority.config.available(),
+            group: BAZAAR_GROUP.into(),
+            max_body_bytes: max,
+            max_json_depth: 12,
+            json: JsonRule::Object,
+        };
         let route = Router::new()
             .route(&format!("/internal/v1/bazaar/{path}"), route)
+            .route_layer(middleware::from_fn_with_state(
+                policy.clone(),
+                guard::check_body,
+            ))
             .route_layer(middleware::from_fn_with_state(state.clone(), rate));
-        router = router.merge(guard::protect(
-            route,
-            identities.clone(),
-            RoutePolicy {
-                enabled: state.authority.config.available(),
-                group: BAZAAR_GROUP.into(),
-                max_body_bytes: max,
-                max_json_depth: 12,
-                json: JsonRule::Object,
-            },
-        ));
+        router = router.merge(guard::protect_peer(route, identities.clone(), policy));
     }
     router
         .with_state(state)
@@ -70,25 +71,25 @@ fn receipt_extension(authority: Authority, pool: PgPool, identities: Arc<Identit
         pool,
         rate: Arc::new(Mutex::new((Instant::now(), 0))),
     };
+    let policy = RoutePolicy {
+        enabled: state.authority.config.available(),
+        group: RECEIPT_GROUP.into(),
+        max_body_bytes: 270336,
+        max_json_depth: 12,
+        json: JsonRule::Object,
+    };
     let route = Router::new()
         .route(
             "/internal/v1/game-auth/character-commands/receipt",
             post(receipt),
         )
-        .route_layer(middleware::from_fn_with_state(state.clone(), rate));
-    guard::protect(
-        route,
-        identities,
-        RoutePolicy {
-            enabled: state.authority.config.available(),
-            group: RECEIPT_GROUP.into(),
-            max_body_bytes: 270336,
-            max_json_depth: 12,
-            json: JsonRule::Object,
-        },
-    )
-    .with_state(state)
-    .layer(middleware::from_fn(no_cache))
+        .route_layer(middleware::from_fn_with_state(
+            policy.clone(),
+            guard::check_body,
+        ));
+    guard::protect_peer(route, identities, policy)
+        .with_state(state)
+        .layer(middleware::from_fn(no_cache))
 }
 async fn rate(State(state): State<Http>, request: Request, next: Next) -> Response {
     let allowed = state.rate.lock().is_ok_and(|mut r| {
@@ -132,7 +133,7 @@ fn result(value: Result<String, Error>) -> Response {
 async fn exchange(State(s): State<Http>, OriginalUri(uri): OriginalUri, raw: Bytes) -> Response {
     let value = async {
         route_operation(uri.path(), &raw)?;
-        let mut tx = s.pool.begin().await?;
+        let mut tx = begin_exchange(&s.pool).await?;
         let result = s
             .authority
             .exchange(&mut tx, &s.authority.config.projection_authority, &raw)
@@ -145,7 +146,7 @@ async fn exchange(State(s): State<Http>, OriginalUri(uri): OriginalUri, raw: Byt
 }
 async fn receipt(State(s): State<Http>, raw: Bytes) -> Response {
     let value = async {
-        let mut tx = s.pool.begin().await?;
+        let mut tx = begin_exchange(&s.pool).await?;
         let now = clock(&mut tx).await?;
         let outcome = s
             .authority
@@ -164,7 +165,7 @@ async fn ingest(State(s): State<Http>, OriginalUri(uri): OriginalUri, raw: Bytes
     let value = async {
         route_operation(uri.path(), &raw)?;
         s.authority.enabled()?;
-        let mut tx = s.pool.begin().await?;
+        let mut tx = begin_exchange(&s.pool).await?;
         s.authority.lock(&mut tx).await?;
         let now = clock(&mut tx).await?;
         let outbox = Outbox {
@@ -209,10 +210,13 @@ pub fn extend_receipt_facility(
     pool: PgPool,
     identities: Arc<IdentityMap>,
 ) -> Router {
-    let extension = receipt_extension(authority, pool, identities);
+    let enabled = authority.config.available();
+    let extension = receipt_extension(authority, pool, identities.clone());
     let state = ReceiptFacility {
         legacy: legacy.clone(),
         extension,
+        enabled,
+        rate: Arc::new(Mutex::new((Instant::now(), 0))),
     };
     Router::new()
         .route(
@@ -220,19 +224,56 @@ pub fn extend_receipt_facility(
             post(select_receipt),
         )
         .with_state(state)
+        .layer(middleware::from_fn(no_cache))
         .fallback_service(legacy)
 }
 #[derive(Clone, Debug)]
 struct ReceiptFacility {
     legacy: Router,
     extension: Router,
+    enabled: bool,
+    rate: Arc<Mutex<(Instant, u32)>>,
 }
 async fn select_receipt(State(s): State<ReceiptFacility>, request: Request) -> Response {
     use tower::ServiceExt;
     let (parts, body) = request.into_parts();
+    // Ask the existing facility to perform its configuration and peer checks
+    // with an empty body before inspecting version bytes. Preserve v1 policy.
+    let mut probe = Request::from_parts(parts.clone(), Body::empty());
+    probe.extensions_mut().insert(guard::PeerAdmissionProbe);
+    let admission = match s.legacy.clone().oneshot(probe).await {
+        Ok(response) => response,
+        Err(never) => match never {},
+    };
+    if matches!(
+        admission.status(),
+        StatusCode::UNAUTHORIZED | StatusCode::SERVICE_UNAVAILABLE | StatusCode::TOO_MANY_REQUESTS
+    ) {
+        return admission;
+    }
+    let allowed = s.rate.lock().is_ok_and(|mut rate| {
+        if rate.0.elapsed() >= Duration::from_secs(60) {
+            *rate = (Instant::now(), 0);
+        }
+        if rate.1 >= 120 {
+            false
+        } else {
+            rate.1 += 1;
+            true
+        }
+    });
+    if !allowed {
+        return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "10")]).into_response();
+    }
     let raw = match to_bytes(body, 270336).await {
         Ok(raw) => raw,
-        Err(_) => return guard::failure(StatusCode::PAYLOAD_TOO_LARGE),
+        Err(_) => {
+            return guard::failure(if s.enabled {
+                StatusCode::PAYLOAD_TOO_LARGE
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            });
+        }
     };
     let v2 = super::authority_wire::decode(&raw, 270336)
         .ok()
@@ -264,4 +305,18 @@ fn route_operation(path: &str, raw: &[u8]) -> Result<(), Error> {
         return Err(Error::Invalid);
     }
     Ok(())
+}
+
+/// Keep canceled private exchanges from retaining a pool slot behind a server-side lock wait.
+pub(super) async fn begin_exchange(
+    pool: &PgPool,
+) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '5s'")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SET LOCAL lock_timeout = '5s'")
+        .execute(&mut *tx)
+        .await?;
+    Ok(tx)
 }

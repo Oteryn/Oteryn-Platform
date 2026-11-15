@@ -157,7 +157,7 @@ impl<A: Accounts, V: PublicViews, L: PromotionLedger> Moderation<A, V, L> {
         }
         let mut visible = Vec::new();
         for mut listing in profile.listings {
-            let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_listings l WHERE l.id=$1 AND l.owner=$2 AND l.state='active' AND l.ends_at>clock_timestamp() AND NOT EXISTS(SELECT 1 FROM bazaar_moderation_holds h WHERE h.listing_id=l.id))")
+            let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_listings l WHERE l.id=$1 AND l.owner=$2 AND l.state='active' AND l.ends_at>clock_timestamp() AND NOT EXISTS(SELECT 1 FROM bazaar_moderation_holds h WHERE h.listing_id=l.id) AND NOT (l.kind='item' AND EXISTS(SELECT 1 FROM bazaar_item_restrictions)))")
                 .bind(listing.id).bind(seller).fetch_one(&mut *tx).await?;
             if allowed && self.views.listing_visible(&mut tx, listing.id).await? {
                 listing.featured=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_promotions WHERE listing_id=$1 AND owner=$2)").bind(listing.id).bind(seller).fetch_one(&mut *tx).await?;
@@ -317,6 +317,7 @@ async fn lock_listing(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
 ) -> Result<(Uuid, State), Error> {
+    crate::locking::listing_gate(tx).await?;
     valid_id(id)?;
     sqlx::query_as("SELECT owner,state FROM bazaar_listings WHERE id=$1 FOR UPDATE")
         .bind(id)
@@ -326,7 +327,7 @@ async fn lock_listing(
 }
 async fn held(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<bool, Error> {
     Ok(sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1)",
+        "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1) OR EXISTS(SELECT 1 FROM bazaar_listings WHERE id=$1 AND kind='item' AND state='active' AND EXISTS(SELECT 1 FROM bazaar_item_restrictions))",
     )
     .bind(id)
     .fetch_one(&mut **tx)
@@ -571,11 +572,8 @@ pub async fn execute_staff(
             sqlx::query("SELECT pg_advisory_xact_lock(64002)")
                 .execute(&mut **tx)
                 .await?;
-            // No admitted T58 catalog/instance binding exists yet. Fail closed by
-            // suspending every active item listing before publishing a restriction.
-            sqlx::query("SELECT id FROM bazaar_listings WHERE kind='item' AND state='active' ORDER BY id FOR UPDATE").execute(&mut **tx).await?;
-            sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) SELECT id,1,$1,$2 FROM bazaar_listings WHERE kind='item' AND state='active' ON CONFLICT(listing_id) DO UPDATE SET revision=bazaar_moderation_holds.revision+1,actor=$1,reason=$2,updated_at=clock_timestamp()")
-                .bind(actor).bind(reason).execute(&mut **tx).await?;
+            // Restrictive policy fences active item listings in the trading
+            // trigger and public checks without locking lifetime history.
             sqlx::query("INSERT INTO bazaar_item_restrictions(id,world_id,family,production_key,revision_ref,minimum_value,denied,actor,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
                 .bind(id).bind(world).bind(family).bind(production_key).bind(revision_ref).bind(minimum_value).bind(denied).bind(actor).bind(reason).execute(&mut **tx).await?;
         }

@@ -61,6 +61,8 @@ policies! {
     IdentityPasswordReset, "identity-password-reset", 5, 60, EmailSource;
     IdentityPasswordChange, "identity-password-change", 5, 60, AccountSource;
     IdentityEmailChange, "identity-email-change", 3, 3600, AccountSource;
+    IdentityAnonymousSource, "identity-anonymous-source", 10, 60, Source;
+    IdentityVerificationSource, "identity-verification-source", 10, 60, Source;
     IdentityEmailToken, "identity-email-token", 10, 60, TokenSource;
     IdentitySessionRevoke, "identity-session-revoke", 10, 60, AccountSource;
     IdentitySecurityMutation, "identity-security-mutation", 10, 60, AccountSource;
@@ -201,6 +203,12 @@ impl RateLimiter {
         }
     }
     pub async fn check(&self, policy: NamedPolicy, keys: &[Keys]) -> Result<(), Denial> {
+        if matches!(
+            policy,
+            NamedPolicy::IdentityEmailToken | NamedPolicy::IdentityRecoveryKeyUse
+        ) {
+            check(self, NamedPolicy::IdentityAnonymousSource, keys).await?;
+        }
         check(self, policy, keys).await
     }
     fn unavailable(&self, policy: NamedPolicy) -> Denial {

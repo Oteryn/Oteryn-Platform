@@ -14,6 +14,11 @@ struct Database {
 }
 impl Database {
     async fn new() -> std::result::Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::with_connections(8).await
+    }
+    async fn with_connections(
+        maximum: u32,
+    ) -> std::result::Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("Skipping PostgreSQL support test: PORTAL_TEST_DATABASE_URL is unset");
             return Ok(None);
@@ -25,11 +30,16 @@ impl Database {
             .await?;
         let path = format!("SET search_path TO {schema}");
         let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(8)
+            .max_connections(maximum)
             .after_connect(move |conn, _| {
                 let path = path.clone();
                 Box::pin(async move {
-                    sqlx::query(sqlx::AssertSqlSafe(path)).execute(conn).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(path))
+                        .execute(&mut *conn)
+                        .await?;
+                    sqlx::query("SELECT set_config('application_name', current_schema(), false)")
+                        .execute(conn)
+                        .await?;
                     Ok(())
                 })
             })
@@ -42,6 +52,10 @@ impl Database {
             include_str!("../../../../migrations/20261105130000_t36_notifications.sql"),
             include_str!("../../../../migrations/20261105160300_t04a_rate_limits.sql"),
             include_str!("../../../../migrations/20261105170000_t10_rbac_audit.sql"),
+            include_str!(
+                "../../../../migrations/20261105220209_accounts_native_security_generation.sql"
+            ),
+            include_str!("../../../../migrations/20261105220222_t08b_email_change.sql"),
             include_str!("../../../../migrations/20261105220218_t33_tickets.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
@@ -226,6 +240,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
     };
     let owner = db.account("pl").await?;
     let actor = db.account("en").await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&db.pool).await?;
     let t = db.tickets(10)?;
     let ticket = t
         .create(owner, Uuid::now_v7(), "account", "Help", "body")
@@ -377,6 +392,7 @@ async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> Tes
     };
     let owner = db.account("en").await?;
     let actor = db.account("en").await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&db.pool).await?;
     let mut t = db.tickets(10)?;
     let ticket = t
         .create(owner, Uuid::now_v7(), "payment", "Help", "body")
@@ -775,4 +791,391 @@ async fn postgres_message_pages_and_payload_binding() -> TestResult {
     }
 
     db.finish().await
+}
+
+#[tokio::test]
+async fn postgres_ticket_status_with_exhausted_pool() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = db.account("en").await?;
+    let tickets = db.tickets(4)?;
+    let ticket = tickets
+        .create(account, Uuid::now_v7(), "other", "subject", "body")
+        .await?;
+    // Leave precisely one connection for the mutation's transaction.
+    let mut held = Vec::new();
+    for _ in 0..7 {
+        held.push(db.pool.acquire().await?);
+    }
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        tickets.change(
+            account,
+            None,
+            ticket.id,
+            ticket.lock_version,
+            Change::Status("closed"),
+        ),
+    )
+    .await??;
+    drop(held);
+    db.finish().await?;
+    eprintln!(
+        "postgres_ticket_status_with_exhausted_pool duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_notification_transaction_with_exhausted_pool() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::with_connections(1).await? else {
+        return Ok(());
+    };
+    let account = db.account("en").await?;
+    let tickets = db.tickets(4)?;
+    let mut tx = db.pool.begin().await?;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tickets
+            .notifications
+            .enqueue(&mut tx, account, &EmailTemplate::PasswordChanged)
+            .await?;
+        tickets
+            .notifications
+            .preferences(&mut tx, account, oteryn_notify::Category::News, true, true)
+            .await?;
+        let token = tickets.notifications.unsubscribe.token(
+            account,
+            oteryn_notify::Category::News,
+            time::OffsetDateTime::now_utc().unix_timestamp() + 60,
+        )?;
+        tickets.notifications.unsubscribe(&mut tx, &token).await?;
+        oteryn_notify::Result::Ok(())
+    })
+    .await??;
+    tx.commit().await?;
+    db.finish().await?;
+    eprintln!(
+        "postgres_notification_transaction_with_exhausted_pool duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+async fn staff_waiting_mutation_rechecks_authority(
+    name: &str,
+    method: &str,
+    action: &str,
+    revocation_kind: &str,
+) -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let owner = db.account("en").await?;
+    let actor = db.account("en").await?;
+    let role: Uuid =
+        sqlx::query_scalar("INSERT INTO roles(key) VALUES ('support_agent') RETURNING id")
+            .fetch_one(&db.pool)
+            .await?;
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.access'),($1,'support.tickets.manage')").bind(role).execute(&db.pool).await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(actor)
+        .bind(role)
+        .execute(&db.pool)
+        .await?;
+    let tickets = db.tickets(10)?;
+    let ticket = tickets
+        .create(owner, Uuid::now_v7(), "other", "Help", "body")
+        .await?;
+    let (cookie, csrf) = db.cookie(actor).await?;
+    let adapter = StaffAdapter {
+        mfa: true,
+        state: oteryn_admin::rbac::AccountState::Active,
+    };
+    let app = staff_router(
+        tickets,
+        oteryn_admin::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        adapter.clone(),
+        adapter,
+    );
+    let mut owner_lock = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(owner)
+        .fetch_one(&mut *owner_lock)
+        .await?;
+    let (surface, fields) = match action {
+        "reply" => ("reply", "body=answer&internal=false"),
+        "note" => ("reply", "body=private&internal=true"),
+        _ => ("status", "status=closed"),
+    };
+    let request = Request::builder()
+        .method(method)
+        .uri(format!("/en/admin/support/tickets/{}/{surface}", ticket.id))
+        .header("host", "staff.test")
+        .header("cookie", cookie)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .extension(ConnectInfo(
+            "127.0.0.1:3210".parse::<std::net::SocketAddr>()?,
+        ))
+        .body(Body::from(format!("_csrf={csrf}&lock_version=1&{fields}")))?;
+    let pending = tokio::spawn(async move { app.oneshot(request).await });
+    // Observe the request waiting at the owner's account lock, after its
+    // shared guard and pre-lock actor read have completed.
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT status,locale FROM accounts%')").bind(&db.schema).fetch_one(&db.pool).await?;
+            if waiting { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        Ok::<(), sqlx::Error>(())
+    }).await??;
+    let mut revocation = db.pool.begin().await?;
+    oteryn_admin::rbac::lock_mutation(&mut revocation).await?;
+    if revocation_kind == "suspend" {
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(actor)
+            .execute(&mut *revocation)
+            .await?;
+    } else if revocation_kind == "role" {
+        sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+            .bind(actor)
+            .execute(&mut *revocation)
+            .await?;
+    }
+    if matches!(revocation_kind, "admin.access" | "support.tickets.manage") {
+        sqlx::query("DELETE FROM role_permissions WHERE role_id=$1 AND permission=$2")
+            .bind(role)
+            .bind(revocation_kind)
+            .execute(&mut *revocation)
+            .await?;
+    }
+    revocation.commit().await?;
+    owner_lock.commit().await?;
+    let response = tokio::time::timeout(std::time::Duration::from_secs(3), pending).await??;
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => match error {},
+    };
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "{name}");
+    let unchanged: (String, i64, bool) =
+        sqlx::query_as("SELECT status,lock_version,unread_reply FROM tickets WHERE id=$1")
+            .bind(ticket.id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(unchanged, ("open".into(), 1, false));
+    let messages: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ticket_messages WHERE ticket_id=$1")
+            .bind(ticket.id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(messages, 1);
+    for table in ["audit_log", "notifications", "email_outbox", "outbox"] {
+        let count: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(count, 0, "{name}: {table}");
+    }
+    db.finish().await?;
+    eprintln!("{name} duration={:?}", started.elapsed());
+    Ok(())
+}
+macro_rules! waiting_staff_test {
+    ($name:ident, $method:literal, $action:literal, $revocation:literal) => {
+        #[tokio::test]
+        async fn $name() -> TestResult {
+            staff_waiting_mutation_rechecks_authority(
+                stringify!($name),
+                $method,
+                $action,
+                $revocation,
+            )
+            .await
+        }
+    };
+}
+waiting_staff_test!(postgres_staff_reply_rechecks_role, "POST", "reply", "role");
+waiting_staff_test!(postgres_staff_note_rechecks_role, "POST", "note", "role");
+waiting_staff_test!(
+    postgres_staff_post_status_rechecks_role,
+    "POST",
+    "status",
+    "role"
+);
+waiting_staff_test!(
+    postgres_staff_put_status_rechecks_role,
+    "PUT",
+    "status",
+    "role"
+);
+waiting_staff_test!(
+    postgres_staff_reply_rechecks_disablement,
+    "POST",
+    "reply",
+    "suspend"
+);
+waiting_staff_test!(
+    postgres_staff_note_rechecks_disablement,
+    "POST",
+    "note",
+    "suspend"
+);
+waiting_staff_test!(
+    postgres_staff_post_status_rechecks_disablement,
+    "POST",
+    "status",
+    "suspend"
+);
+waiting_staff_test!(
+    postgres_staff_put_status_rechecks_disablement,
+    "PUT",
+    "status",
+    "suspend"
+);
+
+waiting_staff_test!(
+    postgres_staff_reply_rechecks_admin_access,
+    "POST",
+    "reply",
+    "admin.access"
+);
+waiting_staff_test!(
+    postgres_staff_reply_rechecks_ticket_permission,
+    "POST",
+    "reply",
+    "support.tickets.manage"
+);
+
+#[tokio::test]
+async fn postgres_pagination_ticket_boundary() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let account = db.account("en").await?;
+    sqlx::query("INSERT INTO tickets(account_id,request_key,category,subject,last_message_at) SELECT $1,uuidv7(),'technical','Boundary ticket '||n,now()-n*interval '1 second' FROM generate_series(1,200021) n").bind(account).execute(&db.pool).await?;
+    let tickets = db.tickets(3)?;
+    for staff in [false, true] {
+        let previous = tickets.list(account, staff, 10000).await?;
+        let last = tickets.list(account, staff, 10001).await?;
+        assert_eq!(previous.len(), 20);
+        assert_eq!(last.len(), 1);
+        assert_eq!(last[0].subject, "Boundary ticket 200021");
+        assert!(previous.iter().all(|row| row.id != last[0].id));
+        assert!(tickets.list(account, staff, 10002).await?.is_empty());
+    }
+    let (cookie, _) = db.cookie(account).await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(account).execute(&db.pool).await?;
+    let adapter = StaffAdapter {
+        mfa: true,
+        state: oteryn_admin::rbac::AccountState::Active,
+    };
+    let staff_app = staff_router(
+        tickets.clone(),
+        oteryn_admin::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        adapter.clone(),
+        adapter,
+    );
+    let app = router(tickets, "http://localhost:3000");
+    for (number, has_next) in [(10000, true), (10001, false), (10002, false)] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/en/support/tickets?page={number}"))
+                    .header("cookie", &cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+        assert_eq!(html.contains(&format!("?page={}\"", number + 1)), has_next);
+    }
+    for (number, has_next) in [(10000, true), (10001, false)] {
+        let response = staff_app
+            .clone()
+            .oneshot(
+                Request::get(format!("/en/admin/support/tickets?page={number}"))
+                    .header("host", "staff.test")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+        assert_eq!(html.contains(&format!("?page={}\"", number + 1)), has_next);
+    }
+    db.finish().await?;
+    eprintln!(
+        "postgres_pagination_ticket_boundary duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn lk_crossed_staff_replies_finish() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::with_connections(2)
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let a = db.account("en").await?;
+    let b = db.account("en").await?;
+    for actor in [a, b] {
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&db.pool).await?;
+    }
+    let tickets = db.tickets(100)?;
+    for _ in 0..16 {
+        let ta = tickets
+            .create(a, Uuid::now_v7(), "other", "subject", "body")
+            .await?;
+        let tb = tickets
+            .create(b, Uuid::now_v7(), "other", "subject", "body")
+            .await?;
+        let barrier = tokio::sync::Barrier::new(2);
+        let reply = |actor, id| {
+            let barrier = &barrier;
+            let tickets = &tickets;
+            async move {
+                barrier.wait().await;
+                tickets
+                    .change(
+                        actor,
+                        Some(CheckContext {
+                            account: actor,
+                            require_staff_mfa: true,
+                            mfa_verified: true,
+                        }),
+                        id,
+                        1,
+                        Change::Reply {
+                            body: "staff reply",
+                            internal: false,
+                        },
+                    )
+                    .await
+            }
+        };
+        let (left, right) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::join!(reply(a, tb.id), reply(b, ta.id))
+        })
+        .await?;
+        left?;
+        right?;
+    }
+    db.finish().await?;
+    eprintln!(
+        "lk_crossed_staff_replies_finish duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

@@ -227,6 +227,12 @@ async fn database() -> Option<(PgPool, PgPool, String)> {
     database_at(true).await
 }
 async fn database_at(apply_restore: bool) -> Option<(PgPool, PgPool, String)> {
+    database_with_connections(apply_restore, 10).await
+}
+async fn database_with_connections(
+    apply_restore: bool,
+    maximum: u32,
+) -> Option<(PgPool, PgPool, String)> {
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIPPED DB test: PORTAL_TEST_DATABASE_URL is unset");
         return None;
@@ -243,7 +249,7 @@ async fn database_at(apply_restore: bool) -> Option<(PgPool, PgPool, String)> {
         .unwrap();
     let search = schema.clone();
     let pool = PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(maximum)
         .after_connect(move |conn, _| {
             let search = search.clone();
             Box::pin(async move {
@@ -750,4 +756,55 @@ async fn db_invalid_legacy_generation_is_queued_instead_of_guessed() {
         "character_authority.restore_state_ambiguous"
     );
     cleanup(pool, admin, schema).await;
+}
+
+#[tokio::test]
+async fn db_restore_receipt_with_one_connection() {
+    let started = std::time::Instant::now();
+    let Some((pool, admin, schema)) = database_with_connections(true, 1).await else {
+        return;
+    };
+    seed(&pool).await;
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        response(app(pool.clone()), RECEIPT_PATH, &receipt(3), Some(2)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.0, StatusCode::OK);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM character_restore_receipts")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    cleanup(pool, admin, schema).await;
+    eprintln!(
+        "db_restore_receipt_with_one_connection duration={:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn db_restore_receipt_with_exhausted_pool() {
+    let started = std::time::Instant::now();
+    let Some((pool, admin, schema)) = database_with_connections(true, 2).await else {
+        return;
+    };
+    seed(&pool).await;
+    // The original middleware consumes the last connection before entering
+    // the receipt handler, which then waits for another connection forever.
+    let held = pool.acquire().await.unwrap();
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        response(app(pool.clone()), RECEIPT_PATH, &receipt(3), Some(2)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.0, StatusCode::OK);
+    drop(held);
+    cleanup(pool, admin, schema).await;
+    eprintln!(
+        "db_restore_receipt_with_exhausted_pool duration={:?}",
+        started.elapsed()
+    );
 }

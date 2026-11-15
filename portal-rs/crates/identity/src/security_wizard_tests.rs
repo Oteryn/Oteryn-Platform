@@ -1,3 +1,5 @@
+#[path = "security_wizard_test_db.rs"]
+mod database;
 use super::*;
 use axum::{
     body::{Body, to_bytes},
@@ -269,4 +271,69 @@ async fn postgres_owner_assessment_and_refusal() -> Result<(), Box<dyn std::erro
         .await?;
     admin.close().await;
     Ok(())
+}
+
+#[tokio::test]
+async fn audit02_production_facts_report_four_and_revocations()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let id:uuid::Uuid=sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('wizard-audit@example.test','unused','active','en',now()) RETURNING id").fetch_one(&db.pool).await?;
+    sqlx::query(
+        "INSERT INTO account_recovery_keys(account_id,key_hash,confirmed_at) VALUES($1,$2,now())",
+    )
+    .bind(id)
+    .bind(crate::password::hash("wizard recovery key")?)
+    .execute(&db.pool)
+    .await?;
+    sqlx::query("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,decode('ab','hex'),true)").bind(id).execute(&db.pool).await?;
+    sqlx::query("INSERT INTO account_backup_emails(account_id,email,verified_at) VALUES($1,'backup-wizard@example.test',now())").bind(id).execute(&db.pool).await?;
+    let app = production(db.pool.clone(), true).layer(Extension(Viewer(id)));
+    let response = app
+        .clone()
+        .oneshot(Request::get("/en/account/security/wizard").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?.contains("4/4")
+    );
+    let facts = RecoveryFacts(db.pool.clone());
+    assert_eq!(
+        assess(
+            Some(OffsetDateTime::now_utc()),
+            facts.load(id).await?,
+            OffsetDateTime::now_utc()
+        )
+        .map_err(|s| s.to_string())?
+        .completed,
+        4
+    );
+    for (index, statement) in [
+        "UPDATE account_mfa_totp SET confirmed=false WHERE account_id=$1",
+        "UPDATE account_recovery_keys SET revoked_at=now() WHERE account_id=$1",
+        "DELETE FROM account_backup_emails WHERE account_id=$1",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        sqlx::query(sqlx::AssertSqlSafe(statement))
+            .bind(id)
+            .execute(&db.pool)
+            .await?;
+        let response = app
+            .clone()
+            .oneshot(Request::get("/en/account/security/wizard").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?
+                .contains(&format!("{}/4", 3 - index))
+        );
+    }
+    let loaded = facts.load(id).await?;
+    assert_eq!(loaded.mfa, Evidence::Missing);
+    assert_eq!(loaded.recovery_key, Evidence::Missing);
+    assert_eq!(loaded.backup_email, Evidence::Missing);
+    db.close().await
 }

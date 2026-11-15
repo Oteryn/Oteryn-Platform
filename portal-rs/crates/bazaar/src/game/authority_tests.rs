@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::panic)]
-use super::authority_wire::decode;
+use super::authority_wire::{decode, number};
 use super::game_wire::{digest, id, text};
 use super::*;
 use oteryn_internal_api::canonical::{self, Value};
@@ -296,6 +296,29 @@ async fn postgres_exact_receipt_replay_conflict_audit_rollback_and_nonrollback_f
         .await
         .unwrap(),
         ReceiptResult::Duplicate
+    );
+    let collision = DecisionIdentity {
+        operation_id: Uuid::now_v7(),
+        ..identity.clone()
+    };
+    assert_eq!(
+        a.decision(
+            &mut tx,
+            &a.config.projection_authority,
+            &collision,
+            &p,
+            b"colliding-envelope"
+        )
+        .await
+        .unwrap(),
+        ReceiptResult::Quarantined
+    );
+    assert!(a.retained(&mut tx, op).await.unwrap().is_none());
+    assert!(
+        a.retained(&mut tx, collision.operation_id)
+            .await
+            .unwrap()
+            .is_none()
     );
     let changed = raw.replace(
         "\"decided_at\":\"1790000002\"",
@@ -603,6 +626,19 @@ async fn store_intent(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, intent: &P
 }
 #[tokio::test]
 async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
+    item_wallet_scenario(false).await;
+}
+#[tokio::test]
+async fn postgres_delivery_refusal_allows_return_and_refunds_fenced_coins() {
+    let started = std::time::Instant::now();
+    std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    item_wallet_scenario(true).await;
+    eprintln!(
+        "postgres_delivery_refusal_allows_return_and_refunds_fenced_coins: {:?}",
+        started.elapsed()
+    );
+}
+async fn item_wallet_scenario(compensate: bool) {
     use crate::{Currency, Evidence, Listing, Reservation, Reservations, Settlement};
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIP PostgreSQL PLAT3: PORTAL_TEST_DATABASE_URL unset");
@@ -785,6 +821,192 @@ async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
     a.publish_intent(&mut tx, &QualifiedAccounts, uid("4"))
         .await
         .unwrap();
+    if compensate {
+        sqlx::query("UPDATE bazaar_listings SET state='active' WHERE id=$1")
+            .bind(listing.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE bazaar_listings SET state='awaiting_delivery' WHERE id=$1")
+            .bind(listing.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let return_wire = include_str!("fixtures/return.json")
+            .replace(
+                &"1".repeat(64),
+                &digest(vector("escrow_receipt").as_bytes()),
+            )
+            .replace("1790000020", &(now - 1).to_string())
+            .replace("1790000320", &(now + 299).to_string());
+        let returning = PreparedIntent::parse(&return_wire).unwrap();
+        store_intent(&mut tx, &returning).await;
+        assert!(matches!(
+            a.publish_intent(&mut tx, &QualifiedAccounts, uid("5"))
+                .await,
+            Err(Error::Conflict)
+        ));
+        let refused = format!(
+            "{{\"contract_version\":2,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"DeliverBazaarItem\",\"operation_id\":\"{}\",\"outcome\":\"REJECTED\",\"result_code\":\"CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE\",\"result_data\":null,\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}",
+            uid("4")
+        );
+        a.receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            refused.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+        assert!(
+            a.publish_intent(&mut tx, &QualifiedAccounts, uid("5"))
+                .await
+                .is_err()
+        );
+        audit(&a, &mut tx, &delivery, &refused, now).await;
+        a.publish_intent(&mut tx, &QualifiedAccounts, uid("5"))
+            .await
+            .unwrap();
+        assert!(funds.release(&mut tx, hold.id, hold.account).await.is_err());
+        let returned = vector("delivery_receipt")
+            .replace("DeliverBazaarItem", "ReturnBazaarItem")
+            .replace("000000000004", "000000000005")
+            .replace("000000000013", "000000000011")
+            .replace("000000000014", "000000000021")
+            .replace("1790000002", &now.to_string());
+        a.receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            returned.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+        audit(&a, &mut tx, &returning, &returned, now).await;
+        let returned_status = vector("delivered_status")
+            .replace("DELIVERED", "RETURNED")
+            .replace("000000000004", "000000000005")
+            .replace("1790000002", &now.to_string());
+        outbox
+            .ingest(
+                &mut tx,
+                &a.config.projection_authority,
+                returned_status.as_bytes(),
+                now,
+            )
+            .await
+            .unwrap();
+        assert!(a.finish_compensation(&mut tx, &listing).await.is_err());
+        funds.release(&mut tx, hold.id, hold.account).await.unwrap();
+        funds.release(&mut tx, hold.id, hold.account).await.unwrap();
+        a.finish_compensation(&mut tx, &listing).await.unwrap();
+        a.finish_compensation(&mut tx, &listing).await.unwrap();
+        let disposition: (String,i64) = sqlx::query_as("SELECT l.state::text,(SELECT count(*) FROM bazaar_authority_compensations c WHERE c.listing_id=l.id) FROM bazaar_listings l WHERE l.id=$1")
+            .bind(listing.id).fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(disposition, ("cancelled".into(), 1));
+        assert!(funds.complete(&mut tx, &sale).await.is_err());
+        let balances: (i64,i64) = sqlx::query_as("SELECT sum(available_delta)::bigint,sum(reserved_delta)::bigint FROM wallet_entries WHERE account_id=$1").bind(sale.buyer).fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(balances, (20000, 0));
+        let captures: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM wallet_operations WHERE kind='capture' AND account_id=$1",
+        )
+        .bind(sale.buyer)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(captures, 0);
+        // The same returned-custody proof releases a Gold settlement fence,
+        // while ordinary releases remain denied until payout.
+        let gold_hold = Uuid::now_v7();
+        gold_fact(
+            &mut tx,
+            Command::Hold,
+            30,
+            Uuid::now_v7(),
+            gold_hold,
+            (0, 1, 12000),
+        )
+        .await;
+        sqlx::query("INSERT INTO bazaar_authority_gold_sales(id,listing_id,buyer,seller,gross_amount,fee_amount,seller_amount,hold_id,hold_revision) VALUES($1,$2,$3,$4,10000,250,9750,$5,1)")
+            .bind(Uuid::now_v7()).bind(sale.listing_id).bind(sale.buyer).bind(sale.seller).bind(gold_hold).execute(&mut *tx).await.unwrap();
+        let Value::Object(common) = decode(delivery.bytes(), 4096).unwrap() else {
+            panic!("intent fixture");
+        };
+        let mut fields = common[..10].to_vec();
+        let release_operation = Uuid::now_v7();
+        for (name, value) in &mut fields {
+            *value = match name.as_str() {
+                "command" => Value::String(Command::Release.wire().into()),
+                "operation_id" | "issuer_decision_id" => {
+                    Value::String(release_operation.to_string())
+                }
+                "source_revision" => Value::String("31".into()),
+                _ => value.clone(),
+            };
+        }
+        for (key, value) in [
+            ("buyer_account_id", sale.buyer.to_string()),
+            ("hold_id", gold_hold.to_string()),
+            ("expected_hold_revision", "1".into()),
+            ("release_reason", "TERMINAL_REFUSAL".into()),
+            ("amount", "12000".into()),
+        ] {
+            fields.push((key.into(), Value::String(value)));
+        }
+        fields.extend_from_slice(&common[common.len() - 3..]);
+        let raw = String::from_utf8(canonical::encode(&Value::Object(fields)).unwrap()).unwrap();
+        let releasing = PreparedIntent::parse(&raw).unwrap();
+        assert!(
+            runtime::gold::validate_release(&a, &mut tx, &releasing, None)
+                .await
+                .is_ok()
+        );
+        let ordinary = PreparedIntent::parse(&raw.replace("TERMINAL_REFUSAL", "OUTBID")).unwrap();
+        assert!(
+            runtime::gold::validate_release(&a, &mut tx, &ordinary, None)
+                .await
+                .is_err()
+        );
+        // A late contradictory/ambiguous delivery decision reinstates the fence.
+        savepoint(&mut tx, "SAVEPOINT ambiguous_delivery").await;
+        sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'RECEIPT')").bind(uid("4")).bind("0".repeat(64)).execute(&mut *tx).await.unwrap();
+        assert!(
+            runtime::gold::validate_release(&a, &mut tx, &releasing, None)
+                .await
+                .is_err()
+        );
+        savepoint(&mut tx, "ROLLBACK TO SAVEPOINT ambiguous_delivery").await;
+        store_intent(&mut tx, &releasing).await;
+        a.publish_intent(&mut tx, &QualifiedAccounts, release_operation)
+            .await
+            .unwrap();
+        let release_receipt = format!(
+            "{{\"contract_version\":2,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"ReleaseBazaarGold\",\"operation_id\":\"{release_operation}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"result_data\":{{\"hold_id\":\"{gold_hold}\",\"hold_revision\":\"2\",\"released_amount\":\"12000\",\"remaining_held\":\"0\",\"hold_state\":\"RELEASED\"}},\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}"
+        );
+        a.receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            release_receipt.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+        audit(&a, &mut tx, &releasing, &release_receipt, now).await;
+        assert_eq!(
+            runtime::gold::current_hold(&a, &mut tx, listing.id, sale.buyer, None)
+                .await
+                .unwrap()
+                .unwrap()
+                .amount,
+            0
+        );
+        assert_eq!(
+            a.retained(&mut tx, uid("4")).await.unwrap().unwrap().1.raw,
+            refused
+        );
+        tx.rollback().await.unwrap();
+        return;
+    }
     let delivered = vector("delivered_status").replace("1790000002", &now.to_string());
     outbox
         .ingest(
@@ -1148,4 +1370,735 @@ async fn postgres_concurrent_receipt_publication_commits_one_immutable_decision(
         .await
         .unwrap();
     admin.close().await;
+}
+
+async fn gold_fact(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    command: Command,
+    revision: u64,
+    offer: Uuid,
+    hold: Uuid,
+    result: (u64, u64, u64),
+) -> Uuid {
+    let (expected, result_revision, amount) = result;
+    let operation = Uuid::now_v7();
+    let Value::Object(common) = decode(vector("escrow_intent").as_bytes(), 4096).unwrap() else {
+        panic!("fixture object");
+    };
+    let mut fields = common[..10].to_vec();
+    for (name, value) in &mut fields {
+        *value = match name.as_str() {
+            "command" => Value::String(command.wire().into()),
+            "operation_id" | "issuer_decision_id" => Value::String(operation.to_string()),
+            "source_revision" => Value::String(revision.to_string()),
+            _ => value.clone(),
+        };
+    }
+    let buyer = uid("13");
+    let extra = if command == Command::Hold {
+        format!(
+            "{{\"buyer_account_id\":\"{buyer}\",\"buyer_character_id\":\"{}\",\"offer_id\":\"{offer}\",\"hold_purpose\":\"RESERVE\",\"amount\":\"{amount}\",\"expected_hold_revision\":\"{expected}\"}}",
+            uid("21")
+        )
+    } else {
+        format!(
+            "{{\"buyer_account_id\":\"{buyer}\",\"hold_id\":\"{hold}\",\"expected_hold_revision\":\"{expected}\",\"release_reason\":\"OUTBID\",\"amount\":\"{amount}\"}}"
+        )
+    };
+    let Value::Object(extra) = decode(extra.as_bytes(), 4096).unwrap() else {
+        panic!("fields");
+    };
+    fields.extend(extra);
+    fields.extend_from_slice(&common[common.len() - 3..]);
+    let raw = String::from_utf8(canonical::encode(&Value::Object(fields)).unwrap()).unwrap();
+    let intent = PreparedIntent::parse(&raw).unwrap();
+    store_intent(tx, &intent).await;
+    let data = if command == Command::Hold {
+        format!(
+            "{{\"hold_id\":\"{hold}\",\"hold_revision\":\"{result_revision}\",\"buyer_account_id\":\"{buyer}\",\"offer_id\":\"{offer}\",\"hold_purpose\":\"RESERVE\",\"held_amount\":\"{amount}\"}}"
+        )
+    } else {
+        format!(
+            "{{\"hold_id\":\"{hold}\",\"hold_revision\":\"{result_revision}\",\"released_amount\":\"{amount}\",\"remaining_held\":\"0\",\"hold_state\":\"RELEASED\"}}"
+        )
+    };
+    let receipt = format!(
+        "{{\"contract_version\":2,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"{}\",\"operation_id\":\"{operation}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"result_data\":{data},\"recovery_generation\":\"3\",\"decided_at\":\"1790000002\"}}",
+        command.wire()
+    );
+    let r = Receipt::parse(receipt.as_bytes()).unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_receipts(operation_id,recovery_generation,source_authority,intent_digest,receipt_digest,receipt,outcome) VALUES($1,3,$2,$3,$4,$5,'COMMITTED')").bind(operation).bind(&authority().config.receipt_authority).bind(digest(intent.bytes())).bind(r.digest()).bind(&receipt).execute(&mut **tx).await.unwrap();
+    let p = BazaarAuthorityDecisionV1 {
+        intent_sha256: Sha256::digest(intent.bytes()).to_vec(),
+        receipt_sha256: Sha256::digest(r.bytes()).to_vec(),
+        recovery_generation: 3,
+    }
+    .encode_to_vec();
+    sqlx::query("INSERT INTO bazaar_authority_decisions(event_id,envelope_semantics,transaction_id,ordinal,event_count,operation_id,recovery_generation,source_authority,payload,payload_digest) VALUES($1,$2,$1,1,1,$3,3,$4,$5,$6)").bind(Uuid::now_v7()).bind(b"gold lifecycle regression".as_slice()).bind(operation).bind(&authority().config.projection_authority).bind(&p).bind(Sha256::digest(&p).to_vec()).execute(&mut **tx).await.unwrap();
+    operation
+}
+#[tokio::test]
+async fn postgres_released_gold_hold_starts_new_lifecycle_and_reconstruction() {
+    let started = std::time::Instant::now();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&url)
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let a = authority();
+    let offer = uid("20");
+    let first = Uuid::now_v7();
+    gold_fact(&mut tx, Command::Hold, 8001, offer, first, (0, 1, 10000)).await;
+    let hold = runtime::gold::current_hold(&a, &mut tx, offer, uid("13"), None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        runtime::gold::hold_binding(offer, Some(&hold), Uuid::now_v7()),
+        (offer, 1)
+    );
+    gold_fact(&mut tx, Command::Release, 8002, offer, first, (1, 2, 10000)).await;
+    let released = runtime::gold::current_hold(&a, &mut tx, offer, uid("13"), None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(released.amount, 0);
+    let request = Uuid::now_v7();
+    assert_eq!(
+        runtime::gold::hold_binding(offer, Some(&released), request),
+        (request, 0)
+    );
+    let second = Uuid::now_v7();
+    let op = gold_fact(&mut tx, Command::Hold, 8003, request, second, (0, 1, 20000)).await;
+    let hold = runtime::gold::current_hold(&a, &mut tx, offer, uid("13"), None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((hold.id, hold.revision, hold.amount), (second, 1, 20000));
+    let (intent, receipt) = a.retained(&mut tx, op).await.unwrap().unwrap();
+    runtime::gold::validate_hold(&a, &mut tx, &intent, receipt.value.get("result_data"))
+        .await
+        .unwrap();
+    tx.rollback().await.unwrap();
+    eprintln!(
+        "postgres_released_gold_hold_starts_new_lifecycle_and_reconstruction: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_completed_resync_does_not_rescan_terminal_history() {
+    let started = std::time::Instant::now();
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&std::env::var("PORTAL_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=3,recovery_generation=3")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_resync(projection_epoch,recovery_generation) VALUES(3,3) ON CONFLICT DO NOTHING").execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) SELECT uuidv7(),$1,'item','auction','coins',100,false,'completed',now() FROM generate_series(1,2000)").bind(Uuid::now_v7()).execute(&mut *tx).await.unwrap();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        authority().finish_resync(&mut tx, &[uid("12")]),
+    )
+    .await
+    .unwrap();
+    assert!(result.is_ok());
+    tx.rollback().await.unwrap();
+    eprintln!(
+        "postgres_completed_resync_does_not_rescan_terminal_history: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_receipt_evidence_and_worker_listing_lock_do_not_deadlock() {
+    use crate::Evidence;
+    let started = std::time::Instant::now();
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&std::env::var("PORTAL_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+    sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=3,recovery_generation=3")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let listing = Uuid::now_v7();
+    let seller = Uuid::now_v7();
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,'item','auction','gold',100,false,now()+interval '1 day')").bind(listing).bind(seller).execute(&pool).await.unwrap();
+    let mut worker = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM bazaar_listings WHERE id=$1 FOR UPDATE")
+        .bind(listing)
+        .execute(&mut *worker)
+        .await
+        .unwrap();
+    let (signal, ready) = tokio::sync::oneshot::channel();
+    let other = pool.clone();
+    let receipt = tokio::spawn(async move {
+        let mut tx = other.begin().await?;
+        let a = authority();
+        a.lock(&mut tx).await?;
+        let _ = signal.send(());
+        let sale = crate::Settlement {
+            id: Uuid::now_v7(),
+            listing_id: listing,
+            buyer: Uuid::now_v7(),
+            seller,
+            currency: crate::Currency::Gold,
+            amount: 100,
+            commission: 3,
+            seller_net: 97,
+            reservation: Uuid::now_v7(),
+        };
+        let result = a.delivered(&mut tx, &sale).await;
+        tx.rollback().await?;
+        Ok::<_, Error>(result)
+    });
+    ready.await.unwrap();
+    let worker_result = authority().lock(&mut worker).await;
+    worker.rollback().await.unwrap();
+    assert!(worker_result.is_ok());
+    assert!(receipt.await.unwrap().unwrap().is_ok());
+    eprintln!(
+        "postgres_receipt_evidence_and_worker_listing_lock_do_not_deadlock: {:?}",
+        started.elapsed()
+    );
+}
+
+fn transfer_fixture(operation: Uuid, revision: i64, issued: u64) -> Value {
+    let Value::Object(mut fields) =
+        decode(vector("character_settlement_intent").as_bytes(), 4096).unwrap()
+    else {
+        panic!("transfer fixture");
+    };
+    for (name, value) in &mut fields {
+        *value = match name.as_str() {
+            "operation_id" => Value::String(operation.to_string()),
+            "source_revision" => Value::String(revision.to_string()),
+            "issued_at_source" => Value::String(issued.to_string()),
+            "expires_at_source" => Value::String((issued + 300).to_string()),
+            _ => value.clone(),
+        };
+    }
+    Value::Object(fields)
+}
+async fn stage_transfer_fixture(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing: Uuid,
+    transfer: &Value,
+) {
+    let binding = Value::Object(
+        [
+            "character_id",
+            "expected_from_account_id",
+            "to_account_id",
+            "purpose",
+        ]
+        .into_iter()
+        .map(|name| (name.into(), transfer.get(name).unwrap().clone()))
+        .collect(),
+    );
+    let raw = String::from_utf8(canonical::encode(transfer).unwrap()).unwrap();
+    let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_transfers WHERE listing_id=$1 AND purpose=$2)").bind(listing).bind(text(transfer,"purpose").unwrap()).fetch_one(&mut **tx).await.unwrap();
+    let query = if exists {
+        "INSERT INTO bazaar_authority_transfer_retries(operation_id,listing_id,purpose,decision_id,source_revision,intent,intent_digest,binding,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,3,3)"
+    } else {
+        "INSERT INTO bazaar_authority_transfers(operation_id,listing_id,purpose,decision_id,source_revision,intent,intent_digest,binding,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,3,3)"
+    };
+    sqlx::query(query)
+        .bind(id(text(transfer, "operation_id").unwrap()).unwrap())
+        .bind(listing)
+        .bind(text(transfer, "purpose").unwrap())
+        .bind(id(text(transfer, "issuer_decision_id").unwrap()).unwrap())
+        .bind(number(transfer, "source_revision").unwrap() as i64)
+        .bind(&raw)
+        .bind(digest(raw.as_bytes()))
+        .bind(String::from_utf8(canonical::encode(&binding).unwrap()).unwrap())
+        .execute(&mut **tx)
+        .await
+        .unwrap();
+}
+async fn transfer_listing(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Uuid {
+    let listing = Uuid::now_v7();
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,'character','auction','coins',100,false,now()+interval '1 day')").bind(listing).bind(uid("11")).execute(&mut **tx).await.unwrap();
+    listing
+}
+#[tokio::test]
+async fn postgres_legacy_staged_transfer_publishes_exact_bytes_after_newer_revision() {
+    let started = std::time::Instant::now();
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&std::env::var("PORTAL_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let listing = transfer_listing(&mut tx).await;
+    let revision: i64 = sqlx::query_scalar(
+        "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let issued = runtime::now(&mut tx).await.unwrap();
+    let operation = Uuid::now_v7();
+    let transfer = transfer_fixture(operation, revision, issued);
+    let raw = canonical::encode(&transfer).unwrap();
+    issue_create_fixture(&mut tx).await.unwrap();
+    // This ordering represents a pre-upgrade staged record whose revision was overtaken.
+    stage_transfer_fixture(&mut tx, listing, &transfer).await;
+    runtime::worker::publish_transfer(
+        &mut tx,
+        listing,
+        text(&transfer, "purpose").unwrap(),
+        operation,
+        &transfer,
+        &raw,
+    )
+    .await
+    .unwrap();
+    let stored: String =
+        sqlx::query_scalar("SELECT intent_json FROM character_commands WHERE id=$1")
+            .bind(operation)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(stored.as_bytes(), raw);
+    runtime::worker::publish_transfer(
+        &mut tx,
+        listing,
+        text(&transfer, "purpose").unwrap(),
+        operation,
+        &transfer,
+        &raw,
+    )
+    .await
+    .unwrap();
+    tx.rollback().await.unwrap();
+    eprintln!(
+        "postgres_legacy_staged_transfer_publishes_exact_bytes_after_newer_revision: {:?}",
+        started.elapsed()
+    );
+}
+#[tokio::test]
+async fn postgres_transfer_expiry_requires_terminal_no_commit_before_replacement() {
+    let started = std::time::Instant::now();
+    transfer_rejection_scenario("CHAR_CMD_INTENT_EXPIRED").await;
+    eprintln!(
+        "postgres_transfer_expiry_requires_terminal_no_commit_before_replacement: {:?}",
+        started.elapsed()
+    );
+}
+async fn transfer_rejection_scenario(code: &str) {
+    let started = std::time::Instant::now();
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&std::env::var("PORTAL_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let listing = transfer_listing(&mut tx).await;
+    sqlx::query("UPDATE bazaar_listings SET state='active' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE bazaar_listings SET state='awaiting_delivery' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let revision: i64 = sqlx::query_scalar(
+        "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let operation = Uuid::now_v7();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let transfer = transfer_fixture(operation, revision, now - 301);
+    let purpose = text(&transfer, "purpose").unwrap();
+    let raw = canonical::encode(&transfer).unwrap();
+    stage_transfer_fixture(&mut tx, listing, &transfer).await;
+    assert_eq!(
+        runtime::characters::reconcile_transfer(&authority(), &mut tx, listing, purpose)
+            .await
+            .unwrap(),
+        Some(operation)
+    );
+    issue_create_fixture(&mut tx).await.unwrap();
+    runtime::worker::publish_transfer(&mut tx, listing, purpose, operation, &transfer, &raw)
+        .await
+        .unwrap();
+    let receipt = format!(
+        "{{\"contract_version\":1,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"TransferCharacterOwnership\",\"operation_id\":\"{operation}\",\"outcome\":\"REJECTED\",\"result_code\":\"{code}\",\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}"
+    );
+    sqlx::query("UPDATE character_commands SET state='TERMINAL',receipt_json=$2 WHERE id=$1")
+        .bind(operation)
+        .bind(&receipt)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE character_commands SET state='PENDING',receipt_json=NULL WHERE id=$1")
+        .bind(operation)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime::characters::reconcile_transfer(&authority(), &mut tx, listing, purpose)
+            .await
+            .unwrap(),
+        Some(operation)
+    );
+    sqlx::query("UPDATE character_commands SET state='TERMINAL',receipt_json=$2 WHERE id=$1")
+        .bind(operation)
+        .bind(&receipt)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime::characters::reconcile_transfer(&authority(), &mut tx, listing, purpose)
+            .await
+            .unwrap(),
+        None
+    );
+    let old: String =
+        sqlx::query_scalar("SELECT intent FROM bazaar_authority_transfers WHERE operation_id=$1")
+            .bind(operation)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(old.as_bytes(), raw);
+    let new_revision: i64 = sqlx::query_scalar(
+        "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let new_operation = Uuid::now_v7();
+    let retry = transfer_fixture(new_operation, new_revision, now);
+    stage_transfer_fixture(&mut tx, listing, &retry).await;
+    assert_eq!(
+        runtime::characters::reconcile_transfer(&authority(), &mut tx, listing, purpose)
+            .await
+            .unwrap(),
+        Some(new_operation)
+    );
+    let retry_raw = canonical::encode(&retry).unwrap();
+    runtime::worker::publish_transfer(&mut tx, listing, purpose, new_operation, &retry, &retry_raw)
+        .await
+        .unwrap();
+    assert!(new_revision > revision);
+    assert_ne!(new_operation, operation);
+    let old_receipt: String =
+        sqlx::query_scalar("SELECT receipt_json FROM character_commands WHERE id=$1")
+            .bind(operation)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(old_receipt, receipt);
+    tx.rollback().await.unwrap();
+    eprintln!(
+        "transfer_rejection_scenario({code}): {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_transfer_session_rejection_requires_terminal_no_commit_before_replacement() {
+    let started = std::time::Instant::now();
+    for code in [
+        "CHAR_CMD_CHARACTER_IN_SESSION",
+        "CHAR_CMD_OWNER_MISMATCH",
+        "CHAR_CMD_CHARACTER_NOT_FOUND",
+        "CHAR_CMD_CHARACTER_NOT_TRANSFERABLE",
+        "CHAR_CMD_HOUSING_NOT_PREPARED",
+        "CHAR_CMD_SAME_ACCOUNT",
+        "CHAR_CMD_ACCOUNT_CHARACTER_LIMIT",
+        "CHAR_CMD_ACCOUNT_NOT_ELIGIBLE",
+        "CHAR_CMD_INTENT_INVALID",
+        "CHAR_CMD_OPERATION_CONFLICT",
+        "CHAR_CMD_UNSUPPORTED",
+    ] {
+        transfer_rejection_scenario(code).await;
+    }
+    eprintln!(
+        "postgres_transfer_session_rejection_requires_terminal_no_commit_before_replacement: {:?}",
+        started.elapsed()
+    );
+}
+
+async fn issue_create_fixture(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Uuid, sqlx::Error> {
+    let revision: i64 = sqlx::query_scalar(
+        "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    let operation = Uuid::now_v7();
+    let issued = runtime::now(tx).await.unwrap();
+    let Value::Object(mut fields) = decode(
+        include_str!("../../../characters/src/commands/fixtures/create-intent.json").as_bytes(),
+        4096,
+    )
+    .unwrap() else {
+        panic!("create fixture");
+    };
+    for (name, value) in &mut fields {
+        *value = match name.as_str() {
+            "operation_id" => Value::String(operation.to_string()),
+            "source_revision" => Value::String(revision.to_string()),
+            "issued_at_source" => Value::String(issued.to_string()),
+            "expires_at_source" => Value::String((issued + 300).to_string()),
+            _ => value.clone(),
+        };
+    }
+    let intent = Value::Object(fields);
+    let binding = Value::Object(
+        ["account_id", "target_world_id", "requested_name"]
+            .into_iter()
+            .map(|name| (name.into(), intent.get(name).unwrap().clone()))
+            .collect(),
+    );
+    sqlx::query("INSERT INTO character_commands(id,source_revision,issuer_decision_id,request_key,command,account_id,binding_json,intent_json) OVERRIDING SYSTEM VALUE VALUES($1,$2,$3,$1::text,'CreateCharacter',$4,$5,$6)")
+        .bind(operation).bind(revision).bind(id(text(&intent,"issuer_decision_id").unwrap()).unwrap()).bind(id(text(&intent,"account_id").unwrap()).unwrap()).bind(String::from_utf8(canonical::encode(&binding).unwrap()).unwrap()).bind(String::from_utf8(canonical::encode(&intent).unwrap()).unwrap()).execute(&mut **tx).await?;
+    Ok(operation)
+}
+#[tokio::test]
+async fn postgres_private_transfer_barrier_fences_all_character_issuers() {
+    let started = std::time::Instant::now();
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&std::env::var("PORTAL_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let listing = transfer_listing(&mut tx).await;
+    let revision: i64 = sqlx::query_scalar(
+        "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let operation = Uuid::now_v7();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let transfer = transfer_fixture(operation, revision, now);
+    stage_transfer_fixture(&mut tx, listing, &transfer).await;
+    sqlx::query("SAVEPOINT before_competing_issue")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let blocked = issue_create_fixture(&mut tx).await;
+    assert!(
+        matches!(blocked,Err(sqlx::Error::Database(ref e)) if e.code().as_deref()==Some("55P03"))
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT before_competing_issue")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let raw = canonical::encode(&transfer).unwrap();
+    runtime::worker::publish_transfer(
+        &mut tx,
+        listing,
+        text(&transfer, "purpose").unwrap(),
+        operation,
+        &transfer,
+        &raw,
+    )
+    .await
+    .unwrap();
+    issue_create_fixture(&mut tx).await.unwrap();
+    tx.rollback().await.unwrap();
+    eprintln!(
+        "postgres_private_transfer_barrier_fences_all_character_issuers: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_resync_advances_only_a_bounded_fence_scoped_operation_batch() {
+    let started = std::time::Instant::now();
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&std::env::var("PORTAL_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    oteryn_db::migrate(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    for table in [
+        "bazaar_game_issuer",
+        "bazaar_game_outbox",
+        "bazaar_authority_receipts",
+        "bazaar_authority_decisions",
+        "bazaar_authority_conflicts",
+        "bazaar_authority_resync",
+        "bazaar_resync_progress",
+        "bazaar_game_projections",
+        "bazaar_game_quarantine",
+        "bazaar_listings",
+        "bazaar_authority_assets",
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "CREATE TEMP TABLE {table} (LIKE public.{table} INCLUDING ALL)"
+        )))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    }
+    sqlx::query("INSERT INTO bazaar_game_issuer(singleton,projection_epoch,recovery_generation) VALUES(true,3,3)").execute(&mut *tx).await.unwrap();
+    let a = authority();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let policy = format!(
+        "{{\"contract_version\":2,\"operation\":\"PublishBazaarTransferabilityV1\",\"source_authority\":\"oteryn:game:primary\",\"world_id\":\"{}\",\"projection_epoch\":\"3\",\"projection_revision\":\"4\",\"source_observed_at\":\"{now}\",\"eligibility_revision\":\"4\",\"definitions\":[]}}",
+        uid("12")
+    );
+    Outbox {
+        settings: Settings {
+            preparation_enabled: true,
+            game_enabled: false,
+        },
+    }
+    .ingest(
+        &mut tx,
+        &a.config.projection_authority,
+        policy.as_bytes(),
+        now,
+    )
+    .await
+    .unwrap();
+    let hold = Uuid::now_v7();
+    let offer = Uuid::now_v7();
+    for revision in 1..=49_u64 {
+        gold_fact(
+            &mut tx,
+            Command::Hold,
+            revision,
+            offer,
+            hold,
+            (revision - 1, revision, 10000 + revision),
+        )
+        .await;
+    }
+    for expected in [24_u64, 48, 49] {
+        a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+        let cursor:String=sqlx::query_scalar("SELECT operation_cursor::text FROM bazaar_resync_progress WHERE projection_epoch=3 AND recovery_generation=3").fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(cursor, expected.to_string());
+        let complete:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_resync WHERE projection_epoch=3 AND recovery_generation=3)").fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(complete, expected == 49);
+    }
+    tx.rollback().await.unwrap();
+    eprintln!(
+        "postgres_resync_advances_only_a_bounded_fence_scoped_operation_batch: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn bzb_receipt_admission_precedes_oversized_version_selection() {
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode},
+        routing::post,
+    };
+    use oteryn_internal_api::guard::{
+        self, Binding, Identity, IdentityMap, JsonRule, RoutePolicy, VerifiedClient,
+    };
+    use std::sync::Arc;
+    use tower::ServiceExt;
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/unused")
+        .unwrap();
+    let identities = Arc::new(
+        IdentityMap::new(vec![Binding {
+            identity: Identity::spki_sha256([1; 32]),
+            group: authority_http::RECEIPT_GROUP.into(),
+        }])
+        .unwrap(),
+    );
+    for enabled in [true, false] {
+        let policy = RoutePolicy {
+            enabled,
+            group: authority_http::RECEIPT_GROUP.into(),
+            max_body_bytes: 8192,
+            max_json_depth: 12,
+            json: JsonRule::Object,
+        };
+        let legacy = guard::protect(
+            Router::new().route(
+                "/internal/v1/game-auth/character-commands/receipt",
+                post(|| async { StatusCode::OK }),
+            ),
+            identities.clone(),
+            policy,
+        );
+        let mut a = authority();
+        a.config.enabled = enabled;
+        let app =
+            authority_http::extend_receipt_facility(legacy, a, pool.clone(), identities.clone());
+        let request = Request::post("/internal/v1/game-auth/character-commands/receipt")
+            .header("content-type", "application/json")
+            .extension(VerifiedClient::from_verified_tls13_http11(
+                Identity::spki_sha256([2; 32]),
+            ))
+            .body(Body::from("x".repeat(270337)))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(request).await.unwrap().status(),
+            if enabled {
+                StatusCode::UNAUTHORIZED
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+        );
+        if enabled {
+            for _ in 0..120 {
+                let request = Request::post("/internal/v1/game-auth/character-commands/receipt")
+                    .header("content-type", "application/json")
+                    .extension(VerifiedClient::from_verified_tls13_http11(
+                        Identity::spki_sha256([1; 32]),
+                    ))
+                    .body(Body::from("{"))
+                    .unwrap();
+                assert_eq!(
+                    app.clone().oneshot(request).await.unwrap().status(),
+                    StatusCode::BAD_REQUEST
+                );
+            }
+            for body in ["{".to_owned(), "x".repeat(270337)] {
+                let request = Request::post("/internal/v1/game-auth/character-commands/receipt")
+                    .header("content-type", "application/json")
+                    .extension(VerifiedClient::from_verified_tls13_http11(
+                        Identity::spki_sha256([1; 32]),
+                    ))
+                    .body(Body::from(body))
+                    .unwrap();
+                assert_eq!(
+                    app.clone().oneshot(request).await.unwrap().status(),
+                    StatusCode::TOO_MANY_REQUESTS
+                );
+            }
+        }
+    }
 }

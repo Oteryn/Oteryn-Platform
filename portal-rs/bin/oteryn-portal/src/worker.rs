@@ -35,10 +35,24 @@ impl Cleanup for NoopCleanup {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Registry {
     handlers: BTreeMap<String, Arc<dyn Handler>>,
     schedules: BTreeMap<String, i32>,
+    execution_budget: Duration,
+    heartbeat_interval: Duration,
+    shutdown_budget: Duration,
+}
+impl Default for Registry {
+    fn default() -> Self {
+        Self {
+            handlers: BTreeMap::new(),
+            schedules: BTreeMap::new(),
+            execution_budget: Duration::from_secs(30),
+            heartbeat_interval: Duration::from_secs(15),
+            shutdown_budget: Duration::from_secs(10),
+        }
+    }
 }
 impl Registry {
     /// Duplicate registrations are refused instead of silently changing ownership.
@@ -70,13 +84,38 @@ impl Registry {
     }
     /// Batch jobs start together and renew leases while handlers are in flight.
     async fn batch(&self, pool: &PgPool) -> Result<usize, Box<dyn std::error::Error>> {
+        // Preserve connection hooks (including tenant/search_path settings), but
+        // reserve independent capacity before handlers can occupy the shared pool.
+        let leases = pool
+            .options()
+            .clone()
+            .max_connections(2)
+            .min_connections(0)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect_with((*pool.connect_options()).clone())
+            .await?;
         let jobs = outbox::claim(pool, 16, 60).await?;
         let count = jobs.len();
         let mut tasks = tokio::task::JoinSet::new();
         for job in jobs {
             let pool = pool.clone();
+            let leases = leases.clone();
             let handler = self.handlers.get(&job.kind).cloned();
-            tasks.spawn(async move { execute(&pool, job, handler).await });
+            let budget = self.execution_budget;
+            let heartbeat_interval = self.heartbeat_interval;
+            tasks.spawn(async move {
+                let id = job.id;
+                // Covers the handler, lease renewals and acknowledgement. Dropping
+                // transactional work queues rollback; no acknowledgement is made
+                // on timeout, so lease expiry and domain idempotency own retry.
+                match tokio::time::timeout(budget, execute(&pool, &leases, job, handler, heartbeat_interval)).await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        tracing::warn!(%id, "outbox execution deadline exceeded; lease left for retry");
+                        Ok(())
+                    }
+                }
+            });
         }
         // Drain in-flight work even if another job loses its lease or a database call fails.
         let mut failure = None;
@@ -95,8 +134,10 @@ impl Registry {
 }
 async fn execute(
     pool: &PgPool,
+    leases: &PgPool,
     job: Job,
     handler: Option<Arc<dyn Handler>>,
+    heartbeat_interval: Duration,
 ) -> Result<(), outbox::Error> {
     let Some(handler) = handler else {
         outbox::finish(
@@ -110,13 +151,23 @@ async fn execute(
     };
     let future = handler.run(&job);
     tokio::pin!(future);
-    let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+    let mut heartbeat = tokio::time::interval(heartbeat_interval);
     let result = loop {
         tokio::select! {
             result = &mut future => break result,
             _ = heartbeat.tick() => {
-                if !outbox::renew(pool, &job, 60).await? {
-                    return Err(outbox::Error::Protocol("outbox lease lost".into()));
+                let renewal = tokio::time::timeout(
+                    Duration::from_secs(5), outbox::renew(leases, &job, 60));
+                tokio::pin!(renewal);
+                tokio::select! {
+                    result = &mut future => break result,
+                    renewed = &mut renewal => {
+                        let owned = renewed.map_err(|_| outbox::Error::Protocol(
+                            "outbox renewal deadline exceeded; lease left for retry".into()))??;
+                        if !owned {
+                            return Err(outbox::Error::Protocol("outbox lease lost".into()));
+                        }
+                    }
                 }
             }
         }
@@ -144,7 +195,16 @@ async fn run_until(
         tokio::pin!(batch);
         let count = tokio::select! {
             biased;
-            () = &mut shutdown => { batch.await?; return Ok(()); }
+            () = &mut shutdown => {
+                if let Ok(result) = tokio::time::timeout(registry.shutdown_budget, &mut batch).await {
+                    result?;
+                } else {
+                    // Dropping batch drops its JoinSet, aborting every remaining
+                    // delivery. Their unacknowledged leases remain retryable.
+                    tracing::warn!("outbox shutdown drain deadline exceeded; cancelling batch");
+                }
+                return Ok(());
+            }
             result = &mut batch => result?,
         };
         if count == 0 {
@@ -154,6 +214,13 @@ async fn run_until(
             }
         }
     }
+}
+fn register_journal_cleanup(registry: &mut Registry, pool: &PgPool) -> Result<(), String> {
+    registry.cleanup(
+        "cleanup.journal-payloads",
+        10,
+        Arc::new(oteryn_playerdata::retention::Retention(pool.clone())),
+    )
 }
 pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
@@ -188,6 +255,7 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         3600,
         Arc::new(oteryn_playerdata::logins::Retention(pool.clone())),
     )?;
+    register_journal_cleanup(&mut registry, &pool)?;
     crate::reset_delivery::register(&mut registry, pool.clone())?;
     crate::registration_delivery::register(&mut registry, pool.clone())?;
     registry.cleanup(

@@ -35,9 +35,10 @@
 //! step exists.
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use oteryn_characters::bootstrap::issue;
+#[cfg(test)]
+use oteryn_gameauth::evidence::{Witness, trust_state_namespace};
 use oteryn_gameauth::{
     admission::{self, route_names_valid, route_revision},
-    evidence::{Witness, trust_state_namespace},
     keys::{self, PublicTrustRegistry},
 };
 use oteryn_identity::mfa::Mfa;
@@ -832,82 +833,34 @@ fn trust_error(error: keys::KeyError) -> SeedError {
     }
 }
 
-/// The recovery scope has no registry type on this tree yet; this applies the
-/// same rules as `PublicTrustRegistry::publish` (gateway contract §9.2): witness
-/// before commit, a kid bound to one key forever, at most two trusted keys.
+#[cfg(test)]
+#[path = "seed_signing_trust_audit05_tests.rs"]
+mod signing_trust_audit05_tests;
+
+/// Publish recovery trust through the same validator as the running issuer.
 async fn publish_recovery(
     pool: &PgPool,
     directory: &std::path::Path,
     key_id: &str,
     public_key: &str,
 ) -> Result<(), SeedError> {
-    let witness_down = |_| SeedError::Unavailable("retained witness");
-    let namespace = trust_state_namespace(RECOVERY_ISSUER, RECOVERY_PROFILE, RECOVERY_PURPOSE)
-        .map_err(witness_down)?;
-    let witness = Witness::lock(directory, &namespace).map_err(witness_down)?;
-    let floor = witness.floor(&namespace).map_err(witness_down)?;
-    let mut tx = pool.begin().await?;
-    let profile = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
-        .bind(RECOVERY_ISSUER).bind(RECOVERY_PROFILE).bind(RECOVERY_PURPOSE)
-        .fetch_optional(&mut *tx).await?;
-    let stale = || SeedError::Conflict("recovery trust state is revoked or ambiguous".into());
-    let (id, revision) = match profile {
-        Some(row) => {
-            let revision: i64 = row.try_get("issuer_revision")?;
-            if row.try_get::<bool, _>("revoked")? || floor != Some(revision) {
-                return Err(stale());
-            }
-            (row.try_get::<Uuid, _>("id")?, revision)
-        }
-        None if floor.is_none() => {
-            let id = Uuid::now_v7();
-            sqlx::query("INSERT INTO native_game_signing_trust_profiles (id, issuer, profile, key_purpose, profile_version, issuer_revision) VALUES ($1, $2, $3, $4, 1, 1)")
-                .bind(id).bind(RECOVERY_ISSUER).bind(RECOVERY_PROFILE).bind(RECOVERY_PURPOSE)
-                .execute(&mut *tx).await?;
-            (id, 0)
-        }
-        None => return Err(stale()),
-    };
-    // A kid is never published in both scopes (contract §19.5).
-    let elsewhere: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM native_game_signing_trust_key_versions WHERE key_id=$1 AND profile_id<>$2)")
-        .bind(key_id).bind(id).fetch_one(&mut *tx).await?;
-    if elsewhere {
-        return Err(SeedError::Conflict(
-            "key id is used in another trust scope".into(),
-        ));
-    }
-    let rows = sqlx::query("SELECT DISTINCT ON (key_id) key_id, public_key, trusted FROM native_game_signing_trust_key_versions WHERE profile_id=$1 ORDER BY key_id, key_revision DESC")
-        .bind(id).fetch_all(&mut *tx).await?;
-    let mut trusted = 0;
-    for row in rows {
-        let kid: String = row.try_get("key_id")?;
-        let key: String = row.try_get("public_key")?;
-        let live: bool = row.try_get("trusted")?;
-        if kid == key_id {
-            return if live && key == public_key {
-                Ok(())
-            } else {
-                Err(SeedError::Conflict("key id is bound to another key".into()))
-            };
-        }
-        if key == public_key {
-            return Err(SeedError::Conflict(
-                "public key is bound to another key id".into(),
-            ));
-        }
-        trusted += usize::from(live);
-    }
-    if trusted >= 2 {
-        return Err(SeedError::Conflict("two keys are already trusted".into()));
-    }
-    let next = revision + 1;
-    sqlx::query("INSERT INTO native_game_signing_trust_key_versions (profile_id, key_id, key_revision, public_key, trusted, trusted_at) VALUES ($1, $2, 1, $3, true, clock_timestamp())")
-        .bind(id).bind(key_id).bind(public_key).execute(&mut *tx).await?;
-    sqlx::query("UPDATE native_game_signing_trust_profiles SET issuer_revision=$2, updated_at=clock_timestamp() WHERE id=$1")
-        .bind(id).bind(next).execute(&mut *tx).await?;
-    witness.advance(&namespace, next).map_err(witness_down)?;
-    tx.commit().await?;
-    Ok(())
+    PublicTrustRegistry::new_scoped(
+        pool.clone(),
+        keys::Settings {
+            enabled: true,
+            key_purpose: RECOVERY_PURPOSE.to_owned(),
+            clock_uncertainty_seconds: 0,
+        },
+        keys::Scope::Recovery,
+        directory.to_path_buf(),
+    )
+    .map_err(trust_error)?
+    .publish(&keys::PublicKey {
+        key_id: key_id.to_owned(),
+        public_key: public_key.to_owned(),
+    })
+    .await
+    .map_err(trust_error)
 }
 
 /// Enrols and confirms TOTP MFA for a seeded account through the identity MFA

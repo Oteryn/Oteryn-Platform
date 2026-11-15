@@ -79,8 +79,12 @@ impl Reservations for TestFunds {
     async fn lock_accounts(
         &self,
         db: &mut PgConnection,
-        _: &[Uuid],
+        accounts: &[Uuid],
     ) -> std::result::Result<(), Error> {
+        assert!(
+            accounts.len() <= 66,
+            "financial account lock batch is unbounded"
+        );
         sqlx::query("SELECT pg_advisory_xact_lock(600)")
             .execute(db)
             .await?;
@@ -691,4 +695,135 @@ async fn cancellation_without_return_stays_pending_and_keeps_the_same_request() 
     .await?;
     assert_eq!(count, 1);
     h.finish().await
+}
+
+#[tokio::test]
+async fn postgres_item_mutation_replays_survive_changed_custody() -> Result {
+    let started = std::time::Instant::now();
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let auction = h.listing(Mode::Auction).await?;
+    let bid_key = Uuid::now_v7();
+    let bid = h.api.bid(auction, h.buyer, 500, bid_key).await?;
+    let fixed = h.listing(Mode::Fixed).await?;
+    let offer_key = Uuid::now_v7();
+    let offer = h.api.offer(fixed, h.buyer, 100, offer_key).await?;
+    let mut buy = input(Mode::Auction);
+    buy.buy_now_unit_price = Some(500);
+    let buying = h.api.create(h.owner, buy).await?;
+    h.api.publish(buying, h.owner).await?;
+    let buy_key = Uuid::now_v7();
+    h.api.buy_now(buying, h.buyer, buy_key).await?;
+    let renew = h.listing(Mode::Fixed).await?;
+    let renew_key = Uuid::now_v7();
+    h.api.renew(renew, h.owner, renew_key).await?;
+    h.authority.0.store(false, Ordering::SeqCst);
+    assert_eq!(h.api.bid(auction, h.buyer, 500, bid_key).await?, bid);
+    assert!(matches!(
+        h.api.bid(auction, h.buyer, 501, bid_key).await,
+        Err(Error::IdempotencyConflict)
+    ));
+    let replay = h.api.offer(fixed, h.buyer, 100, offer_key).await?;
+    assert_eq!(
+        (replay.id, replay.account, replay.amount),
+        (offer.id, offer.account, offer.amount)
+    );
+    assert!(matches!(
+        h.api.offer(fixed, h.buyer, 101, offer_key).await,
+        Err(Error::IdempotencyConflict)
+    ));
+    h.api.buy_now(buying, h.buyer, buy_key).await?;
+    h.api.renew(renew, h.owner, renew_key).await?;
+    assert!(matches!(
+        h.api.buy_now(renew, h.owner, renew_key).await,
+        Err(Error::IdempotencyConflict)
+    ));
+    h.finish().await?;
+    eprintln!(
+        "postgres_item_mutation_replays_survive_changed_custody: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_many_offer_accounts_have_bounded_admission() -> Result {
+    let started = std::time::Instant::now();
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let listing = h.listing(Mode::Fixed).await?;
+    for _ in 0..128 {
+        h.api
+            .offer(listing, Uuid::now_v7(), 100, Uuid::now_v7())
+            .await?;
+    }
+    assert!(matches!(
+        h.api
+            .offer(listing, Uuid::now_v7(), 100, Uuid::now_v7())
+            .await,
+        Err(Error::Denied)
+    ));
+    h.finish().await?;
+    eprintln!(
+        "postgres_many_offer_accounts_have_bounded_admission: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+#[tokio::test]
+async fn postgres_legacy_offers_release_in_bounded_batches_without_losing_competitors() -> Result {
+    let started = std::time::Instant::now();
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let listing = h.listing(Mode::Fixed).await?;
+    let expiring = h.listing(Mode::Fixed).await?;
+    let mut selected = Uuid::nil();
+    let mut fail_release = Uuid::nil();
+    for listing in [listing, expiring] {
+        for index in 0..140 {
+            selected = Uuid::now_v7();
+            if listing == expiring && index == 70 {
+                fail_release = selected;
+            }
+            let actor = Uuid::now_v7();
+            sqlx::query("INSERT INTO bazaar_offers(id,listing_id,account,amount,idempotency_key) VALUES($1,$2,$3,200,$1::text)").bind(selected).bind(listing).bind(actor).execute(&h.pool).await?;
+            sqlx::query("INSERT INTO test_holds(id,account,amount) VALUES($1,$2,200)")
+                .bind(selected)
+                .bind(actor)
+                .execute(&h.pool)
+                .await?;
+        }
+    }
+    // Choose the last competitor, outside the first bounded page.
+    sqlx::raw_sql(AssertSqlSafe(format!("CREATE FUNCTION injected_release_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.id='{fail_release}'::uuid THEN RAISE EXCEPTION 'injected release failure'; END IF; RETURN OLD; END; $$; CREATE TRIGGER injected_release_failure BEFORE DELETE ON test_holds FOR EACH ROW EXECUTE FUNCTION injected_release_failure()"))).execute(&h.pool).await?;
+    assert!(h.api.accept(expiring, h.owner, selected).await.is_err());
+    let pending: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_offers WHERE listing_id=$1 AND state='pending'",
+    )
+    .bind(expiring)
+    .fetch_one(&h.pool)
+    .await?;
+    assert_eq!(pending, 75);
+    sqlx::raw_sql("DROP TRIGGER injected_release_failure ON test_holds; DROP FUNCTION injected_release_failure()").execute(&h.pool).await?;
+    h.api.accept(expiring, h.owner, selected).await?;
+    sqlx::query("UPDATE bazaar_listings SET ends_at=now()-interval '1 second' WHERE id=$1")
+        .bind(listing)
+        .execute(&h.pool)
+        .await?;
+    h.api.expire(listing).await?;
+    assert_eq!(h.holds().await?, 200);
+    let pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM bazaar_offers WHERE state='pending'")
+            .fetch_one(&h.pool)
+            .await?;
+    assert_eq!(pending, 0);
+    h.finish().await?;
+    eprintln!(
+        "postgres_legacy_offers_release_in_bounded_batches_without_losing_competitors: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

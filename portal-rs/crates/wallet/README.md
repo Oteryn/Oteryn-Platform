@@ -10,7 +10,8 @@ smallest unit. Available and reserved balances are sums of immutable entry delta
 read under `SELECT ... FOR UPDATE` on the account row. Every credit (top-up,
 reward, staff grant, referral, settlement) adds to available, and every spend,
 reserve and transfer takes from it. Available, reserved and their total cannot be
-negative or exceed `i64::MAX`.
+negative or exceed `MAX_BALANCE` (999999999999 coins, including reservations),
+the shared ceiling of the native coin wire. A credit exceeding it refuses atomically.
 Transfers create and lock both wallet rows in ascending UUID order before reading
 balances. Account UUIDs have no foreign key to the future identity schema.
 
