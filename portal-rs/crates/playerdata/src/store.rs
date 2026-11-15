@@ -575,16 +575,6 @@ impl Store {
                 consumer.record(&mut tx, &r).await?;
             }
         }
-        // Superseded current-state payloads expire within seven days; occurrence
-        // families retain their contract-bound history. REMOVE never revives a value.
-        if r.progress
-            && !matches!(
-                r.scope.family.as_str(),
-                "skill_history" | "death_recap" | "pvp"
-            )
-        {
-            sqlx::query("UPDATE pd_records SET expires_ms=LEAST(expires_ms,$5) WHERE stream_key=$1 AND entity_key=$2 AND scope_key=$3 AND source_revision<$4::numeric").bind(&key).bind(&r.entity).bind(subject_key(&r.scope)).bind(r.revision.to_string()).bind(now.saturating_add(7*86400000) as i64).execute(&mut *tx).await?;
-        }
         let applied = if r.scope.family == "ITEMS" && r.kind != "ITEMS_END" {
             c.applied
         } else {
@@ -690,6 +680,16 @@ impl Store {
                 } else {
                     0
                 };
+                // Acceptance does not supersede the current published view.
+                // Start the seven-day grace only when a replacement enters the
+                // baseline-complete prefix, including the first baseline.
+                if !matches!(
+                    scope.family.as_str(),
+                    "skill_history" | "death_recap" | "pvp"
+                ) {
+                    sqlx::query("UPDATE pd_records r SET expires_ms=LEAST(r.expires_ms,$4) WHERE r.stream_key=$1 AND r.scope_key<>'' AND EXISTS(SELECT 1 FROM pd_records n WHERE n.stream_key=r.stream_key AND n.entity_key=r.entity_key AND n.scope_key=r.scope_key AND n.source_revision>r.source_revision AND n.source_revision>$2::numeric AND n.source_revision<=$3::numeric)")
+                        .bind(&key).bind(after.to_string()).bind(w.through.to_string()).bind(now.saturating_add(7*86400000) as i64).execute(&mut *tx).await?;
+                }
                 for consumer in &self.consumers {
                     consumer
                         .promote(&mut tx, &key, &scope, after, w.through)

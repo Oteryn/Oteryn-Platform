@@ -1695,3 +1695,90 @@ async fn postgres_pd2_02_upgrade_recovers_acknowledged_transfer_purges() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn postgres_a3_scrubbed_remove_publication() {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await else { return };
+    let now = db_now(&db).await;
+    let retained = Uuid::now_v7().to_string();
+    db.account(SELLER, "1", "12").await;
+    for character in [CHARACTER, retained.as_str()] {
+        db.character(SELLER, character, WORLD).await;
+        db.create(
+            SELLER,
+            character,
+            WORLD,
+            ["9", "12", &(now / 1000 - 100).to_string()],
+        )
+        .await;
+    }
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let upsert = login_record(
+        SELLER,
+        CHARACTER,
+        ["12", "9"],
+        1,
+        Uuid::now_v7(),
+        now - 1000,
+    );
+    let remove = format!(
+        "{}null}}",
+        upsert
+            .split_once("\"payload\":")
+            .unwrap()
+            .0
+            .replace("UPSERT", "REMOVE")
+            + "\"payload\":"
+    );
+    assert_eq!(record(&app, &remove).await.0, StatusCode::OK);
+    Store::new(
+        db.pool.clone(),
+        Arc::new(crate::store::UnavailableAuthority),
+        crate::store::Flags::default(),
+    )
+    .erase_character(
+        SELLER,
+        CHARACTER,
+        TrustedTime {
+            unix_ms: now as u64,
+            uncertainty_ms: 0,
+        },
+    )
+    .await
+    .unwrap();
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    let event = Uuid::now_v7();
+    assert_eq!(
+        record(
+            &app,
+            &login_record(SELLER, &retained, ["12", "9"], 2, event, now - 500)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    login_watermark(&app, &db, SELLER, 2).await;
+    assert_eq!(history(&db, SELLER).await, vec![event]);
+    let upsert = login_record(SELLER, &retained, ["12", "9"], 3, event, now);
+    let remove = format!(
+        "{}null}}",
+        upsert
+            .split_once("\"payload\":")
+            .unwrap()
+            .0
+            .replace("UPSERT", "REMOVE")
+            + "\"payload\":"
+    );
+    assert_eq!(record(&app, &remove).await.0, StatusCode::OK);
+    login_watermark(&app, &db, SELLER, 3).await;
+    assert!(history(&db, SELLER).await.is_empty());
+    db.close().await;
+    eprintln!(
+        "postgres_a3_scrubbed_remove_publication duration={:?}",
+        started.elapsed()
+    );
+}

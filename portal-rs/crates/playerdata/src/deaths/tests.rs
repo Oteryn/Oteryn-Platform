@@ -805,3 +805,62 @@ async fn postgres_pd2_01_production_lifecycle_dispatches_death_erasure() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn postgres_a3_skull_retention_published_prefix() {
+    let started = std::time::Instant::now();
+    let Some(database) = Database::with_migrations(true).await else {
+        return;
+    };
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    let now = now as u64;
+    let repo = database.repo();
+    let mut first = record(Family::Skull);
+    first.occurred_at_unix_ms = (now - 8 * 86400000).to_string();
+    repo.ingest(&bytes(&first), now).await.unwrap();
+    repo.watermark(&bytes(&mark(&first, now)), now)
+        .await
+        .unwrap();
+    let mut next = first.clone();
+    next.source_revision = "2".into();
+    next.record_id = Uuid::now_v7().to_string();
+    repo.ingest(&bytes(&next), now).await.unwrap();
+    repo.watermark(&bytes(&mark(&first, now + 1)), now + 1)
+        .await
+        .unwrap();
+    for production in [false, true] {
+        if production {
+            crate::retention::Retention(database.pool.clone())
+                .expire_batch()
+                .await
+                .unwrap();
+        } else {
+            repo.purge_expired(now).await.unwrap();
+        }
+        assert_eq!(
+            repo.read(
+                Actor::Owner(id(ACCOUNT).unwrap()),
+                &first.stream(),
+                id(CHARACTER).unwrap(),
+                now + 1
+            )
+            .await
+            .unwrap()
+            .records,
+            vec![first.clone()]
+        );
+    }
+    let mut published = mark(&next, now + 2);
+    published.complete_through = "2".into();
+    repo.watermark(&bytes(&published), now + 2).await.unwrap();
+    assert_eq!(repo.purge_expired(now + 2).await.unwrap(), 1);
+    database.close().await;
+    eprintln!(
+        "postgres_a3_skull_retention_published_prefix duration={:?}",
+        started.elapsed()
+    );
+}

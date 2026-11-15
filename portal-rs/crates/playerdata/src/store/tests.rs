@@ -1451,6 +1451,10 @@ async fn postgres_production_retention_dispatch_erases_payload_preserves_replay(
             .ingest(playerdata::progress(raw.as_bytes())?, time)
             .await?;
     }
+    // Supersession retention starts at publication, so publish the old
+    // replacement prefix before exercising the bounded cleanup dispatch.
+    a.allow(watermark_scope(&r.scope)).await;
+    store.watermark(watermark(513, old), time).await?;
     let event = Uuid::now_v7();
     let login = format!(
         "{{\"login_event_id\":\"{event}\",\"entered_at\":\"{old}\",\"left_at\":null,\"end_reason\":null}}"
@@ -1704,6 +1708,87 @@ async fn postgres_pd2_03_production_cleanup_prunes_bank_replay_metadata()
     db.close().await?;
     eprintln!(
         "postgres_pd2_03_production_cleanup_prunes_bank_replay_metadata duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_a3_core_expiry_at_publication()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+            .fetch_one(&db.pool)
+            .await?;
+    let now = now as u64;
+    let old = now - 8 * 86400000;
+    let time = |unix_ms| TrustedTime {
+        unix_ms,
+        uncertainty_ms: 0,
+    };
+    let a = TestAuthority::default();
+    let first = playerdata::progress(
+        String::from_utf8(progress(1))?
+            .replace(&NOW.to_string(), &old.to_string())
+            .as_bytes(),
+    )?;
+    let scope = first.scope.clone();
+    a.allow(scope.clone()).await;
+    a.allow(watermark_scope(&scope)).await;
+    let store = db.store(&a);
+    store.ingest(first, time(old)).await?;
+    store.watermark(watermark(1, old), time(old)).await?;
+    let next = playerdata::progress(
+        String::from_utf8(progress(2))?
+            .replace(&NOW.to_string(), &old.to_string())
+            .as_bytes(),
+    )?;
+    store.ingest(next, time(old)).await?;
+    store.watermark(watermark(1, now), time(now)).await?;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await?;
+    assert_eq!(
+        store
+            .read(&Actor::Owner(ACCOUNT.into()), &scope, time(now))
+            .await?
+            .records
+            .len(),
+        1
+    );
+    store.watermark(watermark(2, now), time(now)).await?;
+    let expires: i64 =
+        sqlx::query_scalar("SELECT expires_ms FROM pd_records WHERE source_revision=1")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(expires as u64, now + 7 * 86400000);
+    // Upgrade an existing current value with an acceptance-era deadline.
+    sqlx::query("UPDATE pd_records SET expires_ms=$1 WHERE source_revision=2")
+        .bind(old as i64)
+        .execute(&db.pool)
+        .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/2026111521300_fix_a3-03-playerdata_publication_expiry.sql"
+    ))
+    .execute(&db.pool)
+    .await?;
+    let repaired: i64 =
+        sqlx::query_scalar("SELECT expires_ms FROM pd_records WHERE source_revision=2")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(repaired as u64, old + 36500 * 86400000);
+    let superseded: i64 =
+        sqlx::query_scalar("SELECT expires_ms FROM pd_records WHERE source_revision=1")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(superseded, expires);
+    db.close().await?;
+    eprintln!(
+        "postgres_a3_core_expiry_at_publication duration={:?}",
         started.elapsed()
     );
     Ok(())

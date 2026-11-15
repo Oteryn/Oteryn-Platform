@@ -174,7 +174,7 @@ impl LoginPromoter {
         let account_id = Uuid::parse_str(&scope.account).map_err(|_| Error::Invalid)?;
         let mut after = after;
         loop {
-            let rows = sqlx::query("SELECT source_revision::text AS revision,kind,entity_key,character_id,payload FROM pd_records WHERE stream_key=$1 AND source_revision>$2::numeric AND source_revision<=$3::numeric ORDER BY source_revision LIMIT 128")
+            let rows = sqlx::query("SELECT source_revision::text AS revision,kind,entity_key,scope_key,character_id,payload FROM pd_records WHERE stream_key=$1 AND source_revision>$2::numeric AND source_revision<=$3::numeric ORDER BY source_revision LIMIT 128")
             .bind(key)
             .bind(after.to_string())
             .bind(through.to_string())
@@ -189,6 +189,11 @@ impl LoginPromoter {
             for row in rows {
                 after = super::counter(&row.try_get::<String, _>("revision")?)?;
                 let entity: String = row.try_get("entity_key")?;
+                // Lifecycle erasure scrubs subject/entity keys but preserves sequence
+                // and replay evidence, including the original REMOVE kind.
+                if entity.is_empty() && row.try_get::<String, _>("scope_key")?.is_empty() {
+                    continue;
+                }
                 if row.try_get::<String, _>("kind")? == "REMOVE" {
                     let id = Uuid::parse_str(&entity).map_err(|_| Error::Unavailable)?;
                     Logins::remove(tx, account_id, id)
