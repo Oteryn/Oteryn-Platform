@@ -32,3 +32,19 @@ pub mod test_staff;
 
 #[cfg(test)]
 mod pagination_tests;
+
+/// Re-evaluate live authority after the last awaited write, on the retained connection.
+pub(crate) async fn revalidate(
+    auth: &dyn oteryn_admin::rbac::MutationCheck,
+    connection: &mut sqlx::PgConnection,
+    context: oteryn_admin::rbac::CheckContext,
+    permissions: &[oteryn_admin::rbac::Permission],
+) -> Result<(), oteryn_admin::rbac::Error> {
+    for permission in permissions {
+        auth.check(connection, context, *permission).await?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod last_wait_tests;

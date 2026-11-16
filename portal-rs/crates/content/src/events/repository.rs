@@ -154,6 +154,13 @@ impl Events {
             },
         )
         .await?;
+        crate::revalidate(
+            auth,
+            &mut tx,
+            context,
+            &[Permission::Access, Permission::ManageEvents],
+        )
+        .await?;
         tx.commit().await?;
         Ok(id)
     }
@@ -229,6 +236,17 @@ impl Events {
                 before: json!({"status":current.status,"version":version}),
                 after: json!({"status":target.as_str(),"version":version+1}),
             },
+        )
+        .await?;
+        crate::revalidate(
+            auth,
+            &mut tx,
+            context,
+            &[
+                Permission::Access,
+                Permission::ManageEvents,
+                Permission::PublishEvents,
+            ],
         )
         .await?;
         tx.commit().await?;

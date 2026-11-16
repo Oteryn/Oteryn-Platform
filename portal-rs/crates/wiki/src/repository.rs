@@ -174,6 +174,8 @@ impl<A: AccountStateReader> Repository<A> {
             json!({"version":1}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, Permission::ManageWikiArticles)
+            .await?;
         tx.commit().await?;
         Ok(id)
     }
@@ -235,6 +237,8 @@ impl<A: AccountStateReader> Repository<A> {
             json!({"version":next}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, Permission::ManageWikiArticles)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -292,6 +296,8 @@ impl<A: AccountStateReader> Repository<A> {
             json!({"version":next,"source":source}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, Permission::PublishWiki)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -348,6 +354,16 @@ impl<A: AccountStateReader> Repository<A> {
             &format!("wiki.{}", action.name()),
             json!({"status":guide.status,"version":guide.version}),
             json!({"status":target,"version":guide.version+1}),
+        )
+        .await?;
+        self.authorize_in(
+            &mut tx,
+            context,
+            if action.publisher() {
+                Permission::PublishWiki
+            } else {
+                Permission::ManageWikiArticles
+            },
         )
         .await?;
         tx.commit().await?;

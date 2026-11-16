@@ -381,6 +381,17 @@ async fn upload(
         .bind(&processed.content).bind(Sha256::digest(&processed.content).to_vec()).bind(&processed.thumbnail)
         .bind(processed.thumbnail.as_ref().map(|b| Sha256::digest(b).to_vec())).execute(&mut *tx).await.map_err(unavailable)?;
     record(&mut tx, context, id, "editorial_media.uploaded").await?;
+    crate::revalidate(
+        &auth,
+        &mut tx,
+        context,
+        &[Permission::Access, Permission::ManageMedia],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     tx.commit().await.map_err(unavailable)?;
     Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
 }
@@ -513,6 +524,17 @@ async fn delete(
         return Err(StatusCode::NOT_FOUND);
     }
     record(&mut tx, context, id, "editorial_media.deleted").await?;
+    crate::revalidate(
+        &auth,
+        &mut tx,
+        context,
+        &[Permission::Access, Permission::ManageMedia],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     tx.commit().await.map_err(unavailable)?;
     Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
 }

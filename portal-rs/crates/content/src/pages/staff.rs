@@ -343,6 +343,13 @@ pub(super) async fn persist(
         },
     )
     .await?;
+    crate::revalidate(
+        auth,
+        &mut tx,
+        context,
+        &[Permission::Access, Permission::ManagePages],
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
 }

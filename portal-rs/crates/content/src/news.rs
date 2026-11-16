@@ -500,6 +500,17 @@ async fn save(
     )
     .await
     .map_err(unavailable)?;
+    crate::revalidate(
+        auth,
+        &mut tx,
+        context,
+        &[Permission::Access, Permission::ManageNews],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     tx.commit().await.map_err(unavailable)?;
     Ok((
         StatusCode::FOUND,
@@ -576,6 +587,17 @@ async fn delete(
     )
     .await
     .map_err(unavailable)?;
+    crate::revalidate(
+        &auth,
+        &mut tx,
+        context,
+        &[Permission::Access, Permission::ManageNews],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     tx.commit().await.map_err(unavailable)?;
     Ok((
         StatusCode::FOUND,

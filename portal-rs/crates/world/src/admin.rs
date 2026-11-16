@@ -494,6 +494,18 @@ async fn mutate<A: AccountStateReader>(
     )
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    // Recheck live authority after the final awaited write.
+    for required in [
+        Permission::Access,
+        Permission::GameCatalogAccess,
+        Permission::ViewGameCatalogSnapshots,
+        permission,
+    ] {
+        s.auth
+            .check_in(&mut tx, context, required)
+            .await
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+    }
     tx.commit().await.map_err(unavailable)?;
     Ok(())
 }
@@ -538,3 +550,7 @@ mod tests;
 #[cfg(test)]
 #[path = "admin_pool_tests.rs"]
 mod pool_tests;
+
+#[cfg(test)]
+#[path = "last_wait_tests.rs"]
+mod last_wait_tests;
