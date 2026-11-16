@@ -360,6 +360,33 @@ async fn missing_malformed_or_unknown_actor_issues_and_audits_nothing() -> TestR
     db.close().await
 }
 
+/// A durable MFA-verified staff session, as the role writer now revalidates
+/// it under the actor lock (mirrors `oteryn_admin::test_staff::proof`).
+async fn staff_session_proof(
+    pool: &PgPool,
+    actor: Uuid,
+) -> Result<oteryn_admin::rbac::SessionProof, sqlx::Error> {
+    use sha2::{Digest, Sha256};
+    let password: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+        .bind(actor)
+        .fetch_one(pool)
+        .await?;
+    let grant = format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()));
+    let session = format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()));
+    let generation: Uuid = sqlx::query_scalar("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,$2,true) ON CONFLICT(account_id) DO UPDATE SET confirmed=true RETURNING generation")
+        .bind(actor).bind(Sha256::digest(Uuid::now_v7().as_bytes()).to_vec()).fetch_one(pool).await?;
+    let grant_hash: [u8; 32] = Sha256::digest(grant.as_bytes()).into();
+    let session_hash: [u8; 32] = Sha256::digest(session.as_bytes()).into();
+    sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',clock_timestamp()+interval '1 hour')")
+        .bind(grant_hash.as_slice()).bind(actor).bind(generation).bind(Sha256::digest(password.as_bytes()).to_vec()).execute(pool).await?;
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation) SELECT $1,id,now()+interval '1 hour',now()+interval '1 day','staff-fixture',$2,jsonb_build_object('mfa_grant',$3::text),native_security_generation FROM accounts WHERE id=$4")
+        .bind(session_hash.as_slice()).bind(format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()))).bind(grant).bind(actor).execute(pool).await?;
+    Ok(oteryn_admin::rbac::SessionProof {
+        session_hash,
+        grant_hash,
+    })
+}
+
 struct RbacAccounts(PgPool);
 impl oteryn_admin::rbac::AccountStateReader for RbacAccounts {
     async fn state(
@@ -441,11 +468,13 @@ async fn cw3_02_postgres_bootstrap_serializes_permission_revocation() -> TestRes
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     }).await??;
+    let proof = staff_session_proof(&db.pool, manager).await?;
     let pool = db.pool.clone();
     let revocation = tokio::spawn(async move {
         let authorizer = Authorizer::new(pool.clone(), RbacAccounts(pool));
         let mut context = CheckContext::new(manager);
         context.mfa_verified = true;
+        context.session_proof = Some(proof);
         authorizer
             .change(
                 context,
