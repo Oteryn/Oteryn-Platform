@@ -1,4 +1,4 @@
-use super::KeyError;
+use super::{CauseKind, KeyError, io_error, unavailable};
 use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
     aead::{Aead, Payload},
@@ -45,18 +45,13 @@ impl EncryptedFileStorage {
         }
         private_metadata(parent, true)?;
         let mut key_file = private_file(key_path)?;
-        if key_file
-            .metadata()
-            .map_err(|_| KeyError::Unavailable)?
-            .len()
-            != 32
-        {
+        if key_file.metadata().map_err(|e| io_error(&e))?.len() != 32 {
             return Err(KeyError::BadInput);
         }
         let mut wrapping_key = Zeroizing::new([0; 32]);
         key_file
             .read_exact(&mut *wrapping_key)
-            .map_err(|_| KeyError::Unavailable)?;
+            .map_err(|e| io_error(&e))?;
         use std::os::unix::fs::OpenOptionsExt;
         let name = path
             .file_name()
@@ -74,9 +69,12 @@ impl EncryptedFileStorage {
             .write(true)
             .mode(0o600)
             .open(&lock_path)
-            .map_err(|_| KeyError::Unavailable)?;
+            .map_err(|e| io_error(&e))?;
         private_metadata(&lock_path, false)?;
-        lock.try_lock().map_err(|_| KeyError::Unavailable)?;
+        lock.try_lock().map_err(|e| match e {
+            fs::TryLockError::WouldBlock => unavailable(CauseKind::LockBusy),
+            fs::TryLockError::Error(e) => io_error(&e),
+        })?;
         Ok(Self {
             path,
             wrapping_key,
@@ -93,24 +91,24 @@ impl EncryptedFileStorage {
         }
         private_metadata(key_path.parent().ok_or(KeyError::BadInput)?, true)?;
         let mut key = Zeroizing::new([0; 32]);
-        getrandom::fill(&mut *key).map_err(|_| KeyError::Unavailable)?;
+        getrandom::fill(&mut *key).map_err(|_| unavailable(CauseKind::Entropy))?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(key_path)
-            .map_err(|_| KeyError::Unavailable)?;
+            .map_err(|e| io_error(&e))?;
         let written = file
             .write_all(&*key)
             .and_then(|()| file.sync_all())
-            .map_err(|_| KeyError::Unavailable);
+            .map_err(|e| io_error(&e));
         if written.is_err() {
             let _ = fs::remove_file(key_path);
         }
         written
     }
     fn cipher(&self) -> Result<Aes256Gcm, KeyError> {
-        Aes256Gcm::new_from_slice(&*self.wrapping_key).map_err(|_| KeyError::Unavailable)
+        Aes256Gcm::new_from_slice(&*self.wrapping_key).map_err(|_| unavailable(CauseKind::Crypto))
     }
 }
 #[cfg(unix)]
@@ -119,18 +117,18 @@ impl KeyStorage for EncryptedFileStorage {
         private_metadata(self.path.parent().ok_or(KeyError::BadInput)?, true)?;
         match fs::symlink_metadata(&self.path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(KeyError::Unavailable),
+            Err(e) => return Err(io_error(&e)),
             Ok(_) => {}
         }
         let file = private_file(&self.path)?;
-        let size = file.metadata().map_err(|_| KeyError::Unavailable)?.len();
+        let size = file.metadata().map_err(|e| io_error(&e))?.len();
         if !(28..=MAX_BYTES).contains(&size) {
             return Err(KeyError::InvalidState);
         }
         let mut envelope = Vec::new();
         file.take(MAX_BYTES + 1)
             .read_to_end(&mut envelope)
-            .map_err(|_| KeyError::Unavailable)?;
+            .map_err(|e| io_error(&e))?;
         if envelope.len() as u64 != size {
             return Err(KeyError::InvalidState);
         }
@@ -159,7 +157,7 @@ impl KeyStorage for EncryptedFileStorage {
             private_metadata(&self.path, false)?;
         }
         let mut nonce = [0; 12];
-        getrandom::fill(&mut nonce).map_err(|_| KeyError::Unavailable)?;
+        getrandom::fill(&mut nonce).map_err(|_| unavailable(CauseKind::Entropy))?;
         let encrypted = self
             .cipher()?
             .encrypt(
@@ -169,7 +167,7 @@ impl KeyStorage for EncryptedFileStorage {
                     aad: AAD,
                 },
             )
-            .map_err(|_| KeyError::Unavailable)?;
+            .map_err(|_| unavailable(CauseKind::Crypto))?;
         let temporary = parent.join(format!(".custody-{}", uuid::Uuid::now_v7()));
         let result = (|| {
             let mut file = OpenOptions::new()
@@ -177,15 +175,15 @@ impl KeyStorage for EncryptedFileStorage {
                 .create_new(true)
                 .mode(0o600)
                 .open(&temporary)
-                .map_err(|_| KeyError::Unavailable)?;
+                .map_err(|e| io_error(&e))?;
             file.write_all(&nonce)
                 .and_then(|()| file.write_all(&encrypted))
                 .and_then(|()| file.sync_all())
-                .map_err(|_| KeyError::Unavailable)?;
-            fs::rename(&temporary, &self.path).map_err(|_| KeyError::Unavailable)?;
+                .map_err(|e| io_error(&e))?;
+            fs::rename(&temporary, &self.path).map_err(|e| io_error(&e))?;
             File::open(parent)
                 .and_then(|f| f.sync_all())
-                .map_err(|_| KeyError::Unavailable)
+                .map_err(|e| io_error(&e))
         })();
         if result.is_err() {
             let _ = fs::remove_file(&temporary);
@@ -196,14 +194,14 @@ impl KeyStorage for EncryptedFileStorage {
 #[cfg(unix)]
 fn private_metadata(path: &Path, directory: bool) -> Result<fs::Metadata, KeyError> {
     use std::os::unix::fs::MetadataExt;
-    let metadata = fs::symlink_metadata(path).map_err(|_| KeyError::Unavailable)?;
+    let metadata = fs::symlink_metadata(path).map_err(|e| io_error(&e))?;
     if metadata.file_type().is_symlink()
         || (directory && !metadata.is_dir())
         || (!directory && !metadata.is_file())
         || metadata.mode() & 0o077 != 0
         || metadata.uid() != rustix::process::geteuid().as_raw()
     {
-        return Err(KeyError::Unavailable);
+        return Err(unavailable(CauseKind::Integrity));
     }
     Ok(metadata)
 }
@@ -211,15 +209,15 @@ fn private_metadata(path: &Path, directory: bool) -> Result<fs::Metadata, KeyErr
 fn private_file(path: &Path) -> Result<File, KeyError> {
     use std::os::unix::fs::MetadataExt;
     let before = private_metadata(path, false)?;
-    let file = File::open(path).map_err(|_| KeyError::Unavailable)?;
-    let after = file.metadata().map_err(|_| KeyError::Unavailable)?;
+    let file = File::open(path).map_err(|e| io_error(&e))?;
+    let after = file.metadata().map_err(|e| io_error(&e))?;
     if before.dev() != after.dev()
         || before.ino() != after.ino()
         || !after.is_file()
         || after.mode() & 0o077 != 0
         || after.uid() != rustix::process::geteuid().as_raw()
     {
-        return Err(KeyError::Unavailable);
+        return Err(unavailable(CauseKind::Integrity));
     }
     Ok(file)
 }
