@@ -3819,10 +3819,12 @@ async fn postgres_cleanup_attempt_pointer_bounds_all_commands_and_issuer_wait() 
 
 #[tokio::test]
 async fn postgres_return_publication_uses_live_dispositions_and_revokes_conflicts() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = BrowserFixture::new().await;
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
+    tx.commit().await.unwrap();
     let escrow = PreparedIntent::parse(&vector("escrow_intent")).unwrap();
     let receipt = Receipt::parse(vector("escrow_receipt").as_bytes()).unwrap();
     let extra = vec![
@@ -3832,7 +3834,10 @@ async fn postgres_return_publication_uses_live_dispositions_and_revokes_conflict
         ("escrow_receipt_digest", Value::String(receipt.digest())),
     ];
     let mut first = Uuid::nil();
+    // One receipt per transaction, as the receipt route does: each mutation
+    // transaction has its own three-second lock and statement budget.
     for n in 0..1024 {
+        let mut tx = db.pool.begin().await.unwrap();
         let intent = character_intent(Command::Return, 19 + n, now - 301, extra.clone());
         let raw = std::str::from_utf8(intent.bytes())
             .unwrap()
@@ -3867,12 +3872,12 @@ async fn postgres_return_publication_uses_live_dispositions_and_revokes_conflict
             audit(db.runtime.authority(), &mut tx, &intent, &raw, now).await,
             ReceiptResult::Stored
         );
+        tx.commit().await.unwrap();
     }
     sqlx::query("UPDATE bazaar_game_issuer SET source_revision=1042")
-        .execute(&mut *tx)
+        .execute(&db.pool)
         .await
         .unwrap();
-    tx.commit().await.unwrap();
     sqlx::query("ANALYZE bazaar_game_outbox, bazaar_authority_receipts, bazaar_authority_decisions, bazaar_disposition_fences, bazaar_command_receipt_heads, bazaar_cleanup_attempts").execute(&db.pool).await.unwrap();
     let mut tx = db.pool.begin().await.unwrap();
     let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
