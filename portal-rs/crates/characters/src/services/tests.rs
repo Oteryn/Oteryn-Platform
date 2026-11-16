@@ -54,6 +54,26 @@ impl Database {
             .execute(&admin)
             .await
             .unwrap();
+        // Migrations run without the statement timeout: they wait on the
+        // migrator's database-wide lock while other schemas migrate.
+        let migrator_search = schema.clone();
+        let migrator = PgPoolOptions::new()
+            .max_connections(1)
+            .after_connect(move |c, _| {
+                let search = migrator_search.clone();
+                Box::pin(async move {
+                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                        .bind(search)
+                        .execute(c)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&url)
+            .await
+            .unwrap();
+        oteryn_db::migrate(&migrator).await.unwrap();
+        migrator.close().await;
         let search = schema.clone();
         let pool = PgPoolOptions::new()
             .max_connections(10)
@@ -73,7 +93,6 @@ impl Database {
             .connect(&url)
             .await
             .unwrap();
-        oteryn_db::migrate(&pool).await.unwrap();
         Some(Self {
             pool,
             admin,
