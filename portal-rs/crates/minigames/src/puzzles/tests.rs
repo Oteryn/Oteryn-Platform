@@ -430,19 +430,40 @@ async fn postgres_concurrent_answers_complete_once_and_award_streak_badges() -> 
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 3);
-    // As many requests as pool connections must all finish: the public reads
-    // before the transaction release their connections, so nothing starves.
+    // As many first answers as pool connections, one per account, must all
+    // finish through the full answer path: the public reads before the
+    // transaction release their connections, so nothing starves, and distinct
+    // accounts never queue on each other's account row.
+    let mut accounts = std::collections::HashSet::from([db.account]);
+    for index in 1..POOL_CONNECTIONS {
+        let account = Uuid::now_v7();
+        sqlx::query("INSERT INTO accounts (id,email,password_hash,status,email_verified_at,locale) VALUES ($1,$2,'unused','active',now(),'en')")
+            .bind(account).bind(format!("synthetic{index}@example.invalid")).execute(&db.pool).await?;
+        accounts.insert(account);
+    }
+    assert_eq!(accounts.len(), POOL_CONNECTIONS as usize);
+    let others: Vec<Uuid> = accounts
+        .iter()
+        .copied()
+        .filter(|account| *account != db.account)
+        .collect();
     let mut requests = tokio::task::JoinSet::new();
-    for _ in 0..POOL_CONNECTIONS {
+    for account in others.iter().copied().chain([db.account]) {
         let service = db.service.clone();
-        let account = db.account;
-        requests.spawn(async move { service.answer(account, quiz, 1).await });
+        // The other accounts answer for the first time; this one replays.
+        requests.spawn(async move { (account, service.answer(account, quiz, 1).await) });
     }
-    while let Some(answer) = requests.join_next().await {
-        assert!(answer??.replayed);
+    let mut finished = std::collections::HashSet::new();
+    while let Some(joined) = requests.join_next().await {
+        let (account, answer) = joined?;
+        let answer = answer?;
+        assert!(answer.correct);
+        assert_eq!(answer.replayed, account == db.account);
+        assert!(finished.insert(account));
     }
-    // Beyond the pool, browser transactions shed load at the admission bound
-    // (W3-04) instead of queueing: each request replays or is refused there.
+    assert_eq!(finished, accounts);
+    // One account beyond the pool sheds load at the W3-04 bounds instead of
+    // queueing: pool admission (250 ms) and the account row lock (500 ms).
     let mut requests = tokio::task::JoinSet::new();
     for _ in 0..16 {
         let service = db.service.clone();
@@ -457,12 +478,15 @@ async fn postgres_concurrent_answers_complete_once_and_award_streak_badges() -> 
                 replayed += 1;
             }
             Err(Error::Database(sqlx::Error::PoolTimedOut)) => {}
+            Err(Error::Database(sqlx::Error::Database(error)))
+                if error.code().as_deref() == Some("55P03") => {}
             Err(error) => return Err(error.into()),
         }
     }
     assert!(replayed >= 1);
     assert!(db.service.answer(db.account, quiz, 1).await?.replayed);
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM puzzles_answers")
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM puzzles_answers WHERE account_id=$1")
+        .bind(db.account)
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 3);
@@ -881,6 +905,43 @@ async fn postgres_browser_lock_waits_release_saturated_pool() -> TestResult {
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn postgres_account_lock_wait_sheds_as_unavailable() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let id = db.publish(Kind::Quiz).await?;
+    let (cookie, csrf) = db.login().await?;
+    let post = || -> Result<Request<Body>, axum::http::Error> {
+        Request::post(format!("/en/puzzles/{id}/answer"))
+            .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, "https://portal.example.invalid")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!("choice=1&_csrf={csrf}")))
+    };
+    // Hold the account row longer than the 500 ms browser lock bound (W3-04).
+    let mut holder = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(db.account)
+        .execute(&mut *holder)
+        .await?;
+    match db.service.answer(db.account, id, 1).await {
+        Err(Error::Database(sqlx::Error::Database(error)))
+            if error.code().as_deref() == Some("55P03") => {}
+        other => return Err(format!("expected lock timeout, got {other:?}").into()),
+    }
+    let shed = db.router().oneshot(post()?).await?;
+    assert_eq!(shed.status(), StatusCode::SERVICE_UNAVAILABLE);
+    holder.rollback().await?;
+    let answered = db.router().oneshot(post()?).await?;
+    assert_eq!(answered.status(), StatusCode::SEE_OTHER);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM puzzles_answers")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 1);
+    db.close().await
 }
 
 #[tokio::test]
