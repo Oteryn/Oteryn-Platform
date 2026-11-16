@@ -247,11 +247,13 @@ async fn drc_publication_rechecks_permission_under_rbac_fence() {
     db.close().await;
 }
 
-/// Pause on the real publication connection immediately after database authorization.
+/// Pause on the real publication connection immediately after the first database
+/// authorization; publication rechecks authorization later, and those calls pass through.
 struct PausedAccess {
     database: oteryn_downloads::command::DatabaseAccess,
     authorized: tokio::sync::Notify,
     resume: tokio::sync::Notify,
+    paused: std::sync::atomic::AtomicBool,
 }
 #[async_trait::async_trait]
 impl oteryn_downloads::PublishAccess for PausedAccess {
@@ -262,8 +264,10 @@ impl oteryn_downloads::PublishAccess for PausedAccess {
         channel: Channel,
     ) -> bool {
         let allowed = self.database.authorize_in(connection, actor, channel).await;
-        self.authorized.notify_one();
-        self.resume.notified().await;
+        if !self.paused.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            self.authorized.notify_one();
+            self.resume.notified().await;
+        }
         allowed
     }
     async fn account_state(&self, actor: Uuid) -> oteryn_downloads::AccountState {
@@ -276,6 +280,7 @@ impl oteryn_downloads::PublishAccess for PausedAccess {
 
 #[tokio::test]
 async fn db_publication_holds_authorization_until_commit() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     for mutation in ["revoke", "suspend", "permissions"] {
         let Some(db) = Database::open().await else {
@@ -306,6 +311,7 @@ async fn db_publication_holds_authorization_until_commit() {
             database: oteryn_downloads::command::DatabaseAccess(db.pool.clone()),
             authorized: tokio::sync::Notify::new(),
             resume: tokio::sync::Notify::new(),
+            paused: std::sync::atomic::AtomicBool::new(false),
         });
         let publisher_access = access.clone();
         let upload = signer.upload(signer.policy(1, "race", 1));
