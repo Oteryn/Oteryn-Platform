@@ -15,7 +15,7 @@ pub use trust::{PublicTrustRegistry, TrustSnapshot};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{fmt, io, panic::Location};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub const ISSUER: &str = "urn:oteryn:platform:game-admission";
@@ -60,12 +60,14 @@ impl Scope {
     }
 }
 
-/// Deliberately contains no underlying I/O, configuration or secret values.
+/// Deliberately contains no underlying I/O, configuration or secret values. The
+/// `Unavailable` cause holds only a source location and a closed kind, never I/O
+/// payloads, paths, configuration or secret values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyError {
     Disabled,
     BadInput,
-    Unavailable,
+    Unavailable(Cause),
     Untrusted,
     InvalidState,
     TooEarly,
@@ -76,6 +78,123 @@ impl fmt::Display for KeyError {
     }
 }
 impl std::error::Error for KeyError {}
+
+/// Where an `Unavailable` refusal arose: the source line that built it and a
+/// closed, non-secret kind.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Cause {
+    site: &'static Location<'static>,
+    kind: CauseKind,
+}
+impl Cause {
+    /// Records the caller's source line; build it inside each `map_err` closure.
+    #[track_caller]
+    pub fn new(kind: CauseKind) -> Self {
+        Self {
+            site: Location::caller(),
+            kind,
+        }
+    }
+    pub fn site(&self) -> &'static Location<'static> {
+        self.site
+    }
+    pub fn kind(&self) -> CauseKind {
+        self.kind
+    }
+}
+impl fmt::Debug for Cause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Cause")
+            .field(
+                "site",
+                &format_args!("\"{}:{}\"", self.site.file(), self.site.line()),
+            )
+            .field("kind", &self.kind)
+            .finish()
+    }
+}
+
+/// Closed set of `Unavailable` causes. `Sqlstate` holds the 5 ASCII characters
+/// of a PostgreSQL error code; `Io` holds only the standard error kind.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CauseKind {
+    PoolTimeout,
+    PoolClosed,
+    Sqlstate([u8; 5]),
+    Database,
+    Io(io::ErrorKind),
+    LockBusy,
+    Deadline,
+    Blocking,
+    Stale,
+    Decode,
+    Encode,
+    Entropy,
+    Crypto,
+    Integrity,
+    /// An earlier uncertain custody write; the keyring must be reopened.
+    Poisoned,
+    /// Custody storage refused a write without an `Unavailable` cause of its own.
+    Storage,
+}
+impl CauseKind {
+    pub fn from_sqlx(error: &sqlx::Error) -> Self {
+        match error {
+            sqlx::Error::PoolTimedOut => Self::PoolTimeout,
+            sqlx::Error::PoolClosed => Self::PoolClosed,
+            sqlx::Error::Io(e) => Self::Io(e.kind()),
+            sqlx::Error::Database(e) => e
+                .code()
+                .and_then(|code| <[u8; 5]>::try_from(code.as_bytes()).ok())
+                .filter(|code| code.iter().all(u8::is_ascii_alphanumeric))
+                .map_or(Self::Database, Self::Sqlstate),
+            _ => Self::Database,
+        }
+    }
+    pub fn from_io(error: &io::Error) -> Self {
+        Self::Io(error.kind())
+    }
+}
+/// `KeyError::Unavailable` with a cause at the caller's source line.
+#[track_caller]
+fn unavailable(kind: CauseKind) -> KeyError {
+    KeyError::Unavailable(Cause::new(kind))
+}
+/// `unavailable` for a sqlx error; call it inside the `map_err` closure.
+#[track_caller]
+fn sql(error: &sqlx::Error) -> KeyError {
+    KeyError::Unavailable(Cause::new(CauseKind::from_sqlx(error)))
+}
+/// `unavailable` for an I/O error; call it inside the `map_err` closure.
+#[track_caller]
+fn io_error(error: &io::Error) -> KeyError {
+    KeyError::Unavailable(Cause::new(CauseKind::from_io(error)))
+}
+impl fmt::Debug for CauseKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PoolTimeout => f.write_str("PoolTimeout"),
+            Self::PoolClosed => f.write_str("PoolClosed"),
+            Self::Sqlstate(code) => f
+                .debug_tuple("Sqlstate")
+                .field(&std::str::from_utf8(code).unwrap_or("?????"))
+                .finish(),
+            Self::Database => f.write_str("Database"),
+            Self::Io(kind) => f.debug_tuple("Io").field(kind).finish(),
+            Self::LockBusy => f.write_str("LockBusy"),
+            Self::Deadline => f.write_str("Deadline"),
+            Self::Blocking => f.write_str("Blocking"),
+            Self::Stale => f.write_str("Stale"),
+            Self::Decode => f.write_str("Decode"),
+            Self::Encode => f.write_str("Encode"),
+            Self::Entropy => f.write_str("Entropy"),
+            Self::Crypto => f.write_str("Crypto"),
+            Self::Integrity => f.write_str("Integrity"),
+            Self::Poisoned => f.write_str("Poisoned"),
+            Self::Storage => f.write_str("Storage"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Settings {
@@ -250,7 +369,7 @@ impl<S: KeyStorage> Keyring<S> {
             return Err(KeyError::InvalidState);
         }
         let mut seed = Seed([0; 32]);
-        getrandom::fill(&mut seed.0).map_err(|_| KeyError::Unavailable)?;
+        getrandom::fill(&mut seed.0).map_err(|_| unavailable(CauseKind::Entropy))?;
         let public_key = SigningKey::from_bytes(&seed.0).verifying_key().to_bytes();
         let mut next = self.state.clone();
         next.records.push(Record {
@@ -463,7 +582,7 @@ impl<S: KeyStorage> Keyring<S> {
     }
     fn enabled(&self) -> Result<(), KeyError> {
         if self.poisoned {
-            return Err(KeyError::Unavailable);
+            return Err(unavailable(CauseKind::Poisoned));
         }
         check_settings(&self.settings)
     }
@@ -496,11 +615,15 @@ impl<S: KeyStorage> Keyring<S> {
     }
     fn commit(&mut self, next: State) -> Result<(), KeyError> {
         validate(&next, &self.settings)?;
-        let bytes = Zeroizing::new(serde_json::to_vec(&next).map_err(|_| KeyError::Unavailable)?);
-        if self.storage.save(&bytes).is_err() {
+        let bytes =
+            Zeroizing::new(serde_json::to_vec(&next).map_err(|_| unavailable(CauseKind::Encode))?);
+        if let Err(error) = self.storage.save(&bytes) {
             // An I/O failure may have committed a snapshot. Require a fresh load.
             self.poisoned = true;
-            return Err(KeyError::Unavailable);
+            return Err(match error {
+                KeyError::Unavailable(cause) => KeyError::Unavailable(cause),
+                _ => unavailable(CauseKind::Storage),
+            });
         }
         self.state = next;
         Ok(())

@@ -249,7 +249,9 @@ fn uncertain_write_poisoning_never_returns_signature() -> TestResult {
             self.writes.set(self.writes.get() + 1);
             self.memory.save(bytes)?;
             if self.writes.get() >= 4 {
-                Err(KeyError::Unavailable)
+                Err(KeyError::Unavailable(Cause::new(CauseKind::Io(
+                    std::io::ErrorKind::StorageFull,
+                ))))
             } else {
                 Ok(())
             }
@@ -259,12 +261,22 @@ fn uncertain_write_poisoning_never_returns_signature() -> TestResult {
     let mut trust = Trust::default();
     trust.publish(&ring.generate_next("key")?, 100)?;
     ring.activate("key", 107, &trust)?;
+    // The uncertain write keeps the storage's own cause and site.
     assert!(matches!(
         ring.sign(b"header.payload", 120, 107, &trust),
-        Err(KeyError::Unavailable)
+        Err(KeyError::Unavailable(c)) if c.kind() == CauseKind::Io(std::io::ErrorKind::StorageFull)
+            && c.site().file().ends_with("keys/tests.rs")
     ));
-    assert_eq!(ring.publication_keys(), Err(KeyError::Unavailable));
-    assert_eq!(ring.generate_next("next"), Err(KeyError::Unavailable));
+    for refused in [
+        ring.publication_keys().map(|_| ()),
+        ring.generate_next("next").map(|_| ()),
+    ] {
+        assert!(
+            matches!(refused, Err(KeyError::Unavailable(c)) if c.kind() == CauseKind::Poisoned
+                && c.site().file().ends_with("keys/mod.rs")),
+            "{refused:?}"
+        );
+    }
     Ok(())
 }
 #[test]
@@ -484,10 +496,10 @@ async fn postgres_publication_rotation_evidence_and_terminal_revocation() -> Tes
     sqlx::query("SELECT pg_sleep(greatest(0, $1::double precision + 1.05 - extract(epoch FROM clock_timestamp())))")
         .bind(now as f64).execute(&db.pool).await?;
     let snapshot = registry.snapshot().await?;
-    assert_eq!(
+    assert!(matches!(
         ring.activate("new", now, &snapshot),
-        Err(KeyError::Unavailable)
-    );
+        Err(KeyError::Unavailable(c)) if c.kind() == CauseKind::Stale
+    ));
     let now = snapshot.observed_at();
     assert!(matches!(
         ring.activate("new", now, &snapshot),
@@ -602,11 +614,10 @@ async fn postgres_refuses_third_rebinding_bad_input_and_stale_snapshot() -> Test
         Err(KeyError::BadInput)
     );
     let snapshot = registry.snapshot().await?;
-    assert!(
-        snapshot
-            .trusted_key(ISSUER, PROFILE, "fresh_entry", "a", db.now().await? + 6)
-            .is_err()
-    );
+    assert!(matches!(
+        snapshot.trusted_key(ISSUER, PROFILE, "fresh_entry", "a", db.now().await? + 6),
+        Err(KeyError::Unavailable(c)) if c.kind() == CauseKind::Stale
+    ));
     registry.revoke("a").await?;
     assert!(registry.publish(&a).await.is_err());
     registry.publish(&c).await?;
@@ -836,6 +847,179 @@ async fn audit05_08_cross_scope_publication_is_serialized() -> TestResult {
             })
             .await,
         Err(KeyError::InvalidState)
+    );
+    db.close().await
+}
+
+/// The `Unavailable` cause of `result`, or a test failure naming what came back.
+fn cause_of<T: fmt::Debug>(result: Result<T, KeyError>) -> Result<Cause, String> {
+    match result {
+        Err(KeyError::Unavailable(cause)) => Ok(cause),
+        other => Err(format!("expected Unavailable, got {other:?}")),
+    }
+}
+/// A pool whose only connection the caller holds; acquiring waits 200 ms.
+async fn one_connection_pool() -> Result<PgPool, Box<dyn std::error::Error>> {
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+    Ok(PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_millis(200))
+        .connect(&url)
+        .await?)
+}
+#[tokio::test]
+async fn unavailable_cause_pool_busy_is_pool_timeout_in_trust() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let busy = one_connection_pool().await?;
+    let held = busy.acquire().await?;
+    let registry = PublicTrustRegistry::new(busy.clone(), settings(), db.directory.0.clone())?;
+    let key = ring()?.generate_next("pool-busy")?;
+    let published = registry.publish(&key).await;
+    let snapshot = registry.snapshot().await;
+    drop(held);
+    busy.close().await;
+    for cause in [cause_of(published)?, cause_of(snapshot.map(|_| ()))?] {
+        assert_eq!(cause.kind(), CauseKind::PoolTimeout, "{cause:?}");
+        assert!(cause.site().file().ends_with("keys/trust.rs"), "{cause:?}");
+        eprintln!("pool busy cause: {cause:?}");
+    }
+    eprintln!(
+        "unavailable_cause_pool_busy_is_pool_timeout_in_trust duration: {:?}",
+        started.elapsed()
+    );
+    db.close().await
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unavailable_cause_advisory_key_held_is_statement_timeout() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let key = ring()?.generate_next("advisory-held")?;
+    let mut barrier = db.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(715110005)")
+        .execute(&mut *barrier)
+        .await?;
+    // An idle connection is ready, so a slow connect cannot spend the deadline.
+    sqlx::query("SELECT 1").execute(&db.pool).await?;
+    let registry = db
+        .registry()?
+        .with_deadline(tokio::time::Instant::now() + std::time::Duration::from_millis(300));
+    let published = registry.publish(&key).await;
+    barrier.rollback().await?;
+    let cause = cause_of(published)?;
+    // bound_waits sets statement_timeout and lock_timeout to the same value.
+    // The statement timer starts before the lock wait does, so it always
+    // fires first: 57014 (query_canceled), never 55P03 (lock_not_available).
+    assert_eq!(cause.kind(), CauseKind::Sqlstate(*b"57014"), "{cause:?}");
+    assert_eq!(format!("{:?}", cause.kind()), r#"Sqlstate("57014")"#);
+    assert!(cause.site().file().ends_with("keys/trust.rs"), "{cause:?}");
+    eprintln!("advisory key held cause: {cause:?}");
+    eprintln!(
+        "unavailable_cause_advisory_key_held_is_statement_timeout duration: {:?}",
+        started.elapsed()
+    );
+    db.close().await
+}
+#[tokio::test]
+async fn unavailable_cause_witness_held_is_lock_busy() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let registry = db.registry()?;
+    let key = ring()?.generate_next("witness-held")?;
+    let namespace = crate::evidence::trust_state_namespace(ISSUER, PROFILE, "fresh_entry")
+        .map_err(|_| "namespace")?;
+    let held =
+        crate::evidence::Witness::lock(&db.directory.0, &namespace).map_err(|_| "witness lock")?;
+    let published = registry.publish(&key).await;
+    drop(held);
+    let cause = cause_of(published)?;
+    assert_eq!(cause.kind(), CauseKind::LockBusy, "{cause:?}");
+    assert!(cause.site().file().ends_with("keys/trust.rs"), "{cause:?}");
+    eprintln!("witness held cause: {cause:?}");
+    // The lock is free again: the same publication now succeeds.
+    registry.publish(&key).await?;
+    eprintln!(
+        "unavailable_cause_witness_held_is_lock_busy duration: {:?}",
+        started.elapsed()
+    );
+    db.close().await
+}
+#[tokio::test]
+async fn unavailable_cause_never_reaches_the_503_body() -> TestResult {
+    use crate::admission::{Error, GrantSigner, KeyringSigner, RecoveryError};
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let busy = one_connection_pool().await?;
+    let held = busy.acquire().await?;
+    let registry = PublicTrustRegistry::new(busy.clone(), settings(), db.directory.0.clone())?;
+    let cause = cause_of(registry.snapshot().await.map(|_| ()))?;
+    assert_eq!(cause.kind(), CauseKind::PoolTimeout, "{cause:?}");
+    let detail = KeyError::Unavailable(cause).to_string();
+    assert!(detail.contains("keys/trust.rs:") && detail.contains("PoolTimeout"));
+    // The same refusal inside the grant signer's trust refresh.
+    let signer = KeyringSigner::new(ring()?, registry);
+    let error = signer.prepare().await.err();
+    drop(held);
+    busy.close().await;
+    assert_eq!(error, Some(Error::Unavailable));
+    let error = Error::Unavailable;
+    let attempt = "0192b3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b";
+    assert_eq!(error.status().as_u16(), 503);
+    let recovery = RecoveryError::from(error);
+    assert_eq!(recovery.status().as_u16(), 503);
+    let fixture = include_bytes!(
+        "../../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/recover-unavailable.json"
+    );
+    let fixture = fixture.strip_suffix(b"\n").unwrap_or(fixture);
+    let bodies = [
+        (
+            error.body(Some(attempt)),
+            br#"{"protocol_version":2,"error":{"code":"NATIVE_LOGIN_UNAVAILABLE","public_class":"TEMPORARILY_UNAVAILABLE"},"attempt_ref":"0192b3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b"}"#.as_slice(),
+        ),
+        (error.body_for(Some(attempt), 3, &[]), fixture),
+        (recovery.body(Some(attempt), 3), fixture),
+    ];
+    let kinds = [
+        "PoolTimeout",
+        "PoolClosed",
+        "Sqlstate",
+        "Database",
+        "Io(",
+        "LockBusy",
+        "Deadline",
+        "Blocking",
+        "Stale",
+        "Decode",
+        "Encode",
+        "Entropy",
+        "Crypto",
+        "Integrity",
+        "Poisoned",
+        "Storage",
+    ];
+    for (body, expected) in bodies {
+        assert_eq!(body, expected);
+        let text = String::from_utf8(body)?;
+        assert!(!text.contains(".rs:"), "{text}");
+        for kind in kinds {
+            assert!(!text.contains(kind), "{kind} in {text}");
+        }
+    }
+    eprintln!(
+        "unavailable_cause_never_reaches_the_503_body duration: {:?}",
+        started.elapsed()
     );
     db.close().await
 }
