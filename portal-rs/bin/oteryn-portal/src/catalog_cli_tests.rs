@@ -115,6 +115,7 @@ async fn activate(db: &Database, revision: &str) -> TestResult {
 
 #[tokio::test]
 async fn catalog_cli_imports_activates_and_reads_active() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let db = Database::new().await?;
     let revision = import(&db).await?;
     activate(&db, &revision).await?;
@@ -155,6 +156,7 @@ async fn catalog_cli_imports_activates_and_reads_active() -> TestResult {
 
 #[tokio::test]
 async fn catalog_cli_rejects_invalid_and_changes_nothing() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let db = Database::new().await?;
     let before = db.counts().await?;
     let mut tested = 0;
@@ -183,6 +185,7 @@ async fn catalog_cli_rejects_invalid_and_changes_nothing() -> TestResult {
 
 #[tokio::test]
 async fn catalog_cli_refuses_actor_without_permission() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let db = Database::new().await?;
     let revision = import(&db).await?;
     let before = db.counts().await?;
@@ -216,6 +219,7 @@ async fn catalog_cli_refuses_actor_without_permission() -> TestResult {
 
 #[tokio::test]
 async fn catalog_cli_is_idempotent() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let db = Database::new().await?;
     let revision = import(&db).await?;
     assert_eq!(import(&db).await?, revision);
@@ -242,6 +246,7 @@ async fn catalog_cli_is_idempotent() -> TestResult {
 
 #[tokio::test]
 async fn catalog_cli_does_not_audit_unchanged_library_history() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let db = Database::new().await?;
     let store = CatalogStore::new(db.pool.clone(), CatalogFlags { enabled: true });
     let raw = std::fs::read(fixtures().join("price-list.valid.json"))?;
@@ -258,6 +263,7 @@ async fn catalog_cli_does_not_audit_unchanged_library_history() -> TestResult {
 
 #[tokio::test]
 async fn delta_catalog_permission_read_retains_rbac_fence() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Database::new().await?;
     let mut issuance = db.pool.begin().await?;
@@ -350,6 +356,7 @@ impl oteryn_admin::rbac::AccountStateReader for RbacAccounts {
 
 #[tokio::test]
 async fn delta_catalog_activation_serializes_permission_revocation() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_admin::rbac::{Authorizer, Change, CheckContext};
     let started = std::time::Instant::now();
     let db = Database::new().await?;
@@ -432,5 +439,29 @@ async fn delta_catalog_activation_serializes_permission_revocation() -> TestResu
         serialized,
         "permission revocation committed ahead of activation waiting on the catalog row"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn drc_catalog_audit_budget() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new().await?;
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(281510004)")
+        .execute(&mut *blocker)
+        .await?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        audit(&db.pool, "absent", Action::Import, "0"),
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "catalog audit lock exceeded the shared three-second budget"
+    );
+    assert!(result?.is_err());
+    blocker.rollback().await?;
+    audit(&db.pool, "absent", Action::Import, "0").await?;
+    db.close().await?;
     Ok(())
 }

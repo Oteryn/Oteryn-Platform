@@ -98,7 +98,8 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, Error> {
     }
     Ok(bytes)
 }
-/// Pool-backed operator authorization; publication rechecks on its own connection.
+/// Pool-backed operator authorization. Publication retains the canonical
+/// account/channel/RBAC locks before rechecking on its own connection.
 #[derive(Debug)]
 pub struct DatabaseAccess(pub PgPool);
 #[async_trait]

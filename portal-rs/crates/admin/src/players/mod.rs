@@ -381,6 +381,10 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
                 oteryn_identity::security_revocations::Error::Encoding => Error::Unavailable,
             })?
             .ok_or(Error::NotFound)?;
+        // The revocation append trigger can wait on its global counter. Expiry
+        // must be evaluated after that wait, even while RBAC remains retained.
+        self.check_in(&mut tx, context, Permission::KickAccountSessions)
+            .await?;
         append(
             &mut tx,
             context,

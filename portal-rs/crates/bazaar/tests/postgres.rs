@@ -776,3 +776,31 @@ async fn bid_prepares_previous_leader_before_actor_account() -> TestResult {
     later?;
     h.finish().await
 }
+
+#[tokio::test]
+async fn drc_listing_gate_budget() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let mut blocker = h.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(64002)")
+        .execute(&mut *blocker)
+        .await?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        h.listing(Form::Auction, Currency::Coins, 100),
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "listing gate exceeded the shared three-second budget"
+    );
+    assert!(
+        result?.is_err(),
+        "exclusive moderation gate must refuse creation"
+    );
+    blocker.rollback().await?;
+    h.listing(Form::Auction, Currency::Coins, 100).await?;
+    h.finish().await
+}

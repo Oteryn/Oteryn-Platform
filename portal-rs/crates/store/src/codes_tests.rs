@@ -769,3 +769,32 @@ async fn browser_redemption_locks_code_before_account_and_rechecks_status()
     db.close().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn drc_gift_request_budget() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let service = db.service();
+    let request = request("2222-2222-2222-2222");
+    let mut blocker = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,55))")
+        .bind(request.key.to_string())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(5), service.redeem(&request)).await;
+    assert!(
+        result.is_ok(),
+        "gift request lock exceeded the shared three-second budget"
+    );
+    assert!(matches!(result.unwrap(), Err(Error::Unavailable)));
+    blocker.rollback().await.unwrap();
+    assert!(matches!(
+        service.redeem(&request).await,
+        Err(Error::Refused)
+    ));
+    db.close().await;
+}

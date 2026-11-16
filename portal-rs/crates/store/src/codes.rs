@@ -286,6 +286,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
             return Err(Error::Invalid);
         }
         let hash = normalized_hash(&request.code)?;
+        oteryn_db::mutation_budget(tx).await?;
         // Global key lock handles concurrent reuse across unrelated code rows.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,55))")
             .bind(request.key.to_string())

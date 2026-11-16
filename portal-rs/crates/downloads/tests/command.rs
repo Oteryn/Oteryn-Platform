@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 #[tokio::test]
 async fn db_command_success_refusals_and_bad_input() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -118,6 +119,7 @@ fn command_arguments_and_contract_fixture_bytes() {
 
 #[tokio::test]
 async fn db_signed_contract_bundles_publish_for_both_channels() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -153,6 +155,7 @@ async fn db_signed_contract_bundles_publish_for_both_channels() {
 
 #[tokio::test]
 async fn db_single_connection_publication_authorization() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::with_connections(1).await else {
         return;
     };
@@ -184,5 +187,62 @@ async fn db_single_connection_publication_authorization() {
             .await,
         Err(Error::Denied)
     ));
+    db.close().await;
+}
+
+#[tokio::test]
+async fn drc_publication_rechecks_permission_under_rbac_fence() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let actor = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'fenced@example.invalid','unused','active','en')").bind(actor).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,role_id FROM role_permissions WHERE permission='downloads.manage' LIMIT 1").bind(actor).execute(&db.pool).await.unwrap();
+    let mut writer = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM role_permissions WHERE permission='downloads.manage'")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let signer = SignerFixture::new();
+    let upload = signer.upload(signer.policy(1, "fenced", 1));
+    let pool = db.pool.clone();
+    let task = tokio::spawn(async move {
+        let access = oteryn_downloads::command::DatabaseAccess(pool.clone());
+        oteryn_downloads::Downloads::new(pool, FeatureFlags { downloads: true }, signer.roots())
+            .publish(&access, actor, upload)
+            .await
+    });
+    let observed = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)))").bind(blocker).fetch_one(&db.pool).await.unwrap();
+            if waiting { return true }
+            if task.is_finished() { return false }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("publication never reached RBAC fence");
+    writer.commit().await.unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+        .await
+        .expect("publication did not finish after role writer")
+        .unwrap();
+    assert!(observed, "publication bypassed the RBAC mutation fence");
+    assert!(
+        matches!(result, Err(Error::Denied)),
+        "revoked publication accepted: {result:?}"
+    );
+    let releases: i64 = sqlx::query_scalar("SELECT count(*) FROM client_releases")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(releases, 0);
     db.close().await;
 }

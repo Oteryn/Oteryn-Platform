@@ -73,12 +73,25 @@ impl Downloads {
         let verified = verification::verify(upload, root).await?;
         let channel = verified.upload.channel;
         let mut tx = self.pool.begin().await?;
-        sqlx::query(
-            "INSERT INTO client_channels (id, name) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING",
+        // Account -> channel pointer -> RBAC, retained through publication.
+        oteryn_admin::rbac::lock_accounts_resources_and_mutation(
+            &mut tx,
+            &[actor],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("INSERT INTO client_channels (id, name) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING")
+                        .bind(Uuid::now_v7())
+                        .bind(channel.as_str())
+                        .execute(&mut *connection)
+                        .await?;
+                    sqlx::query("SELECT id FROM client_channels WHERE name=$1 FOR UPDATE")
+                        .bind(channel.as_str())
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
         )
-        .bind(Uuid::now_v7())
-        .bind(channel.as_str())
-        .execute(&mut *tx)
         .await?;
         let row = sqlx::query(
             "SELECT id, active_publication_id FROM client_channels WHERE name = $1 FOR UPDATE",
@@ -116,6 +129,9 @@ impl Downloads {
         }
         if !known && verified.policy.current_release_sequence <= highest_sequence {
             return Err(Error::Conflict);
+        }
+        if !access.authorize_in(&mut tx, actor, channel).await {
+            return Err(Error::Denied);
         }
         let id = Uuid::now_v7();
         sqlx::query("INSERT INTO client_releases (id, channel_id, policy_revision, release_id, release_sequence, version_display, policy, policy_file, metadata, versions, artifacts, expires_at, published_by, previous_publication_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")

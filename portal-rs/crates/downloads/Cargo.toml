@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+oteryn-admin.workspace = true
 axum = "0.8.9"
 async-trait = "0.1"
 bytes = "1"
@@ -28,7 +29,7 @@ time = "0.3"
 [dev-dependencies]
 ed25519-dalek = "2"
 canonical_json = "0.5"
-oteryn-db = { path = "../db" }
+oteryn-db = { path = "../db", features = ["test-support"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5", features = ["util"] }
 getrandom = "0.4"

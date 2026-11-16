@@ -328,8 +328,8 @@ fn opt_uuid(s: Option<&str>) -> Result<Uuid> {
 pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
     let account_id = uuid(&scope.account).map_err(|_| Error::Conflict)?;
     let items = ITEM_FAMILIES.contains(&scope.family.as_str());
-    shared_fences(tx).await?;
     account(tx, account_id).await?;
+    shared_fences(tx).await?;
     let restored = restore_generation(tx).await?;
     let recovery = counter(&scope.recovery).map_err(|_| Error::Conflict)?;
     if recovery < restored {

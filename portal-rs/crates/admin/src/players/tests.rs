@@ -1836,3 +1836,73 @@ async fn postgres_stale_hold_form_preserves_replacement_and_receipt() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn drc_kick_rechecks_grant_after_revocation_counter_wait() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let kicker = kick_fixture(&db).await;
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'kicker@example.invalid','synthetic-hash','active','en',now())").bind(kicker).execute(&db.pool).await.unwrap();
+    staff_security_cookie(&db.pool, kicker, 'd').await;
+    let (session_hash, grant_hash): (Vec<u8>, Vec<u8>) = sqlx::query_as("SELECT s.id_hash,t.token_hash FROM web_sessions s JOIN account_mfa_tokens t ON t.account_id=s.account_id WHERE s.account_id=$1").bind(kicker).fetch_one(&db.pool).await.unwrap();
+    let mut context = context(kicker);
+    context.session_proof = Some(crate::rbac::SessionProof {
+        session_hash: session_hash.try_into().unwrap(),
+        grant_hash: grant_hash.try_into().unwrap(),
+    });
+    let mut blocker = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT * FROM identity_security_revocation_counter FOR UPDATE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE account_mfa_tokens SET expires_at=clock_timestamp()+interval '1500 milliseconds' WHERE account_id=$1").bind(kicker).execute(&db.pool).await.unwrap();
+    let service = db.service();
+    let target = db.target;
+    let task = tokio::spawn(async move { service.kick(context, target, "counter wait").await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)))").bind(pid).fetch_one(&db.pool).await.unwrap();
+            if waiting { break }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("kick never waited on the revocation counter");
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let expired: bool = sqlx::query_scalar(
+                "SELECT expires_at<=clock_timestamp() FROM account_mfa_tokens WHERE account_id=$1",
+            )
+            .bind(kicker)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if expired {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("MFA grant did not expire within the mutation budget");
+    blocker.rollback().await.unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+        .await
+        .expect("kick did not finish after counter release")
+        .unwrap();
+    assert!(
+        matches!(result, Err(Error::Authorization(_))),
+        "expired grant authorized kick: {result:?}"
+    );
+    assert_eq!(kick_state(&db).await.0, 1);
+    assert_eq!(kick_state(&db).await.3, 0);
+    let audits: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='players.kick'")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(audits, 0);
+    db.close().await;
+}

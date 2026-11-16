@@ -114,6 +114,7 @@ async fn audit(
     // xmin restricts auditing to history inserted by this successful call.
     // A process crash between these commits can leave an audit gap.
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(281510004)")
         .execute(&mut *tx)
         .await?;
