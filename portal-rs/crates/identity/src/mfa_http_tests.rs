@@ -5,16 +5,13 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn postgres_mfa_browser_csrf_limiter_and_login_challenge()
 -> Result<(), Box<dyn std::error::Error>> {
-    // Schema creation and migrations are setup, not the guarded flow; in a full
-    // parallel test binary they contend with every other migrating test.
+    tokio::time::timeout(std::time::Duration::from_secs(30), browser_flow()).await??;
+    Ok(())
+}
+async fn browser_flow() -> Result<(), Box<dyn std::error::Error>> {
     let Some(db) = database::Database::open().await? else {
         return Ok(());
     };
-    tokio::time::timeout(std::time::Duration::from_secs(30), browser_flow(&db)).await??;
-    db.close().await?;
-    Ok(())
-}
-async fn browser_flow(db: &database::Database) -> Result<(), Box<dyn std::error::Error>> {
     let mfa = Mfa::new(db.pool.clone(), [7; 32]);
     let id:uuid::Uuid=sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('browser@example.test',$1,'active','en',now()) RETURNING id").bind(oteryn_identity::password::hash("test password")?).fetch_one(&db.pool).await?;
     let enrollment = mfa.enroll(id, "test password").await?.ok_or("enrollment")?;
@@ -197,6 +194,7 @@ async fn browser_flow(db: &database::Database) -> Result<(), Box<dyn std::error:
         )
         .await?;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    db.close().await?;
     Ok(())
 }
 
