@@ -45,6 +45,8 @@ impl Board {
             return Err(Error::Invalid);
         }
         let mut tx = self.db.begin().await?;
+        // The shared acquisition budget bounds every wait in this transaction, the request lock included.
+        oteryn_db::mutation_budget(&mut tx).await?;
         // Serialize per-account caps across serving processes; hash collisions only reduce throughput.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
             .bind(owner.to_string())
@@ -99,6 +101,7 @@ impl Board {
             return Err(Error::Invalid);
         }
         let mut tx = self.db.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
             .bind(actor.to_string())
             .execute(&mut *tx)

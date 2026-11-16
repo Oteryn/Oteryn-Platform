@@ -1153,3 +1153,55 @@ async fn w3_c06_012_party_admission_timestamps_follow_lock_wait() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn party_request_lock_wait_is_bounded_by_mutation_budget() {
+    let db = Database::open().await.expect("PostgreSQL required");
+    let owner = db.trusted.owner;
+    let reporter = db.trusted.reporter;
+    let id = db.board.create(owner, db.draft().await).await.unwrap();
+    for actor in [owner, reporter] {
+        let mut blocker = db.pool.begin().await.unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *blocker)
+            .await
+            .unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
+            .bind(actor.to_string())
+            .execute(&mut *blocker)
+            .await
+            .unwrap();
+        let board = db.board.clone();
+        let draft = db.draft().await;
+        let started = std::time::Instant::now();
+        let pending = tokio::spawn(async move {
+            if actor == owner {
+                board.create(owner, draft).await.map(|_| ())
+            } else {
+                board.report(actor, id, "bounded").await
+            }
+        });
+        wait_party_blocked(&db.pool, pid).await;
+        // The blocker is never released while the request waits.
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), pending)
+            .await
+            .expect("party request lock wait must end within the mutation budget")
+            .unwrap();
+        assert!(
+            result.is_err(),
+            "a request that never acquires its lock must not succeed"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(6));
+        blocker.rollback().await.unwrap();
+    }
+    let posts: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_party_posts")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let reports: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_party_reports")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!((posts, reports), (1, 0));
+    db.close().await;
+}
