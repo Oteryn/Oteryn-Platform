@@ -752,6 +752,19 @@ async fn postgres_collection_rechecks_source_and_unlock_after_account_wait() {
             .execute(&mut *blocker)
             .await
             .unwrap();
+        // The source is withdrawn in the blocking transaction, so the save's
+        // unlocked reads still see it and only the recheck under lock can
+        // refuse it. Committing releases the account row right after the save
+        // starts waiting, well inside the 500 ms browser lock bound (W3-04).
+        let withdraw = match revoked {
+            "visibility" => Some("UPDATE world_visibility SET allowed=false"),
+            "version" => Some("UPDATE world_active_version SET version_id=NULL"),
+            "unlock" => Some("UPDATE pd_progress_streams SET baseline_complete=false"),
+            _ => None,
+        };
+        if let Some(withdraw) = withdraw {
+            sqlx::query(withdraw).execute(&mut *blocker).await.unwrap();
+        }
         let service = db.service.clone();
         let trust = db.trust.clone();
         let save =
@@ -765,29 +778,12 @@ async fn postgres_collection_rechecks_source_and_unlock_after_account_wait() {
                 tokio::task::yield_now().await;
             }
         }).await.unwrap();
-        match revoked {
-            "visibility" => {
-                sqlx::query("UPDATE world_visibility SET allowed=false")
-                    .execute(&db.pool)
-                    .await
-                    .unwrap();
-            }
-            "version" => {
-                sqlx::query("UPDATE world_active_version SET version_id=NULL")
-                    .execute(&db.pool)
-                    .await
-                    .unwrap();
-            }
-            "unlock" => {
-                sqlx::query("UPDATE pd_progress_streams SET baseline_complete=false")
-                    .execute(&db.pool)
-                    .await
-                    .unwrap();
-            }
-            _ => db.trust.allow.store(false, Ordering::SeqCst),
+        if withdraw.is_none() {
+            db.trust.allow.store(false, Ordering::SeqCst);
         }
         blocker.commit().await.unwrap();
-        assert!(save.await.unwrap().is_err(), "{revoked}");
+        let saved = save.await.unwrap();
+        assert!(saved.is_err(), "{revoked}: {saved:?}");
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_decks")
             .fetch_one(&db.pool)
             .await

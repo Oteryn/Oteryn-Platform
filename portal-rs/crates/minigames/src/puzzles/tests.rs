@@ -839,6 +839,13 @@ async fn postgres_answer_rechecks_source_after_account_wait() -> TestResult {
         .bind(db.account)
         .execute(&mut *blocker)
         .await?;
+    // The source is withdrawn in the blocking transaction, so the answer's
+    // unlocked reads still see it visible and only the recheck under lock can
+    // refuse it. Committing releases the account row right after the answer
+    // starts waiting, well inside the 500 ms browser lock bound (W3-04).
+    sqlx::query("UPDATE world_visibility SET allowed=false,updated_at=now() WHERE kind='synthetic-creature' AND key='wolf'")
+        .execute(&mut *blocker)
+        .await?;
     let service = db.service.clone();
     let account = db.account;
     let answer = tokio::spawn(async move { service.answer(account, id, 1).await });
@@ -850,9 +857,9 @@ async fn postgres_answer_rechecks_source_after_account_wait() -> TestResult {
         }
         Ok::<_, sqlx::Error>(())
     }).await??;
-    db.world.deny("synthetic-creature", "wolf").await?;
     blocker.commit().await?;
-    assert!(matches!(answer.await?, Err(Error::Unavailable)));
+    let answered = answer.await?;
+    assert!(matches!(answered, Err(Error::Unavailable)), "{answered:?}");
     let counts: (i64, i64) = sqlx::query_as(
         "SELECT (SELECT count(*) FROM puzzles_answers),(SELECT count(*) FROM puzzles_streaks)",
     )
