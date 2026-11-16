@@ -25,6 +25,9 @@ test('staff premium grant persists entitlement and audit; player cannot grant',a
   const rows=await db.query('SELECT event_type,duration_days,delta_seconds,effective_until > now() AS active FROM premium_ledger WHERE request_id=$1 AND account_id=$2',[request,target]);
   expect(rows.rows,'grant must persist seven days of premium').toEqual([{event_type:'GRANT',duration_days:7,delta_seconds:'604800',active:true}]);
   expect((await db.query('SELECT event_name FROM premium_audit WHERE request_id=$1 AND account_id=$2',[request,target])).rows,'grant has an audit event').toEqual([{event_name:'products.premium_granted'}]);
+  await page.goto(`/${lang}/panel/premium`);
+  const end=(await db.query('SELECT effective_until FROM premium_ledger WHERE request_id=$1',[request])).rows[0].effective_until;
+  await expect(page.locator('main'),'premium panel shows persisted end date').toContainText(end.toISOString().slice(0,10));
   // No Game entitlement receipt is seeded: this proves the portal ledger grant only.
   await page.goto(`/${lang}/account`);
   const csrf=await page.locator('input[name="_csrf"]').first().inputValue();
