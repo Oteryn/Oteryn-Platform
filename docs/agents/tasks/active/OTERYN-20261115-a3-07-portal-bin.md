@@ -61,6 +61,58 @@ The environment's installed 1.100 override was cleared so the repository's
 installed 1.97 pin applies; no tools were installed or pins changed.
 
 
+## Context checkpoint
+
+```yaml
+checkpoint_version: 1
+updated_at: 2026-11-15T21:25:03Z
+head: 90234d8d2d0a51a654b8ff6947d38372a740acba
+branch: claude/happy-davinci-ijz3wy-fix-a3-07-portal-bin
+pr: none
+status: ready
+context_routes: []
+owned_paths:
+  - portal-rs/bin/oteryn-portal
+  - portal-rs/crates/db
+  - portal-rs/crates/gameauth
+proven:
+  - All four findings W3-001..004 confirmed on the integration base
+  - Seven focused regressions pass and fail with the defective behaviour restored
+  - No migration, contract or RBAC-owned file changed
+derived: []
+unknown: []
+conflicts: []
+first_failure:
+  marker: none
+  evidence: none
+rejected_hypotheses: []
+changed_paths:
+  - portal-rs/bin/oteryn-portal/src/game_login.rs
+  - portal-rs/bin/oteryn-portal/src/game_login_tests.rs
+  - portal-rs/bin/oteryn-portal/src/main.rs
+  - portal-rs/bin/oteryn-portal/src/seed.rs
+  - portal-rs/bin/oteryn-portal/src/seed_tests.rs
+  - portal-rs/bin/oteryn-portal/src/worker.rs
+  - portal-rs/bin/oteryn-portal/src/worker_tests.rs
+  - portal-rs/crates/db/src/outbox.rs
+  - portal-rs/crates/gameauth/src/admission/http.rs
+  - portal-rs/crates/gameauth/src/keys/trust.rs
+  - docs/agents/tasks/active/OTERYN-20261115-a3-07-portal-bin.md
+validation:
+  - command: cargo fmt --all --check
+    result: PASS
+    evidence: Rust 1.97 repository pin
+  - command: cargo clippy --locked --all-targets -p oteryn-portal -p oteryn-db -p oteryn-gameauth -- -D warnings
+    result: PASS
+    evidence: task run on the integration base
+  - command: cargo test --locked -p oteryn-db -p oteryn-gameauth -p oteryn-portal
+    result: PASS
+    evidence: RUST_TEST_THREADS=1, real local PostgreSQL; 8, 156 and 194 passed, one unchanged browser ignore
+blockers:
+  - none
+next_action: Coordinator reviews the authorized fix branch; no PR or merge requested
+```
+
 ## Final validation and handoff
 
 - PASS: cargo fmt --all --check.
