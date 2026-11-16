@@ -594,3 +594,66 @@ async fn bzb_failed_email_does_not_starve_later_delivery() -> TestResult {
     );
     Ok(())
 }
+
+/// r4 lockemail: the normalized address claim precedes the account row, so a
+/// request or confirmation waiting on the claim retains no account lock.
+#[tokio::test]
+async fn r4_address_claim_wait_retains_no_account_row() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    let address = format!("r4-{}@example.invalid", Uuid::now_v7().simple());
+    for phase in ["request", "confirm"] {
+        let mut claim = db.pool.begin().await?;
+        let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *claim)
+            .await?;
+        crate::accounts::claim_lock(&mut claim, &address).await?;
+        let task = if phase == "request" {
+            let mut request = input(true, false);
+            request.email = address.clone();
+            request.email_confirmation = address.clone();
+            let s = s.clone();
+            tokio::spawn(async move { s.request(id, request).await })
+        } else {
+            let (token, _) = tokens(&db.pool).await?;
+            let s = s.clone();
+            tokio::spawn(async move { s.confirm(&token).await })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+                )
+                .bind(holder)
+                .fetch_one(&db.pool)
+                .await?;
+                if waiting {
+                    return Ok::<_, sqlx::Error>(());
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .map_err(|_| format!("{phase} never waited on the address claim"))??;
+        let mut probe = db.pool.begin().await?;
+        let free = sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE NOWAIT")
+            .bind(id)
+            .execute(&mut *probe)
+            .await;
+        probe.rollback().await?;
+        claim.commit().await?;
+        let outcome = task.await??;
+        assert!(
+            free.is_ok(),
+            "{phase} retained the account row while waiting on the address claim: {free:?}"
+        );
+        let expected = if phase == "request" {
+            Outcome::Requested
+        } else {
+            Outcome::Changed
+        };
+        assert_eq!(outcome, expected, "{phase}");
+    }
+    db.close().await
+}
