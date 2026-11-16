@@ -315,6 +315,18 @@ impl<A: AccountStateReader> Authorizer<A> {
         {
             return Err(Error::Denied);
         }
+        self.session_in(&mut *connection, context).await?;
+        Self::check_permission(connection, context.account, permission).await
+    }
+
+    /// Rechecks the actor's durable session, MFA grant and account state on the
+    /// mutation connection without a permission. Use after the final wait of a
+    /// mutation that intentionally removed the actor's own permission.
+    pub async fn session_in(
+        &self,
+        connection: &mut PgConnection,
+        context: CheckContext,
+    ) -> Result<(), Error> {
         if context.account.is_nil()
             || !self
                 .accounts
@@ -328,7 +340,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         {
             return Err(Error::Denied);
         }
-        Self::check_permission(connection, context.account, permission).await
+        Ok(())
     }
 
     /// Recheck a workflow proposer's current account and grants. The proposer

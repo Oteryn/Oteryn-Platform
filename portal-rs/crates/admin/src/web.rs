@@ -705,8 +705,14 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
         )
         .await?;
     }
-    for permission in [Permission::Access, Permission::ManageRoles] {
-        s.auth.check_in(&mut tx, context, permission).await?;
+    if assigned && account == context.account {
+        // Self-revocation removed the actor's grant; the retained RBAC fence
+        // keeps roles fixed, so only time-bound session state can change.
+        s.auth.session_in(&mut tx, context).await?;
+    } else {
+        for permission in [Permission::Access, Permission::ManageRoles] {
+            s.auth.check_in(&mut tx, context, permission).await?;
+        }
     }
     tx.commit().await?;
     Ok(())
