@@ -43,7 +43,7 @@ async fn authenticated_registration_redirects_without_creating_account()
             )
             .await?;
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
-        assert_eq!(response.headers()["location"], "/en/account");
+        assert_eq!(response.headers()["location"], "/account");
     }
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM accounts")

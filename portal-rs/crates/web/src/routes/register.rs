@@ -57,7 +57,7 @@ async fn show(
     value: Option<Extension<ConsentConfig>>,
 ) -> Result<Response, StatusCode> {
     if session.account_id().await.is_some() {
-        return Ok(Redirect::to(&format!("/{}/account", language.code())).into_response());
+        return Ok(Redirect::to("/account").into_response());
     }
     let page = RegisterPage {
         lang: language.code(),
@@ -87,7 +87,7 @@ async fn submit(
     // Registration starts an identity; it must never replace an authenticated
     // identity or reuse that account's authorization generation for a new one.
     if session.account_id().await.is_some() {
-        return Ok(Redirect::to(&format!("/{}/account", language.code())).into_response());
+        return Ok(Redirect::to("/account").into_response());
     }
     let Extension(limiter) = limiter;
     let Some(Extension(ConnectInfo(peer_addr))) = peer else {
