@@ -17,13 +17,7 @@ use uuid::Uuid;
 
 /// Establish a transaction-wide three second acquisition deadline before the
 /// first lock. Repeated calls retain the original deadline.
-pub async fn mutation_budget(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
-    sqlx::query("SELECT set_config('oteryn.mutation_deadline', coalesce(nullif(current_setting('oteryn.mutation_deadline',true),''),(extract(epoch FROM clock_timestamp())+3)::text),true)")
-        .execute(&mut *connection).await?;
-    sqlx::query("SELECT set_config('lock_timeout', greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint::text || 'ms',true), set_config('statement_timeout', greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint::text || 'ms',true)")
-        .execute(connection).await?;
-    Ok(())
-}
+pub use oteryn_db::mutation_budget;
 
 /// The canonical staff lock protocol: ordered account rows, then RBAC. All
 /// callers use their existing transaction and share one acquisition deadline.
@@ -176,6 +170,9 @@ pub async fn durable_session_in(
     let Some(password) = password else {
         return Ok(false);
     };
+    sqlx::query("SELECT s.id_hash FROM web_sessions s JOIN account_mfa_totp m ON m.account_id=s.account_id JOIN account_mfa_tokens t ON t.account_id=m.account_id AND t.generation=m.generation WHERE s.account_id=$1 AND s.id_hash=$2 AND t.token_hash=$3 FOR UPDATE OF s,m,t")
+        .bind(account).bind(proof.session_hash.as_slice()).bind(proof.grant_hash.as_slice())
+        .execute(&mut *connection).await.map_err(|_| AccountStateUnavailable)?;
     sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id JOIN account_mfa_totp m ON m.account_id=a.id JOIN account_mfa_tokens t ON t.account_id=a.id AND t.generation=m.generation WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND s.id_hash=$2 AND sha256(convert_to(s.data->>'mfa_grant','UTF8'))=$3 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() AND s.authorization_generation=a.native_security_generation AND m.confirmed AND t.token_hash=$3 AND t.purpose='grant' AND t.expires_at>clock_timestamp() AND t.created_at<=clock_timestamp() AND t.credential_hash=$4 FOR UPDATE OF s,m,t)")
         .bind(account).bind(proof.session_hash.as_slice()).bind(proof.grant_hash.as_slice())
         .bind(Sha256::digest(password.as_bytes()).to_vec()).fetch_one(connection).await.map_err(|_| AccountStateUnavailable)

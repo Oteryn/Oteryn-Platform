@@ -294,6 +294,9 @@ impl CatalogStore {
         if !exists {
             return Err(Error::NotImported);
         }
+        // The catalog pointer may have waited after the initial authority check.
+        self.authorize(actor, Action::Activate, access, &mut tx)
+            .await?;
         if current.as_deref() != Some(revision) {
             sqlx::query("INSERT INTO store_catalog_activations (previous_revision,catalog_revision,actor_id,activation_id) VALUES ($1,$2,$3,$4)").bind(&current).bind(revision).bind(actor).bind(Uuid::now_v7()).execute(&mut *tx).await?;
             sqlx::query("UPDATE store_active_catalog SET catalog_revision=$1, activated_by=$2, updated_at=now() WHERE id=1").bind(revision).bind(actor).execute(&mut *tx).await?;

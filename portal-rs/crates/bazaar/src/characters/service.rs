@@ -55,6 +55,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
     pub async fn own_requests(&self, actor: Uuid) -> Result<Vec<OwnRequest>, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let state = self
             .accounts
             .state(&mut tx, actor)
@@ -69,6 +70,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
     pub async fn choices(&self, actor: Uuid) -> Result<Vec<CharacterChoice>, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let state = self
             .accounts
             .state(&mut tx, actor)
@@ -89,6 +91,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
             return Err(Error::Disabled);
         }
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let state = self
             .accounts
             .state(&mut tx, actor)
@@ -220,6 +223,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
             return Err(Error::NotFound);
         }
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 AND kind='character' AND state='active' AND ends_at>clock_timestamp() FOR SHARE")
             .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         let body: String = sqlx::query_scalar(
@@ -275,6 +279,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
         }
         super::id(key)?;
         let mut replay = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut replay).await?;
         let state = self
             .accounts
             .state(&mut replay, actor)
@@ -324,6 +329,10 @@ struct BidAccounts<A, G> {
     id: Uuid,
 }
 impl<A: Accounts, G: CharacterEvidence> Accounts for BidAccounts<A, G> {
+    async fn prepare(&self, db: &mut PgConnection, accounts: &[Uuid]) -> Result<(), Error> {
+        self.inner.prepare(db, accounts).await
+    }
+
     async fn state(
         &self,
         db: &mut PgConnection,

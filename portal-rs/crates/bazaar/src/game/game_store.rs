@@ -35,6 +35,7 @@ impl Outbox {
         epoch: u64,
         generation: u64,
     ) -> Result<StagedCommand, Error> {
+        crate::locking::listing_gate(db).await?;
         if !self.settings.preparation_enabled {
             return Err(Error::Unavailable);
         }
@@ -58,6 +59,12 @@ impl Outbox {
         if actor != owner {
             return Err(Error::Denied);
         }
+        let mut parties = vec![seller, actor];
+        parties.extend(buyer);
+        accounts
+            .prepare(db, &parties)
+            .await
+            .map_err(|_| Error::Denied)?;
         let state = accounts
             .state(db, actor)
             .await

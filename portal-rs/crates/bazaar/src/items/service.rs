@@ -59,6 +59,9 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         row: &Listing,
         actor: Uuid,
     ) -> Result<(), Error> {
+        let mut prepared = vec![row.owner, actor];
+        prepared.extend(row.leader);
+        self.accounts.prepare(db, &prepared).await?;
         let mut actors = vec![row.owner, actor];
         actors.sort();
         actors.dedup();
@@ -74,6 +77,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         input.validate()?;
         let binding = serde_json::to_string(&input).map_err(|_| Error::InvalidInput)?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor, true).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,60))")
             .bind(actor.to_string())
@@ -113,7 +117,11 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn publish(&self, listing: Uuid, actor: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
+        let mut parties = vec![actor, row.owner];
+        parties.extend(row.leader);
+        self.accounts.prepare(&mut tx, &parties).await?;
         self.authorize(&mut tx, actor, true).await?;
         if row.owner != actor || row.state != State::Draft || row.ends_at <= clock(&mut tx).await? {
             return Err(Error::Denied);
@@ -144,7 +152,11 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
+        let mut parties = vec![actor, row.owner];
+        parties.extend(row.leader);
+        self.accounts.prepare(&mut tx, &parties).await?;
         self.authorize(&mut tx, actor, false).await?;
         let amount = total(&mut tx, listing, unit_maximum).await?;
         let key = request.to_string();
@@ -223,7 +235,11 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
+        let mut parties = vec![actor, row.owner];
+        parties.extend(row.leader);
+        self.accounts.prepare(&mut tx, &parties).await?;
         self.authorize(&mut tx, actor, false).await?;
         let amount = total(&mut tx, listing, unit_amount).await?;
         let key = request.to_string();
@@ -296,8 +312,8 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         self.enabled()?;
         loop {
             let mut tx = self.pool.begin().await?;
+            crate::locking::listing_gate(&mut tx).await?;
             let row = locked(&mut tx, listing).await?;
-            self.authorize(&mut tx, actor, true).await?;
             if row.owner != actor {
                 return Err(Error::Denied);
             }
@@ -309,6 +325,11 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
+            let offers = crate::bounded::offers(&mut tx, listing, Some(selected)).await?;
+            let mut parties: Vec<_> = offers.iter().map(|offer| offer.account).collect();
+            parties.extend([actor, row.owner, chosen.account]);
+            self.accounts.prepare(&mut tx, &parties).await?;
+            self.authorize(&mut tx, actor, true).await?;
             let resumed = chosen.state == "accepted"
                 && row.state == State::Matched
                 && row.reservation == Some(selected);
@@ -348,7 +369,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
                     return Err(Error::Denied);
                 }
             }
-            let offers = crate::bounded::offers(&mut tx, listing, Some(selected)).await?;
+
             let buyer = if row.form == Form::WantToBuy {
                 actor
             } else {
@@ -399,8 +420,8 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn reject(&self, listing: Uuid, actor: Uuid, offer: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
-        self.authorize(&mut tx, actor, false).await?;
         if row.owner != actor || row.state != State::Active {
             return Err(Error::Denied);
         }
@@ -411,6 +432,10 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
                 .fetch_optional(&mut *tx)
                 .await?
                 .ok_or(Error::NotFound)?;
+        self.accounts
+            .prepare(&mut tx, &[actor, row.owner, selected.account])
+            .await?;
+        self.authorize(&mut tx, actor, false).await?;
         if selected.state == "rejected" {
             return Ok(());
         }
@@ -439,7 +464,11 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
+        let mut parties = vec![actor, row.owner];
+        parties.extend(row.leader);
+        self.accounts.prepare(&mut tx, &parties).await?;
         self.authorize(&mut tx, actor, false).await?;
         let previous:Option<(Uuid,String)>=sqlx::query_as("SELECT listing_id,binding::text FROM bazaar_item_requests WHERE actor=$1 AND request_id=$2").bind(actor).bind(request).fetch_optional(&mut *tx).await?;
         if let Some((who, binding)) = previous {
@@ -487,6 +516,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn close_auction(&self, listing: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         if row.form != Form::Auction
             || row.state != State::Active
@@ -517,7 +547,11 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn cancel(&self, listing: Uuid, actor: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
+        let mut parties = vec![actor, row.owner];
+        parties.extend(row.leader);
+        self.accounts.prepare(&mut tx, &parties).await?;
         self.authorize(&mut tx, actor, true).await?;
         if row.owner != actor {
             return Err(Error::Denied);
@@ -549,7 +583,11 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn renew(&self, listing: Uuid, actor: Uuid, request: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
+        let mut parties = vec![actor, row.owner];
+        parties.extend(row.leader);
+        self.accounts.prepare(&mut tx, &parties).await?;
         self.authorize(&mut tx, actor, true).await?;
         if !id(request) {
             return Err(Error::InvalidInput);
@@ -584,6 +622,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         self.enabled()?;
         loop {
             let mut tx = self.pool.begin().await?;
+            crate::locking::listing_gate(&mut tx).await?;
             let row = locked(&mut tx, listing).await?;
             if row.state != State::Active
                 || row.leader.is_some()
@@ -592,6 +631,9 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
                 return Err(Error::IllegalTransition);
             }
             let offers = crate::bounded::offers(&mut tx, listing, None).await?;
+            let mut prepared: Vec<_> = offers.iter().map(|offer| offer.account).collect();
+            prepared.push(row.owner);
+            self.accounts.prepare(&mut tx, &prepared).await?;
             let mut accounts: Vec<_> = offers.iter().map(|o| o.account).collect();
             accounts.sort();
             accounts.dedup();
@@ -628,7 +670,11 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     ) -> Result<(ItemView, Vec<Offer>), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
+        let mut parties = vec![actor, row.owner];
+        parties.extend(row.leader);
+        self.accounts.prepare(&mut tx, &parties).await?;
         self.authorize(&mut tx, actor, false).await?;
         if row.owner != actor {
             return Err(Error::Denied);
@@ -656,6 +702,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn view(&self, listing: Uuid) -> Result<ItemView, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         if row.state != State::Active || row.ends_at <= clock(&mut tx).await? {
             return Err(Error::NotFound);

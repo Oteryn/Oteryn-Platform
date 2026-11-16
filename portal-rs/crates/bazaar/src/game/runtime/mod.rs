@@ -34,6 +34,7 @@ impl Runtime {
         };
         config.current()?;
         let mut tx = pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         Outbox::reopen(
             &mut tx,
             config.fence.projection_epoch,
@@ -256,6 +257,7 @@ impl Runtime {
         };
         let binding = serde_json::to_string(&input).map_err(|_| Error::Invalid)?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let state = self
             .accounts(Some(session_hash))
             .state(&mut tx, actor)
@@ -334,6 +336,7 @@ impl Runtime {
         id(&buyer_character.to_string())?;
         // Destination request, full funding, bid and replay fence share one SQL transaction.
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let replay =
             check_bid_request(&mut tx, key, listing, actor, buyer_character, maximum).await?;
         crate::locking::listing_gate(&mut tx).await?;
@@ -342,6 +345,9 @@ impl Runtime {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
+        let mut parties = vec![row.owner, actor];
+        parties.extend(row.leader);
+        crate::locking::accounts(&mut tx, &parties).await?;
         if actor == row.owner {
             return Err(Error::Denied);
         }
@@ -478,6 +484,9 @@ impl Runtime {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
+        let mut parties = vec![l.owner, actor];
+        parties.extend(l.leader);
+        crate::locking::accounts(&mut tx, &parties).await?;
         if l.owner != actor {
             return Err(Error::Denied);
         }

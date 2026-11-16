@@ -30,6 +30,10 @@ impl Authority {
         }
         parties.sort();
         parties.dedup();
+        accounts
+            .prepare(db, &parties)
+            .await
+            .map_err(|_| Error::Denied)?;
         for party in parties {
             let state = accounts
                 .state(db, party)

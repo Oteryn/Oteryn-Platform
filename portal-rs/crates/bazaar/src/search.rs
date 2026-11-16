@@ -324,6 +324,7 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .execute(&mut *tx)
             .await?;
+        crate::locking::listing_gate(&mut tx).await?;
         if let Some(actor) = actor {
             self.authorize(&mut tx, actor).await?;
         }
@@ -405,6 +406,7 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         if enabled {
             let now: OffsetDateTime = sqlx::query_scalar("SELECT transaction_timestamp()")
@@ -459,6 +461,7 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
         validate_name(name)?;
         let body = serde_json::to_string(query).map_err(|_| Error::InvalidInput)?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,61))")
             .bind(actor.to_string())
@@ -483,6 +486,7 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
     pub async fn saved(&self, actor: Uuid) -> Result<Vec<(String, SearchQuery)>, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT name,query FROM bazaar_saved_searches WHERE account=$1 ORDER BY name",
@@ -504,6 +508,7 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
         self.enabled()?;
         validate_name(name)?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         sqlx::query("DELETE FROM bazaar_saved_searches WHERE account=$1 AND name=$2")
             .bind(actor)

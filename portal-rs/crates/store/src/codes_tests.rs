@@ -691,3 +691,70 @@ async fn postgres_a3_browser_premium_redemption_one_connection_and_value_restric
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn browser_redemption_locks_code_before_account_and_rechecks_status()
+-> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let db = Database::create().await.ok_or("PostgreSQL is required")?;
+    sqlx::raw_sql("CREATE TABLE accounts(id uuid PRIMARY KEY,status text NOT NULL,email_verified_at timestamptz); CREATE FUNCTION account_value_eligible(uuid) RETURNS boolean LANGUAGE sql AS 'SELECT true'").execute(&db.pool).await?;
+    let player = account();
+    sqlx::query("INSERT INTO accounts VALUES($1,'active',clock_timestamp())")
+        .bind(player)
+        .execute(&db.pool)
+        .await?;
+    let service = db.service();
+    let generated = service
+        .generate(
+            &AuthorizedStaff { actor: account() },
+            &batch(Kind::Coins),
+            1,
+        )
+        .await?;
+    let redemption = Redemption {
+        account: player,
+        ..request(&generated.codes[0])
+    };
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM gift_codes WHERE batch_id=$1 FOR UPDATE")
+        .bind(generated.batch_id)
+        .execute(&mut *blocker)
+        .await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    let pending = tokio::spawn(async move { service.redeem_player(&redemption).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.pool)
+            .await?;
+            if waiting {
+                break Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    let account_lock = sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(player)
+        .execute(&mut *blocker)
+        .await;
+    if account_lock.is_ok() {
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(player)
+            .execute(&mut *blocker)
+            .await?;
+        blocker.commit().await?;
+    } else {
+        blocker.rollback().await?;
+    }
+    let result = pending.await?;
+    account_lock?;
+    assert_eq!(result, Err(Error::Denied));
+    assert_eq!(db.count("code_redemptions").await, 0);
+    db.close().await;
+    Ok(())
+}

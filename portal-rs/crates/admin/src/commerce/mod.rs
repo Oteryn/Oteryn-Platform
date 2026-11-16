@@ -194,9 +194,19 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         // Serialize with T10/T10b role writers. Check both staff permissions under
         // the lock, including on idempotent replays and approval requests.
         let owner = payment_owner(&mut tx, &request.command, request.target).await?;
-        let authorization = rbac::authorize_mutation(
+        let operation_id = request.request_id;
+        let authorization = rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account, owner],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT id FROM commerce_operations WHERE id=$1 FOR UPDATE")
+                        .bind(operation_id)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
             &self.auth,
             context,
             &[rbac::Permission::Access, request.command.permission()],
@@ -240,6 +250,8 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
                 return Err(Error::Conflict);
             }
             let pending = row.try_get::<Option<Value>, _>("result")?.is_none();
+            self.authorize_in(&mut tx, context, &request.command)
+                .await?;
             tx.commit().await?;
             return Ok(Outcome {
                 id: request.request_id,
@@ -248,6 +260,8 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             });
         }
         let review = self.effects.inspect(&mut tx, &request).await?;
+        self.authorize_in(&mut tx, context, &request.command)
+            .await?;
         sqlx::query("UPDATE commerce_operations SET review=$2 WHERE id=$1")
             .bind(request.request_id)
             .bind(&review)
@@ -273,6 +287,8 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             json!({"pending":pending,"reason_sha256":hash,"result":result}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, &request.command)
+            .await?;
         tx.commit().await?;
         Ok(Outcome {
             id: request.request_id,
@@ -302,9 +318,18 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
                 .await?;
         let saved: Command = serde_json::from_value(saved).map_err(|_| Error::Unavailable)?;
         let owner = payment_owner(&mut tx, &saved, target).await?;
-        rbac::authorize_mutation(
+        rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account, original, owner],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT id FROM commerce_operations WHERE id=$1 FOR UPDATE")
+                        .bind(id)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
             &self.auth,
             context,
             &[rbac::Permission::Access, saved.permission()],
@@ -356,6 +381,8 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             json!({"requested_by":actor,"reason_sha256":hash,"pending":false,"result":result}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, &request.command)
+            .await?;
         tx.commit().await?;
         Ok(Outcome {
             id,

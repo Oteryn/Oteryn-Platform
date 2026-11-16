@@ -325,9 +325,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::authorize_mutation(
+        crate::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account, id],
+            move |connection| Box::pin(async move {
+                sqlx::query("SELECT id_hash FROM web_sessions WHERE account_id=$1 ORDER BY id_hash FOR UPDATE")
+                    .bind(id).execute(connection).await?;
+                Ok(())
+            }),
             &self.auth,
             context,
             &[Permission::Access, Permission::ManageSupportTickets],
@@ -474,6 +479,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"reason":reason.trim(),"order_id":hold.order_id,"hold_reason":hold.reason,"debt_coins":hold.debt_coins}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ReleaseCoinPurchaseHold)
+            .await?;
         tx.commit().await?;
         Ok(Some(hold.order_id))
     }
@@ -512,9 +519,18 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
                 .fetch_optional(&mut *tx)
                 .await?
                 .ok_or(Error::NotFound)?;
-        crate::rbac::authorize_mutation(
+        crate::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account, target],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT id FROM tickets WHERE id=$1 FOR UPDATE")
+                        .bind(ticket)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
             &self.auth,
             context,
             &[Permission::Access, Permission::ManageSupportTickets],
@@ -553,9 +569,18 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             return Err(Error::Denied);
         }
         let mut tx = self.pool.begin().await?;
-        crate::rbac::authorize_mutation(
+        crate::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account, id],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT id FROM support_mfa_reset_evidence WHERE id=$1 FOR UPDATE")
+                        .bind(evidence)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
             &self.auth,
             context,
             &[Permission::Access, Permission::ManageSupportTickets],
@@ -566,6 +591,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         if !self.accounts.verified(&mut tx, id, evidence).await? {
             return Err(Error::Denied);
         }
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         let request: Uuid = sqlx::query_scalar("INSERT INTO player_mfa_reset_requests(account_id,requested_by,evidence,reason) VALUES($1,$2,$3,$4) RETURNING id").bind(id).bind(context.account).bind(evidence).bind(reason.trim()).fetch_one(&mut *tx).await?;
         append(
             &mut tx,
@@ -597,9 +624,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(Error::Denied)?;
-        crate::rbac::authorize_mutation(
+        crate::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account, id, requester],
+            move |connection| Box::pin(async move {
+                    sqlx::query("SELECT e.id FROM support_mfa_reset_evidence e JOIN player_mfa_reset_requests r ON r.evidence=e.id WHERE r.id=$1 FOR UPDATE OF e").bind(request).execute(&mut *connection).await?;
+                sqlx::query("SELECT id_hash FROM web_sessions WHERE account_id=$1 ORDER BY id_hash FOR UPDATE").bind(id).execute(connection).await?;
+                Ok(())
+            }),
             &self.auth,
             context,
             &[Permission::Access, Permission::ManageRoles],
@@ -620,6 +652,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         if !self.accounts.verified(&mut tx, id, evidence).await? {
             return Err(Error::Denied);
         }
+        self.check_in(&mut tx, context, Permission::ManageRoles)
+            .await?;
         // Authorization and evidence checks can wait on other locks. Recheck the
         // live clock while holding the request lock immediately before mutation.
         let unexpired: bool = sqlx::query_scalar(

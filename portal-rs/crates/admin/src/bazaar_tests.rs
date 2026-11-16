@@ -589,6 +589,11 @@ async fn delta_bazaar_listing_before_staff_account_avoids_deadlock() {
         .await
         .unwrap();
     let mut bid = db.pool.begin().await.unwrap();
+    // Model the real bid entry protocol before deliberately retaining its row.
+    sqlx::query("SELECT pg_advisory_xact_lock_shared(64002)")
+        .execute(&mut *bid)
+        .await
+        .unwrap();
     let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
         .fetch_one(&mut *bid)
         .await

@@ -135,6 +135,7 @@ impl<A: Accounts, V: PublicViews, L: PromotionLedger> Moderation<A, V, L> {
         }
         valid_id(seller)?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         if !self
             .accounts
             .state(&mut tx, seller)
@@ -175,6 +176,7 @@ impl<A: Accounts, V: PublicViews, L: PromotionLedger> Moderation<A, V, L> {
         self.enabled()?;
         input.validate()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,64))")
             .bind(actor.to_string())
@@ -232,6 +234,7 @@ impl<A: Accounts, V: PublicViews, L: PromotionLedger> Moderation<A, V, L> {
         }
         valid_id(id)?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         if !self
             .accounts
@@ -395,6 +398,11 @@ impl StaffCommand {
 /// Retains all holds. Approval queues reconciliation only, with no automatic
 /// dispatch, state cancellation, balance credit, fabricated receipt or asset reversal.
 pub async fn lock_staff_target(tx: &mut PgConnection, command: &StaffCommand) -> Result<(), Error> {
+    // Every staff command may take an account FOR UPDATE after its target.
+    // Exclude trading transactions before taking either, never upgrade a shared gate.
+    sqlx::query("SELECT pg_advisory_xact_lock(64002)")
+        .execute(&mut *tx)
+        .await?;
     match command {
         StaffCommand::Suspend { listing, .. }
         | StaffCommand::RequestInvalidation { listing, .. } => {

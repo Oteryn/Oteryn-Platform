@@ -472,3 +472,42 @@ async fn testing_seed_issues_without_an_actor_or_audit_row() -> TestResult {
     assert_eq!((db.count().await?, db.audits().await?), (1, 0));
     db.close().await
 }
+
+#[tokio::test]
+async fn issuer_authority_wait_uses_shared_mutation_deadline() -> TestResult {
+    let db = Database::open().await?.ok_or("PostgreSQL is required")?;
+    sqlx::query("INSERT INTO character_bootstrap_intent_authority(id,last_source_revision) VALUES(1,'0') ON CONFLICT DO NOTHING").execute(&db.pool).await?;
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM character_bootstrap_intent_authority WHERE id=1 FOR UPDATE")
+        .execute(&mut *blocker)
+        .await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    let pool = db.pool.clone();
+    let pending = tokio::spawn(async move { issue(&pool, input(), staff()).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.pool)
+            .await?;
+            if waiting {
+                break Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    let bounded = tokio::time::timeout(std::time::Duration::from_secs(4), pending).await;
+    blocker.rollback().await?;
+    assert!(
+        bounded?.is_ok_and(|result| result.is_err()),
+        "issuer exceeded the three-second acquisition budget"
+    );
+    assert_eq!(db.count().await?, 0);
+    db.close().await?;
+    Ok(())
+}

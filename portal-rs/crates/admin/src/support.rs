@@ -318,6 +318,18 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
     )
     .await
     .map_err(|_| Error::Unavailable)?;
+    crate::rbac::authorize_mutation(
+        &mut tx,
+        &[context.account],
+        auth,
+        context,
+        &[Permission::Access, command.area().permission()],
+    )
+    .await
+    .map_err(|error| match error {
+        crate::rbac::Error::Storage(_) => Error::Unavailable,
+        _ => Error::Denied,
+    })?;
     tx.commit().await.map_err(|_| Error::Unavailable)
 }
 

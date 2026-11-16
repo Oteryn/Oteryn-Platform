@@ -73,13 +73,13 @@ impl Ledger {
             Change::Revoke => ("REVOKE", None),
         };
         let mut tx = self.pool.begin().await?;
-        // A request lock precedes the account lock and also serializes conflicting
-        // reuses across different accounts. Hash collisions only serialize work.
+        // Identity/authority rows precede request serialization, including when
+        // the staff caller already retains its ordered account set and RBAC.
+        self.lock(&mut tx, mutation.account).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 27))")
             .bind(mutation.request.to_string())
             .execute(&mut *tx)
             .await?;
-        self.lock(&mut tx, mutation.account).await?;
         if let Some(row) = sqlx::query("SELECT * FROM premium_ledger WHERE request_id=$1")
             .bind(mutation.request)
             .fetch_optional(&mut *tx)
@@ -195,13 +195,13 @@ impl Ledger {
             Change::Grant(days) => ("GRANT", Some(i32::from(days))),
             Change::Revoke => ("REVOKE", None),
         };
-        // A request lock precedes the account lock and also serializes conflicting
-        // reuses across different accounts. Hash collisions only serialize work.
+        // Identity/authority rows precede request serialization, including when
+        // the staff caller already retains its ordered account set and RBAC.
+        self.lock(tx, mutation.account).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 27))")
             .bind(mutation.request.to_string())
             .execute(&mut **tx)
             .await?;
-        self.lock(tx, mutation.account).await?;
         if let Some(row) = sqlx::query("SELECT * FROM premium_ledger WHERE request_id=$1")
             .bind(mutation.request)
             .fetch_optional(&mut **tx)

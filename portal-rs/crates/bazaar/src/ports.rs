@@ -35,6 +35,24 @@ impl AccountState {
 }
 
 pub trait Accounts: Send + Sync {
+    /// Prepare the complete participant set before reading any one account.
+    /// Adapters may batch the ordered acquisition on the caller's connection.
+    fn prepare(
+        &self,
+        db: &mut PgConnection,
+        accounts: &[Uuid],
+    ) -> impl Future<Output = Result<(), Error>> + Send {
+        async move {
+            let mut accounts = accounts.to_vec();
+            accounts.sort_unstable();
+            accounts.dedup();
+            for account in accounts {
+                self.state(db, account).await?;
+            }
+            Ok(())
+        }
+    }
+
     /// Safe compensation may return custody to a suspended account, never a
     /// closed or missing identity. The default requires current trade eligibility.
     fn safe_return(

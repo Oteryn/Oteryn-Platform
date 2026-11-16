@@ -79,6 +79,7 @@ impl Runtime {
     }
     async fn accept_gold_bid(&self, request: Uuid) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let listing: Uuid = sqlx::query_scalar(
             "SELECT listing_id FROM bazaar_authority_gold_bids WHERE request_id=$1",
         )
@@ -90,12 +91,18 @@ impl Runtime {
             .bind(listing)
             .fetch_one(&mut *tx)
             .await?;
-        self.authority().lock(&mut tx).await?;
         let row =
             sqlx::query("SELECT * FROM bazaar_authority_gold_bids WHERE request_id=$1 FOR UPDATE")
                 .bind(request)
                 .fetch_one(&mut *tx)
                 .await?;
+        let mut parties = vec![l.owner, row.try_get::<Uuid, _>("buyer")?];
+        parties.extend(l.leader);
+        let released: Option<Uuid> = sqlx::query_scalar("SELECT (intent::jsonb->>'buyer_account_id')::uuid FROM bazaar_game_outbox WHERE operation_id=$1")
+            .bind(row.try_get::<Option<Uuid>, _>("release_operation_id")?).fetch_optional(&mut *tx).await?;
+        parties.extend(released);
+        crate::locking::accounts(&mut tx, &parties).await?;
+        self.authority().lock(&mut tx).await?;
         let phase: String = row.try_get("phase")?;
         if phase == "releasing" {
             let operation: Uuid = row

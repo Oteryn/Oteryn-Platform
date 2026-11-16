@@ -206,9 +206,18 @@ impl Service {
             .await?
             .ok_or(Error::NotFound)?;
         let auth = Authorizer::new(self.pool.clone(), Accounts(self.pool.clone()));
-        rbac::authorize_mutation(
+        rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account, target],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT id FROM sanctions WHERE id=$1 FOR UPDATE")
+                        .bind(id)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
             &auth,
             context,
             &[Permission::ManageSupportEnforcement],
@@ -229,6 +238,8 @@ impl Service {
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
+        // Revalidate the durable session and grant after the sanction-row wait.
+        self.staff(&mut tx, context, request).await?;
         let current: i64 = row.try_get("lock_version")?;
         if current != version {
             return Err(Error::Conflict);

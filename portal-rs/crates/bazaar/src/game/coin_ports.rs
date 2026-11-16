@@ -14,10 +14,18 @@ pub struct PlatformAccounts {
     pub session_hash: Option<[u8; 32]>,
 }
 impl Accounts for PlatformAccounts {
+    async fn prepare(&self, db: &mut PgConnection, accounts: &[Uuid]) -> Result<(), Error> {
+        if self.enabled {
+            crate::locking::accounts(db, accounts).await?;
+        }
+        Ok(())
+    }
+
     async fn safe_return(&self, db: &mut PgConnection, account: Uuid) -> Result<bool, Error> {
         if !self.enabled {
             return Ok(false);
         }
+        crate::locking::listing_gate(db).await?;
         let status: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
                 .bind(account)
@@ -34,6 +42,7 @@ impl Accounts for PlatformAccounts {
         if !self.enabled {
             return Ok(None);
         }
+        crate::locking::listing_gate(db).await?;
         let row=sqlx::query("SELECT status,email_verified_at IS NOT NULL AS verified,email_change_blocked_until>now() AS blocked FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(&mut *db).await?;
         let Some(row) = row else {
             return Ok(None);
@@ -67,6 +76,7 @@ impl CoinReservations {
     // Share the issuer/restore fence with evidence before taking any Wallet
     // locks. The same ordering is used by every Bazaar monetary port call.
     async fn fence(&self, db: &mut PgConnection) -> Result<(), Error> {
+        crate::locking::listing_gate(db).await?;
         self.authority.lock(db).await.map_err(|e| match e {
             super::Error::Database(e) => Error::Database(e),
             super::Error::Unavailable => Error::Disabled,
@@ -77,6 +87,7 @@ impl CoinReservations {
     async fn account(db: &mut PgConnection, account: Uuid, obligation: bool) -> Result<(), Error> {
         // Existing obligations accept suspended identities; new reserves require active.
         // The complete identity set is acquired before any wallet row.
+        crate::locking::listing_gate(db).await?;
         let status: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
                 .bind(account)
@@ -129,6 +140,7 @@ impl CoinReservations {
 }
 impl Reservations for CoinReservations {
     async fn lock_accounts(&self, db: &mut PgConnection, accounts: &[Uuid]) -> Result<(), Error> {
+        crate::locking::accounts(db, accounts).await?;
         self.fence(db).await?;
         if accounts.windows(2).any(|w| w[0] >= w[1]) {
             return Err(Error::InvalidInput);
@@ -151,6 +163,7 @@ impl Reservations for CoinReservations {
         Ok(())
     }
     async fn reserve(&self, db: &mut PgConnection, h: Reservation) -> Result<(), Error> {
+        crate::locking::accounts(db, &[h.account]).await?;
         self.fence(db).await?;
         if h.currency == Currency::Gold {
             return super::runtime::gold::reserve(&self.authority, db, h)
@@ -204,8 +217,10 @@ impl Reservations for CoinReservations {
         Ok(())
     }
     async fn release(&self, db: &mut PgConnection, id: Uuid, account: Uuid) -> Result<(), Error> {
+        crate::locking::accounts(db, &[account]).await?;
         self.fence(db).await?;
         Self::account(db, account, true).await?;
+        crate::locking::listing_gate(db).await?;
         let row=sqlx::query("SELECT amount,settlement_id FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(id).bind(account).fetch_optional(&mut *db).await?;
         let Some(row) = row else {
             if let Some(hold) =
@@ -325,6 +340,7 @@ impl Reservations for CoinReservations {
                 return Err(Error::Denied);
             }
         }
+        crate::locking::listing_gate(db).await?;
         let row=sqlx::query("SELECT amount,settlement_id FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(s.reservation).bind(s.buyer).fetch_optional(&mut *db).await?.ok_or(Error::InsufficientFunds)?;
         if row.try_get::<i64, _>("amount")? < s.amount
             || row.try_get::<Option<Uuid>, _>("settlement_id")?.is_some()

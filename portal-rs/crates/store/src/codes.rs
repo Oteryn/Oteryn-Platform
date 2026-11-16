@@ -239,8 +239,12 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
     pub async fn redeem_player(&self, request: &Redemption) -> Result<Receipt, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
-        let active: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR UPDATE")
-            .bind(request.account).fetch_optional(&mut *tx).await?;
+        let active: Option<bool> = sqlx::query_scalar(
+            "SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1",
+        )
+        .bind(request.account)
+        .fetch_optional(&mut *tx)
+        .await?;
         if active != Some(true) {
             return Err(Error::Denied);
         }
@@ -309,16 +313,28 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
             _ => return Err(Error::Unavailable),
         };
         let amount: i64 = row.try_get("amount")?;
+        // Request, code and batch locks precede identity locks on every path.
+        // Serialize all codes of the same batch for this account before counting.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,56))")
+            .bind(format!("{batch_id}:{}", request.account))
+            .execute(&mut **tx)
+            .await?;
+        if browser {
+            // The admission read may have preceded a code/batch wait. Recheck
+            // current eligibility under the retained account lock before replay
+            // or effects; no account lock may be retained while waiting above.
+            let active: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR UPDATE")
+                .bind(request.account).fetch_optional(&mut **tx).await?;
+            if active != Some(true) {
+                return Err(Error::Denied);
+            }
+        }
         if let Some(previous) = sqlx::query("SELECT id,code_id,account_id,character_ref FROM code_redemptions WHERE idempotency_key=$1").bind(request.key).fetch_optional(&mut **tx).await? {
             if previous.try_get::<Uuid,_>("code_id")? != code_id || previous.try_get::<Uuid,_>("account_id")? != request.account || previous.try_get::<Option<Uuid>,_>("character_ref")? != request.character_ref { return Err(Error::Conflict); }
             return Ok(Receipt { redemption_id: previous.try_get("id")?, kind, amount });
         }
         if browser {
             // Exact replays above remain valid; new value requires the shared gate.
-            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
-                .bind(request.account)
-                .execute(&mut **tx)
-                .await?;
             let eligible: bool = sqlx::query_scalar("SELECT account_value_eligible($1)")
                 .bind(request.account)
                 .fetch_one(&mut **tx)
@@ -327,11 +343,6 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
                 return Err(Error::Denied);
             }
         }
-        // Serialize all codes of the same batch for this account before counting.
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,56))")
-            .bind(format!("{batch_id}:{}", request.account))
-            .execute(&mut **tx)
-            .await?;
         let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
             .fetch_one(&mut **tx)
             .await?;

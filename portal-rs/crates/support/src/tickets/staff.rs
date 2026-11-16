@@ -153,9 +153,33 @@ impl Backend for StaffSupport {
             self.pool.clone(),
             oteryn_admin::web::PortalIdentity::configured(self.pool.clone()),
         );
-        oteryn_admin::rbac::authorize_mutation(
+        let resource_query = match command {
+            Command::Reply { .. } | Command::TicketStatus { .. } => {
+                "SELECT id FROM tickets WHERE id=$1 FOR UPDATE"
+            }
+            Command::Moderate { .. } => "SELECT id FROM player_reports WHERE id=$1 FOR UPDATE",
+            Command::Sanction { create: true, .. } => {
+                "SELECT id FROM sanctions WHERE false AND id=$1 FOR UPDATE"
+            }
+            _ => "SELECT id FROM sanctions WHERE id=$1 FOR UPDATE",
+        };
+        let enforcement = matches!(command.area(), Area::Enforcement);
+        oteryn_admin::rbac::authorize_mutation_with_resources(
             tx,
             &[actor, owner],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query(resource_query)
+                        .bind(id)
+                        .execute(&mut *connection)
+                        .await?;
+                    if enforcement {
+                        sqlx::query("SELECT sanction_id FROM support_appeal_workflows WHERE sanction_id=$1 AND owner_id=$2 FOR UPDATE")
+                            .bind(id).bind(owner).execute(connection).await?;
+                    }
+                    Ok(())
+                })
+            },
             &auth,
             context,
             &[

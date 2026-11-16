@@ -569,3 +569,193 @@ async fn postgres_committed_delivery_completes_after_trade_restriction() -> Test
     );
     Ok(())
 }
+
+#[derive(Clone)]
+struct RowLockedAccounts(TestAccounts);
+impl Accounts for RowLockedAccounts {
+    async fn state(
+        &self,
+        db: &mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> Result<Option<AccountState>, Error> {
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+            .bind(account)
+            .execute(&mut *db)
+            .await?;
+        self.0.state(db, account).await
+    }
+}
+
+#[tokio::test]
+async fn creation_waits_for_moderation_before_locking_its_account() -> TestResult {
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
+    sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
+        .execute(&h.pool)
+        .await?;
+    sqlx::query("INSERT INTO accounts VALUES($1)")
+        .bind(h.owner)
+        .execute(&h.pool)
+        .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261105230107_t64_moderation.sql"
+    ))
+    .execute(&h.pool)
+    .await?;
+    let scheduling = include_str!("../../../migrations/20261115110004_fix_04_scheduling.sql")
+        .split("-- Moderation lock order. Statement triggers run before implicit row locks;")
+        .nth(1)
+        .ok_or("moderation migration section")?
+        .split("-- Character transfer publication")
+        .next()
+        .ok_or("moderation fence")?;
+    sqlx::raw_sql(scheduling).execute(&h.pool).await?;
+    let api = Bazaar::new(
+        h.pool.clone(),
+        RowLockedAccounts(h.accounts.clone()),
+        h.funds.clone(),
+        h.evidence.clone(),
+        Flags {
+            enabled: true,
+            gold_enabled: true,
+        },
+    );
+    let input = h.input(Form::Auction, Currency::Coins, 100);
+    let mut staff = h.pool.begin().await?;
+    // This is the RestrictItem gate, followed by the staff actor account lock.
+    sqlx::query("SELECT pg_advisory_xact_lock(64002)")
+        .execute(&mut *staff)
+        .await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *staff)
+        .await?;
+    let creation = tokio::spawn(async move { api.create(input).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&h.pool)
+            .await?;
+            if blocked {
+                break Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    let account_lock = sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(h.owner)
+        .execute(&mut *staff)
+        .await;
+    staff.rollback().await?;
+    let created = creation.await??;
+    account_lock?;
+    assert_eq!(created.owner, h.owner);
+    h.finish().await
+}
+
+#[derive(Clone)]
+struct RowLockedFunds(MemoryReservations);
+impl Reservations for RowLockedFunds {
+    async fn lock_accounts(
+        &self,
+        db: &mut sqlx::PgConnection,
+        accounts: &[Uuid],
+    ) -> Result<(), Error> {
+        sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR SHARE")
+            .bind(accounts)
+            .execute(&mut *db)
+            .await?;
+        self.0.lock_accounts(db, accounts).await
+    }
+    async fn reserve(&self, db: &mut sqlx::PgConnection, hold: Reservation) -> Result<(), Error> {
+        self.0.reserve(db, hold).await
+    }
+    async fn release(
+        &self,
+        db: &mut sqlx::PgConnection,
+        id: Uuid,
+        account: Uuid,
+    ) -> Result<(), Error> {
+        self.0.release(db, id, account).await
+    }
+    async fn settle(
+        &self,
+        db: &mut sqlx::PgConnection,
+        settlement: &Settlement,
+    ) -> Result<(), Error> {
+        self.0.settle(db, settlement).await
+    }
+    async fn complete(
+        &self,
+        db: &mut sqlx::PgConnection,
+        settlement: &Settlement,
+    ) -> Result<(), Error> {
+        self.0.complete(db, settlement).await
+    }
+}
+
+#[tokio::test]
+async fn bid_prepares_previous_leader_before_actor_account() -> TestResult {
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
+    let mut ids = [h.owner, h.a, h.b];
+    ids.sort_unstable();
+    let [earlier, bidder, seller] = ids;
+    sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
+        .execute(&h.pool)
+        .await?;
+    sqlx::query("INSERT INTO accounts SELECT unnest($1::uuid[])")
+        .bind(vec![h.owner, h.a, h.b])
+        .execute(&h.pool)
+        .await?;
+    let api = Bazaar::new(
+        h.pool.clone(),
+        RowLockedAccounts(h.accounts.clone()),
+        RowLockedFunds(h.funds.clone()),
+        h.evidence.clone(),
+        Flags {
+            enabled: true,
+            gold_enabled: true,
+        },
+    );
+    let mut input = h.input(Form::Auction, Currency::Coins, 100);
+    input.owner = seller;
+    let listing = api.create(input).await?;
+    api.publish(listing.id, seller).await?;
+    api.bid(listing.id, earlier, 200, "previous").await?;
+    let mut role_writer = h.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(earlier)
+        .execute(&mut *role_writer)
+        .await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *role_writer)
+        .await?;
+    let pending = tokio::spawn(async move { api.bid(listing.id, bidder, 400, "next").await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&h.pool)
+            .await?;
+            if blocked {
+                break Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    // The role writer must be able to finish its ordered account set while the
+    // bid waits on the earlier previous-leader identity, without a lock cycle.
+    let later = sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(bidder)
+        .execute(&mut *role_writer)
+        .await;
+    role_writer.rollback().await?;
+    assert_eq!(pending.await??.leader, bidder);
+    later?;
+    h.finish().await
+}

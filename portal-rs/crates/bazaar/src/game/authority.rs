@@ -89,6 +89,7 @@ impl Authority {
     }
     pub(super) async fn lock(&self, db: &mut PgConnection) -> Result<(), Error> {
         self.enabled()?;
+        crate::locking::listing_gate(db).await?;
         let row=sqlx::query("SELECT projection_epoch::text AS epoch,recovery_generation::text AS generation FROM bazaar_game_issuer WHERE singleton FOR UPDATE").fetch_one(&mut *db).await?;
         if decimal(row.try_get("epoch")?, false, u64::MAX)? != self.fence.projection_epoch
             || decimal(row.try_get("generation")?, false, u64::MAX)?

@@ -216,6 +216,7 @@ impl Runtime {
     ) -> Result<(Vec<Card>, String), Error> {
         self.config.current()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let mut cards = vec![];
         let rows = candidate_page(&mut tx, actor, listing, only_own, cursor).await?;
         let next = if rows.len() == 50 {
@@ -229,6 +230,7 @@ impl Runtime {
         // Bound work to one candidate page; release issuer locks between candidates.
         for candidate in rows {
             let mut tx = self.pool.begin().await?;
+            crate::locking::listing_gate(&mut tx).await?;
             sqlx::query("SET LOCAL statement_timeout='2s'")
                 .execute(&mut *tx)
                 .await?;

@@ -1,6 +1,9 @@
 //! PostgreSQL pool and migrations for the Oteryn portal.
 
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::{
+    PgConnection,
+    postgres::{PgPool, PgPoolOptions},
+};
 
 /// Embedded migrations from `portal-rs/migrations`.
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
@@ -39,3 +42,12 @@ mod tests {
 pub mod outbox;
 
 pub mod retry;
+
+/// Establish the shared three-second transaction-wide mutation lock deadline.
+pub async fn mutation_budget(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT set_config('oteryn.mutation_deadline', coalesce(nullif(current_setting('oteryn.mutation_deadline',true),''),(extract(epoch FROM clock_timestamp())+3)::text),true)")
+        .execute(&mut *connection).await?;
+    sqlx::query("SELECT set_config('lock_timeout', greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint::text || 'ms',true), set_config('statement_timeout', greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint::text || 'ms',true)")
+        .execute(connection).await?;
+    Ok(())
+}

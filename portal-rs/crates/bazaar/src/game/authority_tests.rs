@@ -2701,7 +2701,12 @@ async fn gold_release_retry_scenario(accepted: bool) {
     );
 }
 
-fn character_intent(command: Command, revision: u64, extra: Vec<(&str, Value)>) -> PreparedIntent {
+fn character_intent(
+    command: Command,
+    revision: u64,
+    now: u64,
+    extra: Vec<(&str, Value)>,
+) -> PreparedIntent {
     let Value::Object(common) = decode(vector("escrow_intent").as_bytes(), 4096).unwrap() else {
         panic!("object")
     };
@@ -2716,7 +2721,6 @@ fn character_intent(command: Command, revision: u64, extra: Vec<(&str, Value)>) 
         };
     }
     fields.extend(extra.into_iter().map(|(k, v)| (k.into(), v)));
-    let now = time::OffsetDateTime::now_utc().unix_timestamp() as u64;
     fields.extend([
         ("issued_at_source".into(), Value::String(now.to_string())),
         (
@@ -2772,6 +2776,7 @@ async fn postgres_browser_verified_character_snapshot_facts() {
     let lock = character_intent(
         Command::Lock,
         101,
+        now,
         vec![
             ("character_id", strval(uid("31"))),
             ("expected_character_revision", Value::String("7".into())),
@@ -2826,6 +2831,7 @@ async fn postgres_browser_verified_character_snapshot_facts() {
     let bind = character_intent(
         Command::Bind,
         103,
+        now,
         vec![
             ("character_id", strval(uid("31"))),
             ("lock_id", strval(uid("32"))),

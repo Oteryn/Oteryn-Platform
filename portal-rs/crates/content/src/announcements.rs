@@ -119,9 +119,20 @@ impl Announcements {
         input: Input,
     ) -> Result<Uuid, Error> {
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::authorize_mutation(
+        oteryn_admin::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account],
+            move |connection| {
+                Box::pin(async move {
+                    if let Some((id, _)) = existing {
+                        sqlx::query("SELECT id FROM announcements WHERE id=$1 FOR UPDATE")
+                            .bind(id)
+                            .execute(connection)
+                            .await?;
+                    }
+                    Ok(())
+                })
+            },
             auth,
             context,
             &[Permission::Access, Permission::ManagePortalAnnouncements],

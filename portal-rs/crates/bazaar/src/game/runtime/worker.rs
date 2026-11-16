@@ -15,6 +15,7 @@ impl Runtime {
     pub async fn tick(&self) -> Result<(), Error> {
         self.config.current()?;
         let mut resync = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut resync).await?;
         match self
             .authority()
             .finish_resync(&mut resync, &self.config.worlds)
@@ -139,6 +140,9 @@ impl Runtime {
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
+        let mut parties = vec![l.owner];
+        parties.extend(l.leader);
+        crate::locking::accounts(&mut tx, &parties).await?;
         self.authority().lock(&mut tx).await?;
         let row = sqlx::query(
             "SELECT session_hash,cancel_requested FROM bazaar_authority_assets WHERE listing_id=$1",

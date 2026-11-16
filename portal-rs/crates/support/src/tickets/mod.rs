@@ -251,9 +251,18 @@ impl Tickets {
                 self.pool.clone(),
                 PortalIdentity::configured(self.pool.clone()),
             );
-            rbac::authorize_mutation(
+            rbac::authorize_mutation_with_resources(
                 tx,
                 &[actor, owner],
+                move |connection| {
+                    Box::pin(async move {
+                        sqlx::query("SELECT id FROM tickets WHERE id=$1 FOR UPDATE")
+                            .bind(id)
+                            .execute(connection)
+                            .await?;
+                        Ok(())
+                    })
+                },
                 &auth,
                 context,
                 &[Permission::Access, Permission::ManageSupportTickets],

@@ -86,9 +86,20 @@ impl Events {
         mut draft: Draft,
     ) -> Result<Uuid, Error> {
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::authorize_mutation(
+        oteryn_admin::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account],
+            move |connection| {
+                Box::pin(async move {
+                    if let Some((id, _)) = existing {
+                        sqlx::query("SELECT id FROM events WHERE id=$1 FOR UPDATE")
+                            .bind(id)
+                            .execute(connection)
+                            .await?;
+                    }
+                    Ok(())
+                })
+            },
             auth,
             context,
             &[Permission::Access, Permission::ManageEvents],
@@ -155,9 +166,18 @@ impl Events {
         target: &str,
     ) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::authorize_mutation(
+        oteryn_admin::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT id FROM events WHERE id=$1 FOR UPDATE")
+                        .bind(id)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
             auth,
             context,
             &[
