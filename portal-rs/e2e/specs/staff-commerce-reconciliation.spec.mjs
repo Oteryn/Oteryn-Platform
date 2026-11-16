@@ -12,7 +12,10 @@ test('staff reconciles a paid test intent and records the audit; bad intent refu
   // Commerce has one target-ID form rather than a payment-intent detail page.
   const selector='form[action="/admin/commerce/reconcile"]';
   const request=await admin.locator(`${selector} [name=request_id]`).inputValue();
+  const reconciliationResponse=admin.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/admin/commerce/reconcile'&&r.request().postData()?.includes('_csrf='));
   await submit(admin,selector,{target:paid.payment_intent_id,reason:'Review browser test bank payment reconciliation'});
+  const reconciled=await reconciliationResponse;
+  expect(reconciled.status(),`reconciliation response: ${reconciled.status()===303?'redirect':await reconciled.text()}`).toBe(303);
   await expect(admin,'reconciliation returns to commerce').toHaveURL(/\/admin\/commerce$/);
   expect((await db.query('SELECT after FROM audit_log WHERE request_id=$1 AND target=$2',[request,paid.payment_intent_id])).rows.length,'reconciliation audit persisted').toBeGreaterThan(0);
   const operation=(await db.query('SELECT result FROM commerce_operations WHERE id=$1',[request])).rows[0];

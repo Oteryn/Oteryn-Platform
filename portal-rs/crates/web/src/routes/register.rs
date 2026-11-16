@@ -56,6 +56,9 @@ async fn show(
     Extension(session): Extension<BrowserSession>,
     value: Option<Extension<ConsentConfig>>,
 ) -> Result<Response, StatusCode> {
+    if session.account_id().await.is_some() {
+        return Ok(Redirect::to(&format!("/{}/account", language.code())).into_response());
+    }
     let page = RegisterPage {
         lang: language.code(),
         language,
@@ -81,6 +84,11 @@ async fn submit(
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     form: Result<Form<Registration>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    // Registration starts an identity; it must never replace an authenticated
+    // identity or reuse that account's authorization generation for a new one.
+    if session.account_id().await.is_some() {
+        return Ok(Redirect::to(&format!("/{}/account", language.code())).into_response());
+    }
     let Extension(limiter) = limiter;
     let Some(Extension(ConnectInfo(peer_addr))) = peer else {
         return Ok(crate::ratelimit::Denial::Unavailable.response(language, false));
@@ -157,3 +165,7 @@ pub fn configured(app: Router) -> Router {
     };
     app.layer(Extension(consents)).layer(Extension(csrf))
 }
+
+#[cfg(test)]
+#[path = "register_authenticated_tests.rs"]
+mod authenticated_tests;

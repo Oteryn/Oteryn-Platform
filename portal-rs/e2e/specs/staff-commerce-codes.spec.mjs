@@ -7,6 +7,7 @@ test('single-use gift code credits once and refuses both repeat and foreign rede
  const lang=info.project.metadata.locale;
  const account=await register(page,lang);await login(page,lang,account);
  const staff=await staffContext(browser,info),db=pool();
+ const otherContext=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true});
  try {
   const admin=await staff.newPage();await admin.goto('/admin/commerce');
   const csrf=await admin.locator('[name="_csrf"]').first().inputValue();
@@ -22,8 +23,9 @@ test('single-use gift code credits once and refuses both repeat and foreign rede
   expect((await redeemAs(page,batch.codes[0])).status(),'first redemption succeeds').toBe(200);
   await page.goto(`/${lang}/shop/history`);await expect(page.locator('main dl dd').first(),'gift credit visible').toHaveText('37');
   expect((await redeemAs(page,batch.codes[0])).status(),'second redemption refused').toBe(403);
-  const other=await register(page,lang);await login(page,lang,other);
-  expect((await redeemAs(page,batch.codes[0])).status(),'single-use code exhausted for another account').toBe(403);
+  const otherPage=await otherContext.newPage();
+  const other=await register(otherPage,lang);await login(otherPage,lang,other);
+  expect((await redeemAs(otherPage,batch.codes[0])).status(),'single-use code exhausted for another account').toBe(403);
   expect((await db.query('SELECT count(*)::int n FROM code_redemptions r JOIN gift_codes c ON c.id=r.code_id WHERE c.batch_id=$1',[batch.batch_id])).rows[0].n).toBe(1);
- } finally {await staff.close();await db.end();}
+ } finally {await otherContext.close();await staff.close();await db.end();}
 });

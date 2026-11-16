@@ -730,6 +730,8 @@ async fn referrals_http_real_router_session_csrf_locales_and_bad_input() {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()["cache-control"], "no-store");
+        // Browser POSTs need a same-origin Origin; no-referrer taints it to null.
+        assert_eq!(response.headers()["referrer-policy"], "same-origin");
         let body = String::from_utf8(
             to_bytes(response.into_body(), 32768)
                 .await
