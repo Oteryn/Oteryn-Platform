@@ -48,5 +48,8 @@ workspace = true
 
 [dependencies.oteryn-characters]
 workspace = true
-[dev-dependencies.oteryn-core]
+[dependencies.oteryn-core]
+workspace = true
+
+[dev-dependencies.oteryn-community]
 workspace = true

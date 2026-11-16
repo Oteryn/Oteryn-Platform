@@ -234,6 +234,7 @@ fn input_is_one_flat_object_of_string_fields() {
 
 #[tokio::test]
 async fn issues_replays_and_refuses_with_distinct_codes() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -322,6 +323,7 @@ async fn issues_replays_and_refuses_with_distinct_codes() -> TestResult {
 
 #[tokio::test]
 async fn missing_malformed_or_unknown_actor_issues_and_audits_nothing() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -358,4 +360,168 @@ async fn missing_malformed_or_unknown_actor_issues_and_audits_nothing() -> TestR
         Err(4)
     );
     db.close().await
+}
+
+/// A durable MFA-verified staff session, as the role writer now revalidates
+/// it under the actor lock (mirrors `oteryn_admin::test_staff::proof`).
+async fn staff_session_proof(
+    pool: &PgPool,
+    actor: Uuid,
+) -> Result<oteryn_admin::rbac::SessionProof, sqlx::Error> {
+    use sha2::{Digest, Sha256};
+    let password: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+        .bind(actor)
+        .fetch_one(pool)
+        .await?;
+    let grant = format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()));
+    let session = format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()));
+    let generation: Uuid = sqlx::query_scalar("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,$2,true) ON CONFLICT(account_id) DO UPDATE SET confirmed=true RETURNING generation")
+        .bind(actor).bind(Sha256::digest(Uuid::now_v7().as_bytes()).to_vec()).fetch_one(pool).await?;
+    let grant_hash: [u8; 32] = Sha256::digest(grant.as_bytes()).into();
+    let session_hash: [u8; 32] = Sha256::digest(session.as_bytes()).into();
+    sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',clock_timestamp()+interval '1 hour')")
+        .bind(grant_hash.as_slice()).bind(actor).bind(generation).bind(Sha256::digest(password.as_bytes()).to_vec()).execute(pool).await?;
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation) SELECT $1,id,now()+interval '1 hour',now()+interval '1 day','staff-fixture',$2,jsonb_build_object('mfa_grant',$3::text),native_security_generation FROM accounts WHERE id=$4")
+        .bind(session_hash.as_slice()).bind(format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()))).bind(grant).bind(actor).execute(pool).await?;
+    Ok(oteryn_admin::rbac::SessionProof {
+        session_hash,
+        grant_hash,
+    })
+}
+
+struct RbacAccounts(PgPool);
+impl oteryn_admin::rbac::AccountStateReader for RbacAccounts {
+    async fn state(
+        &self,
+        account: Uuid,
+    ) -> Result<oteryn_admin::rbac::AccountState, oteryn_admin::rbac::AccountStateUnavailable> {
+        let mut connection = self
+            .0
+            .acquire()
+            .await
+            .map_err(|_| oteryn_admin::rbac::AccountStateUnavailable)?;
+        self.state_in(&mut connection, account).await
+    }
+    async fn state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> Result<oteryn_admin::rbac::AccountState, oteryn_admin::rbac::AccountStateUnavailable> {
+        use oteryn_admin::rbac::{AccountState, AccountStateUnavailable};
+        let active: Option<bool> =
+            sqlx::query_scalar("SELECT status='active' FROM accounts WHERE id=$1")
+                .bind(account)
+                .fetch_optional(connection)
+                .await
+                .map_err(|_| AccountStateUnavailable)?;
+        Ok(if active == Some(true) {
+            AccountState::Active
+        } else {
+            AccountState::Disabled
+        })
+    }
+}
+
+#[tokio::test]
+async fn cw3_02_postgres_bootstrap_serializes_permission_revocation() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    use oteryn_admin::rbac::{Authorizer, Change, CheckContext};
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let manager = Uuid::parse_str(SUSPENDED)?;
+    sqlx::query("UPDATE accounts SET status='active' WHERE id=$1")
+        .bind(manager)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(manager).execute(&db.pool).await?;
+    let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='game_master_senior'")
+        .fetch_one(&db.pool)
+        .await?;
+    sqlx::query(
+        "INSERT INTO character_bootstrap_intent_authority(id,last_source_revision) VALUES (1,'0')",
+    )
+    .execute(&db.pool)
+    .await?;
+    let mut blocker = db.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    sqlx::query("SELECT id FROM character_bootstrap_intent_authority WHERE id=1 FOR UPDATE")
+        .execute(&mut *blocker)
+        .await?;
+    let pool = db.pool.clone();
+    let issuance = tokio::spawn(async move {
+        execute(
+            &pool,
+            ON,
+            Some(STAFF),
+            request(&Uuid::now_v7().to_string(), ACCOUNT).as_bytes(),
+        )
+        .await
+    });
+    // Observe the actual authority-row wait: authorization has already run.
+    let issuance_pid = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let pid: Option<i32> = sqlx::query_scalar("SELECT pid FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND query LIKE 'SELECT last_source_revision%'")
+                .bind(blocker_pid).fetch_optional(&db.admin).await?;
+            if let Some(pid) = pid { return Ok::<_, sqlx::Error>(pid); }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await??;
+    let proof = staff_session_proof(&db.pool, manager).await?;
+    let pool = db.pool.clone();
+    let revocation = tokio::spawn(async move {
+        let authorizer = Authorizer::new(pool.clone(), RbacAccounts(pool));
+        let mut context = CheckContext::new(manager);
+        context.mfa_verified = true;
+        context.session_proof = Some(proof);
+        authorizer
+            .change(
+                context,
+                Uuid::now_v7(),
+                Change::SetPermissions {
+                    role,
+                    permissions: &[],
+                },
+            )
+            .await
+    });
+    // A real role writer must wait for issuance, rather than commit before it.
+    let serialized = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if revocation.is_finished() { return Ok::<_, sqlx::Error>(false); }
+            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND query='SELECT pg_advisory_xact_lock(71010)')")
+                .bind(issuance_pid).fetch_one(&db.admin).await?;
+            if blocked { return Ok(true); }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await??;
+    blocker.rollback().await?;
+    issuance.await??;
+    revocation.await??;
+    assert!(
+        serialized,
+        "permission revocation committed ahead of already authorized issuance"
+    );
+    assert_eq!(db.counts().await?, (1, 1));
+    assert!(
+        execute(
+            &db.pool,
+            ON,
+            Some(STAFF),
+            request(&Uuid::now_v7().to_string(), ACCOUNT).as_bytes()
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(db.counts().await?, (1, 1));
+    db.close().await?;
+    eprintln!(
+        "cw3_02_postgres_bootstrap_serializes_permission_revocation duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

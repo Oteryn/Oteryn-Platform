@@ -39,37 +39,7 @@ impl Db {
             })
             .connect(&url)
             .await?;
-        sqlx::raw_sql(include_str!(
-            "../../../migrations/20261105152830_t57_bazaar_core.sql"
-        ))
-        .execute(&pool)
-        .await?;
-        sqlx::raw_sql(include_str!(
-            "../../../migrations/20261105230107_t64_moderation.sql"
-        ))
-        .execute(&pool)
-        .await?;
-        sqlx::raw_sql(
-            include_str!("../../../migrations/20261115110004_fix_04_scheduling.sql")
-                .split(
-                    "-- Moderation lock order. Statement triggers run before implicit row locks;",
-                )
-                .nth(1)
-                .ok_or("missing moderation migration")?
-                .split("-- Character transfer publication")
-                .next()
-                .ok_or("missing moderation fence")?,
-        )
-        .execute(&pool)
-        .await?;
-        sqlx::raw_sql(
-            include_str!("../../../migrations/20261115120005_fix_a2-04-bazaar_invalidation.sql")
-                .split("-- Accepted bids")
-                .next()
-                .ok_or("missing invalidation migration")?,
-        )
-        .execute(&pool)
-        .await?;
+        oteryn_db::migrate(&pool).await?;
         sqlx::raw_sql("CREATE TABLE test_promotion_debits(id uuid PRIMARY KEY,amount bigint)")
             .execute(&pool)
             .await?;
@@ -221,6 +191,7 @@ fn bad_inputs_and_default_flags() {
 }
 #[tokio::test]
 async fn postgres_reports_success_replay_refusal_and_bad_input() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -256,6 +227,7 @@ async fn postgres_reports_success_replay_refusal_and_bad_input() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_hold_fences_every_trading_write() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -282,6 +254,7 @@ async fn postgres_hold_fences_every_trading_write() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_four_eyes_queues_once_and_retains_value() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -325,6 +298,7 @@ async fn postgres_four_eyes_queues_once_and_retains_value() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::new().await? else {
         return Ok(());
@@ -402,6 +376,7 @@ async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> Tes
 }
 #[tokio::test]
 async fn postgres_promotion_debit_is_atomic_and_idempotent() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -455,6 +430,7 @@ async fn postgres_promotion_debit_is_atomic_and_idempotent() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_fees_cannot_override_owner_economics() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -484,6 +460,7 @@ async fn postgres_fees_cannot_override_owner_economics() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_item_policy_only_narrows_and_fences_unknown_bindings() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -530,6 +507,7 @@ async fn postgres_item_policy_only_narrows_and_fences_unknown_bindings() -> Test
 }
 #[tokio::test]
 async fn postgres_seller_profile_filters_holds_foreign_and_hidden_listings() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -582,6 +560,7 @@ async fn postgres_seller_profile_filters_holds_foreign_and_hidden_listings() -> 
 }
 #[tokio::test]
 async fn postgres_report_limit_serializes_concurrent_submissions() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -608,6 +587,7 @@ async fn postgres_report_limit_serializes_concurrent_submissions() -> TestResult
 
 #[tokio::test]
 async fn postgres_report_review_requires_independent_staff_and_pending_state() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -645,6 +625,7 @@ async fn postgres_report_review_requires_independent_staff_and_pending_state() -
 
 #[tokio::test]
 async fn postgres_restriction_does_not_wait_for_or_lock_listing_history() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::new().await? else {
         return Ok(());
@@ -688,6 +669,7 @@ async fn postgres_restriction_does_not_wait_for_or_lock_listing_history() -> Tes
 
 #[tokio::test]
 async fn postgres_raw_trading_waits_before_rows_and_observes_committed_restriction() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::new().await? else {
         return Ok(());

@@ -15,6 +15,19 @@ use tower::ServiceExt;
 #[derive(Clone)]
 struct Staff;
 impl AccountStateReader for Staff {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         Ok(AccountState::Active)
     }
@@ -81,6 +94,7 @@ fn context(id: Uuid) -> CheckContext {
         account: id,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     }
 }
 struct Db {
@@ -180,6 +194,7 @@ fn rejects_bad_input_and_defaults_off() {
 }
 #[tokio::test]
 async fn postgres_read_note_and_logout_success_refusal_bad_input() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -221,6 +236,7 @@ async fn postgres_read_note_and_logout_success_refusal_bad_input() {
 }
 #[tokio::test]
 async fn postgres_reset_requires_two_current_staff_and_is_single_use() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -262,6 +278,7 @@ async fn postgres_reset_requires_two_current_staff_and_is_single_use() {
 }
 #[tokio::test]
 async fn postgres_reset_refuses_missing_evidence_expiry_and_revoked_requester() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -313,6 +330,7 @@ async fn postgres_reset_refuses_missing_evidence_expiry_and_revoked_requester() 
 }
 #[tokio::test]
 async fn postgres_audit_failure_rolls_back_notes_logout_and_reset() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -352,6 +370,7 @@ async fn postgres_audit_failure_rolls_back_notes_logout_and_reset() {
 }
 #[tokio::test]
 async fn postgres_concurrent_approvals_execute_once() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -386,6 +405,7 @@ impl StaffSession for Browser {
 }
 #[tokio::test]
 async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -487,6 +507,7 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
 }
 #[tokio::test]
 async fn postgres_flags_and_pending_security_fail_closed() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -547,6 +568,7 @@ async fn postgres_flags_and_pending_security_fail_closed() {
 
 #[tokio::test]
 async fn postgres_real_identity_lookup_safe_projection_and_missing_character_watermark() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -615,6 +637,7 @@ async fn kick_state(db: &Db) -> (i64, String, String, i64) {
 }
 #[tokio::test]
 async fn postgres_kick_permission_mfa_bad_input_audit_and_stream() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -632,6 +655,7 @@ async fn postgres_kick_permission_mfa_bad_input_audit_and_stream() {
             account: kicker,
             require_staff_mfa: true,
             mfa_verified: false,
+            session_proof: None,
         },
     ] {
         assert!(matches!(
@@ -699,6 +723,7 @@ async fn postgres_kick_permission_mfa_bad_input_audit_and_stream() {
 }
 #[tokio::test]
 async fn postgres_kick_audit_failure_rolls_back_generation_and_stream() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -783,6 +808,7 @@ async fn kick_post(app: axum::Router, path: &str, cookie: &str, body: String) ->
 }
 #[tokio::test]
 async fn postgres_http_kick_csrf_permission_and_mfa() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -899,6 +925,7 @@ async fn coin_hold_state(db: &Db) -> (i64, i64, i64) {
 }
 #[tokio::test]
 async fn postgres_coin_hold_release_permission_reason_audit_and_idempotent() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -925,6 +952,7 @@ async fn postgres_coin_hold_release_permission_reason_audit_and_idempotent() {
             account: db.approver,
             require_staff_mfa: true,
             mfa_verified: false,
+            session_proof: None,
         },
     ] {
         assert!(matches!(
@@ -1076,6 +1104,7 @@ async fn postgres_coin_hold_release_permission_reason_audit_and_idempotent() {
 }
 #[tokio::test]
 async fn postgres_coin_hold_release_audit_failure_keeps_the_hold() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -1142,6 +1171,7 @@ async fn coin_hold_post(
 }
 #[tokio::test]
 async fn postgres_http_coin_hold_release_csrf_permission_mfa_and_result() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -1259,6 +1289,7 @@ async fn postgres_http_coin_hold_release_csrf_permission_mfa_and_result() {
 
 #[tokio::test]
 async fn postgres_reset_rechecks_live_expiry_after_advisory_lock() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::open().await else {
         return;
@@ -1333,6 +1364,7 @@ async fn postgres_reset_rechecks_live_expiry_after_advisory_lock() {
 
 #[tokio::test]
 async fn postgres_identity_adapter_sessions_logout_and_two_person_reset() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Db::open().await.expect("PORTAL_TEST_DATABASE_URL required");
     for id in [db.target, db.support, db.approver] {
@@ -1718,7 +1750,7 @@ async fn staff_security_cookie(pool: &PgPool, account: Uuid, marker: char) -> St
     let grant = oteryn_identity::mfa::random_token().unwrap();
     let generation: Uuid = sqlx::query_scalar("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,decode('01','hex'),true) RETURNING generation").bind(account).fetch_one(pool).await.unwrap();
     sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '1 hour')").bind(oteryn_identity::mfa::digest(&grant)).bind(account).bind(generation).bind(oteryn_identity::mfa::digest("synthetic-hash")).execute(pool).await.unwrap();
-    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 hour','test',repeat('a',64),$3)").bind(oteryn_identity::mfa::digest(&bearer)).bind(account).bind(json!({"mfa_grant":grant})).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 hour','test',repeat('a',64),$3,(SELECT native_security_generation FROM accounts WHERE id=$2))").bind(oteryn_identity::mfa::digest(&bearer)).bind(account).bind(json!({"mfa_grant":grant})).execute(pool).await.unwrap();
     format!("__Host-oteryn_session={bearer}")
 }
 async fn staff_security_post(
@@ -1746,6 +1778,7 @@ async fn staff_security_post(
 
 #[tokio::test]
 async fn postgres_stale_hold_form_preserves_replacement_and_receipt() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Db::open().await.expect("PORTAL_TEST_DATABASE_URL required");
     let order = coin_hold_fixture(&db).await;
@@ -1802,4 +1835,74 @@ async fn postgres_stale_hold_form_preserves_replacement_and_receipt() {
         "postgres_stale_hold_form_preserves_replacement_and_receipt duration={:?}",
         started.elapsed()
     );
+}
+
+#[tokio::test]
+async fn drc_kick_rechecks_grant_after_revocation_counter_wait() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let kicker = kick_fixture(&db).await;
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'kicker@example.invalid','synthetic-hash','active','en',now())").bind(kicker).execute(&db.pool).await.unwrap();
+    staff_security_cookie(&db.pool, kicker, 'd').await;
+    let (session_hash, grant_hash): (Vec<u8>, Vec<u8>) = sqlx::query_as("SELECT s.id_hash,t.token_hash FROM web_sessions s JOIN account_mfa_tokens t ON t.account_id=s.account_id WHERE s.account_id=$1").bind(kicker).fetch_one(&db.pool).await.unwrap();
+    let mut context = context(kicker);
+    context.session_proof = Some(crate::rbac::SessionProof {
+        session_hash: session_hash.try_into().unwrap(),
+        grant_hash: grant_hash.try_into().unwrap(),
+    });
+    let mut blocker = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT * FROM identity_security_revocation_counter FOR UPDATE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE account_mfa_tokens SET expires_at=clock_timestamp()+interval '1500 milliseconds' WHERE account_id=$1").bind(kicker).execute(&db.pool).await.unwrap();
+    let service = db.service();
+    let target = db.target;
+    let task = tokio::spawn(async move { service.kick(context, target, "counter wait").await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)))").bind(pid).fetch_one(&db.pool).await.unwrap();
+            if waiting { break }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("kick never waited on the revocation counter");
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let expired: bool = sqlx::query_scalar(
+                "SELECT expires_at<=clock_timestamp() FROM account_mfa_tokens WHERE account_id=$1",
+            )
+            .bind(kicker)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if expired {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("MFA grant did not expire within the mutation budget");
+    blocker.rollback().await.unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+        .await
+        .expect("kick did not finish after counter release")
+        .unwrap();
+    assert!(
+        matches!(result, Err(Error::Authorization(_))),
+        "expired grant authorized kick: {result:?}"
+    );
+    assert_eq!(kick_state(&db).await.0, 1);
+    assert_eq!(kick_state(&db).await.3, 0);
+    let audits: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='players.kick'")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(audits, 0);
+    db.close().await;
 }

@@ -179,6 +179,9 @@ async fn load(
     if !state.contract_accepted {
         return Err(Unavailable::Evidence);
     }
+    let privacy_cut = crate::privacy::Cut::read(&state.db)
+        .await
+        .map_err(|_| Unavailable::Database)?;
     let wm=sqlx::query("SELECT epoch::text,watermark,payload FROM public_snapshots WHERE family='guild' AND NOT public_projection_conflicted('guild') AND NOT public_projection_conflicted('character_profile') AND subject='v2' AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_optional(&state.db).await.map_err(|_|Unavailable::Database)?.ok_or(Unavailable::Evidence)?;
     let watermark_payload: serde_json::Value =
         wm.try_get("payload").map_err(|_| Unavailable::Evidence)?;
@@ -213,7 +216,7 @@ async fn load(
             .await
             .map_err(|_| Unavailable::Database)?
             .ok_or(Unavailable::Evidence)?;
-        identities.push((subject.clone(), payload.clone()));
+        identities.push(("guild", subject.clone(), payload.clone()));
         if payload["contract_version"] != 2
             || payload["source_authority"].as_str() != Some(state.config.source_authority.as_str())
         {
@@ -235,6 +238,11 @@ async fn load(
                 let Some(payload) = profile else {
                     continue;
                 };
+                identities.push((
+                    "character_profile",
+                    member.character_id.clone(),
+                    payload.clone(),
+                ));
                 let Some(profiles) = payload["profile"].as_array() else {
                     return Err(Unavailable::Evidence);
                 };
@@ -316,11 +324,23 @@ async fn load(
     {
         return Err(Unavailable::Evidence);
     }
-    for (subject, payload) in identities {
-        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='guild' AND NOT public_projection_conflicted('guild') AND subject=$1 AND NOT is_watermark AND epoch=$2::numeric AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND payload=$3)").bind(subject).bind(&epoch).bind(payload).fetch_one(&mut *fence).await.map_err(|_| Unavailable::Database)?;
+    let dependencies: bool = sqlx::query_scalar("SELECT NOT public_projection_conflicted('guild') AND NOT public_projection_conflicted('character_profile') AND EXISTS(SELECT 1 FROM public_snapshots WHERE family='guild' AND is_watermark AND subject='v2' AND epoch=$1::numeric AND watermark >= $2 AND payload->>'source_authority'=$4) AND EXISTS(SELECT 1 FROM public_snapshots WHERE family='character_profile' AND is_watermark AND subject='' AND epoch=$1::numeric AND watermark >= $3)")
+        .bind(&epoch).bind(through).bind(profile_through).bind(&state.config.source_authority).fetch_one(&mut *fence).await.map_err(|_| Unavailable::Database)?;
+    if !dependencies {
+        return Err(Unavailable::Evidence);
+    }
+    for (family, subject, payload) in identities {
+        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family=$4 AND NOT public_projection_conflicted($4) AND subject=$1 AND NOT is_watermark AND epoch=$2::numeric AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND payload=$3)").bind(subject).bind(&epoch).bind(payload).bind(family).fetch_one(&mut *fence).await.map_err(|_| Unavailable::Database)?;
         if !current {
             return Err(Unavailable::Evidence);
         }
+    }
+    if !privacy_cut
+        .validate(&mut fence)
+        .await
+        .map_err(|_| Unavailable::Evidence)?
+    {
+        return Err(Unavailable::Evidence);
     }
     fence.commit().await.map_err(|_| Unavailable::Database)?;
     if now()
@@ -344,6 +364,9 @@ async fn page(
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
 ) -> Response {
+    if !state.config.enabled {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     let en = uri.path().starts_with("/en/");
     let lang = if en { "en" } else { "pl" };
     let labels = labels(en);
@@ -387,7 +410,7 @@ async fn page(
         Err(Unavailable::Evidence)
     };
     let unavailable = result.is_err();
-    let status = if !state.contract_accepted || matches!(result, Err(Unavailable::Database)) {
+    let status = if unavailable {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
         StatusCode::OK

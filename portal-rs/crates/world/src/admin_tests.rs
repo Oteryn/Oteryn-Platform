@@ -3,6 +3,7 @@ use super::*;
 use axum::extract::Request;
 #[tokio::test]
 async fn disabled_router_refuses_before_database() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use tower::ServiceExt;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
@@ -48,6 +49,19 @@ impl StaffSession for Identity {
     }
 }
 impl AccountStateReader for Identity {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(
         &self,
         _: Uuid,
@@ -97,6 +111,7 @@ async fn post(app: Router, cookie: &str, csrf: &str, body: String) -> Response {
 
 #[tokio::test]
 async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use axum::body::to_bytes;
     use oteryn_admin::rbac::AccountState;
     use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};

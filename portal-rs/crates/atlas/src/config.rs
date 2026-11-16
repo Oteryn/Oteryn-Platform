@@ -24,7 +24,7 @@ impl Flags {
                 "OTERYN_ATLAS_DELIVERY_ENABLED",
                 "PORTAL_ATLAS_DELIVERY_ENABLED",
             ),
-            world: read("OTERYN_WORLD_ENABLED", "PORTAL_WORLD_ENABLED"),
+            world: oteryn_world::configured_world_enabled(),
         }
     }
 }

@@ -212,13 +212,21 @@ pub(super) async fn replace(
     handles: Handles,
     attempt: Uuid,
 ) -> Result<Option<wire::Recovery>, Error> {
-    match handles {
+    let required = match handles {
         Handles::Off => return Ok(None),
         Handles::Invalid => return Err(Error::Unavailable),
-        Handles::On { .. } => {}
-    }
+        Handles::On {
+            require_device_binding: true,
+            devices_enabled: false,
+            ..
+        } => return Ok(None),
+        Handles::On {
+            require_device_binding,
+            ..
+        } => require_device_binding,
+    };
     let now = seconds(db).await?;
-    let Some(old) = sqlx::query("SELECT handle_hash, expires_at FROM native_recovery_handles WHERE attempt_ref = $1 AND revoked_at IS NULL AND expires_at > $2 FOR UPDATE")
+    let Some(old) = sqlx::query("SELECT handle_hash, expires_at, account_id, device_family_id, device_key_thumbprint FROM native_recovery_handles WHERE attempt_ref = $1 AND revoked_at IS NULL AND expires_at > $2 FOR UPDATE")
         .bind(attempt).bind(now)
         .fetch_optional(&mut *db).await.map_err(|_| Error::Unavailable)?
     else {
@@ -226,6 +234,38 @@ pub(super) async fn replace(
     };
     let old_hash: Vec<u8> = old.try_get("handle_hash").map_err(|_| Error::Unavailable)?;
     let expires: i64 = old.try_get("expires_at").map_err(|_| Error::Unavailable)?;
+    // The caller holds the account lock before the handle and family locks,
+    // matching recovery authentication and device revocation order.
+    let family: Option<Uuid> = old
+        .try_get("device_family_id")
+        .map_err(|_| Error::Unavailable)?;
+    if let Some(family) = family {
+        let account: Uuid = old.try_get("account_id").map_err(|_| Error::Unavailable)?;
+        let thumbprint: Option<String> = old
+            .try_get("device_key_thumbprint")
+            .map_err(|_| Error::Unavailable)?;
+        let now = seconds(db).await?;
+        let live = sqlx::query("SELECT d.absolute_expires_at, d.idle_expires_at FROM device_sessions d JOIN accounts a ON a.id=d.account_id WHERE d.id=$1 AND d.account_id=$2 AND d.revoked_at IS NULL AND d.absolute_expires_at > $3 AND d.idle_expires_at > $3 AND d.game_generation=a.game_auth_generation AND d.native_generation=a.native_security_generation AND d.device_key_thumbprint=$4 FOR SHARE OF d")
+            .bind(family).bind(account).bind(now).bind(thumbprint)
+            .fetch_optional(&mut *db).await.map_err(|_| Error::Unavailable)?;
+        let Some(live) = live else {
+            return Ok(None);
+        };
+        let now = seconds(db).await?;
+        if now
+            >= live
+                .try_get::<i64, _>("absolute_expires_at")
+                .map_err(|_| Error::Unavailable)?
+            || now
+                >= live
+                    .try_get::<i64, _>("idle_expires_at")
+                    .map_err(|_| Error::Unavailable)?
+        {
+            return Ok(None);
+        }
+    } else if required {
+        return Ok(None);
+    }
     let (handle, hash) = mint()?;
     sqlx::query("INSERT INTO native_recovery_handles (handle_hash, account_id, character_id, world_id, channel_id, security_generation, play_generation, attempt_ref, device_family_id, device_key_thumbprint, issued_at, expires_at) SELECT $2, account_id, character_id, world_id, channel_id, security_generation, play_generation, attempt_ref, device_family_id, device_key_thumbprint, issued_at, expires_at FROM native_recovery_handles WHERE handle_hash = $1")
         .bind(&old_hash).bind(&hash[..])

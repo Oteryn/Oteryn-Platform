@@ -30,6 +30,10 @@ impl Authority {
         }
         parties.sort();
         parties.dedup();
+        accounts
+            .prepare(db, &parties)
+            .await
+            .map_err(|_| Error::Denied)?;
         for party in parties {
             let state = accounts
                 .state(db, party)
@@ -64,7 +68,11 @@ impl Authority {
         if already {
             return Ok(());
         }
-        let previous:Option<String>=sqlx::query_scalar("SELECT max(o.source_revision)::text FROM bazaar_authority_dispatch d JOIN bazaar_game_outbox o USING(operation_id)").fetch_one(&mut **db).await?;
+        let previous: Option<String> = sqlx::query_scalar(
+            "SELECT source_revision::text FROM bazaar_authority_dispatch_head WHERE singleton",
+        )
+        .fetch_one(&mut **db)
+        .await?;
         if previous.is_some_and(|s| {
             s.parse::<u64>().map_or(true, |n| {
                 number(&i.value, "source_revision").map_or(true, |revision| revision <= n)
@@ -123,19 +131,16 @@ impl Authority {
             )?;
             // The issuer lock makes no-effect verification and compensation
             // publication atomic. Keep every dispatch and receipt for audit.
-            let competing: Vec<Uuid> = sqlx::query_scalar("SELECT o.operation_id FROM bazaar_authority_dispatch d JOIN bazaar_game_outbox o USING(operation_id) WHERE o.listing_id=$1 AND o.command IN ('DeliverBazaarItem','ReturnBazaarItem') AND o.operation_id<>$2")
-                .bind(id(text(&i.value,"listing_id")?)?).bind(operation).fetch_all(&mut **db).await?;
-            for previous in competing {
-                let safe = if let Some((_, receipt)) = self.retained(db, previous).await? {
-                    i.command == Command::Return
-                        && matches!(receipt.command, Command::Deliver | Command::Return)
-                        && !receipt.committed
-                } else {
-                    false
-                };
-                if !safe {
-                    return Err(Error::Conflict);
-                }
+            let listing = id(text(&i.value, "listing_id")?)?;
+            let unsafe_dispatch: bool = if i.command == Command::Deliver {
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_disposition_fences WHERE listing_id=$1 AND command IN ('DeliverBazaarItem','ReturnBazaarItem') AND operation_id<>$2)")
+                    .bind(listing).bind(operation).fetch_one(&mut **db).await?
+            } else {
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_disposition_fences WHERE listing_id=$1 AND command IN ('DeliverBazaarItem','ReturnBazaarItem') AND operation_id<>$2 AND no_effect_generation<$3::text::numeric) OR EXISTS(SELECT 1 FROM bazaar_disposition_fences WHERE listing_id=$1 AND command IN ('DeliverBazaarItem','ReturnBazaarItem') AND operation_id<>$2 AND no_effect_generation>$3::text::numeric)")
+                    .bind(listing).bind(operation).bind(self.fence.recovery_generation.to_string()).fetch_one(&mut **db).await?
+            };
+            if unsafe_dispatch {
+                return Err(Error::Conflict);
             }
             if i.command == Command::Deliver {
                 let f = i.value.get("funding").ok_or(Error::Invalid)?;
@@ -174,19 +179,9 @@ impl Authority {
         db: &mut sqlx::PgConnection,
         listing: Uuid,
     ) -> Result<bool, Error> {
-        let operations: Vec<Uuid> = sqlx::query_scalar("SELECT o.operation_id FROM bazaar_authority_dispatch d JOIN bazaar_game_outbox o USING(operation_id) WHERE o.listing_id=$1 AND o.command IN ('DeliverBazaarItem','PayoutBazaarGold')")
-            .bind(listing).fetch_all(&mut *db).await?;
-        let mut delivery = false;
-        for operation in operations {
-            let Some((_, receipt)) = self.retained(db, operation).await? else {
-                return Ok(false);
-            };
-            if receipt.committed {
-                return Ok(false);
-            }
-            delivery |= receipt.command == Command::Deliver;
-        }
-        Ok(delivery)
+        let refused: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_disposition_fences WHERE listing_id=$1 AND command='DeliverBazaarItem') AND NOT EXISTS(SELECT 1 FROM bazaar_disposition_fences WHERE listing_id=$1 AND command IN ('DeliverBazaarItem','PayoutBazaarGold') AND no_effect_generation<$2::text::numeric) AND NOT EXISTS(SELECT 1 FROM bazaar_disposition_fences WHERE listing_id=$1 AND command IN ('DeliverBazaarItem','PayoutBazaarGold') AND no_effect_generation>$2::text::numeric)")
+            .bind(listing).bind(self.fence.recovery_generation.to_string()).fetch_one(db).await?;
+        Ok(refused)
     }
     pub(crate) async fn compensation_ready(
         &self,

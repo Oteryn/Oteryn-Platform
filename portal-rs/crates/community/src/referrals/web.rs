@@ -150,7 +150,7 @@ pub fn routes(campaign: Campaign) -> Router {
                     .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
                 response.headers_mut().insert(
                     header::REFERRER_POLICY,
-                    HeaderValue::from_static("no-referrer"),
+                    HeaderValue::from_static("same-origin"),
                 );
                 response
             },

@@ -169,6 +169,7 @@ fn hello_body(epoch: i64) -> Value {
 }
 #[tokio::test]
 async fn transport_refusals_and_closed_input() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
         .unwrap();
@@ -220,6 +221,7 @@ async fn transport_refusals_and_closed_input() {
 }
 #[tokio::test]
 async fn postgres_hello_channel_results_and_snapshots() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -317,6 +319,7 @@ async fn postgres_hello_channel_results_and_snapshots() {
 }
 #[tokio::test]
 async fn postgres_expired_request_never_delivered() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -356,6 +359,7 @@ async fn postgres_expired_request_never_delivered() {
 
 #[tokio::test]
 async fn configured_result_key_refuses_tampering_before_storage() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
         .unwrap();
@@ -469,6 +473,7 @@ fn agent_identity_requires_flag_exact_cn_and_bound_san() {
 
 #[tokio::test]
 async fn postgres_hello_uses_one_connection_under_ingress_contention() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open()
         .await
@@ -541,6 +546,7 @@ async fn wait_control_lock(db: &Database, query: &str) {
 
 #[tokio::test]
 async fn postgres_result_uses_one_connection_under_stream_contention() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use ed25519_dalek::Signer;
     let started = std::time::Instant::now();
     let db = Database::open()

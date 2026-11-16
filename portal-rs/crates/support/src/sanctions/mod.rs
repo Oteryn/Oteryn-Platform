@@ -163,3 +163,6 @@ pub struct EffectiveState {
 
 pub mod enforcement;
 pub mod export;
+
+#[cfg(test)]
+mod last_wait_tests;

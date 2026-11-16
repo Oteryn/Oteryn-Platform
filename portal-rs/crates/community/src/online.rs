@@ -167,6 +167,9 @@ async fn load_inner(
     state: &Online,
     query: &Query,
 ) -> Result<(Vec<String>, Vec<World>), Unavailable> {
+    let privacy_cut = crate::privacy::Cut::read(&state.db)
+        .await
+        .map_err(|_| Unavailable)?;
     // The existing publisher takes this fence exclusively, including suppression.
     let mut fence = state.fences.begin().await.map_err(|_| Unavailable)?;
     sqlx::query("SELECT set_config('statement_timeout','2500ms',true),set_config('idle_in_transaction_session_timeout','3s',true)")
@@ -261,6 +264,13 @@ async fn load_inner(
     state.visibility.hidden_batch(&[]).await?;
     let final_hidden = state.visibility.hidden_batch(&visible_refs).await?;
     if final_hidden.len() != visible_refs.len() || final_hidden.into_iter().any(|hidden| hidden) {
+        return Err(Unavailable);
+    }
+    if !privacy_cut
+        .validate(&mut fence)
+        .await
+        .map_err(|_| Unavailable)?
+    {
         return Err(Unavailable);
     }
     fence.commit().await.map_err(|_| Unavailable)?;

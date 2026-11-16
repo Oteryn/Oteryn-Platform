@@ -50,6 +50,11 @@ impl Filter {
     }
 }
 #[derive(Debug, Clone)]
+pub struct LedgerSnapshot {
+    pub query_id: Uuid,
+    pub rows: Vec<LedgerRow>,
+}
+#[derive(Debug, Clone)]
 pub struct LedgerRow {
     pub request_id: Uuid,
     pub ledger_id: String,
@@ -96,11 +101,11 @@ pub(crate) async fn page<B: Backend>(
     } else {
         None
     };
-    if ledger.is_some() {
+    if let Some(snapshot) = &ledger {
         super::players::record_read(
             &state.pool,
             actor,
-            Uuid::now_v7(),
+            snapshot.query_id,
             "ledger",
             "admin.ledger.query",
         )
@@ -108,8 +113,10 @@ pub(crate) async fn page<B: Backend>(
     }
     page.section(
         "game-source",
-        ledger.map(|rows| {
-            rows.into_iter()
+        ledger.map(|snapshot| {
+            snapshot
+                .rows
+                .into_iter()
                 .filter(|r| {
                     filter.request_id.is_none_or(|id| id == r.request_id)
                         && filter.admin.is_none_or(|id| id.to_string() == r.admin)

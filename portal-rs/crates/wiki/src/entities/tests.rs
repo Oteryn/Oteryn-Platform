@@ -14,6 +14,19 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 struct Active;
 impl AccountStateReader for Active {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         Ok(AccountState::Active)
     }
@@ -139,6 +152,7 @@ async fn postgres_entity_editorial_publication_and_locales() {
         account: actor,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     };
     let repo = crate::repository::Repository::new(db.pool.clone(), Active);
     let translations = ["en", "pl"].map(|locale| domain::Translation {
@@ -359,6 +373,7 @@ async fn postgres_ambiguous_editorial_binding_denies() {
         account: actor,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     };
     let repo = crate::repository::Repository::new(db.pool.clone(), Active);
     for n in 0..2 {

@@ -61,11 +61,17 @@ async fn security_revocation_export_disabled_503() -> TestResult {
         vec![(IDENTITY_KEY.into(), "UPPER.example".into())],
         vec![
             (IDENTITY_KEY.into(), "peer.example".into()),
-            ("OTHER_MTLS_CLIENT_IDENTITY".into(), "peer.example".into()),
+            (
+                "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY".into(),
+                "peer.example".into(),
+            ),
         ],
         vec![
             (IDENTITY_KEY.into(), "peer.example".into()),
-            ("OTHER_IDENTITIES".into(), r#"{"peer.example":[]}"#.into()),
+            (
+                "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+                r#"{"peer.example":[]}"#.into(),
+            ),
         ],
     ] {
         assert!(identities(vars).is_err());
@@ -649,4 +655,24 @@ async fn security_revocation_paging_cursor_stable_and_ordered() -> TestResult {
         serde_json::Value::Null
     );
     db.cleanup().await
+}
+
+#[test]
+fn recovery_locator_metadata_does_not_disable_export() -> TestResult {
+    let vars = vec![
+        (
+            "PORTAL_SECURITY_REVOCATION_EXPORT_IDENTITY".into(),
+            "export.oteryn.internal".into(),
+        ),
+        (
+            "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+            r#"{"locator.oteryn.internal":["019c0000-0000-7000-8000-000000000001/019c0000-0000-7000-8000-000000000002"]}"#.into(),
+        ),
+        (
+            "PORTAL_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+            r#"{"locator.oteryn.internal":"game-node-1"}"#.into(),
+        ),
+    ];
+    assert!(identities(vars).is_ok());
+    Ok(())
 }

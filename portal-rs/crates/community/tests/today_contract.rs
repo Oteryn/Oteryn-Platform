@@ -746,6 +746,10 @@ async fn audit06_wait_past_interval_refuses_boost_data() -> Result {
     sqlx::query("LOCK TABLE world_admin_names IN ACCESS EXCLUSIVE MODE")
         .execute(&mut *lock)
         .await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *lock)
+        .await
+        .unwrap();
     let mounted = today::mount(Router::new(), d.db.clone(), config());
     let read = tokio::spawn(async move {
         mounted
@@ -756,7 +760,7 @@ async fn audit06_wait_past_interval_refuses_boost_data() -> Result {
     // Confirm the real catalogue lookup is blocked, rather than delaying before dispatch.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
-        let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT e.kind,e.key,%')").fetch_one(&d.root).await?;
+        let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock' AND query LIKE 'SELECT e.kind,e.key,%')").bind(blocker_pid).fetch_one(&d.root).await?;
         if waiting {
             break;
         }
@@ -784,6 +788,9 @@ async fn audit_w2_c02_today_catalogue_wait_revalidates_invalidations() -> Result
         "UPDATE public_projection_state SET highest_epoch=3 WHERE id=1",
         "UPDATE today_snapshots SET content=NULL",
         "UPDATE today_snapshots SET conflicted=true",
+        "UPDATE world_visibility SET allowed=false",
+        "UPDATE world_entities SET publishable=false",
+        "UPDATE world_admin_names SET en='Changed'",
     ] {
         let d = Database::new().await?.ok_or("PostgreSQL required")?;
         d.publish(at()).await;
@@ -791,6 +798,10 @@ async fn audit_w2_c02_today_catalogue_wait_revalidates_invalidations() -> Result
         sqlx::query("LOCK TABLE world_admin_names IN ACCESS EXCLUSIVE MODE")
             .execute(&mut *lock)
             .await?;
+        let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *lock)
+            .await
+            .unwrap();
         let mounted = today::mount(Router::new(), d.db.clone(), config());
         let read = tokio::spawn(async move {
             mounted
@@ -800,7 +811,7 @@ async fn audit_w2_c02_today_catalogue_wait_revalidates_invalidations() -> Result
         });
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         loop {
-            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT e.kind,e.key,%')").fetch_one(&d.root).await?;
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock' AND query LIKE 'SELECT e.kind,e.key,%')").bind(blocker_pid).fetch_one(&d.root).await?;
             if waiting {
                 break;
             }
@@ -808,7 +819,7 @@ async fn audit_w2_c02_today_catalogue_wait_revalidates_invalidations() -> Result
             tokio::task::yield_now().await;
         }
         sqlx::query(sqlx::AssertSqlSafe(invalidation))
-            .execute(&d.db)
+            .execute(&mut *lock)
             .await?;
         lock.commit().await?;
         let response = read.await?;
@@ -836,7 +847,7 @@ async fn configured_parent_off_refuses_fresh_retained_daily_data() -> Result {
     let c = Config::from_lookup(|key| {
         Some(
             match key {
-                "APP_ENV" => "testing",
+                "APP_ENV" | "OTERYN_ENV" => "testing",
                 "PORTAL_PUBLIC_PROJECTIONS_ENABLED" => "false",
                 "PORTAL_WORLD_DAILY_PUBLIC_ENABLED" | "PORTAL_WORLD_DAILY_INGEST_ENABLED" => "true",
                 "PORTAL_PUBLIC_PROJECTIONS_AUTHORITY" => "oteryn:game:primary",
@@ -862,6 +873,56 @@ async fn configured_parent_off_refuses_fresh_retained_daily_data() -> Result {
     eprintln!(
         "PG configured_parent_off_refuses_fresh_retained_daily_data {:.3}s",
         started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn ci03_explicit_clock_boundary_is_independent_of_database_waits() -> Result {
+    let started = std::time::Instant::now();
+    let d = Database::new().await?.ok_or("PostgreSQL required")?;
+    let now = at();
+    d.publish(now).await;
+    let mut blocker = d.db.begin().await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    sqlx::query("LOCK TABLE world_admin_names IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await?;
+    let db = d.db.clone();
+    let pending = tokio::spawn(async move {
+        today::read(
+            &db,
+            &config(),
+            Uuid::parse_str(WORLD).unwrap(),
+            "en",
+            now + 29,
+        )
+        .await
+    });
+    loop {
+        let blocked: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+        )
+        .bind(pid)
+        .fetch_one(&d.root)
+        .await?;
+        if blocked {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    let second = at();
+    while at() == second {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    blocker.commit().await?;
+    assert!(pending.await?.is_ok());
+    d.close().await?;
+    eprintln!(
+        "ci03_explicit_clock_boundary_is_independent_of_database_waits {:?}",
+        started.elapsed()
     );
     Ok(())
 }

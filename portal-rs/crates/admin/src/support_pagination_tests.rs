@@ -2,6 +2,19 @@ use super::*;
 #[derive(Clone)]
 struct Active;
 impl AccountStateReader for Active {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(
         &self,
         _: Uuid,
@@ -39,7 +52,7 @@ impl Backend for Queue {
     async fn apply(
         &self,
         _: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        _: Uuid,
+        _: crate::rbac::CheckContext,
         _: Uuid,
         _: i64,
         _: &Command,
@@ -49,6 +62,7 @@ impl Backend for Queue {
 }
 #[tokio::test]
 async fn pagination_admin_queue_caps_and_empty() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let pool = PgPool::connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")?;
     let state = Arc::new(Panel {
         pool: pool.clone(),

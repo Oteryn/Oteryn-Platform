@@ -306,7 +306,7 @@ impl<A: Authority> Deaths<A> {
     /// T72 invokes this in its retention worker and deletes streams on account erasure.
     pub async fn purge_expired(&self, now_ms: u64) -> Result<u64, Failure> {
         now_valid(now_ms)?;
-        let result = sqlx::query("UPDATE pd_t78_records r SET payload=NULL WHERE payload IS NOT NULL AND ((family IN ('death_recap','pvp') AND occurred_at_ms <= $1) OR (family='skull' AND occurred_at_ms <= $2 AND EXISTS (SELECT 1 FROM pd_t78_records newer WHERE newer.source_authority=r.source_authority AND newer.account_id=r.account_id AND newer.projection_epoch=r.projection_epoch AND newer.recovery_generation=r.recovery_generation AND newer.family=r.family AND newer.character_id=r.character_id AND newer.world_id=r.world_id AND newer.entity_key=r.entity_key AND newer.source_revision > r.source_revision)))")
+        let result = sqlx::query("UPDATE pd_t78_records r SET payload=NULL WHERE payload IS NOT NULL AND ((family IN ('death_recap','pvp') AND occurred_at_ms <= $1) OR (family='skull' AND occurred_at_ms <= $2 AND EXISTS (SELECT 1 FROM pd_t78_records newer WHERE newer.source_authority=r.source_authority AND newer.account_id=r.account_id AND newer.projection_epoch=r.projection_epoch AND newer.recovery_generation=r.recovery_generation AND newer.family=r.family AND newer.character_id=r.character_id AND newer.world_id=r.world_id AND newer.entity_key=r.entity_key AND newer.source_revision > r.source_revision AND EXISTS(SELECT 1 FROM pd_t78_streams published WHERE published.source_authority=newer.source_authority AND published.account_id=newer.account_id AND published.projection_epoch=newer.projection_epoch AND published.recovery_generation=newer.recovery_generation AND published.family=newer.family AND published.baseline_complete AND newer.source_revision<=published.complete_through))))")
             .bind(now_ms.saturating_sub(HISTORY_MS) as i64).bind(now_ms.saturating_sub(7*24*60*60*1000) as i64).execute(&self.pool).await.map_err(db)?;
         Ok(result.rows_affected())
     }
@@ -350,7 +350,7 @@ pub(crate) async fn erase_scope(
             .await?;
         return Ok(());
     }
-    sqlx::query("UPDATE pd_t78_records SET payload=NULL,entity_key='',occurred_at_ms=0 WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2)")
+    sqlx::query("UPDATE pd_t78_records SET payload=NULL,entity_key='',occurred_at_ms=0,erased_at_ms=GREATEST(erased_at_ms,floor(extract(epoch FROM clock_timestamp())*1000)::bigint) WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2)")
         .bind(account).bind(character).execute(&mut **tx).await?;
     Ok(())
 }

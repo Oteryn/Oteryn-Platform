@@ -147,7 +147,29 @@ impl StoredChannel {
         let request_id = Uuid::now_v7();
         let stamp = now.format(&Rfc3339).map_err(|_| Error::Unavailable)?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        let auth = rbac::Authorizer::new(
+            self.pool.clone(),
+            web::PortalIdentity::configured(self.pool.clone()),
+        )
+        .with_game_flags(rbac::GamePermissionFlags {
+            enabled: true,
+            deploy: false,
+        });
+        rbac::authorize_mutation(
+            &mut tx,
+            &[actor.account],
+            &auth,
+            actor,
+            &[
+                Permission::Access,
+                permission.parse().map_err(|_| Error::Denied)?,
+            ],
+        )
+        .await
+        .map_err(|error| match error {
+            rbac::Error::Storage(_) => Error::Unavailable,
+            _ => Error::Denied,
+        })?;
         control::store::ownership_lock(&mut tx, true)
             .await
             .map_err(|_| Error::Unavailable)?;
@@ -157,14 +179,6 @@ impl StoredChannel {
         if !owns {
             return Err(Error::Unavailable);
         }
-        let auth = rbac::Authorizer::new(
-            self.pool.clone(),
-            web::PortalIdentity::configured(self.pool.clone()),
-        )
-        .with_game_flags(rbac::GamePermissionFlags {
-            enabled: true,
-            deploy: false,
-        });
         auth.check_in(&mut tx, actor, Permission::Access)
             .await
             .map_err(|_| Error::Denied)?;
@@ -279,8 +293,36 @@ impl StoredChannel {
         )
         .await
         .map_err(|_| Error::Unavailable)?;
+        auth.check_in(&mut tx, actor, Permission::Access)
+            .await
+            .map_err(|_| Error::Denied)?;
+        auth.check_in(
+            &mut tx,
+            actor,
+            permission.parse().map_err(|_| Error::Denied)?,
+        )
+        .await
+        .map_err(|_| Error::Denied)?;
         tx.commit().await?;
         Ok(request_id)
+    }
+    async fn authorized_request(
+        &self,
+        actor: Uuid,
+        agent: &control::Agent,
+        operation: &str,
+        target: &control::Target,
+        params: &Value,
+        request_id: Option<Uuid>,
+    ) -> Result<Option<control::Request>, Error> {
+        let owns: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM admin_control_agents WHERE agent_id<>$1 AND owner_epoch>=$2 AND ($3::text=ANY(served_worlds) OR $4::text=ANY(served_nodes)))")
+            .bind(&agent.agent_id).bind(agent.owner_epoch).bind(&target.world_id).bind(&target.node_id).fetch_one(&self.pool).await?;
+        if !owns {
+            return Err(Error::Unavailable);
+        }
+        let request: Option<control::Request> = sqlx::query_as("SELECT r.* FROM admin_control_requests r JOIN audit_log a ON a.request_id=r.request_id AND a.action='console.query.admitted' JOIN admin_control_agents g ON g.agent_id=$6 AND g.owner_epoch::text=$7 AND g.last_seen_at>clock_timestamp()-interval '30 seconds' AND g.last_seen_at<=clock_timestamp() AND (r.target->>'world_id' IS NULL OR r.target->>'world_id'=ANY(g.served_worlds)) AND (r.target->>'node_id' IS NULL OR r.target->>'node_id'=ANY(g.served_nodes)) AND NOT EXISTS(SELECT 1 FROM admin_control_agents other WHERE other.agent_id<>g.agent_id AND other.owner_epoch>=g.owner_epoch AND (r.target->>'world_id'=ANY(other.served_worlds) OR r.target->>'node_id'=ANY(other.served_nodes))) WHERE r.actor=$1 AND r.operation=$2 AND r.target=$3 AND r.params=$4 AND ($5::uuid IS NULL OR r.request_id=$5) AND r.issued_at<=clock_timestamp() AND a.target=$6 AND a.after->>'owner_epoch'=$7 ORDER BY r.issued_at DESC LIMIT 1")
+            .bind(actor).bind(operation).bind(sqlx::types::Json(target)).bind(params).bind(request_id).bind(&agent.agent_id).bind(agent.owner_epoch.to_string()).fetch_optional(&self.pool).await?;
+        Ok(request)
     }
     async fn verified(
         &self,
@@ -291,17 +333,21 @@ impl StoredChannel {
         params: &Value,
         request_id: Option<Uuid>,
     ) -> Result<Option<(control::Request, signer::ResultEnvelope)>, Error> {
-        let owns: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM admin_control_agents WHERE agent_id<>$1 AND owner_epoch>=$2 AND ($3::text=ANY(served_worlds) OR $4::text=ANY(served_nodes)))")
-            .bind(&agent.agent_id).bind(agent.owner_epoch).bind(&target.world_id).bind(&target.node_id).fetch_one(&self.pool).await?;
-        if !owns {
-            return Err(Error::Unavailable);
-        }
-        let request: Option<control::Request> = sqlx::query_as("SELECT r.* FROM admin_control_requests r JOIN audit_log a ON a.request_id=r.request_id AND a.action='console.query.admitted' JOIN admin_control_agents g ON g.agent_id=$6 AND g.owner_epoch::text=$7 AND g.last_seen_at>clock_timestamp()-interval '30 seconds' AND g.last_seen_at<=clock_timestamp() AND (r.target->>'world_id' IS NULL OR r.target->>'world_id'=ANY(g.served_worlds)) AND (r.target->>'node_id' IS NULL OR r.target->>'node_id'=ANY(g.served_nodes)) AND NOT EXISTS(SELECT 1 FROM admin_control_agents other WHERE other.agent_id<>g.agent_id AND other.owner_epoch>=g.owner_epoch AND (r.target->>'world_id'=ANY(other.served_worlds) OR r.target->>'node_id'=ANY(other.served_nodes))) WHERE r.actor=$1 AND r.operation=$2 AND r.target=$3 AND r.params=$4 AND ($5::uuid IS NULL OR r.request_id=$5) AND r.expires_at>clock_timestamp() AND r.issued_at<=clock_timestamp() AND a.target=$6 AND a.after->>'owner_epoch'=$7 ORDER BY r.issued_at DESC LIMIT 1")
-            .bind(actor).bind(operation).bind(sqlx::types::Json(target)).bind(params).bind(request_id).bind(&agent.agent_id).bind(agent.owner_epoch.to_string()).fetch_optional(&self.pool).await?;
+        let request = self
+            .authorized_request(actor, agent, operation, target, params, request_id)
+            .await?;
+        self.verified_result(agent, request).await
+    }
+    async fn verified_result(
+        &self,
+        agent: &control::Agent,
+        request: Option<control::Request>,
+    ) -> Result<Option<(control::Request, signer::ResultEnvelope)>, Error> {
         let Some(request) = request else {
             return Ok(None);
         };
-        if request.status != control::Status::Succeeded
+        if request.expires_at <= OffsetDateTime::now_utc()
+            || request.status != control::Status::Succeeded
             || request.agent_id.as_deref() != Some(&agent.agent_id)
         {
             return Ok(None);
@@ -420,9 +466,27 @@ impl Channel for StoredChannel {
     ) -> Result<AgentView, Error> {
         let owner = self.owner(Some(agent), operation.name(), target).await?;
         let scope = Self::target(&owner, target, None)?;
-        let verified = self
-            .verified(actor, &owner, operation.name(), &scope, &json!({}), request)
+        let selected = self
+            .authorized_request(actor, &owner, operation.name(), &scope, &json!({}), request)
             .await?;
+        let status = selected.as_ref().map_or(QueryStatus::Pending, |request| {
+            use control::Status;
+            match request.status {
+                Status::Queued | Status::Delivered | Status::Accepted | Status::InProgress
+                    if request.expires_at <= OffsetDateTime::now_utc() =>
+                {
+                    QueryStatus::Expired
+                }
+                Status::Queued | Status::Delivered | Status::Accepted => QueryStatus::Pending,
+                Status::InProgress => QueryStatus::InProgress,
+                Status::Succeeded => QueryStatus::Succeeded,
+                Status::Failed => QueryStatus::Failed,
+                Status::Rejected => QueryStatus::Rejected,
+                Status::Expired => QueryStatus::Expired,
+                Status::Cancelled => QueryStatus::Cancelled,
+            }
+        });
+        let verified = self.verified_result(&owner, selected).await?;
         let mut view = AgentView {
             owner_epoch: owner.owner_epoch as u64,
             last_contact: SystemTime::UNIX_EPOCH
@@ -430,7 +494,7 @@ impl Channel for StoredChannel {
             current_owner: true,
             operations: vec![(operation, 1)],
             result: None,
-            status: QueryStatus::Pending,
+            status,
         };
         if let Some((request, result)) = verified {
             let records = super::projection::records(operation, &result.result.0)

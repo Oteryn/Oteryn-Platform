@@ -14,10 +14,18 @@ pub struct PlatformAccounts {
     pub session_hash: Option<[u8; 32]>,
 }
 impl Accounts for PlatformAccounts {
+    async fn prepare(&self, db: &mut PgConnection, accounts: &[Uuid]) -> Result<(), Error> {
+        if self.enabled {
+            crate::locking::accounts(db, accounts).await?;
+        }
+        Ok(())
+    }
+
     async fn safe_return(&self, db: &mut PgConnection, account: Uuid) -> Result<bool, Error> {
         if !self.enabled {
             return Ok(false);
         }
+        crate::locking::listing_gate(db).await?;
         let status: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
                 .bind(account)
@@ -34,6 +42,7 @@ impl Accounts for PlatformAccounts {
         if !self.enabled {
             return Ok(None);
         }
+        crate::locking::listing_gate(db).await?;
         let row=sqlx::query("SELECT status,email_verified_at IS NOT NULL AS verified,email_change_blocked_until>now() AS blocked FROM accounts WHERE id=$1 FOR SHARE").bind(account).fetch_optional(&mut *db).await?;
         let Some(row) = row else {
             return Ok(None);
@@ -64,9 +73,44 @@ pub struct CoinReservations {
     pub authority: Authority,
 }
 impl CoinReservations {
+    /// Recheck the durable promise before either item delivery or character
+    /// ownership transfer, including obligations frozen by an older runtime.
+    pub(super) async fn handoff_capacity(
+        &self,
+        db: &mut PgConnection,
+        s: &Settlement,
+    ) -> Result<(), Error> {
+        let mut accounts = [s.buyer, s.seller];
+        accounts.sort();
+        self.lock_accounts(db, &accounts).await?;
+        let promised: Option<i64> = sqlx::query_scalar(
+            "SELECT amount FROM wallet_incoming_capacity WHERE id=$1 AND account_id=$2",
+        )
+        .bind(s.id)
+        .bind(s.seller)
+        .fetch_optional(&mut *db)
+        .await?;
+        if promised != Some(s.seller_net) {
+            return Err(Error::Denied);
+        }
+        let total: i64 = sqlx::query_scalar("SELECT COALESCE(sum(available_delta::numeric+reserved_delta),0)::bigint FROM wallet_entries WHERE account_id=$1")
+            .bind(s.seller).fetch_one(&mut *db).await?;
+        let incoming = oteryn_wallet::incoming_capacity_in(db, s.seller)
+            .await
+            .map_err(wallet_error)?;
+        if total
+            .checked_add(incoming)
+            .is_none_or(|n| n > oteryn_wallet::MAX_BALANCE)
+        {
+            return Err(Error::Overflow);
+        }
+        Ok(())
+    }
+
     // Share the issuer/restore fence with evidence before taking any Wallet
     // locks. The same ordering is used by every Bazaar monetary port call.
     async fn fence(&self, db: &mut PgConnection) -> Result<(), Error> {
+        crate::locking::listing_gate(db).await?;
         self.authority.lock(db).await.map_err(|e| match e {
             super::Error::Database(e) => Error::Database(e),
             super::Error::Unavailable => Error::Disabled,
@@ -77,6 +121,7 @@ impl CoinReservations {
     async fn account(db: &mut PgConnection, account: Uuid, obligation: bool) -> Result<(), Error> {
         // Existing obligations accept suspended identities; new reserves require active.
         // The complete identity set is acquired before any wallet row.
+        crate::locking::listing_gate(db).await?;
         let status: Option<String> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
                 .bind(account)
@@ -129,6 +174,7 @@ impl CoinReservations {
 }
 impl Reservations for CoinReservations {
     async fn lock_accounts(&self, db: &mut PgConnection, accounts: &[Uuid]) -> Result<(), Error> {
+        crate::locking::accounts(db, accounts).await?;
         self.fence(db).await?;
         if accounts.windows(2).any(|w| w[0] >= w[1]) {
             return Err(Error::InvalidInput);
@@ -151,6 +197,7 @@ impl Reservations for CoinReservations {
         Ok(())
     }
     async fn reserve(&self, db: &mut PgConnection, h: Reservation) -> Result<(), Error> {
+        crate::locking::accounts(db, &[h.account]).await?;
         self.fence(db).await?;
         if h.currency == Currency::Gold {
             return super::runtime::gold::reserve(&self.authority, db, h)
@@ -204,8 +251,10 @@ impl Reservations for CoinReservations {
         Ok(())
     }
     async fn release(&self, db: &mut PgConnection, id: Uuid, account: Uuid) -> Result<(), Error> {
+        crate::locking::accounts(db, &[account]).await?;
         self.fence(db).await?;
         Self::account(db, account, true).await?;
+        crate::locking::listing_gate(db).await?;
         let row=sqlx::query("SELECT amount,settlement_id FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(id).bind(account).fetch_optional(&mut *db).await?;
         let Some(row) = row else {
             if let Some(hold) =
@@ -269,6 +318,11 @@ impl Reservations for CoinReservations {
             .execute(&mut *db)
             .await?;
         if let Some(sale) = settlement {
+            // compensation_ready above proved that no delivery can execute.
+            sqlx::query("DELETE FROM wallet_incoming_capacity WHERE id=$1")
+                .bind(sale)
+                .execute(&mut *db)
+                .await?;
             sqlx::query(
                 "UPDATE bazaar_coin_holds SET completed=true WHERE id=$1 AND account_id=$2",
             )
@@ -325,12 +379,16 @@ impl Reservations for CoinReservations {
                 return Err(Error::Denied);
             }
         }
+        crate::locking::listing_gate(db).await?;
         let row=sqlx::query("SELECT amount,settlement_id FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(s.reservation).bind(s.buyer).fetch_optional(&mut *db).await?.ok_or(Error::InsufficientFunds)?;
         if row.try_get::<i64, _>("amount")? < s.amount
             || row.try_get::<Option<Uuid>, _>("settlement_id")?.is_some()
         {
             return Err(Error::Denied);
         }
+        oteryn_wallet::reserve_incoming_in(db, s.id, s.seller, s.seller_net)
+            .await
+            .map_err(wallet_error)?;
         sqlx::query("INSERT INTO bazaar_coin_dispositions(settlement_id,binding) VALUES($1,$2)")
             .bind(s.id)
             .bind(Self::binding(s))
@@ -389,6 +447,13 @@ impl Reservations for CoinReservations {
             .ok_or(Error::InsufficientFunds)?;
         let op = Self::operation(db, "capture", s.buyer, s.amount, s.id, Some(s.seller)).await?;
         Self::entry(db, op, s.buyer, excess, -held).await?;
+        // Consume only our promise under both wallet locks, in the payout
+        // transaction; every other pending sale retains its capacity.
+        sqlx::query("DELETE FROM wallet_incoming_capacity WHERE id=$1 AND account_id=$2")
+            .bind(s.id)
+            .bind(s.seller)
+            .execute(&mut *db)
+            .await?;
         // Proceeds are a credit: they repay the seller's coin debt first.
         oteryn_wallet::credit_in(db, op, s.seller, s.seller_net)
             .await

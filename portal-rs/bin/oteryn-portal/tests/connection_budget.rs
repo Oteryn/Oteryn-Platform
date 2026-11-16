@@ -1,4 +1,5 @@
 //! Exercise the composed binary, rather than isolated module routers.
+use sha2::{Digest, Sha256};
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -18,7 +19,7 @@ fn request(address: std::net::SocketAddr, path: &str) -> std::io::Result<String>
     socket.set_read_timeout(Some(Duration::from_secs(5)))?;
     write!(
         socket,
-        "GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: localhost\r\nCookie: __Host-oteryn_session=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nConnection: close\r\n\r\n"
     )?;
     let mut response = String::new();
     socket.read_to_string(&mut response)?;
@@ -31,6 +32,7 @@ async fn composed_modules_share_one_postgres_connection_budget()
         eprintln!("SKIPPED PostgreSQL binary test: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(());
     };
+    let started = std::time::Instant::now();
     let root = sqlx::PgPool::connect(&url).await?;
     let schema = format!("pool_budget_{}", uuid::Uuid::now_v7().simple());
     sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
@@ -52,6 +54,11 @@ async fn composed_modules_share_one_postgres_connection_budget()
         .connect(&url)
         .await?;
     oteryn_db::migrate(&pool).await?;
+    let account = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'composition@example.test','test-only','active','en',now())")
+        .bind(account).execute(&pool).await?;
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at) VALUES($1,$2,'composition','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',now()+interval '1 hour',now()+interval '1 day')")
+        .bind(Sha256::digest(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").to_vec()).bind(account).execute(&pool).await?;
     let separator = if url.contains('?') { "&" } else { "?" };
     let connection_url =
         format!("{url}{separator}options=-c%20search_path%3D{schema}&application_name={schema}");
@@ -92,6 +99,7 @@ async fn composed_modules_share_one_postgres_connection_budget()
         "OTERYN_DAILY_PUZZLES_ENABLED",
         "OTERYN_COLLECTION_ENABLED",
         "OTERYN_SHOP_ENABLED",
+        "OTERYN_WALLET_ENABLED",
         "PANEL_PREMIUM_PAYMENTS",
         "OTERYN_ACCOUNT_RECOVERY_KEYS",
         "OTERYN_WORLD_ENABLED",
@@ -115,29 +123,102 @@ async fn composed_modules_share_one_postgres_connection_budget()
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(ready, "portal must become ready");
-    for path in [
-        "/en/news",
-        "/en/events",
-        "/en/worlds",
-        "/en/online",
-        "/en/guilds",
-        "/en/houses",
-        "/en/deaths",
-        "/en/characters",
-        "/en/rankings/experience",
-        "/en/party",
-        "/en/puzzles",
-        "/en/collection",
-        "/en/shop",
-        "/en/wiki",
-        "/en/rules",
-        "/en/server-information",
+    // Lock a relation owned by each module, then observe this binary's
+    // request waiting on our lock. Startup and unrelated recovery reads cannot
+    // satisfy this per-request proof of module SQL execution.
+    for (path, table, status, content) in [
+        ("/en/news", "news", "200", "News"),
+        ("/en/events", "events", "200", "Events"),
+        ("/en/worlds", "world_status", "200", "World status"),
+        ("/en/online", "public_projection_state", "503", "Online"),
+        (
+            "/en/characters/Composition",
+            "public_snapshots",
+            "503",
+            "Character",
+        ),
+        (
+            "/en/rankings/experience",
+            "public_snapshots",
+            "503",
+            "Rankings",
+        ),
+        ("/en/party", "pd_party_posts", "200", "Looking for a team"),
+        ("/en/puzzles", "puzzles_daily", "200", "puzzle"),
+        ("/en/shop", "store_active_catalog", "200", "Shop"),
+        (
+            "/en/collection/019ad000-0000-7000-8000-000000000001",
+            "accounts",
+            "503",
+            "Monster collection",
+        ),
+        ("/en/wiki", "wiki_guides", "200", "Wiki"),
+        ("/en/rules", "pages", "200", "not been published"),
+        (
+            "/en/server-information",
+            "pages",
+            "200",
+            "not been published",
+        ),
+    ] {
+        let mut blocker = pool.begin().await?;
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *blocker)
+            .await?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"
+        )))
+        .execute(&mut *blocker)
+        .await?;
+        let probe = tokio::task::spawn_blocking(move || request(address, path));
+        let observed = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND $2=ANY(pg_blocking_pids(pid)))")
+                    .bind(&schema).bind(pid).fetch_one(&root).await?;
+                if waiting { return Ok::<_, sqlx::Error>(()); }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await;
+        blocker.rollback().await?;
+        let response = probe.await??;
+        assert!(
+            matches!(observed, Ok(Ok(()))),
+            "{path} did not execute its module database path: {response}"
+        );
+        assert!(
+            response.starts_with(&format!("HTTP/1.1 {status}")),
+            "{path}: {response}"
+        );
+        let main = response
+            .split_once("<main")
+            .and_then(|(_, body)| body.split_once("</main>"))
+            .map(|(body, _)| body)
+            .ok_or("module page must contain main")?;
+        assert!(
+            main.contains(content),
+            "{path} missing {content}: {response}"
+        );
+    }
+    // Search/collection landings are static. G-4 guilds/houses/deaths are
+    // deliberately refused before SQL while their contracts are CANDIDATE;
+    // preserve those gates and never count them as database execution evidence.
+    for (path, status, content) in [
+        ("/en/characters", "200", "Character"),
+        ("/en/collection", "200", "Monster collection"),
+        ("/en/guilds", "503", "Guild information is unavailable."),
+        ("/en/houses", "503", "House information is unavailable."),
+        (
+            "/en/deaths",
+            "503",
+            "Death records are currently unavailable.",
+        ),
     ] {
         let response = request(address, path)?;
         assert!(
-            !response.starts_with("HTTP/1.1 500"),
-            "{path} must not fail internally"
+            response.starts_with(&format!("HTTP/1.1 {status}")),
+            "{path}: {response}"
         );
+        assert!(response.contains(content), "{path}: {response}");
     }
     let recovery = request(address, "/en/recovery-key")?;
     assert!(recovery.starts_with("HTTP/1.1 200"));
@@ -168,5 +249,9 @@ async fn composed_modules_share_one_postgres_connection_budget()
         .execute(&root)
         .await?;
     root.close().await;
+    eprintln!(
+        "PG composed_modules_share_one_postgres_connection_budget duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
     Ok(())
 }

@@ -7,6 +7,19 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 #[derive(Clone)]
 struct Active;
 impl AccountStateReader for Active {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         Ok(AccountState::Active)
     }
@@ -51,6 +64,7 @@ impl Fixture {
             account: Uuid::now_v7(),
             require_staff_mfa: true,
             mfa_verified: true,
+            session_proof: None,
         };
         sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor.account).execute(&pool).await?;
         Ok(Self {
@@ -76,6 +90,7 @@ impl Fixture {
 use oteryn_content::events::{Draft, Events, Translation};
 #[tokio::test]
 async fn event_save_and_transition_complete_with_one_connection() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(1).await?;
     let auth = Authorizer::new(db.pool.clone(), Active);
@@ -114,6 +129,7 @@ async fn event_save_and_transition_complete_with_one_connection() -> TestResult 
 
 #[tokio::test]
 async fn announcement_save_completes_with_one_connection() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_content::announcements::{Announcements, Input};
     let started = std::time::Instant::now();
     let db = Fixture::open(1).await?;
@@ -187,6 +203,7 @@ async fn blocked_by(pool: &PgPool, pid: i32) -> TestResult {
 
 #[tokio::test]
 async fn content_mutations_recheck_after_resource_wait() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use axum::{
         Router,
         body::{Body, to_bytes},
@@ -388,6 +405,7 @@ fn event_draft() -> Draft {
 }
 #[tokio::test]
 async fn editorial_mutations_require_access() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_content::announcements::Announcements;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
@@ -428,6 +446,7 @@ async fn editorial_mutations_require_access() -> TestResult {
 
 #[tokio::test]
 async fn editorial_mutations_bound_fence_and_resource_waits() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_content::announcements::Announcements;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
@@ -495,6 +514,7 @@ async fn editorial_mutations_bound_fence_and_resource_waits() -> TestResult {
 
 #[tokio::test]
 async fn announcement_unchanged_and_metadata_saves_preserve_translation() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
@@ -557,4 +577,115 @@ async fn announcement_unchanged_and_metadata_saves_preserve_translation() -> Tes
         started.elapsed()
     );
     Ok(())
+}
+
+// An actual durable MFA grant expires while an unchanged domain row is held.
+// The database clock and blocker PID are the only interleaving barriers.
+#[tokio::test]
+async fn editorial_writers_reject_grant_expired_during_resource_wait() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    use oteryn_content::announcements::Announcements;
+    use sha2::{Digest, Sha256};
+    let db = Fixture::open(4).await?;
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'fixture-password','active','en',clock_timestamp())")
+        .bind(db.actor.account).bind(format!("{}@example.invalid", db.actor.account)).execute(&db.pool).await?;
+    let auth = Authorizer::new(db.pool.clone(), Active);
+    let notices = Announcements::new(db.pool.clone());
+    let events = Events::new(db.pool.clone());
+    let notice_id = notices.save(&auth, db.actor, None, notice()).await?;
+    let event_id = events.save(&auth, db.actor, None, event_draft()).await?;
+    let generation: Uuid = sqlx::query_scalar("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,$2,true) RETURNING generation")
+        .bind(db.actor.account).bind(vec![1_u8;32]).fetch_one(&db.pool).await?;
+    for kind in ["announcement", "event-save", "event-status"] {
+        let grant = Uuid::now_v7().to_string();
+        let grant_hash: [u8; 32] = Sha256::digest(grant.as_bytes()).into();
+        let session_hash: [u8; 32] = Sha256::digest(Uuid::now_v7().as_bytes()).into();
+        sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',clock_timestamp()+interval '1 second')")
+            .bind(grant_hash.as_slice()).bind(db.actor.account).bind(generation).bind(Sha256::digest(b"fixture-password").to_vec()).execute(&db.pool).await?;
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation) SELECT $1,id,clock_timestamp()+interval '1 hour',clock_timestamp()+interval '1 day','expiry-test',repeat('c',64),jsonb_build_object('mfa_grant',$2::text),native_security_generation FROM accounts WHERE id=$3")
+            .bind(session_hash.as_slice()).bind(grant).bind(db.actor.account).execute(&db.pool).await?;
+        let context = CheckContext {
+            session_proof: Some(oteryn_admin::rbac::SessionProof {
+                session_hash,
+                grant_hash,
+            }),
+            ..db.actor
+        };
+        assert!(
+            oteryn_admin::rbac::durable_session_in(
+                &mut *db.pool.acquire().await?,
+                context.account,
+                context.session_proof.ok_or("missing proof")?
+            )
+            .await
+            .map_err(|_| "session lookup")?
+        );
+        let mut blocker = db.pool.begin().await?;
+        let statement = if kind == "announcement" {
+            "SELECT id FROM announcements WHERE id=$1 FOR UPDATE"
+        } else {
+            "SELECT id FROM events WHERE id=$1 FOR UPDATE"
+        };
+        sqlx::query(statement)
+            .bind(if kind == "announcement" {
+                notice_id
+            } else {
+                event_id
+            })
+            .execute(&mut *blocker)
+            .await?;
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *blocker)
+            .await?;
+        let pool = db.pool.clone();
+        let pending = tokio::spawn(async move {
+            let auth = Authorizer::new(pool.clone(), Active);
+            match kind {
+                "announcement" => Announcements::new(pool)
+                    .save(&auth, context, Some((notice_id, 1)), notice())
+                    .await
+                    .is_err(),
+                "event-save" => Events::new(pool)
+                    .save(&auth, context, Some((event_id, 1)), event_draft())
+                    .await
+                    .is_err(),
+                _ => Events::new(pool)
+                    .transition(&auth, context, event_id, 1, "published")
+                    .await
+                    .is_err(),
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))").bind(pid).fetch_one(&db.pool).await?;
+                if blocked {break Ok::<_,sqlx::Error>(());}
+                tokio::task::yield_now().await;
+            }
+        }).await??;
+        loop {
+            let expired: bool = sqlx::query_scalar(
+                "SELECT expires_at<=clock_timestamp() FROM account_mfa_tokens WHERE token_hash=$1",
+            )
+            .bind(grant_hash.as_slice())
+            .fetch_one(&db.pool)
+            .await?;
+            if expired {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        blocker.rollback().await?;
+        assert!(pending.await?, "{kind} committed with an expired grant");
+    }
+    let state: (String, i64) = sqlx::query_as("SELECT status,lock_version FROM events WHERE id=$1")
+        .bind(event_id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(state, ("draft".into(), 1));
+    let version: i64 = sqlx::query_scalar("SELECT lock_version FROM announcements WHERE id=$1")
+        .bind(notice_id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(version, 1);
+    db.close().await
 }

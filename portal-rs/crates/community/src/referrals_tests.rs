@@ -163,6 +163,7 @@ impl Database {
 }
 #[tokio::test]
 async fn disabled_and_invalid_before_io() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     assert!(!Flags::default().enabled);
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
@@ -187,6 +188,7 @@ async fn disabled_and_invalid_before_io() {
 }
 #[tokio::test]
 async fn postgres_success_replay_and_statistics() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -225,6 +227,7 @@ async fn postgres_success_replay_and_statistics() {
 }
 #[tokio::test]
 async fn postgres_refusals_and_bad_input() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -272,6 +275,7 @@ async fn postgres_refusals_and_bad_input() {
 }
 #[tokio::test]
 async fn postgres_wallet_and_notification_refusal_roll_back() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -305,6 +309,7 @@ async fn postgres_wallet_and_notification_refusal_roll_back() {
 }
 #[tokio::test]
 async fn postgres_concurrent_duplicate_invitees() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -336,6 +341,7 @@ fn localized_notifications() {
 
 #[tokio::test]
 async fn postgres_transitive_cycle_and_email_replay() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -364,6 +370,7 @@ async fn postgres_transitive_cycle_and_email_replay() {
 
 #[tokio::test]
 async fn audit06_ancestry_work_bound_with_unrelated_graph() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let d = Database::create().await.expect("PostgreSQL required");
     let checks = Checks::new();
     let svc = service(d.pool.clone(), checks, true);
@@ -385,6 +392,7 @@ async fn audit06_ancestry_work_bound_with_unrelated_graph() {
 
 #[tokio::test]
 async fn lk_referral_notification_uses_transaction_connection() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::create()
         .await

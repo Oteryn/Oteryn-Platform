@@ -438,3 +438,93 @@ async fn postgres_malformed_world_and_bad_request_are_refused() -> TestResult {
     );
     db.close().await
 }
+
+#[test]
+fn configured_world_aliases_drive_calculators() -> TestResult {
+    for (primary, legacy, enabled) in [
+        ("", "1", true),
+        ("true", "", true),
+        ("false", "1", false),
+        ("true", "0", false),
+    ] {
+        let mut child = std::process::Command::new(std::env::current_exe()?);
+        child
+            .args([
+                "--exact",
+                "calculators::tests::configured_world_alias_child",
+                "--nocapture",
+            ])
+            .env_remove("OTERYN_WORLD_ENABLED")
+            .env_remove("PORTAL_WORLD_ENABLED")
+            .env(
+                "A313_ALIAS_CHILD",
+                if enabled { "enabled" } else { "disabled" },
+            )
+            .env("PORTAL_CALCULATORS_ENABLED", "true")
+            .env("OTERYN_ATLAS_ENABLED", "true")
+            .env("OTERYN_ATLAS_DIRECTORY", "/tmp/a313-no-atlas-artifacts")
+            .env(
+                "PORTAL_CALCULATORS_EXPERIENCE_SOURCE",
+                "test_policy|experience",
+            )
+            .env("PORTAL_CALCULATORS_TRAINING_SOURCE", "test_policy|training");
+        if !primary.is_empty() {
+            child.env("OTERYN_WORLD_ENABLED", primary);
+        }
+        if !legacy.is_empty() {
+            child.env("PORTAL_WORLD_ENABLED", legacy);
+        }
+        assert!(child.status()?.success());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn configured_world_alias_child() -> TestResult {
+    let Ok(mode) = std::env::var("A313_ALIAS_CHILD") else {
+        return Ok(());
+    };
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    db.seed().await?;
+    db.allow().await?;
+    for query in [
+        "calculator=experience&current=75&target=2",
+        "calculator=training&remaining=601&family=0&dummy=oteryn:item.tibia.i28558",
+    ] {
+        let (status, _) = request(
+            super::web::configured_router(db.pool.clone()),
+            &format!("/en/wiki/calculators?{query}"),
+        )
+        .await;
+        assert_eq!(
+            status,
+            if mode == "enabled" {
+                StatusCode::OK
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+        );
+    }
+    let (status, _) = request(
+        oteryn_atlas::web::configured_router(db.pool.clone()),
+        "/en/atlas",
+    )
+    .await;
+    assert_eq!(
+        status,
+        if mode == "enabled" {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+    );
+    db.close().await?;
+    eprintln!(
+        "configured_world_alias_child {mode}: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

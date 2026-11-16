@@ -119,6 +119,8 @@ async fn database() -> Result<Option<Database>, Box<dyn std::error::Error>> {
         include_str!("../../../migrations/20261105144852_t02_web_sessions.sql"),
         include_str!("../../../migrations/20261105153000_t31_payments.sql"),
         include_str!("../../../migrations/20261105160000_t27_premium_ledger.sql"),
+        // Browser rotation retains the real identity resource before sessions.
+        include_str!("../../../migrations/20261105155256_t03_accounts.sql"),
     ] {
         sqlx::raw_sql(migration).execute(&pool).await?;
     }
@@ -143,6 +145,10 @@ async fn login(
     }
 }
 async fn cookie(pool: &PgPool, account: Uuid) -> Result<String, Box<dyn std::error::Error>> {
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en') ON CONFLICT (id) DO NOTHING")
+        .bind(account)
+        .execute(pool)
+        .await?;
     let app = Router::new()
         .route("/login", get(login))
         .route_layer(middleware::from_fn_with_state(

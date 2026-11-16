@@ -743,6 +743,19 @@ pub async fn ingest(pool: &PgPool, receipt: &Receipt, bytes: &[u8]) -> Result<()
     {
         return Err(Error::Conflict);
     }
+    // A terminal result must remain the highest receipt. The command row lock
+    // serializes this check with every other receipt for the operation.
+    if receipt.terminal()
+        && sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM support_enforcement_results WHERE operation_id=$1 AND receipt_revision>$2)",
+        )
+        .bind(receipt.operation_id)
+        .bind(receipt.receipt_revision)
+        .fetch_one(&mut *tx)
+        .await?
+    {
+        return Err(Error::Conflict);
+    }
     sqlx::query("INSERT INTO support_enforcement_results(operation_id,receipt_revision,state,terminal,result,result_digest) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(receipt.operation_id)
         .bind(receipt.receipt_revision)

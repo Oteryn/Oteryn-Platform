@@ -35,5 +35,6 @@ tokio = { version = "1.54.1", features = ["sync", "macros", "rt-multi-thread"] }
 workspace = true
 
 [dev-dependencies]
+oteryn-db = { workspace = true, features = ["test-support"] }
 http-body-util = "0.1"
 tower = { version = "0.5.3", features = ["util"] }

@@ -130,7 +130,7 @@ impl Database {
             .after_connect(move |conn, _| {
                 let path = search_path.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                    sqlx::query("SELECT set_config('search_path',$1 || ',pg_catalog',false), set_config('application_name',$1,false)")
                         .bind(path)
                         .execute(conn)
                         .await?;

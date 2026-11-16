@@ -459,6 +459,7 @@ impl Database {
 }
 #[tokio::test]
 async fn db_wire_golden_purchase_balance_history_and_intent() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -559,6 +560,7 @@ async fn db_wire_golden_purchase_balance_history_and_intent() {
 }
 #[tokio::test]
 async fn db_exact_replay_and_conflicting_reuse() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -590,6 +592,7 @@ async fn db_exact_replay_and_conflicting_reuse() {
 }
 #[tokio::test]
 async fn db_refusals_are_terminal_and_create_only_answers() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -647,6 +650,7 @@ async fn db_refusals_are_terminal_and_create_only_answers() {
 }
 #[tokio::test]
 async fn db_concurrent_purchases_and_identical_retries_charge_once() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -703,6 +707,7 @@ async fn db_concurrent_purchases_and_identical_retries_charge_once() {
 
 #[tokio::test]
 async fn db_history_cursor_is_stable_private_and_zero_reads_do_not_create_rows() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -809,6 +814,7 @@ async fn db_history_cursor_is_stable_private_and_zero_reads_do_not_create_rows()
 }
 #[tokio::test]
 async fn db_storage_and_audit_failures_roll_back_debit_answer_order_and_outbox() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -869,6 +875,7 @@ async fn db_storage_and_audit_failures_roll_back_debit_answer_order_and_outbox()
 }
 #[tokio::test]
 async fn db_pending_capacity_is_atomic_across_accounts_and_retryable() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -905,6 +912,7 @@ async fn db_pending_capacity_is_atomic_across_accounts_and_retryable() {
 }
 #[tokio::test]
 async fn db_catalog_activation_waits_for_purchase_decision() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -970,6 +978,7 @@ async fn db_catalog_activation_waits_for_purchase_decision() {
 }
 #[tokio::test]
 async fn db_wallet_conflicts_and_unknown_state_deny_without_stored_answer() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -1080,6 +1089,7 @@ async fn call(router: Router, request: Request<Body>, status: StatusCode) -> Vec
 }
 #[tokio::test]
 async fn db_http_guard_transport_and_source_failures_are_empty() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -1239,6 +1249,7 @@ async fn db_http_guard_transport_and_source_failures_are_empty() {
 }
 #[tokio::test]
 async fn db_peer_and_account_limits_have_contract_precedence_and_shared_scope() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -1313,6 +1324,7 @@ async fn db_peer_and_account_limits_have_contract_precedence_and_shared_scope() 
 
 #[tokio::test]
 async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -1411,6 +1423,7 @@ async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
 /// the import used to refuse it, leaving only `OFFER_UNAVAILABLE`.
 #[tokio::test]
 async fn db_game_colon_offer_key_is_purchasable() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -1447,6 +1460,7 @@ async fn db_game_colon_offer_key_is_purchasable() {
 }
 #[tokio::test]
 async fn db_wallet_upgrade_preserves_existing_rows_and_uuid_history() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIPPED T29 PostgreSQL upgrade test: PORTAL_TEST_DATABASE_URL is unset");
         return;
@@ -1476,6 +1490,15 @@ async fn db_wallet_upgrade_preserves_existing_rows_and_uuid_history() {
     sqlx::raw_sql(include_str!(
         "../../../migrations/20261105151420_t26_wallet.sql"
     ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(
+        include_str!("../../../migrations/20261115225000_fix_a3-l6_incoming_capacity.sql")
+            .split("-- Preserve")
+            .next()
+            .unwrap(),
+    )
     .execute(&pool)
     .await
     .unwrap();
@@ -1605,6 +1628,7 @@ impl Accounts for PurchaseIdentityBarrier {
 
 #[tokio::test]
 async fn postgres_shop_balance_and_production_purchase_identity_lock_order() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await else {
         return;
@@ -1669,6 +1693,7 @@ async fn postgres_shop_balance_and_production_purchase_identity_lock_order() {
 
 #[tokio::test]
 async fn postgres_transfer_prepares_complete_identity_set_before_wallets() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await else {
         return;
@@ -1749,6 +1774,7 @@ fn preprod_lookup_uses_core_environment_spelling() {
 
 #[tokio::test]
 async fn l6_01_pending_termination_refuses_store_purchase() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await else {
         return;
@@ -1772,6 +1798,7 @@ async fn l6_01_pending_termination_refuses_store_purchase() {
 
 #[tokio::test]
 async fn l6_05_minigame_wallet_bridges_have_readable_store_history() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use oteryn_minigames::{collection_pvp::SetPayment, pass::Payment};
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await else {

@@ -25,3 +25,6 @@ pub mod privacy;
 
 #[cfg(test)]
 mod audit06_test_db;
+
+#[cfg(test)]
+mod restricted_environment_tests;

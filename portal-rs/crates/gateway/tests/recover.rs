@@ -575,3 +575,27 @@ fn recover_wire_redacts_the_handle() {
         "RevokeRequest{redacted}"
     );
 }
+
+#[tokio::test]
+async fn malformed_refusal_echo_types_fail_closed_on_both_recovery_routes() {
+    for bad in ["false", "7", "[]", "{}"] {
+        let body = AUTHENTICATION.replace(&format!("\"{ATTEMPT}\""), bad);
+        assert_eq!(
+            recover::parse_issuer_error(401, body.as_bytes(), Some(ATTEMPT)),
+            None
+        );
+        let upstream = issuer(401, &body).await;
+        assert_eq!(
+            post(app(&upstream.url), "/v1/recover", REQUEST).await,
+            (StatusCode::SERVICE_UNAVAILABLE, line(UNAVAILABLE))
+        );
+        let upstream = revoke_issuer(401, &body).await;
+        assert_eq!(
+            post(app(&upstream.url), "/v1/recover/revoke", REVOKE_REQUEST).await,
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                line(&UNAVAILABLE.replace(&format!("\"{ATTEMPT}\""), "null"))
+            )
+        );
+    }
+}

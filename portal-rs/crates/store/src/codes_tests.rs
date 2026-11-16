@@ -96,6 +96,15 @@ impl Database {
         ] {
             sqlx::raw_sql(migration).execute(&pool).await.unwrap();
         }
+        sqlx::raw_sql(
+            include_str!("../../../migrations/20261115225000_fix_a3-l6_incoming_capacity.sql")
+                .split("-- Preserve")
+                .next()
+                .unwrap(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         Some(Self {
             pool,
             admin,
@@ -202,6 +211,7 @@ fn normalization_bad_input_and_defaults() {
 }
 #[tokio::test]
 async fn db_generate_redeem_coins_premium_and_plaintext_absent() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -260,6 +270,7 @@ async fn db_generate_redeem_coins_premium_and_plaintext_absent() {
 }
 #[tokio::test]
 async fn db_limits_across_codes_and_accounts() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -284,6 +295,7 @@ async fn db_limits_across_codes_and_accounts() {
 }
 #[tokio::test]
 async fn db_expired_future_bad_input_and_disabled() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -334,6 +346,7 @@ async fn db_expired_future_bad_input_and_disabled() {
 }
 #[tokio::test]
 async fn db_twenty_concurrent_redemptions_have_one_success() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -367,6 +380,7 @@ async fn db_twenty_concurrent_redemptions_have_one_success() {
 }
 #[tokio::test]
 async fn db_item_requires_character_and_only_enqueues_pending_command() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -397,6 +411,7 @@ async fn db_item_requires_character_and_only_enqueues_pending_command() {
 }
 #[tokio::test]
 async fn db_ledger_refusal_and_final_insert_failure_roll_back_everything() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -429,6 +444,7 @@ async fn db_ledger_refusal_and_final_insert_failure_roll_back_everything() {
 }
 #[tokio::test]
 async fn db_wallet_adjust_in_commit_rollback_and_replay() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -467,6 +483,7 @@ async fn db_wallet_adjust_in_commit_rollback_and_replay() {
 }
 #[tokio::test]
 async fn db_premium_mutate_in_commit_rollback_and_replay() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -498,6 +515,7 @@ async fn db_premium_mutate_in_commit_rollback_and_replay() {
 
 #[tokio::test]
 async fn db_concurrent_batch_account_limit_and_same_key_retry() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -550,3 +568,242 @@ async fn db_concurrent_batch_account_limit_and_same_key_retry() {
 /// Wallet credits read the coin-debt view, which spans the payments tables.
 /// A schema built from a migration subset gets an empty stand-in: no debt.
 pub(crate) const NO_COIN_DEBT_STUB: &str = "CREATE TABLE coin_purchase_reversals(id uuid PRIMARY KEY,payer_account_id uuid NOT NULL,outcome text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());CREATE VIEW coin_outstanding_debts AS SELECT id AS reversal_id,id AS order_id,payer_account_id AS account_id,created_at,0::bigint AS owed FROM coin_purchase_reversals";
+
+#[tokio::test]
+async fn postgres_a3_browser_premium_redemption_one_connection_and_value_restrictions() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    for maximum in [1, 16] {
+        let url = std::env::var("PORTAL_TEST_DATABASE_URL").expect("PostgreSQL required");
+        let root = PgPool::connect(&url).await.unwrap();
+        let schema = format!("a3_codes_{}", Uuid::now_v7().simple());
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&root)
+            .await
+            .unwrap();
+        let search = schema.clone();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(maximum)
+            .acquire_timeout(std::time::Duration::from_secs(1))
+            .after_connect(move |connection, _| {
+                let search = search.clone();
+                Box::pin(async move {
+                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                        .bind(search)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&url)
+            .await
+            .unwrap();
+        oteryn_db::migrate(&pool).await.unwrap();
+        let issuer = account();
+        let player = account();
+        for id in [issuer, player] {
+            sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'code-test-password','active','en',now())")
+            .bind(id).bind(format!("{id}@example.invalid")).execute(&pool).await.unwrap();
+        }
+        let codes = Codes::new(
+            pool.clone(),
+            CodeFlags { enabled: true },
+            oteryn_wallet::Ledger::new(
+                pool.clone(),
+                WalletFlags { enabled: true },
+                Policy,
+                Policy,
+                Policy,
+            ),
+            premium::repository::Ledger::new(
+                pool.clone(),
+                Arc::new(crate::loyalty::stream::http::DatabaseAccounts),
+                true,
+            ),
+            Policy,
+        );
+        let mut generous = batch(Kind::PremiumDays);
+        generous.max_per_account = 30;
+        generous.max_per_code = 30;
+        let generated = codes
+            .generate(&AuthorizedStaff { actor: issuer }, &generous, 1)
+            .await
+            .unwrap();
+        let request = Redemption {
+            account: player,
+            ..request(&generated.codes[0])
+        };
+        let receipt = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            codes.redeem_player(&request),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let changes = [
+            "UPDATE accounts SET email_change_blocked_until=clock_timestamp()+interval '1 hour' WHERE id=$1",
+            "INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '2 days')",
+            "INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','Redemption regression',now()-interval '1 hour',now()+interval '1 hour',$1)",
+        ];
+        for change in changes {
+            sqlx::query(change)
+                .bind(player)
+                .execute(&pool)
+                .await
+                .unwrap();
+            // An exact replay is distinct from acquisition of new value.
+            assert_eq!(codes.redeem_player(&request).await.unwrap(), receipt);
+            let new_request = Redemption {
+                key: Uuid::now_v7(),
+                ..request.clone()
+            };
+            assert_eq!(codes.redeem_player(&new_request).await, Err(Error::Denied));
+            let counts: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM code_redemptions),(SELECT count(*) FROM premium_ledger)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+            assert_eq!(counts, (1, 1));
+            sqlx::query("UPDATE accounts SET email_change_blocked_until='-infinity' WHERE id=$1")
+                .bind(player)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("UPDATE account_terminations SET cancelled_at=now() WHERE account_id=$1 AND cancelled_at IS NULL").bind(player).execute(&pool).await.unwrap();
+            sqlx::query("UPDATE sanctions SET status='revoked' WHERE account_id=$1")
+                .bind(player)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        // Fill the entire pool with contenders. Each operation must finish using
+        // its sole transaction instead of retaining one connection to request two.
+        let mut tasks = Vec::new();
+        let codes = Arc::new(codes);
+        for _ in 0..16 {
+            let codes = codes.clone();
+            let request = Redemption {
+                key: Uuid::now_v7(),
+                ..request.clone()
+            };
+            tasks.push(tokio::spawn(
+                async move { codes.redeem_player(&request).await },
+            ));
+        }
+        for task in tasks {
+            tokio::time::timeout(std::time::Duration::from_secs(5), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+        }
+        pool.close().await;
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+            .execute(&root)
+            .await
+            .unwrap();
+        root.close().await;
+    }
+    eprintln!(
+        "postgres_a3_browser_premium_redemption_one_connection_and_value_restrictions duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn browser_redemption_locks_code_before_account_and_rechecks_status()
+-> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::create().await.ok_or("PostgreSQL is required")?;
+    sqlx::raw_sql("CREATE TABLE accounts(id uuid PRIMARY KEY,status text NOT NULL,email_verified_at timestamptz); CREATE FUNCTION account_value_eligible(uuid) RETURNS boolean LANGUAGE sql AS 'SELECT true'").execute(&db.pool).await?;
+    let player = account();
+    sqlx::query("INSERT INTO accounts VALUES($1,'active',clock_timestamp())")
+        .bind(player)
+        .execute(&db.pool)
+        .await?;
+    let service = db.service();
+    let generated = service
+        .generate(
+            &AuthorizedStaff { actor: account() },
+            &batch(Kind::Coins),
+            1,
+        )
+        .await?;
+    let redemption = Redemption {
+        account: player,
+        ..request(&generated.codes[0])
+    };
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM gift_codes WHERE batch_id=$1 FOR UPDATE")
+        .bind(generated.batch_id)
+        .execute(&mut *blocker)
+        .await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    let pending = tokio::spawn(async move { service.redeem_player(&redemption).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.pool)
+            .await?;
+            if waiting {
+                break Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    let account_lock = sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(player)
+        .execute(&mut *blocker)
+        .await;
+    if account_lock.is_ok() {
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(player)
+            .execute(&mut *blocker)
+            .await?;
+        blocker.commit().await?;
+    } else {
+        blocker.rollback().await?;
+    }
+    let result = pending.await?;
+    account_lock?;
+    assert_eq!(result, Err(Error::Denied));
+    assert_eq!(db.count("code_redemptions").await, 0);
+    db.close().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn drc_gift_request_budget() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let service = db.service();
+    let request = request("2222-2222-2222-2222");
+    let mut blocker = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,55))")
+        .bind(request.key.to_string())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(5), service.redeem(&request)).await;
+    assert!(
+        result.is_ok(),
+        "gift request lock exceeded the shared three-second budget"
+    );
+    assert!(matches!(result.unwrap(), Err(Error::Unavailable)));
+    blocker.rollback().await.unwrap();
+    assert!(matches!(
+        service.redeem(&request).await,
+        Err(Error::Refused)
+    ));
+    db.close().await;
+}

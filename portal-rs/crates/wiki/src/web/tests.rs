@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[path = "../../../../test-support/rate_clock.rs"]
+mod rate_clock;
 use super::*;
 use axum::{
     body::{Body, to_bytes},
@@ -25,6 +27,19 @@ impl StaffSession for Identity {
     }
 }
 impl AccountStateReader for Identity {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         Ok(self.state)
     }
@@ -47,7 +62,7 @@ impl Database {
             .execute(&root)
             .await
             .unwrap();
-        let path = format!("SET search_path TO {schema}");
+        let path = format!("SET search_path TO {schema},pg_catalog");
         let pool = PgPoolOptions::new()
             .max_connections(5)
             .after_connect(move |c, _| {
@@ -61,6 +76,7 @@ impl Database {
             .await
             .unwrap();
         oteryn_db::migrate(&pool).await.unwrap();
+        rate_clock::install(&pool).await.unwrap();
         let identity = Identity {
             actor: Uuid::now_v7(),
             state: AccountState::Active,
@@ -79,6 +95,7 @@ impl Database {
             account: self.identity.actor,
             require_staff_mfa: true,
             mfa_verified: true,
+            session_proof: None,
         }
     }
     fn repo(&self) -> Repository<Identity> {
@@ -232,6 +249,7 @@ fn rules_rendering_and_localized_forms() {
 
 #[tokio::test]
 async fn database_editorial_lifecycle_and_restore() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -306,6 +324,7 @@ async fn database_editorial_lifecycle_and_restore() {
 }
 #[tokio::test]
 async fn database_refusals_bad_input_and_concurrent_edits() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -403,6 +422,7 @@ async fn database_refusals_bad_input_and_concurrent_edits() {
 }
 #[tokio::test]
 async fn database_history_immutable_and_audit_atomic() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -435,6 +455,7 @@ async fn database_history_immutable_and_audit_atomic() {
 }
 #[tokio::test]
 async fn database_browser_create_review_publish_and_csrf() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -549,6 +570,7 @@ async fn database_browser_create_review_publish_and_csrf() {
 }
 #[tokio::test]
 async fn database_public_search_locale_pagination_and_throttling() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -596,6 +618,7 @@ async fn database_public_search_locale_pagination_and_throttling() {
 }
 #[tokio::test]
 async fn staff_host_flag_and_unknown_identity_deny_without_database() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
@@ -661,6 +684,7 @@ fn revision_source_scroll_region_is_keyboard_reachable() -> Result<(), askama::E
 
 #[tokio::test]
 async fn database_history_pages_bound_response_and_retain_older_revisions() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -722,6 +746,7 @@ async fn database_history_pages_bound_response_and_retain_older_revisions() {
 
 #[tokio::test]
 async fn database_queued_create_edit_restore_recheck_revocation() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open().await.expect("PostgreSQL required");
     for operation in 0..3 {
@@ -736,6 +761,10 @@ async fn database_queued_create_edit_restore_recheck_revocation() {
         let mut blocker = db.pool.begin().await.unwrap();
         sqlx::query("SELECT pg_advisory_xact_lock(20261105220206)")
             .execute(&mut *blocker)
+            .await
+            .unwrap();
+        let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *blocker)
             .await
             .unwrap();
         let task = tokio::spawn(async move {
@@ -753,7 +782,7 @@ async fn database_queued_create_edit_restore_recheck_revocation() {
         });
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {
-                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query='SELECT pg_advisory_xact_lock(20261105220206)')").fetch_one(&db.root).await.unwrap();
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock' AND query='SELECT pg_advisory_xact_lock(20261105220206)')").bind(blocker_pid).fetch_one(&db.root).await.unwrap();
                 if waiting { break; }
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
@@ -790,6 +819,7 @@ async fn database_queued_create_edit_restore_recheck_revocation() {
 
 #[tokio::test]
 async fn postgres_pagination_wiki_ceiling() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open()
         .await
@@ -812,6 +842,7 @@ async fn postgres_pagination_wiki_ceiling() {
 
 #[tokio::test]
 async fn history_exact_ten_snapshots_has_no_older_control() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -834,6 +865,118 @@ async fn history_exact_ten_snapshots_has_no_older_control() {
     db.close().await;
     eprintln!(
         "history_exact_ten_snapshots_has_no_older_control: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_a3_wiki_rechecks_live_session_after_account_wait() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let mut context = db.context();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'wiki-session-password','active','en',now())").bind(context.account).bind(format!("{}@example.invalid",context.account)).execute(&db.pool).await.unwrap();
+    context.session_proof = Some(
+        crate::test_staff::proof(&db.pool, context.account)
+            .await
+            .unwrap(),
+    );
+    let repo = Repository::new(
+        db.pool.clone(),
+        oteryn_admin::web::PortalIdentity::configured(db.pool.clone()),
+    );
+    let result =
+        crate::test_staff::race_session_revocation(&db.pool, context.account, async move {
+            repo.create(context, &input(), None, "Session regression")
+                .await
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        result,
+        Err(Error::Authorization(oteryn_admin::rbac::Error::Denied))
+    ));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM wiki_guides")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap(),
+        0
+    );
+    db.close().await;
+    eprintln!(
+        "postgres_a3_wiki_rechecks_live_session_after_account_wait duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_a3_wiki_edit_and_restore_wait_before_fence() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let mut context = db.context();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'wiki-session-password','active','en',now())").bind(context.account).bind(format!("{}@example.invalid",context.account)).execute(&db.pool).await.unwrap();
+    context.session_proof = Some(
+        crate::test_staff::proof(&db.pool, context.account)
+            .await
+            .unwrap(),
+    );
+    let repo = Repository::new(
+        db.pool.clone(),
+        oteryn_admin::web::PortalIdentity::configured(db.pool.clone()),
+    );
+    let id = repo
+        .create(context, &input(), None, "Resource ordering")
+        .await
+        .unwrap();
+    for restore in [false, true] {
+        let mut blocker = db.pool.begin().await.unwrap();
+        sqlx::query("SELECT id FROM wiki_guides WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .execute(&mut *blocker)
+            .await
+            .unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *blocker)
+            .await
+            .unwrap();
+        let repo = Repository::new(
+            db.pool.clone(),
+            oteryn_admin::web::PortalIdentity::configured(db.pool.clone()),
+        );
+        let task = tokio::spawn(async move {
+            if restore {
+                repo.restore(context, id, 2, 1).await
+            } else {
+                repo.edit(context, id, 1, &input(), "Ordered edit").await
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(2),async {
+            loop {
+                sqlx::query("SELECT pg_stat_clear_snapshot()").execute(&mut *blocker).await.unwrap();
+                let waiting:bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND $1=ANY(pg_blocking_pids(pid)))").bind(pid).fetch_one(&mut *blocker).await.unwrap();
+                if waiting { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        assert!(
+            sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_xact_lock(71010)")
+                .fetch_one(&mut *blocker)
+                .await
+                .unwrap(),
+            "guide wait retained the global fence"
+        );
+        blocker.commit().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
+    db.close().await;
+    eprintln!(
+        "postgres_a3_wiki_edit_and_restore_wait_before_fence duration: {:?}",
         started.elapsed()
     );
 }

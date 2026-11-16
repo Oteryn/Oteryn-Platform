@@ -16,10 +16,30 @@ impl std::fmt::Debug for Mailer {
         f.write_str("RegistrationMailer([redacted])")
     }
 }
+/// Mail settings whose presence means delivery is expected. With none of them
+/// registration delivery is off: serve refuses registration and the worker
+/// keeps queued verification jobs as a disabled consumer. Any partial set is a
+/// configuration error that refuses startup.
+const MAIL_SETTINGS: [&str; 7] = [
+    "OTERYN_SMTP_HOST",
+    "OTERYN_SMTP_PORT",
+    "OTERYN_SMTP_TLS_MODE",
+    "OTERYN_SMTP_USERNAME",
+    "OTERYN_SMTP_PASSWORD",
+    "OTERYN_SMTP_FROM",
+    "OTERYN_MAIL_FROM",
+];
+fn mail_configured() -> bool {
+    MAIL_SETTINGS
+        .iter()
+        .any(|name| std::env::var_os(name).is_some())
+}
 pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(host) = std::env::var("OTERYN_SMTP_HOST") else {
+    if !mail_configured() {
         return Ok(());
-    };
+    }
+    let host =
+        std::env::var("OTERYN_SMTP_HOST").map_err(|_| "registration SMTP host is required")?;
     let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;
     let uri: axum::http::Uri = origin.parse()?;
     if uri.scheme_str() != Some("https")
@@ -262,4 +282,35 @@ mod account_exists_tests {
         );
         Ok(())
     }
+}
+
+/// Freeze delivery readiness at startup, before registration body/session work.
+/// Serve and worker use the identical validated configuration.
+pub fn admission(app: axum::Router, pool: PgPool) -> axum::Router {
+    let ready = mail_configured() && register(&mut Registry::default(), pool).is_ok();
+    admission_with_readiness(app, ready)
+}
+fn admission_with_readiness(app: axum::Router, ready: bool) -> axum::Router {
+    app.layer(axum::middleware::from_fn(
+        move |request: axum::extract::Request, next: axum::middleware::Next| async move {
+            use axum::{
+                http::{Method, StatusCode},
+                response::IntoResponse,
+            };
+            if !ready
+                && request.method() == Method::POST
+                && matches!(
+                    request.uri().path(),
+                    "/register" | "/pl/register" | "/en/register"
+                )
+            {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    [("cache-control", "no-store")],
+                )
+                    .into_response();
+            }
+            next.run(request).await
+        },
+    ))
 }

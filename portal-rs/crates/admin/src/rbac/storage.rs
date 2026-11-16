@@ -65,8 +65,14 @@ impl<A: AccountStateReader> Authorizer<A> {
             Change::Grant { account, .. } | Change::Revoke { account, .. } => *account,
             _ => context.account,
         };
-        super::lock_accounts(&mut tx, &[context.account, target]).await?;
-        super::lock_mutation(&mut tx).await?;
+        super::authorize_mutation(
+            &mut tx,
+            &[context.account, target],
+            self,
+            context,
+            &[Permission::ManageRoles],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ManageRoles)
             .await?;
         if panel {
@@ -126,6 +132,11 @@ impl<A: AccountStateReader> Authorizer<A> {
                     .bind(role).fetch_all(&mut *tx).await?;
                 let after = permission_ids(permissions);
                 if before == after {
+                    self.check_in(&mut tx, context, Permission::ManageRoles)
+                        .await?;
+                    if panel {
+                        self.check_in(&mut tx, context, Permission::Access).await?;
+                    }
                     tx.commit().await?;
                     return Ok(None);
                 }
@@ -173,6 +184,11 @@ impl<A: AccountStateReader> Authorizer<A> {
                         .rows_affected()
                 };
                 if affected == 0 {
+                    self.check_in(&mut tx, context, Permission::ManageRoles)
+                        .await?;
+                    if panel {
+                        self.check_in(&mut tx, context, Permission::Access).await?;
+                    }
                     tx.commit().await?;
                     return Ok(None);
                 }
@@ -203,6 +219,11 @@ impl<A: AccountStateReader> Authorizer<A> {
             },
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageRoles)
+            .await?;
+        if panel {
+            self.check_in(&mut tx, context, Permission::Access).await?;
+        }
         tx.commit().await?;
         Ok(Some(result))
     }

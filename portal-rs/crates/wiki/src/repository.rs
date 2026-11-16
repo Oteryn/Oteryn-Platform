@@ -82,9 +82,14 @@ impl<A: AccountStateReader> Repository<A> {
         context: CheckContext,
         permission: Permission,
     ) -> Result<(), Error> {
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut **tx)
-            .await?;
+        oteryn_admin::rbac::authorize_mutation(
+            tx,
+            &[context.account],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::WikiAccess, permission],
+        )
+        .await?;
         for required in [Permission::Access, Permission::WikiAccess, permission] {
             self.auth.check_in(tx, context, required).await?;
         }
@@ -130,7 +135,26 @@ impl<A: AccountStateReader> Repository<A> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
+        oteryn_admin::rbac::authorize_mutation_with_resources(
+            &mut tx,
+            &[context.account],
+            |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT pg_advisory_xact_lock(20261105220206)")
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
+            &self.auth,
+            context,
+            &[
+                Permission::Access,
+                Permission::WikiAccess,
+                Permission::ManageWikiArticles,
+            ],
+        )
+        .await?;
         reserve(&mut tx, values, None).await?;
         self.authorize_in(&mut tx, context, Permission::ManageWikiArticles)
             .await?;
@@ -150,6 +174,8 @@ impl<A: AccountStateReader> Repository<A> {
             json!({"version":1}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, Permission::ManageWikiArticles)
+            .await?;
         tx.commit().await?;
         Ok(id)
     }
@@ -168,7 +194,30 @@ impl<A: AccountStateReader> Repository<A> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
+        oteryn_admin::rbac::authorize_mutation_with_resources(
+            &mut tx,
+            &[context.account],
+            |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT pg_advisory_xact_lock(20261105220206)")
+                        .execute(&mut *connection)
+                        .await?;
+                    sqlx::query("SELECT id FROM wiki_guides WHERE id=$1 FOR UPDATE")
+                        .bind(id)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
+            &self.auth,
+            context,
+            &[
+                Permission::Access,
+                Permission::WikiAccess,
+                Permission::ManageWikiArticles,
+            ],
+        )
+        .await?;
         // Same lock ordering for every slug reservation, including restore.
         slug_lock(&mut tx).await?;
         let guide = lock(&mut tx, id).await?;
@@ -188,6 +237,8 @@ impl<A: AccountStateReader> Repository<A> {
             json!({"version":next}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, Permission::ManageWikiArticles)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -201,7 +252,30 @@ impl<A: AccountStateReader> Repository<A> {
     ) -> Result<(), Error> {
         self.authorize(context, Permission::PublishWiki).await?;
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
+        oteryn_admin::rbac::authorize_mutation_with_resources(
+            &mut tx,
+            &[context.account],
+            |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT pg_advisory_xact_lock(20261105220206)")
+                        .execute(&mut *connection)
+                        .await?;
+                    sqlx::query("SELECT id FROM wiki_guides WHERE id=$1 FOR UPDATE")
+                        .bind(id)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
+            &self.auth,
+            context,
+            &[
+                Permission::Access,
+                Permission::WikiAccess,
+                Permission::PublishWiki,
+            ],
+        )
+        .await?;
         slug_lock(&mut tx).await?;
         let guide = lock(&mut tx, id).await?;
         self.authorize_in(&mut tx, context, Permission::PublishWiki)
@@ -222,6 +296,8 @@ impl<A: AccountStateReader> Repository<A> {
             json!({"version":next,"source":source}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, Permission::PublishWiki)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -242,11 +318,11 @@ impl<A: AccountStateReader> Repository<A> {
         )
         .await?;
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
+        oteryn_admin::rbac::authorize_mutation_with_resources(&mut tx, &[context.account], move |connection| Box::pin(async move {
+            sqlx::query("SELECT id,status,version,revision_version,entity_key FROM wiki_guides WHERE id=$1 FOR UPDATE").bind(id).execute(connection).await?;
+            Ok(())
+        }), &self.auth, context, &[Permission::Access, Permission::WikiAccess, if action.publisher() { Permission::PublishWiki } else { Permission::ManageWikiArticles }]).await?;
         let guide = lock(&mut tx, id).await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-            .execute(&mut *tx)
-            .await?;
         for required in [
             Permission::Access,
             Permission::WikiAccess,
@@ -278,6 +354,16 @@ impl<A: AccountStateReader> Repository<A> {
             &format!("wiki.{}", action.name()),
             json!({"status":guide.status,"version":guide.version}),
             json!({"status":target,"version":guide.version+1}),
+        )
+        .await?;
+        self.authorize_in(
+            &mut tx,
+            context,
+            if action.publisher() {
+                Permission::PublishWiki
+            } else {
+                Permission::ManageWikiArticles
+            },
         )
         .await?;
         tx.commit().await?;

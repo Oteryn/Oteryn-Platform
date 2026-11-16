@@ -127,6 +127,7 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
         .clone()
         .options([("search_path", schema)]);
     let db = PgPool::connect_with(options).await?;
+    sqlx::raw_sql("CREATE TABLE community_privacy_revision(id integer PRIMARY KEY,revision bigint NOT NULL DEFAULT 0); INSERT INTO community_privacy_revision(id) VALUES(1)").execute(&db).await?;
     sqlx::raw_sql(include_str!(
         "../../../migrations/20261105180000_t24_public_snapshots.sql"
     ))
@@ -273,6 +274,10 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
             .1
             .contains("unavailable")
     );
+    assert_eq!(
+        page_body(pages(), "/en/guilds").await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
     db.close().await;
     sqlx::query("DROP SCHEMA guild_t24e_test CASCADE")
         .execute(&pool)
@@ -353,7 +358,7 @@ async fn configured_parent_switch_fences_children() -> TestResult {
     let get = |key: &str| {
         Some(
             match key {
-                "APP_ENV" => "testing",
+                "APP_ENV" | "OTERYN_ENV" => "testing",
                 "PORTAL_PUBLIC_PROJECTIONS_ENABLED" => "false",
                 "PORTAL_GUILDS_INGEST_ENABLED"
                 | "PORTAL_WORLD_DAILY_PUBLIC_ENABLED"
@@ -385,7 +390,7 @@ async fn postgres_configured_guild_parent_off_refuses_publication_and_watermark(
         configured_with(d.db.clone(), Part::All, |key| {
             Some(
                 match key {
-                    "APP_ENV" => "testing",
+                    "APP_ENV" | "OTERYN_ENV" => "testing",
                     "PORTAL_GUILDS_INGEST_ENABLED" => "true",
                     "PORTAL_PUBLIC_PROJECTIONS_ENABLED" => {
                         if parent {
@@ -429,6 +434,151 @@ async fn postgres_configured_guild_parent_off_refuses_publication_and_watermark(
     eprintln!(
         "PG postgres_configured_guild_parent_off_refuses_publication_and_watermark {:.3}s",
         started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn w3_c06_002_guild_profile_conflict_during_privacy() -> TestResult {
+    async fn publish_profile(db: &PgPool, name: &str) -> StatusCode {
+        let identities = Arc::new(
+            IdentityMap::new(vec![guard::Binding {
+                identity: guard::Identity::san("guild-profile-test").unwrap(),
+                group: "game-public".into(),
+            }])
+            .unwrap(),
+        );
+        let app = crate::ingest::router(
+            db.clone(),
+            identities,
+            crate::ingest::Config {
+                enabled: true,
+                source_authority: "oteryn:game:primary".into(),
+            },
+        );
+        let raw = format!(
+            r#"{{"contract_version":1,"operation":"PublishCharacterProfileV1","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"1","source_observed_at":"{}","profile":[{{"world_id":"01934f10-7c02-7001-805b-3b1122334401","name":"{name}","vocation":4,"level":"412","guild_visible":true,"guild":[{{"guild_id":"01934f10-7c06-7001-805b-3b1122334401","rank_level":1}}]}}]}}"#,
+            now()
+        );
+        app.oneshot(
+            Request::post("/internal/v1/game-public/character-profile")
+                .header("content-type", "application/json")
+                .extension(guard::VerifiedClient::from_verified_tls13_http11(
+                    guard::Identity::san("guild-profile-test").unwrap(),
+                ))
+                .body(Body::from(raw))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+    }
+    struct Visible {
+        db: PgPool,
+        suppress: bool,
+    }
+    impl PublicVisibility for Visible {
+        fn visible_batch<'a>(&'a self, _: &'a str, refs: &'a [MemberRef]) -> VisibilityResult<'a> {
+            Box::pin(async move {
+                if self.suppress {
+                    assert_eq!(
+                        publish_profile(&self.db, "Changed Name").await,
+                        StatusCode::CONFLICT
+                    );
+                }
+                Ok(vec![true; refs.len()])
+            })
+        }
+    }
+    let started = std::time::Instant::now();
+    let d = crate::audit06_test_db::Database::new().await?;
+    apply(&d.db, &publication(GOLDEN, false))
+        .await
+        .map_err(|_| "guild publication failed")?;
+    let wm = format!(
+        r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"oteryn:game:primary","family":"guild","projection_epoch":"1","complete_through":"{}","observed_at":"{}"}}"#,
+        now(),
+        now()
+    );
+    apply(&d.db, &publication(&wm, true))
+        .await
+        .map_err(|_| "watermark failed")?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,1,1,$1,'null')").bind(i64::try_from(now())?).execute(&d.db).await?;
+    assert_eq!(publish_profile(&d.db, "Aldric").await, StatusCode::OK);
+    for suppress in [false, true] {
+        let a = router(
+            d.db.clone(),
+            Arc::new(Visible {
+                db: d.db.clone(),
+                suppress,
+            }),
+            Config {
+                enabled: true,
+                source_authority: "oteryn:game:primary".into(),
+            },
+        );
+        let response = a
+            .oneshot(Request::get("/en/guilds/Red%20Rose").body(Body::empty())?)
+            .await?;
+        let status = response.status();
+        let body = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+        if suppress {
+            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+            assert!(body.contains("unavailable"));
+            assert!(!body.contains("Red Rose</"));
+        } else {
+            assert!(body.contains("Red Rose</") && body.contains("Aldric"));
+        }
+    }
+    d.close().await?;
+    eprintln!(
+        "w3_c06_002_guild_profile_conflict_during_privacy {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn w3_c06_010_guild_privacy_unavailability_returns_503() -> TestResult {
+    struct Refuse;
+    impl PublicVisibility for Refuse {
+        fn visible_batch<'a>(&'a self, _: &'a str, _: &'a [MemberRef]) -> VisibilityResult<'a> {
+            Box::pin(async { Err(Unavailable::Evidence) })
+        }
+    }
+    let started = std::time::Instant::now();
+    let d = crate::audit06_test_db::Database::new().await?;
+    apply(&d.db, &publication(GOLDEN, false))
+        .await
+        .map_err(|_| "publish")?;
+    let raw = format!(
+        r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"oteryn:game:primary","family":"guild","projection_epoch":"1","complete_through":"{}","observed_at":"{}"}}"#,
+        now(),
+        now()
+    );
+    apply(&d.db, &publication(&raw, true))
+        .await
+        .map_err(|_| "watermark")?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,1,1,$1,'null')").bind(i64::try_from(now())?).execute(&d.db).await?;
+    let pages = || {
+        router(
+            d.db.clone(),
+            Arc::new(Refuse),
+            Config {
+                enabled: true,
+                source_authority: "oteryn:game:primary".into(),
+            },
+        )
+    };
+    for path in ["/en/guilds", "/en/guilds/Red%20Rose"] {
+        let (status, body) = page_body(pages(), path).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(!body.contains("Red Rose</") && !body.contains("Aldric"));
+    }
+    d.close().await?;
+    eprintln!(
+        "w3_c06_010_guild_privacy_unavailability_returns_503 {:?}",
+        started.elapsed()
     );
     Ok(())
 }

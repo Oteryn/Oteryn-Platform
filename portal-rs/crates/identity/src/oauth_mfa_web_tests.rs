@@ -63,13 +63,16 @@ async fn router_flow() -> Result {
     if std::env::var_os(CHILD).is_none() {
         return Ok(());
     }
-    tokio::time::timeout(std::time::Duration::from_secs(60), flow()).await?
-}
-
-async fn flow() -> Result {
+    // Schema creation and migrations are setup, not the guarded flow; in a full
+    // parallel test binary they contend with every other migrating test.
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
+    tokio::time::timeout(std::time::Duration::from_secs(60), flow(&db)).await??;
+    db.close().await
+}
+
+async fn flow(db: &Database) -> Result {
     let mfa = Mfa::new(db.pool.clone(), KEY);
     let (owner, grant) = db.mfa_login(&mfa, "owner@example.test").await?;
     let (other, other_grant) = db.mfa_login(&mfa, "other@example.test").await?;
@@ -123,7 +126,7 @@ async fn flow() -> Result {
         "{location}"
     );
     assert_eq!(db.codes().await?, 1);
-    db.close().await
+    Ok(())
 }
 
 fn show(cookie: &str) -> Result<Request<Body>> {

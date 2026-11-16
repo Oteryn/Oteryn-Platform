@@ -19,11 +19,19 @@ impl Events {
         locale: &str,
         slug: Option<&str>,
     ) -> Result<Vec<PublicEvent>, Error> {
+        self.public_page(locale, slug, 0).await
+    }
+    pub(crate) async fn public_page(
+        &self,
+        locale: &str,
+        slug: Option<&str>,
+        offset: i64,
+    ) -> Result<Vec<PublicEvent>, Error> {
         if !matches!(locale, "pl" | "en") || slug.is_some_and(|s| !valid_slug(s)) {
             return Err(Error::Invalid);
         }
-        Ok(sqlx::query_as("SELECT e.id,t.title,t.slug,t.summary,t.body,e.starts_at,e.ends_at FROM events e JOIN event_translations t ON t.event_id=e.id WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1 AND ($2::text IS NULL OR t.slug=$2) ORDER BY e.featured DESC,e.starts_at,e.id LIMIT 200")
-            .bind(locale).bind(slug).fetch_all(&self.pool).await?)
+        Ok(sqlx::query_as("SELECT e.id,t.title,t.slug,t.summary,t.body,e.starts_at,e.ends_at FROM events e JOIN event_translations t ON t.event_id=e.id WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1 AND ($2::text IS NULL OR t.slug=$2) ORDER BY (e.ends_at>clock_timestamp()) DESC,e.featured DESC,e.starts_at,e.id LIMIT 200 OFFSET $3")
+            .bind(locale).bind(slug).bind(offset).fetch_all(&self.pool).await?)
     }
     pub(crate) async fn digest(
         &self,
@@ -34,7 +42,10 @@ impl Events {
             .bind(locale).bind(at).fetch_all(&self.pool).await?)
     }
     pub async fn list(&self) -> Result<Vec<Event>, Error> {
-        Ok(sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version FROM events ORDER BY updated_at DESC,id DESC LIMIT 200").fetch_all(&self.pool).await?)
+        self.list_page(0).await
+    }
+    pub(crate) async fn list_page(&self, offset: i64) -> Result<Vec<Event>, Error> {
+        Ok(sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version FROM events ORDER BY updated_at DESC,id DESC LIMIT 200 OFFSET $1").bind(offset).fetch_all(&self.pool).await?)
     }
     pub async fn load(&self, id: Uuid) -> Result<(Event, Translation, Option<Translation>), Error> {
         let event = sqlx::query_as(
@@ -75,8 +86,25 @@ impl Events {
         mut draft: Draft,
     ) -> Result<Uuid, Error> {
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
-        oteryn_admin::rbac::lock_mutation(&mut tx).await?;
+        oteryn_admin::rbac::authorize_mutation_with_resources(
+            &mut tx,
+            &[context.account],
+            move |connection| {
+                Box::pin(async move {
+                    if let Some((id, _)) = existing {
+                        sqlx::query("SELECT id FROM events WHERE id=$1 FOR UPDATE")
+                            .bind(id)
+                            .execute(connection)
+                            .await?;
+                    }
+                    Ok(())
+                })
+            },
+            auth,
+            context,
+            &[Permission::Access, Permission::ManageEvents],
+        )
+        .await?;
         auth.check_in(&mut tx, context, Permission::Access).await?;
         auth.check_in(&mut tx, context, Permission::ManageEvents)
             .await?;
@@ -126,6 +154,13 @@ impl Events {
             },
         )
         .await?;
+        crate::revalidate(
+            auth,
+            &mut tx,
+            context,
+            &[Permission::Access, Permission::ManageEvents],
+        )
+        .await?;
         tx.commit().await?;
         Ok(id)
     }
@@ -138,8 +173,27 @@ impl Events {
         target: &str,
     ) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
-        oteryn_admin::rbac::lock_mutation(&mut tx).await?;
+        oteryn_admin::rbac::authorize_mutation_with_resources(
+            &mut tx,
+            &[context.account],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT id FROM events WHERE id=$1 FOR UPDATE")
+                        .bind(id)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
+            auth,
+            context,
+            &[
+                Permission::Access,
+                Permission::ManageEvents,
+                Permission::PublishEvents,
+            ],
+        )
+        .await?;
         auth.check_in(&mut tx, context, Permission::Access).await?;
         for permission in [Permission::ManageEvents, Permission::PublishEvents] {
             auth.check_in(&mut tx, context, permission).await?;
@@ -182,6 +236,17 @@ impl Events {
                 before: json!({"status":current.status,"version":version}),
                 after: json!({"status":target.as_str(),"version":version+1}),
             },
+        )
+        .await?;
+        crate::revalidate(
+            auth,
+            &mut tx,
+            context,
+            &[
+                Permission::Access,
+                Permission::ManageEvents,
+                Permission::PublishEvents,
+            ],
         )
         .await?;
         tx.commit().await?;

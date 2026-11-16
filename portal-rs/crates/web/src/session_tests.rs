@@ -532,3 +532,58 @@ async fn nwave_consent_forms_accept_public_origin_and_reject_forgery() -> TestRe
     assert!(unconfigured.csrf.trusted_origins.is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn lock_order_rotation_locks_account_before_session() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new()
+        .await?
+        .ok_or("PostgreSQL is required for lock-order regression")?;
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
+        .bind(account).execute(&db.pool).await?;
+    let session = BrowserSession::new(
+        db.pool.clone(),
+        SessionConfig::default(),
+        None,
+        "lock order",
+    );
+    session.csrf_token().await?;
+    let session_hash = session.identity_hash().await.ok_or("missing session")?;
+    let mut writer = db.pool.begin().await?;
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(account)
+        .execute(&mut *writer)
+        .await?;
+    let rotating =
+        tokio::spawn(async move { rotate(&session, PrivilegeChange::Login(account)).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')")
+                .bind(blocker).fetch_one(&db.pool).await?;
+            if waiting { return Ok::<_, sqlx::Error>(()); }
+            tokio::task::yield_now().await;
+        }
+    }).await.map_err(|_| "rotation did not reach the observable account lock wait within 2 seconds")??;
+    sqlx::query("SET LOCAL lock_timeout='250ms'")
+        .execute(&mut *writer)
+        .await?;
+    let session_lock = sqlx::query("SELECT id_hash FROM web_sessions WHERE id_hash=$1 FOR UPDATE")
+        .bind(session_hash)
+        .execute(&mut *writer)
+        .await;
+    writer.rollback().await?;
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(4), rotating)
+        .await
+        .map_err(|_| "rotation did not finish after account blocker released")??;
+    db.close().await?;
+    assert!(
+        session_lock.is_ok(),
+        "rotation retained the session before waiting for its account: {session_lock:?}"
+    );
+    outcome?;
+    Ok(())
+}

@@ -75,6 +75,7 @@ async fn prepare_download(
         .bind(id).fetch_one(&mut *tx).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(1);
     let errors = sender.clone();
+    let (status_tx, status_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
         let work = tokio::time::timeout_at(deadline, async move {
             let prefix = format!("{{\"schema_version\":1,\"account\":{account}");
@@ -143,14 +144,25 @@ async fn prepare_download(
             _ = errors.closed() => return,
             outcome = work => outcome,
         };
-        // Never await the error send: backpressure must also be bounded on failure.
-        if !matches!(outcome, Ok(Ok(()))) {
-            let _ = errors.try_send(Err(std::io::Error::other("account export failed")));
-        }
+        // Terminal status is independent of data backpressure and owns no transaction.
+        let _ = status_tx.send(matches!(outcome, Ok(Ok(()))));
     });
     Ok(axum::body::Body::from_stream(futures_util::stream::unfold(
-        receiver,
-        |mut receiver| async { receiver.recv().await.map(|chunk| (chunk, receiver)) },
+        (receiver, Some(status_rx)),
+        |(mut receiver, mut status)| async move {
+            if let Some(chunk) = receiver.recv().await {
+                return Some((chunk, (receiver, status)));
+            }
+            if let Some(status_rx) = status.take()
+                && status_rx.await != Ok(true)
+            {
+                return Some((
+                    Err(std::io::Error::other("account export failed")),
+                    (receiver, status),
+                ));
+            }
+            None
+        },
     )))
 }
 

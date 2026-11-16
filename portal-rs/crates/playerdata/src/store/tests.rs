@@ -1451,6 +1451,10 @@ async fn postgres_production_retention_dispatch_erases_payload_preserves_replay(
             .ingest(playerdata::progress(raw.as_bytes())?, time)
             .await?;
     }
+    // Supersession retention starts at publication, so publish the old
+    // replacement prefix before exercising the bounded cleanup dispatch.
+    a.allow(watermark_scope(&r.scope)).await;
+    store.watermark(watermark(513, old), time).await?;
     let event = Uuid::now_v7();
     let login = format!(
         "{{\"login_event_id\":\"{event}\",\"entered_at\":\"{old}\",\"left_at\":null,\"end_reason\":null}}"
@@ -1704,6 +1708,262 @@ async fn postgres_pd2_03_production_cleanup_prunes_bank_replay_metadata()
     db.close().await?;
     eprintln!(
         "postgres_pd2_03_production_cleanup_prunes_bank_replay_metadata duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_a3_core_expiry_at_publication()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+            .fetch_one(&db.pool)
+            .await?;
+    let now = now as u64;
+    let old = now - 8 * 86400000;
+    let time = |unix_ms| TrustedTime {
+        unix_ms,
+        uncertainty_ms: 0,
+    };
+    let a = TestAuthority::default();
+    let first = playerdata::progress(
+        String::from_utf8(progress(1))?
+            .replace(&NOW.to_string(), &old.to_string())
+            .as_bytes(),
+    )?;
+    let scope = first.scope.clone();
+    a.allow(scope.clone()).await;
+    a.allow(watermark_scope(&scope)).await;
+    let store = db.store(&a);
+    store.ingest(first, time(old)).await?;
+    store.watermark(watermark(1, old), time(old)).await?;
+    let next = playerdata::progress(
+        String::from_utf8(progress(2))?
+            .replace(&NOW.to_string(), &old.to_string())
+            .as_bytes(),
+    )?;
+    store.ingest(next, time(old)).await?;
+    store.watermark(watermark(1, now), time(now)).await?;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await?;
+    assert_eq!(
+        store
+            .read(&Actor::Owner(ACCOUNT.into()), &scope, time(now))
+            .await?
+            .records
+            .len(),
+        1
+    );
+    store.watermark(watermark(2, now), time(now)).await?;
+    let expires: i64 =
+        sqlx::query_scalar("SELECT expires_ms FROM pd_records WHERE source_revision=1")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(expires as u64, now + 7 * 86400000);
+    // Upgrade an existing current value with an acceptance-era deadline.
+    sqlx::query("UPDATE pd_records SET expires_ms=$1 WHERE source_revision=2")
+        .bind(old as i64)
+        .execute(&db.pool)
+        .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261115213000_fix_a3-03-playerdata_publication_expiry.sql"
+    ))
+    .execute(&db.pool)
+    .await?;
+    let repaired: i64 =
+        sqlx::query_scalar("SELECT expires_ms FROM pd_records WHERE source_revision=2")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(repaired as u64, old + 36500 * 86400000);
+    let superseded: i64 =
+        sqlx::query_scalar("SELECT expires_ms FROM pd_records WHERE source_revision=1")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(superseded, expires);
+    db.close().await?;
+    eprintln!(
+        "postgres_a3_core_expiry_at_publication duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+const MIGRATION_BACKFILL_SYNC: &str =
+    include_str!("../../../../migrations/20261115224000_fix_a3-15-migrations_backfill_sync.sql");
+
+// Wait for PostgreSQL to observe the competing write waiting on the migration's
+// table lock, rather than relying on task scheduling or a wall-clock sleep.
+async fn assert_migration_blocks(db: &Db, pid: i32) -> std::result::Result<(), sqlx::Error> {
+    for _ in 0..100 {
+        let waiting: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND NOT granted)",
+        )
+        .bind(pid)
+        .fetch_one(&db.pool)
+        .await?;
+        if waiting {
+            return Ok(());
+        }
+        sqlx::query("SELECT pg_sleep(0.01)")
+            .execute(&db.pool)
+            .await?;
+    }
+    Err(sqlx::Error::Protocol(
+        "legacy writer did not wait for the migration lock".into(),
+    ))
+}
+
+#[tokio::test]
+async fn postgres_mig01_reminder_repair_and_concurrent_legacy_write()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let db = Db::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let missing = Uuid::now_v7();
+    let stale = Uuid::now_v7();
+    let owner = Uuid::now_v7();
+    sqlx::query("INSERT INTO pd_reminders(id,account_id,kind,entity_key,channel,due_at_ms) VALUES($1,$2,'premium','stale','email',100)")
+        .bind(stale).bind(owner).execute(&db.pool).await?;
+    // Reproduce writes committed between the original copy and trigger install.
+    sqlx::raw_sql("ALTER TABLE pd_reminders DISABLE TRIGGER USER")
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO pd_reminders(id,account_id,kind,entity_key,channel,due_at_ms,state) VALUES($1,$2,'premium','missing','email',100,'delivered')")
+        .bind(missing).bind(owner).execute(&db.pool).await?;
+    sqlx::query("UPDATE pd_reminders SET state='cancelled' WHERE id=$1")
+        .bind(stale)
+        .execute(&db.pool)
+        .await?;
+    sqlx::raw_sql("ALTER TABLE pd_reminders ENABLE TRIGGER USER")
+        .execute(&db.pool)
+        .await?;
+    sqlx::raw_sql("DROP TRIGGER pd_bank_continuation_sync ON pd_records; DROP FUNCTION pd_bank_continuation_sync()")
+        .execute(&db.pool).await?;
+    // A new scheduler could also have recreated the missed identity meanwhile.
+    // Repair must restore the original legacy ID and its delivery state.
+    sqlx::query("INSERT INTO pd_scoped_reminders(id,account_id,kind,entity_key,channel,due_at_ms) VALUES($1,$2,'premium','missing','email',100)")
+        .bind(Uuid::now_v7()).bind(owner).execute(&db.pool).await?;
+    let mut migration = db.pool.begin().await?;
+    let (copy, rest) = MIGRATION_BACKFILL_SYNC
+        .split_once("UPDATE pd_reminders l")
+        .unwrap();
+    sqlx::raw_sql(copy).execute(&mut *migration).await?;
+    let states: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT id,state FROM pd_scoped_reminders WHERE id IN ($1,$2) ORDER BY state",
+    )
+    .bind(missing)
+    .bind(stale)
+    .fetch_all(&mut *migration)
+    .await?;
+    assert_eq!(
+        states,
+        vec![(stale, "cancelled".into()), (missing, "delivered".into())]
+    );
+    let mut writer = db.pool.acquire().await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await?;
+    let concurrent = Uuid::now_v7();
+    let write = tokio::spawn(async move {
+        sqlx::query("INSERT INTO pd_reminders(id,account_id,kind,entity_key,channel,due_at_ms,state) VALUES($1,$2,'premium','concurrent','email',100,'cancelled') RETURNING id")
+            .bind(concurrent).bind(owner).fetch_one(&mut *writer).await
+    });
+    assert_migration_blocks(&db, pid).await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("UPDATE pd_reminders l{rest}")))
+        .execute(&mut *migration)
+        .await?;
+    migration.commit().await?;
+    let row = write.await??;
+    assert_eq!(row.try_get::<Uuid, _>("id")?, concurrent);
+    let state: String = sqlx::query_scalar("SELECT state FROM pd_scoped_reminders WHERE id=$1")
+        .bind(concurrent)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(state, "cancelled");
+    db.close().await?;
+    eprintln!(
+        "PG postgres_mig01_reminder_repair_and_concurrent_legacy_write {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+async fn legacy_bank_append(pool: &PgPool, r: &Record) -> std::result::Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let key = stream_key(&r.scope);
+    sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) VALUES($1,$2::numeric,$3,$4,$5,$6,NULL,$7,$8,$9,$10,$11,$12,$13)")
+        .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(&r.scope.recovery)
+        .bind(&r.id).bind(&r.entity).bind(subject_key(&r.scope)).bind(&r.kind)
+        .bind(r.occurred_ms as i64).bind(r.coverage_ms as i64).bind(hash(&r.bytes))
+        .bind(canonical::encode(&r.payload).unwrap()).bind((NOW+86400000) as i64)
+        .execute(&mut *tx).await?;
+    sqlx::query("UPDATE pd_streams SET highest_seen=$2::numeric,stored_through=$2::numeric,applied_through=$2::numeric,last_record_id=$3 WHERE stream_key=$1")
+        .bind(key).bind(r.revision.to_string()).bind(&r.id).execute(&mut *tx).await?;
+    tx.commit().await
+}
+
+#[tokio::test]
+async fn postgres_mig01_bank_repair_and_concurrent_legacy_write()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let db = Db::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let a = TestAuthority::default();
+    let first = playerdata::items(&bank(1, None, 0, 100))?;
+    a.allow(first.scope.clone()).await;
+    let store = db.store(&a);
+    store.ingest(first.clone(), clock()).await?;
+    sqlx::raw_sql("DROP TRIGGER pd_bank_continuation_sync ON pd_records; DROP FUNCTION pd_bank_continuation_sync()")
+        .execute(&db.pool).await?;
+    let second = playerdata::items(&bank(2, Some(&first.entity), 100, 100))?;
+    legacy_bank_append(&db.pool, &second).await?;
+    let third = playerdata::items(&bank(3, Some(&second.entity), 200, 100))?;
+    assert_eq!(
+        store.ingest(third.clone(), clock()).await,
+        Err(Error::Conflict)
+    );
+    let mut migration = db.pool.begin().await?;
+    sqlx::raw_sql(MIGRATION_BACKFILL_SYNC)
+        .execute(&mut *migration)
+        .await?;
+    let repaired: String =
+        sqlx::query_scalar("SELECT entry_id FROM pd_bank_continuations WHERE stream_key=$1")
+            .bind(stream_key(&first.scope))
+            .fetch_one(&mut *migration)
+            .await?;
+    assert_eq!(repaired, second.entity);
+    let mut writer = db.pool.acquire().await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await?;
+    let record = third.clone();
+    let write = tokio::spawn(async move {
+        let mut tx = sqlx::Connection::begin(&mut *writer).await?;
+        let key = stream_key(&record.scope);
+        sqlx::query("INSERT INTO pd_records SELECT stream_key,$2::numeric,authority,recovery_generation,$3,$4,character_id,scope_key,kind,occurred_ms,coverage_ms,$5,$6,expires_ms FROM pd_records WHERE stream_key=$1 AND source_revision=2")
+            .bind(&key).bind(record.revision.to_string()).bind(&record.id).bind(&record.entity)
+            .bind(hash(&record.bytes)).bind(canonical::encode(&record.payload).unwrap())
+            .execute(&mut *tx).await?;
+        sqlx::query("UPDATE pd_streams SET highest_seen=3,stored_through=3,applied_through=3 WHERE stream_key=$1")
+            .bind(key).execute(&mut *tx).await?;
+        tx.commit().await
+    });
+    assert_migration_blocks(&db, pid).await?;
+    migration.commit().await?;
+    write.await??;
+    let fourth = playerdata::items(&bank(4, Some(&third.entity), 300, 100))?;
+    store.ingest(fourth, clock()).await?;
+    db.close().await?;
+    eprintln!(
+        "PG postgres_mig01_bank_repair_and_concurrent_legacy_write {:?}",
         started.elapsed()
     );
     Ok(())

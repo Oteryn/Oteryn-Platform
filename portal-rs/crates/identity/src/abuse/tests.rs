@@ -19,7 +19,7 @@ impl Database {
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&admin)
             .await?;
-        let path = schema.clone();
+        let path = format!("{schema}, pg_catalog");
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
             .after_connect(move |conn, _| {
@@ -40,6 +40,21 @@ impl Database {
             admin,
             schema,
         }))
+    }
+    // Keep both identity's clock_timestamp budget and the web route's
+    // statement_timestamp budget in the same controlled minute. These functions
+    // exist only in this test's schema, ahead of pg_catalog on its search path.
+    async fn freeze_budget_clock(&self) -> TestResult {
+        sqlx::query("CREATE TABLE test_budget_clock AS SELECT clock_timestamp() AS instant")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("CREATE FUNCTION clock_timestamp() RETURNS timestamptz LANGUAGE sql AS 'SELECT instant FROM test_budget_clock'")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("CREATE FUNCTION statement_timestamp() RETURNS timestamptz LANGUAGE sql AS 'SELECT instant FROM test_budget_clock'")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
     async fn enable(&self) -> TestResult {
         sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
@@ -439,8 +454,9 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
     };
     db.enable().await?;
     db.range("a fresh registration passphrase", false).await?;
-    // Prepare every form and solve its work token first, so that only the
-    // submissions fall inside the one-minute registration budget window.
+    db.freeze_budget_clock().await?;
+    // Solving work and hashing passwords may span a wall-clock minute under
+    // load. Keep the fixed-window budgets on the schema-local database clock.
     let mut forms = Vec::new();
     for _ in 0..7 {
         let (app, cookie, csrf) = browser_form(&db).await?;
@@ -458,6 +474,7 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
         ])?;
         forms.push((app, cookie, body));
     }
+    let (reset_app, reset_cookie, reset_body) = forms[5].clone();
     for (n, (app, cookie, body)) in forms.into_iter().enumerate() {
         let response = app
             .oneshot(
@@ -492,5 +509,105 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
             .await?,
         1
     );
+    let budgets: Vec<(String, i64)> =
+        sqlx::query_as("SELECT limiter_name,count FROM web_rate_limits ORDER BY limiter_name")
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(
+        budgets,
+        vec![
+            ("identity-registration".into(), 5),
+            ("identity-registration-attempt".into(), 6),
+        ]
+    );
+    // Refusals precede work consumption. Both fixed windows reset at the next
+    // database minute; the very same refused form then reaches registration.
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM registration_work")
+            .fetch_one(&db.pool)
+            .await?,
+        2
+    );
+    sqlx::query("UPDATE test_budget_clock SET instant=instant+interval '1 minute'")
+        .execute(&db.pool)
+        .await?;
+    let response = reset_app
+        .oneshot(
+            axum::http::Request::post("/en/register")
+                .header("cookie", reset_cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(axum::body::Body::from(reset_body))?,
+        )
+        .await?;
+    assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM registration_work")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
     db.close().await
+}
+
+#[tokio::test]
+async fn audit3_english_challenge_refusal_uses_requested_language() -> TestResult {
+    use tower::ServiceExt;
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for this regression")?;
+    db.enable().await?;
+    let (app, cookie, csrf) = browser_form(&db).await?;
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=false")
+        .execute(&db.pool)
+        .await?;
+    let request = || {
+        axum::http::Request::post("/en/register/abuse/challenge")
+            .header(axum::http::header::COOKIE, &cookie)
+            .header("x-csrf-token", &csrf)
+            .body(axum::body::Body::empty())
+    };
+    let response = app.oneshot(request()?).await?;
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), 65536)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(body.contains("Registration is currently unavailable."));
+    assert!(!body.contains("Rejestracja jest obecnie"));
+
+    // The shared application error shell replaces module links. Exercise the
+    // adapter with the same real session/CSRF middleware to inspect its retry link.
+    let adapter = http::routes::<()>(db.pool.clone())
+        .route_layer(axum::middleware::from_fn_with_state(
+            oteryn_web::session::SessionLayer::new(db.pool.clone()),
+            oteryn_web::session::middleware,
+        ))
+        .layer(axum::Extension(axum::extract::ConnectInfo(
+            "192.0.2.50:1234".parse::<std::net::SocketAddr>()?,
+        )));
+    let response = adapter.oneshot(request()?).await?;
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), 65536)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(body.contains("/en/register"));
+    assert!(body.contains("lang=\"en\""));
+    assert!(body.contains("Registration is currently unavailable."));
+    assert!(!body.contains("/pl/register"));
+    db.close().await?;
+    eprintln!(
+        "PG audit3_english_challenge_refusal_uses_requested_language: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

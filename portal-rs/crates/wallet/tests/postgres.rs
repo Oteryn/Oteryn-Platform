@@ -70,6 +70,23 @@ impl Database {
             .await
             .unwrap();
         let search_path = format!("SET search_path TO {schema}");
+        // Migrations run without the statement timeout: they wait on the
+        // migrator's database-wide lock while other schemas migrate.
+        let migrator_path = search_path.clone();
+        let migrator = PgPoolOptions::new()
+            .max_connections(1)
+            .after_connect(move |conn, _| {
+                let sql = migrator_path.clone();
+                Box::pin(async move {
+                    sqlx::query(sqlx::AssertSqlSafe(sql)).execute(conn).await?;
+                    Ok(())
+                })
+            })
+            .connect(&url)
+            .await
+            .unwrap();
+        oteryn_db::migrate(&migrator).await.unwrap();
+        migrator.close().await;
         let pool = PgPoolOptions::new()
             .max_connections(25)
             .after_connect(move |conn, _| {
@@ -87,7 +104,6 @@ impl Database {
             .connect(&url)
             .await
             .unwrap();
-        oteryn_db::migrate(&pool).await.unwrap();
         sqlx::query("CREATE TABLE test_audit (id uuid PRIMARY KEY, actor uuid, reason text, before_amount bigint, after_amount bigint)").execute(&pool).await.unwrap();
         Some(Self {
             pool,

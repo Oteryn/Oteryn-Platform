@@ -74,8 +74,10 @@ quarantined. Post-restore submissions require independently refreshed feeds.
 A reopened paid operation keeps its original ledger history. A surviving commit
 cannot charge again. If authoritative reconciliation replaces its lost commit with
 a refusal, the original order grants one free replacement rename. The replacement
-holds that credit until a receipt; refusal releases it for retry. A contradictory
-later restore while that credit is in use denies for reconciliation.
+holds that credit until a receipt; refusal releases it for retry. If restore reopens
+a rejected replacement, its commit must reclaim the still-valid original credit
+under lock; another consumer or an invalid original credit denies reconciliation.
+A contradictory later restore while that credit is in use denies for reconciliation.
 
 PostgreSQL tests use isolated schemas and `PORTAL_TEST_DATABASE_URL`; when unset,
 they print an explicit skip notice. Coverage includes insufficient funds,

@@ -320,6 +320,7 @@ async fn top_ups(db: &Database, payer: Uuid) -> i64 {
 
 #[tokio::test]
 async fn every_route_answers_503_when_off() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
     let order = Uuid::now_v7();
     for (method, path) in [
@@ -345,6 +346,7 @@ async fn every_route_answers_503_when_off() -> TestResult {
 
 #[tokio::test]
 async fn catalogue_order_paid_credits_once() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -513,6 +515,7 @@ impl AccountReader for Active {
 
 #[tokio::test]
 async fn paid_never_follows_failed() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -592,6 +595,7 @@ async fn paid_never_follows_failed() -> TestResult {
 
 #[tokio::test]
 async fn scopes_are_separate_tokens() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -695,6 +699,7 @@ async fn scopes_are_separate_tokens() -> TestResult {
 
 #[tokio::test]
 async fn refusals_change_nothing() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -871,6 +876,7 @@ async fn refusals_change_nothing() -> TestResult {
 
 #[tokio::test]
 async fn bad_input_is_400() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -921,6 +927,7 @@ async fn bad_input_is_400() -> TestResult {
 
 #[tokio::test]
 async fn concurrent_creates_have_one_winner() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -996,6 +1003,7 @@ async fn awaiting_order(
 
 #[tokio::test]
 async fn ineligible_payer_at_payment_is_held_without_coins() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -1058,6 +1066,7 @@ async fn ineligible_payer_at_payment_is_held_without_coins() -> TestResult {
 
 #[tokio::test]
 async fn replayed_event_id_with_another_payload_is_refused() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -1163,6 +1172,7 @@ async fn reversal_debits(db: &Database, payer: Uuid) -> i64 {
 
 #[tokio::test]
 async fn refund_then_chargeback_reverses_the_credit_once() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -1270,6 +1280,7 @@ async fn refund_then_chargeback_reverses_the_credit_once() -> TestResult {
 
 #[tokio::test]
 async fn concurrent_reversals_debit_once_even_for_a_banned_payer() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -1326,6 +1337,7 @@ async fn concurrent_reversals_debit_once_even_for_a_banned_payer() -> TestResult
 
 #[tokio::test]
 async fn reversal_of_unavailable_coins_holds_and_freezes_purchasing() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -1518,6 +1530,7 @@ impl wallet::AuditHook for RewardAudit {
 /// reserved; the balance never goes negative and no hold is needed.
 #[tokio::test]
 async fn reversal_debits_reward_origin_coins() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -1596,6 +1609,7 @@ async fn reversal_debits_reward_origin_coins() -> TestResult {
 
 #[tokio::test]
 async fn reversal_before_credit_fences_the_payment() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -1657,6 +1671,7 @@ async fn reversal_before_credit_fences_the_payment() -> TestResult {
 
 #[tokio::test]
 async fn bad_reversal_events_are_refused() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -1743,6 +1758,7 @@ async fn bad_reversal_events_are_refused() -> TestResult {
 
 #[tokio::test]
 async fn changed_payload_replays_are_refused_and_audited() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -1816,6 +1832,7 @@ async fn changed_payload_replays_are_refused_and_audited() -> TestResult {
 
 #[tokio::test]
 async fn restricted_payers_are_refused_before_any_provider_call() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -1968,6 +1985,19 @@ impl oteryn_admin::web::StaffSession for AnalyticsStaff {
     }
 }
 impl oteryn_admin::rbac::AccountStateReader for AnalyticsStaff {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(
         &self,
         _: Uuid,
@@ -1978,6 +2008,7 @@ impl oteryn_admin::rbac::AccountStateReader for AnalyticsStaff {
 
 #[tokio::test]
 async fn l4_04_native_purchase_reaches_real_analytics_once() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Database::open().await?.ok_or("PostgreSQL is required")?;
     let payer = db.account().await?;
@@ -2053,6 +2084,7 @@ async fn l4_04_native_purchase_reaches_real_analytics_once() -> TestResult {
 
 #[tokio::test]
 async fn l2_01_shared_transfer_ceiling_refuses_atomically_and_native_balance_reads() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_internal_api::guard::{Identity, VerifiedClient};
     let started = std::time::Instant::now();
     let db = Database::open().await?.ok_or("PostgreSQL is required")?;
@@ -2121,6 +2153,7 @@ async fn l2_01_shared_transfer_ceiling_refuses_atomically_and_native_balance_rea
 
 #[tokio::test]
 async fn settlement_and_store_read_sanctions_committed_during_account_lock_wait() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -2198,6 +2231,7 @@ async fn settlement_and_store_read_sanctions_committed_during_account_lock_wait(
 
 #[tokio::test]
 async fn unpaid_order_churn_is_bounded_and_replays_survive_budget() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -2272,6 +2306,7 @@ async fn unpaid_order_churn_is_bounded_and_replays_survive_budget() -> TestResul
 /// Keep OAuth, LCFA reads and the ownership-to-refusal mapping in production code.
 #[tokio::test]
 async fn production_lcfa_ownership_refuses_without_purchase_writes() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Database::open().await?.ok_or("PostgreSQL required")?;
     let payer = db.account().await?;
@@ -2495,5 +2530,58 @@ async fn production_lcfa_ownership_refuses_without_purchase_writes() -> TestResu
         "production_lcfa_ownership_refuses_without_purchase_writes: {:?}",
         started.elapsed()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn lock_order_coin_webhook_prepares_account_before_intent() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::open()
+        .await?
+        .ok_or("PostgreSQL required for lock-order regression")?;
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let service = db.service(vec![]);
+    let (_, intent, _) = awaiting_order(&db, &service, payer, &token).await?;
+    let mut writer = db.pool.begin().await?;
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(payer)
+        .execute(&mut *writer)
+        .await?;
+    let effect = tokio::spawn(async move {
+        deliver(
+            &service,
+            &coin_event(intent, "ordered-paid", EventState::Succeeded),
+        )
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')")
+                .bind(blocker).fetch_one(&db.pool).await?;
+            if waiting { return Ok::<_, sqlx::Error>(()); }
+            tokio::task::yield_now().await;
+        }
+    }).await.map_err(|_| "coin webhook did not reach observable account wait within 2 seconds")??;
+    sqlx::query("SET LOCAL lock_timeout='250ms'")
+        .execute(&mut *writer)
+        .await?;
+    let intent_lock = sqlx::query("SELECT id FROM payment_intents WHERE id=$1 FOR UPDATE")
+        .bind(intent)
+        .execute(&mut *writer)
+        .await;
+    writer.rollback().await?;
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(4), effect)
+        .await
+        .map_err(|_| "coin webhook did not finish after account release")??;
+    db.close().await?;
+    assert!(
+        intent_lock.is_ok(),
+        "coin webhook retained its intent before waiting for the account: {intent_lock:?}"
+    );
+    outcome?;
     Ok(())
 }

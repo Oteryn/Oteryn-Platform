@@ -13,6 +13,19 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy)]
 struct Accounts(Result<AccountState, AccountStateUnavailable>);
 impl AccountStateReader for Accounts {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         self.0
     }
@@ -23,6 +36,7 @@ fn verified(account: Uuid) -> CheckContext {
         account,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     }
 }
 
@@ -71,6 +85,7 @@ fn permission_catalog_is_stable_unique_and_covered() {
 
 #[tokio::test]
 async fn account_and_mfa_fail_closed_without_database_access() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
         .unwrap();
@@ -105,6 +120,7 @@ impl RequiredPermission for AuditView {
 
 #[tokio::test]
 async fn guard_rejects_missing_or_unverified_identity() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
         .unwrap();
@@ -209,6 +225,7 @@ impl Database {
 
 #[tokio::test]
 async fn db_deny_by_default_and_refuse_unprivileged_mutation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -237,6 +254,7 @@ async fn db_deny_by_default_and_refuse_unprivileged_mutation() {
 
 #[tokio::test]
 async fn db_grant_revoke_and_guard_use_current_permissions() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -282,6 +300,7 @@ async fn db_grant_revoke_and_guard_use_current_permissions() {
 
 #[tokio::test]
 async fn db_custom_role_permissions_and_bad_input() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -386,6 +405,7 @@ async fn db_custom_role_permissions_and_bad_input() {
 
 #[tokio::test]
 async fn db_audit_change_commits_atomically_with_actor_and_diff() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -429,6 +449,7 @@ async fn db_audit_change_commits_atomically_with_actor_and_diff() {
 
 #[tokio::test]
 async fn db_audit_failure_rolls_back_role_change() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -456,6 +477,7 @@ async fn db_audit_failure_rolls_back_role_change() {
 
 #[tokio::test]
 async fn db_audit_update_delete_and_truncate_are_rejected() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -492,6 +514,7 @@ async fn db_audit_update_delete_and_truncate_are_rejected() {
 
 #[tokio::test]
 async fn db_built_in_seeds_match_rust_catalog_and_state_still_denies_grants() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -544,6 +567,19 @@ struct TargetState {
     state: Result<AccountState, AccountStateUnavailable>,
 }
 impl AccountStateReader for TargetState {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, account: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         if account == self.target {
             self.state
@@ -555,6 +591,7 @@ impl AccountStateReader for TargetState {
 
 #[tokio::test]
 async fn db_grants_deny_unknown_targets_and_database_rejects_unknown_permissions() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -793,6 +830,7 @@ fn game_roles_have_exact_contract_permissions() {
 
 #[tokio::test]
 async fn game_flags_deny_without_database_access() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
         .unwrap();
@@ -827,6 +865,7 @@ async fn game_flags_deny_without_database_access() {
 
 #[tokio::test]
 async fn db_game_roles_authorize_only_explicit_grants_and_deploy_stays_dormant() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -912,6 +951,7 @@ async fn bounded_pool(db: &Database, size: u32) -> PgPool {
 
 #[tokio::test]
 async fn db_transaction_authorization_two_queued_mutations_do_not_starve() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open()
         .await
@@ -962,13 +1002,19 @@ async fn db_transaction_authorization_two_queued_mutations_do_not_starve() {
 
 #[tokio::test]
 async fn db_transaction_authorization_one_connection_identity_read() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open()
         .await
         .expect("PORTAL_TEST_DATABASE_URL required");
-    let actor = db.manager().await;
+    let mut actor = db.manager().await;
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'pool-test@local.test','unused','active','en',now())")
         .bind(actor.account).execute(&db.pool).await.unwrap();
+    actor.session_proof = Some(
+        crate::test_staff::proof(&db.pool, actor.account)
+            .await
+            .unwrap(),
+    );
     let pool = bounded_pool(&db, 1).await;
     let auth = Authorizer::new(
         pool.clone(),
@@ -1005,6 +1051,7 @@ async fn db_transaction_authorization_one_connection_identity_read() {
 
 #[tokio::test]
 async fn db_transaction_authorization_observes_revocation_after_resource_wait() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open()
         .await

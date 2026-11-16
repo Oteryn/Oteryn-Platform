@@ -63,6 +63,7 @@ const WRITER: AdminControlAuditWriter = AdminControlAuditWriter { enabled: true 
 
 #[tokio::test]
 async fn db_control_round_trip_and_legacy_compatibility() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, schema)) = database().await else {
         return;
     };
@@ -127,6 +128,7 @@ async fn db_control_round_trip_and_legacy_compatibility() {
 
 #[tokio::test]
 async fn db_read_audit_per_view_and_masking_defaults() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, schema)) = database().await else {
         return;
     };
@@ -173,6 +175,7 @@ async fn db_read_audit_per_view_and_masking_defaults() {
 
 #[tokio::test]
 async fn db_disabled_refusal_bad_input_and_rollback() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, schema)) = database().await else {
         return;
     };

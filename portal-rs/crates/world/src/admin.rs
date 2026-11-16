@@ -232,7 +232,7 @@ async fn load_page<A>(
             .ok_or(StatusCode::NOT_FOUND)?;
         report = serde_json::to_string_pretty(&diagnostic)
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        rows = sqlx::query_as("SELECT e.kind,e.key,COALESCE(v.allowed,false) AS allowed,e.publishable,COALESCE(n.pl,'') AS pl,COALESCE(n.en,'') AS en FROM world_entities e LEFT JOIN world_visibility v USING(kind,key) LEFT JOIN world_admin_names n USING(kind,key) WHERE e.version_id=$1 ORDER BY e.kind,e.key LIMIT 200 OFFSET $2").bind(id).bind(offset).fetch_all(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
+        rows = sqlx::query_as("SELECT e.kind,e.key,COALESCE(v.allowed,false) AS allowed,e.publishable,COALESCE(n.pl,'') AS pl,COALESCE(n.en,'') AS en FROM world_entities e LEFT JOIN world_visibility v USING(kind,key) LEFT JOIN world_admin_names n USING(kind,key) WHERE e.version_id=$1 AND e.kind=world_canonical_kind(e.kind) ORDER BY e.kind,e.key LIMIT 200 OFFSET $2").bind(id).bind(offset).fetch_all(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
         if let Some(other) = q.compare {
             let comparison = store
                 .import_report(other)
@@ -244,7 +244,7 @@ async fn load_page<A>(
             {
                 return Err(StatusCode::CONFLICT);
             }
-            differences = sqlx::query_as("SELECT COALESCE(a.kind,b.kind) AS kind,COALESCE(a.key,b.key) AS key,jsonb_build_object('data',a.data,'publishable',a.publishable)::text AS before,jsonb_build_object('data',b.data,'publishable',b.publishable)::text AS after FROM (SELECT * FROM world_entities WHERE version_id=$1) a FULL JOIN (SELECT * FROM world_entities WHERE version_id=$2) b USING(kind,key) WHERE a.data IS DISTINCT FROM b.data OR a.publishable IS DISTINCT FROM b.publishable ORDER BY kind,key LIMIT 200 OFFSET $3").bind(other).bind(id).bind(offset).fetch_all(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
+            differences = sqlx::query_as("SELECT COALESCE(a.kind,b.kind) AS kind,COALESCE(a.key,b.key) AS key,jsonb_build_object('data',a.data,'publishable',a.publishable)::text AS before,jsonb_build_object('data',b.data,'publishable',b.publishable)::text AS after FROM (SELECT * FROM world_entities WHERE version_id=$1 AND kind=world_canonical_kind(kind)) a FULL JOIN (SELECT * FROM world_entities WHERE version_id=$2 AND kind=world_canonical_kind(kind)) b USING(kind,key) WHERE a.data IS DISTINCT FROM b.data OR a.publishable IS DISTINCT FROM b.publishable ORDER BY kind,key LIMIT 200 OFFSET $3").bind(other).bind(id).bind(offset).fetch_all(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
         }
     }
     let lang = if headers
@@ -315,14 +315,41 @@ async fn mutate<A: AccountStateReader>(
         return Err(StatusCode::NOT_FOUND);
     }
     let mut tx = s.pool.begin().await.map_err(unavailable)?;
-    oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account])
-        .await
-        .map_err(unavailable)?;
-    // Never queue for a resource while holding the global authorization fence.
-    sqlx::query("SET LOCAL lock_timeout = '250ms'")
-        .execute(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+    oteryn_admin::rbac::authorize_mutation_with_resources(
+        &mut tx,
+        &[context.account],
+        |connection| {
+            Box::pin(async move {
+                sqlx::query("SET LOCAL lock_timeout = '250ms'")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query(
+                    "SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE",
+                )
+                .execute(&mut *connection)
+                .await?;
+                sqlx::query(
+                    "SELECT snapshot_id FROM world_catalog_publication WHERE singleton FOR UPDATE",
+                )
+                .execute(connection)
+                .await?;
+                Ok(())
+            })
+        },
+        s.auth.as_ref(),
+        context,
+        &[
+            Permission::Access,
+            Permission::GameCatalogAccess,
+            Permission::ViewGameCatalogSnapshots,
+            permission,
+        ],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     let (active,): (Option<Uuid>,) =
         sqlx::query_as("SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE")
             .fetch_one(&mut *tx)
@@ -352,15 +379,7 @@ async fn mutate<A: AccountStateReader>(
     .fetch_one(&mut *tx)
     .await
     .map_err(unavailable)?;
-    sqlx::query("SET LOCAL lock_timeout = '0'")
-        .execute(&mut *tx)
-        .await
-        .map_err(unavailable)?;
     // Serialize with role writers, then recheck current grants before any change.
-    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-        .execute(&mut *tx)
-        .await
-        .map_err(unavailable)?;
     for required in [
         Permission::Access,
         Permission::GameCatalogAccess,
@@ -475,6 +494,18 @@ async fn mutate<A: AccountStateReader>(
     )
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    // Recheck live authority after the final awaited write.
+    for required in [
+        Permission::Access,
+        Permission::GameCatalogAccess,
+        Permission::ViewGameCatalogSnapshots,
+        permission,
+    ] {
+        s.auth
+            .check_in(&mut tx, context, required)
+            .await
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+    }
     tx.commit().await.map_err(unavailable)?;
     Ok(())
 }
@@ -519,3 +550,7 @@ mod tests;
 #[cfg(test)]
 #[path = "admin_pool_tests.rs"]
 mod pool_tests;
+
+#[cfg(test)]
+#[path = "last_wait_tests.rs"]
+mod last_wait_tests;

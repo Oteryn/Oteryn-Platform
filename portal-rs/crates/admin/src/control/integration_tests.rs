@@ -91,6 +91,7 @@ async fn enqueue(
 #[tokio::test]
 async fn stored_evidence_accepts_bound_proof_refuses_replay_foreign_stale_and_audit_failure()
 -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -128,11 +129,43 @@ async fn stored_evidence_accepts_bound_proof_refuses_replay_foreign_stale_and_au
             .step_up_at
             .is_some()
     );
+    // Hold pool return before SQLx's ping flushes a dropped transaction's
+    // queued rollback. A refusal must release its row lock before returning,
+    // independently of when the pool maintenance task gets CPU time.
+    let release = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
+    let gate = release.clone();
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await?;
+    let replay_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(move |connection, _| {
+            let schema = schema.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(schema)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .after_release(move |_, _| {
+            let gate = gate.clone();
+            Box::pin(async move {
+                let _permit = gate.acquire().await.map_err(|_| sqlx::Error::PoolClosed)?;
+                Ok(true)
+            })
+        })
+        .connect_lazy_with((*db.pool.connect_options()).clone());
+    let replay_service = Controls::new(replay_pool.clone(), Auth, Verifier, true);
     assert_eq!(
-        service.control_evidence(&s, &submission).await.err(),
+        replay_service.control_evidence(&s, &submission).await.err(),
         Some(Refusal::Denied)
     );
-    let delivered = store.claim_pending("claim-test", 1, 1).await?;
+    let delivered = store.claim_pending("claim-test", 1, 1).await;
+    release.add_permits(1);
+    replay_pool.close().await;
+    let delivered = delivered?;
     assert_eq!(delivered.len(), 1);
     assert_eq!(delivered[0].request_id, id);
     let other_id = Uuid::now_v7();
@@ -200,6 +233,7 @@ async fn stored_evidence_accepts_bound_proof_refuses_replay_foreign_stale_and_au
 
 #[tokio::test]
 async fn stored_approval_refuses_self_expired_and_rolls_back_with_audit() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -336,6 +370,7 @@ async fn stored_approval_refuses_self_expired_and_rolls_back_with_audit() -> Tes
 #[tokio::test]
 async fn real_identity_provider_accepts_fresh_request_step_up_and_denies_revoked_grant()
 -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_identity::{login::Credentials, mfa::Mfa, password};
     let Some(db) = Database::open().await? else {
         return Ok(());
@@ -428,6 +463,7 @@ pub(in crate::control::controls) fn wire(
 
 #[tokio::test]
 async fn lk_control_evidence_with_one_available_connection() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Database::open()
         .await?

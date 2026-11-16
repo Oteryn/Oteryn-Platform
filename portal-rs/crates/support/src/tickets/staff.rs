@@ -114,10 +114,11 @@ impl Backend for StaffSupport {
     async fn prepare(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        actor: Uuid,
+        context: oteryn_admin::rbac::CheckContext,
         id: Uuid,
         command: &Command,
     ) -> std::result::Result<(), StaffError> {
+        let actor = context.account;
         self.available(command.area())?;
         let owner: Uuid = match command {
             Command::Reply { .. } | Command::TicketStatus { .. } => {
@@ -148,6 +149,49 @@ impl Backend for StaffSupport {
                 .map_err(|_| StaffError::Unavailable)?
                 .ok_or(StaffError::NotFound)?,
         };
+        let auth = oteryn_admin::rbac::Authorizer::new(
+            self.pool.clone(),
+            oteryn_admin::web::PortalIdentity::configured(self.pool.clone()),
+        );
+        let resource_query = match command {
+            Command::Reply { .. } | Command::TicketStatus { .. } => {
+                "SELECT id FROM tickets WHERE id=$1 FOR UPDATE"
+            }
+            Command::Moderate { .. } => "SELECT id FROM player_reports WHERE id=$1 FOR UPDATE",
+            Command::Sanction { create: true, .. } => {
+                "SELECT id FROM sanctions WHERE false AND id=$1 FOR UPDATE"
+            }
+            _ => "SELECT id FROM sanctions WHERE id=$1 FOR UPDATE",
+        };
+        let enforcement = matches!(command.area(), Area::Enforcement);
+        oteryn_admin::rbac::authorize_mutation_with_resources(
+            tx,
+            &[actor, owner],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query(resource_query)
+                        .bind(id)
+                        .execute(&mut *connection)
+                        .await?;
+                    if enforcement {
+                        sqlx::query("SELECT sanction_id FROM support_appeal_workflows WHERE sanction_id=$1 AND owner_id=$2 FOR UPDATE")
+                            .bind(id).bind(owner).execute(connection).await?;
+                    }
+                    Ok(())
+                })
+            },
+            &auth,
+            context,
+            &[
+                oteryn_admin::rbac::Permission::Access,
+                command.area().permission(),
+            ],
+        )
+        .await
+        .map_err(|error| match error {
+            oteryn_admin::rbac::Error::Storage(_) => StaffError::Unavailable,
+            _ => StaffError::Denied,
+        })?;
         // Include implicit author FK locks and RBAC's actor SHARE lock. Every
         // domain uses the same UUID order before joining the role-writer fence.
         if matches!(
@@ -165,10 +209,6 @@ impl Backend for StaffSupport {
                     .await
                     .map_err(ticket_error)?;
             }
-        } else {
-            crate::sanctions::store::lock_staff_accounts(tx, actor, owner)
-                .await
-                .map_err(|_| StaffError::Unavailable)?;
         }
         Ok(())
     }
@@ -274,11 +314,12 @@ impl Backend for StaffSupport {
     async fn apply(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        actor: Uuid,
+        context: CheckContext,
         id: Uuid,
         version: i64,
         command: &Command,
     ) -> std::result::Result<(serde_json::Value, serde_json::Value), StaffError> {
+        let actor = context.account;
         self.available(command.area())?;
         let notifications = self.notifications.as_ref().ok_or(StaffError::Unavailable)?;
         match command {
@@ -292,18 +333,7 @@ impl Backend for StaffSupport {
                     _ => Change::Status(body),
                 };
                 let (ticket, before_status) = tickets
-                    .change_in(
-                        tx,
-                        actor,
-                        Some(CheckContext {
-                            account: actor,
-                            require_staff_mfa: true,
-                            mfa_verified: true,
-                        }),
-                        (id, version),
-                        change,
-                        false,
-                    )
+                    .change_in(tx, actor, Some(context), (id, version), change, false)
                     .await
                     .map_err(ticket_error)?;
                 Ok((
@@ -318,7 +348,7 @@ impl Backend for StaffSupport {
             }
             _ => {
                 self.sanctions
-                    .staff_apply(tx, actor, (id, version), command, notifications)
+                    .staff_apply(tx, context, (id, version), command, notifications)
                     .await
             }
         }
@@ -329,7 +359,7 @@ fn ticket_error(error: Error) -> StaffError {
         Error::Invalid => StaffError::Invalid,
         Error::NotFound => StaffError::NotFound,
         Error::Denied => StaffError::Denied,
-        Error::Conflict => StaffError::Conflict,
+        Error::Conflict | Error::RequestKeyConflict => StaffError::Conflict,
         _ => StaffError::Unavailable,
     }
 }

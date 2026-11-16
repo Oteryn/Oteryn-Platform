@@ -328,8 +328,8 @@ fn opt_uuid(s: Option<&str>) -> Result<Uuid> {
 pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
     let account_id = uuid(&scope.account).map_err(|_| Error::Conflict)?;
     let items = ITEM_FAMILIES.contains(&scope.family.as_str());
-    shared_fences(tx).await?;
     account(tx, account_id).await?;
+    shared_fences(tx).await?;
     let restored = restore_generation(tx).await?;
     let recovery = counter(&scope.recovery).map_err(|_| Error::Conflict)?;
     if recovery < restored {
@@ -496,7 +496,7 @@ mod tests;
 /// G-9 uses the same issuance, closure and restore fence as the other private
 /// journals; UUID stream admission alone cannot prove a reconciled restore.
 pub(crate) async fn session_fence(tx: &mut PgConnection, subject: Uuid) -> Result<u64> {
-    shared_fences(tx).await?;
     account(tx, subject).await?;
+    shared_fences(tx).await?;
     restore_generation(tx).await
 }

@@ -23,13 +23,14 @@ use recover::{RecoverCode, RecoverRefusal};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 #[derive(Debug)]
 struct StateData {
+    trusted_proxies: Vec<IpAddr>,
     issuer: IssuerClient,
     enabled: bool,
     protocol3: bool,
@@ -77,7 +78,16 @@ pub fn router(issuer: IssuerClient, enabled: bool, version: String) -> Router {
 }
 /// `router` with the §19 switches.
 pub fn router_with(issuer: IssuerClient, options: Options) -> Router {
+    router_with_proxies(issuer, options, Vec::new())
+}
+/// Only these exact socket peers may supply the single Caddy-overwritten address.
+pub fn router_with_proxies(
+    issuer: IssuerClient,
+    options: Options,
+    trusted_proxies: Vec<IpAddr>,
+) -> Router {
     let state = Arc::new(StateData {
+        trusted_proxies,
         issuer,
         enabled: options.enabled,
         protocol3: options.enabled && options.protocol3,
@@ -182,14 +192,43 @@ async fn version_info(State(s): State<Arc<StateData>>) -> Response {
     )
 }
 
-fn source_of(req: &Request) -> String {
-    req.extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|i| i.0.ip().to_string())
-        .unwrap_or_default()
+/// Rate-limit identity: the socket peer unless it is an explicitly trusted proxy
+/// (the gateway list or the shared `TRUSTED_PROXIES`). A trusted proxy (Caddy
+/// overwrites the header) may name exactly one client address; a chain keeps the
+/// peer budget, and malformed forwarding is refused rather than guessed.
+fn source_of(req: &Request, trusted: &[IpAddr]) -> Result<String, ()> {
+    let Some(peer) = req.extensions().get::<ConnectInfo<SocketAddr>>() else {
+        return Ok(String::new());
+    };
+    let peer = peer.0.ip();
+    let shared = oteryn_internal_api::proxy::TrustedProxies::configured().map_err(|_| ())?;
+    if !trusted.contains(&peer) && !shared.0.contains(&peer) {
+        return Ok(peer.to_string());
+    }
+    let mut chain = Vec::new();
+    for value in req.headers().get_all("x-forwarded-for") {
+        let value = value.to_str().map_err(|_| ())?;
+        if value.len() > 4096 {
+            return Err(());
+        }
+        for ip in value.split(',') {
+            if chain.len() >= 32 {
+                return Err(());
+            }
+            chain.push(ip.trim().parse::<IpAddr>().map_err(|_| ())?);
+        }
+    }
+    match chain.as_slice() {
+        [client] => Ok(client.to_string()),
+        _ => Ok(peer.to_string()),
+    }
 }
 async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
-    let source = source_of(&req);
+    let Ok(source) = source_of(&req, &s.trusted_proxies) else {
+        let mut response = StatusCode::SERVICE_UNAVAILABLE.into_response();
+        no_store(&mut response);
+        return response;
+    };
     let query = req.uri().query().is_some_and(|q| !q.is_empty());
     let mut response = if query {
         invalid()
@@ -240,7 +279,9 @@ async fn recovery_front(
     if !s.enabled {
         return Err(StatusCode::NOT_FOUND.into_response());
     }
-    let source = source_of(&req);
+    let Ok(source) = source_of(&req, &s.trusted_proxies) else {
+        return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    };
     let query = req.uri().query().is_some_and(|q| !q.is_empty());
     let body = tokio::time::timeout(BODY_DEADLINE, to_bytes(req.into_body(), 16 * 1024))
         .await
@@ -573,7 +614,6 @@ struct PendingAttempt {
     start: Duration,
     count: usize,
     in_flight: usize,
-    uncertain: bool,
 }
 #[derive(Debug)]
 struct AttemptLimits {
@@ -600,8 +640,8 @@ impl AttemptLimits {
             pending.in_flight += 1;
             return Ok(());
         }
-        // Source admission happens first. Unverified reservations expire quickly
-        // and never displace a confirmed lifetime budget. Include both tables in
+        // Source admission happens first. In-flight reservations retain a lifetime
+        // budget even if a caller is cancelled before finish. Include both tables in
         // the memory bound so promotion always has a reserved slot.
         if self.confirmed.len() + self.unverified.len() >= 100_000 {
             self.confirmed.prune(now);
@@ -617,13 +657,12 @@ impl AttemptLimits {
                 start: now,
                 count: 1,
                 in_flight: 1,
-                uncertain: false,
             },
         );
         Ok(())
     }
     fn finish(&mut self, key: &[u8], now: Duration, authenticated: bool, rejected: bool) {
-        if authenticated {
+        if authenticated || !rejected {
             if let Some(pending) = self.unverified.remove(key)
                 && !self.confirmed.contains(key, now)
             {
@@ -633,8 +672,7 @@ impl AttemptLimits {
             }
         } else if let Some(pending) = self.unverified.get_mut(key) {
             pending.in_flight = pending.in_flight.saturating_sub(1);
-            pending.uncertain |= !rejected;
-            if pending.in_flight == 0 && !pending.uncertain {
+            if pending.in_flight == 0 {
                 self.unverified.remove(key);
             }
         }
@@ -644,7 +682,7 @@ fn attempt_limiter() -> AttemptLimits {
     AttemptLimits {
         confirmed: WindowLimiter::new(6, Duration::from_secs(12 * 60 * 60), 100_000),
         unverified: std::collections::HashMap::new(),
-        reservation_window: Duration::from_secs(60),
+        reservation_window: Duration::from_secs(12 * 60 * 60),
     }
 }
 fn attempt_key(attempt: &str, credential: &[u8]) -> Vec<u8> {
@@ -707,6 +745,7 @@ mod attempt_budget_tests {
     fn recovery_refuses_after_120_seconds_before_issuer_dispatch()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = StateData {
+            trusted_proxies: Vec::new(),
             issuer: IssuerClient::new(
                 "http://127.0.0.1:1",
                 "synthetic".into(),
@@ -753,6 +792,70 @@ mod attempt_budget_tests {
     }
 
     #[test]
+    fn reconciliation_totals_refuse_before_login_and_recovery_dispatch()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = StateData {
+            trusted_proxies: Vec::new(),
+            issuer: IssuerClient::new(
+                "http://127.0.0.1:1",
+                "synthetic".into(),
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+            )?,
+            enabled: true,
+            protocol3: true,
+            version: "test".into(),
+            start: Instant::now(),
+            sources: Mutex::new(WindowLimiter::new(30, Duration::from_secs(60), 100_000)),
+            attempts: Mutex::new(attempt_limiter()),
+            recovery: RecoveryLimits::default(),
+        };
+        let login = include_bytes!("../tests/fixtures/game_client_native_login/request.json");
+        let recovery = include_bytes!(
+            "../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/recover-request.json"
+        );
+        let mut dispatches = [0, 0];
+        for _ in 0..6 {
+            let request =
+                prepare(&state, "client", login, Duration::ZERO).map_err(|_| "login admission")?;
+            dispatches[0] += 1;
+            finish(
+                &state.attempts,
+                &attempt_key(&request.attempt_ref, request.game_login_ticket.as_bytes()),
+                Duration::ZERO,
+                Some(Code::ReconciliationRequired),
+            );
+            let request = prepare_recovery(&state, "client", recovery, Duration::ZERO)
+                .map_err(|_| "recovery admission")?;
+            dispatches[1] += 1;
+            state
+                .recovery
+                .attempts
+                .lock()
+                .map_err(|_| "poisoned")?
+                .finish(
+                    &attempt_key(
+                        &request.attempt_ref,
+                        &Sha256::digest(request.recovery_handle.as_bytes()),
+                    ),
+                    Duration::ZERO,
+                    false,
+                    false,
+                );
+        }
+        let login = prepare(&state, "client", login, Duration::from_secs(61))
+            .err()
+            .ok_or("seventh dispatched")?;
+        assert_eq!(login.code, Code::RateLimited);
+        let recovery = prepare_recovery(&state, "client", recovery, Duration::from_secs(61))
+            .err()
+            .ok_or("seventh dispatched")?;
+        assert_eq!(recovery.code, RecoverCode::RateLimited);
+        assert_eq!(dispatches, [6, 6]);
+        Ok(())
+    }
+
+    #[test]
     fn rejected_exchange_cannot_erase_concurrent_confirmation() {
         let mut limits = attempt_limiter();
         assert!(limits.allow(b"same-credential", Duration::ZERO).is_ok());
@@ -774,25 +877,47 @@ mod attempt_budget_tests {
     }
 
     #[test]
-    fn uncertain_credentials_do_not_reserve_lifetime_capacity() {
+    fn uncertain_capacity_flood_never_evicts_a_live_budget() {
         let mut limits = attempt_limiter();
         for _ in 0..6 {
             assert!(limits.allow(b"confirmed", Duration::ZERO).is_ok());
         }
         limits.finish(b"confirmed", Duration::ZERO, true, false);
-        for i in 0u64..100_000 {
+        for i in 0u64..99_999 {
             let now = Duration::from_secs(i / 150 * 60);
             let key = i.to_be_bytes();
             assert!(limits.allow(&key, now).is_ok());
             limits.finish(&key, now, false, false);
         }
-        assert_eq!(limits.confirmed.len(), 1);
+        assert_eq!(limits.confirmed.len(), 100_000);
         assert!(
             limits
                 .allow(b"confirmed", Duration::from_secs(40020))
                 .is_err()
         );
-        assert!(limits.allow(b"fresh", Duration::from_secs(40020)).is_ok());
+        assert!(limits.allow(b"fresh", Duration::from_secs(40020)).is_err());
+        assert!(limits.allow(b"fresh", Duration::from_secs(43200)).is_ok());
+    }
+
+    #[test]
+    fn uncertain_credentials_reserve_lifetime_capacity() {
+        let mut limits = attempt_limiter();
+        for _ in 0..6 {
+            assert!(limits.allow(b"uncertain", Duration::ZERO).is_ok());
+            limits.finish(b"uncertain", Duration::ZERO, false, false);
+        }
+        for seconds in [61, 121, 3600, 43199] {
+            assert!(
+                limits
+                    .allow(b"uncertain", Duration::from_secs(seconds))
+                    .is_err()
+            );
+        }
+        assert!(
+            limits
+                .allow(b"uncertain", Duration::from_secs(43200))
+                .is_ok()
+        );
     }
 
     fn check_total_budget(mut limiter: AttemptLimits) {
@@ -856,6 +981,7 @@ mod capacity_tests {
         // 30/minute budgets, using an injected clock over less than 12 hours.
         for (surface, template) in [login2, login3, recovery].into_iter().enumerate() {
             let state = StateData {
+                trusted_proxies: Vec::new(),
                 issuer: IssuerClient::new(
                     &url,
                     "synthetic".into(),
@@ -919,6 +1045,142 @@ mod capacity_tests {
         }
         assert_eq!(calls.load(Ordering::SeqCst), 300_018);
         server.abort();
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod proxy_tests {
+    use super::*;
+    #[test]
+    fn trusted_proxy_separates_clients_and_untrusted_peer_cannot_spoof()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let proxy: IpAddr = "192.0.2.1".parse()?;
+        let mut limiter = WindowLimiter::new(30, Duration::from_secs(60), 100);
+        let request = |peer: IpAddr, client: &str| -> Result<Request, axum::http::Error> {
+            axum::http::Request::builder()
+                .header("x-forwarded-for", client)
+                .extension(ConnectInfo(SocketAddr::new(peer, 1234)))
+                .body(Body::empty())
+        };
+        let a = source_of(&request(proxy, "198.51.100.1")?, &[proxy]).map_err(|_| "source")?;
+        let b = source_of(&request(proxy, "198.51.100.2")?, &[proxy]).map_err(|_| "source")?;
+        for _ in 0..30 {
+            assert!(limiter.allow(a.as_bytes(), Duration::ZERO).is_ok());
+        }
+        assert!(limiter.allow(a.as_bytes(), Duration::ZERO).is_err());
+        assert!(limiter.allow(b.as_bytes(), Duration::ZERO).is_ok());
+        let peer: IpAddr = "203.0.113.9".parse()?;
+        for forwarded in [
+            "198.51.100.1",
+            "198.51.100.2",
+            "false",
+            "198.51.100.1, 198.51.100.2",
+        ] {
+            assert_eq!(
+                source_of(&request(peer, forwarded)?, &[proxy]).map_err(|_| "source")?,
+                peer.to_string()
+            );
+        }
+        assert_eq!(
+            source_of(&request(proxy, "198.51.100.1, 198.51.100.2")?, &[proxy])
+                .map_err(|_| "source")?,
+            proxy.to_string()
+        );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod proxy_budget_tests {
+    use super::*;
+    #[tokio::test]
+    async fn trusted_proxy_keeps_native_callers_independent()
+    -> Result<(), Box<dyn std::error::Error>> {
+        if std::env::var("L9_GATEWAY_CHILD").is_err() {
+            let output = std::process::Command::new(std::env::current_exe()?)
+                .args([
+                    "--exact",
+                    "proxy_budget_tests::trusted_proxy_keeps_native_callers_independent",
+                    "--nocapture",
+                ])
+                .env("L9_GATEWAY_CHILD", "1")
+                .env("TRUSTED_PROXIES", "10.0.0.1")
+                .output()?;
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return Ok(());
+        }
+        let request =
+            |peer: &str, forwarded: &str| -> Result<Request, Box<dyn std::error::Error>> {
+                Ok(Request::builder()
+                    .extension(ConnectInfo(peer.parse::<SocketAddr>()?))
+                    .header("x-forwarded-for", forwarded)
+                    .body(Body::empty())?)
+            };
+        let a = source_of(&request("10.0.0.1:40000", "192.0.2.1")?, &[]).map_err(|_| "source A")?;
+        let b = source_of(&request("10.0.0.1:40000", "192.0.2.2")?, &[]).map_err(|_| "source B")?;
+        use tower::ServiceExt;
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = calls.clone();
+        let issuer_app = Router::new().route(
+            issuer::ISSUER_PATH,
+            post(move || {
+                let observed = observed.clone();
+                async move {
+                    observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let task = tokio::spawn(async move { axum::serve(listener, issuer_app).await });
+        let app = router_with(
+            IssuerClient::new(
+                &format!("http://{address}"),
+                "fixture".into(),
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+            )?,
+            Options {
+                enabled: true,
+                protocol3: true,
+                version: "test".into(),
+            },
+        );
+        for _ in 0..30 {
+            let mut req = request("10.0.0.1:40000", &a)?;
+            *req.method_mut() = axum::http::Method::POST;
+            *req.uri_mut() = "/v1/login".parse()?;
+            *req.body_mut() = Body::from(r#"{"protocol_version":3}"#);
+            assert_eq!(
+                app.clone().oneshot(req).await?.status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+        for (source, expected) in [
+            (&a, StatusCode::TOO_MANY_REQUESTS),
+            (&b, StatusCode::SERVICE_UNAVAILABLE),
+        ] {
+            let mut req = request("10.0.0.1:40000", source)?;
+            *req.method_mut() = axum::http::Method::POST;
+            *req.uri_mut() = "/v1/login".parse()?;
+            *req.body_mut() = Body::from(include_str!(
+                "../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/login-request.json"
+            ));
+            assert_eq!(app.clone().oneshot(req).await?.status(), expected);
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        task.abort();
+        assert_eq!(
+            source_of(&request("198.51.100.1:40000", "192.0.2.2")?, &[]).map_err(|_| "source")?,
+            "198.51.100.1"
+        );
+        assert!(source_of(&request("10.0.0.1:40000", "spoofed")?, &[]).is_err());
         Ok(())
     }
 }

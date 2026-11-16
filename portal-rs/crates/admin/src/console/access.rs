@@ -90,7 +90,7 @@ pub trait Backend: Clone + Send + Sync + 'static {
         &self,
         actor: CheckContext,
         filter: &super::audit::Filter,
-    ) -> impl Future<Output = Result<Option<Vec<super::audit::LedgerRow>>, Error>> + Send;
+    ) -> impl Future<Output = Result<Option<super::audit::LedgerSnapshot>, Error>> + Send;
     fn access(&self) -> impl Future<Output = Result<AccessSnapshot, Error>> + Send;
     fn policy(
         &self,
@@ -122,7 +122,7 @@ impl Backend for PendingBackend {
         &self,
         _: CheckContext,
         _: &super::audit::Filter,
-    ) -> Result<Option<Vec<super::audit::LedgerRow>>, Error> {
+    ) -> Result<Option<super::audit::LedgerSnapshot>, Error> {
         Ok(None)
     }
     async fn access(&self) -> Result<AccessSnapshot, Error> {
@@ -248,7 +248,7 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         &self,
         actor: CheckContext,
         filter: &super::audit::Filter,
-    ) -> Result<Option<Vec<super::audit::LedgerRow>>, Error> {
+    ) -> Result<Option<super::audit::LedgerSnapshot>, Error> {
         if !self.permitted(actor, "game.audit.read").await {
             return Err(Error::Denied);
         }
@@ -256,7 +256,7 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
             return Err(Error::Unavailable);
         };
         let params = serde_json::json!({"request_id":filter.request_id,"admin_id":filter.admin,"operation":filter.operation,"target":filter.target});
-        let Some((_, _, value)) = channel
+        let Some((query_id, _, value)) = channel
             .snapshot(
                 actor,
                 self.session.as_ref(),
@@ -269,7 +269,10 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         else {
             return Ok(None);
         };
-        Ok(Some(super::projection::ledger(&value)?))
+        Ok(Some(super::audit::LedgerSnapshot {
+            query_id,
+            rows: super::projection::ledger(&value)?,
+        }))
     }
 
     async fn access(&self) -> Result<AccessSnapshot, Error> {

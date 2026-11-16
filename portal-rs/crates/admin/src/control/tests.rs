@@ -153,6 +153,7 @@ async fn count(pool: &PgPool, id: Uuid) -> i64 {
 
 #[tokio::test]
 async fn disabled_and_bad_input_fail_without_a_database() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     assert!(!Config::default().enabled);
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
@@ -231,6 +232,7 @@ async fn disabled_and_bad_input_fail_without_a_database() {
 
 #[tokio::test]
 async fn pg_enqueue_idempotency_and_console_queries() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -305,6 +307,7 @@ async fn pg_enqueue_idempotency_and_console_queries() {
 
 #[tokio::test]
 async fn pg_every_result_transition_and_terminal_refusals() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -372,6 +375,7 @@ async fn pg_every_result_transition_and_terminal_refusals() {
 
 #[tokio::test]
 async fn pg_expiry_is_terminal_and_does_not_expire_accepted_work() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -435,6 +439,7 @@ async fn pg_expiry_is_terminal_and_does_not_expire_accepted_work() {
 
 #[tokio::test]
 async fn pg_claim_skips_locked_rows_and_parallel_batches_are_disjoint() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -492,6 +497,7 @@ async fn pg_claim_skips_locked_rows_and_parallel_batches_are_disjoint() {
 
 #[tokio::test]
 async fn pg_advertisements_ownership_epochs_and_connectivity_fail_closed() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -621,6 +627,7 @@ async fn pg_advertisements_ownership_epochs_and_connectivity_fail_closed() {
 
 #[tokio::test]
 async fn pg_approvals_require_a_distinct_admin_and_are_transactional() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -662,6 +669,7 @@ async fn pg_approvals_require_a_distinct_admin_and_are_transactional() {
 
 #[tokio::test]
 async fn pg_schema_constraints_append_only_results_and_audit_rollback() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -740,6 +748,7 @@ async fn pg_schema_constraints_append_only_results_and_audit_rollback() {
 
 #[tokio::test]
 async fn pg_claim_checks_live_expiry_after_waiting_for_an_agent_lock() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -792,6 +801,7 @@ async fn pg_claim_checks_live_expiry_after_waiting_for_an_agent_lock() {
 
 #[tokio::test]
 async fn pg_expiry_bounds_each_ordered_batch() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;

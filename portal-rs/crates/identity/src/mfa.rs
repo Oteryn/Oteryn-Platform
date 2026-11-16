@@ -251,11 +251,17 @@ impl Mfa {
     /// Starts enrollment only for active verified accounts after current-password confirmation.
     pub async fn enroll(
         &self,
-        id: AccountId,
+        id: impl Into<crate::mutation_actor::MutationActor>,
         password: &str,
     ) -> Result<Option<Enrollment>, sqlx::Error> {
+        let actor = id.into();
+        let id = actor.account;
         let mut tx = self.pool.begin().await?;
         let hash = Self::lock(&mut tx, id).await?;
+        if !actor.live(&mut tx).await? {
+            return Ok(None);
+        }
+
         let state = Self::state(&mut tx, id).await?;
         if hash.is_none()
             || state.is_some_and(|s| s.confirmed)
@@ -305,12 +311,18 @@ impl Mfa {
     }
     pub async fn confirm(
         &self,
-        id: AccountId,
+        id: impl Into<crate::mutation_actor::MutationActor>,
         password: &str,
         code: &str,
     ) -> Result<Option<Vec<String>>, sqlx::Error> {
+        let actor = id.into();
+        let id = actor.account;
         let mut tx = self.pool.begin().await?;
         let hash = Self::lock(&mut tx, id).await?;
+        if !actor.live(&mut tx).await? {
+            return Ok(None);
+        }
+
         let state = Self::state(&mut tx, id).await?;
         let step = match state.as_ref() {
             Some(s) if !s.confirmed => self.step(id, s, code, now()?)?,
@@ -664,11 +676,17 @@ impl Mfa {
     }
     pub async fn remove_device(
         &self,
-        id: AccountId,
+        id: impl Into<crate::mutation_actor::MutationActor>,
         identifier: &str,
     ) -> Result<bool, sqlx::Error> {
+        let actor = id.into();
+        let id = actor.account;
         let mut tx = self.pool.begin().await?;
         let active = Self::lock(&mut tx, id).await?.is_some();
+        if !actor.live(&mut tx).await? {
+            return Ok(false);
+        }
+
         let removed = if active && valid_token(identifier) {
             sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1 AND purpose='trusted' AND encode(token_hash,'hex')=$2").bind(id).bind(identifier).execute(&mut *tx).await?.rows_affected()==1
         } else {

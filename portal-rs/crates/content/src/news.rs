@@ -88,6 +88,8 @@ impl Options {
 }
 #[derive(Debug, Default, Deserialize)]
 struct Input {
+    #[serde(default)]
+    expected_revision: String,
     slug: String,
     title: String,
     body: String,
@@ -316,11 +318,12 @@ async fn edit(
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
-    let row=sqlx::query("SELECT slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
+    let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
     Ok(form(
         q.lang(),
         Some(id),
         Input {
+            expected_revision: row.get("expected_revision"),
             slug: row.get("slug"),
             title: row.get("title"),
             body: row.get("body"),
@@ -341,6 +344,11 @@ fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String
         "<form class=\"op-stack\" method=\"post\" action=\"{action}?lang={lang}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\">",
         escape(&csrf)
     );
+    html.push_str(&format!(
+        "<input type=\"hidden\" name=\"expected_revision\" value=\"{}\">",
+        escape(&input.expected_revision)
+    ));
+    let expected_revision = input.expected_revision.clone();
     for (name, key, value, multi) in [
         ("slug", "slug", input.slug, false),
         ("title", "title", input.title, false),
@@ -381,7 +389,7 @@ fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String
         label(lang, "save")
     ));
     if let Some(id) = id {
-        html.push_str(&format!("<form class=\"op-stack\" method=\"post\" action=\"/admin/news/{id}/delete\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><button class=\"op-button\">{}</button></form>",escape(&csrf),label(lang,"delete")));
+        html.push_str(&format!("<form class=\"op-stack\" method=\"post\" action=\"/admin/news/{id}/delete\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><input type=\"hidden\" name=\"expected_revision\" value=\"{}\"><button class=\"op-button\">{}</button></form>",escape(&csrf),escape(&expected_revision),label(lang,"delete")));
     }
     page(lang, &label(lang, "news"), html)
 }
@@ -424,10 +432,27 @@ async fn save(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
     let mut tx = pool.begin().await.map_err(unavailable)?;
-    sqlx::query("SET LOCAL lock_timeout = '3s'")
-        .execute(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+    oteryn_admin::rbac::authorize_mutation_with_resources(
+        &mut tx,
+        &[context.account],
+        move |connection| {
+            Box::pin(async move {
+                sqlx::query("SELECT id FROM news WHERE id=$1 FOR UPDATE")
+                    .bind(id)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        },
+        auth,
+        context,
+        &[Permission::Access, Permission::ManageNews],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     let before: serde_json::Value = if let Some(id) = id {
         sqlx::query_scalar("SELECT to_jsonb(news) FROM news WHERE id=$1 FOR UPDATE")
             .bind(id)
@@ -447,13 +472,16 @@ async fn save(
                 unavailable(e)
             }
         })?;
+    if let Some(id) = id {
+        verify_revision(&mut tx, id, &input.expected_revision).await?;
+    }
     let action = if id.is_some() {
         "cms.news_updated"
     } else {
         "cms.news_created"
     };
     let id = if let Some(id) = id {
-        sqlx::query_scalar::<_,Uuid>("UPDATE news SET slug=$2,title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,title_pl=NULLIF($6,''),body_pl=NULLIF($7,''),translation_published_at=NULLIF($8,'')::timestamptz,translation_source_updated_at=CASE WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz AND NULLIF($8,'')::timestamptz IS NOT NULL THEN now() WHEN (title,body) IS DISTINCT FROM ($3,$4) AND (title_pl,body_pl) IS NOT DISTINCT FROM (NULLIF($6,''),NULLIF($7,'')) THEN NULL WHEN (title_pl,body_pl,translation_published_at) IS DISTINCT FROM (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN now() WHEN translation_source_updated_at>=updated_at THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 RETURNING id").bind(id).bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_optional(&mut *tx).await.map_err(storage)?.ok_or(StatusCode::NOT_FOUND)?
+        sqlx::query_scalar::<_,Uuid>("WITH revision AS MATERIALIZED (SELECT greatest(clock_timestamp(),updated_at+interval '1 microsecond') AS stamp FROM news WHERE id=$1) UPDATE news SET slug=$2,title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,title_pl=NULLIF($6,''),body_pl=NULLIF($7,''),translation_published_at=NULLIF($8,'')::timestamptz,translation_source_updated_at=CASE WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz AND NULLIF($8,'')::timestamptz IS NOT NULL THEN (SELECT stamp FROM revision) WHEN (title,body) IS DISTINCT FROM ($3,$4) AND (title_pl,body_pl) IS NOT DISTINCT FROM (NULLIF($6,''),NULLIF($7,'')) THEN NULL WHEN (title_pl,body_pl,translation_published_at) IS DISTINCT FROM (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN (SELECT stamp FROM revision) WHEN translation_source_updated_at>=updated_at THEN (SELECT stamp FROM revision) ELSE NULL END,updated_at=(SELECT stamp FROM revision) WHERE id=$1 RETURNING id").bind(id).bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_optional(&mut *tx).await.map_err(storage)?.ok_or(StatusCode::NOT_FOUND)?
     } else {
         sqlx::query_scalar("INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,translation_source_updated_at) VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),NULLIF($7,'')::timestamptz,now()) RETURNING id").bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_one(&mut *tx).await.map_err(storage)?
     };
@@ -472,6 +500,17 @@ async fn save(
     )
     .await
     .map_err(unavailable)?;
+    crate::revalidate(
+        auth,
+        &mut tx,
+        context,
+        &[Permission::Access, Permission::ManageNews],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     tx.commit().await.map_err(unavailable)?;
     Ok((
         StatusCode::FOUND,
@@ -487,12 +526,30 @@ async fn delete(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
+    Form(revision): Form<Revision>,
 ) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
-    sqlx::query("SET LOCAL lock_timeout = '3s'")
-        .execute(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+    oteryn_admin::rbac::authorize_mutation_with_resources(
+        &mut tx,
+        &[context.account],
+        move |connection| {
+            Box::pin(async move {
+                sqlx::query("SELECT id FROM news WHERE id=$1 FOR UPDATE")
+                    .bind(id)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        },
+        &auth,
+        context,
+        &[Permission::Access, Permission::ManageNews],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     let before: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT to_jsonb(news) FROM news WHERE id=$1 FOR UPDATE")
             .bind(id)
@@ -509,6 +566,7 @@ async fn delete(
                 unavailable(e)
             }
         })?;
+    verify_revision(&mut tx, id, &revision.expected_revision).await?;
     sqlx::query("DELETE FROM news WHERE id=$1")
         .bind(id)
         .execute(&mut *tx)
@@ -529,6 +587,17 @@ async fn delete(
     )
     .await
     .map_err(unavailable)?;
+    crate::revalidate(
+        &auth,
+        &mut tx,
+        context,
+        &[Permission::Access, Permission::ManageNews],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     tx.commit().await.map_err(unavailable)?;
     Ok((
         StatusCode::FOUND,
@@ -567,4 +636,27 @@ async fn headers(
         );
     }
     response
+}
+
+#[derive(Deserialize)]
+struct Revision {
+    #[serde(default)]
+    expected_revision: String,
+}
+async fn verify_revision(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: Uuid,
+    expected: &str,
+) -> Result<(), StatusCode> {
+    // Compare the exact opaque value emitted by the edit form; no client date
+    // parsing or timestamp precision loss participates in concurrency control.
+    let current: String = sqlx::query_scalar("SELECT updated_at::text FROM news WHERE id=$1")
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(unavailable)?;
+    if current != expected {
+        return Err(StatusCode::CONFLICT);
+    }
+    Ok(())
 }

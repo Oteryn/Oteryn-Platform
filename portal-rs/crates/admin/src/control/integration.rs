@@ -197,11 +197,30 @@ impl<A: Authority, T: TotpVerifier> ControlEvidence for Controls<A, T> {
     ) -> Result<Evidence, Refusal> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
-        let request =
-            store::Store::lock_control_request(&mut tx, submission.request_id, false).await?;
-        let (identity, op) = self
-            .authorized_in(&mut tx, session, &request.operation)
-            .await?;
+        match self.control_evidence_in(&mut tx, session, submission).await {
+            Ok(evidence) => {
+                tx.commit().await?;
+                Ok(evidence)
+            }
+            Err(error) => {
+                // A caller may immediately claim with SKIP LOCKED. SQLx's Drop
+                // only queues rollback; finish it before reporting the refusal.
+                tx.rollback().await?;
+                Err(error)
+            }
+        }
+    }
+}
+
+impl<A: Authority, T: TotpVerifier> Controls<A, T> {
+    async fn control_evidence_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        session: &BrowserSession,
+        submission: &Submission,
+    ) -> Result<Evidence, Refusal> {
+        let request = store::Store::lock_control_request(tx, submission.request_id, false).await?;
+        let (identity, op) = self.authorized_in(tx, session, &request.operation).await?;
         if request.actor != identity.admin_id
             || request.risk_class.as_str() != format!("{:?}", op.risk)
         {
@@ -209,7 +228,7 @@ impl<A: Authority, T: TotpVerifier> ControlEvidence for Controls<A, T> {
         }
         let step = if op.risk >= RiskClass::R3 {
             Some(
-                self.bound_step(&mut tx, session, request.request_id, identity.admin_id)
+                self.bound_step(tx, session, request.request_id, identity.admin_id)
                     .await?,
             )
         } else {
@@ -227,8 +246,8 @@ impl<A: Authority, T: TotpVerifier> ControlEvidence for Controls<A, T> {
             let preview_id = submission.preview.ok_or(Refusal::DryRunRequired)?;
             // Lock the referenced dry run too: expiry and approval snapshots are
             // checked within the same transaction as the final evidence append.
-            let dry = store::Store::lock_control_request(&mut tx, preview_id, true).await?;
-            let p = Self::preview_in(&mut tx, preview_id).await?;
+            let dry = store::Store::lock_control_request(tx, preview_id, true).await?;
+            let p = Self::preview_in(tx, preview_id).await?;
             if !dry.dry_run
                 || dry.actor != identity.admin_id
                 || p.requester != identity.admin_id
@@ -239,7 +258,7 @@ impl<A: Authority, T: TotpVerifier> ControlEvidence for Controls<A, T> {
                 return Err(Refusal::Denied);
             }
             let r = sqlx::query("SELECT id,admin_id,approved_at,step_up_at FROM admin_control_approvals WHERE preview_id=$1")
-                .bind(preview_id).fetch_optional(&mut *tx).await?.ok_or(Refusal::ApprovalRequired)?;
+                .bind(preview_id).fetch_optional(&mut **tx).await?.ok_or(Refusal::ApprovalRequired)?;
             let a = ApprovalState {
                 approval_id: r.try_get("id")?,
                 admin_id: r.try_get("admin_id")?,
@@ -251,12 +270,12 @@ impl<A: Authority, T: TotpVerifier> ControlEvidence for Controls<A, T> {
                     "SELECT intent_digest FROM admin_control_previews WHERE id=$1",
                 )
                 .bind(preview_id)
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut **tx)
                 .await?,
             };
-            self.authority.approver(&mut tx, a.admin_id, &op).await?;
+            self.authority.approver(tx, a.admin_id, &op).await?;
             let normalized: Vec<store::Approval> = sqlx::query_as("SELECT approval_id,approver,approved_at,preview_digest,decision FROM admin_approvals WHERE request_id=$1")
-                .bind(request.request_id).fetch_all(&mut *tx).await?;
+                .bind(request.request_id).fetch_all(&mut **tx).await?;
             if serde_json::to_value(&normalized).map_err(|_| Refusal::Unavailable)?
                 != request.approvals
             {
@@ -287,14 +306,13 @@ impl<A: Authority, T: TotpVerifier> ControlEvidence for Controls<A, T> {
             preview_digest,
             approval.as_ref(),
             request.dry_run,
-            Self::now_in(&mut tx).await?,
+            Self::now_in(tx).await?,
         )?;
         // Signed bytes remain immutable. Refuse any mismatch with freshly verified
         // evidence rather than changing an envelope after it was signed.
         validate_wire(&request, &evidence)?;
-        store::Store::lock_control_request(&mut tx, request.request_id, false).await?;
-        store::Store::attach_control_evidence(&mut tx, &request, &evidence).await?;
-        tx.commit().await?;
+        store::Store::lock_control_request(tx, request.request_id, false).await?;
+        store::Store::attach_control_evidence(tx, &request, &evidence).await?;
         Ok(evidence)
     }
 }

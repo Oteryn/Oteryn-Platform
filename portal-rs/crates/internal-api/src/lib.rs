@@ -11,3 +11,7 @@ pub mod guard;
 
 pub mod bazaar;
 pub mod playerdata;
+
+pub mod proxy;
+
+pub mod identity_config;

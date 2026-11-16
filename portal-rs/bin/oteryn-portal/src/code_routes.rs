@@ -27,6 +27,28 @@ impl wallet::AccountStateReader for Policy {
         crate::wallet_topup::Policy.state(conn, account).await
     }
 }
+// Gift-code mutations acquire new value; snapshot existence is insufficient.
+impl premium::Accounts for Policy {
+    fn state<'a>(
+        &'a self,
+        account: Uuid,
+        conn: &'a mut PgConnection,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<premium::AccountState, premium::Error>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            Ok(if wallet::value_eligible_in(conn, account).await? {
+                premium::AccountState::Known
+            } else {
+                premium::AccountState::Unknown
+            })
+        })
+    }
+}
 impl wallet::TransferBlockCheck for Policy {
     async fn permission(&self, _: &mut PgConnection, _: Uuid) -> wallet::TransferPermission {
         wallet::TransferPermission::Unknown
@@ -79,11 +101,7 @@ fn context(pool: PgPool, wallet_enabled: bool) -> Context {
                 Policy,
                 Policy,
             ),
-            premium::repository::Ledger::new(
-                pool,
-                Arc::new(oteryn_store::loyalty::stream::http::DatabaseAccounts),
-                true,
-            ),
+            premium::repository::Ledger::new(pool, Arc::new(Policy), true),
             Attempts(limiter.clone()),
         )),
         limiter,
@@ -168,14 +186,36 @@ struct Generate {
     valid_until: i64,
     note: String,
 }
+struct CodeAuthority {
+    context: oteryn_admin::rbac::CheckContext,
+    auth: oteryn_admin::rbac::MutationAuthorization,
+}
+impl StaffAuthorization for CodeAuthority {
+    async fn authorize(&self, connection: &mut PgConnection, actor: Uuid) -> Result<(), Error> {
+        if actor != self.context.account {
+            return Err(Error::Denied);
+        }
+        self.auth
+            .check_in(
+                connection,
+                self.context,
+                oteryn_admin::rbac::Permission::GenerateStoreCodes,
+            )
+            .await
+            .map_err(|e| match e {
+                oteryn_admin::rbac::Error::Storage(_) => Error::Unavailable,
+                _ => Error::Denied,
+            })
+    }
+}
 async fn generate(
     State(state): State<Context>,
-    Extension(session): Extension<BrowserSession>,
+    Extension(context): Extension<oteryn_admin::rbac::CheckContext>,
+    Extension(auth): Extension<oteryn_admin::rbac::MutationAuthorization>,
     Json(input): Json<Generate>,
 ) -> Response {
-    let Some(actor) = session.account_id().await else {
-        return StatusCode::UNAUTHORIZED.into_response();
-    };
+    let actor = context.account;
+    let authority = CodeAuthority { context, auth };
     let kind = match input.kind.as_str() {
         "coins" => Kind::Coins,
         "premium_days" => Kind::PremiumDays,
@@ -196,7 +236,11 @@ async fn generate(
         valid_until,
         note: input.note,
     };
-    match state.codes.generate_staff(actor, &batch, input.count).await {
+    match state
+        .codes
+        .generate_staff(actor, &authority, &batch, input.count)
+        .await
+    {
         Ok(result) => Json(serde_json::json!({"batch_id":result.batch_id,"codes":result.codes}))
             .into_response(),
         Err(e) => failure(e),

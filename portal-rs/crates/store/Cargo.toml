@@ -40,4 +40,5 @@ version = "0.16"
 version = "0.7"
 
 [dev-dependencies]
+oteryn-db = { workspace = true, features = ["test-support"] }
 oteryn-minigames.workspace = true

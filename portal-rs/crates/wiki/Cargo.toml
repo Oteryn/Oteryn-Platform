@@ -29,8 +29,8 @@ oteryn-world.workspace = true
 oteryn-atlas.workspace = true
 
 [dev-dependencies]
+oteryn-db = { workspace = true, features = ["test-support"] }
 sha2 = "0.10"
-oteryn-db.workspace = true
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }
 

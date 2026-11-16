@@ -148,9 +148,18 @@ async fn resend(
             return Ok(error.response(language, false));
         }
     }
-    verify::resend(&state.db, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    verify::resend(
+        &state.db,
+        oteryn_identity::mutation_actor::MutationActor::browser(
+            id,
+            session
+                .csrf_token()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        ),
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Redirect::to(&format!("/{}/register/check-inbox", language.code())).into_response())
 }
 

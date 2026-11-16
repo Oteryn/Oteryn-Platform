@@ -10,6 +10,7 @@ type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[tokio::test]
 async fn proxy_sequence_reserves_full_maximum_and_replays_original_response() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -43,6 +44,7 @@ async fn proxy_sequence_reserves_full_maximum_and_replays_original_response() ->
 
 #[tokio::test]
 async fn anti_sniping_adds_five_minutes_once_per_request() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -60,6 +62,7 @@ async fn anti_sniping_adds_five_minutes_once_per_request() -> TestResult {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_bids_and_retries_keep_one_winner() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -85,6 +88,7 @@ async fn concurrent_bids_and_retries_keep_one_winner() -> TestResult {
 
 #[tokio::test]
 async fn settlement_commission_is_exact_and_proceeds_wait_for_delivery() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -133,6 +137,7 @@ async fn settlement_commission_is_exact_and_proceeds_wait_for_delivery() -> Test
 
 #[tokio::test]
 async fn adapter_failure_rolls_back_ledger_settlement_listing_and_audit() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -165,6 +170,7 @@ async fn adapter_failure_rolls_back_ledger_settlement_listing_and_audit() -> Tes
 
 #[tokio::test]
 async fn offers_accept_reject_release_and_reverse_want_to_buy_roles() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -196,6 +202,7 @@ async fn offers_accept_reject_release_and_reverse_want_to_buy_roles() -> TestRes
 
 #[tokio::test]
 async fn illegal_transitions_and_bad_inputs_are_refused() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -265,6 +272,7 @@ async fn illegal_transitions_and_bad_inputs_are_refused() -> TestResult {
 
 #[tokio::test]
 async fn flags_account_state_and_escrow_fail_closed() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -341,6 +349,7 @@ async fn flags_account_state_and_escrow_fail_closed() -> TestResult {
 
 #[tokio::test]
 async fn expiry_releases_offers_and_cancellation_requires_no_activity() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -373,6 +382,7 @@ async fn expiry_releases_offers_and_cancellation_requires_no_activity() -> TestR
 
 #[tokio::test]
 async fn concurrent_listings_cannot_over_reserve_one_account() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -394,6 +404,7 @@ async fn concurrent_listings_cannot_over_reserve_one_account() -> TestResult {
 
 #[tokio::test]
 async fn sql_failure_after_reservation_rolls_back_the_whole_bid() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -418,6 +429,7 @@ async fn sql_failure_after_reservation_rolls_back_the_whole_bid() -> TestResult 
 
 #[tokio::test]
 async fn offer_limits_fixed_prices_and_acceptance_release_other_holds() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -456,6 +468,7 @@ async fn offer_limits_fixed_prices_and_acceptance_release_other_holds() -> TestR
 
 #[tokio::test]
 async fn terminal_cancellation_and_expiry_require_return_evidence() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -474,6 +487,7 @@ async fn terminal_cancellation_and_expiry_require_return_evidence() -> TestResul
 
 #[tokio::test]
 async fn postgres_core_legacy_offer_cleanup_keeps_every_reservation_accounted_for() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(h) = Harness::new().await? else {
         return Ok(());
@@ -537,6 +551,7 @@ async fn postgres_core_legacy_offer_cleanup_keeps_every_reservation_accounted_fo
 
 #[tokio::test]
 async fn postgres_committed_delivery_completes_after_trade_restriction() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(h) = Harness::new().await? else {
         return Err("PostgreSQL required".into());
@@ -568,4 +583,224 @@ async fn postgres_committed_delivery_completes_after_trade_restriction() -> Test
         started.elapsed()
     );
     Ok(())
+}
+
+#[derive(Clone)]
+struct RowLockedAccounts(TestAccounts);
+impl Accounts for RowLockedAccounts {
+    async fn state(
+        &self,
+        db: &mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> Result<Option<AccountState>, Error> {
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+            .bind(account)
+            .execute(&mut *db)
+            .await?;
+        self.0.state(db, account).await
+    }
+}
+
+#[tokio::test]
+async fn creation_waits_for_moderation_before_locking_its_account() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
+    sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
+        .execute(&h.pool)
+        .await?;
+    sqlx::query("INSERT INTO accounts VALUES($1)")
+        .bind(h.owner)
+        .execute(&h.pool)
+        .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261105230107_t64_moderation.sql"
+    ))
+    .execute(&h.pool)
+    .await?;
+    let scheduling = include_str!("../../../migrations/20261115110004_fix_04_scheduling.sql")
+        .split("-- Moderation lock order. Statement triggers run before implicit row locks;")
+        .nth(1)
+        .ok_or("moderation migration section")?
+        .split("-- Character transfer publication")
+        .next()
+        .ok_or("moderation fence")?;
+    sqlx::raw_sql(scheduling).execute(&h.pool).await?;
+    let api = Bazaar::new(
+        h.pool.clone(),
+        RowLockedAccounts(h.accounts.clone()),
+        h.funds.clone(),
+        h.evidence.clone(),
+        Flags {
+            enabled: true,
+            gold_enabled: true,
+        },
+    );
+    let input = h.input(Form::Auction, Currency::Coins, 100);
+    let mut staff = h.pool.begin().await?;
+    // This is the RestrictItem gate, followed by the staff actor account lock.
+    sqlx::query("SELECT pg_advisory_xact_lock(64002)")
+        .execute(&mut *staff)
+        .await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *staff)
+        .await?;
+    let creation = tokio::spawn(async move { api.create(input).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&h.pool)
+            .await?;
+            if blocked {
+                break Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    let account_lock = sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(h.owner)
+        .execute(&mut *staff)
+        .await;
+    staff.rollback().await?;
+    let created = creation.await??;
+    account_lock?;
+    assert_eq!(created.owner, h.owner);
+    h.finish().await
+}
+
+#[derive(Clone)]
+struct RowLockedFunds(MemoryReservations);
+impl Reservations for RowLockedFunds {
+    async fn lock_accounts(
+        &self,
+        db: &mut sqlx::PgConnection,
+        accounts: &[Uuid],
+    ) -> Result<(), Error> {
+        sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR SHARE")
+            .bind(accounts)
+            .execute(&mut *db)
+            .await?;
+        self.0.lock_accounts(db, accounts).await
+    }
+    async fn reserve(&self, db: &mut sqlx::PgConnection, hold: Reservation) -> Result<(), Error> {
+        self.0.reserve(db, hold).await
+    }
+    async fn release(
+        &self,
+        db: &mut sqlx::PgConnection,
+        id: Uuid,
+        account: Uuid,
+    ) -> Result<(), Error> {
+        self.0.release(db, id, account).await
+    }
+    async fn settle(
+        &self,
+        db: &mut sqlx::PgConnection,
+        settlement: &Settlement,
+    ) -> Result<(), Error> {
+        self.0.settle(db, settlement).await
+    }
+    async fn complete(
+        &self,
+        db: &mut sqlx::PgConnection,
+        settlement: &Settlement,
+    ) -> Result<(), Error> {
+        self.0.complete(db, settlement).await
+    }
+}
+
+#[tokio::test]
+async fn bid_prepares_previous_leader_before_actor_account() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
+    let mut ids = [h.owner, h.a, h.b];
+    ids.sort_unstable();
+    let [earlier, bidder, seller] = ids;
+    sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
+        .execute(&h.pool)
+        .await?;
+    sqlx::query("INSERT INTO accounts SELECT unnest($1::uuid[])")
+        .bind(vec![h.owner, h.a, h.b])
+        .execute(&h.pool)
+        .await?;
+    let api = Bazaar::new(
+        h.pool.clone(),
+        RowLockedAccounts(h.accounts.clone()),
+        RowLockedFunds(h.funds.clone()),
+        h.evidence.clone(),
+        Flags {
+            enabled: true,
+            gold_enabled: true,
+        },
+    );
+    let mut input = h.input(Form::Auction, Currency::Coins, 100);
+    input.owner = seller;
+    let listing = api.create(input).await?;
+    api.publish(listing.id, seller).await?;
+    api.bid(listing.id, earlier, 200, "previous").await?;
+    let mut role_writer = h.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(earlier)
+        .execute(&mut *role_writer)
+        .await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *role_writer)
+        .await?;
+    let pending = tokio::spawn(async move { api.bid(listing.id, bidder, 400, "next").await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&h.pool)
+            .await?;
+            if blocked {
+                break Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    // The role writer must be able to finish its ordered account set while the
+    // bid waits on the earlier previous-leader identity, without a lock cycle.
+    let later = sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(bidder)
+        .execute(&mut *role_writer)
+        .await;
+    role_writer.rollback().await?;
+    assert_eq!(pending.await??.leader, bidder);
+    later?;
+    h.finish().await
+}
+
+#[tokio::test]
+async fn drc_listing_gate_budget() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let mut blocker = h.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(64002)")
+        .execute(&mut *blocker)
+        .await?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        h.listing(Form::Auction, Currency::Coins, 100),
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "listing gate exceeded the shared three-second budget"
+    );
+    assert!(
+        result?.is_err(),
+        "exclusive moderation gate must refuse creation"
+    );
+    blocker.rollback().await?;
+    h.listing(Form::Auction, Currency::Coins, 100).await?;
+    h.finish().await
 }

@@ -54,6 +54,26 @@ impl Database {
             .execute(&admin)
             .await
             .unwrap();
+        // Migrations run without the statement timeout: they wait on the
+        // migrator's database-wide lock while other schemas migrate.
+        let migrator_search = schema.clone();
+        let migrator = PgPoolOptions::new()
+            .max_connections(1)
+            .after_connect(move |c, _| {
+                let search = migrator_search.clone();
+                Box::pin(async move {
+                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                        .bind(search)
+                        .execute(c)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&url)
+            .await
+            .unwrap();
+        oteryn_db::migrate(&migrator).await.unwrap();
+        migrator.close().await;
         let search = schema.clone();
         let pool = PgPoolOptions::new()
             .max_connections(10)
@@ -73,7 +93,6 @@ impl Database {
             .connect(&url)
             .await
             .unwrap();
-        oteryn_db::migrate(&pool).await.unwrap();
         Some(Self {
             pool,
             admin,
@@ -223,6 +242,7 @@ async fn balance(s: &Services, account: Uuid) -> (i64, i64) {
 }
 #[tokio::test]
 async fn postgres_reservation_insufficient_funds_and_transaction_rollback() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -250,6 +270,7 @@ async fn postgres_reservation_insufficient_funds_and_transaction_rollback() {
 }
 #[tokio::test]
 async fn postgres_concurrent_reservations_cannot_overspend() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -289,6 +310,7 @@ async fn postgres_concurrent_reservations_cannot_overspend() {
 }
 #[tokio::test]
 async fn postgres_settlement_replay_conflict_and_concurrency() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -342,6 +364,7 @@ async fn postgres_settlement_replay_conflict_and_concurrency() {
 }
 #[tokio::test]
 async fn postgres_rename_receipt_capture_refusal_release_and_exact_replay() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -371,6 +394,7 @@ async fn postgres_rename_receipt_capture_refusal_release_and_exact_replay() {
 }
 #[tokio::test]
 async fn postgres_owner_stale_unknown_flags_and_bad_input_deny() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -450,6 +474,7 @@ async fn postgres_owner_stale_unknown_flags_and_bad_input_deny() {
 }
 #[tokio::test]
 async fn postgres_schedule_game_deadline_cancel_boundary_and_no_charge() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -579,6 +604,7 @@ fn list(version: u8) -> String {
 }
 #[tokio::test]
 async fn postgres_v1_v2_isolation_identity_and_receipt_binding() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -684,6 +710,7 @@ async fn postgres_v1_v2_isolation_identity_and_receipt_binding() {
 }
 #[tokio::test]
 async fn postgres_projection_conflict_epoch_invalidation_and_removal_deny() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -734,6 +761,8 @@ async fn postgres_projection_conflict_epoch_invalidation_and_removal_deny() {
 }
 #[tokio::test]
 async fn postgres_restore_reopens_and_grants_lost_rename_for_free() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -791,9 +820,85 @@ async fn postgres_restore_reopens_and_grants_lost_rename_for_free() {
     request.accepted_price = Some(0);
     let free = s.request(a, request).await.unwrap();
     assert_eq!(balance(&s, a).await, (30, 0));
-    s.receive(receipt(&free, true, new_generation).as_bytes())
+    // Rejection returns A's credit, but a later restore can reopen B.
+    s.receive(receipt(&free, false, new_generation).as_bytes())
         .await
         .unwrap();
+    let mut competing_request = rename(c);
+    competing_request.accepted_price = Some(0);
+    let competing = s.request(a, competing_request).await.unwrap();
+    let second_notice = notice
+        .replace(&event.to_string(), &Uuid::now_v7().to_string())
+        .replace(
+            "\"restored_generation\":\"3\"",
+            "\"restored_generation\":\"4\"",
+        )
+        .replace(
+            "\"new_recovery_generation\":\"4\"",
+            "\"new_recovery_generation\":\"5\"",
+        );
+    restore.notice(second_notice.as_bytes()).await.unwrap();
+    s.receive(receipt(&cmd, false, 5).as_bytes()).await.unwrap();
+    // B cannot steal the credit now claimed by a different replacement.
+    assert!(matches!(
+        s.receive(receipt(&free, true, 5).as_bytes()).await,
+        Err(Error::Conflict)
+    ));
+    let saved: Option<String> =
+        sqlx::query_scalar("SELECT receipt_json FROM character_commands WHERE id=$1")
+            .bind(free.operation_id)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert!(saved.is_none());
+    s.receive(receipt(&competing, false, 5).as_bytes())
+        .await
+        .unwrap();
+    // An unused credit is still invalid if its originating rename recovered.
+    sqlx::query(
+        "UPDATE character_service_orders SET financial_state='SETTLED' WHERE operation_id=$1",
+    )
+    .bind(cmd.operation_id)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        s.receive(receipt(&free, true, 5).as_bytes()).await,
+        Err(Error::Conflict)
+    ));
+    sqlx::query("UPDATE character_service_orders SET financial_state='RECOVERY_REQUIRED' WHERE operation_id=$1")
+        .bind(cmd.operation_id).execute(&db.pool).await.unwrap();
+    s.receive(receipt(&free, true, 5).as_bytes()).await.unwrap();
+    s.receive(receipt(&free, true, 5).as_bytes()).await.unwrap();
+    restore.notice(second_notice.as_bytes()).await.unwrap();
+    let used: Option<Uuid> = sqlx::query_scalar(
+        "SELECT credit_used_by FROM character_service_orders WHERE operation_id=$1",
+    )
+    .bind(cmd.operation_id)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(used, Some(free.operation_id));
+    // Acknowledge and resync so the next request reaches credit selection.
+    sqlx::query("UPDATE character_service_feed SET updated_at=clock_timestamp()")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE account_character_feed SET updated_at=clock_timestamp()")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    s.ingest(
+        snapshot(a, c, 2, 9, "ACTIVE", None, current(&db.pool).await).as_bytes(),
+        false,
+    )
+    .await
+    .unwrap();
+    let mut another = rename(c);
+    another.accepted_price = Some(0);
+    assert!(matches!(s.request(a, another).await, Err(Error::Conflict)));
+    // With only 30 coins left, even accepting the paid price cannot rename again.
+    assert!(matches!(s.request(a, rename(c)).await, Err(Error::Denied)));
     assert_eq!(balance(&s, a).await, (30, 0));
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM wallet_reservations")
@@ -803,9 +908,14 @@ async fn postgres_restore_reopens_and_grants_lost_rename_for_free() {
         1
     );
     db.close().await;
+    eprintln!(
+        "postgres_restore_reopens_and_grants_lost_rename_for_free duration={:?}",
+        started.elapsed()
+    );
 }
 #[tokio::test]
 async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use axum::{
         Extension, Form, Router, extract::State, http::HeaderMap, middleware, routing::get,
     };
@@ -962,6 +1072,7 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
 }
 #[tokio::test]
 async fn postgres_service_and_ownership_transfer_cannot_queue_together() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     struct Accounts;
     impl commands::AccountStateReader for Accounts {
         async fn state(&self, _: Uuid) -> commands::AccountState {
@@ -1021,6 +1132,7 @@ async fn postgres_service_and_ownership_transfer_cannot_queue_together() {
 
 #[tokio::test]
 async fn postgres_v2_oversize_all_routes_empty_bad_request() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -1078,6 +1190,7 @@ async fn postgres_v2_oversize_all_routes_empty_bad_request() {
 
 #[tokio::test]
 async fn postgres_replay_after_terminal_deleted_projection() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -1117,6 +1230,7 @@ async fn postgres_replay_after_terminal_deleted_projection() {
 
 #[tokio::test]
 async fn bzb_rate_refusal_precedes_malformed_and_oversized_bodies() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
         .unwrap();
@@ -1138,6 +1252,7 @@ async fn bzb_rate_refusal_precedes_malformed_and_oversized_bodies() {
 
 #[tokio::test]
 async fn audit_a210_postgres_suspended_rename_receipts_settle_once() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -1190,6 +1305,7 @@ async fn audit_a210_postgres_suspended_rename_receipts_settle_once() {
 
 #[tokio::test]
 async fn l6_04_rejected_paid_rename_releases_suspended_holder_once() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -1223,4 +1339,164 @@ async fn l6_04_rejected_paid_rename_releases_suspended_holder_once() {
         "PG l6_04_rejected_paid_rename_releases_suspended_holder_once {:.3}s",
         started.elapsed().as_secs_f64()
     );
+}
+
+#[tokio::test]
+async fn lock_order_service_receipt_prepares_account_and_publication_before_command() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut inversions = Vec::new();
+    for account_wait in [true, false] {
+        let db = Database::open()
+            .await
+            .expect("PostgreSQL required for receipt lock-order regression");
+        let service = Services::new(db.pool.clone(), settings());
+        let account = Uuid::now_v7();
+        let character = Uuid::now_v7();
+        seed(&service, account, character, 100).await;
+        let command = service.request(account, rename(character)).await.unwrap();
+        let raw = receipt(&command, true, 3);
+        let mut writer = db.pool.begin().await.unwrap();
+        let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *writer)
+            .await
+            .unwrap();
+        if account_wait {
+            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+                .bind(account)
+                .execute(&mut *writer)
+                .await
+                .unwrap();
+        } else {
+            sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+                .execute(&mut *writer)
+                .await
+                .unwrap();
+        }
+        let incoming = tokio::spawn(async move { service.receive(raw.as_bytes()).await });
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')")
+                    .bind(blocker).fetch_one(&db.pool).await.unwrap();
+                if waiting { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("receipt did not reach the observable account/publication wait within 2 seconds");
+        sqlx::query("SET LOCAL lock_timeout='250ms'")
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        let command_lock = sqlx::query("SELECT id FROM character_commands WHERE id=$1 FOR UPDATE")
+            .bind(command.operation_id)
+            .execute(&mut *writer)
+            .await;
+        writer.rollback().await.unwrap();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(4), incoming)
+            .await
+            .expect("receipt did not finish after releasing blocker")
+            .unwrap();
+        if command_lock.is_err() {
+            inversions.push((account_wait, format!("{command_lock:?}")));
+        }
+        db.close().await;
+        outcome.unwrap();
+    }
+    assert!(
+        inversions.is_empty(),
+        "receipt retained command before earlier locks: {inversions:?}"
+    );
+}
+
+#[tokio::test]
+async fn lock_order_service_issuance_waits_for_publication_before_recovery_credit() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open()
+        .await
+        .expect("PostgreSQL required for recovery-credit regression");
+    let service = Services::new(db.pool.clone(), settings());
+    let account = Uuid::now_v7();
+    let character = Uuid::now_v7();
+    seed(&service, account, character, 100).await;
+    let original = service.request(account, rename(character)).await.unwrap();
+    service
+        .receive(receipt(&original, true, 3).as_bytes())
+        .await
+        .unwrap();
+    let restore = crate::restore::Restore::new(
+        db.pool.clone(),
+        crate::restore::Settings {
+            enabled: true,
+            source_authority: COMMAND_AUTHORITY.into(),
+            exchange_available: true,
+            ..crate::restore::Settings::default()
+        },
+    );
+    let raw = include_str!("../restore/fixtures/notice.json");
+    let value = wire::decode_value(raw.as_bytes(), 512).unwrap();
+    let event = Uuid::now_v7();
+    let notice = raw
+        .replace(
+            wire::string(&value, "restore_event_id").unwrap(),
+            &event.to_string(),
+        )
+        .replace("oteryn-game-eu1", COMMAND_AUTHORITY);
+    restore.notice(notice.as_bytes()).await.unwrap();
+    let generation = wire::number(
+        wire::string(&value, "new_recovery_generation").unwrap(),
+        false,
+    )
+    .unwrap();
+    service
+        .receive(receipt(&original, false, generation).as_bytes())
+        .await
+        .unwrap();
+    restore.notice(notice.as_bytes()).await.unwrap();
+    sqlx::query("UPDATE character_service_feed SET updated_at=clock_timestamp()")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE account_character_feed SET updated_at=clock_timestamp()")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut writer = db.pool.begin().await.unwrap();
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let mut request = rename(character);
+    request.accepted_price = Some(0);
+    let issuance = tokio::spawn(async move { service.request(account, request).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')")
+                .bind(blocker).fetch_one(&db.pool).await.unwrap();
+            if waiting { break; }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("issuance did not reach observable publication wait within 2 seconds");
+    sqlx::query("SET LOCAL lock_timeout='250ms'")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let credit_lock = sqlx::query(
+        "SELECT operation_id FROM character_service_orders WHERE operation_id=$1 FOR UPDATE",
+    )
+    .bind(original.operation_id)
+    .execute(&mut *writer)
+    .await;
+    writer.rollback().await.unwrap();
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(4), issuance)
+        .await
+        .expect("issuance did not finish after publication blocker released")
+        .unwrap();
+    db.close().await;
+    assert!(
+        credit_lock.is_ok(),
+        "issuance retained recovery credit while waiting for publication: {credit_lock:?}"
+    );
+    outcome.unwrap();
 }

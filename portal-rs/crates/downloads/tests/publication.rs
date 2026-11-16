@@ -17,6 +17,7 @@ const ON: FeatureFlags = FeatureFlags { downloads: true };
 
 #[tokio::test]
 async fn db_upload_is_served_byte_identical_and_history_survives_publication() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -150,6 +151,7 @@ async fn db_upload_is_served_byte_identical_and_history_survives_publication() {
 
 #[tokio::test]
 async fn db_bad_signatures_tampering_expiry_and_wrong_channel_are_rejected() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -240,6 +242,7 @@ async fn db_bad_signatures_tampering_expiry_and_wrong_channel_are_rejected() {
 
 #[tokio::test]
 async fn db_rollback_needs_new_signed_explicit_policy_and_known_immutable_release() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -312,6 +315,7 @@ async fn db_rollback_needs_new_signed_explicit_policy_and_known_immutable_releas
 
 #[tokio::test]
 async fn db_account_state_permissions_flags_and_bad_input_fail_closed() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -391,6 +395,7 @@ async fn db_account_state_permissions_flags_and_bad_input_fail_closed() {
 
 #[tokio::test]
 async fn db_concurrent_publication_cannot_fork_channel_history() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -430,6 +435,7 @@ async fn db_concurrent_publication_cannot_fork_channel_history() {
 
 #[tokio::test]
 async fn disabled_surface_does_not_connect_to_database() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolForTest::lazy();
     let response = router(pool, FeatureFlags::default())
         .oneshot(
@@ -487,6 +493,7 @@ fn policy_schema_fixture_and_negative_inputs() {
 
 #[tokio::test]
 async fn db_release_identity_support_floor_and_revocations_cannot_be_rewritten() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -559,6 +566,7 @@ async fn db_release_identity_support_floor_and_revocations_cannot_be_rewritten()
 
 #[tokio::test]
 async fn audit_09_04_history_reads_are_bounded_and_oldest_identity_is_checked() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open().await.expect("PostgreSQL is required");
     let signer = SignerFixture::new();

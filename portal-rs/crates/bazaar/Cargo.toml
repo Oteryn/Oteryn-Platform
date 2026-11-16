@@ -21,6 +21,7 @@ time = "0.3.53"
 uuid = { version = "1.29.0", features = ["v7"] }
 
 [dev-dependencies]
+oteryn-db = { workspace = true, features = ["test-support"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync"] }
 
 [dependencies.oteryn-internal-api]

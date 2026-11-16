@@ -51,14 +51,28 @@ impl Database {
             include_str!("../../../../migrations/20261105190100_t19_native_admissions.sql"),
             include_str!("../../../../migrations/20261105220235_t34_sanctions.sql"),
             include_str!("../../../../migrations/20261105231600_support_sanction_revisions.sql"),
+            include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
+            include_str!("../../../../migrations/20261105220202_t04_login_guard.sql"),
+            include_str!(
+                "../../../../migrations/20261105220209_accounts_native_security_generation.sql"
+            ),
+            include_str!("../../../../migrations/20261105220213_t06_mfa.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
         }
+        let session_generation =
+            include_str!("../../../../migrations/20261115110002_fix_02_identity.sql")
+                .lines()
+                .find(|line| {
+                    line.starts_with("ALTER TABLE web_sessions ADD COLUMN authorization_generation")
+                })
+                .ok_or("session generation migration missing")?;
+        sqlx::raw_sql(session_generation).execute(&pool).await?;
         let actor = Uuid::now_v7();
         let reviewer = Uuid::now_v7();
         let target = Uuid::now_v7();
         for id in [actor, reviewer, target] {
-            sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES ($1,$2,'synthetic-not-a-password','active','en')")
+            sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES ($1,$2,'synthetic-not-a-password','active','en',now())")
                 .bind(id).bind(format!("{id}@example.invalid")).execute(&pool).await?;
         }
         for id in [actor, reviewer] {
@@ -128,11 +142,12 @@ impl Database {
         Ok(())
     }
 }
-fn staff(account: Uuid) -> CheckContext {
+async fn staff(pool: &PgPool, account: Uuid) -> CheckContext {
     CheckContext {
         account,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: crate::test_staff::proof(pool, account).await.ok(),
     }
 }
 
@@ -166,6 +181,7 @@ fn input_and_defaults_fail_closed() {
 
 #[tokio::test]
 async fn db_warning_restriction_and_suspension_ticket_lifecycle() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -173,7 +189,7 @@ async fn db_warning_restriction_and_suspension_ticket_lifecycle() -> TestResult 
     for category in [Category::Warning, Category::Restriction] {
         let receipt = service
             .create(
-                staff(db.actor),
+                staff(&db.pool, db.actor).await,
                 Uuid::now_v7(),
                 db.decision(category, false).await?,
             )
@@ -183,7 +199,7 @@ async fn db_warning_restriction_and_suspension_ticket_lifecycle() -> TestResult 
     }
     let receipt = service
         .create(
-            staff(db.actor),
+            staff(&db.pool, db.actor).await,
             Uuid::now_v7(),
             db.decision(Category::Suspension, false).await?,
         )
@@ -191,12 +207,22 @@ async fn db_warning_restriction_and_suspension_ticket_lifecycle() -> TestResult 
     assert!(matches!(db.ticket().await, Err(Error::Denied)));
     assert!(matches!(
         service
-            .revoke(staff(db.actor), Uuid::now_v7(), receipt.id, 9)
+            .revoke(
+                staff(&db.pool, db.actor).await,
+                Uuid::now_v7(),
+                receipt.id,
+                9
+            )
             .await,
         Err(Error::Conflict)
     ));
     service
-        .revoke(staff(db.actor), Uuid::now_v7(), receipt.id, 1)
+        .revoke(
+            staff(&db.pool, db.actor).await,
+            Uuid::now_v7(),
+            receipt.id,
+            1,
+        )
         .await?;
     db.ticket().await?;
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
@@ -214,13 +240,14 @@ async fn db_warning_restriction_and_suspension_ticket_lifecycle() -> TestResult 
 
 #[tokio::test]
 async fn db_permanent_decision_requires_distinct_current_authorized_reviewer() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
     let service = db.service();
     let receipt = service
         .create(
-            staff(db.actor),
+            staff(&db.pool, db.actor).await,
             Uuid::now_v7(),
             db.decision(Category::Suspension, true).await?,
         )
@@ -229,25 +256,45 @@ async fn db_permanent_decision_requires_distinct_current_authorized_reviewer() -
     db.ticket().await?;
     assert!(matches!(
         service
-            .approve(staff(db.actor), Uuid::now_v7(), receipt.id, 1)
+            .approve(
+                staff(&db.pool, db.actor).await,
+                Uuid::now_v7(),
+                receipt.id,
+                1
+            )
             .await,
         Err(Error::Denied)
     ));
     assert!(
         service
-            .approve(staff(db.target), Uuid::now_v7(), receipt.id, 1)
+            .approve(
+                staff(&db.pool, db.target).await,
+                Uuid::now_v7(),
+                receipt.id,
+                1
+            )
             .await
             .is_err()
     );
     let approved = service
-        .approve(staff(db.reviewer), Uuid::now_v7(), receipt.id, 1)
+        .approve(
+            staff(&db.pool, db.reviewer).await,
+            Uuid::now_v7(),
+            receipt.id,
+            1,
+        )
         .await?;
     assert_eq!(approved.version, 2);
     assert!(!approved.pending);
     assert!(matches!(db.ticket().await, Err(Error::Denied)));
     assert!(matches!(
         service
-            .approve(staff(db.reviewer), Uuid::now_v7(), receipt.id, 1)
+            .approve(
+                staff(&db.pool, db.reviewer).await,
+                Uuid::now_v7(),
+                receipt.id,
+                1
+            )
             .await,
         Err(Error::Conflict)
     ));
@@ -256,6 +303,7 @@ async fn db_permanent_decision_requires_distinct_current_authorized_reviewer() -
 
 #[tokio::test]
 async fn db_bad_input_mfa_permission_and_disabled_feature_have_no_effect() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -264,11 +312,11 @@ async fn db_bad_input_mfa_permission_and_disabled_feature_have_no_effect() -> Te
     bad.expires_at_ms = Some(bad.effective_at_ms);
     assert!(matches!(
         db.service()
-            .create(staff(db.actor), Uuid::now_v7(), bad)
+            .create(staff(&db.pool, db.actor).await, Uuid::now_v7(), bad)
             .await,
         Err(Error::InvalidInput)
     ));
-    let mut context = staff(db.actor);
+    let mut context = staff(&db.pool, db.actor).await;
     context.mfa_verified = false;
     assert!(
         db.service()
@@ -290,13 +338,17 @@ async fn db_bad_input_mfa_permission_and_disabled_feature_have_no_effect() -> Te
         .await?;
     assert!(
         db.service()
-            .create(staff(db.actor), Uuid::now_v7(), decision.clone())
+            .create(
+                staff(&db.pool, db.actor).await,
+                Uuid::now_v7(),
+                decision.clone()
+            )
             .await
             .is_err()
     );
     assert!(matches!(
         Service::new(db.pool.clone(), Features::default())
-            .create(staff(db.reviewer), Uuid::now_v7(), decision)
+            .create(staff(&db.pool, db.reviewer).await, Uuid::now_v7(), decision)
             .await,
         Err(Error::Disabled)
     ));
@@ -309,6 +361,7 @@ async fn db_bad_input_mfa_permission_and_disabled_feature_have_no_effect() -> Te
 
 #[tokio::test]
 async fn db_suspension_boundaries_overlap_and_account_state_deny() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -317,31 +370,31 @@ async fn db_suspension_boundaries_overlap_and_account_state_deny() -> TestResult
     expired.effective_at_ms -= 60000;
     expired.expires_at_ms = Some(db.now().await? - 1);
     service
-        .create(staff(db.actor), Uuid::now_v7(), expired)
+        .create(staff(&db.pool, db.actor).await, Uuid::now_v7(), expired)
         .await?;
     db.ticket().await?;
     let mut future = db.decision(Category::Suspension, false).await?;
     future.effective_at_ms += 30000;
     service
-        .create(staff(db.actor), Uuid::now_v7(), future)
+        .create(staff(&db.pool, db.actor).await, Uuid::now_v7(), future)
         .await?;
     db.ticket().await?;
     let a = service
         .create(
-            staff(db.actor),
+            staff(&db.pool, db.actor).await,
             Uuid::now_v7(),
             db.decision(Category::Suspension, false).await?,
         )
         .await?;
     service
         .create(
-            staff(db.actor),
+            staff(&db.pool, db.actor).await,
             Uuid::now_v7(),
             db.decision(Category::Suspension, false).await?,
         )
         .await?;
     service
-        .revoke(staff(db.actor), Uuid::now_v7(), a.id, 1)
+        .revoke(staff(&db.pool, db.actor).await, Uuid::now_v7(), a.id, 1)
         .await?;
     assert!(matches!(db.ticket().await, Err(Error::Denied)));
     for status in ["suspended", "closed", "pending_verification"] {
@@ -423,6 +476,7 @@ fn request(attempt: Uuid) -> Result<admission::AdmissionRequest, admission::Erro
 }
 #[tokio::test]
 async fn db_admission_fresh_and_replay_recheck_suspension() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -443,7 +497,7 @@ async fn db_admission_fresh_and_replay_recheck_suspension() -> TestResult {
     tx.rollback().await?;
     db.service()
         .create(
-            staff(db.actor),
+            staff(&db.pool, db.actor).await,
             Uuid::now_v7(),
             db.decision(Category::Suspension, false).await?,
         )
@@ -469,6 +523,7 @@ async fn db_admission_fresh_and_replay_recheck_suspension() -> TestResult {
 
 #[tokio::test]
 async fn db_access_transaction_serializes_suspension_and_rolls_back_ticket_failure() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -506,7 +561,7 @@ async fn db_access_transaction_serializes_suspension_and_rolls_back_ticket_failu
     ticket_tx.rollback().await?;
     db.service()
         .create(
-            staff(db.actor),
+            staff(&db.pool, db.actor).await,
             Uuid::now_v7(),
             db.decision(Category::Suspension, false).await?,
         )
@@ -517,6 +572,7 @@ async fn db_access_transaction_serializes_suspension_and_rolls_back_ticket_failu
 
 #[tokio::test]
 async fn db_http_admission_success_then_suspension_denies_fresh_and_replay() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
@@ -559,7 +615,7 @@ async fn db_http_admission_success_then_suspension_denies_fresh_and_replay() -> 
     );
     db.service()
         .create(
-            staff(db.actor),
+            staff(&db.pool, db.actor).await,
             Uuid::now_v7(),
             db.decision(Category::Suspension, false).await?,
         )
@@ -586,13 +642,14 @@ async fn db_http_admission_success_then_suspension_denies_fresh_and_replay() -> 
 
 #[tokio::test]
 async fn db_unknown_sanction_state_and_unavailable_storage_never_authorize() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
     let receipt = db
         .service()
         .create(
-            staff(db.actor),
+            staff(&db.pool, db.actor).await,
             Uuid::now_v7(),
             db.decision(Category::Warning, false).await?,
         )
@@ -640,6 +697,7 @@ async fn state(db: &Database, character: Option<Uuid>) -> Result<EffectiveState,
 
 #[tokio::test]
 async fn db_revision_concurrent_allocation_and_caller_rollback() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -702,6 +760,7 @@ async fn db_revision_concurrent_allocation_and_caller_rollback() -> TestResult {
 
 #[tokio::test]
 async fn db_revision_permanent_unban_stale_and_conflicting_replay() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -762,6 +821,7 @@ async fn db_revision_permanent_unban_stale_and_conflicting_replay() -> TestResul
 
 #[tokio::test]
 async fn db_revision_expiry_uses_database_clock_even_in_old_transaction() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -816,6 +876,7 @@ async fn db_revision_expiry_uses_database_clock_even_in_old_transaction() -> Tes
 
 #[tokio::test]
 async fn db_revision_namelock_is_character_scoped_and_notation_is_staff_only() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -862,6 +923,7 @@ async fn db_revision_namelock_is_character_scoped_and_notation_is_staff_only() -
 
 #[tokio::test]
 async fn db_revision_bounds_and_invalid_lifts_do_not_allocate() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -911,6 +973,7 @@ async fn db_revision_bounds_and_invalid_lifts_do_not_allocate() -> TestResult {
 
 #[tokio::test]
 async fn db_revision_newer_expired_state_never_restores_older_permanent_state() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -970,6 +1033,7 @@ async fn db_revision_newer_expired_state_never_restores_older_permanent_state() 
 
 #[tokio::test]
 async fn db_effective_state_refuses_oversized_materialization() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -991,6 +1055,7 @@ async fn db_effective_state_refuses_oversized_materialization() -> TestResult {
 
 #[tokio::test]
 async fn lk_sanction_authorization_with_one_available_connection() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Database::new()
         .await?
@@ -1003,7 +1068,7 @@ async fn lk_sanction_authorization_with_one_available_connection() -> TestResult
     let receipt = tokio::time::timeout(
         std::time::Duration::from_secs(3),
         db.service()
-            .create(staff(db.actor), Uuid::now_v7(), decision),
+            .create(staff(&db.pool, db.actor).await, Uuid::now_v7(), decision),
     )
     .await??;
     assert!(!receipt.pending);
@@ -1018,6 +1083,7 @@ async fn lk_sanction_authorization_with_one_available_connection() -> TestResult
 
 #[tokio::test]
 async fn postgres_legacy_sanctions_lock_accounts_before_rbac() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -1036,11 +1102,12 @@ async fn postgres_legacy_sanctions_lock_accounts_before_rbac() -> TestResult {
         let decision = db.decision(Category::Warning, true).await?;
         let actor = if phase == 1 { db.reviewer } else { db.actor };
         let id = sanction;
+        let context = staff(&db.pool, actor).await;
         let operation = tokio::spawn(async move {
             match phase {
-                0 => service.create(staff(actor), Uuid::now_v7(), decision).await,
-                1 => service.approve(staff(actor), Uuid::now_v7(), id, 1).await,
-                _ => service.revoke(staff(actor), Uuid::now_v7(), id, 2).await,
+                0 => service.create(context, Uuid::now_v7(), decision).await,
+                1 => service.approve(context, Uuid::now_v7(), id, 1).await,
+                _ => service.revoke(context, Uuid::now_v7(), id, 2).await,
             }
         });
         tokio::time::timeout(std::time::Duration::from_secs(2),async {

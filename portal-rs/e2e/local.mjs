@@ -30,6 +30,8 @@ function walk(directory){return fs.readdirSync(directory,{withFileTypes:true}).f
 for(const file of [...walk(path.join(root,'crates')),...walk(path.join(root,'bin'))].filter(p=>p.endsWith('.rs'))){
  for(const [,key] of fs.readFileSync(file,'utf8').matchAll(/"([A-Z][A-Z0-9_]+_ENABLED)"/g)) env[key]='true';
 }
+// Restore notice and Store delivery are mutually exclusive at startup (game_routes::validate_store_restore); keep delivery on.
+env.PORTAL_GAME_RESTORE_NOTICE_ENABLED='false';
 for(const key of ['OTERYN_ACCOUNT_LOGIN','OTERYN_ACCOUNT_MFA','OTERYN_ACCOUNT_PASSKEYS','OTERYN_ACCOUNT_PASSWORD_RESET','OTERYN_ACCOUNT_SESSIONS','OTERYN_ACCOUNT_CREDENTIALS','OTERYN_ACCOUNT_EMAIL_CHANGE','OTERYN_ACCOUNT_RECOVERY_KEYS','OTERYN_ADMIN_PANEL','OTERYN_ADMIN_CONSOLE','OTERYN_ADMIN_PLAYERS','OTERYN_ADMIN_PLAYER_CHARACTERS','OTERYN_ADMIN_COMMERCE','OTERYN_ADMIN_CONTROL','OTERYN_WORLD_ADMIN','OTERYN_BAZAAR_MODERATION','OTERYN_BAZAAR_PROFILES','OTERYN_BAZAAR_PROMOTIONS','OTERYN_SUPPORT_TICKETS','OTERYN_PLAYERDATA_HUNTS_READ','OTERYN_PLAYERDATA_PLACES_AGGREGATE']) env[key]='true';
 Object.assign(env,{
  OTERYN_SHOP_TEST_PAYMENT_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_SHOP_TOP_UP_PACKAGES:JSON.stringify([{key:'e2e-coins',coins:1234,minor_units:250,currency:'PLN'}]),
@@ -67,6 +69,9 @@ Object.assign(env,{
 // A URL may be exercised against the same independently pinned negative fixture.
 // The server must remain ready while bounded background transport is pending.
 if(process.env.OTERYN_WORLD_CATALOG_URL){delete env.OTERYN_WORLD_CATALOG_FILE;env.OTERYN_WORLD_CATALOG_URL=process.env.OTERYN_WORLD_CATALOG_URL;}
+// Disposable test-provider material enables staff reconciliation without live payments.
+env.OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE=path.join(scratch,'commerce-test-provider.key');
+fs.writeFileSync(env.OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE,crypto.randomBytes(32),{mode:0o600});
 fs.mkdirSync(env.OTERYN_ATLAS_DIRECTORY,{recursive:true});
 function command(program,args,options={}){const result=spawnSync(program,args,{cwd:root,env,stdio:'inherit',...options});if(result.status!==0)throw new Error(`${program} failed`);}
 function openssl(args){command('openssl',args,{stdio:'ignore'});}
@@ -102,6 +107,9 @@ command(binary,['migrate']);
 const bazaarSeed=new pg.Client({connectionString:databaseURL(dbName)});await bazaarSeed.connect();
 await bazaarSeed.query("INSERT INTO world_status(id,name) VALUES($1,'Local Bazaar World') ON CONFLICT(id) DO NOTHING",[bazaarConfig.world]);
 await bazaarSeed.query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'bazaar-escrow@local.test',now(),'non-loginable-fixture','active','en') ON CONFLICT(id) DO NOTHING",[bazaarConfig.escrow]);
+// Campaign activation has no product UI; enable its explicit database switch
+// only in this disposable qualification database (the deployment flag is also required).
+await bazaarSeed.query("UPDATE referral_campaign_settings SET enabled=true WHERE singleton");
 await bazaarSeed.end();
 const bazaarGame=await startBazaarProducer(bazaarConfig);
 const tls={key:fs.readFileSync(`${scratch}/key.pem`),cert:fs.readFileSync(`${scratch}/cert.pem`)};

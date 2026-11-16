@@ -2,7 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, State},
+    extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -18,7 +18,7 @@ use oteryn_web::{
     session::{self, BrowserSession, PrivilegeChange, SessionKey, SessionLayer},
 };
 use sha2::{Digest, Sha256};
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::IpAddr, sync::Arc};
 
 #[derive(Debug)]
 struct AccountState(Accounts);
@@ -246,7 +246,7 @@ struct Input {
 async fn check(
     limiter: &RateLimiter,
     session: &BrowserSession,
-    peer: SocketAddr,
+    peer: IpAddr,
     policy: NamedPolicy,
     language: Language,
 ) -> Result<(), Box<Response>> {
@@ -254,7 +254,7 @@ async fn check(
         .account_id()
         .await
         .ok_or_else(|| Box::new(StatusCode::UNAUTHORIZED.into_response()))?;
-    let mut keys = Keys::source(peer.ip());
+    let mut keys = Keys::source(peer);
     keys.account = Some(id.to_string());
     limiter
         .check(policy, &[keys])
@@ -266,7 +266,7 @@ async fn change(
     State(service): State<Credentials>,
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
     headers: HeaderMap,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
@@ -308,7 +308,7 @@ async fn sudo(
     State(service): State<Credentials>,
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
     headers: HeaderMap,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {

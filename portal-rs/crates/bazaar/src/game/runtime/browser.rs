@@ -216,6 +216,7 @@ impl Runtime {
     ) -> Result<(Vec<Card>, String), Error> {
         self.config.current()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let mut cards = vec![];
         let rows = candidate_page(&mut tx, actor, listing, only_own, cursor).await?;
         let next = if rows.len() == 50 {
@@ -229,6 +230,7 @@ impl Runtime {
         // Bound work to one candidate page; release issuer locks between candidates.
         for candidate in rows {
             let mut tx = self.pool.begin().await?;
+            crate::locking::listing_gate(&mut tx).await?;
             sqlx::query("SET LOCAL statement_timeout='2s'")
                 .execute(&mut *tx)
                 .await?;
@@ -533,7 +535,11 @@ async fn rate(
     else {
         return failure("en", Error::Denied);
     };
-    let mut keys = oteryn_web::ratelimit::Keys::source(peer.0.ip());
+    let source = match oteryn_web::ratelimit::client_source(peer.0, request.headers()) {
+        Ok(source) => source,
+        Err(_) => return failure("en", Error::Denied),
+    };
+    let mut keys = oteryn_web::ratelimit::Keys::source(source);
     keys.account = Some(actor.to_string());
     let policy = if request.uri().path().ends_with("/sell") {
         oteryn_web::ratelimit::NamedPolicy::MarketplaceListing
@@ -612,6 +618,7 @@ mod catalogue_tests {
     #[tokio::test]
     async fn postgres_terminal_history_cannot_hide_active_catalogue_candidate()
     -> Result<(), Box<dyn std::error::Error>> {
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
         let started = std::time::Instant::now();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)

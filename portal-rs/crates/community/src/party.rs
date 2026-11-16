@@ -31,14 +31,47 @@ pub struct Character {
     pub profession: String,
 }
 /// Narrow seam for T44/T33c. Implementations must reject stale, ambiguous, disabled
-/// or unavailable identity/ownership. Moderator checks require staff MFA, RBAC
-/// ManageSupportReports and the current T10b authorization policy.
+/// or unavailable identity/ownership. Moderator checks gate queue reads behind
+/// the staff guard. Mutations require its transaction-local RBAC/session proof.
 pub trait Authority: Send + Sync + std::fmt::Debug {
     fn active(&self, account: Uuid) -> CheckFuture<'_, ()>;
     fn character(&self, account: Uuid, character: Uuid) -> CheckFuture<'_, Character>;
     fn moderator(&self, account: Uuid) -> CheckFuture<'_, ()>;
     /// T33c abuse restrictions must explicitly allow new reports.
     fn reporting_allowed(&self, account: Uuid) -> CheckFuture<'_, ()>;
+    /// Mutation proofs must use this connection and retain all fences through commit.
+    fn active_in<'a>(
+        &'a self,
+        _tx: &'a mut sqlx::PgConnection,
+        _account: Uuid,
+    ) -> CheckFuture<'a, ()> {
+        Box::pin(async { None })
+    }
+
+    fn reporting_allowed_in<'a>(
+        &'a self,
+        _tx: &'a mut sqlx::PgConnection,
+        _account: Uuid,
+    ) -> CheckFuture<'a, ()> {
+        Box::pin(async { None })
+    }
+
+    fn character_in<'a>(
+        &'a self,
+        _tx: &'a mut sqlx::PgConnection,
+        _account: Uuid,
+        _character: Uuid,
+    ) -> CheckFuture<'a, Character> {
+        Box::pin(async { None })
+    }
+
+    fn moderator_in<'a>(
+        &'a self,
+        _tx: &'a mut sqlx::PgConnection,
+        _account: Uuid,
+    ) -> CheckFuture<'a, ()> {
+        Box::pin(async { None })
+    }
 }
 #[derive(Debug)]
 struct ProductionAuthority {
@@ -47,25 +80,87 @@ struct ProductionAuthority {
 impl Authority for ProductionAuthority {
     fn active(&self, account: Uuid) -> CheckFuture<'_, ()> {
         Box::pin(async move {
+            let mut tx = self.db.begin().await.ok()?;
+            self.active_in(&mut tx, account).await?;
+            tx.commit().await.ok()?;
+            Some(())
+        })
+    }
+
+    fn reporting_allowed(&self, account: Uuid) -> CheckFuture<'_, ()> {
+        Box::pin(async move {
+            let mut tx = self.db.begin().await.ok()?;
+            self.reporting_allowed_in(&mut tx, account).await?;
+            tx.commit().await.ok()?;
+            Some(())
+        })
+    }
+
+    fn character(&self, account: Uuid, character: Uuid) -> CheckFuture<'_, Character> {
+        Box::pin(async move {
+            let mut tx = self.db.begin().await.ok()?;
+            let proof = self.character_in(&mut tx, account, character).await?;
+            tx.commit().await.ok()?;
+            Some(proof)
+        })
+    }
+
+    fn moderator(&self, account: Uuid) -> CheckFuture<'_, ()> {
+        Box::pin(async move {
+            let mut tx = self.db.begin().await.ok()?;
+            self.moderator_in(&mut tx, account).await?;
+            tx.commit().await.ok()?;
+            Some(())
+        })
+    }
+
+    fn active_in<'a>(
+        &'a self,
+        tx: &'a mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> CheckFuture<'a, ()> {
+        Box::pin(async move {
+            // Account eligibility port: shared budget, then the account row in
+            // shared mode before any party resource (hierarchy level 3).
+            oteryn_db::mutation_budget(&mut *tx).await.ok()?;
+            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+                .bind(account)
+                .execute(&mut *tx)
+                .await
+                .ok()?;
             let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts a WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sanctions s WHERE s.account_id=a.id AND s.status='active' AND s.category IN ('restriction','suspension') AND s.effective_at<=clock_timestamp() AND (s.expires_at IS NULL OR s.expires_at>clock_timestamp())))")
-                .bind(account).fetch_one(&self.db).await.ok()?;
+                .bind(account).fetch_one(&mut *tx).await.ok()?;
             allowed.then_some(())
         })
     }
-    fn reporting_allowed(&self, account: Uuid) -> CheckFuture<'_, ()> {
+    fn reporting_allowed_in<'a>(
+        &'a self,
+        tx: &'a mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> CheckFuture<'a, ()> {
         Box::pin(async move {
-            self.active(account).await?;
+            self.active_in(tx, account).await?;
+            sqlx::query("LOCK TABLE player_reports IN SHARE MODE")
+                .execute(&mut *tx)
+                .await
+                .ok()?;
             let rejected: i64 = sqlx::query_scalar("SELECT count(*) FROM player_reports WHERE reporter_account_id=$1 AND rejected_at>=clock_timestamp()-interval '30 days'")
-                .bind(account).fetch_one(&self.db).await.ok()?;
+                .bind(account).fetch_one(&mut *tx).await.ok()?;
             (rejected < 3).then_some(())
         })
     }
-    fn character(&self, account: Uuid, character: Uuid) -> CheckFuture<'_, Character> {
+    fn character_in<'a>(
+        &'a self,
+        tx: &'a mut sqlx::PgConnection,
+        account: Uuid,
+        character: Uuid,
+    ) -> CheckFuture<'a, Character> {
         Box::pin(async move {
-            self.active(account).await?;
-            let mut tx = self.db.begin().await.ok()?;
+            // Account (level 3) precedes the shared issuance fence taken by
+            // the ownership read (level 4).
+            self.active_in(&mut *tx, account).await?;
             let oteryn_playerdata::authority::Ownership::Owner(cut) =
-                oteryn_playerdata::authority::ownership(&mut tx, account, character)
+                oteryn_playerdata::authority::ownership(&mut *tx, account, character)
                     .await
                     .ok()?
             else {
@@ -77,7 +172,7 @@ impl Authority for ProductionAuthority {
                 .execute(&mut *tx)
                 .await
                 .ok()?;
-            let profile: serde_json::Value = sqlx::query_scalar("SELECT s.payload->'profile'->0 FROM public_snapshots s JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch WHERE s.family='character_profile' AND s.subject=$1 AND NOT s.is_watermark AND jsonb_array_length(s.payload->'profile')=1 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM clock_timestamp()))::bigint-29 AND floor(extract(epoch FROM clock_timestamp()))::bigint+1)")
+            let profile: serde_json::Value = sqlx::query_scalar("SELECT s.payload->'profile'->0 FROM public_snapshots s JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch WHERE s.family='character_profile' AND NOT public_projection_conflicted('character_profile') AND s.subject=$1 AND NOT s.is_watermark AND jsonb_array_length(s.payload->'profile')=1 AND EXISTS(SELECT 1 FROM public_snapshots w WHERE w.family=s.family AND w.is_watermark AND w.epoch=s.epoch AND w.watermark BETWEEN floor(extract(epoch FROM clock_timestamp()))::bigint-29 AND floor(extract(epoch FROM clock_timestamp()))::bigint+1)")
                 .bind(character.to_string()).fetch_optional(&mut *tx).await.ok()??;
             if profile["name"].as_str()? != name
                 || profile["world_id"].as_str()? != cut.world.to_string()
@@ -93,7 +188,6 @@ impl Authority for ProductionAuthority {
                 9 | 10 => "monk",
                 _ => return None,
             };
-            tx.commit().await.ok()?;
             Some(Character {
                 id: character,
                 world: cut.world,
@@ -103,17 +197,19 @@ impl Authority for ProductionAuthority {
             })
         })
     }
-    fn moderator(&self, account: Uuid) -> CheckFuture<'_, ()> {
+    fn moderator_in<'a>(
+        &'a self,
+        tx: &'a mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> CheckFuture<'a, ()> {
         Box::pin(async move {
-            // Production staff routes require session MFA through T10b's guard.
-            // Recheck current RBAC for the service mutation as well.
+            self.active_in(tx, account).await?;
+            // Queue reads run behind the staff MFA guard. Mutation authority
+            // comes from that guard's context/proof on the caller transaction.
             let identity = oteryn_admin::web::PortalIdentity::configured(self.db.clone());
             let auth = oteryn_admin::rbac::Authorizer::new(self.db.clone(), identity);
-            let context = oteryn_admin::rbac::CheckContext {
-                account,
-                require_staff_mfa: false,
-                mfa_verified: false,
-            };
+            let mut context = oteryn_admin::rbac::CheckContext::new(account);
+            context.mfa_verified = true;
             for permission in [
                 oteryn_admin::rbac::Permission::Access,
                 oteryn_admin::rbac::Permission::ManageSupportReports,
@@ -268,6 +364,14 @@ impl From<sqlx::Error> for Error {
         Self::Storage(e)
     }
 }
+impl From<oteryn_admin::rbac::Error> for Error {
+    fn from(error: oteryn_admin::rbac::Error) -> Self {
+        match error {
+            oteryn_admin::rbac::Error::Storage(error) => Self::Storage(error),
+            _ => Self::Denied,
+        }
+    }
+}
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         match self {
@@ -381,17 +485,13 @@ struct Decision {
 async fn moderate(
     State(board): State<Board>,
     Path((lang, id)): Path<(String, Uuid)>,
-    Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    Extension(context): Extension<oteryn_admin::rbac::CheckContext>,
+    Extension(authority): Extension<oteryn_admin::rbac::MutationAuthorization>,
     Form(input): Form<Decision>,
 ) -> Result<Response, Error> {
     language(&lang)?;
     board
-        .moderate(
-            account(&board, &session).await?,
-            id,
-            &input.action,
-            &input.reason,
-        )
+        .moderate(context, &authority, id, &input.action, &input.reason)
         .await?;
     Ok(Redirect::to(&format!("/admin/{lang}/party")).into_response())
 }
@@ -414,3 +514,7 @@ impl Authority for Unavailable {
         Box::pin(async { None })
     }
 }
+
+#[cfg(test)]
+#[path = "party/last_wait_tests.rs"]
+mod last_wait_tests;

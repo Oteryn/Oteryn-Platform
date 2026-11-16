@@ -128,6 +128,7 @@ pub fn router<A: Authority + 'static, P: Payment + 'static, R: Rewards + 'static
         .layer(axum::middleware::from_fn(response_policy))
         .layer(DefaultBodyLimit::max(4096))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(4096))
+        .layer(axum::middleware::from_fn(crate::browser::deadline))
         .with_state(Arc::new(passes))
 }
 /// No environment setting can enable missing source or cosmetic authority.

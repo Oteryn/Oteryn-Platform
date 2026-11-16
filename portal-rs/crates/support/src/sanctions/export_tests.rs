@@ -38,6 +38,7 @@ fn app(pool: PgPool, enabled: bool) -> TestResult<Router> {
 }
 #[tokio::test]
 async fn sanction_export_disabled_503() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     assert!(!Settings::from_lookup(|_| None).enabled);
     let response = app(lazy_pool()?, false)?
         .oneshot(request(REQUEST, None)?)
@@ -60,14 +61,20 @@ async fn sanction_export_disabled_503() -> TestResult {
                 "PORTAL_SANCTION_EXPORT_IDENTITY".into(),
                 "peer.example".into(),
             ),
-            ("OTHER_MTLS_CLIENT_IDENTITY".into(), "peer.example".into()),
+            (
+                "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY".into(),
+                "peer.example".into(),
+            ),
         ],
         vec![
             (
                 "PORTAL_SANCTION_EXPORT_IDENTITY".into(),
                 "peer.example".into(),
             ),
-            ("OTHER_IDENTITIES".into(), r#"{"peer.example":[]}"#.into()),
+            (
+                "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+                r#"{"peer.example":[]}"#.into(),
+            ),
         ],
     ] {
         assert!(identities(vars).is_err());
@@ -76,6 +83,7 @@ async fn sanction_export_disabled_503() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_wrong_identity_refused() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     for identity in [None, Some("other.game.example.invalid")] {
         let mut req = request(REQUEST, identity)?;
         req.headers_mut().insert(
@@ -90,6 +98,7 @@ async fn sanction_export_wrong_identity_refused() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_bad_body_400() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let app = app(lazy_pool()?, true)?;
     for body in [
         "{}",
@@ -116,6 +125,7 @@ async fn sanction_export_bad_body_400() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_rate_limit_retry_after() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let app = app(lazy_pool()?, true)?;
     for _ in 0..1200 {
         assert_eq!(
@@ -177,9 +187,23 @@ impl Database {
             include_str!("../../../../migrations/20261105220236_t34b_appeals.sql"),
             include_str!("../../../../migrations/20261105231600_support_sanction_revisions.sql"),
             include_str!("../../../../migrations/20261111140002_n009_sanction_export.sql"),
+            include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
+            include_str!("../../../../migrations/20261105220202_t04_login_guard.sql"),
+            include_str!(
+                "../../../../migrations/20261105220209_accounts_native_security_generation.sql"
+            ),
+            include_str!("../../../../migrations/20261105220213_t06_mfa.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
         }
+        let session_generation =
+            include_str!("../../../../migrations/20261115110002_fix_02_identity.sql")
+                .lines()
+                .find(|line| {
+                    line.starts_with("ALTER TABLE web_sessions ADD COLUMN authorization_generation")
+                })
+                .ok_or("session generation migration missing")?;
+        sqlx::raw_sql(session_generation).execute(&pool).await?;
         let expiry_migration = include_str!(
             "../../../../migrations/20261115120016_fix_a2-15-migrations_reminders_and_expiry.sql"
         )
@@ -190,7 +214,7 @@ impl Database {
         let actor = Uuid::now_v7();
         let owner = Uuid::parse_str("019a0000-0000-7000-8000-000000000002")?;
         for id in [actor, owner] {
-            sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES ($1,$2,'synthetic-hash','active','en')").bind(id).bind(format!("{id}@example.invalid")).execute(&pool).await?;
+            sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES ($1,$2,'synthetic-hash','active','en',now())").bind(id).bind(format!("{id}@example.invalid")).execute(&pool).await?;
         }
         sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator'").bind(actor).execute(&pool).await?;
         Ok(Some(Self {
@@ -237,6 +261,7 @@ async fn page(db: &Database, after: Option<i64>, limit: i64) -> TestResult<serde
 }
 #[tokio::test]
 async fn sanction_export_paging_cursor_stable() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -295,6 +320,7 @@ async fn sanction_export_paging_cursor_stable() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_revision_on_revoke_and_appeal() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -312,6 +338,7 @@ async fn sanction_export_revision_on_revoke_and_appeal() -> TestResult {
                 account: db.actor,
                 require_staff_mfa: true,
                 mfa_verified: true,
+                session_proof: Some(crate::test_staff::proof(&db.pool, db.actor).await?),
             },
             Uuid::now_v7(),
             id,
@@ -351,6 +378,7 @@ async fn sanction_export_revision_on_revoke_and_appeal() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_reason_text_limits() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     assert!(valid_reason(&"ą".repeat(60)));
     for reason in [
         "".to_owned(),
@@ -389,6 +417,7 @@ async fn sanction_export_reason_text_limits() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_fixtures_match() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     assert_eq!(
         Page::decode(&canonical::decode(REQUEST, 256, 4)?)?,
         Page {
@@ -431,6 +460,7 @@ async fn sanction_export_fixtures_match() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_typed_revisions_and_private_notation() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use super::super::{Features, SanctionAction, SanctionIntent, Service};
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -478,6 +508,7 @@ async fn sanction_export_typed_revisions_and_private_notation() -> TestResult {
 
 #[tokio::test]
 async fn sanction_export_namelock_and_immutable_journal() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use super::super::{Features, SanctionAction, SanctionIntent, Service};
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -566,6 +597,7 @@ fn sanction_export_full_page_byte_bound() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_reused_internal_identities_503() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     for key in [
         "PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_MTLS_CLIENT_IDENTITY",
         "PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_MTLS_CLIENT_IDENTITY",
@@ -600,6 +632,7 @@ async fn sanction_export_reused_internal_identities_503() -> TestResult {
 
 #[tokio::test]
 async fn nwave_lifted_sanction_requires_new_identity() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use super::super::{Features, SanctionAction, SanctionIntent, Service};
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -679,6 +712,7 @@ async fn nwave_lifted_sanction_requires_new_identity() -> TestResult {
 
 #[tokio::test]
 async fn sanction_export_temporary_namelock_revokes_on_expiry() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use super::super::{Features, SanctionAction, SanctionIntent, Service};
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -787,6 +821,7 @@ async fn sanction_export_temporary_namelock_revokes_on_expiry() -> TestResult {
 
 #[tokio::test]
 async fn postgres_expiry_candidates_bound_work_with_permanent_history() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use super::super::{Features, SanctionAction, SanctionIntent, Service};
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
@@ -909,5 +944,25 @@ async fn postgres_expiry_candidates_bound_work_with_permanent_history() -> TestR
         "PG postgres_expiry_candidates_bound_work_with_permanent_history {:?}",
         started.elapsed()
     );
+    Ok(())
+}
+
+#[test]
+fn recovery_locator_metadata_does_not_disable_export() -> TestResult {
+    let vars = vec![
+        (
+            "PORTAL_SANCTION_EXPORT_IDENTITY".into(),
+            "export.oteryn.internal".into(),
+        ),
+        (
+            "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+            r#"{"locator.oteryn.internal":["019c0000-0000-7000-8000-000000000001/019c0000-0000-7000-8000-000000000002"]}"#.into(),
+        ),
+        (
+            "PORTAL_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+            r#"{"locator.oteryn.internal":"game-node-1"}"#.into(),
+        ),
+    ];
+    assert!(identities(vars).is_ok());
     Ok(())
 }

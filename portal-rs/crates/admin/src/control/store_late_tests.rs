@@ -8,6 +8,7 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[tokio::test]
 async fn pg_signed_completion_before_expiry_reconciles_after_local_expiry() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let root = PgPool::connect(&url).await?;

@@ -18,7 +18,8 @@ test('paid package: browser checkout, signed webhook, worker credit and replay',
   expect(rows).toHaveLength(1);
   const t=rows[0];
   expect(t.coins).toBe('1234'); expect(t.minor_units).toBe('250');
-  await expect(page.locator('main')).toContainText(t.payment_intent_id);
+  // Test payments always continue on the gated test bank page for this intent.
+  await expect(page).toHaveURL(new RegExp(`/${lang}/shop/test-checkout/${t.payment_intent_id}$`));
   expect((await db.query('SELECT count(*)::int n FROM wallet_entries WHERE operation_id=$1',[t.payment_intent_id])).rows[0].n).toBe(0);
   const body=JSON.stringify({event_id:crypto.randomUUID(),intent_id:t.payment_intent_id,provider_reference:t.provider_reference,amount:{minor_units:250,currency:'PLN'},state:'succeeded'});
   const signature=crypto.createHmac('sha256',process.env.OTERYN_SHOP_TEST_PAYMENT_KEY).update(body).digest('base64');

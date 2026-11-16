@@ -651,3 +651,70 @@ async fn retired_epoch_requires_exact_audited_recovery() -> Result<(), Box<dyn s
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn publication_reservation_recovers_after_pool_exhaustion()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let fixture = catalog_fixture::supported();
+    let source = source(&fixture);
+    let candidate = oteryn_world::catalog::verify(&fixture.bytes, &fixture.sidecar, &source.fence)?;
+    candidate.persist_inactive(&db.pool).await?;
+    candidate.publish(&db.pool).await?;
+    let mut held = Vec::new();
+    for _ in 0..4 {
+        held.push(db.pool.acquire().await?);
+    }
+    let ready = Arc::new(AtomicBool::new(false));
+    let task = refresh_source_in_background(
+        db.pool.clone(),
+        source,
+        true,
+        RetryPolicy::new(1, 1, 3)?,
+        ready.clone(),
+    );
+    tokio::time::sleep(Duration::from_secs(31)).await;
+    drop(held);
+    tokio::time::timeout(Duration::from_secs(5), task).await???;
+    assert!(ready.load(Ordering::Acquire));
+    db.close().await?;
+    eprintln!(
+        "publication_reservation_recovers_after_pool_exhaustion: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn publication_reservation_row_lock_obeys_attempt_deadline()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let mut tx = db.pool.begin().await?;
+    sqlx::query("SELECT singleton FROM world_catalog_publication WHERE singleton FOR UPDATE")
+        .fetch_one(&mut *tx)
+        .await?;
+    let ready = Arc::new(AtomicBool::new(false));
+    let task = refresh_source_in_background(
+        db.pool.clone(),
+        source(&catalog_fixture::supported()),
+        true,
+        RetryPolicy::new(1, 1, 1)?,
+        ready.clone(),
+    );
+    let result = tokio::time::timeout(Duration::from_secs(63), task).await??;
+    assert!(matches!(result, Err(Error::Unavailable)));
+    assert!(!ready.load(Ordering::Acquire));
+    tx.rollback().await?;
+    db.close().await?;
+    eprintln!(
+        "publication_reservation_row_lock_obeys_attempt_deadline: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

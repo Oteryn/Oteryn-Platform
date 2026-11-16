@@ -315,6 +315,7 @@ fn settings_default_off_and_refuse_unknown_values() {
 /// Guard order 1: flag off or group not configured is 503 before identity or body.
 #[tokio::test]
 async fn refusal_flag_off_or_unconfigured_is_503_first() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let off = router(lazy_pool()?, Settings::default(), identities()?);
     let unconfigured = router(lazy_pool()?, on(1200), Arc::new(IdentityMap::default()));
     for app in [&off, &unconfigured] {
@@ -354,6 +355,7 @@ async fn refusal_flag_off_or_unconfigured_is_503_first() -> TestResult {
 /// Guard order 2: wrong, missing or header-only identity, and the other group's identity.
 #[tokio::test]
 async fn refusal_wrong_identity_or_scope_is_401() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let app = router(lazy_pool()?, on(1200), identities()?);
     for (path, body) in ALL {
         let foreign = if path == RESULTS_PATH {
@@ -382,6 +384,7 @@ async fn refusal_wrong_identity_or_scope_is_401() -> TestResult {
 /// Guard order 3: the per-group budget counts malformed bodies and precedes transport.
 #[tokio::test]
 async fn refusal_budget_precedes_transport_and_counts_malformed() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let app = router(lazy_pool()?, on(1), identities()?);
     assert_eq!(
         status(&app, request(STREAM_PATH, "{", Some(READER))).await?,
@@ -416,6 +419,7 @@ async fn refusal_budget_precedes_transport_and_counts_malformed() -> TestResult 
 /// Guard order 4 and §1.4: transport, size limits and malformed bodies are 400.
 #[tokio::test]
 async fn refusal_transport_size_and_malformed_body_is_400() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let app = router(lazy_pool()?, on(6000), identities()?);
     for (path, body) in ALL {
         let peer = Some(peer_of(path));
@@ -666,6 +670,7 @@ fn result_with(from: &str, to: &str) -> String {
 
 #[tokio::test]
 async fn routes_serve_fixture_bytes_on_postgres() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -754,6 +759,7 @@ async fn routes_serve_fixture_bytes_on_postgres() -> TestResult {
 /// Revision and fencing conflicts on A3: 409, 404 and 400 rules that need the command.
 #[tokio::test]
 async fn results_refuse_revision_and_fencing_conflicts_on_postgres() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -867,6 +873,7 @@ async fn results_refuse_revision_and_fencing_conflicts_on_postgres() -> TestResu
 /// Producer fences: profile flag, stream identity and revision preconditions.
 #[tokio::test]
 async fn record_fences_profiles_streams_and_revisions_on_postgres() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -963,4 +970,46 @@ async fn record_fences_profiles_streams_and_revisions_on_postgres() -> TestResul
         .await?;
     assert_eq!(committed, 3);
     db.cleanup().await
+}
+
+#[tokio::test]
+async fn audit_w3_03_terminal_below_pending_refused_on_postgres() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    db.record(&apply()).await?;
+    let app = router(db.pool.clone(), on(6000), identities()?);
+    let post = |body: String| request(RESULTS_PATH, body, Some(RESULTS));
+    let pending = result_with(
+        r#""receipt_revision":1,"state":"APPLIED","result_code":"OK""#,
+        r#""receipt_revision":2,"state":"ACCEPTED_PENDING","result_code":"PENDING_RUNTIME""#,
+    );
+    assert_eq!(status(&app, post(pending)).await?, StatusCode::OK);
+    assert_eq!(
+        status(&app, post(String::from_utf8(RESULT_APPLIED.to_vec())?)).await?,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(db.count("support_enforcement_results").await?, 1);
+    let terminal = result_with(r#""receipt_revision":1"#, r#""receipt_revision":3"#);
+    assert_eq!(status(&app, post(terminal)).await?, StatusCode::OK);
+    let (_, bytes, _) = send(
+        &app,
+        request(RECONCILE_PATH, RECONCILE_REQUEST, Some(READER)),
+    )
+    .await?;
+    let page: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(page["items"][0]["state"], "APPLIED");
+    assert_eq!(page["items"][0]["receipt_revision"], 3);
+    let late = result_with(
+        r#""state":"APPLIED","result_code":"OK""#,
+        r#""state":"ACCEPTED_PENDING","result_code":"PENDING_RUNTIME""#,
+    );
+    assert_eq!(status(&app, post(late)).await?, StatusCode::OK);
+    db.cleanup().await?;
+    eprintln!(
+        "audit_w3_03_terminal_below_pending_refused_on_postgres duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

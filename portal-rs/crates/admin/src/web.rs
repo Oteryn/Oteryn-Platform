@@ -81,6 +81,17 @@ impl StaffSession for PortalIdentity {
     }
 }
 impl AccountStateReader for PortalIdentity {
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: CheckContext,
+    ) -> Result<bool, AccountStateUnavailable> {
+        let Some(proof) = context.session_proof else {
+            return Ok(false);
+        };
+        crate::rbac::durable_session_in(connection, context.account, proof).await
+    }
+
     async fn state_in(
         &self,
         connection: &mut sqlx::PgConnection,
@@ -244,6 +255,22 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
         .route_layer(middleware::from_fn_with_state(state.clone(), host::<I, A>))
         .with_state(state)
 }
+/// Compose adapters that must run before shared CSRF verification but after
+/// the staff panel/host refusal boundary.
+pub fn configured_host_boundary(router: Router) -> Result<Router, Box<dyn std::error::Error>> {
+    configured_host_boundary_from(router, &|key| std::env::var(key).ok())
+}
+/// Configuration injection for applications mounting an outer request adapter.
+pub fn configured_host_boundary_from(
+    router: Router,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(router.layer(middleware::from_fn_with_state(
+        (config_from(lookup)?, false),
+        host_guard,
+    )))
+}
+
 async fn host<I: StaffSession, A: AccountStateReader>(
     State(s): State<Arc<Panel<I, A>>>,
     request: Request,
@@ -322,10 +349,30 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     if !identity.mfa_satisfied {
         return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
     }
+    let proof = match (
+        session.identity_hash().await,
+        session
+            .get(oteryn_web::session::SessionKey::<String>::new(
+                oteryn_identity::mfa::SESSION_GRANT_KEY,
+            ))
+            .await,
+    ) {
+        (Some(hash), Ok(Some(grant))) => {
+            use sha2::{Digest, Sha256};
+            hash.try_into()
+                .ok()
+                .map(|session_hash| crate::rbac::SessionProof {
+                    session_hash,
+                    grant_hash: Sha256::digest(grant.as_bytes()).into(),
+                })
+        }
+        _ => None,
+    };
     let context = CheckContext {
         account: identity.account,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: proof,
     };
     let permission = s
         .required
@@ -597,8 +644,14 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     let mut tx = s.pool.begin().await?;
     let mut accounts = vec![context.account, account];
     accounts.extend(survivor);
-    crate::rbac::lock_accounts(&mut tx, &accounts).await?;
-    crate::rbac::lock_mutation(&mut tx).await?;
+    crate::rbac::authorize_mutation(
+        &mut tx,
+        &accounts,
+        s.auth.as_ref(),
+        context,
+        &[Permission::Access, Permission::ManageRoles],
+    )
+    .await?;
     for permission in [Permission::Access, Permission::ManageRoles] {
         s.auth.check_in(&mut tx, context, permission).await?;
     }
@@ -651,6 +704,15 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
             },
         )
         .await?;
+    }
+    if assigned && account == context.account {
+        // Self-revocation removed the actor's grant; the retained RBAC fence
+        // keeps roles fixed, so only time-bound session state can change.
+        s.auth.session_in(&mut tx, context).await?;
+    } else {
+        for permission in [Permission::Access, Permission::ManageRoles] {
+            s.auth.check_in(&mut tx, context, permission).await?;
+        }
     }
     tx.commit().await?;
     Ok(())

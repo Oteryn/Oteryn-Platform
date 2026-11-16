@@ -21,6 +21,19 @@ impl web::StaffSession for Staff {
     }
 }
 impl AccountStateReader for Staff {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<rbac::AccountState, rbac::AccountStateUnavailable> {
         Ok(rbac::AccountState::Active)
     }
@@ -262,6 +275,7 @@ fn capabilities_connection_and_input_fail_closed() {
 }
 #[tokio::test]
 async fn postgres_pages_permissions_unavailable_and_happy_render() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else {
         return;
     };
@@ -379,6 +393,7 @@ async fn postgres_pages_permissions_unavailable_and_happy_render() {
 }
 #[tokio::test]
 async fn postgres_query_csrf_permission_and_local_polling() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else {
         return;
     };
@@ -437,6 +452,7 @@ async fn postgres_query_csrf_permission_and_local_polling() {
 }
 #[tokio::test]
 async fn postgres_platform_metrics_and_closed_permission_catalog() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else {
         return;
     };
@@ -454,6 +470,7 @@ async fn postgres_platform_metrics_and_closed_permission_catalog() {
         account: actor,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     };
     for op in [
         Operation::Overview,
@@ -496,6 +513,7 @@ async fn postgres_platform_metrics_and_closed_permission_catalog() {
 
 #[tokio::test]
 async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Db::new().await.expect("PORTAL_TEST_DATABASE_URL required");
     let actor = db.staff().await;

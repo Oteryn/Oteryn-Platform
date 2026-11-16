@@ -1,9 +1,8 @@
 use super::*;
+use crate::auth_test_database as database;
 use axum::{body::Body, extract::ConnectInfo, http::Request};
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
-#[path = "verify_budget_db.rs"]
-mod database;
 
 #[tokio::test]
 async fn audit02_resend_locales_share_source_budget_and_cooldown()

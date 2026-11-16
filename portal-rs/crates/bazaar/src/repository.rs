@@ -72,6 +72,9 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         db: &mut PgConnection,
         mut actors: Vec<(Uuid, bool)>,
     ) -> Result<(), Error> {
+        self.accounts
+            .prepare(db, &actors.iter().map(|(id, _)| *id).collect::<Vec<_>>())
+            .await?;
         actors.sort_unstable_by_key(|(id, _)| *id);
         for (id, listing) in actors {
             self.authorize(db, id, listing).await?;
@@ -102,6 +105,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     pub async fn create(&self, mut input: NewListing) -> Result<Listing, Error> {
         self.currency(input.currency)?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, input.owner, true).await?;
         let now = clock(&mut tx).await?;
         if input.form != Form::Auction {
@@ -129,6 +133,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     pub async fn publish(&self, id: Uuid, owner: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
         self.authorize(&mut tx, owner, true).await?;
@@ -152,6 +157,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         key: &str,
     ) -> Result<BidOutcome, Error> {
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let result = self.bid_in(&mut tx, id, account, maximum, key).await?;
         tx.commit().await?;
         Ok(result)
@@ -173,6 +179,9 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         }
         let listing = locked(tx, id).await?;
         self.currency(listing.currency)?;
+        let mut parties = vec![account, listing.owner];
+        parties.extend(listing.leader);
+        self.accounts.prepare(tx, &parties).await?;
         self.authorize_many(tx, vec![(account, false), (listing.owner, false)])
             .await?;
         let previous: Option<(Uuid, i64, Uuid, i64, OffsetDateTime)> = sqlx::query_as(
@@ -263,6 +272,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
         self.authorize_many(&mut tx, vec![(account, false), (listing.owner, false)])
@@ -339,6 +349,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         self.enabled()?;
         loop {
             let mut tx = self.pool.begin().await?;
+            crate::locking::listing_gate(&mut tx).await?;
             let listing = locked(&mut tx, id).await?;
             self.currency(listing.currency)?;
             let continuing =
@@ -377,6 +388,10 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             {
                 return Err(Error::IllegalTransition);
             }
+            let offers = crate::bounded::offers(&mut tx, id, Some(offer_id)).await?;
+            let mut parties: Vec<_> = offers.iter().map(|offer| offer.account).collect();
+            parties.extend([owner, selected.account]);
+            self.accounts.prepare(&mut tx, &parties).await?;
             self.authorize_many(&mut tx, vec![(owner, true), (selected.account, false)])
                 .await?;
             if !resumed
@@ -387,7 +402,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             {
                 return Err(Error::Denied);
             }
-            let offers = crate::bounded::offers(&mut tx, id, Some(offer_id)).await?;
+
             let mut accounts: Vec<_> = offers.iter().map(|offer| offer.account).collect();
             accounts.extend([owner, selected.account]);
             self.funds_lock(&mut tx, accounts).await?;
@@ -427,13 +442,17 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     pub async fn reject_offer(&self, id: Uuid, owner: Uuid, offer_id: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
-        self.authorize(&mut tx, owner, false).await?;
         if listing.owner != owner || listing.state != State::Active {
             return Err(Error::IllegalTransition);
         }
         let offer:Offer=sqlx::query_as("SELECT * FROM bazaar_offers WHERE listing_id=$1 AND id=$2 AND state='pending' FOR UPDATE").bind(id).bind(offer_id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        self.accounts
+            .prepare(&mut tx, &[owner, offer.account])
+            .await?;
+        self.authorize(&mut tx, owner, false).await?;
         if listing.form == Form::FixedPrice {
             self.funds_lock(&mut tx, vec![offer.account]).await?;
             self.reservations
@@ -454,6 +473,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     pub async fn cancel(&self, id: Uuid, owner: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
         self.authorize(&mut tx, owner, true).await?;
@@ -483,6 +503,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         self.enabled()?;
         loop {
             let mut tx = self.pool.begin().await?;
+            crate::locking::listing_gate(&mut tx).await?;
             let listing = locked(&mut tx, id).await?;
             self.currency(listing.currency)?;
             if listing.state != State::Active
@@ -492,6 +513,9 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
                 return Err(Error::IllegalTransition);
             }
             let offers = crate::bounded::offers(&mut tx, id, None).await?;
+            let mut parties: Vec<_> = offers.iter().map(|offer| offer.account).collect();
+            parties.push(listing.owner);
+            self.accounts.prepare(&mut tx, &parties).await?;
             self.funds_lock(&mut tx, offers.iter().map(|o| o.account).collect())
                 .await?;
             if !self.evidence.cancellation_ready(&mut tx, &listing).await? {
@@ -521,6 +545,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         self.enabled()?;
         validate_key(key)?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
         let existing: Option<(String,)> = sqlx::query_as(
@@ -590,6 +615,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     pub async fn complete_delivery(&self, id: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
         if listing.state == State::Completed {
@@ -597,6 +623,9 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         }
         listing.state.transition(State::Completed)?;
         let result = settlement(&mut tx, id).await?;
+        self.accounts
+            .prepare(&mut tx, &[result.buyer, result.seller])
+            .await?;
         for actor in [result.buyer, result.seller] {
             if !self.accounts.safe_return(&mut tx, actor).await? {
                 return Err(Error::Denied);

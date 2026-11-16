@@ -34,6 +34,7 @@ impl Runtime {
         };
         config.current()?;
         let mut tx = pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         Outbox::reopen(
             &mut tx,
             config.fence.projection_epoch,
@@ -110,7 +111,7 @@ impl Runtime {
         )
     }
     #[allow(clippy::too_many_arguments)]
-    pub(super) async fn issue(
+    pub(crate) async fn issue(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing: &Listing,
@@ -121,10 +122,20 @@ impl Runtime {
         extra: Vec<(&str, Value)>,
     ) -> Result<Uuid, Error> {
         self.authority().lock(tx).await?;
-        // Follow immutable attempts. Only audited terminal no-effect evidence
-        // permits a new cleanup operation; pending/ambiguous attempts stay fenced.
-        let mut step = step;
-        loop {
+        // Advance at most one audited refusal per call, including legacy chains.
+        // Immutable history is retained, but never traversed under the issuer lock.
+        let root_step = step;
+        let cleanup = matches!(
+            command,
+            Command::Release | Command::Return | Command::Unlock | Command::Payout
+        );
+        let mut step = if cleanup {
+            sqlx::query_scalar("INSERT INTO bazaar_cleanup_attempts(listing_id,command,root_step,current_step) VALUES($1,$2,$3,$3) ON CONFLICT(listing_id,command,root_step) DO UPDATE SET current_step=bazaar_cleanup_attempts.current_step RETURNING current_step")
+                .bind(listing.id).bind(command.wire()).bind(root_step).fetch_one(&mut **tx).await?
+        } else {
+            step
+        };
+        for attempt in 0..2 {
             let key = format!("bazaar:{}:{}:{step}:1", listing.id, command.wire());
             let raw = sqlx::query_scalar::<_, String>(
                 "SELECT intent FROM bazaar_game_outbox WHERE issuance_key=$1",
@@ -143,13 +154,14 @@ impl Runtime {
                 }
             }
             let operation = id(text(&intent.value, "operation_id")?)?;
-            if matches!(
-                command,
-                Command::Release | Command::Return | Command::Unlock | Command::Payout
-            ) && let Some((_, receipt)) = self.authority().retained(tx, operation).await?
+            if cleanup
+                && attempt == 0
+                && let Some((_, receipt)) = self.authority().retained(tx, operation).await?
                 && !receipt.committed
             {
                 step = operation;
+                sqlx::query("UPDATE bazaar_cleanup_attempts SET current_step=$4 WHERE listing_id=$1 AND command=$2 AND root_step=$3")
+                    .bind(listing.id).bind(command.wire()).bind(root_step).bind(step).execute(&mut **tx).await?;
                 continue;
             }
             return Ok(operation);
@@ -256,6 +268,7 @@ impl Runtime {
         };
         let binding = serde_json::to_string(&input).map_err(|_| Error::Invalid)?;
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let state = self
             .accounts(Some(session_hash))
             .state(&mut tx, actor)
@@ -334,6 +347,7 @@ impl Runtime {
         id(&buyer_character.to_string())?;
         // Destination request, full funding, bid and replay fence share one SQL transaction.
         let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
         let replay =
             check_bid_request(&mut tx, key, listing, actor, buyer_character, maximum).await?;
         crate::locking::listing_gate(&mut tx).await?;
@@ -342,6 +356,9 @@ impl Runtime {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
+        let mut parties = vec![row.owner, actor];
+        parties.extend(row.leader);
+        crate::locking::accounts(&mut tx, &parties).await?;
         if actor == row.owner {
             return Err(Error::Denied);
         }
@@ -478,6 +495,9 @@ impl Runtime {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
+        let mut parties = vec![l.owner, actor];
+        parties.extend(l.leader);
+        crate::locking::accounts(&mut tx, &parties).await?;
         if l.owner != actor {
             return Err(Error::Denied);
         }
@@ -555,6 +575,7 @@ mod request_key_tests {
     #[tokio::test]
     async fn postgres_concurrent_request_key_binding_conflicts_before_effect()
     -> Result<(), Box<dyn std::error::Error>> {
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
         let started = std::time::Instant::now();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(3)

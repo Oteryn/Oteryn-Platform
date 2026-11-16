@@ -122,6 +122,7 @@ async fn exercise_reads(
     actor: Uuid,
     cookie: &str,
     agent_key: &SigningKey,
+    check_correlation: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let backend = super::super::access::StoredMetadata::new(
         pool.clone(),
@@ -138,7 +139,7 @@ async fn exercise_reads(
             host: "staff.test".into(),
         },
         Browser(actor),
-        web::PortalIdentity::configured(pool),
+        web::PortalIdentity::configured(pool.clone()),
         backend,
     );
     let path = "/admin/console/players?lang=en&character=c-1";
@@ -174,13 +175,19 @@ async fn exercise_reads(
     browser_get(&reads, cookie, "/admin/console/audit?lang=en").await?;
     let requests = poll(internal).await?;
     assert_eq!(requests.len(), 2);
+    let query_id = requests
+        .iter()
+        .find(|r| r.operation == "admin.ledger.query")
+        .ok_or_else(missing)?
+        .request_id;
     for request in requests {
         let value = match request.operation.as_str() {
             "admin.policy.get" => {
                 json!({"operations":[{"operation":"world.list","min_risk_class":"R0","allowed_permissions":["game.world.read"],"worlds":["world-a"]}]})
             }
             "admin.ledger.query" => {
-                json!({"entries":[{"request_id":request.request_id,"admin_operation_id":request.admin_operation_id,"admin_id":actor,"ledger_id":"verified-ledger","operation":"world.list","risk_class":"R0","status":"succeeded","target":{"world_id":"world-a","node_id":null,"character_id":null,"account_ref":null},"started_at":"2026-11-15T00:00:00Z","finished_at":"2026-11-15T00:00:01Z","error_code":null}],"next_cursor":null})
+                let ledger_request_id = Uuid::now_v7();
+                json!({"entries":[{"request_id":ledger_request_id,"admin_operation_id":ledger_request_id,"admin_id":actor,"ledger_id":"verified-ledger","operation":"world.list","risk_class":"R0","status":"succeeded","target":{"world_id":"world-a","node_id":null,"character_id":null,"account_ref":null},"started_at":"2026-11-15T00:00:00Z","finished_at":"2026-11-15T00:00:01Z","error_code":null}],"next_cursor":null})
             }
             _ => return Err(missing().into()),
         };
@@ -196,13 +203,18 @@ async fn exercise_reads(
             .await?
             .contains("verified-ledger")
     );
+    if check_correlation {
+        let audited: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM audit_log WHERE request_id=$1 AND action='admin.ledger.query' AND operation='admin.ledger.query' AND correlation_id=$1)").bind(query_id).fetch_one(&pool).await?;
+        assert!(audited, "ledger read must reference its verified query");
+    }
     browser_get(&reads, cookie, "/admin/console/approvals?lang=en").await?;
     Ok(())
 }
-#[tokio::test]
-async fn a2_stored_console_browser_query_verified_result_and_ownership()
--> Result<(), Box<dyn std::error::Error>> {
-    let started = std::time::Instant::now();
+async fn stored_console_browser_query_verified_result_and_ownership(
+    check_lifecycle: bool,
+    check_correlation: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let root = PgPool::connect(&url).await?;
     let schema = format!("a2_console_{}", Uuid::now_v7().simple());
@@ -225,7 +237,7 @@ async fn a2_stored_console_browser_query_verified_result_and_ownership()
     let actor = Uuid::now_v7();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'console@example.test','test-only','active',now(),'en')").bind(actor).execute(&pool).await?;
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&pool).await?;
-    sqlx::query("INSERT INTO role_permissions(role_id,permission) SELECT id,unnest(ARRAY['game.world.read','game.player.read','game.sanction.read','game.audit.read','game.ops.read']) FROM roles WHERE key='platform_admin' ON CONFLICT DO NOTHING").execute(&pool).await?;
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) SELECT id,unnest(ARRAY['game.world.read','game.player.read','game.sanction.read','game.audit.read','game.ops.read','game.node.read','game.db.read']) FROM roles WHERE key='platform_admin' ON CONFLICT DO NOTHING").execute(&pool).await?;
     let agent_key = SigningKey::from_bytes(&[23; 32]);
     let validity = signer::Validity {
         not_before: 0,
@@ -250,6 +262,10 @@ async fn a2_stored_console_browser_query_verified_result_and_ownership()
     };
     let advertised: Vec<_> = [
         "world.list",
+        "ops.overview.get",
+        "node.list",
+        "db.status",
+        "db.migrations.list",
         "player.character.get",
         "player.inventory.get",
         "sanction.list",
@@ -303,9 +319,11 @@ async fn a2_stored_console_browser_query_verified_result_and_ownership()
     sqlx::query("UPDATE web_sessions SET account_id=$1,data=jsonb_build_object('mfa_grant','test-mfa-grant')").bind(actor).execute(&pool).await?;
     sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '1 hour')")
         .bind(token_hash).bind(actor).bind(Uuid::now_v7()).bind(vec![0_u8;32]).execute(&pool).await?;
-    let response = app
-        .clone()
-        .oneshot(
+    crate::test_staff::browser(&pool, actor, &cookie).await?;
+    let response = crate::test_staff::race_account_before_fence(
+        &pool,
+        actor,
+        app.clone().oneshot(
             Request::post("/console/worlds")
                 .header("host", "staff.test")
                 .header("origin", "https://staff.test")
@@ -314,8 +332,10 @@ async fn a2_stored_console_browser_query_verified_result_and_ownership()
                 .body(Body::from(format!(
                     "_csrf={csrf}&agent=agent-a&operation=world.list&lang=en"
                 )))?,
-        )
-        .await?;
+        ),
+    )
+    .await
+    .map_err(|e| e as Box<dyn std::error::Error>)??;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let location = response
         .headers()
@@ -402,8 +422,74 @@ async fn a2_stored_console_browser_query_verified_result_and_ownership()
         actor,
         &cookie,
         &agent_key,
+        check_correlation,
     )
     .await?;
+    if check_lifecycle {
+        for (operation, page) in [
+            (Operation::Overview, "dashboard"),
+            (Operation::Worlds, "worlds"),
+            (Operation::Nodes, "nodes"),
+            (Operation::Database, "database"),
+        ] {
+            sqlx::query("UPDATE admin_control_requests SET operation=$1 WHERE request_id=$2")
+                .bind(operation.name())
+                .bind(request.request_id)
+                .execute(&pool)
+                .await?;
+            for (status, label) in [
+                ("queued", "Awaiting a stored result"),
+                ("delivered", "Awaiting a stored result"),
+                ("accepted", "Awaiting a stored result"),
+                ("in_progress", "In progress"),
+                ("failed", "Query failed"),
+                ("rejected", "Query rejected"),
+                ("cancelled", "Query cancelled"),
+                ("expired", "Query expired"),
+            ] {
+                sqlx::query("UPDATE admin_control_requests SET status=$1,issued_at=clock_timestamp()-interval '120 seconds',expires_at=CASE WHEN $1='expired' THEN clock_timestamp()-interval '1 second' ELSE clock_timestamp()+interval '60 seconds' END WHERE request_id=$2")
+            .bind(status).bind(request.request_id).execute(&pool).await?;
+                let path = format!(
+                    "/console/{page}?agent=agent-a&lang=en&request={}",
+                    request.request_id
+                );
+                let html = browser_get(&app, &cookie, &path).await?;
+                assert!(html.contains(label), "{status} must display {label}");
+                let expected = match status {
+                    "queued" | "delivered" | "accepted" => "pending",
+                    "in_progress" => "in-progress",
+                    other => other,
+                };
+                let view = channel
+                    .read(actor, "agent-a", operation, None, Some(request.request_id))
+                    .await?;
+                assert_eq!(view.status.key(), expected);
+                let foreign = channel
+                    .read(
+                        Uuid::now_v7(),
+                        "agent-a",
+                        operation,
+                        None,
+                        Some(request.request_id),
+                    )
+                    .await?;
+                assert!(matches!(foreign.status, QueryStatus::Pending));
+            }
+            for status in ["queued", "delivered", "accepted", "in_progress"] {
+                sqlx::query("UPDATE admin_control_requests SET status=$1,expires_at=clock_timestamp()-interval '1 second' WHERE request_id=$2").bind(status).bind(request.request_id).execute(&pool).await?;
+                let path = format!(
+                    "/console/{page}?agent=agent-a&lang=en&request={}",
+                    request.request_id
+                );
+                assert!(
+                    browser_get(&app, &cookie, &path)
+                        .await?
+                        .contains("Query expired")
+                );
+            }
+        }
+        sqlx::query("UPDATE admin_control_requests SET operation='world.list',status='succeeded',expires_at=clock_timestamp()+interval '60 seconds' WHERE request_id=$1").bind(request.request_id).execute(&pool).await?;
+    }
     sqlx::query("UPDATE admin_control_agents SET owner_epoch=2 WHERE agent_id='agent-a'")
         .execute(&pool)
         .await?;
@@ -425,9 +511,41 @@ async fn a2_stored_console_browser_query_verified_result_and_ownership()
         .execute(&root)
         .await?;
     root.close().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a2_stored_console_browser_query_verified_result_and_ownership()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let result = stored_console_browser_query_verified_result_and_ownership(false, false).await;
     eprintln!(
         "a2_stored_console_browser_query_verified_result_and_ownership duration: {:?}",
         started.elapsed()
     );
-    Ok(())
+    result
+}
+
+#[tokio::test]
+async fn a3_configured_console_displays_every_lifecycle_outcome()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let result = stored_console_browser_query_verified_result_and_ownership(true, false).await;
+    eprintln!(
+        "a3_configured_console_displays_every_lifecycle_outcome duration: {:?}",
+        started.elapsed()
+    );
+    result
+}
+
+#[tokio::test]
+async fn a3_stored_ledger_read_audit_references_source_query()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let result = stored_console_browser_query_verified_result_and_ownership(false, true).await;
+    eprintln!(
+        "a3_stored_ledger_read_audit_references_source_query duration: {:?}",
+        started.elapsed()
+    );
+    result
 }

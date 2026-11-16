@@ -115,10 +115,20 @@ impl RecoveryKeys {
             Err(Error::Rejected)
         }
     }
-    pub async fn generate(&self, id: AccountId, current: &str) -> Result<String, Error> {
+    pub async fn generate(
+        &self,
+        id: impl Into<crate::mutation_actor::MutationActor>,
+        current: &str,
+    ) -> Result<String, Error> {
+        let actor = id.into();
+        let id = actor.account;
         self.gate()?;
         let mut tx = self.pool.begin().await?;
         Self::authorize(&mut tx, id, current).await?;
+        if !actor.live(&mut tx).await? {
+            return Err(Error::Rejected);
+        }
+
         let mut bytes = [0u8; 20];
         getrandom::fill(&mut bytes).map_err(|_| Error::Unavailable)?;
         let mut raw = String::from("OTERYN");
@@ -138,11 +148,22 @@ impl RecoveryKeys {
         tx.commit().await?;
         Ok(raw)
     }
-    pub async fn confirm(&self, id: AccountId, current: &str, raw: &str) -> Result<(), Error> {
+    pub async fn confirm(
+        &self,
+        id: impl Into<crate::mutation_actor::MutationActor>,
+        current: &str,
+        raw: &str,
+    ) -> Result<(), Error> {
+        let actor = id.into();
+        let id = actor.account;
         self.gate()?;
         validate_key(raw)?;
         let mut tx = self.pool.begin().await?;
         Self::authorize(&mut tx, id, current).await?;
+        if !actor.live(&mut tx).await? {
+            return Err(Error::Rejected);
+        }
+
         let digest: Option<String>=sqlx::query_scalar("SELECT key_hash FROM account_recovery_keys WHERE account_id=$1 AND confirmed_at IS NULL AND used_at IS NULL AND revoked_at IS NULL").bind(id).fetch_optional(&mut *tx).await?;
         if !matches_digest(digest, raw).await? {
             return Err(Error::Rejected);
@@ -152,10 +173,20 @@ impl RecoveryKeys {
         tx.commit().await?;
         Ok(())
     }
-    pub async fn revoke(&self, id: AccountId, current: &str) -> Result<(), Error> {
+    pub async fn revoke(
+        &self,
+        id: impl Into<crate::mutation_actor::MutationActor>,
+        current: &str,
+    ) -> Result<(), Error> {
+        let actor = id.into();
+        let id = actor.account;
         self.gate()?;
         let mut tx = self.pool.begin().await?;
         Self::authorize(&mut tx, id, current).await?;
+        if !actor.live(&mut tx).await? {
+            return Err(Error::Rejected);
+        }
+
         let result=sqlx::query("UPDATE account_recovery_keys SET revoked_at=now(),updated_at=now() WHERE account_id=$1 AND used_at IS NULL AND revoked_at IS NULL").bind(id).execute(&mut *tx).await?;
         if result.rows_affected() != 1 {
             return Err(Error::Rejected);

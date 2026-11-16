@@ -51,8 +51,12 @@ struct Editor {
     form: PageForm,
     labels: Vec<String>,
 }
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub(super) struct PageForm {
+    #[serde(default)]
+    pub expected_revision: String,
+    #[serde(default)]
+    pub reviewed_source_revision: i64,
     pub title: String,
     pub body: String,
     #[serde(default)]
@@ -114,9 +118,11 @@ async fn index(
     } else {
         "pl"
     };
-    let rows:Result<Vec<(String,String)>,_>=sqlx::query_as("SELECT p.slug,e.locale FROM pages p JOIN editorial_pages e ON e.page_id=p.id ORDER BY p.slug,e.locale LIMIT 500").fetch_all(&pool).await;
+    let rows:Result<Vec<(String,String)>,_>=sqlx::query_as("SELECT p.slug,e.locale FROM pages p JOIN editorial_pages e ON e.page_id=p.id ORDER BY p.slug,e.locale LIMIT 500 OFFSET $1").bind(i64::from(query.page)*500).fetch_all(&pool).await;
     match rows {
         Ok(rows) => oteryn_web::render(&Listing {
+            next: u64::from(query.page) + 1,
+            more: rows.len() == 500,
             lang: lang.to_owned(),
             title: text(lang, "pages"),
             slug_label: text(lang, "slug"),
@@ -129,12 +135,16 @@ async fn index(
 }
 #[derive(Deserialize)]
 struct CreateQuery {
+    #[serde(default)]
+    page: u32,
     slug: Option<String>,
     locale: Option<String>,
 }
 #[derive(Template)]
 #[template(path = "admin/pages/index.html", config = "src/pages/askama.toml")]
 struct Listing {
+    next: u64,
+    more: bool,
     lang: String,
     title: String,
     slug_label: String,
@@ -150,9 +160,11 @@ async fn edit(
     if !valid_slug(&slug) || !matches!(locale.as_str(), "pl" | "en") {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let row=sqlx::query("SELECT e.* FROM pages p JOIN editorial_pages e ON e.page_id=p.id WHERE p.slug=$1 AND e.locale=$2").bind(&slug).bind(&locale).fetch_optional(&pool).await;
-    let form = match row {
+    let row=sqlx::query("SELECT e.*,e.updated_at::text AS expected_revision FROM pages p JOIN editorial_pages e ON e.page_id=p.id WHERE p.slug=$1 AND e.locale=$2").bind(&slug).bind(&locale).fetch_optional(&pool).await;
+    let mut form = match row {
         Ok(Some(row)) => PageForm {
+            expected_revision: row.get("expected_revision"),
+            reviewed_source_revision: 0,
             title: row.get("title"),
             body: row.get("body"),
             published_at: row
@@ -174,6 +186,11 @@ async fn edit(
         Ok(None) => PageForm::default(),
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    form.reviewed_source_revision = match sqlx::query_scalar::<_, i64>("SELECT e.revision FROM pages p JOIN editorial_pages e ON e.page_id=p.id WHERE p.slug=$1 AND e.locale='en'")
+        .bind(&slug).fetch_optional(&pool).await {
+            Ok(revision) => revision.unwrap_or(0),
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        };
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
@@ -226,9 +243,24 @@ pub(super) async fn persist(
         return Err(Error::InvalidInput);
     }
     let mut tx = pool.begin().await?;
-    sqlx::query("SET LOCAL lock_timeout = '3s'")
-        .execute(&mut *tx)
-        .await?;
+    let resource_slug = slug.to_owned();
+    oteryn_admin::rbac::authorize_mutation_with_resources(
+        &mut tx,
+        &[context.account],
+        move |connection| {
+            Box::pin(async move {
+                sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,71102))")
+                    .bind(resource_slug)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        },
+        auth,
+        context,
+        &[Permission::Access, Permission::ManagePages],
+    )
+    .await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,71102))")
         .bind(slug)
         .execute(&mut *tx)
@@ -243,6 +275,27 @@ pub(super) async fn persist(
     .bind(locale)
     .fetch_optional(&mut *tx)
     .await?;
+    let revision: Option<String> = sqlx::query_scalar(
+        "SELECT updated_at::text FROM editorial_pages WHERE page_id=$1 AND locale=$2",
+    )
+    .bind(id)
+    .bind(locale)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if form.expected_revision != revision.unwrap_or_default() {
+        return Err(Error::InvalidInput);
+    }
+    if locale != "en" {
+        let source: Option<i64> = sqlx::query_scalar(
+            "SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if source != Some(form.reviewed_source_revision) {
+            return Err(Error::InvalidInput);
+        }
+    }
     if form.action == "delete" {
         if legal(slug) {
             return Err(Error::InvalidInput);
@@ -269,7 +322,7 @@ pub(super) async fn persist(
             }
             sqlx::query("INSERT INTO page_legal_versions(page_id,locale,version,content) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING").bind(id).bind(locale).bind(&form.legal_version).bind(content).execute(&mut *tx).await?;
         }
-        sqlx::query("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=CASE WHEN (editorial_pages.title,editorial_pages.body,editorial_pages.legal_version,editorial_pages.legal_effective_date) IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.body,EXCLUDED.legal_version,EXCLUDED.legal_effective_date) THEN nextval('editorial_page_revision_seq') ELSE editorial_pages.revision END,updated_at=now()")
+        sqlx::query("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=CASE WHEN (editorial_pages.title,editorial_pages.body,editorial_pages.legal_version,editorial_pages.legal_effective_date) IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.body,EXCLUDED.legal_version,EXCLUDED.legal_effective_date) THEN nextval('editorial_page_revision_seq') ELSE editorial_pages.revision END,updated_at=greatest(clock_timestamp(),editorial_pages.updated_at+interval '1 microsecond')")
             .bind(id).bind(locale).bind(&form.title).bind(&form.body).bind(&form.published_at).bind(if legal(slug){form.legal_version.as_str()}else{""}).bind(if legal(slug){form.legal_effective_date.as_str()}else{""}).execute(&mut *tx).await?;
     }
     audit::append(
@@ -288,6 +341,13 @@ pub(super) async fn persist(
             before: before.unwrap_or(json!(null)),
             after: json!({"locale":locale,"title":form.title,"body":form.body,"action":form.action,"published_at":form.published_at,"legal_version":form.legal_version,"legal_effective_date":form.legal_effective_date}),
         },
+    )
+    .await?;
+    crate::revalidate(
+        auth,
+        &mut tx,
+        context,
+        &[Permission::Access, Permission::ManagePages],
     )
     .await?;
     tx.commit().await?;

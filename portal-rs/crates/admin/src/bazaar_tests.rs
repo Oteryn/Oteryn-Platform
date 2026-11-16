@@ -10,6 +10,19 @@ use tower::ServiceExt;
 #[derive(Debug, Clone)]
 struct Identity(Uuid);
 impl AccountStateReader for Identity {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         Ok(AccountState::Active)
     }
@@ -62,15 +75,9 @@ impl Db {
             .connect(&url)
             .await
             .unwrap();
-        for script in [
-            include_str!("../../../migrations/20261105144852_t02_web_sessions.sql"),
-            include_str!("../../../migrations/20261105170000_t10_rbac_audit.sql"),
-            include_str!("../../../migrations/20261105152830_t57_bazaar_core.sql"),
-            include_str!("../../../migrations/20261105230107_t64_moderation.sql"),
-        ] {
-            sqlx::raw_sql(script).execute(&pool).await.unwrap();
-        }
+        oteryn_db::migrate(&pool).await.unwrap();
         let actor = Uuid::now_v7();
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'unused','active','en',now())").bind(actor).bind(format!("{actor}@example.invalid")).execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&pool).await.unwrap();
         Some(Self {
             pool,
@@ -87,6 +94,7 @@ impl Db {
             account: self.actor,
             require_staff_mfa: true,
             mfa_verified: true,
+            session_proof: None,
         }
     }
     async fn listing(&self) -> Uuid {
@@ -147,6 +155,7 @@ fn unknown_action_and_bad_numbers_deny() {
 }
 #[tokio::test]
 async fn postgres_staff_authorization_mfa_and_audit() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let listing = db.listing().await;
     let api = db.service();
@@ -181,6 +190,7 @@ async fn postgres_staff_authorization_mfa_and_audit() {
 }
 #[tokio::test]
 async fn postgres_audit_failure_rolls_back_hold() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let listing = db.listing().await;
     sqlx::raw_sql("CREATE FUNCTION reject_fixture_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture audit unavailable'; END; $$; CREATE TRIGGER fixture_audit_fail BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_fixture_audit();").execute(&db.pool).await.unwrap();
@@ -199,6 +209,7 @@ async fn postgres_audit_failure_rolls_back_hold() {
 }
 #[tokio::test]
 async fn postgres_staff_http_actor_to_result_csrf_and_localization() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let listing = db.listing().await;
     let app = db.app();
@@ -294,6 +305,7 @@ async fn postgres_staff_http_actor_to_result_csrf_and_localization() {
 }
 #[tokio::test]
 async fn postgres_staff_four_eyes_requires_second_live_permission() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let listing = db.listing().await;
     let api = db.service();
@@ -338,6 +350,7 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
 
 #[tokio::test]
 async fn a2_bazaar_single_connection_and_sixteen_mutations() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     for maximum in [1, 16] {
         let db = Db::with_connections(maximum)
@@ -374,6 +387,7 @@ async fn a2_bazaar_single_connection_and_sixteen_mutations() {
 
 #[tokio::test]
 async fn postgres_bazaar_single_connection_mutation_and_audit() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::new().await else {
         panic!("PostgreSQL required")
@@ -414,5 +428,250 @@ async fn postgres_bazaar_single_connection_mutation_and_audit() {
     eprintln!(
         "postgres_bazaar_single_connection_mutation_and_audit: {:?}",
         started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_a3_bazaar_audit_excludes_lifetime_invalidation_history() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    let db = Db::new().await.expect("PostgreSQL required");
+    let listing = db.listing().await;
+    db.service()
+        .execute(db.context(), suspend(listing))
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason) SELECT uuidv7(),$1,n,$2,repeat('historical reason ',25) FROM generate_series(2,1001) n")
+        .bind(listing).bind(db.actor).execute(&db.pool).await.unwrap();
+    db.service()
+        .execute(db.context(), suspend(listing))
+        .await
+        .unwrap();
+    let (before,after): (Value,Value) = sqlx::query_as("SELECT before,after FROM audit_log WHERE action='bazaar.suspend' AND after->'hold'->>'revision'='2'")
+        .fetch_one(&db.pool).await.unwrap();
+    assert_eq!(before["invalidation"].as_array().unwrap().len(), 0);
+    assert_eq!(after["invalidation"].as_array().unwrap().len(), 1);
+    assert_eq!(after["invalidation"][0]["hold_revision"], 2);
+    assert!(before.to_string().len() + after.to_string().len() < 5000);
+    db.end().await;
+    eprintln!(
+        "postgres_a3_bazaar_audit_excludes_lifetime_invalidation_history duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_a3_bazaar_target_and_gate_waits_share_deadline_and_release_pool() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    let db = Db::with_connections(1).await.expect("PostgreSQL required");
+    let listing = db.listing().await;
+    let report = Uuid::now_v7();
+    sqlx::query("INSERT INTO bazaar_reports(id,listing_id,reporter,category,detail) VALUES($1,$2,$3,'other','Review this listing')").bind(report).bind(listing).bind(db.actor).execute(&db.pool).await.unwrap();
+    let commands = [
+        suspend(listing),
+        StaffCommand::ReviewReport {
+            id: report,
+            accepted: false,
+        },
+        StaffCommand::Fees {
+            id: Uuid::now_v7(),
+            coin_bps: 1000,
+            gold_bps: 250,
+            listing_fee: 0,
+            promotion_price: 100,
+            reason: "Reviewed fee schedule".into(),
+        },
+        StaffCommand::RestrictItem {
+            id: Uuid::now_v7(),
+            world: Uuid::now_v7(),
+            family: "item".into(),
+            production_key: "rare".into(),
+            revision_ref: "v1".into(),
+            minimum_value: 100,
+            denied: true,
+            reason: "Reviewed item restriction".into(),
+        },
+    ];
+    for (index, command) in commands.into_iter().enumerate() {
+        let mut blocker = db.admin.begin().await.unwrap();
+        sqlx::query("SELECT set_config('search_path',$1,true)")
+            .bind(&db.schema)
+            .execute(&mut *blocker)
+            .await
+            .unwrap();
+        match index {
+            0 => {
+                sqlx::query("SELECT id FROM bazaar_listings WHERE id=$1 FOR UPDATE")
+                    .bind(listing)
+                    .execute(&mut *blocker)
+                    .await
+                    .unwrap();
+            }
+            1 => {
+                sqlx::query("SELECT id FROM bazaar_reports WHERE id=$1 FOR UPDATE")
+                    .bind(report)
+                    .execute(&mut *blocker)
+                    .await
+                    .unwrap();
+            }
+            2 => {
+                sqlx::query("SELECT pg_advisory_xact_lock(64001)")
+                    .execute(&mut *blocker)
+                    .await
+                    .unwrap();
+            }
+            _ => {
+                sqlx::query("SELECT pg_advisory_xact_lock(64002)")
+                    .execute(&mut *blocker)
+                    .await
+                    .unwrap();
+            }
+        }
+        let wait = std::time::Instant::now();
+        let api = db.service();
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(4),
+                api.execute(db.context(), command)
+            )
+            .await
+            .unwrap()
+            .is_err()
+        );
+        assert!(wait.elapsed() >= std::time::Duration::from_millis(2800));
+        tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            sqlx::query("SELECT 1").execute(&db.pool),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        eprintln!(
+            "postgres_a3_bazaar_target_and_gate_waits_share_deadline_and_release_pool case={index} duration: {:?}",
+            wait.elapsed()
+        );
+        blocker.rollback().await.unwrap();
+    }
+    db.end().await;
+    eprintln!(
+        "postgres_a3_bazaar_target_and_gate_waits_share_deadline_and_release_pool duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_a3_bazaar_orders_actor_before_role_fence() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    let db = Db::new().await.expect("PostgreSQL required");
+    let listing = db.listing().await;
+    let api = StaffBazaar::new(
+        db.pool.clone(),
+        web::PortalIdentity::configured(db.pool.clone()),
+        true,
+    );
+    let mut context = db.context();
+    context.session_proof = Some(crate::test_staff::proof(&db.pool, db.actor).await.unwrap());
+    crate::test_staff::race_account_before_fence(&db.pool, db.actor, async move {
+        api.execute(context, suspend(listing)).await
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    db.end().await;
+    eprintln!(
+        "postgres_a3_bazaar_orders_actor_before_role_fence duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn delta_bazaar_listing_before_staff_account_avoids_deadlock() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    let db = Db::new().await.unwrap();
+    let listing = db.listing().await;
+    sqlx::query("UPDATE bazaar_listings SET owner=$2 WHERE id=$1")
+        .bind(listing)
+        .bind(db.actor)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut bid = db.pool.begin().await.unwrap();
+    // Model the real bid entry protocol before deliberately retaining its row.
+    sqlx::query("SELECT pg_advisory_xact_lock_shared(64002)")
+        .execute(&mut *bid)
+        .await
+        .unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *bid)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM bazaar_listings WHERE id=$1 FOR UPDATE")
+        .bind(listing)
+        .execute(&mut *bid)
+        .await
+        .unwrap();
+    let service = db.service();
+    let context = db.context();
+    let staff = tokio::spawn(async move { service.execute(context, suspend(listing)).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.admin)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let authority = oteryn_bazaar::game::Authority {
+        config: oteryn_bazaar::game::AuthorityConfig::default(),
+        fence: oteryn_bazaar::game::RecoveryFence {
+            projection_epoch: 1,
+            recovery_generation: 1,
+        },
+    };
+    let bazaar = oteryn_bazaar::Bazaar::new(
+        db.pool.clone(),
+        oteryn_bazaar::game::PlatformAccounts {
+            enabled: true,
+            session_hash: None,
+        },
+        oteryn_bazaar::game::CoinReservations {
+            authority: authority.clone(),
+        },
+        authority,
+        oteryn_bazaar::Flags {
+            enabled: true,
+            gold_enabled: false,
+        },
+    );
+    // Self-bidding is denied, but only after the real bid path reads its owner.
+    let owner_read = bazaar
+        .bid_in(&mut bid, listing, db.actor, 200, "delta-bid")
+        .await;
+    bid.rollback().await.unwrap();
+    let moderation = staff.await.unwrap();
+    db.end().await;
+    eprintln!(
+        "delta_bazaar_listing_before_staff_account_avoids_deadlock duration={:?}",
+        started.elapsed()
+    );
+    assert!(
+        matches!(owner_read, Err(oteryn_bazaar::Error::IllegalTransition)),
+        "bid failed before self-bid refusal: {owner_read:?}"
+    );
+    assert!(
+        moderation.is_ok(),
+        "staff moderation failed: {moderation:?}"
     );
 }

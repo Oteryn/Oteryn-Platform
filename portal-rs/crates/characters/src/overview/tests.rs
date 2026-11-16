@@ -5,6 +5,7 @@ fn pool() -> Result<PgPool, sqlx::Error> {
 }
 #[tokio::test]
 async fn disabled_anonymous_and_bad_locale() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     assert_eq!(
         show(&pool()?, None, "en", false, Settings::default())
             .await
@@ -44,6 +45,7 @@ fn translations_and_profile_segments() {
 }
 #[tokio::test]
 async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL overview test: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(());
@@ -169,6 +171,8 @@ async fn audit_a210_postgres_overview_main_selection_and_removed_ownership()
         assert!(status.success());
         return Ok(());
     }
+    // The re-exec launcher must not retain the child fixture's guard.
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL profile test: PORTAL_TEST_DATABASE_URL is unset");

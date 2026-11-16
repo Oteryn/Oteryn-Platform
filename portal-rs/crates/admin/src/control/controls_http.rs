@@ -308,6 +308,7 @@ impl Authority for SessionAuthority {
                 account,
                 require_staff_mfa: true,
                 mfa_verified: true,
+                session_proof: None,
             },
             rbac::Permission::Access,
         )

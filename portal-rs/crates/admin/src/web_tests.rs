@@ -14,6 +14,19 @@ impl StaffSession for Identity {
     }
 }
 impl AccountStateReader for Identity {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         Ok(AccountState::Active)
     }
@@ -55,6 +68,7 @@ async fn request(app: Router, path: &str, host: &str) -> Response {
 }
 #[tokio::test]
 async fn host_flag_session_and_mfa_boundaries() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
@@ -140,6 +154,7 @@ fn localized_responsive_labelled_template() {
 }
 #[tokio::test]
 async fn database_navigation_authorization_csrf_and_owner() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
         return;
@@ -354,6 +369,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
         account: actor,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     };
     let panel = Panel {
         config: PanelConfig::default(),

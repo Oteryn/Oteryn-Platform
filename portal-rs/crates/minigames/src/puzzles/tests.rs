@@ -21,6 +21,7 @@ use tower::ServiceExt;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const COMMIT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const POOL_CONNECTIONS: u32 = 6;
 
 // All records and images in this module are synthetic; no game fixtures are copied.
 fn text(value: &str) -> Text {
@@ -105,7 +106,7 @@ impl Database {
             .await?;
         let search_path = format!("{schema},pg_catalog");
         let pool = PgPoolOptions::new()
-            .max_connections(6)
+            .max_connections(POOL_CONNECTIONS)
             .after_connect(move |conn, _| {
                 let search_path = search_path.clone();
                 Box::pin(async move {
@@ -429,16 +430,66 @@ async fn postgres_concurrent_answers_complete_once_and_award_streak_badges() -> 
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 3);
-    // More requests than pool connections must finish without nested-pool starvation.
+    // As many first answers as pool connections, one per account, must all
+    // finish through the full answer path: the public reads before the
+    // transaction release their connections, so nothing starves, and distinct
+    // accounts never queue on each other's account row.
+    let mut accounts = std::collections::HashSet::from([db.account]);
+    for index in 1..POOL_CONNECTIONS {
+        let account = Uuid::now_v7();
+        sqlx::query("INSERT INTO accounts (id,email,password_hash,status,email_verified_at,locale) VALUES ($1,$2,'unused','active',now(),'en')")
+            .bind(account).bind(format!("synthetic{index}@example.invalid")).execute(&db.pool).await?;
+        accounts.insert(account);
+    }
+    assert_eq!(accounts.len(), POOL_CONNECTIONS as usize);
+    let others: Vec<Uuid> = accounts
+        .iter()
+        .copied()
+        .filter(|account| *account != db.account)
+        .collect();
+    let mut requests = tokio::task::JoinSet::new();
+    for account in others.iter().copied().chain([db.account]) {
+        let service = db.service.clone();
+        // The other accounts answer for the first time; this one replays.
+        requests.spawn(async move { (account, service.answer(account, quiz, 1).await) });
+    }
+    let mut finished = std::collections::HashSet::new();
+    while let Some(joined) = requests.join_next().await {
+        let (account, answer) = joined?;
+        let answer = answer?;
+        assert!(answer.correct);
+        assert_eq!(answer.replayed, account == db.account);
+        assert!(finished.insert(account));
+    }
+    assert_eq!(finished, accounts);
+    // One account beyond the pool sheds load at the W3-04 bounds instead of
+    // queueing: pool admission (250 ms) and the account row lock (500 ms).
     let mut requests = tokio::task::JoinSet::new();
     for _ in 0..16 {
         let service = db.service.clone();
         let account = db.account;
         requests.spawn(async move { service.answer(account, quiz, 1).await });
     }
+    let mut replayed = 0;
     while let Some(answer) = requests.join_next().await {
-        assert!(answer??.replayed);
+        match answer? {
+            Ok(answer) => {
+                assert!(answer.replayed);
+                replayed += 1;
+            }
+            Err(Error::Database(sqlx::Error::PoolTimedOut)) => {}
+            Err(Error::Database(sqlx::Error::Database(error)))
+                if error.code().as_deref() == Some("55P03") => {}
+            Err(error) => return Err(error.into()),
+        }
     }
+    assert!(replayed >= 1);
+    assert!(db.service.answer(db.account, quiz, 1).await?.replayed);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM puzzles_answers WHERE account_id=$1")
+        .bind(db.account)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 3);
     assert_eq!(db.service.progress(db.account).await?.current, 7);
     db.close().await
 }
@@ -776,4 +827,179 @@ async fn postgres_controlled_midnight_changes_available_puzzles() -> TestResult 
     ));
     assert!(db.service.answer(db.account, next, 1).await?.correct);
     db.close().await
+}
+
+#[tokio::test]
+async fn postgres_answer_rechecks_source_after_account_wait() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let id = db.publish(Kind::Quiz).await?;
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(db.account)
+        .execute(&mut *blocker)
+        .await?;
+    // The source is withdrawn in the blocking transaction, so the answer's
+    // unlocked reads still see it visible and only the recheck under lock can
+    // refuse it. Committing releases the account row right after the answer
+    // starts waiting, well inside the 500 ms browser lock bound (W3-04).
+    sqlx::query("UPDATE world_visibility SET allowed=false,updated_at=now() WHERE kind='synthetic-creature' AND key='wolf'")
+        .execute(&mut *blocker)
+        .await?;
+    let service = db.service.clone();
+    let account = db.account;
+    let answer = tokio::spawn(async move { service.answer(account, id, 1).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.wait_event_type='Lock' AND EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND l.relation='accounts'::regclass))").fetch_one(&db.pool).await?;
+            if waiting { break; }
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, sqlx::Error>(())
+    }).await??;
+    blocker.commit().await?;
+    let answered = answer.await?;
+    assert!(matches!(answered, Err(Error::Unavailable)), "{answered:?}");
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM puzzles_answers),(SELECT count(*) FROM puzzles_streaks)",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(counts, (0, 0));
+    db.close().await?;
+    eprintln!(
+        "postgres_answer_rechecks_source_after_account_wait duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_browser_lock_waits_release_saturated_pool() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let id = db.publish(Kind::Quiz).await?;
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(db.account)
+        .execute(&mut *blocker)
+        .await?;
+    let mut requests = tokio::task::JoinSet::new();
+    for _ in 0..20 {
+        let service = db.service.clone();
+        let account = db.account;
+        requests.spawn(async move { service.answer(account, id, 1).await });
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(4), async {
+        while let Some(result) = requests.join_next().await {
+            assert!(result?.is_err());
+        }
+        Ok::<_, tokio::task::JoinError>(())
+    })
+    .await??;
+    assert_eq!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(250),
+            sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&db.pool)
+        )
+        .await??,
+        1
+    );
+    blocker.rollback().await?;
+    db.close().await?;
+    eprintln!(
+        "postgres_browser_lock_waits_release_saturated_pool duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_account_lock_wait_sheds_as_unavailable() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let id = db.publish(Kind::Quiz).await?;
+    let (cookie, csrf) = db.login().await?;
+    let post = || -> Result<Request<Body>, axum::http::Error> {
+        Request::post(format!("/en/puzzles/{id}/answer"))
+            .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, "https://portal.example.invalid")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!("choice=1&_csrf={csrf}")))
+    };
+    // Hold the account row longer than the 500 ms browser lock bound (W3-04).
+    let mut holder = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(db.account)
+        .execute(&mut *holder)
+        .await?;
+    match db.service.answer(db.account, id, 1).await {
+        Err(Error::Database(sqlx::Error::Database(error)))
+            if error.code().as_deref() == Some("55P03") => {}
+        other => return Err(format!("expected lock timeout, got {other:?}").into()),
+    }
+    let shed = db.router().oneshot(post()?).await?;
+    assert_eq!(shed.status(), StatusCode::SERVICE_UNAVAILABLE);
+    holder.rollback().await?;
+    let answered = db.router().oneshot(post()?).await?;
+    assert_eq!(answered.status(), StatusCode::SEE_OTHER);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM puzzles_answers")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 1);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_answer_retains_visibility_fence_through_commit() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let id = db.publish(Kind::Quiz).await?;
+    sqlx::query("INSERT INTO puzzles_streaks(account_id) VALUES($1)")
+        .bind(db.account)
+        .execute(&db.pool)
+        .await?;
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT account_id FROM puzzles_streaks WHERE account_id=$1 FOR UPDATE")
+        .bind(db.account)
+        .execute(&mut *blocker)
+        .await?;
+    let service = db.service.clone();
+    let account = db.account;
+    let answer = tokio::spawn(async move { service.answer(account, id, 1).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.wait_event_type='Lock' AND a.query LIKE 'SELECT account_id FROM puzzles_streaks%' AND EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND l.relation='puzzles_streaks'::regclass))").fetch_one(&db.pool).await?;
+            if waiting { return Ok::<_,sqlx::Error>(()); }
+            tokio::task::yield_now().await;
+        }
+    }).await??;
+    let world = db.world.clone();
+    let hide = tokio::spawn(async move { world.deny("synthetic-creature", "wolf").await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.wait_event_type='Lock' AND a.query LIKE 'INSERT INTO world_visibility%' AND EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND l.relation='world_visibility'::regclass))").fetch_one(&db.pool).await?;
+            if waiting { return Ok::<_,sqlx::Error>(()); }
+            assert!(!hide.is_finished(), "visibility changed before answer committed");
+            tokio::task::yield_now().await;
+        }
+    }).await??;
+    blocker.commit().await?;
+    assert!(answer.await??.correct);
+    hide.await??;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM puzzles_answers")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 1);
+    assert!(matches!(
+        db.service.answer(db.account, id, 1).await,
+        Err(Error::Unavailable)
+    ));
+    db.close().await?;
+    eprintln!(
+        "postgres_answer_retains_visibility_fence_through_commit duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

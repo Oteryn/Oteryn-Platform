@@ -58,6 +58,7 @@ fn uint64_and_activity_arithmetic_boundaries() {
 }
 #[tokio::test]
 async fn wrong_purpose_transport_and_bounds() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
@@ -204,6 +205,7 @@ async fn apply(store: &store::Store, c: &wire::Commit) -> Result<&'static str, s
 }
 #[tokio::test]
 async fn postgres_retries_conflicts_revisions_pages_and_fence() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -302,6 +304,19 @@ impl crate::web::StaffSession for Identity {
     }
 }
 impl crate::rbac::AccountStateReader for Identity {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(
         &self,
         _: Uuid,
@@ -354,6 +369,7 @@ async fn staff(pool: &PgPool, role: &str) -> crate::web::StaffIdentity {
 }
 #[tokio::test]
 async fn postgres_audit_before_read_outage_and_rbac_denials() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -455,6 +471,7 @@ async fn postgres_audit_before_read_outage_and_rbac_denials() {
         account: admin.account,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     };
     let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='custom_analytics'")
         .fetch_one(&pool)
@@ -533,6 +550,7 @@ async fn postgres_audit_before_read_outage_and_rbac_denials() {
 
 #[tokio::test]
 async fn postgres_retention_privacy_watermark_and_baseline_gates() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -672,6 +690,7 @@ async fn postgres_retention_privacy_watermark_and_baseline_gates() {
 
 #[tokio::test]
 async fn postgres_host_gate_refuses_before_session_and_audit() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -743,6 +762,7 @@ async fn postgres_host_gate_refuses_before_session_and_audit() {
 
 #[tokio::test]
 async fn postgres_refused_messages_preserve_epoch_and_active_generation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -833,6 +853,7 @@ async fn postgres_refused_messages_preserve_epoch_and_active_generation() {
 
 #[tokio::test]
 async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -1165,6 +1186,7 @@ async fn economy_watermark(s: &store::Store, p: &wire::Page) {
 }
 #[tokio::test]
 async fn postgres_economy_members_panel_and_refusal_fence() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, name)) = database().await else {
         return;
     };
@@ -1368,6 +1390,7 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
 }
 #[tokio::test]
 async fn postgres_economy_migration_rollback_reapply() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, name)) = database().await else {
         return;
     };
@@ -1448,6 +1471,7 @@ fn economy_wire_refuses_non_strings_unknown_members_and_purchased() {
 
 #[tokio::test]
 async fn postgres_platform_purchased_units_empty_day_and_boundaries() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, root, name)) = database().await else {
         return;
     };
@@ -1524,6 +1548,7 @@ async fn postgres_platform_purchased_units_empty_day_and_boundaries() {
 
 #[tokio::test]
 async fn a2_committed_revision_rejects_unreceipted_page_identity() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let (pool, root, name) = database().await.expect("PostgreSQL required");
     let s = store(pool.clone()).await;
@@ -1544,6 +1569,7 @@ async fn a2_committed_revision_rejects_unreceipted_page_identity() {
 }
 #[tokio::test]
 async fn a2_blocked_purge_refuses_browser_reads_without_pool_exhaustion() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let (pool, root, name) = database().await.expect("PostgreSQL required");
     let s = store(pool.clone()).await;
@@ -1558,12 +1584,16 @@ async fn a2_blocked_purge_refuses_browser_reads_without_pool_exhaustion() {
         .fetch_all(&mut *blocker)
         .await
         .unwrap();
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
     let purge_pool = pool.clone();
     let purge = tokio::spawn(async move { store::purge(&purge_pool, NOW).await });
     // Observe the purge's advisory lock before issuing foreground reads.
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            let held: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND objid=71140001 AND granted)").fetch_one(&pool).await.unwrap();
+            let held: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND $1=ANY(pg_blocking_pids(pid)) AND locktype='advisory' AND objid=71140001 AND granted)").bind(blocker_pid).fetch_one(&pool).await.unwrap();
             if held { break; } tokio::task::yield_now().await;
         }
     }).await.unwrap();
@@ -1598,6 +1628,122 @@ async fn a2_blocked_purge_refuses_browser_reads_without_pool_exhaustion() {
     clean(pool, root, name).await;
     eprintln!(
         "a2_blocked_purge_refuses_browser_reads_without_pool_exhaustion duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a3_obsolete_epochs_do_not_block_staging() {
+    let started = std::time::Instant::now();
+    for same_bucket in [false, true] {
+        let (pool, root, name) = database().await.expect("PostgreSQL required");
+        let s = store(pool.clone()).await;
+        let mut obsolete = page();
+        obsolete.world_id = Uuid::now_v7().to_string();
+        obsolete.page_count = "2".into();
+        for revision in ["1", "2"] {
+            obsolete.snapshot_revision = revision.into();
+            publish(&s, &obsolete).await.unwrap();
+        }
+        let mut current = obsolete.clone();
+        current.source_observed_at = NOW.to_string();
+        current.analytics_epoch = "2".into();
+        current.snapshot_revision = "1".into();
+        current.page_count = "1".into();
+        if !same_bucket {
+            current.bucket_start = (wire::uint(&current.bucket_start).unwrap() + 86400).to_string();
+            current.bucket_end = (wire::uint(&current.bucket_end).unwrap() + 86400).to_string();
+        }
+        assert_eq!(publish(&s, &current).await.unwrap(), "accepted");
+        assert_eq!(apply(&s, &commit(&current)).await.unwrap(), "accepted");
+        let receipts: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM admin_analytics.page_receipts WHERE world=$1 AND epoch=1",
+        )
+        .bind(Uuid::parse_str(&obsolete.world_id).unwrap())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(receipts, 2);
+        clean(pool, root, name).await;
+    }
+    eprintln!(
+        "a3_obsolete_epochs_do_not_block_staging duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a3_superseded_commit_replays_original_outcome() {
+    let started = std::time::Instant::now();
+    let (pool, root, name) = database().await.expect("PostgreSQL required");
+    let s = store(pool.clone()).await;
+    let mut p = page();
+    p.snapshot_revision = "3".into();
+    publish(&s, &p).await.unwrap();
+    apply(&s, &commit(&p)).await.unwrap();
+    let before: Vec<(String, serde_json::Value)> =
+        sqlx::query_as("SELECT revision::text,values FROM admin_analytics.rows ORDER BY key")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    p.snapshot_revision = "2".into();
+    let c = commit(&p);
+    assert_eq!(apply(&s, &c).await.unwrap(), "superseded");
+    assert_eq!(apply(&s, &c).await.unwrap(), "superseded");
+    let after: Vec<(String, serde_json::Value)> =
+        sqlx::query_as("SELECT revision::text,values FROM admin_analytics.rows ORDER BY key")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(before, after);
+    clean(pool, root, name).await;
+    eprintln!(
+        "a3_superseded_commit_replays_original_outcome duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a3_receipt_outcome_migration_preserves_existing_receipts() {
+    let started = std::time::Instant::now();
+    let (pool, root, name) = database().await.expect("PostgreSQL required");
+    let s = store(pool.clone()).await;
+    let p = page();
+    publish(&s, &p).await.unwrap();
+    apply(&s, &commit(&p)).await.unwrap();
+    let before: String = sqlx::query_scalar("SELECT digest FROM admin_analytics.receipts")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    // Reconstruct the legacy receipt schema with a real previously accepted row.
+    sqlx::query("ALTER TABLE admin_analytics.receipts DROP COLUMN outcome")
+        .execute(&pool)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261115211000_fix_a3-01a-admin_receipt_outcome.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let after: (String, String) =
+        sqlx::query_as("SELECT digest,outcome FROM admin_analytics.receipts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after, (before, "accepted".into()));
+    assert_eq!(apply(&s, &commit(&p)).await.unwrap(), "accepted");
+    assert!(
+        sqlx::query("UPDATE admin_analytics.receipts SET outcome='unknown'")
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    clean(pool, root, name).await;
+    eprintln!(
+        "a3_receipt_outcome_migration_preserves_existing_receipts duration: {:?}",
         started.elapsed()
     );
 }

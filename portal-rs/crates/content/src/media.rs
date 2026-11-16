@@ -19,6 +19,7 @@ use sqlx::{PgPool, Row};
 use std::io::Cursor;
 use uuid::Uuid;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
+static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
 }
@@ -128,14 +129,24 @@ pub fn admin_router(pool: PgPool) -> Router {
         .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(oteryn_admin::web::configured_guard(
-        admin_router(pool.clone()),
-        pool,
-        Permission::ManageMedia,
-    )?
-    .layer(axum::middleware::from_fn(multipart_csrf))
-    .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
-    .layer(axum::middleware::from_fn(headers)))
+    configured_router_from(pool, &|key| std::env::var(key).ok())
+}
+fn configured_router_from(
+    pool: PgPool,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    oteryn_admin::web::configured_host_boundary_from(
+        oteryn_admin::web::configured_guard_from(
+            admin_router(pool.clone()),
+            pool,
+            Permission::ManageMedia,
+            lookup,
+        )?
+        .layer(axum::middleware::from_fn(multipart_csrf))
+        .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
+        .layer(axum::middleware::from_fn(headers)),
+        lookup,
+    )
 }
 /// Adapt a native multipart form token to the shared synchronizer-token verifier.
 /// The shared guard still validates the origin, session and constant-time token.
@@ -154,9 +165,13 @@ async fn multipart_csrf(
             .cloned()
             .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
         let body = std::mem::replace(request.body_mut(), axum::body::Body::empty());
-        let bytes = axum::body::to_bytes(body, MAX_BYTES + 16384)
-            .await
-            .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
+        let bytes = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            axum::body::to_bytes(body, MAX_BYTES + 16384),
+        )
+        .await
+        .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
+        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
         let mut copy = axum::http::Request::new(axum::body::Body::from(bytes.clone()));
         copy.extensions_mut().extend(request.extensions().clone());
         copy.headers_mut()
@@ -183,14 +198,18 @@ async fn multipart_csrf(
 }
 #[derive(serde::Deserialize, Default)]
 struct Options {
+    #[serde(default)]
+    page: u32,
     lang: Option<String>,
 }
 #[derive(askama::Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title><main class=\"op-stack\"><h1>{{ title }}</h1><form class=\"op-stack\" method=\"post\" action=\"/admin/media\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><label for=\"image\">{{ image }}</label><input class=\"op-input\" id=\"image\" name=\"image\" type=\"file\" accept=\"image/jpeg,image/png,image/webp\" required><label for=\"alt\">{{ alt }}</label><textarea class=\"op-input\" id=\"alt\" name=\"alt_text\" maxlength=\"500\" required></textarea><button class=\"op-button\">{{ upload }}</button></form><ul>{% for item in items %}<li><img src=\"/admin/media/{{ item.0 }}/thumbnail\" width=\"160\" alt=\"{{ item.1 }}\"><p>{{ item.1 }}</p><form method=\"post\" action=\"/admin/media/{{ item.0 }}/delete\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><button class=\"op-button\">{{ delete }}</button></form></li>{% endfor %}</ul></main></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title><main class=\"op-stack\"><h1>{{ title }}</h1><form class=\"op-stack\" method=\"post\" action=\"/admin/media\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><label for=\"image\">{{ image }}</label><input class=\"op-input\" id=\"image\" name=\"image\" type=\"file\" accept=\"image/jpeg,image/png,image/webp\" required><label for=\"alt\">{{ alt }}</label><textarea class=\"op-input\" id=\"alt\" name=\"alt_text\" maxlength=\"500\" required></textarea><button class=\"op-button\">{{ upload }}</button></form><ul>{% for item in items %}<li><img src=\"/admin/media/{{ item.0 }}/thumbnail\" width=\"160\" alt=\"{{ item.1 }}\"><p>{{ item.1 }}</p><form method=\"post\" action=\"/admin/media/{{ item.0 }}/delete\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><button class=\"op-button\">{{ delete }}</button></form></li>{% endfor %}</ul>{% if more %}<a href=\"?page={{ next }}&amp;lang={{ lang }}\">Next / Następna</a>{% endif %}</main></html>",
     ext = "html"
 )]
 struct MediaPage {
+    next: u64,
+    more: bool,
     lang: &'static str,
     title: String,
     image: String,
@@ -235,12 +254,16 @@ async fn index(
     } else {
         "pl"
     };
-    let rows =
-        sqlx::query("SELECT id,alt_text FROM media ORDER BY created_at DESC,id DESC LIMIT 100")
-            .fetch_all(&pool)
-            .await
-            .map_err(unavailable)?;
+    let rows = sqlx::query(
+        "SELECT id,alt_text FROM media ORDER BY created_at DESC,id DESC LIMIT 100 OFFSET $1",
+    )
+    .bind(i64::from(options.page) * 100)
+    .fetch_all(&pool)
+    .await
+    .map_err(unavailable)?;
     let page = MediaPage {
+        next: u64::from(options.page) + 1,
+        more: rows.len() == 100,
         lang,
         title: label(lang, "title"),
         image: label(lang, "image"),
@@ -310,12 +333,30 @@ async fn upload(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
     let (name, bytes) = image.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-    // CPU-heavy decoding does not block the async runtime.
+    let processed = tokio_process(name, bytes.to_vec()).await?;
+    // Persist only after processing, with fresh transactional authorization.
     let mut tx = pool.begin().await.map_err(unavailable)?;
-    sqlx::query("SET LOCAL lock_timeout = '3s'")
-        .execute(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+    oteryn_admin::rbac::authorize_mutation_with_resources(
+        &mut tx,
+        &[context.account],
+        move |connection| {
+            Box::pin(async move {
+                sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,12))")
+                    .bind(context.account.to_string())
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        },
+        &auth,
+        context,
+        &[Permission::Access, Permission::ManageMedia],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,12))")
         .bind(context.account.to_string())
         .execute(&mut *tx)
@@ -334,18 +375,27 @@ async fn upload(
     if recent >= 10 {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
-    let processed = tokio_process(name, bytes.to_vec()).await?;
     let id = Uuid::now_v7();
     sqlx::query("INSERT INTO media(id,alt_text,mime_type,width,height,content,sha256,thumbnail,thumbnail_sha256) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
         .bind(id).bind(alt.trim()).bind(processed.mime).bind(processed.width as i32).bind(processed.height as i32)
         .bind(&processed.content).bind(Sha256::digest(&processed.content).to_vec()).bind(&processed.thumbnail)
         .bind(processed.thumbnail.as_ref().map(|b| Sha256::digest(b).to_vec())).execute(&mut *tx).await.map_err(unavailable)?;
     record(&mut tx, context, id, "editorial_media.uploaded").await?;
+    crate::revalidate(
+        &auth,
+        &mut tx,
+        context,
+        &[Permission::Access, Permission::ManageMedia],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     tx.commit().await.map_err(unavailable)?;
     Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
 }
 async fn tokio_process(name: String, bytes: Vec<u8>) -> Result<ProcessedImage, StatusCode> {
-    static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
     let permit = DECODERS
         .try_acquire()
         .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
@@ -410,10 +460,27 @@ async fn delete(
     Path(id): Path<Uuid>,
 ) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
-    sqlx::query("SET LOCAL lock_timeout = '3s'")
-        .execute(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+    oteryn_admin::rbac::authorize_mutation_with_resources(
+        &mut tx,
+        &[context.account],
+        move |connection| {
+            Box::pin(async move {
+                sqlx::query("SELECT id FROM media WHERE id=$1 FOR UPDATE")
+                    .bind(id)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        },
+        &auth,
+        context,
+        &[Permission::Access, Permission::ManageMedia],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     let row = sqlx::query(
         "SELECT content,sha256,thumbnail,thumbnail_sha256 FROM media WHERE id=$1 FOR UPDATE",
     )
@@ -457,6 +524,17 @@ async fn delete(
         return Err(StatusCode::NOT_FOUND);
     }
     record(&mut tx, context, id, "editorial_media.deleted").await?;
+    crate::revalidate(
+        &auth,
+        &mut tx,
+        context,
+        &[Permission::Access, Permission::ManageMedia],
+    )
+    .await
+    .map_err(|error| match error {
+        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     tx.commit().await.map_err(unavailable)?;
     Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
 }

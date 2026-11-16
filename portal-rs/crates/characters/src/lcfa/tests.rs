@@ -297,6 +297,7 @@ fn list_bound_and_strict_order() -> TestResult {
 
 #[tokio::test]
 async fn peer_flag_and_transport_failures_need_no_database() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let pool = PgPoolOptions::new().connect_lazy("postgres://portal@127.0.0.1:1/unreachable")?;
     let projection = Projection::new(pool, settings(), Arc::new(DenyAccounts));
     let app = router(projection.clone(), identities()?);
@@ -345,6 +346,7 @@ async fn peer_flag_and_transport_failures_need_no_database() -> TestResult {
 
 #[tokio::test]
 async fn db_golden_http_acknowledgements_and_bad_input() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -418,6 +420,7 @@ async fn db_golden_http_acknowledgements_and_bad_input() -> TestResult {
 
 #[tokio::test]
 async fn db_conflict_persists_and_higher_revision_repairs_atomically() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -481,6 +484,7 @@ async fn db_conflict_persists_and_higher_revision_repairs_atomically() -> TestRe
 
 #[tokio::test]
 async fn db_epoch_raise_from_either_publication_invalidates_other_accounts() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -545,6 +549,7 @@ async fn db_epoch_raise_from_either_publication_invalidates_other_accounts() -> 
 
 #[tokio::test]
 async fn db_watermark_freshness_boundaries_missing_and_unknown_accounts() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -606,6 +611,7 @@ async fn db_watermark_freshness_boundaries_missing_and_unknown_accounts() -> Tes
 
 #[tokio::test]
 async fn db_concurrent_snapshots_wait_for_feed_lock_and_finish_at_highest_revision() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -650,6 +656,7 @@ async fn db_concurrent_snapshots_wait_for_feed_lock_and_finish_at_highest_revisi
 
 #[tokio::test]
 async fn db_rate_limit_is_shared_across_routes_and_separate_per_peer() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -707,6 +714,7 @@ async fn db_rate_limit_is_shared_across_routes_and_separate_per_peer() -> TestRe
 
 #[tokio::test]
 async fn db_failed_replacement_rolls_back_epoch_metadata_and_rows() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -738,6 +746,7 @@ async fn db_failed_replacement_rolls_back_epoch_metadata_and_rows() -> TestResul
 
 #[tokio::test]
 async fn db_concurrent_equal_revision_conflict_stays_invalid_until_higher_pair() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -774,6 +783,7 @@ async fn db_concurrent_equal_revision_conflict_stays_invalid_until_higher_pair()
 
 #[tokio::test]
 async fn audit_a210_db_malformed_lcfa_bodies_consume_admission_budget() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await? else {
         return Ok(());
@@ -809,6 +819,7 @@ async fn audit_a210_db_malformed_lcfa_bodies_consume_admission_budget() -> TestR
 
 #[tokio::test]
 async fn db_transport_validation_after_admission() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     // Valid peers now enter durable admission before transport validation.
     let Some(db) = Database::open().await? else {
         return Ok(());

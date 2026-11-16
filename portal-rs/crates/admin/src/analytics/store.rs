@@ -121,7 +121,7 @@ impl Store {
             return Ok("superseded");
         }
         // Payload purge never deletes monotonic receipts/fences or acknowledged visibility.
-        sqlx::query("DELETE FROM admin_analytics.pages WHERE staged_at<now()-interval '24 hours'")
+        sqlx::query("DELETE FROM admin_analytics.pages p USING admin_analytics.fence f WHERE p.authority=f.authority AND (p.staged_at<now()-interval '24 hours' OR p.epoch<f.epoch)")
             .execute(&mut *tx)
             .await?;
         sqlx::query("DELETE FROM admin_analytics.rows WHERE bucket_end <= $1 - CASE WHEN family='world_activity_hourly' THEN 2592000 ELSE 34560000 END")
@@ -189,7 +189,7 @@ impl Store {
                 Ok(first != digest(raw))
             }
             Message::Commit(c) => {
-                sqlx::query("INSERT INTO admin_analytics.receipts(authority,family,world,bucket_start,epoch,revision,digest) VALUES($1,$2,$3,$4::text::numeric,$5::text::numeric,$6::text::numeric,$7) ON CONFLICT DO NOTHING")
+                sqlx::query("INSERT INTO admin_analytics.receipts(authority,family,world,bucket_start,epoch,revision,digest,outcome) VALUES($1,$2,$3,$4::text::numeric,$5::text::numeric,$6::text::numeric,$7,'superseded') ON CONFLICT DO NOTHING")
                     .bind(&self.authority).bind(family).bind(world).bind(&c.bucket_start).bind(&c.analytics_epoch).bind(&c.snapshot_revision).bind(digest(raw)).execute(&mut **tx).await?;
                 let first:String=sqlx::query_scalar("SELECT digest FROM admin_analytics.receipts WHERE authority=$1 AND family=$2 AND world=$3 AND bucket_start=$4::text::numeric AND epoch=$5::text::numeric AND revision=$6::text::numeric")
                     .bind(&self.authority).bind(family).bind(world).bind(&c.bucket_start).bind(&c.analytics_epoch).bind(&c.snapshot_revision).fetch_one(&mut **tx).await?;
@@ -239,8 +239,8 @@ impl Store {
         if exists {
             return Ok("accepted");
         }
-        let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_analytics.pages p WHERE authority=$1 AND family=$2 AND world=$3 AND bucket_start<>$4::text::numeric AND NOT EXISTS(SELECT 1 FROM admin_analytics.receipts c WHERE c.authority=p.authority AND c.family=p.family AND c.world=p.world AND c.bucket_start=p.bucket_start AND c.epoch=p.epoch AND c.revision=p.revision))")
-            .bind(&self.authority).bind(family).bind(world).bind(&p.bucket_start).fetch_one(&mut **tx).await?;
+        let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_analytics.pages p WHERE authority=$1 AND family=$2 AND world=$3 AND bucket_start<>$4::text::numeric AND epoch=$5::text::numeric AND NOT EXISTS(SELECT 1 FROM admin_analytics.receipts c WHERE c.authority=p.authority AND c.family=p.family AND c.world=p.world AND c.bucket_start=p.bucket_start AND c.epoch=p.epoch AND c.revision=p.revision))")
+            .bind(&self.authority).bind(family).bind(world).bind(&p.bucket_start).bind(&p.analytics_epoch).fetch_one(&mut **tx).await?;
         if pending {
             return Err(Error::Unavailable);
         }
@@ -264,7 +264,7 @@ impl Store {
             return Err(Error::Unavailable);
         }
         // At most two staged revisions per subject; no eviction under capacity pressure.
-        let staged:i64=sqlx::query_scalar("SELECT count(*) FROM (SELECT DISTINCT epoch,revision FROM admin_analytics.pages p WHERE NOT EXISTS(SELECT 1 FROM admin_analytics.receipts c WHERE c.authority=p.authority AND c.family=p.family AND c.world=p.world AND c.bucket_start=p.bucket_start AND c.epoch=p.epoch AND c.revision=p.revision) AND authority=$1 AND family=$2 AND world=$3 AND bucket_start=$4::text::numeric AND (epoch,revision)<>($5::text::numeric,$6::text::numeric)) s")
+        let staged:i64=sqlx::query_scalar("SELECT count(*) FROM (SELECT DISTINCT epoch,revision FROM admin_analytics.pages p WHERE NOT EXISTS(SELECT 1 FROM admin_analytics.receipts c WHERE c.authority=p.authority AND c.family=p.family AND c.world=p.world AND c.bucket_start=p.bucket_start AND c.epoch=p.epoch AND c.revision=p.revision) AND authority=$1 AND family=$2 AND world=$3 AND bucket_start=$4::text::numeric AND epoch=$5::text::numeric AND (epoch,revision)<>($5::text::numeric,$6::text::numeric)) s")
             .bind(&self.authority).bind(family).bind(world).bind(&p.bucket_start).bind(&p.analytics_epoch).bind(&p.snapshot_revision).fetch_one(&mut **tx).await?;
         if staged >= 2 {
             return Err(Error::Unavailable);
@@ -305,11 +305,15 @@ impl Store {
         raw: &[u8],
         now: u64,
     ) -> Result<&'static str, Error> {
-        let receipt:Option<String>=sqlx::query_scalar("SELECT digest FROM admin_analytics.receipts WHERE authority=$1 AND family=$2 AND world=$3 AND bucket_start=$4::text::numeric AND epoch=$5::text::numeric AND revision=$6::text::numeric")
+        let receipt:Option<(String,String)>=sqlx::query_as("SELECT digest,outcome FROM admin_analytics.receipts WHERE authority=$1 AND family=$2 AND world=$3 AND bucket_start=$4::text::numeric AND epoch=$5::text::numeric AND revision=$6::text::numeric")
             .bind(&self.authority).bind(family).bind(world).bind(&c.bucket_start).bind(&c.analytics_epoch).bind(&c.snapshot_revision).fetch_optional(&mut **tx).await?;
-        if let Some(receipt) = receipt {
+        if let Some((receipt, outcome)) = receipt {
             if receipt == digest(raw) {
-                return Ok("accepted");
+                return match outcome.as_str() {
+                    "accepted" => Ok("accepted"),
+                    "superseded" => Ok("superseded"),
+                    _ => Err(Error::Unavailable),
+                };
             }
             self.conflict(tx, family, world, &c.bucket_start).await?;
             return Ok("conflict");
@@ -326,7 +330,7 @@ impl Store {
                 .zip(wire::uint(&r).ok())
                 .is_some_and(|old| old > order)
         }) {
-            sqlx::query("INSERT INTO admin_analytics.receipts(authority,family,world,bucket_start,epoch,revision,digest) VALUES($1,$2,$3,$4::text::numeric,$5::text::numeric,$6::text::numeric,$7)")
+            sqlx::query("INSERT INTO admin_analytics.receipts(authority,family,world,bucket_start,epoch,revision,digest,outcome) VALUES($1,$2,$3,$4::text::numeric,$5::text::numeric,$6::text::numeric,$7,'superseded')")
                 .bind(&self.authority).bind(family).bind(world).bind(&c.bucket_start).bind(&c.analytics_epoch).bind(&c.snapshot_revision).bind(digest(raw)).execute(&mut **tx).await?;
             return Ok("superseded");
         }
@@ -413,7 +417,7 @@ async fn purge_bounded(pool: &PgPool, now: u64) -> Result<(), Error> {
     sqlx::query("SELECT pg_advisory_xact_lock(71140001)")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM admin_analytics.pages WHERE staged_at<now()-interval '24 hours'")
+    sqlx::query("DELETE FROM admin_analytics.pages p USING admin_analytics.fence f WHERE p.authority=f.authority AND (p.staged_at<now()-interval '24 hours' OR p.epoch<f.epoch)")
         .execute(&mut *tx)
         .await?;
     sqlx::query("DELETE FROM admin_analytics.rows r USING admin_analytics.fence f WHERE f.authority=r.authority AND (r.epoch<f.epoch OR r.privacy<>f.privacy_floor OR r.bucket_end::numeric+CASE WHEN r.family='world_activity_hourly' THEN 2592000 ELSE 34560000 END<=$1::text::numeric)").bind(now.to_string()).execute(&mut *tx).await?;

@@ -55,10 +55,11 @@ def test_locked_topup_sigterm_completes_within_shutdown_budget(binary):
         lock.stdin.flush()
         while lock.stdout.readline().strip() != intent:
             assert lock.poll() is None, "lock holder exited"
+        env["PGAPPNAME"] = schema
         worker = subprocess.Popen([binary, "worker"], env=env,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.monotonic() + 15
-        while sql(f"SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT account_id,amount,currency,state FROM payment_intents%' AND query LIKE '%FOR UPDATE%';") == "0":
+        while sql(f"SELECT count(*) FROM pg_stat_activity WHERE application_name='{schema}' AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND wait_event_type='Lock' AND query LIKE 'SELECT account_id,amount,currency,state FROM payment_intents%' AND query LIKE '%FOR UPDATE%';") == "0":
             assert worker.poll() is None, "worker exited before delivery"
             assert time.monotonic() < deadline, "worker did not reach intent lock"
             time.sleep(0.02)

@@ -321,7 +321,7 @@ async fn audit05_04_replay_waits_for_account_before_attempt() -> TestResult {
             // Refresh them so the barrier can observe a waiter arriving later.
             sqlx::query("SELECT pg_stat_clear_snapshot()")
                 .execute(&mut *writer).await?;
-            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%accounts WHERE id=%' AND pid<>pg_backend_pid())").fetch_one(&mut *writer).await?;
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pg_backend_pid()=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock' AND query LIKE '%accounts WHERE id=%')").fetch_one(&mut *writer).await?;
             if waiting { break; }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -578,18 +578,71 @@ async fn lk_signing_cold_and_expired_cache_with_sixteen_held_transactions() -> T
     Ok(())
 }
 
+async fn set_clock(pool: &sqlx::PgPool, at: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE audit_expiry_clock SET instant=to_timestamp($1::double precision)")
+        .bind(at)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+async fn fresh_clock(f: &Fixture) -> Result<i64, Box<dyn std::error::Error>> {
+    sqlx::raw_sql("CREATE TABLE audit_expiry_clock AS SELECT pg_catalog.clock_timestamp() AS instant;
+        CREATE FUNCTION clock_timestamp() RETURNS timestamptz LANGUAGE SQL VOLATILE AS 'SELECT instant FROM audit_expiry_clock';
+        CREATE FUNCTION now() RETURNS timestamptz LANGUAGE SQL STABLE AS 'SELECT instant FROM audit_expiry_clock';")
+        .execute(&f.db.pool).await?;
+    let at: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+        .fetch_one(&f.db.pool)
+        .await?;
+    set_clock(&f.db.pool, at).await?;
+    // Fixture setup already prepared clock queries. Re-resolve those function
+    // names after installing the schema clock on every existing connection.
+    let mut connections = Vec::new();
+    for _ in 0..f.db.pool.options().get_max_connections() {
+        let mut connection = f.db.pool.acquire().await?;
+        sqlx::Connection::clear_cached_statements(&mut *connection).await?;
+        connections.push(connection);
+    }
+    drop(connections);
+    sqlx::query("UPDATE native_runtime_status_reports SET observed_at=$1")
+        .bind(at)
+        .execute(&f.db.pool)
+        .await?;
+    let observation = runtime::read(
+        &f.db.pool,
+        &f.authority.issuance.runtime,
+        runtime::tests::WORLD.parse()?,
+        runtime::tests::CHANNEL.parse()?,
+        at,
+    )
+    .await
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(observation.state, runtime::EvidenceState::Fresh);
+    Ok(at)
+}
+
 #[tokio::test]
 async fn wave2_03_report_expires_while_assignment_locked() -> TestResult {
     let started = std::time::Instant::now();
     let mut f = Fixture::new().await?;
     f.authority.issuance.runtime.freshness_seconds = 1;
+    let at = fresh_clock(&f).await?;
+    let checkpoint = Arc::new(ExpiringSigner {
+        inner: f.signer.clone(),
+        pool: f.db.pool.clone(),
+        at,
+        reached: std::sync::atomic::AtomicBool::new(false),
+        signed: std::sync::atomic::AtomicBool::new(false),
+    });
+    f.signer = checkpoint.clone();
+    f.authority.issuance.signer = Some(f.signer.clone());
     let mut blocker = f.db.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
     sqlx::query("SELECT world_id FROM native_scope_assignments FOR UPDATE")
         .execute(&mut *blocker)
         .await?;
-    sqlx::query("UPDATE native_runtime_status_reports SET observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint-1").execute(&mut *blocker).await?;
-    // Publish the timestamp and release the assignment in the same commit.
-    // Readers must evaluate it using a clock captured after that wait.
+    // Wait until admission reaches the assignment lock with fresh evidence.
     let db = f.db.pool.clone();
     let request = f.request.clone();
     let authority = f.authority.clone();
@@ -605,9 +658,21 @@ async fn wave2_03_report_expires_while_assignment_locked() -> TestResult {
         )
         .await
     });
-    tokio::time::sleep(Duration::from_millis(1200)).await;
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND query LIKE 'SELECT world_id FROM native_scope_assignments%')")
+                .bind(blocker_pid).fetch_one(&f.db.pool).await?;
+            if waiting { return Ok::<_, sqlx::Error>(()); }
+            tokio::task::yield_now().await;
+        }
+    }).await??;
+    set_clock(&f.db.pool, at + 2).await?;
     blocker.commit().await?;
     let result = task.await?;
+    assert!(
+        !checkpoint.reached.load(std::sync::atomic::Ordering::SeqCst),
+        "expired assignment evidence must be refused before signer preparation"
+    );
     assert_eq!(result.err().map(|r| r.error), Some(Error::RouteUnavailable));
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM native_admissions")
         .fetch_one(&f.db.pool)
@@ -891,14 +956,51 @@ async fn wave2_05_stalled_custody_preserves_timer_and_request_deadline() -> Test
     Ok(())
 }
 
+#[derive(Debug)]
+struct ExpiringSigner {
+    inner: Arc<dyn GrantSigner>,
+    pool: sqlx::PgPool,
+    at: i64,
+    reached: std::sync::atomic::AtomicBool,
+    signed: std::sync::atomic::AtomicBool,
+}
+impl GrantSigner for ExpiringSigner {
+    fn prepare(&self) -> Future<'_, ()> {
+        Box::pin(async move {
+            self.inner.prepare().await?;
+            // Selection already accepted Fresh evidence. Expire it exactly at
+            // the signer refresh checkpoint, before issuance revalidation.
+            self.reached
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            set_clock(&self.pool, self.at + 2)
+                .await
+                .map_err(|_| Error::Unavailable)
+        })
+    }
+    fn sign(&self, payload: &[u8], expires: u64, now: u64) -> Result<String, Error> {
+        self.signed.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.inner.sign(payload, expires, now)
+    }
+    fn resign(&self, input: &str, expires: u64, now: u64) -> Result<String, Error> {
+        self.inner.resign(input, expires, now)
+    }
+}
+
 #[tokio::test]
 async fn wave2_03_report_rechecked_after_trust_refresh() -> TestResult {
     let started = std::time::Instant::now();
     let mut f = Fixture::new().await?;
     f.authority.issuance.runtime.freshness_seconds = 1;
-    f.signer = Arc::new(DelayedSigner(f.signer.clone()));
+    let at = fresh_clock(&f).await?;
+    let signer = Arc::new(ExpiringSigner {
+        inner: f.signer.clone(),
+        pool: f.db.pool.clone(),
+        at,
+        reached: std::sync::atomic::AtomicBool::new(false),
+        signed: std::sync::atomic::AtomicBool::new(false),
+    });
+    f.signer = signer.clone();
     f.authority.issuance.signer = Some(f.signer.clone());
-    sqlx::query("UPDATE native_runtime_status_reports SET observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint-1").execute(&f.db.pool).await?;
     let result = store::admit(
         &f.db.pool,
         &f.request,
@@ -908,6 +1010,11 @@ async fn wave2_03_report_rechecked_after_trust_refresh() -> TestResult {
         None,
     )
     .await;
+    assert!(signer.reached.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(
+        !signer.signed.load(std::sync::atomic::Ordering::SeqCst),
+        "expired evidence must be refused immediately after trust refresh"
+    );
     assert_eq!(result.err().map(|r| r.error), Some(Error::RouteUnavailable));
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM native_admissions")
         .fetch_one(&f.db.pool)
@@ -919,4 +1026,149 @@ async fn wave2_03_report_rechecked_after_trust_refresh() -> TestResult {
         started.elapsed()
     );
     Ok(())
+}
+
+#[derive(Debug)]
+struct SlowResigner(Arc<dyn GrantSigner>);
+impl GrantSigner for SlowResigner {
+    fn prepare(&self) -> Future<'_, ()> {
+        self.0.prepare()
+    }
+    fn prepare_on<'a>(&'a self, db: &'a mut PgConnection) -> Future<'a, ()> {
+        self.0.prepare_on(db)
+    }
+    fn sign(&self, payload: &[u8], expires: u64, now: u64) -> Result<String, Error> {
+        self.0.sign(payload, expires, now)
+    }
+    fn resign(&self, input: &str, expires: u64, now: u64) -> Result<String, Error> {
+        self.0.resign(input, expires, now)
+    }
+    fn resign_async<'a>(&'a self, input: &'a str, expires: u64, now: u64) -> Future<'a, String> {
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            self.0.resign_async(input, expires, now).await
+        })
+    }
+}
+
+#[tokio::test]
+async fn wave3_01_recovery_replay_expires_during_resigning() -> TestResult {
+    let started = std::time::Instant::now();
+    let f = Fixture::new().await?;
+    let (request, mut issuer) = recovery_fixture(&f).await?;
+    let first = recovery::recover(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &issuer,
+        &f.authority.issuance.runtime,
+    )
+    .await;
+    assert!(first.is_ok(), "{first:?}");
+    issuer.signer = Some(Arc::new(SlowResigner(
+        issuer.signer.take().ok_or("signer")?,
+    )));
+    sqlx::query("UPDATE native_recoveries SET expires_at_ms=floor(extract(epoch FROM clock_timestamp())*1000)::bigint+1500")
+        .execute(&f.db.pool).await?;
+    let result = recovery::recover(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &issuer,
+        &f.authority.issuance.runtime,
+    )
+    .await;
+    assert_eq!(
+        result.err().map(|r| r.error),
+        Some(recovery::RecoveryError::GrantExpired)
+    );
+    f.close().await?;
+    eprintln!(
+        "wave3_01_recovery_replay_expires_during_resigning duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+async fn replacement_requires_current_device_eligibility(devices_enabled: bool) -> TestResult {
+    let started = std::time::Instant::now();
+    let f = Fixture::new().await?;
+    use base64::Engine;
+    use sha2::Digest;
+    let public_key = ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+        .verifying_key()
+        .to_bytes();
+    let thumbprint =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(public_key));
+    let family: Uuid = sqlx::query_scalar("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at,device_public_key,device_key_thumbprint) VALUES(uuidv7(),$1,uuidv7(),'wave3-test',1,1,9999999999,9999999999,$2,$3) RETURNING id")
+        .bind(f.account).bind(&public_key[..]).bind(&thumbprint).fetch_one(&f.db.pool).await?;
+    sqlx::query("UPDATE game_login_tickets SET device_family_id=$1 WHERE ticket_hash=$2")
+        .bind(family)
+        .bind(f.request.ticket_hash())
+        .execute(&f.db.pool)
+        .await?;
+    let mut request = f.request.clone();
+    request.protocol = 3;
+    let mut settings = Protocol3 {
+        runtime: f.authority.issuance.runtime.clone(),
+        handles: Handles::On {
+            lifetime_seconds: 3600,
+            require_device_binding: true,
+            devices_enabled: true,
+        },
+    };
+    let first = store::admit(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &f.authority,
+        Some(f.signer.as_ref()),
+        Some(&settings),
+    )
+    .await
+    .map_err(|e| format!("{e:?}"))?;
+    assert!(!serde_json::from_slice::<serde_json::Value>(&first)?["recovery"].is_null());
+    settings.handles = Handles::On {
+        lifetime_seconds: 3600,
+        require_device_binding: true,
+        devices_enabled,
+    };
+    if devices_enabled {
+        sqlx::query("UPDATE device_sessions SET idle_expires_at=1 WHERE id=$1")
+            .bind(family)
+            .execute(&f.db.pool)
+            .await?;
+    }
+    let replay = store::admit(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &f.authority,
+        Some(f.signer.as_ref()),
+        Some(&settings),
+    )
+    .await
+    .map_err(|e| format!("{e:?}"))?;
+    assert!(serde_json::from_slice::<serde_json::Value>(&replay)?["recovery"].is_null());
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM native_recovery_handles WHERE attempt_ref=$1")
+            .bind(request.attempt_ref)
+            .fetch_one(&f.db.pool)
+            .await?;
+    assert_eq!(count, 1);
+    f.close().await?;
+    eprintln!(
+        "wave3_02_replacement_requires_current_device_eligibility devices_enabled={devices_enabled} duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn wave3_02_replacement_refuses_disabled_devices() -> TestResult {
+    replacement_requires_current_device_eligibility(false).await
+}
+#[tokio::test]
+async fn wave3_02_replacement_refuses_idle_expired_family() -> TestResult {
+    replacement_requires_current_device_eligibility(true).await
 }

@@ -98,7 +98,8 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, Error> {
     }
     Ok(bytes)
 }
-/// Pool-backed operator authorization; publication rechecks on its own connection.
+/// Pool-backed operator authorization. Publication retains the canonical
+/// account/channel/RBAC locks before rechecking on its own connection.
 #[derive(Debug)]
 pub struct DatabaseAccess(pub PgPool);
 #[async_trait]
@@ -109,8 +110,20 @@ impl PublishAccess for DatabaseAccess {
         actor: Uuid,
         _: Channel,
     ) -> bool {
-        sqlx::query_scalar::<_, bool>("SELECT status='active' AND EXISTS(SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id WHERE ar.account_id=accounts.id AND rp.permission='downloads.manage') FROM accounts WHERE id=$1")
-            .bind(actor).fetch_optional(connection).await.ok().flatten() == Some(true)
+        // Match RBAC writers: lock the actor account before the mutation fence.
+        // Transaction-scoped locks protect both suspension and role/permission
+        // revocation throughout history verification and publication activation.
+        async {
+            sqlx::query("SET LOCAL lock_timeout = '3s'")
+                .execute(&mut *connection).await?;
+            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+                .bind(actor).execute(&mut *connection).await?;
+            sqlx::query("SELECT pg_advisory_xact_lock_shared(71010)")
+                .execute(&mut *connection).await?;
+            let allowed = sqlx::query_scalar::<_, bool>("SELECT status='active' AND EXISTS(SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id WHERE ar.account_id=accounts.id AND rp.permission='downloads.manage') FROM accounts WHERE id=$1")
+                .bind(actor).fetch_optional(connection).await?;
+            Ok::<_, sqlx::Error>(allowed == Some(true))
+        }.await.unwrap_or(false)
     }
     async fn account_state(&self, actor: Uuid) -> AccountState {
         match sqlx::query_scalar::<_, String>("SELECT status FROM accounts WHERE id = $1")

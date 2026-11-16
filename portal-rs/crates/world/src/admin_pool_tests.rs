@@ -8,6 +8,19 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 #[derive(Clone)]
 struct Active;
 impl AccountStateReader for Active {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<AccountState, AccountStateUnavailable> {
         Ok(AccountState::Active)
     }
@@ -36,7 +49,10 @@ impl Fixture {
             .after_connect(move |c, _| {
                 let path = path.clone();
                 Box::pin(async move {
-                    sqlx::query(AssertSqlSafe(path)).execute(c).await?;
+                    sqlx::query(AssertSqlSafe(path)).execute(&mut *c).await?;
+                    sqlx::query("SELECT set_config('application_name',current_schema(),false)")
+                        .execute(c)
+                        .await?;
                     Ok(())
                 })
             })
@@ -47,6 +63,7 @@ impl Fixture {
             account: Uuid::now_v7(),
             require_staff_mfa: true,
             mfa_verified: true,
+            session_proof: None,
         };
         sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor.account).execute(&pool).await?;
         Ok(Self {
@@ -100,7 +117,7 @@ async fn prepare(db: &Fixture) -> TestResult<Uuid> {
 async fn wait_for_fence(db: &Fixture, count: i64) -> TestResult {
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
-            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query='SELECT pg_advisory_xact_lock(71010)'").fetch_one(&db.root).await?;
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND wait_event_type='Lock' AND query='SELECT pg_advisory_xact_lock(71010)'").bind(&db.schema).fetch_one(&db.root).await?;
             if waiting >= count { return Ok::<_, sqlx::Error>(()); }
             tokio::task::yield_now().await;
         }
@@ -109,6 +126,7 @@ async fn wait_for_fence(db: &Fixture, count: i64) -> TestResult {
 }
 #[tokio::test]
 async fn world_two_queued_mutations_complete_with_two_connections() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(2).await?;
     let version = prepare(&db).await?;
@@ -132,7 +150,7 @@ async fn world_two_queued_mutations_complete_with_two_connections() -> TestResul
     // One mutation waits at authorization; the other queues at its resource.
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
-            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND (query='SELECT pg_advisory_xact_lock(71010)' OR query='SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE')").fetch_one(&db.root).await?;
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND wait_event_type='Lock' AND (query='SELECT pg_advisory_xact_lock(71010)' OR query='SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE')").bind(&db.schema).fetch_one(&db.root).await?;
             if waiting >= 2 { return Ok::<_, sqlx::Error>(()); }
             tokio::task::yield_now().await;
         }
@@ -153,6 +171,7 @@ async fn world_two_queued_mutations_complete_with_two_connections() -> TestResul
 }
 #[tokio::test]
 async fn world_refuses_revoked_prerequisite_with_action_retained() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
     let version = prepare(&db).await?;
@@ -237,6 +256,7 @@ async fn world_refuses_revoked_prerequisite_with_action_retained() -> TestResult
 
 #[tokio::test]
 async fn publication_wait_does_not_hold_global_authorization_fence() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(5).await?;
     let version = prepare(&db).await?;
@@ -271,7 +291,7 @@ async fn publication_wait_does_not_hold_global_authorization_fence() -> TestResu
         // Wait for the foreground transaction to reach its resource wait.
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%world_%version%FOR UPDATE%' OR wait_event_type='Lock' AND query LIKE '%world_catalog_publication%FOR UPDATE%')").fetch_one(&db.pool).await?;
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND wait_event_type='Lock' AND (query LIKE '%world_%version%FOR UPDATE%' OR query LIKE '%world_catalog_publication%FOR UPDATE%'))").bind(&db.schema).fetch_one(&db.pool).await?;
                 if waiting { break Ok::<_, sqlx::Error>(()); }
                 tokio::task::yield_now().await;
             }
@@ -309,6 +329,161 @@ async fn publication_wait_does_not_hold_global_authorization_fence() -> TestResu
     db.close().await?;
     eprintln!(
         "publication_wait_does_not_hold_global_authorization_fence: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[derive(Clone)]
+struct AliasStaff(Uuid);
+impl oteryn_admin::web::StaffSession for AliasStaff {
+    async fn resolve(
+        &self,
+        _: &oteryn_web::session::BrowserSession,
+    ) -> Option<oteryn_admin::web::StaffIdentity> {
+        Some(oteryn_admin::web::StaffIdentity {
+            account: self.0,
+            mfa_satisfied: true,
+        })
+    }
+}
+#[tokio::test]
+async fn postgres_a3_alias_controls_use_canonical_state_after_staff_dispatch() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    let started = std::time::Instant::now();
+    let db = Fixture::open(3).await?;
+    let version = prepare(&db).await?;
+    sqlx::query("INSERT INTO world_entities(version_id,kind,key,data,publishable) VALUES($1,'creatures','rat','{}',true),($1,'Creature','rat','{}',true)").bind(version).execute(&db.pool).await?;
+    sqlx::query("INSERT INTO world_visibility(kind,key,allowed) VALUES('creatures','rat',true),('Creature','rat',true)").execute(&db.pool).await?;
+    let app = super::router(
+        db.pool.clone(),
+        oteryn_admin::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        crate::WorldOptions { enabled: true },
+        AliasStaff(db.actor.account),
+        Active,
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/admin/world?version={version}"))
+                .header("host", "staff.test")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response
+        .headers()
+        .get("set-cookie")
+        .ok_or("missing cookie")?
+        .to_str()?
+        .split(';')
+        .next()
+        .ok_or("missing identity")?
+        .to_owned();
+    let html = String::from_utf8(to_bytes(response.into_body(), 1_000_000).await?.to_vec())?;
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .ok_or("missing csrf")?;
+    for fields in [
+        "action=visibility&kind=creatures&key=rat&allowed=false",
+        "action=names&kind=creatures&key=rat&pl=Szczur&en=Rat",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/admin/world")
+                    .header("host", "staff.test")
+                    .header("origin", "https://staff.test")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!(
+                        "_csrf={csrf}&version={version}&{fields}"
+                    )))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    }
+    let response = app
+        .oneshot(
+            Request::get(format!("/admin/world?version={version}"))
+                .header("host", "staff.test")
+                .header("cookie", &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 1_000_000).await?.to_vec())?;
+    assert_eq!(html.matches("<h3>Creature / rat</h3>").count(), 1);
+    assert!(!html.contains("<h3>creatures / rat</h3>"));
+    let row = html
+        .split("<h3>Creature / rat</h3>")
+        .nth(1)
+        .ok_or("missing canonical entity")?
+        .split("</article>")
+        .next()
+        .ok_or("missing controls")?;
+    assert!(row.contains("value=\"false\" selected"));
+    assert!(row.contains("value=\"Szczur\""));
+    assert!(row.contains("value=\"Rat\""));
+    db.close().await?;
+    eprintln!(
+        "postgres_a3_alias_controls_use_canonical_state_after_staff_dispatch duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_a3_world_fence_deadline_releases_publication_pointers() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
+    let db = Fixture::open(3).await?;
+    let version = prepare(&db).await?;
+    let panel = Panel {
+        pool: db.pool.clone(),
+        auth: Arc::new(Authorizer::new(db.pool.clone(), Active)),
+        enabled: true,
+    };
+    let mut blocker = db.root.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut *blocker)
+        .await?;
+    let wait = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(4),
+        mutate(&panel, db.actor, form(version)),
+    )
+    .await?;
+    assert_eq!(result, Err(StatusCode::SERVICE_UNAVAILABLE));
+    assert!(wait.elapsed() >= std::time::Duration::from_millis(2500));
+    let mut probe = db.pool.begin().await?;
+    tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        sqlx::query("SELECT singleton FROM world_active_version WHERE singleton FOR UPDATE")
+            .execute(&mut *probe),
+    )
+    .await??;
+    tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        sqlx::query("SELECT singleton FROM world_catalog_publication WHERE singleton FOR UPDATE")
+            .execute(&mut *probe),
+    )
+    .await??;
+    probe.rollback().await?;
+    blocker.rollback().await?;
+    db.close().await?;
+    eprintln!(
+        "postgres_a3_world_fence_deadline_releases_publication_pointers duration: {:?}",
         started.elapsed()
     );
     Ok(())

@@ -18,6 +18,9 @@ impl CatalogAccess for Access {
         actor: Uuid,
         connection: &mut PgConnection,
     ) -> Result<AccountState, Error> {
+        // Take the canonical lock before FOR SHARE; concurrent issuers must
+        // not upgrade competing shared account locks while taking the fence.
+        oteryn_admin::rbac::lock_accounts_and_mutation(connection, &[actor]).await?;
         let states: Vec<Option<String>> =
             sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
                 .bind(actor)
@@ -35,6 +38,9 @@ impl CatalogAccess for Access {
         action: Action,
         connection: &mut PgConnection,
     ) -> Result<bool, Error> {
+        // Serialize permission reads with role writers for the full library
+        // transaction, including waits on the active-catalog pointer/import.
+        oteryn_admin::rbac::lock_accounts_and_mutation(connection, &[actor]).await?;
         // Capture the library transaction identity. Only history inserted by
         // this call may produce an audit row, including when older history has
         // no audit entry. PostgreSQL row xmin stores the low 32 bits of the XID.
@@ -108,6 +114,7 @@ async fn audit(
     // xmin restricts auditing to history inserted by this successful call.
     // A process crash between these commits can leave an audit gap.
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(281510004)")
         .execute(&mut *tx)
         .await?;

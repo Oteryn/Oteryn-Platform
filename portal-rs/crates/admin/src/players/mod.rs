@@ -285,8 +285,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         self.target(id).await?;
         valid_text(body, 4000)?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, id],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageSupportTickets],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         let note: Uuid = sqlx::query_scalar(
@@ -305,6 +311,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"note":note}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -319,8 +327,19 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation_with_resources(
+            &mut tx,
+            &[context.account, id],
+            move |connection| Box::pin(async move {
+                sqlx::query("SELECT id_hash FROM web_sessions WHERE account_id=$1 ORDER BY id_hash FOR UPDATE")
+                    .bind(id).execute(connection).await?;
+                Ok(())
+            }),
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageSupportTickets],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         self.accounts.revoke_all(&mut tx, id).await?;
@@ -332,6 +351,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"reason":reason.trim()}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -344,8 +365,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, id],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::KickAccountSessions],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::KickAccountSessions)
             .await?;
         let generation = oteryn_identity::security_revocations::staff_kick(&mut tx, id)
@@ -358,6 +385,10 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
                 oteryn_identity::security_revocations::Error::Encoding => Error::Unavailable,
             })?
             .ok_or(Error::NotFound)?;
+        // The revocation append trigger can wait on its global counter. Expiry
+        // must be evaluated after that wait, even while RBAC remains retained.
+        self.check_in(&mut tx, context, Permission::KickAccountSessions)
+            .await?;
         append(
             &mut tx,
             context,
@@ -366,6 +397,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"reason":reason.trim(),"native_security_generation":generation}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::KickAccountSessions)
+            .await?;
         tx.commit().await?;
         Ok(generation)
     }
@@ -416,8 +449,14 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_id(hold)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation(
+            &mut tx,
+            &[context.account, id],
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ReleaseCoinPurchaseHold],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ReleaseCoinPurchaseHold)
             .await?;
         let receipt: Option<Uuid> = sqlx::query_scalar(
@@ -428,6 +467,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         .fetch_optional(&mut *tx)
         .await?;
         if let Some(order) = receipt {
+            self.check_in(&mut tx, context, Permission::ReleaseCoinPurchaseHold)
+                .await?;
             tx.commit().await?;
             return Ok(Some(order));
         }
@@ -450,6 +491,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"reason":reason.trim(),"order_id":hold.order_id,"hold_reason":hold.reason,"debt_coins":hold.debt_coins}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ReleaseCoinPurchaseHold)
+            .await?;
         tx.commit().await?;
         Ok(Some(hold.order_id))
     }
@@ -488,8 +531,23 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
                 .fetch_optional(&mut *tx)
                 .await?
                 .ok_or(Error::NotFound)?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, target]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation_with_resources(
+            &mut tx,
+            &[context.account, target],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT id FROM tickets WHERE id=$1 FOR UPDATE")
+                        .bind(ticket)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageSupportTickets],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         if target == context.account || expected.is_some_and(|id| id != target) {
@@ -504,6 +562,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"ticket":ticket,"evidence":evidence}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(evidence)
     }
@@ -523,13 +583,30 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             return Err(Error::Denied);
         }
         let mut tx = self.pool.begin().await?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation_with_resources(
+            &mut tx,
+            &[context.account, id],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT id FROM support_mfa_reset_evidence WHERE id=$1 FOR UPDATE")
+                        .bind(evidence)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageSupportTickets],
+        )
+        .await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         if !self.accounts.verified(&mut tx, id, evidence).await? {
             return Err(Error::Denied);
         }
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         let request: Uuid = sqlx::query_scalar("INSERT INTO player_mfa_reset_requests(account_id,requested_by,evidence,reason) VALUES($1,$2,$3,$4) RETURNING id").bind(id).bind(context.account).bind(evidence).bind(reason.trim()).fetch_one(&mut *tx).await?;
         append(
             &mut tx,
@@ -539,6 +616,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"request":request,"evidence":evidence,"reason":reason.trim()}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(request)
     }
@@ -552,6 +631,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_id(request)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let requester: Uuid = sqlx::query_scalar(
             "SELECT requested_by FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2",
         )
@@ -560,8 +640,19 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(Error::Denied)?;
-        crate::rbac::lock_accounts(&mut tx, &[context.account, id, requester]).await?;
-        crate::rbac::lock_mutation(&mut tx).await?;
+        crate::rbac::authorize_mutation_with_resources(
+            &mut tx,
+            &[context.account, id, requester],
+            move |connection| Box::pin(async move {
+                    sqlx::query("SELECT e.id FROM support_mfa_reset_evidence e JOIN player_mfa_reset_requests r ON r.evidence=e.id WHERE r.id=$1 FOR UPDATE OF e").bind(request).execute(&mut *connection).await?;
+                sqlx::query("SELECT id_hash FROM web_sessions WHERE account_id=$1 ORDER BY id_hash FOR UPDATE").bind(id).execute(connection).await?;
+                Ok(())
+            }),
+            &self.auth,
+            context,
+            &[Permission::Access, Permission::ManageRoles],
+        )
+        .await?;
         let row: Option<(Uuid,Uuid)> = sqlx::query_as("SELECT requested_by,evidence FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2 AND approved_by IS NULL AND expires_at>clock_timestamp() FOR UPDATE").bind(request).bind(id).fetch_optional(&mut *tx).await?;
         let (requester, evidence) = row.ok_or(Error::Denied)?;
         if context.account == requester || context.account == id {
@@ -569,18 +660,16 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         }
         self.check_in(&mut tx, context, Permission::ManageRoles)
             .await?;
-        self.check_in(
-            &mut tx,
-            CheckContext {
-                account: requester,
-                ..context
-            },
-            Permission::ManageSupportTickets,
-        )
-        .await?;
+        for permission in [Permission::Access, Permission::ManageSupportTickets] {
+            self.auth
+                .check_subject_in(&mut tx, requester, permission)
+                .await?;
+        }
         if !self.accounts.verified(&mut tx, id, evidence).await? {
             return Err(Error::Denied);
         }
+        self.check_in(&mut tx, context, Permission::ManageRoles)
+            .await?;
         // Authorization and evidence checks can wait on other locks. Recheck the
         // live clock while holding the request lock immediately before mutation.
         let unexpired: bool = sqlx::query_scalar(
@@ -608,6 +697,17 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"request":request,"requested_by":requester}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageRoles)
+            .await?;
+        let unexpired: bool = sqlx::query_scalar(
+            "SELECT expires_at>clock_timestamp() FROM player_mfa_reset_requests WHERE id=$1",
+        )
+        .bind(request)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !unexpired {
+            return Err(Error::Denied);
+        }
         tx.commit().await?;
         Ok(())
     }

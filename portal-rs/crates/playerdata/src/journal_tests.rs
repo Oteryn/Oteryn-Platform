@@ -1164,3 +1164,154 @@ async fn each_route_answers_413_one_byte_past_its_limit() {
         );
     }
 }
+
+#[tokio::test]
+async fn postgres_l8_source_revisions_supersede_current_state() {
+    let started = std::time::Instant::now();
+    let db = Db::open().await.expect("real PostgreSQL required");
+    let database_now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    let now = database_now as u64 - 8 * 86400000;
+    for (family, entity, payload) in [
+        (
+            "skull",
+            "skull",
+            r#"{"skull":"RED","skull_until_unix_ms":"1790003600000","kill_block_until_unix_ms":null}"#,
+        ),
+        (
+            "premium_end",
+            "premium",
+            r#"{"observed_state":"ACTIVE","effective_until_unix_us":"1790003600000000","authority_revision":"12"}"#,
+        ),
+    ] {
+        let base = progress(&["\"family\":\"stamina\"", "\"source_revision\":\"1\""]);
+        let mut body = format!(
+            "{}\"payload\":{payload}}}",
+            &base[..base.find("\"payload\":").unwrap()]
+        )
+        .replace(
+            "\"family\":\"stamina\"",
+            &format!("\"family\":\"{family}\""),
+        )
+        .replace(
+            "\"entity_key\":\"stamina\"",
+            &format!("\"entity_key\":\"{entity}\""),
+        );
+        if family == "premium_end" {
+            body = body
+                .replace(
+                    "\"character_id\":\"01934f10-7c04-7001-805b-3b1122334401\"",
+                    "\"character_id\":null",
+                )
+                .replace(
+                    "\"world_id\":\"01934f10-7c04-7001-805b-3b1122334402\"",
+                    "\"world_id\":null",
+                )
+                .replace(
+                    "\"character_revision\":\"9\"",
+                    "\"character_revision\":null",
+                );
+        }
+        let next = body
+            .replace("\"source_revision\":\"1\"", "\"source_revision\":\"2\"")
+            .replace(
+                "\"projection_revision\":\"12\"",
+                "\"projection_revision\":\"13\"",
+            )
+            .replace(
+                "\"authority_revision\":\"12\"",
+                "\"authority_revision\":\"13\"",
+            )
+            .replace(
+                "01934f10-7c04-7001-805b-3b1122334403",
+                &Uuid::now_v7().to_string(),
+            );
+        let allowed = Allowed::default();
+        let body = body
+            .replace(&PROGRESS_NOW.to_string(), &now.to_string())
+            .replace(
+                "01934f10-7c04-7001-805b-3b1122334403",
+                &Uuid::now_v7().to_string(),
+            );
+        let next = next.replace(&PROGRESS_NOW.to_string(), &now.to_string());
+        let a = playerdata::progress(body.as_bytes()).unwrap();
+        let b = playerdata::progress(next.as_bytes()).unwrap();
+        let mut published = a.scope.clone();
+        published.character = None;
+        published.world = None;
+        published.character_revision = None;
+        published.projection_revision = None;
+        allowed.allow(published.clone()).await;
+        published.recovery = "4".into();
+        allowed.allow(published).await;
+        allowed.allow(a.scope.clone()).await;
+        allowed.allow(b.scope.clone()).await;
+        let mut flags = settings().flags();
+        flags.families.insert(family.into());
+        let store = Store::new(db.pool.clone(), Arc::new(allowed.clone()), flags);
+        let time = |ms| TrustedTime {
+            unix_ms: ms,
+            uncertainty_ms: 0,
+        };
+        store.ingest(a, time(now)).await.unwrap();
+        store.ingest(b, time(now + 1000)).await.unwrap();
+        // A different authorized ownership/recovery scope keeps its own value.
+        let mut fenced = next.replace("\"source_revision\":\"2\"", "\"source_revision\":\"3\"");
+        let prior_id = playerdata::progress(next.as_bytes()).unwrap().id;
+        fenced = fenced.replace(&prior_id, &Uuid::now_v7().to_string());
+        fenced = if family == "skull" {
+            fenced.replace(
+                "\"character_revision\":\"9\"",
+                "\"character_revision\":\"10\"",
+            )
+        } else {
+            fenced.replace(
+                "\"recovery_generation\":\"3\"",
+                "\"recovery_generation\":\"4\"",
+            )
+        };
+        let fenced = playerdata::progress(fenced.as_bytes()).unwrap();
+        allowed.allow(fenced.scope.clone()).await;
+        store.ingest(fenced, time(now + 2000)).await.unwrap();
+        // Supersession starts at publication: publish the whole prefix, including
+        // the re-owned or recovered revision 3, before retention runs. The
+        // premium watermark carries the recovery generation it was fenced to.
+        let recovery = if family == "skull" { "3" } else { "4" };
+        let mark = progress(&["\"complete_through\":\"1\""])
+            .replace(
+                "\"recovery_generation\":\"3\"",
+                &format!("\"recovery_generation\":\"{recovery}\""),
+            )
+            .replace(
+                "\"family\":\"stamina\"",
+                &format!("\"family\":\"{family}\""),
+            )
+            .replace("\"complete_through\":\"1\"", "\"complete_through\":\"3\"")
+            .replace(&PROGRESS_NOW.to_string(), &now.to_string());
+        store
+            .watermark(
+                playerdata::watermark(mark.as_bytes()).unwrap(),
+                time(now + 3000),
+            )
+            .await
+            .unwrap();
+        crate::retention::Retention(db.pool.clone())
+            .expire_batch()
+            .await
+            .unwrap();
+        let rows: Vec<(String,bool)> = sqlx::query_as("SELECT source_revision::text,payload IS NOT NULL FROM pd_records WHERE entity_key=$1 ORDER BY source_revision").bind(entity).fetch_all(&db.pool).await.unwrap();
+        assert_eq!(
+            rows,
+            vec![("1".into(), false), ("2".into(), true), ("3".into(), true)],
+            "{family}"
+        );
+    }
+    db.close().await;
+    eprintln!(
+        "PG postgres_l8_source_revisions_supersede_current_state {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

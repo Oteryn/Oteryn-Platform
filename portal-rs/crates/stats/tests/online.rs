@@ -52,6 +52,7 @@ async fn database() -> Result<Option<PgPool>, Box<dyn std::error::Error>> {
         .execute(&db)
         .await?;
     for migration in [
+        include_str!("../../../migrations/20261115110016_fix_w2a_ingest_budget.sql"),
         include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
         include_str!("../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"),
         include_str!("../../../migrations/20261105210000_t65_statistics.sql"),

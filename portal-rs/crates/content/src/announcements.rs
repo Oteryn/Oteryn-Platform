@@ -119,8 +119,25 @@ impl Announcements {
         input: Input,
     ) -> Result<Uuid, Error> {
         let mut tx = self.pool.begin().await?;
-        oteryn_admin::rbac::lock_accounts(&mut tx, &[context.account]).await?;
-        oteryn_admin::rbac::lock_mutation(&mut tx).await?;
+        oteryn_admin::rbac::authorize_mutation_with_resources(
+            &mut tx,
+            &[context.account],
+            move |connection| {
+                Box::pin(async move {
+                    if let Some((id, _)) = existing {
+                        sqlx::query("SELECT id FROM announcements WHERE id=$1 FOR UPDATE")
+                            .bind(id)
+                            .execute(connection)
+                            .await?;
+                    }
+                    Ok(())
+                })
+            },
+            auth,
+            context,
+            &[Permission::Access, Permission::ManagePortalAnnouncements],
+        )
+        .await?;
         auth.check_in(&mut tx, context, Permission::Access).await?;
         auth.check_in(&mut tx, context, Permission::ManagePortalAnnouncements)
             .await?;
@@ -171,6 +188,13 @@ impl Announcements {
                 before,
                 after: json!({"state":input.publication_state}),
             },
+        )
+        .await?;
+        crate::revalidate(
+            auth,
+            &mut tx,
+            context,
+            &[Permission::Access, Permission::ManagePortalAnnouncements],
         )
         .await?;
         tx.commit().await?;

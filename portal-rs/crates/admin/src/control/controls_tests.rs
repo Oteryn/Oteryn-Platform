@@ -232,6 +232,7 @@ async fn preview(
 }
 #[tokio::test]
 async fn pg_step_up_older_than_five_minutes_refused() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -258,6 +259,7 @@ async fn pg_step_up_older_than_five_minutes_refused() -> TestResult {
 }
 #[tokio::test]
 async fn pg_self_approval_refused() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -276,6 +278,7 @@ async fn pg_self_approval_refused() -> TestResult {
 }
 #[tokio::test]
 async fn pg_stale_approval_refused() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -301,6 +304,7 @@ async fn pg_stale_approval_refused() -> TestResult {
 }
 #[tokio::test]
 async fn pg_digest_mismatch_refused() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -341,6 +345,7 @@ async fn pg_digest_mismatch_refused() -> TestResult {
 }
 #[tokio::test]
 async fn pg_happy_r3() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -364,6 +369,7 @@ async fn pg_happy_r3() -> TestResult {
 }
 #[tokio::test]
 async fn pg_happy_r4() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -406,6 +412,7 @@ async fn pg_happy_r4() -> TestResult {
 }
 #[tokio::test]
 async fn pg_step_up_bad_input_and_account_rate_limit() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -441,12 +448,26 @@ impl crate::web::StaffSession for Staff {
     }
 }
 impl rbac::AccountStateReader for Staff {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(&self, _: Uuid) -> Result<rbac::AccountState, rbac::AccountStateUnavailable> {
         Ok(rbac::AccountState::Active)
     }
 }
 #[tokio::test]
 async fn pg_forms_csrf_locales_and_step_up_redirect() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -640,6 +661,7 @@ fn policy_bad_input_and_boundaries() {
 
 #[tokio::test]
 async fn pg_approval_form_review_csrf_and_submit() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -952,6 +974,7 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
 
 #[tokio::test]
 async fn refusal_documents_have_a_localized_nonempty_title() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     for (lang, expected) in [
         ("pl", "Odmowa wykonania operacji"),
         ("en", "This action is refused"),

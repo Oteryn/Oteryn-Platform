@@ -45,21 +45,7 @@ impl Database {
             })
             .connect(&url)
             .await?;
-        for migration in [
-            include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
-            include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
-            include_str!("../../../../migrations/20261105120000_t37_outbox.sql"),
-            include_str!("../../../../migrations/20261105130000_t36_notifications.sql"),
-            include_str!("../../../../migrations/20261105160300_t04a_rate_limits.sql"),
-            include_str!("../../../../migrations/20261105170000_t10_rbac_audit.sql"),
-            include_str!(
-                "../../../../migrations/20261105220209_accounts_native_security_generation.sql"
-            ),
-            include_str!("../../../../migrations/20261105220222_t08b_email_change.sql"),
-            include_str!("../../../../migrations/20261105220218_t33_tickets.sql"),
-        ] {
-            sqlx::raw_sql(migration).execute(&pool).await?;
-        }
+        oteryn_db::migrate(&pool).await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -109,22 +95,23 @@ impl Database {
         let token = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
         let csrf = "a".repeat(64);
         sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')").bind(Sha256::digest(token.as_bytes()).to_vec()).bind(account).bind(&csrf).execute(&self.pool).await?;
-        Ok((
-            format!("{}={token}", oteryn_web::session::COOKIE_NAME),
-            csrf,
-        ))
+        let cookie = format!("{}={token}", oteryn_web::session::COOKIE_NAME);
+        crate::test_staff::browser(&self.pool, account, &cookie).await?;
+        Ok((cookie, csrf))
     }
 }
-fn staff(id: Uuid) -> Option<CheckContext> {
+async fn staff(pool: &PgPool, id: Uuid) -> Option<CheckContext> {
     Some(CheckContext {
         account: id,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: crate::test_staff::proof(pool, id).await.ok(),
     })
 }
 
 #[tokio::test]
 async fn postgres_creation_idempotency_limit_and_validation() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -171,7 +158,7 @@ async fn postgres_creation_idempotency_limit_and_validation() -> TestResult {
     assert!(matches!(
         t.create(account, key, "technical", "different", "different")
             .await,
-        Err(Error::Conflict)
+        Err(Error::RequestKeyConflict)
     ));
     assert!(matches!(
         t.create(account, Uuid::now_v7(), "other", "subject", "body")
@@ -199,6 +186,7 @@ async fn postgres_creation_idempotency_limit_and_validation() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_concurrent_creation_and_reopen_share_limit() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -235,6 +223,7 @@ async fn postgres_concurrent_creation_and_reopen_share_limit() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -276,7 +265,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
     let note = t
         .change(
             actor,
-            staff(actor),
+            staff(&db.pool, actor).await,
             ticket.id,
             1,
             Change::Reply {
@@ -291,7 +280,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
     let reply = t
         .change(
             actor,
-            staff(actor),
+            staff(&db.pool, actor).await,
             ticket.id,
             2,
             Change::Reply {
@@ -347,7 +336,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
     ));
     t.change(
         actor,
-        staff(actor),
+        staff(&db.pool, actor).await,
         ticket.id,
         4,
         Change::Status("resolved"),
@@ -356,7 +345,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
     assert!(matches!(
         t.change(
             actor,
-            staff(actor),
+            staff(&db.pool, actor).await,
             ticket.id,
             5,
             Change::Reply {
@@ -387,6 +376,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
 }
 #[tokio::test]
 async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -408,7 +398,7 @@ async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> Tes
     assert!(matches!(
         t.change(
             actor,
-            staff(actor),
+            staff(&db.pool, actor).await,
             ticket.id,
             1,
             Change::Reply {
@@ -428,7 +418,7 @@ async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> Tes
     sqlx::query("INSERT INTO account_notification_prefs(account_id,category,email_enabled,portal_enabled) VALUES($1,'support',true,false)").bind(owner).execute(&db.pool).await?;
     t.change(
         actor,
-        staff(actor),
+        staff(&db.pool, actor).await,
         ticket.id,
         1,
         Change::Status("waiting_user"),
@@ -446,6 +436,7 @@ async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> Tes
 }
 #[tokio::test]
 async fn postgres_retention_only_removes_old_terminal_tickets() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_db::outbox::Cleanup;
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -494,6 +485,7 @@ async fn postgres_retention_only_removes_old_terminal_tickets() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_player_routes_session_csrf_bad_input_and_success() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -633,6 +625,19 @@ impl oteryn_admin::web::StaffSession for StaffAdapter {
     }
 }
 impl oteryn_admin::rbac::AccountStateReader for StaffAdapter {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(
         &self,
         _: Uuid,
@@ -645,6 +650,7 @@ impl oteryn_admin::rbac::AccountStateReader for StaffAdapter {
 }
 #[tokio::test]
 async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -748,6 +754,7 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
 
 #[tokio::test]
 async fn postgres_message_pages_and_payload_binding() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -786,7 +793,7 @@ async fn postgres_message_pages_and_payload_binding() -> TestResult {
     ] {
         assert!(matches!(
             service.create(account, key, category, subject, body).await,
-            Err(Error::Conflict)
+            Err(Error::RequestKeyConflict)
         ));
     }
 
@@ -795,6 +802,7 @@ async fn postgres_message_pages_and_payload_binding() -> TestResult {
 
 #[tokio::test]
 async fn postgres_ticket_status_with_exhausted_pool() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -831,6 +839,7 @@ async fn postgres_ticket_status_with_exhausted_pool() -> TestResult {
 
 #[tokio::test]
 async fn postgres_notification_transaction_with_exhausted_pool() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(db) = Database::with_connections(1).await? else {
         return Ok(());
@@ -930,7 +939,7 @@ async fn staff_waiting_mutation_rechecks_authority(
     // shared guard and pre-lock actor read have completed.
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
-            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT status,locale FROM accounts%')").bind(&db.schema).fetch_one(&db.pool).await?;
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query='SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE')").bind(&db.schema).fetch_one(&db.pool).await?;
             if waiting { break; }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
@@ -991,6 +1000,7 @@ macro_rules! waiting_staff_test {
     ($name:ident, $method:literal, $action:literal, $revocation:literal) => {
         #[tokio::test]
         async fn $name() -> TestResult {
+            let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
             staff_waiting_mutation_rechecks_authority(
                 stringify!($name),
                 $method,
@@ -1055,6 +1065,7 @@ waiting_staff_test!(
 
 #[tokio::test]
 async fn postgres_pagination_ticket_boundary() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Database::new()
         .await?
@@ -1124,6 +1135,7 @@ async fn postgres_pagination_ticket_boundary() -> TestResult {
 
 #[tokio::test]
 async fn lk_crossed_staff_replies_finish() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Database::with_connections(2)
         .await?
@@ -1133,6 +1145,8 @@ async fn lk_crossed_staff_replies_finish() -> TestResult {
     for actor in [a, b] {
         sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&db.pool).await?;
     }
+    let proof_a = crate::test_staff::proof(&db.pool, a).await?;
+    let proof_b = crate::test_staff::proof(&db.pool, b).await?;
     let tickets = db.tickets(100)?;
     for _ in 0..16 {
         let ta = tickets
@@ -1154,6 +1168,7 @@ async fn lk_crossed_staff_replies_finish() -> TestResult {
                             account: actor,
                             require_staff_mfa: true,
                             mfa_verified: true,
+                            session_proof: Some(if actor == a { proof_a } else { proof_b }),
                         }),
                         id,
                         1,
@@ -1182,6 +1197,7 @@ async fn lk_crossed_staff_replies_finish() -> TestResult {
 
 #[tokio::test]
 async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -1234,6 +1250,131 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
     db.finish().await?;
     eprintln!(
         "postgres_read_acknowledgement_requires_displayed_reply duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_a3_support_refuses_session_revoked_during_account_wait() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let actor = db.account("en").await?;
+    let owner = db.account("en").await?;
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'",
+    )
+    .bind(actor)
+    .execute(&db.pool)
+    .await?;
+    let tickets = db.tickets(10)?;
+    let ticket = tickets
+        .create(
+            owner,
+            Uuid::now_v7(),
+            "other",
+            "Session check",
+            "Initial message",
+        )
+        .await?;
+    let context = staff(&db.pool, actor)
+        .await
+        .ok_or("missing staff context")?;
+    let result = crate::test_staff::race_session_revocation(&db.pool, actor, async move {
+        tickets
+            .change(
+                actor,
+                Some(context),
+                ticket.id,
+                1,
+                Change::Reply {
+                    body: "Privileged reply",
+                    internal: false,
+                },
+            )
+            .await
+    })
+    .await?;
+    assert!(matches!(result, Err(Error::Denied)));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM ticket_messages WHERE ticket_id=$1")
+            .bind(ticket.id)
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    db.finish().await?;
+    eprintln!(
+        "postgres_a3_support_refuses_session_revoked_during_account_wait duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn audit_w3_02_changed_payload_draft_recovers_on_postgres() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let owner = db.account("en").await?;
+    let service = db.tickets(5)?;
+    let app = router(service.clone(), "http://localhost:3000");
+    let (cookie, csrf) = db.cookie(owner).await?;
+    let post = |key: Uuid, subject: &str, body: &str| {
+        let request = Request::post("/en/support/tickets")
+            .header("cookie", &cookie)
+            .header("origin", "http://localhost:3000")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .extension(ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                3210,
+            ))))
+            .body(Body::from(format!(
+                "_csrf={csrf}&request_key={key}&category=account&subject={subject}&body={body}"
+            )));
+        let app = app.clone();
+        async move { Ok::<_, Box<dyn std::error::Error + Send + Sync>>(app.oneshot(request?).await?) }
+    };
+    let key = Uuid::now_v7();
+    assert_eq!(
+        post(key, "Original", "Original+message").await?.status(),
+        StatusCode::FOUND
+    );
+    let response = post(key, "Edited", "Edited+message").await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.headers()["location"], "/en/support/tickets/create");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/en/support/tickets/create")
+                .header("cookie", &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains("Edited"));
+    assert!(html.contains("Edited message"));
+    let displayed = html
+        .split("name=\"request_key\" value=\"")
+        .nth(1)
+        .ok_or("request key field")?
+        .split('"')
+        .next()
+        .ok_or("key value")?;
+    let fresh = Uuid::parse_str(displayed)?;
+    assert_ne!(fresh, key);
+    let response = post(fresh, "Edited", "Edited+message").await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_ne!(response.headers()["location"], "/en/support/tickets/create");
+    let tickets = service.list(owner, false, 0).await?;
+    assert_eq!(tickets.len(), 2);
+    assert!(tickets.iter().any(|t| t.subject == "Edited"));
+    db.finish().await?;
+    eprintln!(
+        "audit_w3_02_changed_payload_draft_recovers_on_postgres duration: {:?}",
         started.elapsed()
     );
     Ok(())

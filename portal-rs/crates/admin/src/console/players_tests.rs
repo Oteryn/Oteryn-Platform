@@ -41,18 +41,22 @@ impl Backend for Fake {
         &self,
         actor: CheckContext,
         _: &super::super::audit::Filter,
-    ) -> Result<Option<Vec<super::super::audit::LedgerRow>>, Error> {
-        Ok(self.snapshot.as_ref().map(|snapshot| {
-            vec![super::super::audit::LedgerRow {
-                request_id: snapshot.request_id,
-                ledger_id: "test-ledger".into(),
-                admin: actor.account.to_string(),
-                operation: "player.character.get".into(),
-                target: "c-1".into(),
-                status: "succeeded".into(),
-                observed_at: snapshot.observed_at.clone(),
-            }]
-        }))
+    ) -> Result<Option<super::super::audit::LedgerSnapshot>, Error> {
+        Ok(self
+            .snapshot
+            .as_ref()
+            .map(|snapshot| super::super::audit::LedgerSnapshot {
+                query_id: snapshot.request_id,
+                rows: vec![super::super::audit::LedgerRow {
+                    request_id: snapshot.request_id,
+                    ledger_id: "test-ledger".into(),
+                    admin: actor.account.to_string(),
+                    operation: "player.character.get".into(),
+                    target: "c-1".into(),
+                    status: "succeeded".into(),
+                    observed_at: snapshot.observed_at.clone(),
+                }],
+            }))
     }
     async fn access(&self) -> Result<AccessSnapshot, Error> {
         Ok(AccessSnapshot {
@@ -95,6 +99,7 @@ fn actor() -> CheckContext {
         account: Uuid::now_v7(),
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: None,
     }
 }
 fn lazy() -> sqlx::PgPool {
@@ -111,6 +116,7 @@ fn fake(allowed: bool, advertised: bool) -> Fake {
 }
 #[tokio::test]
 async fn permission_and_disabled_flag_deny_without_storage() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let state = Console {
         pool: lazy(),
         flags: Flags { console: true },
@@ -133,6 +139,7 @@ async fn permission_and_disabled_flag_deny_without_storage() {
 }
 #[tokio::test]
 async fn unavailable_is_explicit_and_bad_input_refused() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let state = Console {
         pool: lazy(),
         flags: Flags { console: true },
@@ -203,6 +210,7 @@ fn translations_and_escaping_are_complete() {
 #[tokio::test]
 async fn postgres_masked_view_writes_exactly_one_read_audit()
 -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("skipping PostgreSQL console read audit: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(());
@@ -327,6 +335,19 @@ impl crate::web::StaffSession for Browser {
 #[derive(Clone)]
 struct Accounts;
 impl crate::rbac::AccountStateReader for Accounts {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state(
         &self,
         _: Uuid,
@@ -337,6 +358,7 @@ impl crate::rbac::AccountStateReader for Accounts {
 #[tokio::test]
 async fn postgres_http_four_pages_filters_host_and_read_only()
 -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
@@ -537,6 +559,7 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
 #[tokio::test]
 async fn a2_inventory_and_sanctions_audit_distinct_requests_and_fail_closed()
 -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let db = Database::open(&url).await?;

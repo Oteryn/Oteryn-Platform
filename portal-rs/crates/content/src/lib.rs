@@ -10,3 +10,41 @@ pub mod today;
 
 /// Shared portal navigation registration.
 pub mod navigation;
+
+/// Bounded page offset shared by public and staff content libraries.
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct Pagination {
+    #[serde(default)]
+    pub page: u32,
+}
+impl Pagination {
+    pub fn offset(&self, size: i64) -> i64 {
+        i64::from(self.page) * size
+    }
+    pub fn next(&self) -> u64 {
+        u64::from(self.page) + 1
+    }
+}
+
+#[cfg(test)]
+#[path = "../../admin/src/test_staff.rs"]
+pub mod test_staff;
+
+#[cfg(test)]
+mod pagination_tests;
+
+/// Re-evaluate live authority after the last awaited write, on the retained connection.
+pub(crate) async fn revalidate(
+    auth: &dyn oteryn_admin::rbac::MutationCheck,
+    connection: &mut sqlx::PgConnection,
+    context: oteryn_admin::rbac::CheckContext,
+    permissions: &[oteryn_admin::rbac::Permission],
+) -> Result<(), oteryn_admin::rbac::Error> {
+    for permission in permissions {
+        auth.check(connection, context, *permission).await?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod last_wait_tests;

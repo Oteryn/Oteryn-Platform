@@ -10,3 +10,10 @@ pub mod places;
 
 /// Shared portal navigation registration.
 pub mod navigation;
+
+#[cfg(test)]
+#[path = "../../admin/src/test_staff.rs"]
+pub mod test_staff;
+
+#[cfg(test)]
+mod last_wait_tests;

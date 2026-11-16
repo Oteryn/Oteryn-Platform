@@ -192,6 +192,7 @@ async fn assert_failure(app: axum::Router, bytes: Vec<u8>, peer: Option<&str>, s
 }
 #[tokio::test]
 async fn loyalty_stream_disabled_503() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     for (enabled, config, map) in [
         (true, http::Settings::default(), identities()),
         (false, settings(), identities()),
@@ -237,6 +238,7 @@ async fn loyalty_stream_disabled_503() {
 }
 #[tokio::test]
 async fn loyalty_stream_wrong_identity_refused() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use oteryn_internal_api::guard::*;
     let app = http::router(lazy_stream(true), settings(), identities());
     for peer in [
@@ -269,6 +271,7 @@ async fn loyalty_stream_wrong_identity_refused() {
 }
 #[tokio::test]
 async fn loyalty_stream_bad_body_400() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let app = http::router(lazy_stream(true), settings(), identities());
     let cases: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../docs/contracts/fixtures/loyalty-stream-v1/invalid-requests.json"
@@ -303,6 +306,7 @@ async fn loyalty_stream_bad_body_400() {
 }
 #[tokio::test]
 async fn loyalty_stream_rate_limit_retry_after() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let app = http::router(
         lazy_stream(true),
         http::Settings {
@@ -395,6 +399,7 @@ fn loyalty_stream_fixtures_match() {
 }
 #[tokio::test]
 async fn loyalty_stream_cursor_stable() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -459,6 +464,7 @@ async fn loyalty_stream_cursor_stable() {
 }
 #[tokio::test]
 async fn loyalty_stream_revision_increases_on_change() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -543,6 +549,7 @@ async fn loyalty_stream_revision_increases_on_change() {
 }
 #[tokio::test]
 async fn loyalty_stream_snapshot_unchanged() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -614,6 +621,7 @@ async fn loyalty_stream_snapshot_unchanged() {
 }
 #[tokio::test]
 async fn loyalty_stream_time_growth_and_lifecycle_computation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -689,6 +697,7 @@ async fn loyalty_stream_time_growth_and_lifecycle_computation() {
 }
 #[tokio::test]
 async fn loyalty_stream_refusal_and_failure_roll_back() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -725,6 +734,7 @@ async fn loyalty_stream_refusal_and_failure_roll_back() {
 
 #[tokio::test]
 async fn loyalty_stream_configured_route_uses_account_authority() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -842,6 +852,7 @@ fn loyalty_stream_full_page_under_consumer_body_cap() {
 
 #[tokio::test]
 async fn loyalty_stream_all_identity_reuse_503() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     for (key, raw) in [
         (
             "PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_MTLS_CLIENT_IDENTITY",
@@ -867,7 +878,7 @@ async fn loyalty_stream_all_identity_reuse_503() {
             "GAME_AUTH_NATIVE_EVIDENCE_IDENTITIES",
             r#"{"loyalty-stream.test":["world-a"]}"#,
         ),
-        ("OTHER_INTERNAL_SAN", "loyalty-stream.test"),
+        ("PORTAL_PLAYERDATA_JOURNAL_ITEMS_SAN", "loyalty-stream.test"),
         ("PORTAL_SANCTION_EXPORT_IDENTITY", "loyalty-stream.test"),
         (
             "PORTAL_GAME_COINS_IDENTITIES",
@@ -936,6 +947,7 @@ impl Accounts for PublicationBarrier {
 
 #[tokio::test]
 async fn postgres_loyalty_publication_bounded_and_eventually_complete() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::create().await else {
         return;
@@ -997,6 +1009,7 @@ async fn postgres_loyalty_publication_bounded_and_eventually_complete() {
 
 #[tokio::test]
 async fn stream_does_not_export_or_retain_authority_for_uncredited_inviter() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -1074,6 +1087,7 @@ async fn stream_does_not_export_or_retain_authority_for_uncredited_inviter() {
 
 #[tokio::test]
 async fn malformed_authenticated_stream_requests_consume_budget_before_validation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     for bytes in [
         b"{".to_vec(),
         br#"{"schema":1,"schema":2}"#.to_vec(),
@@ -1114,4 +1128,23 @@ async fn malformed_authenticated_stream_requests_consume_budget_before_validatio
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status().as_u16(), expected);
     }
+}
+
+#[test]
+fn recovery_locator_metadata_does_not_disable_loyalty_stream() {
+    let values = std::collections::BTreeMap::from([
+        (
+            "PRODUCTS_ENTITLEMENTS_LOYALTY_STREAM_MTLS_CLIENT_IDENTITY".into(),
+            "loyalty.oteryn.internal".into(),
+        ),
+        (
+            "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+            r#"{"locator.oteryn.internal":["019c0000-0000-7000-8000-000000000001/019c0000-0000-7000-8000-000000000002"]}"#.into(),
+        ),
+        (
+            "PORTAL_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+            r#"{"locator.oteryn.internal":"game-node-1"}"#.into(),
+        ),
+    ]);
+    assert!(http::identity_map(&values).is_ok());
 }

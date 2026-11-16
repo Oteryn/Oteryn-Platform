@@ -22,6 +22,30 @@ pub struct Payments<P, A> {
     flags: PaymentFlags,
 }
 
+/// Discover the immutable intent owner before taking the intent row. Staff
+/// reconciliation retains accounts before its intent read, so every provider
+/// and delivery path must use the same edge. Eligibility is checked later,
+/// after the retained intent wait, through the owning policy.
+pub(crate) async fn prepare_intent_account(
+    connection: &mut sqlx::PgConnection,
+    intent: Uuid,
+    provider: &str,
+) -> Result<Uuid, Error> {
+    oteryn_db::mutation_budget(connection).await?;
+    let account: Uuid =
+        sqlx::query_scalar("SELECT account_id FROM payment_intents WHERE id=$1 AND provider=$2")
+            .bind(intent)
+            .bind(provider)
+            .fetch_optional(&mut *connection)
+            .await?
+            .ok_or(Error::NotFound)?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+        .bind(account)
+        .execute(connection)
+        .await?;
+    Ok(account)
+}
+
 impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
     pub fn new(pool: PgPool, provider: P, accounts: A, flags: PaymentFlags) -> Self {
         Self {
@@ -183,9 +207,14 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         event.validate()?;
         identifier(self.provider.name())?;
         let mut tx = self.pool.begin().await?;
+        let prepared_account =
+            prepare_intent_account(&mut tx, event.intent_id, self.provider.name()).await?;
         // Lock before inserting an event: distinct concurrent events cannot upgrade FK locks.
         let row = sqlx::query("SELECT account_id, amount, currency, state, provider_reference FROM payment_intents WHERE id=$1 AND provider=$2 FOR UPDATE")
             .bind(event.intent_id).bind(self.provider.name()).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        if row.try_get::<Uuid, _>("account_id")? != prepared_account {
+            return Err(Error::InvalidInput);
+        }
         // Native coin orders apply their own events (`CoinPurchases::webhook`).
         let coin: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM coin_purchase_orders WHERE payment_intent_id=$1)",

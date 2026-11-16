@@ -1,8 +1,10 @@
 use super::*;
+use axum::extract::ConnectInfo;
 use axum::{
     body::Body,
     http::{Request, header},
 };
+use std::net::SocketAddr;
 use tower::ServiceExt;
 #[path = "credentials_test_db.rs"]
 mod database;
@@ -141,20 +143,14 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
         .execute(&pool)
         .await?;
     assert_eq!(service.require_sudo(&hash).await?, None);
-    // The limiter uses fixed database-clock windows. Start the 11 charged
-    // requests in the first half of a window so a boundary cannot reset the count.
+    // Advance explicitly to a fresh, frozen bucket before filling its quota.
     let window = NamedPolicy::IdentitySecurityMutation.window_seconds();
-    while sqlx::query_scalar::<_, bool>(
-        "SELECT mod(extract(epoch FROM statement_timestamp()), $1::bigint) * 2 > $1::bigint",
-    )
-    .bind(window)
-    .fetch_one(&pool)
-    .await?
-    {
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    }
+    sqlx::query("UPDATE audit_rate_clock SET instant=instant+$1::bigint*interval '1 second'")
+        .bind(window)
+        .execute(&pool)
+        .await?;
     for _ in 0..10 {
-        let _ = app
+        let response = app
             .clone()
             .oneshot(request(
                 "POST",
@@ -164,6 +160,7 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
                 "current_password=wrong",
             )?)
             .await?;
+        assert_eq!(response.status(), StatusCode::FOUND);
     }
     assert_eq!(
         app.oneshot(request(
@@ -383,4 +380,71 @@ async fn audit02_sudo_succeeds_when_sixteen_requests_fill_pool()
     .await??;
     pool.close().await;
     db.close().await
+}
+
+#[tokio::test]
+async fn audit3_sudo_trusted_proxy_shares_client_security_budget()
+-> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let db = database::Database::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for this regression")?;
+    let id: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('proxy-audit@example.test',$1,'active','en',now()) RETURNING id").bind(oteryn_identity::password::hash("test password")?).fetch_one(&db.pool).await?;
+    let raw = "a".repeat(64);
+    let csrf = "b".repeat(64);
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'audit',now()+interval '1 hour',now()+interval '1 day')").bind(Sha256::digest(raw.as_bytes()).to_vec()).bind(id).bind(&csrf).execute(&db.pool).await?;
+    let service = Credentials {
+        pool: db.pool.clone(),
+        enabled: true,
+        revoker: Arc::new(credentials::TransactionalRevoker),
+        notifications: Arc::new(
+            oteryn_identity::sessions::security_notifications(db.pool.clone())
+                .map_err(|e| e.to_string())?,
+        ),
+    };
+    let mut limiter = RateLimiter::new(db.pool.clone());
+    limiter.trusted_proxies = oteryn_web::ratelimit::TrustedProxies::parse("192.0.2.4")
+        .map_err(|_| "proxy configuration")?;
+    let mut keys = Keys::source("203.0.113.72".parse()?);
+    keys.account = Some(id.to_string());
+    // Fill adjacent fixed windows so dispatch cannot race a window rollover.
+    for policy in [
+        NamedPolicy::IdentitySecurityMutation,
+        NamedPolicy::IdentityPasswordChange,
+    ] {
+        limiter
+            .check(policy, &[keys.clone()])
+            .await
+            .map_err(|_| "charge")?;
+    }
+    sqlx::query("UPDATE web_rate_limits SET count=100000")
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count) SELECT limiter_name,key_hash,window_start+interval '60 seconds',count FROM web_rate_limits ON CONFLICT DO NOTHING").execute(&db.pool).await?;
+    let app = router(service).layer(Extension(limiter));
+    for (method, path) in [
+        ("POST", "/en/account/sudo"),
+        ("POST", "/en/password/change"),
+        ("PUT", "/en/password/change"),
+    ] {
+        let mut req = request(
+            method,
+            path,
+            &format!("{}={raw}", session::COOKIE_NAME),
+            &csrf,
+            "current_password=wrong",
+        )?;
+        req.headers_mut()
+            .insert("x-forwarded-for", "203.0.113.72".parse()?);
+        assert_eq!(
+            app.clone().oneshot(req).await?.status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+    db.close().await?;
+    eprintln!(
+        "PG audit3_sudo_trusted_proxy_shares_client_security_budget: {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

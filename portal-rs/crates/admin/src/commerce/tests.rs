@@ -13,6 +13,19 @@ use tower::ServiceExt;
 #[derive(Debug, Clone)]
 struct Authority(PgPool);
 impl rbac::AccountStateReader for Authority {
+    // Synthetic session authority for this fixture; production denies missing proofs.
+    async fn authenticated_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: oteryn_admin::rbac::CheckContext,
+    ) -> std::result::Result<bool, oteryn_admin::rbac::AccountStateUnavailable> {
+        if let Some(proof) = context.session_proof {
+            oteryn_admin::rbac::durable_session_in(connection, context.account, proof).await
+        } else {
+            Ok(!context.require_staff_mfa || context.mfa_verified)
+        }
+    }
+
     async fn state_in(
         &self,
         connection: &mut PgConnection,
@@ -84,12 +97,15 @@ impl premium::Accounts for Authority {
     }
 }
 #[derive(Clone)]
-struct Session(Uuid);
+struct Session(Uuid, PgPool);
 impl crate::web::StaffSession for Session {
     async fn resolve(
         &self,
-        _: &oteryn_web::session::BrowserSession,
+        session: &oteryn_web::session::BrowserSession,
     ) -> Option<crate::web::StaffIdentity> {
+        crate::test_staff_authenticate(&self.1, session, self.0)
+            .await
+            .ok()?;
         Some(crate::web::StaffIdentity {
             account: self.0,
             mfa_satisfied: true,
@@ -115,11 +131,12 @@ fn flags() -> Flags {
         refunds: true,
     }
 }
-fn context(account: Uuid) -> rbac::CheckContext {
+async fn context(pool: &PgPool, account: Uuid) -> rbac::CheckContext {
     rbac::CheckContext {
         account,
         require_staff_mfa: true,
         mfa_verified: true,
+        session_proof: crate::test_staff::proof(pool, account).await.ok(),
     }
 }
 fn request(target: Uuid, command: Command) -> Request {
@@ -223,13 +240,15 @@ impl Harness {
 }
 #[tokio::test]
 async fn postgres_premium_success_replay_refusal_and_bad_input() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(h) = Harness::new().await else {
         return;
     };
     let service = h.service();
-    let ctx = context(h.actor);
+    let ctx = context(&h.pool, h.actor).await;
     let no_mfa = rbac::CheckContext {
         mfa_verified: false,
+        session_proof: None,
         require_staff_mfa: false,
         ..ctx
     };
@@ -257,7 +276,10 @@ async fn postgres_premium_success_replay_refusal_and_bad_input() {
     ));
     assert!(matches!(
         service
-            .submit(context(h.target), request(h.target, Command::Revoke))
+            .submit(
+                context(&h.pool, h.target).await,
+                request(h.target, Command::Revoke)
+            )
             .await,
         Err(Error::Denied)
     ));
@@ -289,12 +311,13 @@ async fn postgres_premium_success_replay_refusal_and_bad_input() {
 }
 #[tokio::test]
 async fn postgres_wallet_four_eyes_atomicity_concurrency_and_revocation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(h) = Harness::new().await else {
         return;
     };
     let s = h.service();
-    let ctx = context(h.actor);
-    let approver = context(h.second);
+    let ctx = context(&h.pool, h.actor).await;
+    let approver = context(&h.pool, h.second).await;
     assert!(matches!(
         s.submit(ctx, request(Uuid::now_v7(), Command::Adjust { amount: 1 }))
             .await,
@@ -351,12 +374,13 @@ async fn postgres_wallet_four_eyes_atomicity_concurrency_and_revocation() {
 }
 #[tokio::test]
 async fn postgres_payments_review_and_refund_queue_without_forged_settlement() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(h) = Harness::new().await else {
         return;
     };
     let s = h.service();
-    let ctx = context(h.actor);
-    let approver = context(h.second);
+    let ctx = context(&h.pool, h.actor).await;
+    let approver = context(&h.pool, h.second).await;
     let payment = Uuid::now_v7();
     sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,100,'PLN','succeeded')").bind(payment).bind(h.target).bind(format!("test:{payment}")).execute(&h.pool).await.unwrap();
     let review = request(payment, Command::Reconcile);
@@ -415,6 +439,7 @@ async fn postgres_payments_review_and_refund_queue_without_forged_settlement() {
 }
 #[tokio::test]
 async fn default_flags_and_host_deny_without_database() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
@@ -424,7 +449,7 @@ async fn default_flags_and_host_deny_without_database() {
             admin_panel: true,
             host: "staff.test".into(),
         },
-        Session(Uuid::now_v7()),
+        Session(Uuid::now_v7(), pool.clone()),
         Authority(pool.clone()),
         PendingEffects,
         Flags::default(),
@@ -447,7 +472,10 @@ async fn default_flags_and_host_deny_without_database() {
     );
     assert!(matches!(
         s.submit(
-            context(Uuid::now_v7()),
+            rbac::CheckContext {
+                mfa_verified: true,
+                ..rbac::CheckContext::new(Uuid::now_v7())
+            },
             request(Uuid::now_v7(), Command::Refund)
         )
         .await,
@@ -457,6 +485,7 @@ async fn default_flags_and_host_deny_without_database() {
 }
 #[tokio::test]
 async fn postgres_http_forms_localization_csrf_permissions_and_input() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(h) = Harness::new().await else {
         return;
     };
@@ -466,7 +495,7 @@ async fn postgres_http_forms_localization_csrf_permissions_and_input() {
             admin_panel: true,
             host: "staff.test".into(),
         },
-        Session(h.actor),
+        Session(h.actor, h.pool.clone()),
         Authority(h.pool.clone()),
         h.effects(),
         flags(),
@@ -504,7 +533,7 @@ async fn postgres_http_forms_localization_csrf_permissions_and_input() {
     let polish = app
         .clone()
         .oneshot(
-            HttpRequest::get("/admin/commerce")
+            HttpRequest::get("/admin/commerce?lang=pl")
                 .header("host", "staff.test")
                 .header("accept-language", "pl")
                 .body(Body::empty())
@@ -512,6 +541,8 @@ async fn postgres_http_forms_localization_csrf_permissions_and_input() {
         )
         .await
         .unwrap();
+    // Admin navigation links carry the site-wide locale parameter.
+    assert_eq!(polish.status(), StatusCode::OK);
     let polish =
         String::from_utf8(to_bytes(polish.into_body(), 200000).await.unwrap().to_vec()).unwrap();
     assert!(polish.contains("Nadaj premium"));
@@ -567,6 +598,7 @@ async fn postgres_http_forms_localization_csrf_permissions_and_input() {
 
 #[tokio::test]
 async fn postgres_audit_failure_rolls_back_domain_effect_and_request() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(h) = Harness::new().await else {
         return;
     };
@@ -574,7 +606,7 @@ async fn postgres_audit_failure_rolls_back_domain_effect_and_request() {
     assert!(matches!(
         h.service()
             .submit(
-                context(h.actor),
+                context(&h.pool, h.actor).await,
                 request(h.target, Command::Grant { days: 1 })
             )
             .await,
@@ -588,6 +620,7 @@ async fn postgres_audit_failure_rolls_back_domain_effect_and_request() {
 
 #[tokio::test]
 async fn lk_commerce_single_connection_and_sixteen_mutations() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     for maximum in [1, 16] {
         let h = Harness::with_connections(maximum)
@@ -600,14 +633,14 @@ async fn lk_commerce_single_connection_and_sixteen_mutations() {
             flags(),
         ));
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            let adjustment = service.submit(context(h.actor), request(h.target, Command::Adjust { amount: 50 })).await.unwrap();
-            service.approve(context(h.second), adjustment.id).await.unwrap();
+            let adjustment = service.submit(context(&h.pool, h.actor).await, request(h.target, Command::Adjust { amount: 50 })).await.unwrap();
+            service.approve(context(&h.pool, h.second).await, adjustment.id).await.unwrap();
             let payment = Uuid::now_v7();
             sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,100,'PLN','succeeded')")
                 .bind(payment).bind(h.target).bind(format!("test:{payment}")).execute(&h.pool).await.unwrap();
-            service.submit(context(h.actor), request(payment, Command::Reconcile)).await.unwrap();
-            let refund = service.submit(context(h.actor), request(payment, Command::Refund)).await.unwrap();
-            service.approve(context(h.second), refund.id).await.unwrap();
+            service.submit(context(&h.pool, h.actor).await, request(payment, Command::Reconcile)).await.unwrap();
+            let refund = service.submit(context(&h.pool, h.actor).await, request(payment, Command::Refund)).await.unwrap();
+            service.approve(context(&h.pool, h.second).await, refund.id).await.unwrap();
             let delivery = RefundDelivery { pool: h.pool.clone(), adapter: TestPaymentAdapter::new(h.pool.clone(), oteryn_payments::TestProvider::new(&[7;32]).unwrap(), oteryn_payments::PaymentFlags { enabled: true }) };
             delivery.adapter.deliver_refund(&h.pool, refund.id).await.unwrap();
         }).await.unwrap();
@@ -618,10 +651,11 @@ async fn lk_commerce_single_connection_and_sixteen_mutations() {
             let barrier = barrier.clone();
             let actor = h.actor;
             let target = h.target;
+            let context = context(&h.pool, actor).await;
             tasks.spawn(async move {
                 barrier.wait().await;
                 service
-                    .submit(context(actor), request(target, Command::Grant { days: 1 }))
+                    .submit(context, request(target, Command::Grant { days: 1 }))
                     .await
             });
         }
@@ -670,6 +704,7 @@ async fn lk_commerce_single_connection_and_sixteen_mutations() {
 
 #[tokio::test]
 async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let h = Harness::with_connections(1)
         .await
@@ -682,7 +717,7 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
                 admin_panel: true,
                 host: "staff.test".into(),
             },
-            Session(actor),
+            Session(actor, h.pool.clone()),
             Authority(h.pool.clone()),
             rbac::Permission::Access,
         )
@@ -806,12 +841,13 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
 
 #[tokio::test]
 async fn a2_commerce_role_writer_waits_are_bounded() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let h = Harness::new().await.expect("PostgreSQL required");
     let service = h.service();
     let pending = service
         .submit(
-            context(h.actor),
+            context(&h.pool, h.actor).await,
             request(h.target, Command::Adjust { amount: 1 }),
         )
         .await
@@ -825,13 +861,13 @@ async fn a2_commerce_role_writer_waits_are_bounded() {
         tokio::time::timeout(
             std::time::Duration::from_secs(4),
             service.submit(
-                context(h.actor),
+                context(&h.pool, h.actor).await,
                 request(h.target, Command::Grant { days: 1 })
             )
         ),
         tokio::time::timeout(
             std::time::Duration::from_secs(4),
-            service.approve(context(h.second), pending.id)
+            service.approve(context(&h.pool, h.second).await, pending.id)
         )
     );
     assert!(matches!(submit.unwrap(), Err(Error::Storage(_))));
@@ -841,5 +877,368 @@ async fn a2_commerce_role_writer_waits_are_bounded() {
     eprintln!(
         "a2_commerce_role_writer_waits_are_bounded duration: {:?}",
         started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn postgres_a3_commerce_locks_payment_owner_before_role_fence() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let payment = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,100,'PLN','succeeded')").bind(payment).bind(h.target).bind(payment.to_string()).execute(&h.pool).await.unwrap();
+    let service = Commerce::new(
+        h.pool.clone(),
+        crate::web::PortalIdentity::configured(h.pool.clone()),
+        h.effects(),
+        flags(),
+    );
+    let actor = context(&h.pool, h.actor).await;
+    crate::test_staff::race_account_before_fence(&h.pool, h.target, async move {
+        service
+            .submit(actor, request(payment, Command::Reconcile))
+            .await
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    h.close().await;
+    eprintln!(
+        "postgres_a3_commerce_locks_payment_owner_before_role_fence duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a3_commerce_queue_pagination_and_terminal_disposition() {
+    let started = std::time::Instant::now();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let service = h.service();
+    let mut blocked = Vec::new();
+    for _ in 0..100 {
+        blocked.push(
+            service
+                .submit(
+                    context(&h.pool, h.actor).await,
+                    request(h.target, Command::Adjust { amount: 1 }),
+                )
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(h.actor)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        service
+            .approve(context(&h.pool, h.second).await, blocked[0])
+            .await,
+        Err(Error::Denied)
+    ));
+    sqlx::query("UPDATE commerce_operations SET created_at='2026-01-01T00:00:00Z'")
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    let valid = service
+        .submit(
+            context(&h.pool, h.second).await,
+            request(h.target, Command::Adjust { amount: 50 }),
+        )
+        .await
+        .unwrap()
+        .id;
+    // A third currently authorized staff member reviews the newer request.
+    let reviewer = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'reviewer@example.test','test-only','active',now(),'en')").bind(reviewer).execute(&h.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(reviewer).execute(&h.pool).await.unwrap();
+    let app = router(
+        h.pool.clone(),
+        crate::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Session(reviewer, h.pool.clone()),
+        Authority(h.pool.clone()),
+        h.effects(),
+        flags(),
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::get("/admin/commerce")
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(!html.contains(&valid.to_string()));
+    let next = html
+        .split("rel=\"next\" href=\"")
+        .nth(1)
+        .expect("next page must be reachable")
+        .split('"')
+        .next()
+        .unwrap()
+        .replace("&amp;", "&");
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::get(&next)
+                .header("host", "staff.test")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let second = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(second.contains(&valid.to_string()));
+    // An audit failure must leave the intent pending and produce no money effect.
+    sqlx::raw_sql("CREATE FUNCTION reject_cancellation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='commerce.cancelled' THEN RAISE EXCEPTION 'test audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_cancellation BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_cancellation()")
+        .execute(&h.pool).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::post(format!("/admin/commerce/cancellations/{}", blocked[0]))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let pending: bool =
+        sqlx::query_scalar("SELECT result IS NULL FROM commerce_operations WHERE id=$1")
+            .bind(blocked[0])
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert!(pending);
+    sqlx::query("DROP TRIGGER reject_cancellation ON audit_log")
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    for (path, token, expected) in [
+        (
+            format!("/admin/commerce/cancellations/{}", blocked[0]),
+            "bad",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            format!("/admin/commerce/cancellations/{}", blocked[0]),
+            csrf,
+            StatusCode::SEE_OTHER,
+        ),
+        (
+            format!("/admin/commerce/cancellations/{}", blocked[0]),
+            csrf,
+            StatusCode::SEE_OTHER,
+        ),
+        (
+            format!("/admin/commerce/approvals/{valid}"),
+            csrf,
+            StatusCode::SEE_OTHER,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::post(path)
+                    .header("host", "staff.test")
+                    .header("origin", "https://staff.test")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={token}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::post(format!("/admin/commerce/cancellations/{valid}"))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let cancelled: Value = sqlx::query_scalar("SELECT result FROM commerce_operations WHERE id=$1")
+        .bind(blocked[0])
+        .fetch_one(&h.pool)
+        .await
+        .unwrap();
+    assert_eq!(cancelled, json!({"status":"cancelled"}));
+    let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE request_id=$1 AND actor=$2 AND action='commerce.cancelled'").bind(blocked[0]).bind(reviewer).fetch_one(&h.pool).await.unwrap();
+    assert_eq!(audits, 1);
+    assert_eq!(h.count("wallet_operations").await, 1);
+    h.close().await;
+    eprintln!(
+        "a3_commerce_queue_pagination_and_terminal_disposition duration: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a3_l6_02_staff_routes_refuse_restricted_acquisitions() {
+    let started = std::time::Instant::now();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let app_for = |actor| {
+        crate::web::guarded(
+            http::configured_routes(h.pool.clone(), flags(), None),
+            h.pool.clone(),
+            crate::web::PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            Session(actor, h.pool.clone()),
+            Authority(h.pool.clone()),
+            rbac::Permission::Access,
+        )
+    };
+    async fn login(app: axum::Router) -> (String, String) {
+        let response = app
+            .oneshot(
+                HttpRequest::get("/admin/commerce")
+                    .header("host", "staff.test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let cookie = response.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), 200000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        let csrf = html
+            .split("name=\"_csrf\" value=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .to_owned();
+        (cookie, csrf)
+    }
+    let app = app_for(h.actor);
+    let second = app_for(h.second);
+    let (cookie, csrf) = login(app.clone()).await;
+    let (second_cookie, second_csrf) = login(second.clone()).await;
+    for restriction in ["restriction", "suspension", "termination", "cooldown"] {
+        let adjustment_id = Uuid::now_v7();
+        let response = app.clone().oneshot(HttpRequest::post("/admin/commerce/adjust").header("host","staff.test").header("origin","https://staff.test").header("cookie",&cookie).header("content-type","application/x-www-form-urlencoded").body(Body::from(format!("_csrf={csrf}&request_id={adjustment_id}&target={}&reason=Reviewed+support+request&amount=77",h.target))).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        match restriction {
+            "restriction" | "suspension" => {
+                sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,$2,'active','test',now()-interval '1 hour',now()+interval '1 day',$1)").bind(h.target).bind(restriction).execute(&h.pool).await.unwrap();
+            }
+            "termination" => {
+                sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')").bind(h.target).execute(&h.pool).await.unwrap();
+            }
+            _ => {
+                sqlx::query("UPDATE accounts SET email_change_blocked_until=now()+interval '1 day' WHERE id=$1").bind(h.target).execute(&h.pool).await.unwrap();
+            }
+        }
+        let response = app.clone().oneshot(HttpRequest::post("/admin/commerce/grant").header("host","staff.test").header("origin","https://staff.test").header("cookie",&cookie).header("content-type","application/x-www-form-urlencoded").body(Body::from(format!("_csrf={csrf}&request_id={}&target={}&reason=Reviewed+support+request&days=2",Uuid::now_v7(),h.target))).unwrap()).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "grant {restriction}"
+        );
+        let response = second
+            .clone()
+            .oneshot(
+                HttpRequest::post(format!("/admin/commerce/approvals/{adjustment_id}"))
+                    .header("host", "staff.test")
+                    .header("origin", "https://staff.test")
+                    .header("cookie", &second_cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={second_csrf}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "approval {restriction}"
+        );
+        for table in ["premium_ledger", "wallet_entries", "premium_authority"] {
+            assert_eq!(h.count(table).await, 0, "{restriction} {table}");
+        }
+        sqlx::query("UPDATE sanctions SET status='revoked' WHERE account_id=$1")
+            .bind(h.target)
+            .execute(&h.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE account_terminations SET cancelled_at=now() WHERE account_id=$1")
+            .bind(h.target)
+            .execute(&h.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE accounts SET email_change_blocked_until='-infinity' WHERE id=$1")
+            .bind(h.target)
+            .execute(&h.pool)
+            .await
+            .unwrap();
+    }
+    h.close().await;
+    eprintln!(
+        "PG a3_l6_02_staff_routes_refuse_restricted_acquisitions {:.3}s",
+        started.elapsed().as_secs_f64()
     );
 }
