@@ -31,8 +31,8 @@ pub struct Character {
     pub profession: String,
 }
 /// Narrow seam for T44/T33c. Implementations must reject stale, ambiguous, disabled
-/// or unavailable identity/ownership. Moderator checks require staff MFA, RBAC
-/// ManageSupportReports and the current T10b authorization policy.
+/// or unavailable identity/ownership. Moderator checks gate queue reads behind
+/// the staff guard. Mutations require its transaction-local RBAC/session proof.
 pub trait Authority: Send + Sync + std::fmt::Debug {
     fn active(&self, account: Uuid) -> CheckFuture<'_, ()>;
     fn character(&self, account: Uuid, character: Uuid) -> CheckFuture<'_, Character>;
@@ -105,16 +105,12 @@ impl Authority for ProductionAuthority {
     }
     fn moderator(&self, account: Uuid) -> CheckFuture<'_, ()> {
         Box::pin(async move {
-            // Production staff routes require session MFA through T10b's guard.
-            // Recheck current RBAC for the service mutation as well.
+            // Queue reads run behind the staff MFA guard. Mutation authority
+            // comes from that guard's context/proof on the caller transaction.
             let identity = oteryn_admin::web::PortalIdentity::configured(self.db.clone());
             let auth = oteryn_admin::rbac::Authorizer::new(self.db.clone(), identity);
-            let context = oteryn_admin::rbac::CheckContext {
-                account,
-                require_staff_mfa: false,
-                mfa_verified: false,
-                session_proof: None,
-            };
+            let mut context = oteryn_admin::rbac::CheckContext::new(account);
+            context.mfa_verified = true;
             for permission in [
                 oteryn_admin::rbac::Permission::Access,
                 oteryn_admin::rbac::Permission::ManageSupportReports,
@@ -269,6 +265,14 @@ impl From<sqlx::Error> for Error {
         Self::Storage(e)
     }
 }
+impl From<oteryn_admin::rbac::Error> for Error {
+    fn from(error: oteryn_admin::rbac::Error) -> Self {
+        match error {
+            oteryn_admin::rbac::Error::Storage(error) => Self::Storage(error),
+            _ => Self::Denied,
+        }
+    }
+}
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         match self {
@@ -382,17 +386,13 @@ struct Decision {
 async fn moderate(
     State(board): State<Board>,
     Path((lang, id)): Path<(String, Uuid)>,
-    Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    Extension(context): Extension<oteryn_admin::rbac::CheckContext>,
+    Extension(authority): Extension<oteryn_admin::rbac::MutationAuthorization>,
     Form(input): Form<Decision>,
 ) -> Result<Response, Error> {
     language(&lang)?;
     board
-        .moderate(
-            account(&board, &session).await?,
-            id,
-            &input.action,
-            &input.reason,
-        )
+        .moderate(context, &authority, id, &input.action, &input.reason)
         .await?;
     Ok(Redirect::to(&format!("/admin/{lang}/party")).into_response())
 }

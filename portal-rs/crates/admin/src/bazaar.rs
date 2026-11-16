@@ -79,16 +79,20 @@ impl<A: AccountStateReader> StaffBazaar<A> {
     pub async fn execute(&self, context: CheckContext, command: StaffCommand) -> Result<(), Error> {
         self.check(context).await?;
         let mut tx = self.pool.begin().await?;
+        // Bazaar globally locks its moderation gate/listing before accounts.
+        // Start the shared budget before that first domain lock; the canonical
+        // helper retains it while locking ordered accounts and then RBAC.
         let resource_command = command.clone();
-        crate::rbac::authorize_mutation_with_resources_domain::<Error, _>(
+        crate::rbac::lock_mutation_resources_with::<Error, _>(&mut tx, move |connection| {
+            Box::pin(async move {
+                moderation::lock_staff_target(connection, &resource_command).await?;
+                Ok(())
+            })
+        })
+        .await?;
+        crate::rbac::authorize_mutation(
             &mut tx,
             &[context.account],
-            move |connection| {
-                Box::pin(async move {
-                    moderation::lock_staff_target(connection, &resource_command).await?;
-                    Ok(())
-                })
-            },
             &self.auth,
             context,
             &[Permission::Access, Permission::ManageMarketplace],

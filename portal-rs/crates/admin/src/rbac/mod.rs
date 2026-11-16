@@ -74,6 +74,27 @@ where
         .bind(accounts)
         .execute(&mut *connection)
         .await?;
+    lock_mutation_resources_with(connection, resources).await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut *connection)
+        .await?;
+    mutation_budget(connection).await?;
+    Ok(())
+}
+
+/// Acquire domain resources within the same transaction-wide budget used by
+/// account/fence acquisition. Domains whose global order puts resources first
+/// use this before the account/fence helper; it never acquires a separate fence.
+pub async fn lock_mutation_resources_with<E, F>(
+    connection: &mut PgConnection,
+    resources: F,
+) -> Result<(), E>
+where
+    E: From<sqlx::Error>,
+    F: for<'a> FnOnce(
+        &'a mut PgConnection,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), E>> + Send + 'a>>,
+{
     mutation_budget(&mut *connection).await?;
     let remaining: i64 = sqlx::query_scalar("SELECT greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint")
         .fetch_one(&mut *connection).await?;
@@ -88,10 +109,6 @@ where
         )))
     })??;
     mutation_budget(&mut *connection).await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
-        .execute(&mut *connection)
-        .await?;
-    mutation_budget(connection).await?;
     Ok(())
 }
 

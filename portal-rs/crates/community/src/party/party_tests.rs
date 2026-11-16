@@ -96,6 +96,26 @@ impl Database {
             board,
         })
     }
+    async fn moderate(
+        &self,
+        actor: Uuid,
+        id: Uuid,
+        action: &str,
+        reason: &str,
+    ) -> Result<(), Error> {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'test','active','en',now()) ON CONFLICT DO NOTHING")
+            .bind(self.trusted.staff).bind(format!("{}@example.invalid",self.trusted.staff)).execute(&self.pool).await?;
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support' ON CONFLICT DO NOTHING")
+            .bind(self.trusted.staff).execute(&self.pool).await?;
+        let authority = oteryn_admin::rbac::MutationAuthorization::new(Arc::new(
+            oteryn_admin::rbac::Authorizer::new(self.pool.clone(), StaffAdapter { mfa: true }),
+        ));
+        let mut context = oteryn_admin::rbac::CheckContext::new(actor);
+        context.mfa_verified = true;
+        self.board
+            .moderate(context, &authority, id, action, reason)
+            .await
+    }
     async fn draft(&self) -> Draft {
         let now: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM now()))::bigint")
             .fetch_one(&self.pool)
@@ -123,6 +143,23 @@ impl Database {
         .await
         .unwrap();
         self.root.close().await;
+    }
+    async fn staff_session(&self, staff: Uuid) -> (String, String) {
+        let (token, csrf) = self.session(staff).await;
+        let password: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+            .bind(staff)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap();
+        let grant = "c".repeat(64);
+        let grant_hash = Sha256::digest(grant.as_bytes()).to_vec();
+        let generation: Uuid = sqlx::query_scalar("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,$2,true) RETURNING generation")
+            .bind(staff).bind(vec![1_u8;32]).fetch_one(&self.pool).await.unwrap();
+        sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '1 hour')")
+            .bind(&grant_hash).bind(staff).bind(generation).bind(Sha256::digest(password.as_bytes()).to_vec()).execute(&self.pool).await.unwrap();
+        sqlx::query("UPDATE web_sessions SET data=jsonb_build_object('mfa_grant',$1::text),authorization_generation=(SELECT native_security_generation FROM accounts WHERE id=$2) WHERE account_id=$2")
+            .bind(grant).bind(staff).execute(&self.pool).await.unwrap();
+        (token, csrf)
     }
     async fn session(&self, account: Uuid) -> (String, String) {
         let token = "a".repeat(64);
@@ -279,25 +316,19 @@ async fn db_reports_moderation_audit_and_caps() {
         .unwrap();
     assert_eq!(db.board.reports().await.unwrap()[0].reports, "spam");
     assert!(matches!(
-        db.board
-            .moderate(db.trusted.reporter, id, "remove", "spam")
-            .await,
+        db.moderate(db.trusted.reporter, id, "remove", "spam").await,
         Err(Error::Denied)
     ));
     assert!(matches!(
-        db.board
-            .moderate(db.trusted.staff, id, "restore", "reason")
-            .await,
+        db.moderate(db.trusted.staff, id, "restore", "reason").await,
         Err(Error::Invalid)
     ));
-    db.board
-        .moderate(db.trusted.staff, id, "dismiss", "reviewed")
+    db.moderate(db.trusted.staff, id, "dismiss", "reviewed")
         .await
         .unwrap();
     assert!(db.board.reports().await.unwrap().is_empty());
     assert_eq!(db.board.list(&Filter::default()).await.unwrap().len(), 1);
-    db.board
-        .moderate(db.trusted.staff, id, "remove", "spam")
+    db.moderate(db.trusted.staff, id, "remove", "spam")
         .await
         .unwrap();
     let count: i64 =
@@ -535,8 +566,7 @@ async fn db_staff_guard_and_audit_failure_roll_back() {
     // Audit storage failure must roll back both the listing and its report resolution.
     sqlx::raw_sql("CREATE FUNCTION fail_party_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test audit refusal'; END $$; CREATE TRIGGER fail_party_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION fail_party_audit();").execute(&db.pool).await.unwrap();
     assert!(
-        db.board
-            .moderate(db.trusted.staff, id, "remove", "spam")
+        db.moderate(db.trusted.staff, id, "remove", "spam")
             .await
             .is_err()
     );
@@ -669,7 +699,7 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
         .execute(&db.pool)
         .await
         .unwrap();
-    let (token, csrf) = db.session(staff).await;
+    let (token, csrf) = db.staff_session(staff).await;
     let adapter = StaffAdapter { mfa: true };
     let app = moderation_router(
         board.clone(),
@@ -708,4 +738,159 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
         "audit_w2_c05_production_authority_owner_report_and_staff_flow {:?}",
         started.elapsed()
     );
+}
+
+async fn delta_party_revocation(revoke: &str) {
+    let started = std::time::Instant::now();
+    {
+        let db = Database::open().await.unwrap();
+        let staff = db.trusted.staff;
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'test-password','active','en',now())")
+            .bind(staff).bind(format!("{staff}@example.invalid")).execute(&db.pool).await.unwrap();
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'")
+            .bind(staff).execute(&db.pool).await.unwrap();
+        let id = db
+            .board
+            .create(db.trusted.owner, db.draft().await)
+            .await
+            .unwrap();
+        db.board
+            .report(db.trusted.reporter, id, "spam")
+            .await
+            .unwrap();
+        let (token, csrf) = db.staff_session(staff).await;
+        let adapter = StaffAdapter { mfa: true };
+        let app = moderation_router(
+            db.board.clone(),
+            oteryn_admin::web::PanelConfig {
+                admin_panel: true,
+                host: "staff.example.test".into(),
+            },
+            adapter.clone(),
+            adapter,
+        );
+        let mut blocker = db.pool.begin().await.unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *blocker)
+            .await
+            .unwrap();
+        sqlx::query("SELECT id FROM pd_party_posts WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .execute(&mut *blocker)
+            .await
+            .unwrap();
+        let request = Request::post(format!("/admin/en/party/{id}/moderate"))
+            .header(header::HOST, "staff.example.test")
+            .header(header::ORIGIN, "https://staff.example.test")
+            .header(
+                header::COOKIE,
+                format!("{}={token}", oteryn_web::session::COOKIE_NAME),
+            )
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header("x-csrf-token", csrf)
+            .body(Body::from("action=remove&reason=spam"))
+            .unwrap();
+        let mutation = tokio::spawn(async move { app.oneshot(request).await });
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                assert!(!mutation.is_finished(), "request finished before post wait: {revoke}");
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))")
+                    .bind(pid).fetch_one(&db.root).await.unwrap();
+                if waiting { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        match revoke {
+            "session" => {
+                sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
+                    .bind(staff)
+                    .execute(&db.pool)
+                    .await
+                    .unwrap();
+            }
+            "mfa" => {
+                sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1")
+                    .bind(staff)
+                    .execute(&db.pool)
+                    .await
+                    .unwrap();
+            }
+            "permission" => {
+                use oteryn_admin::rbac::{Authorizer, Change, CheckContext};
+                let manager = Uuid::now_v7();
+                sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'test','active','en',now())")
+                    .bind(manager).bind(format!("{manager}@example.invalid")).execute(&db.pool).await.unwrap();
+                sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+                    .bind(manager).execute(&db.pool).await.unwrap();
+                let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='support'")
+                    .fetch_one(&db.pool)
+                    .await
+                    .unwrap();
+                let mut context = CheckContext::new(manager);
+                context.mfa_verified = true;
+                Authorizer::new(db.pool.clone(), StaffAdapter { mfa: true })
+                    .change(
+                        context,
+                        Uuid::now_v7(),
+                        Change::SetPermissions {
+                            role,
+                            permissions: &[],
+                        },
+                    )
+                    .await
+                    .unwrap();
+            }
+            _ => {}
+        }
+        blocker.rollback().await.unwrap();
+        let status = mutation.await.unwrap().unwrap().status();
+        let post: String = sqlx::query_scalar("SELECT status FROM pd_party_posts WHERE id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        let reports: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pd_party_reports WHERE post_id=$1 AND status='open'",
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        let audits: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='party.moderate'")
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        db.close().await;
+        eprintln!("delta_party {revoke} duration={:?}", started.elapsed());
+        if revoke == "none" {
+            assert_eq!(status, StatusCode::SEE_OTHER);
+            assert_eq!(post, "removed");
+            assert_eq!(reports, 0);
+            assert_eq!(audits, 1);
+        } else {
+            assert_eq!(status, StatusCode::FORBIDDEN, "revoked {revoke}");
+            assert_eq!(post, "active");
+            assert_eq!(reports, 1);
+            assert_eq!(audits, 0);
+        }
+    }
+}
+
+#[tokio::test]
+async fn delta_party_revalidates_session_after_post_wait() {
+    delta_party_revocation("session").await;
+}
+#[tokio::test]
+async fn delta_party_revalidates_mfa_after_post_wait() {
+    delta_party_revocation("mfa").await;
+}
+#[tokio::test]
+async fn delta_party_revalidates_permission_after_post_wait() {
+    delta_party_revocation("permission").await;
+}
+
+#[tokio::test]
+async fn delta_party_valid_session_commits_after_post_wait() {
+    delta_party_revocation("none").await;
 }

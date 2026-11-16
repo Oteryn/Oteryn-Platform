@@ -576,3 +576,87 @@ async fn postgres_a3_bazaar_orders_actor_before_role_fence() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn delta_bazaar_listing_before_staff_account_avoids_deadlock() {
+    let started = std::time::Instant::now();
+    let db = Db::new().await.unwrap();
+    let listing = db.listing().await;
+    sqlx::query("UPDATE bazaar_listings SET owner=$2 WHERE id=$1")
+        .bind(listing)
+        .bind(db.actor)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut bid = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *bid)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM bazaar_listings WHERE id=$1 FOR UPDATE")
+        .bind(listing)
+        .execute(&mut *bid)
+        .await
+        .unwrap();
+    let service = db.service();
+    let context = db.context();
+    let staff = tokio::spawn(async move { service.execute(context, suspend(listing)).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.admin)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let authority = oteryn_bazaar::game::Authority {
+        config: oteryn_bazaar::game::AuthorityConfig::default(),
+        fence: oteryn_bazaar::game::RecoveryFence {
+            projection_epoch: 1,
+            recovery_generation: 1,
+        },
+    };
+    let bazaar = oteryn_bazaar::Bazaar::new(
+        db.pool.clone(),
+        oteryn_bazaar::game::PlatformAccounts {
+            enabled: true,
+            session_hash: None,
+        },
+        oteryn_bazaar::game::CoinReservations {
+            authority: authority.clone(),
+        },
+        authority,
+        oteryn_bazaar::Flags {
+            enabled: true,
+            gold_enabled: false,
+        },
+    );
+    // Self-bidding is denied, but only after the real bid path reads its owner.
+    let owner_read = bazaar
+        .bid_in(&mut bid, listing, db.actor, 200, "delta-bid")
+        .await;
+    bid.rollback().await.unwrap();
+    let moderation = staff.await.unwrap();
+    db.end().await;
+    eprintln!(
+        "delta_bazaar_listing_before_staff_account_avoids_deadlock duration={:?}",
+        started.elapsed()
+    );
+    assert!(
+        matches!(owner_read, Err(oteryn_bazaar::Error::IllegalTransition)),
+        "bid failed before self-bid refusal: {owner_read:?}"
+    );
+    assert!(
+        moderation.is_ok(),
+        "staff moderation failed: {moderation:?}"
+    );
+}

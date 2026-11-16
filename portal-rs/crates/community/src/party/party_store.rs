@@ -146,26 +146,46 @@ impl Board {
     }
     pub async fn moderate(
         &self,
-        actor: Uuid,
+        context: oteryn_admin::rbac::CheckContext,
+        authority: &oteryn_admin::rbac::MutationAuthorization,
         id: Uuid,
         action: &str,
         reason: &str,
     ) -> Result<(), Error> {
-        if actor.is_nil() || id.is_nil() {
+        let actor = context.account;
+        if actor.is_nil() || id.is_nil() || !context.require_staff_mfa || !context.mfa_verified {
             return Err(Error::Denied);
         }
         self.authority.active(actor).await.ok_or(Error::Denied)?;
-        self.authority.moderator(actor).await.ok_or(Error::Denied)?;
         if !matches!(action, "remove" | "dismiss") || !text(reason, 1, 500) {
             return Err(Error::Invalid);
         }
         let mut tx = self.db.begin().await?;
-        let before: String =
-            sqlx::query_scalar("SELECT status FROM pd_party_posts WHERE id=$1 FOR UPDATE")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or(Error::Missing)?;
+        oteryn_admin::rbac::authorize_mutation_with_resources_domain::<Error, _>(
+            &mut tx,
+            &[actor],
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT id FROM pd_party_posts WHERE id=$1 FOR UPDATE")
+                        .bind(id)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            },
+            authority,
+            context,
+            &[
+                oteryn_admin::rbac::Permission::Access,
+                oteryn_admin::rbac::Permission::ManageSupportReports,
+            ],
+        )
+        .await?;
+        let before: String = sqlx::query_scalar("SELECT status FROM pd_party_posts WHERE id=$1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(Error::Missing)?;
         let after = if action == "remove" {
             "removed"
         } else {
