@@ -190,6 +190,13 @@ impl Announcements {
             },
         )
         .await?;
+        crate::revalidate(
+            auth,
+            &mut tx,
+            context,
+            &[Permission::Access, Permission::ManagePortalAnnouncements],
+        )
+        .await?;
         tx.commit().await?;
         Ok(id)
     }

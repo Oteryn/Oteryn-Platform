@@ -514,3 +514,7 @@ impl Authority for Unavailable {
         Box::pin(async { None })
     }
 }
+
+#[cfg(test)]
+#[path = "party/last_wait_tests.rs"]
+mod last_wait_tests;

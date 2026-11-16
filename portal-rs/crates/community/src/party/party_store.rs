@@ -247,6 +247,14 @@ impl Board {
         )
         .await
         .map_err(|_| Error::Denied)?;
+        authority
+            .check_in(
+                &mut tx,
+                context,
+                oteryn_admin::rbac::Permission::ManageSupportReports,
+            )
+            .await
+            .map_err(|_| Error::Denied)?;
         tx.commit().await?;
         Ok(())
     }
