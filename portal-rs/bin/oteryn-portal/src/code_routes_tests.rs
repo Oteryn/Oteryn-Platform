@@ -251,7 +251,7 @@ async fn a3_l6_02_premium_code_route_refuses_restricted_acquisitions()
     let csrf = oteryn_identity::mfa::random_token()?;
     sqlx::query("INSERT INTO account_mfa_totp(account_id,secret,confirmed,generation) VALUES($1,$2,true,$3)").bind(actor).bind(Sha256::digest(grant.as_bytes()).to_vec()).bind(generation).execute(&pool).await?;
     sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '10 minutes')").bind(oteryn_identity::mfa::digest(&grant)).bind(actor).bind(generation).bind(oteryn_identity::mfa::digest("test-credential-hash")).execute(&pool).await?;
-    sqlx::query("INSERT INTO web_sessions(id_hash,csrf_token,account_id,data,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,$4,'code-dispatch-test',now()+interval '10 minutes',now()+interval '1 hour')").bind(Sha256::digest(cookie.as_bytes()).to_vec()).bind(&csrf).bind(actor).bind(serde_json::json!({"mfa_grant":grant})).execute(&pool).await?;
+    sqlx::query("INSERT INTO web_sessions(id_hash,csrf_token,account_id,data,user_agent_summary,idle_expires_at,absolute_expires_at,authorization_generation) VALUES($1,$2,$3,$4,'code-dispatch-test',now()+interval '10 minutes',now()+interval '1 hour',(SELECT native_security_generation FROM accounts WHERE id=$3))").bind(Sha256::digest(cookie.as_bytes()).to_vec()).bind(&csrf).bind(actor).bind(serde_json::json!({"mfa_grant":grant})).execute(&pool).await?;
     let config = |key: &str| match key {
         "OTERYN_STORE_CODES_ENABLED" | "OTERYN_ADMIN_PANEL" | "OTERYN_WALLET_ENABLED" => {
             Some("true".into())
