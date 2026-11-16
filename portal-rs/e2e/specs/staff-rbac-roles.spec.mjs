@@ -10,11 +10,12 @@ test('role grant enables only permitted pages and revocation refuses the next re
   const totp=new OTPAuth.TOTP({secret:await page.locator('main .op-prose').innerText(),algorithm:'SHA1',digits:6,period:30});
   await submit(page,'form[action$="/mfa/confirm"]',{password:account.password,code:totp.generate()});
   const codes=await page.locator('textarea[readonly]').allTextContents();
+  // MFA confirmation revokes existing sessions; authenticate again before using CSRF.
+  await login(page,lang,account);await expect(page).toHaveURL(/mfa\/challenge/);await submit(page,'form[action$="/mfa/challenge"]',{code:codes[0]});
   const id=await role(s.page,'admin.access audit.view');
   await page.goto(`/${lang}/`);const ordinaryToken=await page.locator('input[name=_csrf]').first().inputValue();
   expect((await page.request.post('/admin/roles',{form:{_csrf:ordinaryToken,account:account.id,role:id,action:'grant'},headers:{origin:new URL(page.url()).origin},maxRedirects:0})).status(),'ordinary player cannot grant a role').toBe(403);
   await membership(s.page,account.id,id,'grant');
-  await login(page,lang,account);await expect(page).toHaveURL(/mfa\/challenge/);await submit(page,'form[action$="/mfa/challenge"]',{code:codes[0]});
   expect((await page.goto('/admin/console/audit')).status(),'granted audit permission allows read').toBe(200);
   expect((await page.goto('/admin/roles')).status(),'narrow role cannot manage roles').toBe(403);
   await page.goto(`/${lang}/`);const token=await page.locator('input[name=_csrf]').first().inputValue();

@@ -23,6 +23,8 @@ test('support staff replies and resolves a ticket visible to its player',async({
 test('report moderation issues and lifts a persisted sanction and publishes the outcome to the player',async({page,browser},info)=>{
  test.setTimeout(300000);const lang=info.project.metadata.locale;const account=await player(page,lang);const s=await staff(browser,info);const reason=unique(),outcome=unique(),lift=unique();
  try{
+  // Optional support email defaults off; opt in through the real preference form.
+  await page.goto(`/${lang}/account/notifications`);await submit(page,'main form',{support_email:true,support_portal:true});await page.reload();await expect(page.locator('[name=support_email]')).toBeChecked();
   await page.goto(`/${lang}/support/reports/create`);await submit(page,'main form',{target_reference:account.id,evidence_summary:reason});await expect(page).toHaveURL(/support\/reports\/[a-f0-9-]+$/);const playerPath=new URL(page.url()).pathname,report=playerPath.split('/').at(-1);
   expect((await s.page.goto('/admin/moderation/reports')).status()).toBe(200);
   expect((await s.page.goto(`/admin/moderation/reports/${report}`)).status()).toBe(200);
