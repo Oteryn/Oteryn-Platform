@@ -617,18 +617,23 @@ async fn postgres_retired_catalogue_does_not_exhaust_active_limit() {
         .execute(&db.pool)
         .await
         .unwrap();
-    for _ in 0..1000 {
-        let mut c = db.card.clone();
-        c.id = Uuid::now_v7();
-        c.world_version = retired;
-        sqlx::query("INSERT INTO collection_cards(id,definition,sprite) SELECT $1,$2,sprite FROM collection_cards WHERE id=$3")
-            .bind(c.id)
-            .bind(sqlx::types::Json(c))
-            .bind(db.card.id)
-            .execute(&db.pool)
-            .await
-            .unwrap();
-    }
+    // One statement: the progress stream seeded by the fixture turns stale after ten
+    // seconds, and a thousand round trips can exceed that on a loaded database.
+    let (ids, definitions): (Vec<Uuid>, Vec<serde_json::Value>) = (0..1000)
+        .map(|_| {
+            let mut c = db.card.clone();
+            c.id = Uuid::now_v7();
+            c.world_version = retired;
+            (c.id, serde_json::to_value(c).unwrap())
+        })
+        .unzip();
+    sqlx::query("INSERT INTO collection_cards(id,definition,sprite) SELECT u.id,u.definition,c.sprite FROM UNNEST($1::uuid[],$2::jsonb[]) AS u(id,definition) CROSS JOIN (SELECT sprite FROM collection_cards WHERE id=$3) AS c")
+        .bind(ids)
+        .bind(definitions)
+        .bind(db.card.id)
+        .execute(&db.pool)
+        .await
+        .unwrap();
     let cards = db
         .service
         .cards(db.trust.account, db.trust.character, &db.trust, now())
