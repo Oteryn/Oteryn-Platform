@@ -10,7 +10,7 @@ test('player search and force logout revoke the player session and allow fresh l
   await expect(s.page.locator('main'),'player detail identifies target').toContainText(account.id);
   await action(s.page,'form:has(button[value=logout])',{reason:unique()},'logout');
   await expect.poll(async()=>{await page.goto(`/${lang}/account/sessions`);return new URL(page.url()).pathname;},{message:'old player session is refused'}).toContain('/login');
-  await login(page,lang,account);await page.goto(`/${lang}/account/sessions`);await expect(page,'fresh login restores player account access').not.toHaveURL(/\/login/);
+  await login(page,lang,account);expect((await page.goto(`/${lang}/account/sessions`)).status(),'fresh login restores player account access').toBe(200);await expect(page,'fresh session reaches its protected destination').toHaveURL(new RegExp(`/${lang}/account/sessions$`));
   await audit(s.page,'players.logout_all',account.id);
  }finally{await s.context.close();}
 });
