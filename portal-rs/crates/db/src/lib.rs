@@ -43,6 +43,8 @@ pub mod outbox;
 
 pub mod retry;
 
+pub mod transaction;
+
 /// Establish the shared three-second transaction-wide mutation lock deadline.
 pub async fn mutation_budget(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
     sqlx::query("SELECT set_config('oteryn.mutation_deadline', coalesce(nullif(current_setting('oteryn.mutation_deadline',true),''),(extract(epoch FROM clock_timestamp())+3)::text),true)")
