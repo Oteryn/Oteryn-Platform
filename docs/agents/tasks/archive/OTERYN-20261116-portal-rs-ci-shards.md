@@ -21,11 +21,11 @@ Owner consent for this workflow change was relayed by the coordinator.
 
 ## Acceptance criteria
 
-- [ ] Shard 3 is the workspace minus the shard 1 and 2 lists, so every package runs in exactly one shard
-- [ ] At the same SHA, the test names of shards 1+2+3 equal the full-workspace `cargo test -- --list` set
-- [ ] Timeout stays 30 minutes per job; no test, filter or expected browser count changes
-- [ ] `check` fails unless lint, every test shard and browser succeeded
-- [ ] No change to `.github/repository-policy.json`, rulesets or other workflows
+- [x] Shard 3 is the workspace minus the shard 1 and 2 lists, so every package runs in exactly one shard
+- [x] At the same SHA, the test names of shards 1+2+3 equal the full-workspace `cargo test -- --list` set
+- [x] Timeout stays 30 minutes per job; no test, filter or expected browser count changes
+- [x] `check` fails unless lint, every test shard and browser succeeded
+- [x] No change to `.github/repository-policy.json`, rulesets or other workflows
 - [x] Closeout of merged PR #1891: its task packet is archived as completed
 
 ## Ownership
@@ -52,11 +52,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-16T22:30:00Z
-head: 2ffed186e7363aeccb0775a39b13bb700bc708b6
+updated_at: 2026-11-16T23:20:00Z
+head: e9b0bcaaacf61d29593e38454fd77977d86335d2
 branch: claude/happy-davinci-ijz3wy-ci-split
 pr: 1892
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - .github/workflows/portal-rs-ci.yml
@@ -99,13 +99,13 @@ validation:
     evidence: 27 task checkpoints validated
 blockers:
   - none
-next_action: Push, open the PR, read the per-shard counts and times from its Portal RS CI run
+next_action: none; delivered by PR 1892 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active; branch not yet pushed
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1892 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1892 merged as e9b0bcaaacf61d29593e38454fd77977d86335d2
 ```

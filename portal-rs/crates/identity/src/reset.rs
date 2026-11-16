@@ -136,6 +136,7 @@ pub async fn complete(pool: &PgPool, input: Input) -> Result<bool, sqlx::Error> 
                 .execute(&mut *tx)
                 .await?;
             crate::recovery_key::revoke_authorizations(&mut tx, id).await?;
+            crate::email_change::cancel_pending(&mut tx, id).await?;
             sqlx::query("INSERT INTO credential_security_events(account_id,kind) VALUES($1,'password_changed')").bind(id).execute(&mut *tx).await?;
             accepted = true;
         }

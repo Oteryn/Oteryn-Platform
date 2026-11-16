@@ -81,6 +81,19 @@ impl Security for TransactionalSecurity {
         })
     }
 }
+/// Cancels every unapplied email change. Password reset and recovery call this
+/// with the account row locked, so a confirmation link issued before the owner
+/// recovered the account cannot install the requested address afterwards.
+pub(crate) async fn cancel_pending(
+    conn: &mut PgConnection,
+    account: AccountId,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE account_email_changes SET cancelled_at=now(),updated_at=now() WHERE account_id=$1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL")
+        .bind(account)
+        .execute(conn)
+        .await?;
+    Ok(())
+}
 #[derive(Clone)]
 pub struct Service {
     pub pool: PgPool,
