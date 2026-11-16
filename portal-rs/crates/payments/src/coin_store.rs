@@ -793,8 +793,13 @@ impl CoinPurchases {
         event: &CoinEvent,
     ) -> Result<WebhookOutcome, Error> {
         let provider = self.provider.name();
+        let prepared_account =
+            crate::storage::prepare_intent_account(tx, event.intent_id, provider).await?;
         let intent = sqlx::query("SELECT account_id,amount,currency,state,provider_reference FROM payment_intents WHERE id=$1 AND provider=$2 FOR UPDATE")
             .bind(event.intent_id).bind(provider).fetch_optional(&mut **tx).await?.ok_or(Error::NotFound)?;
+        if intent.try_get::<Uuid, _>("account_id")? != prepared_account {
+            return Err(Error::InvalidInput);
+        }
         let order = sqlx::query(concat!(
             "SELECT ",
             order_columns!(),

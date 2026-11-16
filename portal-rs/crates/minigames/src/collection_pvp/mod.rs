@@ -132,8 +132,22 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         }
     }
     async fn active(conn: &mut PgConnection, account: Uuid) -> Result<()> {
+        oteryn_db::mutation_budget(conn).await?;
         let allowed = oteryn_wallet::value_eligible_in(conn, account).await?;
         if allowed { Ok(()) } else { Err(Error::Refused) }
+    }
+    // Prepare the whole participant set before retaining any individual account
+    // or domain row. SHARE locks conflict with staff's ordered UPDATE locks too.
+    async fn prepare_accounts(conn: &mut PgConnection, accounts: &[Uuid]) -> Result<()> {
+        oteryn_db::mutation_budget(conn).await?;
+        sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR SHARE")
+            .bind(accounts)
+            .execute(&mut *conn)
+            .await?;
+        for account in accounts {
+            Self::active(conn, *account).await?;
+        }
+        Ok(())
     }
     async fn creation_budget(conn: &mut PgConnection, actor: Uuid) -> Result<()> {
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,92))")
@@ -153,8 +167,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
-        Self::active(&mut tx, actor).await?;
-        Self::active(&mut tx, opponent).await?;
+        Self::prepare_accounts(&mut tx, &[actor, opponent]).await?;
         Self::creation_budget(&mut tx, actor).await?;
         let snapshot = self.collection.deck(&mut tx, actor, deck).await?;
         validate_snapshot(&snapshot)?;
@@ -167,7 +180,14 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
     pub async fn accept(&self, actor: Uuid, id: Uuid, deck: Uuid) -> Result<()> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
-        Self::active(&mut tx, actor).await?;
+        let participants: (Uuid, Uuid) = sqlx::query_as(
+            "SELECT left_account,right_account FROM collection_pvp_battles WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::Refused)?;
+        Self::prepare_accounts(&mut tx, &[actor, participants.0, participants.1]).await?;
         let row: (Uuid, Value, String) = sqlx::query_as("SELECT right_account,left_deck,status FROM collection_pvp_battles WHERE id=$1 FOR UPDATE")
             .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
         if row.0 != actor || row.2 != "pending" {
@@ -178,6 +198,9 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
                 .bind(id)
                 .fetch_one(&mut *tx)
                 .await?;
+        if (left, row.0) != participants {
+            return Err(Error::Refused);
+        }
         Self::active(&mut tx, left).await?;
         let right = self.collection.deck(&mut tx, actor, deck).await?;
         validate_snapshot(&right)?;
@@ -224,13 +247,11 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
-        Self::active(&mut tx, actor).await?;
-        let tournament: Option<Option<Uuid>> =
-            sqlx::query_scalar("SELECT tournament_id FROM collection_pvp_battles WHERE id=$1")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await?;
-        if let Some(Some(tournament)) = tournament {
+        let participants: (Uuid, Uuid, Option<Uuid>) = sqlx::query_as(
+            "SELECT left_account,right_account,tournament_id FROM collection_pvp_battles WHERE id=$1",
+        ).bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
+        Self::prepare_accounts(&mut tx, &[actor, participants.0, participants.1]).await?;
+        if let Some(tournament) = participants.2 {
             sqlx::query("SELECT id FROM collection_pvp_tournaments WHERE id=$1 FOR UPDATE")
                 .bind(tournament)
                 .execute(&mut *tx)
@@ -238,7 +259,14 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         }
         let battle: Battle = sqlx::query_as("SELECT id,left_account,right_account,status,revision,state,winner,tournament_id FROM collection_pvp_battles WHERE id=$1 FOR UPDATE")
             .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
-        if battle.status != "active" || battle.revision != revision {
+        if (
+            battle.left_account,
+            battle.right_account,
+            battle.tournament_id,
+        ) != participants
+            || battle.status != "active"
+            || battle.revision != revision
+        {
             return Err(Error::Refused);
         }
         let side = if actor == battle.left_account {
@@ -340,7 +368,12 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
     pub async fn start(&self, actor: Uuid, tournament: Uuid) -> Result<()> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
-        Self::active(&mut tx, actor).await?;
+        let entrants: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT account_id FROM collection_pvp_entries WHERE tournament_id=$1 ORDER BY account_id",
+        ).bind(tournament).fetch_all(&mut *tx).await?;
+        let mut accounts = entrants.clone();
+        accounts.push(actor);
+        Self::prepare_accounts(&mut tx, &accounts).await?;
         let (organizer, status): (Uuid, String) = sqlx::query_as(
             "SELECT organizer,status FROM collection_pvp_tournaments WHERE id=$1 FOR UPDATE",
         )
@@ -352,7 +385,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
             return Err(Error::Refused);
         }
         let entries: Vec<(Uuid,Value)> = sqlx::query_as("SELECT account_id,deck FROM collection_pvp_entries WHERE tournament_id=$1 ORDER BY account_id").bind(tournament).fetch_all(&mut *tx).await?;
-        if entries.len() < 2 {
+        if entries.len() < 2 || entries.iter().map(|(id, _)| *id).collect::<Vec<_>>() != entrants {
             return Err(Error::Refused);
         }
         for (i, (left, ld)) in entries.iter().enumerate() {

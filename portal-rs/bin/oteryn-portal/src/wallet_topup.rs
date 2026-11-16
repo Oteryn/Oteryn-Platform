@@ -90,16 +90,16 @@ impl Delivery {
             .begin()
             .await
             .map_err(|_| "top-up storage unavailable")?;
-        // PostgreSQL also bounds server-side work if the client disappears while
-        // waiting on a lock. Both limits fit inside the worker execution budget.
-        sqlx::query("SET LOCAL lock_timeout = '10s'")
+        oteryn_db::mutation_budget(&mut tx)
+            .await
+            .map_err(|_| "top-up acquisition deadline unavailable")?;
+        // Staff reconciliation and provider events retain identity before the
+        // intent. The payload binding is checked again under the intent lock.
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+            .bind(payload.account_id)
             .execute(&mut *tx)
             .await
-            .map_err(|_| "top-up storage unavailable")?;
-        sqlx::query("SET LOCAL statement_timeout = '20s'")
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| "top-up storage unavailable")?;
+            .map_err(|_| "top-up account unavailable")?;
         // Lock the intent first, as webhook processing does. A refund that wins
         // this lock prevents later delivery; a credit never rewrites refunds.
         let intent = sqlx::query(

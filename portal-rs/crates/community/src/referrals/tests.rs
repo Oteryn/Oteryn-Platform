@@ -256,6 +256,7 @@ impl Database {
 }
 #[tokio::test]
 async fn referrals_email_rate_limit_25_per_day() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -294,6 +295,7 @@ async fn referrals_email_rate_limit_25_per_day() {
 }
 #[tokio::test]
 async fn referrals_resend_after_14_days() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -322,6 +324,7 @@ async fn referrals_resend_after_14_days() {
 }
 #[tokio::test]
 async fn referrals_outfit_on_first_paid_purchase() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -346,6 +349,7 @@ async fn referrals_outfit_on_first_paid_purchase() {
 }
 #[tokio::test]
 async fn referrals_addons_at_3_and_10() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -361,6 +365,7 @@ async fn referrals_addons_at_3_and_10() {
 }
 #[tokio::test]
 async fn referrals_loyalty_1_per_6() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -440,6 +445,7 @@ async fn referrals_loyalty_1_per_6() {
 }
 #[tokio::test]
 async fn referrals_buddy_requires_12_months_inactive() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -466,6 +472,7 @@ async fn referrals_buddy_requires_12_months_inactive() {
 }
 #[tokio::test]
 async fn referrals_buddy_limit_20_per_30_days() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -495,6 +502,7 @@ async fn referrals_buddy_limit_20_per_30_days() {
 }
 #[tokio::test]
 async fn referrals_buddy_premium_5_and_10_days_within_90() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -539,6 +547,7 @@ async fn referrals_buddy_premium_5_and_10_days_within_90() {
 }
 #[tokio::test]
 async fn referrals_rewards_once_only_under_concurrency() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -591,6 +600,7 @@ async fn referrals_rewards_once_only_under_concurrency() {
 }
 #[tokio::test]
 async fn referrals_self_referral_denied() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -621,6 +631,7 @@ async fn referrals_self_referral_denied() {
 }
 #[tokio::test]
 async fn referrals_starter_and_first_returning_character_pending_entitlements() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -675,6 +686,7 @@ async fn test_login(
 use axum::extract::{Extension, Path};
 #[tokio::test]
 async fn referrals_http_real_router_session_csrf_locales_and_bad_input() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -815,6 +827,7 @@ async fn referrals_http_real_router_session_csrf_locales_and_bad_input() {
 
 #[tokio::test]
 async fn referrals_atomic_rollback_and_disabled_hooks() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -854,6 +867,7 @@ async fn referrals_atomic_rollback_and_disabled_hooks() {
 
 #[tokio::test]
 async fn referrals_link_survives_real_session_rotation_and_reconciles_signup() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -959,6 +973,7 @@ async fn attribution_session(db: &Database, account: Option<Uuid>, code: &str) -
 
 #[tokio::test]
 async fn nwave_completed_attribution_does_not_starve_later_batches() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1005,6 +1020,7 @@ async fn nwave_completed_attribution_does_not_starve_later_batches() {
 
 #[tokio::test]
 async fn nwave_signup_attribution_precedes_first_purchase() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1064,6 +1080,7 @@ async fn nwave_signup_attribution_precedes_first_purchase() {
 
 #[tokio::test]
 async fn nwave_session_end_is_retained_activity_and_backfilled() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1113,6 +1130,7 @@ async fn nwave_session_end_is_retained_activity_and_backfilled() {
 
 #[tokio::test]
 async fn nwave_loyalty_stream_tracks_credit_only_changes() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1180,6 +1198,7 @@ async fn nwave_loyalty_stream_tracks_credit_only_changes() {
 
 #[tokio::test]
 async fn nwave_stream_alone_awards_referral_consumption_credits() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1238,6 +1257,7 @@ async fn nwave_stream_alone_awards_referral_consumption_credits() {
 
 #[tokio::test]
 async fn nwave_mail_backlog_respects_delivery_budget_across_workers() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1281,6 +1301,7 @@ async fn nwave_mail_backlog_respects_delivery_budget_across_workers() {
 
 #[tokio::test]
 async fn nwave_returning_mail_backlog_respects_monthly_delivery_budget() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1314,6 +1335,7 @@ async fn nwave_returning_mail_backlog_respects_monthly_delivery_budget() {
 
 #[tokio::test]
 async fn nwave_verification_binds_before_revoking_browser_sessions() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1374,6 +1396,7 @@ impl oteryn_notify::EmailSender for PausedMail {
 }
 #[tokio::test]
 async fn nwave_smtp_does_not_block_purchase_qualification() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1466,6 +1489,7 @@ impl oteryn_store::premium::Accounts for ConcurrentPurchaseLock {
 }
 #[tokio::test]
 async fn nwave_stream_releases_qualification_lock_before_next_account() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1537,6 +1561,7 @@ async fn wait_for_blocker(pool: &PgPool, blocker: i32) -> i32 {
 
 #[tokio::test]
 async fn nwave_first_link_locks_account_before_qualification() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1600,6 +1625,7 @@ impl oteryn_store::premium::Accounts for PausedStreamAccount {
 
 #[tokio::test]
 async fn nwave_stream_creates_authority_before_qualification() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1648,6 +1674,7 @@ async fn nwave_stream_creates_authority_before_qualification() {
 
 #[tokio::test]
 async fn nwave_stream_locks_existing_authority_before_qualification() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1683,6 +1710,7 @@ async fn nwave_stream_locks_existing_authority_before_qualification() {
 
 #[tokio::test]
 async fn nwave_accept_locks_inviter_before_qualification() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1714,6 +1742,7 @@ async fn nwave_accept_locks_inviter_before_qualification() {
 
 #[tokio::test]
 async fn nwave_snapshot_locks_inviter_before_qualification() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1767,6 +1796,7 @@ async fn nwave_snapshot_locks_inviter_before_qualification() {
 
 #[tokio::test]
 async fn nwave_signup_and_email_lock_accounts_before_qualification() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1831,6 +1861,7 @@ async fn nwave_signup_and_email_lock_accounts_before_qualification() {
 
 #[tokio::test]
 async fn nwave_signup_expanded_preparation_aborts_login_for_retry() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1891,6 +1922,7 @@ async fn nwave_signup_expanded_preparation_aborts_login_for_retry() {
 
 #[tokio::test]
 async fn nwave_purchase_retries_entire_transaction_and_replays_original_answer() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1928,6 +1960,7 @@ async fn nwave_purchase_retries_entire_transaction_and_replays_original_answer()
 
 #[tokio::test]
 async fn nwave_transaction_retry_is_bounded_and_only_for_retryable_sqlstates() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -1974,6 +2007,7 @@ async fn nwave_transaction_retry_is_bounded_and_only_for_retryable_sqlstates() {
 
 #[tokio::test]
 async fn nwave_returning_snapshot_and_stream_prepare_all_fk_targets() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -2008,6 +2042,7 @@ async fn nwave_returning_snapshot_and_stream_prepare_all_fk_targets() {
 
 #[tokio::test]
 async fn nwave_snapshot_stream_campaign_and_worker_retry_fresh_transactions() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -2100,6 +2135,7 @@ async fn assert_retry_lock_restarted(db: &Database) {
 
 #[tokio::test]
 async fn nwave_policy_read_failure_preserves_worker_attribution() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -2151,6 +2187,7 @@ async fn nwave_policy_read_failure_preserves_worker_attribution() {
 
 #[tokio::test]
 async fn nwave_legacy_invite_checks_campaign_graph() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -2192,6 +2229,7 @@ async fn nwave_legacy_invite_checks_campaign_graph() {
 
 #[tokio::test]
 async fn nwave_preparation_prevents_account_and_authority_lock_upgrades_after_5600() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -2229,6 +2267,7 @@ async fn nwave_preparation_prevents_account_and_authority_lock_upgrades_after_56
 
 #[tokio::test]
 async fn nwave_verification_contention_preserves_attribution_for_retry() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -2298,6 +2337,7 @@ async fn nwave_verification_contention_preserves_attribution_for_retry() {
 
 #[tokio::test]
 async fn nwave_session_contention_aborts_login_before_first_purchase() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -2369,6 +2409,7 @@ impl oteryn_notify::EmailSender for RejectFirst {
 }
 #[tokio::test]
 async fn bzb_referral_delivery_rotates_failed_recipient() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -2405,6 +2446,7 @@ async fn bzb_referral_delivery_rotates_failed_recipient() {
 
 #[tokio::test]
 async fn l6_01_pending_termination_refuses_campaign_rewards() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -2476,4 +2518,74 @@ async fn l6_01_pending_termination_refuses_campaign_rewards() {
         "PG l6_01_pending_termination_refuses_campaign_rewards {:.3}s",
         started.elapsed().as_secs_f64()
     );
+}
+
+#[tokio::test]
+async fn lock_order_policy_prepares_accounts_before_eligibility_evaluation() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open()
+        .await
+        .expect("PostgreSQL required for account-order regression");
+    let earlier = Uuid::now_v7();
+    let later = Uuid::now_v7();
+    assert!(earlier < later);
+    // Physical order deliberately differs from UUID order. A legal sequential
+    // plan must obey the same hierarchy as an index plan.
+    for id in [later, earlier] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
+            .bind(id).execute(&db.pool).await.unwrap();
+    }
+    let mut writer = db.pool.begin().await.unwrap();
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(earlier)
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let pool = db.pool.clone();
+    let policy = tokio::spawn(async move {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL enable_indexscan=off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("SET LOCAL enable_bitmapscan=off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        DatabasePolicy
+            .allowed(&mut tx, later, earlier, Kind::New, Stage::Claim)
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')")
+                .bind(blocker).fetch_one(&db.pool).await.unwrap();
+            if waiting { break; }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("policy did not reach the observable account wait within 2 seconds");
+    sqlx::query("SET LOCAL lock_timeout='250ms'")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let later_lock = sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(later)
+        .execute(&mut *writer)
+        .await;
+    writer.rollback().await.unwrap();
+    let allowed = tokio::time::timeout(std::time::Duration::from_secs(4), policy)
+        .await
+        .expect("policy did not finish after account blocker released")
+        .unwrap()
+        .unwrap();
+    db.close().await;
+    assert!(
+        later_lock.is_ok(),
+        "policy retained a later account before waiting for an earlier one: {later_lock:?}"
+    );
+    assert!(allowed);
 }

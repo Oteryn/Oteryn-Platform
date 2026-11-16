@@ -234,6 +234,7 @@ fn input_is_one_flat_object_of_string_fields() {
 
 #[tokio::test]
 async fn issues_replays_and_refuses_with_distinct_codes() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -322,6 +323,7 @@ async fn issues_replays_and_refuses_with_distinct_codes() -> TestResult {
 
 #[tokio::test]
 async fn missing_malformed_or_unknown_actor_issues_and_audits_nothing() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -422,6 +424,7 @@ impl oteryn_admin::rbac::AccountStateReader for RbacAccounts {
 
 #[tokio::test]
 async fn cw3_02_postgres_bootstrap_serializes_permission_revocation() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_admin::rbac::{Authorizer, Change, CheckContext};
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {

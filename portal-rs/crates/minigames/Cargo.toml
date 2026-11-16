@@ -29,6 +29,7 @@ image = { version = "0.25.10", default-features = false, features = ["webp"] }
 sha2 = "0.10.9"
 
 [dev-dependencies]
+oteryn-db = { workspace = true, features = ["test-support"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5", features = ["util"] }
 tempfile = "3"

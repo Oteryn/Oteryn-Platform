@@ -3,6 +3,7 @@ use super::*;
 use axum::extract::Request;
 #[tokio::test]
 async fn disabled_router_refuses_before_database() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use tower::ServiceExt;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
@@ -110,6 +111,7 @@ async fn post(app: Router, cookie: &str, csrf: &str, body: String) -> Response {
 
 #[tokio::test]
 async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use axum::body::to_bytes;
     use oteryn_admin::rbac::AccountState;
     use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};

@@ -17,8 +17,8 @@ account set in UUID order, then verify the binding again under resource locks.
 |---|---|---|
 | 1 | Bazaar moderation gate `64002` | Shared for all Bazaar transaction entry points, **before account adapters**, listing locks and issuer rows. Exclusive for **every** staff command before `lock_staff_target`; never upgrade shared to exclusive. This separates listing-first trades (account `FOR SHARE`) from staff account `FOR UPDATE`. |
 | 2 | Bazaar existing listing / command target rows; gift-code resources | Listing, then invalidation request/report. Staff prepares these before actor/RBAC. Traders retain the listing before locking its discovered participants; creation inserts a new private listing. Gift redemption takes request key 55 → code row → batch/account key 56 before account rows on both browser and internal paths. |
-| 3 | `accounts` rows, `FOR SHARE`, `FOR NO KEY UPDATE` and `FOR UPDATE` | UUID order for the entire participant set; strongest required mode first. Bazaar Accounts::prepare includes previous leaders, selected offers and the bounded refund batch before any single-account check. RBAC and role writers use `FOR UPDATE`; account eligibility ports use `FOR SHARE`, and web character creation uses `FOR NO KEY UPDATE`. No late upgrade. |
-| 4 | Domain resource acquisition | Character issuance fence `22005160000` (exclusive creation/commands, shared player-data admission), then restore protection/command rows; account locks precede issuance on both creation and admission. Download publication channel pointers precede RBAC. Events, announcements, news/media/pages, wiki guides/slug reservation, world publication pointers, support tickets/sanctions/workflows, MFA reset evidence and target-session rows. Prepare existing targets through `authorize_mutation_with_resources*`, or revalidate on the same transaction after a retained target wait. |
+| 3 | `accounts` rows, `FOR SHARE`, `FOR NO KEY UPDATE` and `FOR UPDATE` | UUID order for the entire participant set; strongest required mode first. Bazaar Accounts::prepare includes previous leaders, selected offers and the bounded refund batch before any single-account check. RBAC and role writers use `FOR UPDATE`; account eligibility ports use `FOR SHARE`, and web character creation uses `FOR NO KEY UPDATE`. Collection PvP prepares every participant (including tournament entrants) before any actor check or domain row; it verifies the discovered binding again under the domain lock. Browser rotation prepares both previous and new accounts before its session UPDATE. No late upgrade. |
+| 4 | Domain resource acquisition | Character issuance fence `22005160000` (exclusive creation/commands, shared player-data admission), then restore protection/command rows; account locks precede issuance on both creation and admission. Payment intents (account before intent, then order/top-up binding; provider and worker paths use the same edge as staff reconciliation). Download publication channel pointers precede RBAC. Events, announcements, news/media/pages, wiki guides/slug reservation, world publication pointers, support tickets/sanctions/workflows, MFA reset evidence and target-session rows. Prepare existing targets through `authorize_mutation_with_resources*`, or revalidate on the same transaction after a retained target wait. |
 | 5 | RBAC fence `71010` | Exclusive canonical mutation/role writer; shared bootstrap operator reader. Account and prepared domain locks precede this fence. Download publication uses the canonical account/resource helper and rechecks `downloads.manage` under this fence before installing a release. Shared issuance retains this fence while acquiring the bootstrap authority, under the same acquisition deadline. |
 | 6 | Durable session and MFA rows | Session → enrollment → grant; lock first, then evaluate database-clock expiry, security generation, password binding, account eligibility and permissions. Revalidate after subsequent resource waits before accepting effects. |
 | 7 | Bootstrap authority, catalog activation pointer, MFA reset request rows, domain effects, ledgers, outboxes and audit | Bootstrap issuance joins RBAC before its authority row and checks permission after that wait. Catalog activation joins RBAC before waiting on its pointer; purchases take accounts then the pointer and never join RBAC. Retain the earlier authority/resource locks. Any additional blocking adapter call must be followed by same-transaction revalidation before commit. |
@@ -36,7 +36,7 @@ row locks; account sets and wallet sets are ordered by UUID.
 | `64002` | Hierarchy level 1. Migration `20261115110004_fix_04_scheduling.sql` installs statement gates **before implicit listing/bid row locks**, and an INSERT row gate. `20261105230107_t64_moderation.sql` contains the earlier row trigger. Application entry acquisition establishes `mutation_budget` first and makes every trigger reacquisition shared and reentrant. Applied migrations are unchanged. |
 | `64001`; hash `64` | Bazaar fee revision / report request serialization before corresponding target writes. |
 | hash `57`, `59`, `60`, `61`, `64004`, `64005` | Bazaar offer, character/item request, search, destination and subscription serialization, under the moderation gate. |
-| `22005160000` (also `22_005_160_000`) | Character command publication/receipt and player-data ownership fence; account → issuance fence → restore/command issuance rows for character creation and player-data admission. Also taken by the character-command publication trigger in `20261115110004_fix_04_scheduling.sql`. |
+| `22005160000` (also `22_005_160_000`) | Character command publication/receipt and player-data ownership fence; after the complete account set (account → issuance fence on character creation, player-data admission and service receipts) and before existing command/order rows and wallet effects. Restore protection and request serialization precede acquisition as listed by the owning domain. Also taken by the character-command publication trigger in `20261115110004_fix_04_scheduling.sql`. |
 | hash `46`, `47` | Character request/actor serialization before character command/ledger writes, under restore protection. |
 | hash `71102`, `12`; `20261105220206` | Page slug, media name, wiki slug reservation; canonical account → resource callback → RBAC. |
 | `281510004` | Catalog CLI audit serialization in its separate audit transaction; establish `mutation_budget` before acquisition. |
@@ -71,3 +71,46 @@ and optimistic versions did not change. Roll back domain effects if a later
 adapter wait causes revalidation to fail. Never acquire another pool connection
 while retaining mutation locks, and never start a new acquisition budget inside
 an adapter.
+
+## Implicit locks and test isolation
+
+The hierarchy includes implicit UPDATE/DELETE tuple locks, foreign-key checks and
+trigger calls. A session UPDATE can acquire its tuple before the authentication
+trigger requests the account; the browser rotation entry point must prepare the
+ordered account set first. Request-memory mutexes must not be retained while
+waiting for those accounts, because caller-owned authentication transactions
+already retain the account before accessing that same request memory.
+
+Collection PvP's account eligibility function takes SHARE locks. Those still
+conflict with an ordered RBAC writer's UPDATE locks, so challenge, accept, play
+and tournament start prepare the full UUID-ordered participant set. Tournament
+start discovers entrants without locks, prepares their accounts, then verifies
+that the entrant set is unchanged under the tournament lock; a changed set
+refuses rather than taking a new account out of order.
+
+PostgreSQL tests taking database-global advisory keys must acquire
+`oteryn_db::test_support::global_lock_guard().await?` (or `.unwrap()` in modules
+that allow it) at test entry, before fixtures, and retain it through cleanup.
+The guard does not serialize actors inside a test. Interleavings use bounded
+polling of `pg_locks` or `pg_stat_activity`/`pg_blocking_pids`, with explicit
+failure messages, never sleeps. Run Cargo tests under `timeout 1200`.
+
+Payment delivery and both generic/native provider webhooks locate immutable
+intent ownership without a lock, retain that account before the intent, then
+verify the binding and evaluate current eligibility after the intent wait. Staff
+reconciliation already follows account → intent; an intent-first delivery would
+form the opposite edge. The browser top-up worker uses the shared three-second
+budget, replacing its former independent 10 s/20 s acquisition limits.
+
+Character service issuance and receipts retain the account before the exclusive
+`22005160000` publication fence and existing command/order or recovery-credit
+rows. Receipt writers join the fence before their command UPDATE; its INSERT-only
+publication trigger cannot establish receipt ordering. Issuance must not retain
+a recovery credit or wallet effect while waiting for a receipt's publication
+fence. The same transaction-wide budget starts before restore protection.
+
+Referral account eligibility is a locking function, including when called from
+an aggregate or a WHERE clause. Prepare the full UUID-ordered SHARE set before
+function evaluation; planner/heap/index order and the input array do not define
+lock order. Campaign paths that already retain their complete stronger set
+reacquire it without upgrades.

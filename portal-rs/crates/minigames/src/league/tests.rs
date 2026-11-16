@@ -292,6 +292,7 @@ impl Db {
 }
 #[tokio::test]
 async fn database_replay_correction_freeze_and_retention() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -421,6 +422,7 @@ async fn database_replay_correction_freeze_and_retention() -> TestResult {
 }
 #[tokio::test]
 async fn unavailable_defaults_and_http() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
@@ -462,6 +464,7 @@ async fn unavailable_defaults_and_http() -> TestResult {
 }
 #[tokio::test]
 async fn database_bad_evidence_rolls_back_and_pair_conflict_quarantines() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -560,6 +563,7 @@ async fn enqueue_publication(db: &Db, c: &config::Config, p: &Publication) -> Re
 }
 #[tokio::test]
 async fn real_authority_worker_enumeration_replay_and_restore() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -722,6 +726,7 @@ fn names_follow_nfc_wire_policy_instead_of_ascii_only() -> TestResult {
 }
 #[tokio::test]
 async fn real_worker_keeps_scheduled_locked_pending_and_refuses_reopening() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -791,6 +796,7 @@ fn spki_configuration_is_strict() -> TestResult {
 
 #[tokio::test]
 async fn watermarks_do_not_enable_an_epoch_with_unknown_retained_subjects() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -853,6 +859,7 @@ async fn watermarks_do_not_enable_an_epoch_with_unknown_retained_subjects() -> T
 
 #[tokio::test]
 async fn equal_pair_conflict_in_nonterminal_game_snapshot_quarantines_feed() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -907,6 +914,7 @@ async fn advance_watermarks(db: &Db, c: &config::Config, epoch: &str) -> TestRes
 
 #[tokio::test]
 async fn postgres_withdrawal_replay_and_new_epoch_revision_one() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -1012,6 +1020,7 @@ async fn postgres_withdrawal_replay_and_new_epoch_revision_one() -> TestResult {
 
 #[tokio::test]
 async fn postgres_refresh_and_generation_recovery_preserve_serving_evidence() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -1071,6 +1080,7 @@ async fn postgres_refresh_and_generation_recovery_preserve_serving_evidence() ->
 
 #[tokio::test]
 async fn postgres_queued_old_fences_retire_without_quarantine() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -1186,6 +1196,7 @@ impl Authority for CountedAuthority {
 }
 #[tokio::test]
 async fn postgres_serving_projection_bounds_rows_bytes_and_verification() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -1272,6 +1283,7 @@ async fn postgres_serving_projection_bounds_rows_bytes_and_verification() -> Tes
 
 #[tokio::test]
 async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -1321,6 +1333,7 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
 
 #[tokio::test]
 async fn postgres_obsolete_fence_still_refuses_forged_admission_metadata() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -1371,6 +1384,7 @@ impl Authority for StalledAuthority {
 }
 #[tokio::test]
 async fn postgres_league_database_execution_has_a_deadline() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
     };

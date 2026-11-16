@@ -462,6 +462,7 @@ impl Database {
 }
 #[tokio::test]
 async fn postgres_publication_rotation_evidence_and_terminal_revocation() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -541,6 +542,7 @@ async fn postgres_publication_rotation_evidence_and_terminal_revocation() -> Tes
 }
 #[tokio::test]
 async fn postgres_refuses_third_rebinding_bad_input_and_stale_snapshot() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -596,6 +598,7 @@ async fn postgres_refuses_third_rebinding_bad_input_and_stale_snapshot() -> Test
 }
 #[tokio::test]
 async fn postgres_witness_ahead_restore_and_missing_state_deny() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -716,6 +719,7 @@ fn recovery_custody_never_opens_in_the_fresh_scope() -> TestResult {
 
 #[tokio::test]
 async fn audit05_07_revoked_history_is_not_materialized() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let db = Database::new()
         .await?
         .ok_or("PORTAL_TEST_DATABASE_URL required")?;
@@ -744,6 +748,7 @@ async fn audit05_07_revoked_history_is_not_materialized() -> TestResult {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn audit05_08_cross_scope_publication_is_serialized() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let db = Database::new()
         .await?
         .ok_or("PORTAL_TEST_DATABASE_URL required")?;

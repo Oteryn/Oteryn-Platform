@@ -1321,3 +1321,163 @@ async fn l6_04_rejected_paid_rename_releases_suspended_holder_once() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn lock_order_service_receipt_prepares_account_and_publication_before_command() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut inversions = Vec::new();
+    for account_wait in [true, false] {
+        let db = Database::open()
+            .await
+            .expect("PostgreSQL required for receipt lock-order regression");
+        let service = Services::new(db.pool.clone(), settings());
+        let account = Uuid::now_v7();
+        let character = Uuid::now_v7();
+        seed(&service, account, character, 100).await;
+        let command = service.request(account, rename(character)).await.unwrap();
+        let raw = receipt(&command, true, 3);
+        let mut writer = db.pool.begin().await.unwrap();
+        let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *writer)
+            .await
+            .unwrap();
+        if account_wait {
+            sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+                .bind(account)
+                .execute(&mut *writer)
+                .await
+                .unwrap();
+        } else {
+            sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+                .execute(&mut *writer)
+                .await
+                .unwrap();
+        }
+        let incoming = tokio::spawn(async move { service.receive(raw.as_bytes()).await });
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')")
+                    .bind(blocker).fetch_one(&db.pool).await.unwrap();
+                if waiting { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("receipt did not reach the observable account/publication wait within 2 seconds");
+        sqlx::query("SET LOCAL lock_timeout='250ms'")
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        let command_lock = sqlx::query("SELECT id FROM character_commands WHERE id=$1 FOR UPDATE")
+            .bind(command.operation_id)
+            .execute(&mut *writer)
+            .await;
+        writer.rollback().await.unwrap();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(4), incoming)
+            .await
+            .expect("receipt did not finish after releasing blocker")
+            .unwrap();
+        if command_lock.is_err() {
+            inversions.push((account_wait, format!("{command_lock:?}")));
+        }
+        db.close().await;
+        outcome.unwrap();
+    }
+    assert!(
+        inversions.is_empty(),
+        "receipt retained command before earlier locks: {inversions:?}"
+    );
+}
+
+#[tokio::test]
+async fn lock_order_service_issuance_waits_for_publication_before_recovery_credit() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open()
+        .await
+        .expect("PostgreSQL required for recovery-credit regression");
+    let service = Services::new(db.pool.clone(), settings());
+    let account = Uuid::now_v7();
+    let character = Uuid::now_v7();
+    seed(&service, account, character, 100).await;
+    let original = service.request(account, rename(character)).await.unwrap();
+    service
+        .receive(receipt(&original, true, 3).as_bytes())
+        .await
+        .unwrap();
+    let restore = crate::restore::Restore::new(
+        db.pool.clone(),
+        crate::restore::Settings {
+            enabled: true,
+            source_authority: COMMAND_AUTHORITY.into(),
+            exchange_available: true,
+            ..crate::restore::Settings::default()
+        },
+    );
+    let raw = include_str!("../restore/fixtures/notice.json");
+    let value = wire::decode_value(raw.as_bytes(), 512).unwrap();
+    let event = Uuid::now_v7();
+    let notice = raw
+        .replace(
+            wire::string(&value, "restore_event_id").unwrap(),
+            &event.to_string(),
+        )
+        .replace("oteryn-game-eu1", COMMAND_AUTHORITY);
+    restore.notice(notice.as_bytes()).await.unwrap();
+    let generation = wire::number(
+        wire::string(&value, "new_recovery_generation").unwrap(),
+        false,
+    )
+    .unwrap();
+    service
+        .receive(receipt(&original, false, generation).as_bytes())
+        .await
+        .unwrap();
+    restore.notice(notice.as_bytes()).await.unwrap();
+    sqlx::query("UPDATE character_service_feed SET updated_at=clock_timestamp()")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE account_character_feed SET updated_at=clock_timestamp()")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut writer = db.pool.begin().await.unwrap();
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let mut request = rename(character);
+    request.accepted_price = Some(0);
+    let issuance = tokio::spawn(async move { service.request(account, request).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')")
+                .bind(blocker).fetch_one(&db.pool).await.unwrap();
+            if waiting { break; }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("issuance did not reach observable publication wait within 2 seconds");
+    sqlx::query("SET LOCAL lock_timeout='250ms'")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let credit_lock = sqlx::query(
+        "SELECT operation_id FROM character_service_orders WHERE operation_id=$1 FOR UPDATE",
+    )
+    .bind(original.operation_id)
+    .execute(&mut *writer)
+    .await;
+    writer.rollback().await.unwrap();
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(4), issuance)
+        .await
+        .expect("issuance did not finish after publication blocker released")
+        .unwrap();
+    db.close().await;
+    assert!(
+        credit_lock.is_ok(),
+        "issuance retained recovery credit while waiting for publication: {credit_lock:?}"
+    );
+    outcome.unwrap();
+}
