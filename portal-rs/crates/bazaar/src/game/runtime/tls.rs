@@ -221,6 +221,7 @@ mod accept_tests {
     #[tokio::test]
     async fn recoverable_accept_error_is_recorded_and_next_connection_is_served()
     -> Result<(), Box<dyn std::error::Error>> {
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let client = tokio::net::TcpStream::connect(listener.local_addr()?).await?;
         let mut first = true;
@@ -252,6 +253,7 @@ mod accept_tests {
 
     #[tokio::test]
     async fn sustained_accept_failure_returns_to_supervisor() {
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await;
         let mut recorded = 0;
         let result = accept_with_retry(
             || async { Err::<(), _>(std::io::Error::from(std::io::ErrorKind::PermissionDenied)) },
@@ -270,6 +272,7 @@ mod deadline_tests {
     #[tokio::test]
     async fn stalled_body_deadline_releases_connection_permit()
     -> Result<(), Box<dyn std::error::Error>> {
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await;
         use tokio::io::AsyncWriteExt;
         let permits = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = permits.clone().acquire_owned().await?;
@@ -303,6 +306,7 @@ mod deadline_tests {
     #[tokio::test]
     async fn postgres_exchange_deadline_cancels_issuer_wait_and_releases_pool()
     -> Result<(), Box<dyn std::error::Error>> {
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await;
         let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)

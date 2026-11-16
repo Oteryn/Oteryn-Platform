@@ -68,6 +68,7 @@ async fn request(app: Router, path: &str, host: &str) -> Response {
 }
 #[tokio::test]
 async fn host_flag_session_and_mfa_boundaries() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
@@ -153,6 +154,7 @@ fn localized_responsive_labelled_template() {
 }
 #[tokio::test]
 async fn database_navigation_authorization_csrf_and_owner() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
         return;

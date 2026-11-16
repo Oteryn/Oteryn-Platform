@@ -18,7 +18,7 @@ thiserror = "2"
 
 [dev-dependencies]
 jsonschema = { version = "0.60.2", default-features = false }
-oteryn-db = { version = "0.1.0", path = "../db" }
+oteryn-db = { version = "0.1.0", path = "../db", features = ["test-support"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
 
 [dependencies.oteryn-web]

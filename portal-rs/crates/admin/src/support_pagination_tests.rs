@@ -62,6 +62,7 @@ impl Backend for Queue {
 }
 #[tokio::test]
 async fn pagination_admin_queue_caps_and_empty() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let pool = PgPool::connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")?;
     let state = Arc::new(Panel {
         pool: pool.clone(),

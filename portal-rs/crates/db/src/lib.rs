@@ -51,3 +51,7 @@ pub async fn mutation_budget(connection: &mut PgConnection) -> Result<(), sqlx::
         .execute(connection).await?;
     Ok(())
 }
+
+/// Isolation for database-wide advisory locks in schema-based PostgreSQL tests.
+#[cfg(feature = "test-support")]
+pub mod test_support;

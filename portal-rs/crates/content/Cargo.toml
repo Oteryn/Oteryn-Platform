@@ -25,7 +25,7 @@ pulldown-cmark = "0.13"
 ammonia = "4"
 thiserror = "2"
 [dev-dependencies]
-oteryn-db.workspace = true
+oteryn-db = { workspace = true, features = ["test-support"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
 
 tower = { version = "0.5.3", features = ["util"] }

@@ -104,6 +104,7 @@ fn request_vectors_and_bad_input() -> TestResult {
 }
 #[tokio::test]
 async fn identity_bad_request_and_default_off() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let pool = PgPoolOptions::new().connect_lazy("postgres://localhost/unused")?;
     let active = reader(pool.clone(), AccountState::Active);
     for peer in [None, Some("wrong-peer")] {
@@ -215,6 +216,7 @@ impl Database {
 }
 #[tokio::test]
 async fn db_golden_both_sexes_and_http_success() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -248,6 +250,7 @@ async fn db_golden_both_sexes_and_http_success() -> TestResult {
 }
 #[tokio::test]
 async fn db_unknown_accounts_expiry_and_missing_operation() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -287,6 +290,7 @@ async fn db_unknown_accounts_expiry_and_missing_operation() -> TestResult {
 }
 #[tokio::test]
 async fn db_corruption_rollback_and_retired_versions_deny() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };

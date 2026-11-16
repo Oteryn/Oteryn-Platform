@@ -210,6 +210,7 @@ fn candidate_owner_gates_and_missing_trust_never_enable() {
 }
 #[tokio::test]
 async fn postgres_exact_receipt_replay_conflict_audit_rollback_and_nonrollback_floor() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIP PostgreSQL PLAT3: PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -368,10 +369,12 @@ async fn postgres_exact_receipt_replay_conflict_audit_rollback_and_nonrollback_f
 }
 #[tokio::test]
 async fn postgres_suspended_delivered_settlement_captures_once() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     item_wallet_scenario(false, true).await;
 }
 #[tokio::test]
 async fn postgres_suspended_compensation_refunds_once() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     item_wallet_scenario(true, true).await;
 }
 #[test]
@@ -475,6 +478,7 @@ fn all_nine_exact_result_schemas_reject_unknown_and_reordered_fields() {
 }
 #[tokio::test]
 async fn private_routes_disabled_no_store_and_receipt_v1_preservation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use axum::{
         Router,
         body::Body,
@@ -642,10 +646,12 @@ async fn store_intent_with_key(
 }
 #[tokio::test]
 async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     item_wallet_scenario(false, false).await;
 }
 #[tokio::test]
 async fn postgres_delivery_refusal_allows_return_and_refunds_fenced_coins() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
     item_wallet_scenario(true, false).await;
@@ -1283,6 +1289,7 @@ fn all_nine_intent_schemas_and_exact_source_files() {
 }
 #[tokio::test]
 async fn postgres_concurrent_receipt_publication_commits_one_immutable_decision() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use sqlx::AssertSqlSafe;
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIP PostgreSQL PLAT3: PORTAL_TEST_DATABASE_URL unset");
@@ -1479,6 +1486,7 @@ async fn gold_fact(
 }
 #[tokio::test]
 async fn postgres_released_gold_hold_starts_new_lifecycle_and_reconstruction() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
     let pool = PgPoolOptions::new()
@@ -1531,6 +1539,7 @@ async fn postgres_released_gold_hold_starts_new_lifecycle_and_reconstruction() {
 
 #[tokio::test]
 async fn postgres_completed_resync_does_not_rescan_terminal_history() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let pool = PgPoolOptions::new()
         .max_connections(2)
@@ -1561,6 +1570,7 @@ async fn postgres_completed_resync_does_not_rescan_terminal_history() {
 
 #[tokio::test]
 async fn postgres_receipt_evidence_and_worker_listing_lock_do_not_deadlock() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use crate::Evidence;
     let started = std::time::Instant::now();
     let pool = PgPoolOptions::new()
@@ -1675,6 +1685,7 @@ async fn transfer_listing(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Uui
 }
 #[tokio::test]
 async fn postgres_legacy_staged_transfer_publishes_exact_bytes_after_newer_revision() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let pool = PgPoolOptions::new()
         .max_connections(2)
@@ -1736,6 +1747,7 @@ async fn postgres_legacy_staged_transfer_publishes_exact_bytes_after_newer_revis
 }
 #[tokio::test]
 async fn postgres_transfer_expiry_requires_terminal_no_commit_before_replacement() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     transfer_rejection_scenario("CHAR_CMD_INTENT_EXPIRED").await;
     eprintln!(
@@ -1861,6 +1873,7 @@ async fn transfer_rejection_scenario(code: &str) {
 
 #[tokio::test]
 async fn postgres_transfer_session_rejection_requires_terminal_no_commit_before_replacement() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     for code in [
         "CHAR_CMD_CHARACTER_IN_SESSION",
@@ -1922,6 +1935,7 @@ async fn issue_create_fixture(
 }
 #[tokio::test]
 async fn postgres_private_transfer_barrier_fences_all_character_issuers() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let pool = PgPoolOptions::new()
         .max_connections(2)
@@ -1978,6 +1992,7 @@ async fn postgres_private_transfer_barrier_fences_all_character_issuers() {
 
 #[tokio::test]
 async fn postgres_resync_advances_only_a_bounded_fence_scoped_operation_batch() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let pool = PgPoolOptions::new()
         .max_connections(1)
@@ -2056,6 +2071,7 @@ async fn postgres_resync_advances_only_a_bounded_fence_scoped_operation_batch() 
 
 #[tokio::test]
 async fn bzb_receipt_admission_precedes_oversized_version_selection() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use axum::{
         Router,
         body::Body,
@@ -2366,6 +2382,7 @@ impl BrowserFixture {
 }
 #[tokio::test]
 async fn postgres_browser_typed_bans_unknown_states_and_lifted_expired_bids() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = BrowserFixture::new().await;
     let seed = Uuid::now_v7();
@@ -2426,6 +2443,7 @@ async fn postgres_browser_typed_bans_unknown_states_and_lifted_expired_bids() {
 }
 #[tokio::test]
 async fn postgres_browser_approved_item_attributes_quantity_and_deadline() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = BrowserFixture::new().await;
     for path in [
@@ -2447,6 +2465,7 @@ async fn postgres_browser_approved_item_attributes_quantity_and_deadline() {
 }
 #[tokio::test]
 async fn postgres_browser_unavailable_catalogue_has_bounded_work_and_continuation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = BrowserFixture::new().await;
     for _ in 0..110 {
@@ -2505,10 +2524,12 @@ async fn postgres_browser_unavailable_catalogue_has_bounded_work_and_continuatio
 
 #[tokio::test]
 async fn postgres_expired_gold_release_restarts_with_audited_immutable_attempt() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     gold_release_retry_scenario(false).await;
 }
 #[tokio::test]
 async fn postgres_accepted_bid_cleanup_retains_admission_after_release_retry() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     gold_release_retry_scenario(true).await;
 }
 async fn gold_release_retry_scenario(accepted: bool) {
@@ -2760,6 +2781,7 @@ async fn committed_fact(
 }
 #[tokio::test]
 async fn postgres_browser_verified_character_snapshot_facts() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let mut db = BrowserFixture::new().await;
     std::sync::Arc::make_mut(&mut db.runtime.config)
@@ -2907,6 +2929,7 @@ async fn postgres_browser_verified_character_snapshot_facts() {
 
 #[tokio::test]
 async fn l6_04_suspended_leader_can_be_outbid_and_exact_hold_released() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         return;

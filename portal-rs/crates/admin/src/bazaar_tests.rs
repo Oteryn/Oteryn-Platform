@@ -155,6 +155,7 @@ fn unknown_action_and_bad_numbers_deny() {
 }
 #[tokio::test]
 async fn postgres_staff_authorization_mfa_and_audit() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Db::new().await else { return };
     let listing = db.listing().await;
     let api = db.service();
@@ -189,6 +190,7 @@ async fn postgres_staff_authorization_mfa_and_audit() {
 }
 #[tokio::test]
 async fn postgres_audit_failure_rolls_back_hold() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Db::new().await else { return };
     let listing = db.listing().await;
     sqlx::raw_sql("CREATE FUNCTION reject_fixture_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture audit unavailable'; END; $$; CREATE TRIGGER fixture_audit_fail BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_fixture_audit();").execute(&db.pool).await.unwrap();
@@ -207,6 +209,7 @@ async fn postgres_audit_failure_rolls_back_hold() {
 }
 #[tokio::test]
 async fn postgres_staff_http_actor_to_result_csrf_and_localization() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Db::new().await else { return };
     let listing = db.listing().await;
     let app = db.app();
@@ -302,6 +305,7 @@ async fn postgres_staff_http_actor_to_result_csrf_and_localization() {
 }
 #[tokio::test]
 async fn postgres_staff_four_eyes_requires_second_live_permission() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Db::new().await else { return };
     let listing = db.listing().await;
     let api = db.service();
@@ -346,6 +350,7 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
 
 #[tokio::test]
 async fn a2_bazaar_single_connection_and_sixteen_mutations() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     for maximum in [1, 16] {
         let db = Db::with_connections(maximum)
@@ -382,6 +387,7 @@ async fn a2_bazaar_single_connection_and_sixteen_mutations() {
 
 #[tokio::test]
 async fn postgres_bazaar_single_connection_mutation_and_audit() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(db) = Db::new().await else {
         panic!("PostgreSQL required")
@@ -427,6 +433,7 @@ async fn postgres_bazaar_single_connection_mutation_and_audit() {
 
 #[tokio::test]
 async fn postgres_a3_bazaar_audit_excludes_lifetime_invalidation_history() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Db::new().await.expect("PostgreSQL required");
     let listing = db.listing().await;
@@ -455,6 +462,7 @@ async fn postgres_a3_bazaar_audit_excludes_lifetime_invalidation_history() {
 
 #[tokio::test]
 async fn postgres_a3_bazaar_target_and_gate_waits_share_deadline_and_release_pool() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Db::with_connections(1).await.expect("PostgreSQL required");
     let listing = db.listing().await;
@@ -554,6 +562,7 @@ async fn postgres_a3_bazaar_target_and_gate_waits_share_deadline_and_release_poo
 
 #[tokio::test]
 async fn postgres_a3_bazaar_orders_actor_before_role_fence() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Db::new().await.expect("PostgreSQL required");
     let listing = db.listing().await;
@@ -579,6 +588,7 @@ async fn postgres_a3_bazaar_orders_actor_before_role_fence() {
 
 #[tokio::test]
 async fn delta_bazaar_listing_before_staff_account_avoids_deadlock() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Db::new().await.unwrap();
     let listing = db.listing().await;

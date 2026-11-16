@@ -111,6 +111,7 @@ async fn staff(pool: &PgPool, id: Uuid) -> Option<CheckContext> {
 
 #[tokio::test]
 async fn postgres_creation_idempotency_limit_and_validation() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -185,6 +186,7 @@ async fn postgres_creation_idempotency_limit_and_validation() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_concurrent_creation_and_reopen_share_limit() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -221,6 +223,7 @@ async fn postgres_concurrent_creation_and_reopen_share_limit() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -373,6 +376,7 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
 }
 #[tokio::test]
 async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -432,6 +436,7 @@ async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> Tes
 }
 #[tokio::test]
 async fn postgres_retention_only_removes_old_terminal_tickets() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use oteryn_db::outbox::Cleanup;
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -480,6 +485,7 @@ async fn postgres_retention_only_removes_old_terminal_tickets() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_player_routes_session_csrf_bad_input_and_success() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -644,6 +650,7 @@ impl oteryn_admin::rbac::AccountStateReader for StaffAdapter {
 }
 #[tokio::test]
 async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -747,6 +754,7 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
 
 #[tokio::test]
 async fn postgres_message_pages_and_payload_binding() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -794,6 +802,7 @@ async fn postgres_message_pages_and_payload_binding() -> TestResult {
 
 #[tokio::test]
 async fn postgres_ticket_status_with_exhausted_pool() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -830,6 +839,7 @@ async fn postgres_ticket_status_with_exhausted_pool() -> TestResult {
 
 #[tokio::test]
 async fn postgres_notification_transaction_with_exhausted_pool() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(db) = Database::with_connections(1).await? else {
         return Ok(());
@@ -990,6 +1000,7 @@ macro_rules! waiting_staff_test {
     ($name:ident, $method:literal, $action:literal, $revocation:literal) => {
         #[tokio::test]
         async fn $name() -> TestResult {
+            let _database_guard = oteryn_db::test_support::global_lock_guard().await;
             staff_waiting_mutation_rechecks_authority(
                 stringify!($name),
                 $method,
@@ -1054,6 +1065,7 @@ waiting_staff_test!(
 
 #[tokio::test]
 async fn postgres_pagination_ticket_boundary() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Database::new()
         .await?
@@ -1123,6 +1135,7 @@ async fn postgres_pagination_ticket_boundary() -> TestResult {
 
 #[tokio::test]
 async fn lk_crossed_staff_replies_finish() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Database::with_connections(2)
         .await?
@@ -1184,6 +1197,7 @@ async fn lk_crossed_staff_replies_finish() -> TestResult {
 
 #[tokio::test]
 async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -1243,6 +1257,7 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
 
 #[tokio::test]
 async fn postgres_a3_support_refuses_session_revoked_during_account_wait() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Database::new().await?.ok_or("PostgreSQL required")?;
     let actor = db.account("en").await?;

@@ -315,6 +315,7 @@ fn settings_default_off_and_refuse_unknown_values() {
 /// Guard order 1: flag off or group not configured is 503 before identity or body.
 #[tokio::test]
 async fn refusal_flag_off_or_unconfigured_is_503_first() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let off = router(lazy_pool()?, Settings::default(), identities()?);
     let unconfigured = router(lazy_pool()?, on(1200), Arc::new(IdentityMap::default()));
     for app in [&off, &unconfigured] {
@@ -354,6 +355,7 @@ async fn refusal_flag_off_or_unconfigured_is_503_first() -> TestResult {
 /// Guard order 2: wrong, missing or header-only identity, and the other group's identity.
 #[tokio::test]
 async fn refusal_wrong_identity_or_scope_is_401() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let app = router(lazy_pool()?, on(1200), identities()?);
     for (path, body) in ALL {
         let foreign = if path == RESULTS_PATH {
@@ -382,6 +384,7 @@ async fn refusal_wrong_identity_or_scope_is_401() -> TestResult {
 /// Guard order 3: the per-group budget counts malformed bodies and precedes transport.
 #[tokio::test]
 async fn refusal_budget_precedes_transport_and_counts_malformed() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let app = router(lazy_pool()?, on(1), identities()?);
     assert_eq!(
         status(&app, request(STREAM_PATH, "{", Some(READER))).await?,
@@ -416,6 +419,7 @@ async fn refusal_budget_precedes_transport_and_counts_malformed() -> TestResult 
 /// Guard order 4 and §1.4: transport, size limits and malformed bodies are 400.
 #[tokio::test]
 async fn refusal_transport_size_and_malformed_body_is_400() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let app = router(lazy_pool()?, on(6000), identities()?);
     for (path, body) in ALL {
         let peer = Some(peer_of(path));
@@ -666,6 +670,7 @@ fn result_with(from: &str, to: &str) -> String {
 
 #[tokio::test]
 async fn routes_serve_fixture_bytes_on_postgres() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -754,6 +759,7 @@ async fn routes_serve_fixture_bytes_on_postgres() -> TestResult {
 /// Revision and fencing conflicts on A3: 409, 404 and 400 rules that need the command.
 #[tokio::test]
 async fn results_refuse_revision_and_fencing_conflicts_on_postgres() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -867,6 +873,7 @@ async fn results_refuse_revision_and_fencing_conflicts_on_postgres() -> TestResu
 /// Producer fences: profile flag, stream identity and revision preconditions.
 #[tokio::test]
 async fn record_fences_profiles_streams_and_revisions_on_postgres() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };

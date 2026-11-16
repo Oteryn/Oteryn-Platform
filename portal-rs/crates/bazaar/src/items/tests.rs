@@ -275,6 +275,7 @@ fn rejects_bad_input_and_ambiguous_publication() {
 }
 #[tokio::test]
 async fn pg_create_replay_and_publish_after_escrow() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -307,6 +308,7 @@ async fn pg_create_replay_and_publish_after_escrow() -> Result {
 }
 #[tokio::test]
 async fn pg_negotiated_offer_reserves_stack_and_accepts_once() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -336,6 +338,7 @@ async fn pg_negotiated_offer_reserves_stack_and_accepts_once() -> Result {
 }
 #[tokio::test]
 async fn pg_fixed_price_refuses_self_wrong_amount_and_unfunded_offer() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -366,6 +369,7 @@ async fn pg_fixed_price_refuses_self_wrong_amount_and_unfunded_offer() -> Result
 }
 #[tokio::test]
 async fn pg_buy_notice_requires_seller_escrow_and_buyer_funding() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -389,6 +393,7 @@ async fn pg_buy_notice_requires_seller_escrow_and_buyer_funding() -> Result {
 }
 #[tokio::test]
 async fn pg_auction_proxy_retry_and_sniping() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -410,6 +415,7 @@ async fn pg_auction_proxy_retry_and_sniping() -> Result {
 }
 #[tokio::test]
 async fn pg_buy_now_disabled_after_bid_and_idempotent() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -435,6 +441,7 @@ async fn pg_buy_now_disabled_after_bid_and_idempotent() -> Result {
 }
 #[tokio::test]
 async fn pg_cancel_expire_renew_keep_blocked_compensation() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -463,6 +470,7 @@ async fn pg_cancel_expire_renew_keep_blocked_compensation() -> Result {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pg_competing_acceptance_commits_one_delivery() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -484,6 +492,7 @@ async fn pg_competing_acceptance_commits_one_delivery() -> Result {
 }
 #[tokio::test]
 async fn pg_stale_authority_denies_reads_bids_and_creates() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -503,6 +512,7 @@ async fn pg_stale_authority_denies_reads_bids_and_creates() -> Result {
 }
 #[tokio::test]
 async fn default_router_is_localized_and_disabled() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use tower::ServiceExt;
     let response = web::configured_router()
         .oneshot(
@@ -522,6 +532,7 @@ async fn default_router_is_localized_and_disabled() -> Result {
 
 #[tokio::test]
 async fn pg_browser_authenticated_form_success_refusal_and_invalid_input() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use axum::{
         body::{Body, to_bytes},
         extract::ConnectInfo,
@@ -631,6 +642,7 @@ async fn pg_browser_authenticated_form_success_refusal_and_invalid_input() -> Re
 
 #[tokio::test]
 async fn pg_auction_close_freezes_sale_without_payout_or_release() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -658,6 +670,7 @@ async fn pg_auction_close_freezes_sale_without_payout_or_release() -> Result {
 }
 #[tokio::test]
 async fn default_flags_deny_before_database_access() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let pool = PgPoolOptions::new().connect_lazy("postgres://unused@localhost/unused")?;
     let api = Items::new(
         pool,
@@ -675,6 +688,7 @@ async fn default_flags_deny_before_database_access() -> Result {
 
 #[tokio::test]
 async fn cancellation_without_return_stays_pending_and_keeps_the_same_request() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -699,6 +713,7 @@ async fn cancellation_without_return_stays_pending_and_keeps_the_same_request() 
 
 #[tokio::test]
 async fn postgres_item_mutation_replays_survive_changed_custody() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(h) = Harness::new().await? else {
         return Ok(());
@@ -749,6 +764,7 @@ async fn postgres_item_mutation_replays_survive_changed_custody() -> Result {
 
 #[tokio::test]
 async fn postgres_many_offer_accounts_have_bounded_admission() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(h) = Harness::new().await? else {
         return Ok(());
@@ -774,6 +790,7 @@ async fn postgres_many_offer_accounts_have_bounded_admission() -> Result {
 }
 #[tokio::test]
 async fn postgres_legacy_offers_release_in_bounded_batches_without_losing_competitors() -> Result {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(h) = Harness::new().await? else {
         return Ok(());

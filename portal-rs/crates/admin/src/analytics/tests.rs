@@ -58,6 +58,7 @@ fn uint64_and_activity_arithmetic_boundaries() {
 }
 #[tokio::test]
 async fn wrong_purpose_transport_and_bounds() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
@@ -204,6 +205,7 @@ async fn apply(store: &store::Store, c: &wire::Commit) -> Result<&'static str, s
 }
 #[tokio::test]
 async fn postgres_retries_conflicts_revisions_pages_and_fence() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -367,6 +369,7 @@ async fn staff(pool: &PgPool, role: &str) -> crate::web::StaffIdentity {
 }
 #[tokio::test]
 async fn postgres_audit_before_read_outage_and_rbac_denials() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -547,6 +550,7 @@ async fn postgres_audit_before_read_outage_and_rbac_denials() {
 
 #[tokio::test]
 async fn postgres_retention_privacy_watermark_and_baseline_gates() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -686,6 +690,7 @@ async fn postgres_retention_privacy_watermark_and_baseline_gates() {
 
 #[tokio::test]
 async fn postgres_host_gate_refuses_before_session_and_audit() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -757,6 +762,7 @@ async fn postgres_host_gate_refuses_before_session_and_audit() {
 
 #[tokio::test]
 async fn postgres_refused_messages_preserve_epoch_and_active_generation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -847,6 +853,7 @@ async fn postgres_refused_messages_preserve_epoch_and_active_generation() {
 
 #[tokio::test]
 async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some((pool, root, name)) = database().await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -1179,6 +1186,7 @@ async fn economy_watermark(s: &store::Store, p: &wire::Page) {
 }
 #[tokio::test]
 async fn postgres_economy_members_panel_and_refusal_fence() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some((pool, root, name)) = database().await else {
         return;
     };
@@ -1382,6 +1390,7 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
 }
 #[tokio::test]
 async fn postgres_economy_migration_rollback_reapply() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some((pool, root, name)) = database().await else {
         return;
     };
@@ -1462,6 +1471,7 @@ fn economy_wire_refuses_non_strings_unknown_members_and_purchased() {
 
 #[tokio::test]
 async fn postgres_platform_purchased_units_empty_day_and_boundaries() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some((pool, root, name)) = database().await else {
         return;
     };
@@ -1538,6 +1548,7 @@ async fn postgres_platform_purchased_units_empty_day_and_boundaries() {
 
 #[tokio::test]
 async fn a2_committed_revision_rejects_unreceipted_page_identity() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let (pool, root, name) = database().await.expect("PostgreSQL required");
     let s = store(pool.clone()).await;
@@ -1558,6 +1569,7 @@ async fn a2_committed_revision_rejects_unreceipted_page_identity() {
 }
 #[tokio::test]
 async fn a2_blocked_purge_refuses_browser_reads_without_pool_exhaustion() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let (pool, root, name) = database().await.expect("PostgreSQL required");
     let s = store(pool.clone()).await;

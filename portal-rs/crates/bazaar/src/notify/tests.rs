@@ -158,6 +158,7 @@ impl Harness {
 
 #[tokio::test]
 async fn postgres_records_all_kinds_and_replays_once() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -185,6 +186,7 @@ async fn postgres_records_all_kinds_and_replays_once() -> TestResult {
 
 #[tokio::test]
 async fn postgres_disabled_keeps_pending_and_rollback_removes_event() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(mut h) = Harness::new().await? else {
         return Ok(());
     };
@@ -206,6 +208,7 @@ async fn postgres_disabled_keeps_pending_and_rollback_removes_event() -> TestRes
 
 #[tokio::test]
 async fn postgres_unknown_evidence_and_bad_input_deny() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -220,6 +223,7 @@ async fn postgres_unknown_evidence_and_bad_input_deny() -> TestResult {
 
 #[tokio::test]
 async fn postgres_revoked_evidence_suppresses_and_failed_sink_retries_atomically() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -240,6 +244,7 @@ async fn postgres_revoked_evidence_suppresses_and_failed_sink_retries_atomically
 
 #[tokio::test]
 async fn postgres_concurrent_dispatch_has_one_effect() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -270,6 +275,7 @@ impl NoticeSink for FailRecipient {
 }
 #[tokio::test]
 async fn postgres_failing_sink_does_not_starve_later_notice() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(h) = Harness::new().await? else {
         return Ok(());
@@ -311,6 +317,7 @@ impl NoticeEvidence for FencedEvidence {
 }
 #[tokio::test]
 async fn postgres_notification_record_and_dispatch_share_evidence_lock_order() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(h) = Harness::new().await? else {
         return Ok(());

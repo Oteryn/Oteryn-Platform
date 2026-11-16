@@ -354,6 +354,7 @@ fn router_with(
 /// (401), identity and scope before the body (400).
 #[tokio::test]
 async fn route_guard_order_without_database() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
         .unwrap();
@@ -549,6 +550,7 @@ fn known() -> Uuid {
 
 #[tokio::test]
 async fn db_change_pages_match_fixtures_and_cursor_rules() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::create().await else {
         return;
     };
@@ -599,6 +601,7 @@ async fn db_change_pages_match_fixtures_and_cursor_rules() {
 
 #[tokio::test]
 async fn db_premium_lifecycle_changes_publish_hints_in_their_transaction() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::create().await else {
         return;
     };
@@ -651,6 +654,7 @@ async fn db_premium_lifecycle_changes_publish_hints_in_their_transaction() {
 
 #[tokio::test]
 async fn db_authority_issues_advances_and_fences() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::create().await else {
         return;
     };
@@ -859,6 +863,7 @@ async fn db_authority_issues_advances_and_fences() {
 
 #[tokio::test]
 async fn db_authority_revision_strictly_increases_under_concurrency() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::create().await else {
         return;
     };

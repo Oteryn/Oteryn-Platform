@@ -112,6 +112,7 @@ fn fake(allowed: bool, advertised: bool) -> Fake {
 }
 #[tokio::test]
 async fn permission_and_disabled_flag_deny_without_storage() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let state = Console {
         pool: lazy(),
         flags: Flags { console: true },
@@ -134,6 +135,7 @@ async fn permission_and_disabled_flag_deny_without_storage() {
 }
 #[tokio::test]
 async fn unavailable_is_explicit_and_bad_input_refused() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let state = Console {
         pool: lazy(),
         flags: Flags { console: true },
@@ -204,6 +206,7 @@ fn translations_and_escaping_are_complete() {
 #[tokio::test]
 async fn postgres_masked_view_writes_exactly_one_read_audit()
 -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("skipping PostgreSQL console read audit: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(());
@@ -351,6 +354,7 @@ impl crate::rbac::AccountStateReader for Accounts {
 #[tokio::test]
 async fn postgres_http_four_pages_filters_host_and_read_only()
 -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
@@ -551,6 +555,7 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
 #[tokio::test]
 async fn a2_inventory_and_sanctions_audit_distinct_requests_and_fail_closed()
 -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let db = Database::open(&url).await?;

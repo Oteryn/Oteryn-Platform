@@ -30,7 +30,6 @@ async fn postgres_permanent_sanction_expiry_conflict() -> TestResult {
 }
 
 async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> TestResult {
-    let started = std::time::Instant::now();
     // Exercise the configured production composition with an isolated, explicit
     // fixture environment; never mutate process-global environment in the suite.
     if std::env::var("OTERYN_LK_STAFF_SUPPORT_FIXTURE").as_deref() != Ok("1") {
@@ -58,6 +57,9 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         );
         return Ok(());
     }
+    // Acquire in the child that owns the database fixture, never its launcher.
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let started = std::time::Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let root = PgPool::connect(&url).await?;
     let schema = format!("staff_support_{}", Uuid::now_v7().simple());
@@ -643,6 +645,7 @@ impl oteryn_admin::support::Backend for PausedPreparation {
 }
 #[tokio::test]
 async fn postgres_ticket_preparation_and_player_note_share_account_order() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use oteryn_admin::{
         players::{Flags, IdentityAccounts, Players},
         rbac::{Authorizer, CheckContext},

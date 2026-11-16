@@ -162,6 +162,7 @@ impl SearchProjection for ManyProjection {
 
 #[tokio::test]
 async fn postgres_preferences_and_private_tabs() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIPPED search PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(());
@@ -341,6 +342,7 @@ async fn postgres_preferences_and_private_tabs() -> Result<(), Box<dyn std::erro
 #[tokio::test]
 async fn postgres_watch_admission_is_bounded_and_existing_watch_replays()
 -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let pool = PgPool::connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?).await?;
     oteryn_db::migrate(&pool).await?;

@@ -20,6 +20,7 @@ fn input_boundaries() {
 }
 #[tokio::test]
 async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("skipping PostgreSQL pages test: PORTAL_TEST_DATABASE_URL unset");
@@ -407,6 +408,7 @@ Updated English source",
 }
 #[tokio::test]
 async fn staff_off_and_wrong_host_refuse() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use oteryn_admin::web::{PanelConfig, PendingAuthentication};
     let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
     for config in [

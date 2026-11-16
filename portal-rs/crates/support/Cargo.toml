@@ -33,4 +33,5 @@ sha2 = "0.10"
 tower = { version = "0.5.3", features = ["util"] }
 
 [dev-dependencies]
+oteryn-db = { workspace = true, features = ["test-support"] }
 serde_urlencoded = "0.7"

@@ -241,6 +241,7 @@ impl Database {
 }
 #[tokio::test]
 async fn db_import_is_idempotent_and_immutable() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await else {
         return;
     };
@@ -279,6 +280,7 @@ async fn db_import_is_idempotent_and_immutable() {
 }
 #[tokio::test]
 async fn db_import_keeps_game_colon_offer_key_available() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await else {
         return;
     };
@@ -315,6 +317,7 @@ async fn db_import_keeps_game_colon_offer_key_available() {
 }
 #[tokio::test]
 async fn db_refusals_and_bad_input_leave_no_changes() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await else {
         return;
     };
@@ -399,6 +402,7 @@ async fn db_refusals_and_bad_input_leave_no_changes() {
 }
 #[tokio::test]
 async fn db_concurrent_activation_has_serial_history() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await else {
         return;
     };
@@ -449,6 +453,7 @@ async fn db_concurrent_activation_has_serial_history() {
 }
 #[tokio::test]
 async fn db_activation_history_failure_rolls_back_pointer() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await else {
         return;
     };
@@ -483,6 +488,7 @@ async fn db_activation_history_failure_rolls_back_pointer() {
 
 #[tokio::test]
 async fn lk_catalog_account_before_pointer() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Database::new()
         .await

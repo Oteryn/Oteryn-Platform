@@ -170,6 +170,7 @@ impl Database {
 }
 #[tokio::test]
 async fn postgres_publication_versions_validation_and_refusals() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await else {
         return;
     };
@@ -297,6 +298,7 @@ fn staff(pool: PgPool, identity: Identity) -> Router {
 }
 #[tokio::test]
 async fn postgres_http_public_visibility_staff_form_and_csrf() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await else {
         return;
     };
@@ -434,6 +436,7 @@ async fn postgres_http_public_visibility_staff_form_and_csrf() {
 
 #[tokio::test]
 async fn postgres_a3_current_events_and_staff_continuation_are_reachable() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Database::open().await.expect("PostgreSQL required");
     let (actor, _, identity) = db.author().await;
@@ -501,6 +504,7 @@ async fn postgres_a3_current_events_and_staff_continuation_are_reachable() {
 
 #[tokio::test]
 async fn postgres_a3_events_refuse_session_revoked_after_authentication() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Database::open().await.expect("PostgreSQL required");
     let (actor, _, _) = db.author().await;

@@ -223,6 +223,7 @@ async fn balance(s: &Services, account: Uuid) -> (i64, i64) {
 }
 #[tokio::test]
 async fn postgres_reservation_insufficient_funds_and_transaction_rollback() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await else {
         return;
     };
@@ -250,6 +251,7 @@ async fn postgres_reservation_insufficient_funds_and_transaction_rollback() {
 }
 #[tokio::test]
 async fn postgres_concurrent_reservations_cannot_overspend() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await else {
         return;
     };
@@ -289,6 +291,7 @@ async fn postgres_concurrent_reservations_cannot_overspend() {
 }
 #[tokio::test]
 async fn postgres_settlement_replay_conflict_and_concurrency() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await else {
         return;
     };
@@ -342,6 +345,7 @@ async fn postgres_settlement_replay_conflict_and_concurrency() {
 }
 #[tokio::test]
 async fn postgres_rename_receipt_capture_refusal_release_and_exact_replay() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await else {
         return;
     };
@@ -371,6 +375,7 @@ async fn postgres_rename_receipt_capture_refusal_release_and_exact_replay() {
 }
 #[tokio::test]
 async fn postgres_owner_stale_unknown_flags_and_bad_input_deny() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await else {
         return;
     };
@@ -450,6 +455,7 @@ async fn postgres_owner_stale_unknown_flags_and_bad_input_deny() {
 }
 #[tokio::test]
 async fn postgres_schedule_game_deadline_cancel_boundary_and_no_charge() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await else {
         return;
     };
@@ -579,6 +585,7 @@ fn list(version: u8) -> String {
 }
 #[tokio::test]
 async fn postgres_v1_v2_isolation_identity_and_receipt_binding() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await else {
         return;
     };
@@ -684,6 +691,7 @@ async fn postgres_v1_v2_isolation_identity_and_receipt_binding() {
 }
 #[tokio::test]
 async fn postgres_projection_conflict_epoch_invalidation_and_removal_deny() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::open().await else {
         return;
     };
@@ -734,6 +742,7 @@ async fn postgres_projection_conflict_epoch_invalidation_and_removal_deny() {
 }
 #[tokio::test]
 async fn postgres_restore_reopens_and_grants_lost_rename_for_free() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -887,6 +896,7 @@ async fn postgres_restore_reopens_and_grants_lost_rename_for_free() {
 }
 #[tokio::test]
 async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use axum::{
         Extension, Form, Router, extract::State, http::HeaderMap, middleware, routing::get,
     };
@@ -1043,6 +1053,7 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
 }
 #[tokio::test]
 async fn postgres_service_and_ownership_transfer_cannot_queue_together() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     struct Accounts;
     impl commands::AccountStateReader for Accounts {
         async fn state(&self, _: Uuid) -> commands::AccountState {
@@ -1102,6 +1113,7 @@ async fn postgres_service_and_ownership_transfer_cannot_queue_together() {
 
 #[tokio::test]
 async fn postgres_v2_oversize_all_routes_empty_bad_request() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -1159,6 +1171,7 @@ async fn postgres_v2_oversize_all_routes_empty_bad_request() {
 
 #[tokio::test]
 async fn postgres_replay_after_terminal_deleted_projection() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -1198,6 +1211,7 @@ async fn postgres_replay_after_terminal_deleted_projection() {
 
 #[tokio::test]
 async fn bzb_rate_refusal_precedes_malformed_and_oversized_bodies() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
         .unwrap();
@@ -1219,6 +1233,7 @@ async fn bzb_rate_refusal_precedes_malformed_and_oversized_bodies() {
 
 #[tokio::test]
 async fn audit_a210_postgres_suspended_rename_receipts_settle_once() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -1271,6 +1286,7 @@ async fn audit_a210_postgres_suspended_rename_receipts_settle_once() {
 
 #[tokio::test]
 async fn l6_04_rejected_paid_rename_releases_suspended_holder_once() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;

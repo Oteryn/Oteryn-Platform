@@ -6,6 +6,7 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[tokio::test]
 async fn postgres_bazaar_locks_complete_identity_set_before_wallets() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIPPED Bazaar lock order: PORTAL_TEST_DATABASE_URL unset");

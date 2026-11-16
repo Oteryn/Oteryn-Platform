@@ -72,6 +72,7 @@ fn input_and_action_validation() {
 }
 #[tokio::test]
 async fn postgres_announcements_and_today() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL announcements test: PORTAL_TEST_DATABASE_URL unset");
@@ -336,6 +337,7 @@ impl oteryn_admin::web::StaffSession for Staff {
 }
 #[tokio::test]
 async fn postgres_staff_announcement_dispatch() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")
         .expect("PORTAL_TEST_DATABASE_URL required for staff announcement dispatch");

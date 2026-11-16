@@ -181,6 +181,7 @@ fn input_and_defaults_fail_closed() {
 
 #[tokio::test]
 async fn db_warning_restriction_and_suspension_ticket_lifecycle() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -239,6 +240,7 @@ async fn db_warning_restriction_and_suspension_ticket_lifecycle() -> TestResult 
 
 #[tokio::test]
 async fn db_permanent_decision_requires_distinct_current_authorized_reviewer() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -301,6 +303,7 @@ async fn db_permanent_decision_requires_distinct_current_authorized_reviewer() -
 
 #[tokio::test]
 async fn db_bad_input_mfa_permission_and_disabled_feature_have_no_effect() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -358,6 +361,7 @@ async fn db_bad_input_mfa_permission_and_disabled_feature_have_no_effect() -> Te
 
 #[tokio::test]
 async fn db_suspension_boundaries_overlap_and_account_state_deny() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -472,6 +476,7 @@ fn request(attempt: Uuid) -> Result<admission::AdmissionRequest, admission::Erro
 }
 #[tokio::test]
 async fn db_admission_fresh_and_replay_recheck_suspension() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -518,6 +523,7 @@ async fn db_admission_fresh_and_replay_recheck_suspension() -> TestResult {
 
 #[tokio::test]
 async fn db_access_transaction_serializes_suspension_and_rolls_back_ticket_failure() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -566,6 +572,7 @@ async fn db_access_transaction_serializes_suspension_and_rolls_back_ticket_failu
 
 #[tokio::test]
 async fn db_http_admission_success_then_suspension_denies_fresh_and_replay() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
@@ -635,6 +642,7 @@ async fn db_http_admission_success_then_suspension_denies_fresh_and_replay() -> 
 
 #[tokio::test]
 async fn db_unknown_sanction_state_and_unavailable_storage_never_authorize() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -689,6 +697,7 @@ async fn state(db: &Database, character: Option<Uuid>) -> Result<EffectiveState,
 
 #[tokio::test]
 async fn db_revision_concurrent_allocation_and_caller_rollback() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -751,6 +760,7 @@ async fn db_revision_concurrent_allocation_and_caller_rollback() -> TestResult {
 
 #[tokio::test]
 async fn db_revision_permanent_unban_stale_and_conflicting_replay() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -811,6 +821,7 @@ async fn db_revision_permanent_unban_stale_and_conflicting_replay() -> TestResul
 
 #[tokio::test]
 async fn db_revision_expiry_uses_database_clock_even_in_old_transaction() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -865,6 +876,7 @@ async fn db_revision_expiry_uses_database_clock_even_in_old_transaction() -> Tes
 
 #[tokio::test]
 async fn db_revision_namelock_is_character_scoped_and_notation_is_staff_only() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -911,6 +923,7 @@ async fn db_revision_namelock_is_character_scoped_and_notation_is_staff_only() -
 
 #[tokio::test]
 async fn db_revision_bounds_and_invalid_lifts_do_not_allocate() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -960,6 +973,7 @@ async fn db_revision_bounds_and_invalid_lifts_do_not_allocate() -> TestResult {
 
 #[tokio::test]
 async fn db_revision_newer_expired_state_never_restores_older_permanent_state() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -1019,6 +1033,7 @@ async fn db_revision_newer_expired_state_never_restores_older_permanent_state() 
 
 #[tokio::test]
 async fn db_effective_state_refuses_oversized_materialization() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -1040,6 +1055,7 @@ async fn db_effective_state_refuses_oversized_materialization() -> TestResult {
 
 #[tokio::test]
 async fn lk_sanction_authorization_with_one_available_connection() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Database::new()
         .await?
@@ -1067,6 +1083,7 @@ async fn lk_sanction_authorization_with_one_available_connection() -> TestResult
 
 #[tokio::test]
 async fn postgres_legacy_sanctions_lock_accounts_before_rbac() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());

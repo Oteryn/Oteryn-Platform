@@ -564,6 +564,7 @@ mod request_key_tests {
     #[tokio::test]
     async fn postgres_concurrent_request_key_binding_conflicts_before_effect()
     -> Result<(), Box<dyn std::error::Error>> {
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await;
         let started = std::time::Instant::now();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(3)

@@ -270,6 +270,7 @@ fn known() -> Uuid {
 
 #[tokio::test]
 async fn db_idempotency_and_transactional_refusals() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::create().await else {
         return;
     };
@@ -333,6 +334,7 @@ async fn db_idempotency_and_transactional_refusals() {
 
 #[tokio::test]
 async fn db_concurrent_grants_snapshots_and_retries_serialize() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::create().await else {
         return;
     };
@@ -392,6 +394,7 @@ async fn db_concurrent_grants_snapshots_and_retries_serialize() {
 
 #[tokio::test]
 async fn db_unknown_ambiguous_and_revision_exhaustion_deny() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::create().await else {
         return;
     };
@@ -467,6 +470,7 @@ fn settings() -> http::Settings {
 
 #[tokio::test]
 async fn route_guard_bad_input_and_disabled_without_database() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use tower::ServiceExt;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
@@ -532,6 +536,7 @@ async fn route_guard_bad_input_and_disabled_without_database() {
 
 #[tokio::test]
 async fn db_route_success_unknown_and_rate_limit() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use tower::ServiceExt;
     let Some(db) = Database::create().await else {
         return;
@@ -586,6 +591,7 @@ async fn db_route_success_unknown_and_rate_limit() {
 
 #[tokio::test]
 async fn db_audit_failure_rolls_back_and_invalid_durable_state_denies() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Database::create().await else {
         return;
     };
@@ -640,6 +646,7 @@ async fn db_audit_failure_rolls_back_and_invalid_durable_state_denies() {
 
 #[tokio::test]
 async fn malformed_authenticated_premium_requests_consume_budget_before_validation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     use tower::ServiceExt;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")

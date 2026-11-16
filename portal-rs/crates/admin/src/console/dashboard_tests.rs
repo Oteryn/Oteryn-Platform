@@ -275,6 +275,7 @@ fn capabilities_connection_and_input_fail_closed() {
 }
 #[tokio::test]
 async fn postgres_pages_permissions_unavailable_and_happy_render() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Db::new().await else {
         return;
     };
@@ -392,6 +393,7 @@ async fn postgres_pages_permissions_unavailable_and_happy_render() {
 }
 #[tokio::test]
 async fn postgres_query_csrf_permission_and_local_polling() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Db::new().await else {
         return;
     };
@@ -450,6 +452,7 @@ async fn postgres_query_csrf_permission_and_local_polling() {
 }
 #[tokio::test]
 async fn postgres_platform_metrics_and_closed_permission_catalog() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let Some(db) = Db::new().await else {
         return;
     };
@@ -510,6 +513,7 @@ async fn postgres_platform_metrics_and_closed_permission_catalog() {
 
 #[tokio::test]
 async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
     let started = std::time::Instant::now();
     let db = Db::new().await.expect("PORTAL_TEST_DATABASE_URL required");
     let actor = db.staff().await;
