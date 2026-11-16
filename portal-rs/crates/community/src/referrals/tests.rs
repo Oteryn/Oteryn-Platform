@@ -2557,7 +2557,7 @@ async fn lock_order_policy_prepares_accounts_before_eligibility_evaluation() {
             .await
             .unwrap();
         DatabasePolicy
-            .allowed(&mut tx, later, earlier, Kind::New, Stage::Claim)
+            .allowed(&mut tx, later, earlier, Kind::New, Stage::Invite)
             .await
     });
     tokio::time::timeout(std::time::Duration::from_secs(2), async {

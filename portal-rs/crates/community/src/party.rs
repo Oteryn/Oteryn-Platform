@@ -156,6 +156,9 @@ impl Authority for ProductionAuthority {
         character: Uuid,
     ) -> CheckFuture<'a, Character> {
         Box::pin(async move {
+            // Account (level 3) precedes the shared issuance fence taken by
+            // the ownership read (level 4).
+            self.active_in(&mut *tx, account).await?;
             let oteryn_playerdata::authority::Ownership::Owner(cut) =
                 oteryn_playerdata::authority::ownership(&mut *tx, account, character)
                     .await
@@ -163,7 +166,6 @@ impl Authority for ProductionAuthority {
             else {
                 return None;
             };
-            self.active_in(tx, account).await?;
             let name: String = sqlx::query_scalar("SELECT name FROM account_characters WHERE account_id=$1 AND character_id=$2 AND world_id=$3 AND availability='AVAILABLE'")
                 .bind(account).bind(character).bind(cut.world).fetch_optional(&mut *tx).await.ok()??;
             sqlx::query("SELECT highest_epoch FROM public_projection_state WHERE id=1 FOR SHARE")
@@ -212,7 +214,7 @@ impl Authority for ProductionAuthority {
                 oteryn_admin::rbac::Permission::Access,
                 oteryn_admin::rbac::Permission::ManageSupportReports,
             ] {
-                auth.check_in(&mut *tx, context, permission).await.ok()?;
+                auth.check(context, permission).await.ok()?;
             }
             Some(())
         })
