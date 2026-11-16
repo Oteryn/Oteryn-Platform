@@ -2276,7 +2276,7 @@
     "route": "/admin/moderation/reports/{id}",
     "actor": "staff",
     "method": "GET",
-    "status": 503,
+    "status": 404,
     "reason": "missing fixture reference is refused"
   },
   {
@@ -2292,7 +2292,7 @@
     "route": "/admin/moderation/enforcement/{id}",
     "actor": "staff",
     "method": "GET",
-    "status": 503,
+    "status": 404,
     "reason": "missing fixture reference is refused"
   },
   {
