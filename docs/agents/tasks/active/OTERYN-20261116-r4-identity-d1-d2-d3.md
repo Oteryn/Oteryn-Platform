@@ -30,6 +30,8 @@ red test and fixed:
 - [x] Passkey authentication and registration refuse a ceremony that expired during the account lock wait
 - [x] Each case has a test that was red on a6b1b05e and is green with the fix
 
+Closeout of merged PR #1892: its packet `OTERYN-20261116-portal-rs-ci-shards` is archived as completed.
+
 ## Ownership
 
 ```yaml
@@ -44,6 +46,8 @@ owned_paths:
   - portal-rs/crates/web/src/routes/register.rs
   - portal-rs/crates/web/src/session.rs
   - docs/agents/tasks/active/OTERYN-20261116-r4-identity-d1-d2-d3.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-ci-shards.md
+  - docs/agents/tasks/active/OTERYN-20261116-portal-rs-ci-shards.md
 modules:
   - identity
   - web
@@ -59,8 +63,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-16T23:40:00Z
-head: a6b1b05eed5e95b93ea549d230b531c041e7d9b0
+updated_at: 2026-11-16T23:25:00Z
+head: e9b0bcaaacf61d29593e38454fd77977d86335d2
 branch: claude/happy-davinci-ijz3wy-r4fix
 pr: 1893
 status: ready
@@ -70,8 +74,10 @@ owned_paths:
   - portal-rs/crates/web/src/routes/register.rs
   - portal-rs/crates/web/src/session.rs
   - docs/agents/tasks/active/OTERYN-20261116-r4-identity-d1-d2-d3.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-ci-shards.md
+  - docs/agents/tasks/active/OTERYN-20261116-portal-rs-ci-shards.md
 proven:
-  - Base is origin/main a6b1b05eed5e95b93ea549d230b531c041e7d9b0
+  - Branched from a6b1b05e and merged with main e9b0bcaaacf61d29593e38454fd77977d86335d2, which adds only the CI workflow split
   - No migration, contract, fixture, flag or wire byte change
   - No Game repository, production service or production data accessed
   - Without the product change the five new or extended tests fail with the asserted refusal missing
@@ -97,6 +103,7 @@ changed_paths:
   - portal-rs/crates/web/src/routes/register.rs
   - portal-rs/crates/web/src/session.rs
   - docs/agents/tasks/active/OTERYN-20261116-r4-identity-d1-d2-d3.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-ci-shards.md
 validation:
   - command: cargo test --locked -p oteryn-identity --lib -- d1_ d3_ (product files reverted)
     result: PASS
@@ -110,6 +117,15 @@ validation:
   - command: cargo test --locked -p oteryn-web --no-fail-fast
     result: PASS
     evidence: 42 plus 5 plus 14 passed, 0 failed, 1 ignored browser test unchanged
+  - command: cargo test --locked -p oteryn-identity --lib -- d1_ (cancel_pending calls removed)
+    result: PASS
+    evidence: expected red, 3 failed including d1_recovery_cancels_confirmed_change_waiting_for_worker with (1, new address) applied by the worker
+  - command: 10 runs of the identity lib test binary filtered to d3_ while the full identity lib suite ran concurrently
+    result: PASS
+    evidence: 10 of 10 exit 0, 2 passed each, PostgreSQL enabled; concurrent suite 163 passed
+  - command: cargo test --locked -p oteryn-portal --bin oteryn-portal audit_l9
+    result: PASS
+    evidence: 8 passed including production_registration_account_exists and production_proxy_budgets, which post /register
   - command: cargo fmt --all --check
     result: PASS
     evidence: exit 0
@@ -118,7 +134,7 @@ validation:
     evidence: exit 0 on the whole workspace
 blockers:
   - none
-next_action: PR review and merge, then archive this packet
+next_action: PR CI on the exact head, merge, then archive this packet
 ```
 
 ## Source branch closeout
