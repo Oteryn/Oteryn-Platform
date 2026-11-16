@@ -417,7 +417,7 @@ async fn resend_invalidates_old_token_and_requires_authenticated_csrf() -> Resul
     let response = app
         .clone()
         .oneshot(
-            Request::get("/en/register")
+            Request::get("/en/verify-email/resend")
                 .header(header::COOKIE, &cookie)
                 .body(Body::empty())?,
         )
