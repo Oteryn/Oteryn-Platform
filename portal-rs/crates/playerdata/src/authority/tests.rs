@@ -1781,6 +1781,53 @@ async fn drc_creation_account_precedes_admission_issuance_fence() {
 }
 
 #[tokio::test]
+async fn dr5_creation_account_precedes_session_issuance_fence() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    db.account(SELLER, "1", "1").await;
+    let account = Uuid::parse_str(SELLER).unwrap();
+    // Retain exactly the existing-account lock used by create_web::submit.
+    let mut creation = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR NO KEY UPDATE")
+        .bind(account)
+        .execute(&mut *creation)
+        .await
+        .unwrap();
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *creation)
+        .await
+        .unwrap();
+    let pool = db.pool.clone();
+    let admission = tokio::spawn(async move {
+        let mut tx = pool.begin().await.unwrap();
+        session_fence(&mut tx, account).await.unwrap();
+        tx.commit().await.unwrap();
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)))").bind(blocker).fetch_one(&db.pool).await.unwrap();
+            if waiting { break }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("admission never reached the creation account lock");
+    // Creation must be able to publish while admission waits for its account.
+    let available: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(22005160000)")
+        .fetch_one(&mut *creation)
+        .await
+        .unwrap();
+    creation.commit().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), admission)
+        .await
+        .expect("admission did not finish after creation")
+        .unwrap();
+    assert!(
+        available,
+        "G-9 session admission retained issuance before account, deadlocking character creation"
+    );
+    db.close().await;
+}
+
+#[tokio::test]
 async fn postgres_a3_scrubbed_remove_publication() {
     let started = std::time::Instant::now();
     let Some(db) = Db::open().await else { return };

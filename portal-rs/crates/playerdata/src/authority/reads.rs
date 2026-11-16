@@ -63,8 +63,9 @@ impl JournalLoginAuthority {
         account_id: Uuid,
         character: Option<Uuid>,
     ) -> Result<Cut, Error> {
-        shared_fences(tx).await?;
+        // Account (hierarchy level 3) precedes the shared issuance fence.
         account(tx, account_id).await?;
+        shared_fences(tx).await?;
         let restored = restore_generation(tx).await?;
         // A character the account does not own now is denied before any stream.
         let owned = match character {
@@ -285,8 +286,8 @@ impl JournalEvidence {
         character: Option<Uuid>,
         family: &str,
     ) -> Result<ItemScope, Error> {
-        shared_fences(db).await?;
         account(db, actor).await?;
+        shared_fences(db).await?;
         let restored = restore_generation(db).await?;
         let cut = match character {
             None => None,
