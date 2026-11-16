@@ -26,6 +26,7 @@ Owner consent for this workflow change was relayed by the coordinator.
 - [ ] Timeout stays 30 minutes per job; no test, filter or expected browser count changes
 - [ ] `check` fails unless lint, every test shard and browser succeeded
 - [ ] No change to `.github/repository-policy.json`, rulesets or other workflows
+- [x] Closeout of merged PR #1891: its task packet is archived as completed
 
 ## Ownership
 
@@ -35,6 +36,8 @@ owned_paths:
   - .claude/skills/oteryn-platform-dev/references/ci-merge.md
   - .claude/skills/oteryn-platform-dev/references/local-checks.md
   - docs/agents/tasks/active/OTERYN-20261116-portal-rs-ci-shards.md
+  - docs/agents/tasks/active/OTERYN-20261116-gameauth-unavail-cause.md
+  - docs/agents/tasks/archive/OTERYN-20261116-gameauth-unavail-cause.md
 modules:
   - ci
 dependencies:
@@ -60,6 +63,8 @@ owned_paths:
   - .claude/skills/oteryn-platform-dev/references/ci-merge.md
   - .claude/skills/oteryn-platform-dev/references/local-checks.md
   - docs/agents/tasks/active/OTERYN-20261116-portal-rs-ci-shards.md
+  - docs/agents/tasks/active/OTERYN-20261116-gameauth-unavail-cause.md
+  - docs/agents/tasks/archive/OTERYN-20261116-gameauth-unavail-cause.md
 proven:
   - Base is origin/main a6b1b05e
   - Shard test-name sets at a6b1b05e sum to the full workspace set (2102)
@@ -77,6 +82,8 @@ changed_paths:
   - .claude/skills/oteryn-platform-dev/references/ci-merge.md
   - .claude/skills/oteryn-platform-dev/references/local-checks.md
   - docs/agents/tasks/active/OTERYN-20261116-portal-rs-ci-shards.md
+  - docs/agents/tasks/active/OTERYN-20261116-gameauth-unavail-cause.md
+  - docs/agents/tasks/archive/OTERYN-20261116-gameauth-unavail-cause.md
 validation:
   - command: cargo test --locked [selection] -- --list --format terse, for the full workspace and for each shard selection, at a6b1b05e
     result: PASS

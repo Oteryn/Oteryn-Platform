@@ -46,11 +46,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-16T22:55:00Z
-head: 3fdc71224fab83fa22f4b8a00a0c64e764bb7468
+updated_at: 2026-11-16T22:30:00Z
+head: a6b1b05eed5e95b93ea549d230b531c041e7d9b0
 branch: claude/happy-davinci-ijz3wy-unavail-cause
 pr: 1891
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/crates/gameauth/
@@ -105,15 +105,15 @@ validation:
     evidence: no local META checkout; same refusal on main b4ebbbf1; CI agent-governance runs it
 blockers:
   - none
-next_action: Coordinator pushes the branch and opens the PR for #1889
+next_action: none; delivered by PR 1891 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active; branch not yet pushed
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1891 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1891 merged as a6b1b05eed5e95b93ea549d230b531c041e7d9b0
 ```
 
 ## Notes
