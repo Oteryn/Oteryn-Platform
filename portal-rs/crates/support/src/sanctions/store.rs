@@ -157,6 +157,7 @@ impl Service {
             json!({"account_id": decision.account.to_string(), "category": decision.category.as_str(), "pending": pending, "effective_at_ms": decision.effective_at_ms, "expires_at_ms": decision.expires_at_ms, "lock_version": 1}),
         )
         .await?;
+        self.staff(&mut tx, context, request).await?;
         tx.commit().await?;
         Ok(Receipt {
             id,
@@ -268,6 +269,7 @@ impl Service {
             json!({"status": next, "lock_version": version + 1}),
         )
         .await?;
+        self.staff(&mut tx, context, request).await?;
         tx.commit().await?;
         Ok(Receipt {
             id,

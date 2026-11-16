@@ -79,6 +79,7 @@ pub async fn enqueue_in(
     }
     let binding = intent.binding()?;
     let binding_json = encode(&binding)?;
+    oteryn_db::mutation_budget(tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
         .execute(&mut **tx)
         .await?;

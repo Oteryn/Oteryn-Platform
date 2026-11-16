@@ -2877,6 +2877,7 @@ dependencies = [
  "futures",
  "getrandom 0.4.3",
  "hex",
+ "oteryn-admin",
  "oteryn-db",
  "serde",
  "serde_json",

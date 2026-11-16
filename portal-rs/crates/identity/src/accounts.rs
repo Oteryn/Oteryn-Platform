@@ -81,6 +81,7 @@ impl Accounts {
 
 /// Serialize primary, pending and backup address claims on the normalized address.
 pub async fn claim_lock(conn: &mut PgConnection, email: &str) -> Result<(), sqlx::Error> {
+    oteryn_db::mutation_budget(&mut *conn).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
         .bind(normalize_email(email))
         .execute(conn)

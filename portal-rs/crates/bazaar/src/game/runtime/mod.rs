@@ -34,6 +34,7 @@ impl Runtime {
         };
         config.current()?;
         let mut tx = pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         Outbox::reopen(
             &mut tx,
@@ -257,6 +258,7 @@ impl Runtime {
         };
         let binding = serde_json::to_string(&input).map_err(|_| Error::Invalid)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let state = self
             .accounts(Some(session_hash))
@@ -336,6 +338,7 @@ impl Runtime {
         id(&buyer_character.to_string())?;
         // Destination request, full funding, bid and replay fence share one SQL transaction.
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let replay =
             check_bid_request(&mut tx, key, listing, actor, buyer_character, maximum).await?;
@@ -478,6 +481,7 @@ impl Runtime {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
             .bind(listing)
@@ -542,6 +546,7 @@ pub(super) async fn check_bid_request(
     character: Uuid,
     maximum: i64,
 ) -> Result<bool, Error> {
+    oteryn_db::mutation_budget(&mut *db).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,64004))")
         .bind(key.to_string())
         .execute(&mut *db)
@@ -575,11 +580,13 @@ mod request_key_tests {
         let buyer = Uuid::now_v7();
         let character = Uuid::now_v7();
         let mut first = pool.begin().await?;
+        oteryn_db::mutation_budget(&mut first).await?;
         assert!(!check_bid_request(&mut first, key, listing, buyer, character, 100).await?);
         let pool2 = pool.clone();
         let (ready, waiting) = tokio::sync::oneshot::channel();
         let mut second = tokio::spawn(async move {
             let mut tx = pool2.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             let _ = ready.send(());
             let outcome =
                 check_bid_request(&mut tx, key, Uuid::now_v7(), buyer, character, 100).await;

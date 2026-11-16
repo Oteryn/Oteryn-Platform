@@ -139,13 +139,23 @@ impl Services {
                 .unwrap_or_default()
         );
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
+        // Match admission: account, issuance, restore, then command resources.
+        if Authority.state(&mut tx, actor).await != oteryn_wallet::AccountState::Active {
+            return Err(Error::Denied);
+        }
+        sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+            .execute(&mut *tx)
+            .await?;
         restore_lock(&mut tx).await?;
         // Account lock bounds submission rate across different characters.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,47))")
             .bind(actor.to_string())
             .execute(&mut *tx)
             .await?;
         // Same character lock across accounts also serializes old-owner requests.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,46))")
             .bind(request.character_id.to_string())
             .execute(&mut *tx)
@@ -201,6 +211,7 @@ impl Services {
                 price = Some(p);
             }
         }
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
             .execute(&mut *tx)
             .await?;
@@ -239,6 +250,16 @@ impl Services {
         source(&v, &self.settings.command_authority)?;
         let id = wire::identifier(wire::string(&v, "operation_id")?)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
+        let owner: Uuid = sqlx::query_scalar(
+            "SELECT account_id FROM character_service_orders WHERE operation_id=$1",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::NotFound)?;
+        // Refunds retain an existing holder even when new spending is denied.
+        oteryn_wallet::safe_return_in(&mut tx, owner).await?;
         restore_lock(&mut tx).await?;
         let row=sqlx::query("SELECT c.intent_json,c.receipt_json,o.account_id,o.character_id,o.reservation_id,o.settlement_id,o.financial_state,o.credit_from,o.credit_used_by FROM character_commands c JOIN character_service_orders o ON o.operation_id=c.id WHERE c.id=$1 FOR UPDATE OF c,o").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         let intent: String = row.try_get("intent_json")?;
@@ -261,6 +282,9 @@ impl Services {
         }
         let committed = wire::string(&v, "outcome")? == "COMMITTED";
         let account: Uuid = row.try_get("account_id")?;
+        if account != owner {
+            return Err(Error::Conflict);
+        }
         let financial: String = row.try_get("financial_state")?;
         let mut next = financial.clone();
         if financial == "RESERVED" {

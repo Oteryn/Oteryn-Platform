@@ -243,12 +243,14 @@ pub(super) async fn persist(
         return Err(Error::InvalidInput);
     }
     let mut tx = pool.begin().await?;
+    oteryn_admin::rbac::mutation_budget(&mut tx).await?;
     let resource_slug = slug.to_owned();
     oteryn_admin::rbac::authorize_mutation_with_resources(
         &mut tx,
         &[context.account],
         move |connection| {
             Box::pin(async move {
+                oteryn_admin::rbac::mutation_budget(&mut *connection).await?;
                 sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,71102))")
                     .bind(resource_slug)
                     .execute(connection)
@@ -261,6 +263,7 @@ pub(super) async fn persist(
         &[Permission::Access, Permission::ManagePages],
     )
     .await?;
+    oteryn_admin::rbac::mutation_budget(&mut tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,71102))")
         .bind(slug)
         .execute(&mut *tx)
@@ -343,6 +346,9 @@ pub(super) async fn persist(
         },
     )
     .await?;
+    for permission in [Permission::Access, Permission::ManagePages] {
+        auth.check_in(&mut tx, context, permission).await?;
+    }
     tx.commit().await?;
     Ok(())
 }

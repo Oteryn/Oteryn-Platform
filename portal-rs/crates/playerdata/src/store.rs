@@ -331,6 +331,7 @@ fn decimal_row(row: &sqlx::postgres::PgRow, name: &str) -> Result<u64> {
 /// global: this account lock first, then authority locks in ascending order, so
 /// erasure and delivery cannot deadlock.
 async fn lock_account(tx: &mut Transaction<'_, Postgres>, account: &str) -> Result<()> {
+    oteryn_db::mutation_budget(tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,73))")
         .bind(account)
         .execute(&mut **tx)
@@ -338,6 +339,7 @@ async fn lock_account(tx: &mut Transaction<'_, Postgres>, account: &str) -> Resu
     Ok(())
 }
 async fn lock(tx: &mut Transaction<'_, Postgres>, authority: &str) -> Result<()> {
+    oteryn_db::mutation_budget(tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,72))")
         .bind(authority)
         .execute(&mut **tx)
@@ -347,6 +349,7 @@ async fn lock(tx: &mut Transaction<'_, Postgres>, authority: &str) -> Result<()>
 // Ordinary operations share the authority fence: per-account locks serialize
 // their streams, while lifecycle and legacy expiration retain the exclusive fence.
 async fn shared_authority(tx: &mut Transaction<'_, Postgres>, authority: &str) -> Result<()> {
+    oteryn_db::mutation_budget(tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1,72))")
         .bind(authority)
         .execute(&mut **tx)
@@ -432,9 +435,11 @@ impl Store {
         };
         let lease = self.authority.acquire(&r.scope).await?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         lock_account(&mut tx, &r.scope.account).await?;
         shared_authority(&mut tx, &r.scope.authority).await?;
         // Record IDs are authority-wide, even across independent account locks.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,74))")
             .bind(format!("{}:{}", r.scope.authority, r.id))
             .execute(&mut *tx)
@@ -601,6 +606,7 @@ impl Store {
         };
         let lease = self.authority.acquire(s).await?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         lock_account(&mut tx, &s.account).await?;
         shared_authority(&mut tx, &s.authority).await?;
         if lease.fence(&mut tx, s).await? != Admission::Owner {
@@ -656,6 +662,7 @@ impl Store {
         };
         let lease = self.authority.acquire(&scope).await?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         lock_account(&mut tx, &scope.account).await?;
         shared_authority(&mut tx, &scope.authority).await?;
         if lease.fence(&mut tx, &scope).await? != Admission::Owner {
@@ -718,6 +725,7 @@ impl Store {
         let now = time.now(progress)?;
         let lease = self.authority.acquire(s).await?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         lock_account(&mut tx, &s.account).await?;
         shared_authority(&mut tx, &s.authority).await?;
         if lease.fence(&mut tx, s).await? != Admission::Owner {
@@ -828,6 +836,7 @@ impl Store {
     ) -> Result<()> {
         let now = time.now(true)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         lock_account(&mut tx, account).await?;
         let authorities = sqlx::query_scalar::<_, String>(
             "SELECT DISTINCT authority FROM pd_streams WHERE account_id=$1 ORDER BY authority",
@@ -850,6 +859,7 @@ impl Store {
     pub async fn erase_account(&self, account: &str, time: TrustedTime) -> Result<()> {
         let now = time.now(true)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         lock_account(&mut tx, account).await?;
         // Lock every authority before updating streams in the same order as ingest.
         let authorities = sqlx::query_scalar::<_, String>(
@@ -884,6 +894,7 @@ impl Store {
     pub async fn expire(&self, time: TrustedTime) -> Result<u64> {
         let now = time.now(true)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let authorities = sqlx::query_scalar::<_, String>(
             "SELECT DISTINCT authority FROM pd_streams ORDER BY authority",
         )

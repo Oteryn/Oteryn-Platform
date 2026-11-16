@@ -53,7 +53,7 @@ impl Database {
         }))
     }
     async fn account(&self, locale: &str) -> std::result::Result<Uuid, sqlx::Error> {
-        let mut conn = self.pool.acquire().await?;
+        let mut conn = self.pool.begin().await?;
         let account = oteryn_identity::accounts::Accounts::create(
             &mut conn,
             &format!("{}@example.test", Uuid::now_v7()),
@@ -63,6 +63,7 @@ impl Database {
         .await?
         .ok_or(sqlx::Error::RowNotFound)?;
         oteryn_identity::accounts::Accounts::mark_verified(&mut conn, account.id).await?;
+        conn.commit().await?;
         Ok(account.id)
     }
     fn tickets(&self, limit: u32) -> oteryn_notify::Result<Tickets> {

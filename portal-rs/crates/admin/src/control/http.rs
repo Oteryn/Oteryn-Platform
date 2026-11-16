@@ -288,6 +288,7 @@ async fn hello(
         .map_err(|_| HttpError::invalid())?;
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, false).await?;
     // A competing owner at the same or newer epoch makes this hello ambiguous.
     let conflict:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_agents WHERE agent_id<>$1 AND owner_epoch >= $2 AND (served_worlds && $3 OR served_nodes && $4))")
@@ -330,6 +331,7 @@ async fn channel(
         return Err(HttpError::invalid());
     }
     let mut tx = ctx.pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
     session(&mut tx, &p.agent_id, p.owner_epoch).await?;
     tx.commit().await?;
@@ -396,6 +398,7 @@ async fn results(
             .map_err(|_| HttpError::invalid())?;
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
     lock_request(&mut tx, e.request_id).await?;
     owns_request(&mut tx, &e.agent_id, p.owner_epoch, e.request_id).await?;
@@ -429,6 +432,7 @@ async fn results(
     Ok(Json(json!({"status":"recorded"})))
 }
 async fn lock_request(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<(), HttpError> {
+    oteryn_db::mutation_budget(tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 17))")
         .bind(id.to_string())
         .execute(&mut **tx)
@@ -485,6 +489,7 @@ async fn stream(
         chunks.push((c.index, bytes));
     }
     let mut tx = ctx.pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
     lock_request(&mut tx, p.request_id).await?;
     owns_request(&mut tx, &p.agent_id, p.owner_epoch, p.request_id).await?;
@@ -527,6 +532,7 @@ async fn heartbeat(
     }
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
     session(&mut tx, &p.agent_id, p.owner_epoch).await?;
     sqlx::query("UPDATE admin_control_agents SET last_seen_at=clock_timestamp(),updated_at=clock_timestamp() WHERE agent_id=$1 AND owner_epoch=$2").bind(&p.agent_id).bind(p.owner_epoch).execute(&mut *tx).await?;
@@ -546,6 +552,7 @@ async fn rollups(
     }
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
     session(&mut tx, &p.agent_id, p.owner_epoch).await?;
     sqlx::query("UPDATE admin_control_agents SET last_seen_at=clock_timestamp(),updated_at=clock_timestamp() WHERE agent_id=$1 AND owner_epoch=$2").bind(&p.agent_id).bind(p.owner_epoch).execute(&mut *tx).await?;
@@ -641,12 +648,14 @@ struct ConfiguredKey {
 
 async fn ingress_lock(tx: &mut Transaction<'_, Postgres>, shared: bool) -> Result<(), HttpError> {
     if shared {
+        oteryn_db::mutation_budget(tx).await?;
         sqlx::query(
             "SELECT pg_advisory_xact_lock_shared(hashtextextended('admin-control-http',0))",
         )
         .execute(&mut **tx)
         .await?;
     } else {
+        oteryn_db::mutation_budget(tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('admin-control-http',0))")
             .execute(&mut **tx)
             .await?;

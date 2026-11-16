@@ -335,6 +335,7 @@ impl ProviderWebhook {
         digest: &[u8],
     ) -> Result<Delivery, Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query(
             "SELECT pg_advisory_xact_lock(hashtextextended('payment_provider_webhook:' || $1, 0))",
         )

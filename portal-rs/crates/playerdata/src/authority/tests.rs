@@ -1410,7 +1410,7 @@ async fn postgres_pd2_02_return_transfer_admits_only_new_ownership_cut() {
     assert_eq!(history(&db, SELLER).await, vec![event]);
     // The G-10 read adapter must likewise reach the current cut, not a stale
     // tombstone. Baseline verification still refuses access independently.
-    let mut conn = db.pool.acquire().await.unwrap();
+    let mut conn = db.pool.begin().await.unwrap();
     let evidence = JournalEvidence {
         source: ITEMS_AUTHORITY.into(),
     };
@@ -1426,7 +1426,7 @@ async fn postgres_pd2_02_return_transfer_admits_only_new_ownership_cut() {
             .await
             .is_ok()
     );
-    drop(conn);
+    conn.rollback().await.unwrap();
     db.close().await;
     eprintln!(
         "postgres_pd2_02_return_transfer_admits_only_new_ownership_cut duration={:?}",
@@ -1698,4 +1698,57 @@ async fn postgres_pd2_02_upgrade_recovers_acknowledged_transfer_purges() {
         "postgres_pd2_02_upgrade_recovers_acknowledged_transfer_purges duration={:?}",
         started.elapsed()
     );
+}
+
+#[tokio::test]
+async fn postgres_drc_account_precedes_issuance_fence() {
+    let db = Db::open().await.expect("PostgreSQL required");
+    db.account(SELLER, "1", "1").await;
+    let subject = Uuid::parse_str(SELLER).unwrap();
+    let mut creator = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *creator)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR NO KEY UPDATE")
+        .bind(subject)
+        .execute(&mut *creator)
+        .await
+        .unwrap();
+    let pool = db.pool.clone();
+    let admission = tokio::spawn(async move {
+        let mut tx = pool.begin().await.unwrap();
+        let result = session_fence(&mut tx, subject).await;
+        tx.rollback().await.unwrap();
+        result
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let issuance: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(22005160000)")
+        .fetch_one(&mut *creator)
+        .await
+        .unwrap();
+    creator.rollback().await.unwrap();
+    let result = admission.await.unwrap();
+    assert!(
+        issuance,
+        "admission retained issuance while waiting for the creator account"
+    );
+    assert!(result.is_ok());
+    db.close().await;
 }

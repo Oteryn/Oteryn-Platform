@@ -94,7 +94,13 @@ impl PublicTrustRegistry {
         }
         let (namespace, witness) = self.witness().await?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
+        oteryn_db::mutation_budget(&mut tx)
+            .await
+            .map_err(|_| KeyError::Unavailable)?;
         // One transaction lock for both scopes, including their first publication.
+        oteryn_db::mutation_budget(&mut tx)
+            .await
+            .map_err(|_| KeyError::Unavailable)?;
         sqlx::query("SELECT pg_advisory_xact_lock(715110005)")
             .execute(&mut *tx)
             .await
@@ -177,6 +183,9 @@ impl PublicTrustRegistry {
         }
         let (namespace, witness) = self.witness().await?;
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
+        oteryn_db::mutation_budget(&mut tx)
+            .await
+            .map_err(|_| KeyError::Unavailable)?;
         let row = sqlx::query("SELECT id, issuer_revision, revoked_at IS NOT NULL AS revoked FROM native_game_signing_trust_profiles WHERE issuer=$1 AND profile=$2 AND key_purpose=$3 ORDER BY profile_version DESC LIMIT 1 FOR UPDATE")
             .bind(self.scope.issuer()).bind(self.scope.profile()).bind(&self.settings.key_purpose).fetch_optional(&mut *tx).await.map_err(|_| KeyError::Unavailable)?.ok_or(KeyError::InvalidState)?;
         let id: Uuid = row.try_get("id").map_err(|_| KeyError::Unavailable)?;
@@ -223,6 +232,9 @@ impl PublicTrustRegistry {
     /// producer, which reads these same immutable rows and retained state witness.
     pub async fn snapshot(&self) -> Result<TrustSnapshot, KeyError> {
         let mut tx = self.pool.begin().await.map_err(|_| KeyError::Unavailable)?;
+        oteryn_db::mutation_budget(&mut tx)
+            .await
+            .map_err(|_| KeyError::Unavailable)?;
         self.snapshot_in(&mut tx).await
     }
     pub(crate) async fn snapshot_in(

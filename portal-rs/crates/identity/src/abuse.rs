@@ -75,6 +75,9 @@ pub async fn issue(pool: &PgPool, csrf: &str) -> Result<String, Error> {
     getrandom::fill(&mut random).map_err(|_| Error::Unavailable)?;
     let token = hex(&random);
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(|_| Error::Unavailable)?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(csrf)
         .execute(&mut *tx)

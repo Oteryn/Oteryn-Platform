@@ -99,7 +99,9 @@ impl Watches {
     pub async fn subscribe(&self, owner: Uuid, s: Subscription) -> Result<()> {
         self.check(owner, s)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         // Serialize per owner so concurrent requests cannot bypass the subscription cap.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,70))")
             .bind(owner.to_string())
             .execute(&mut *tx)
@@ -136,6 +138,7 @@ impl Watches {
             return Err(invalid());
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let rows: Vec<(String,Uuid,String)> = sqlx::query_as("SELECT target_kind,target_id,event_kind FROM stats_watches WHERE account_id=$1 ORDER BY created_at,target_id,event_kind LIMIT 100")
             .bind(owner).fetch_all(&mut *tx).await?;
         let mut result = Vec::new();
@@ -161,6 +164,7 @@ impl Watches {
             return Err(invalid());
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let mut sent = 0;
         let mut cursor: Option<(Uuid, String, Uuid)> = None;
         loop {

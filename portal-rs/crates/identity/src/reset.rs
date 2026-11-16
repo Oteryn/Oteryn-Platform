@@ -78,6 +78,7 @@ pub async fn audit(
 /// Always returns the same public result, including missing and ineligible accounts.
 pub async fn request(pool: &PgPool, email: &str, key: &DeliveryKey) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     if !valid_email(email) {
         audit(&mut tx, None, "identity.password_reset_bad_input").await?;
         return tx.commit().await;
@@ -118,6 +119,7 @@ pub async fn complete(pool: &PgPool, input: Input) -> Result<bool, sqlx::Error> 
         .map_err(|_| unavailable())?
         .map_err(sqlx::Error::Protocol)?;
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     let id: Option<AccountId> = sqlx::query_scalar("SELECT a.id FROM accounts a WHERE (lower(a.email)=$1 OR EXISTS(SELECT 1 FROM account_backup_emails b WHERE b.account_id=a.id AND lower(b.email)=$1 AND b.verified_at<=clock_timestamp())) AND NOT EXISTS(SELECT 1 FROM accounts other WHERE other.id<>a.id AND (lower(other.email)=$1 OR EXISTS(SELECT 1 FROM account_backup_emails b WHERE b.account_id=other.id AND lower(b.email)=$1 AND b.verified_at<=clock_timestamp()))) AND a.status IN ('active','pending_verification') FOR UPDATE OF a")
         .bind(normalize_email(&input.email)).fetch_optional(&mut *tx).await?;
     let mut accepted = false;
@@ -155,6 +157,7 @@ pub async fn complete(pool: &PgPool, input: Input) -> Result<bool, sqlx::Error> 
 }
 async fn refusal(pool: &PgPool, event: &str) -> Result<bool, sqlx::Error> {
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     audit(&mut tx, None, event).await?;
     tx.commit().await?;
     Ok(false)

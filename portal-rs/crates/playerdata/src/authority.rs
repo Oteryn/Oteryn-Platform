@@ -82,6 +82,7 @@ fn uuid(s: &str) -> Result<Uuid> {
 
 /// Shared fences against transfer issuance and restore, in the issuer's order.
 async fn shared_fences(tx: &mut PgConnection) -> Result<()> {
+    oteryn_db::mutation_budget(&mut *tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock_shared($1)")
         .bind(ISSUANCE_LOCK)
         .execute(&mut *tx)
@@ -110,6 +111,7 @@ async fn restore_generation(tx: &mut PgConnection) -> Result<u64> {
 
 /// The account must exist and not be closed; locked against closure.
 async fn account(tx: &mut PgConnection, account: Uuid) -> Result<()> {
+    oteryn_db::mutation_budget(tx).await?;
     let status: Option<String> =
         sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
             .bind(account)
@@ -328,8 +330,8 @@ fn opt_uuid(s: Option<&str>) -> Result<Uuid> {
 pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
     let account_id = uuid(&scope.account).map_err(|_| Error::Conflict)?;
     let items = ITEM_FAMILIES.contains(&scope.family.as_str());
-    shared_fences(tx).await?;
     account(tx, account_id).await?;
+    shared_fences(tx).await?;
     let restored = restore_generation(tx).await?;
     let recovery = counter(&scope.recovery).map_err(|_| Error::Conflict)?;
     if recovery < restored {
@@ -496,7 +498,7 @@ mod tests;
 /// G-9 uses the same issuance, closure and restore fence as the other private
 /// journals; UUID stream admission alone cannot prove a reconciled restore.
 pub(crate) async fn session_fence(tx: &mut PgConnection, subject: Uuid) -> Result<u64> {
-    shared_fences(tx).await?;
     account(tx, subject).await?;
+    shared_fences(tx).await?;
     restore_generation(tx).await
 }

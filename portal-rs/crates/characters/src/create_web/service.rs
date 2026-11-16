@@ -195,6 +195,7 @@ impl Creation {
         // Serialize with identity changes. Keep this lock until the command is durable.
         // All checks and command issuance share this transaction.
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let found: Option<Uuid> =
             sqlx::query_scalar("SELECT id FROM accounts WHERE id=$1 FOR NO KEY UPDATE")
                 .bind(account)

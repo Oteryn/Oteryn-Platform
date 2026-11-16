@@ -61,12 +61,7 @@ impl Delivery {
     }
     async fn begin(&self) -> Result<Transaction<'_, Postgres>, Error> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SET LOCAL lock_timeout='3s'")
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("SET LOCAL statement_timeout='5s'")
-            .execute(&mut *tx)
-            .await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         Ok(tx)
     }
     pub async fn pending(&self, raw: &[u8]) -> Result<Vec<u8>, Error> {
@@ -88,8 +83,10 @@ impl Delivery {
         let (revision, id, limit) = page(&v)?;
         let mut entries = Vec::new();
         let mut tx = self.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         // T29 holds this issuer lock through commit before allocating a revision.
         // A page cannot pass an uncommitted intent and lose it behind its cursor.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(29,1)")
             .execute(&mut *tx)
             .await?;
@@ -163,7 +160,9 @@ impl Delivery {
         receipt(&v)?;
         let (kind, id) = key(&v)?;
         let mut tx = self.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         lock_restore(&mut tx, false).await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(29,1)")
             .execute(&mut *tx)
             .await?;
@@ -251,6 +250,7 @@ impl Delivery {
         if generation <= old.parse::<u64>().map_err(|_| Error::Unavailable)? {
             return Err(Error::Conflict);
         }
+        oteryn_db::mutation_budget(tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(29,1)")
             .execute(&mut **tx)
             .await?;

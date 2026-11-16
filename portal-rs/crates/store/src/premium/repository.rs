@@ -27,6 +27,7 @@ impl Ledger {
         if account.get_version_num() != 7 || account.get_variant() != uuid::Variant::RFC4122 {
             return Err(Error::Invalid);
         }
+        oteryn_db::mutation_budget(connection).await?;
         match self.accounts.state(account, connection).await? {
             AccountState::Known => (),
             AccountState::Unknown => return Err(Error::UnknownAccount),
@@ -73,9 +74,11 @@ impl Ledger {
             Change::Revoke => ("REVOKE", None),
         };
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         // Identity/authority rows precede request serialization, including when
         // the staff caller already retains its ordered account set and RBAC.
         self.lock(&mut tx, mutation.account).await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 27))")
             .bind(mutation.request.to_string())
             .execute(&mut *tx)
@@ -198,6 +201,7 @@ impl Ledger {
         // Identity/authority rows precede request serialization, including when
         // the staff caller already retains its ordered account set and RBAC.
         self.lock(tx, mutation.account).await?;
+        oteryn_db::mutation_budget(tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 27))")
             .bind(mutation.request.to_string())
             .execute(&mut **tx)
@@ -263,6 +267,7 @@ impl Ledger {
             return Err(Error::Disabled);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let authority = self.lock(&mut tx, account).await?;
         if authority == MAX_REVISION {
             return Err(Error::Unavailable);

@@ -434,3 +434,24 @@ async fn delta_catalog_activation_serializes_permission_revocation() -> TestResu
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_drc_catalog_audit_has_shared_budget() -> TestResult {
+    let db = Database::new().await?;
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(281510004)")
+        .execute(&mut *blocker)
+        .await?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(3700),
+        audit(&db.pool, "absent", Action::Import, "0"),
+    )
+    .await;
+    blocker.rollback().await?;
+    assert!(
+        matches!(result, Ok(Err(_))),
+        "catalog audit must refuse within the shared budget"
+    );
+    db.close().await?;
+    Ok(())
+}

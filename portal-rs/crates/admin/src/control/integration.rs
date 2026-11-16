@@ -99,6 +99,7 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
     ) -> Result<Uuid, Refusal> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        prepare_control_requests(&mut tx, &[request_id]).await?;
         let request = store::Store::lock_control_request(&mut tx, request_id, true).await?;
         let (identity, op) = self
             .authorized_in(&mut tx, session, &request.operation)
@@ -147,6 +148,11 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
             json!({"preview_digest":preview_digest}),
         )
         .await?;
+        self.authorized_in(&mut tx, session, &request.operation)
+            .await?;
+        self.bound_step(&mut tx, session, request_id, identity.admin_id)
+            .await?;
+        store::Store::lock_control_request(&mut tx, request_id, true).await?;
         tx.commit().await?;
         Ok(request_id)
     }
@@ -158,6 +164,7 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
     ) -> Result<Uuid, Refusal> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        prepare_control_requests(&mut tx, &[request_id]).await?;
         let request = store::Store::lock_control_request(&mut tx, request_id, true).await?;
         let p = Self::preview_in(&mut tx, request_id).await?;
         let (identity, op) = self
@@ -184,6 +191,11 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
         sqlx::query("INSERT INTO admin_control_approvals(id,preview_id,admin_id,step_up_at,approved_at) VALUES($1,$2,$3,$4,$5)")
             .bind(id).bind(request_id).bind(identity.admin_id).bind(step.step_up_at).bind(now).execute(&mut *tx).await?;
         append(&mut tx, &request, identity.admin_id, "admin.control.approved", json!({"approval_id":id,"step_up_at":step.step_up_at,"preview_digest":p.preview_digest})).await?;
+        self.authorized_in(&mut tx, session, &request.operation)
+            .await?;
+        self.bound_step(&mut tx, session, request_id, identity.admin_id)
+            .await?;
+        store::Store::lock_control_request(&mut tx, request_id, true).await?;
         tx.commit().await?;
         Ok(id)
     }
@@ -219,6 +231,9 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
         session: &BrowserSession,
         submission: &Submission,
     ) -> Result<Evidence, Refusal> {
+        let mut requests = vec![submission.request_id];
+        requests.extend(submission.preview);
+        prepare_control_requests(tx, &requests).await?;
         let request = store::Store::lock_control_request(tx, submission.request_id, false).await?;
         let (identity, op) = self.authorized_in(tx, session, &request.operation).await?;
         if request.actor != identity.admin_id
@@ -313,8 +328,26 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
         validate_wire(&request, &evidence)?;
         store::Store::lock_control_request(tx, request.request_id, false).await?;
         store::Store::attach_control_evidence(tx, &request, &evidence).await?;
+        self.authorized_in(tx, session, &request.operation).await?;
+        if op.risk >= RiskClass::R3 {
+            self.bound_step(tx, session, request.request_id, identity.admin_id)
+                .await?;
+        }
+        store::Store::lock_control_request(tx, request.request_id, false).await?;
         Ok(evidence)
     }
+}
+
+// Prepare all referenced request rows before actor/RBAC acquisition. In
+// particular, execution must not discover a retained preview lock after RBAC.
+async fn prepare_control_requests(
+    tx: &mut Transaction<'_, Postgres>,
+    ids: &[Uuid],
+) -> Result<(), Refusal> {
+    oteryn_db::mutation_budget(tx).await?;
+    sqlx::query("SELECT request_id FROM admin_control_requests WHERE request_id=ANY($1) ORDER BY request_id FOR UPDATE")
+        .bind(ids).execute(&mut **tx).await?;
+    Ok(())
 }
 
 fn hex_digest(bytes: &[u8]) -> String {

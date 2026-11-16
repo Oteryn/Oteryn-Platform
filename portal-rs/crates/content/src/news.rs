@@ -500,6 +500,17 @@ async fn save(
     )
     .await
     .map_err(unavailable)?;
+    for permission in [Permission::Access, Permission::ManageNews] {
+        auth.check_in(&mut tx, context, permission)
+            .await
+            .map_err(|error| {
+                if matches!(error, oteryn_admin::rbac::Error::Denied) {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            })?;
+    }
     tx.commit().await.map_err(unavailable)?;
     Ok((
         StatusCode::FOUND,
@@ -576,6 +587,17 @@ async fn delete(
     )
     .await
     .map_err(unavailable)?;
+    for permission in [Permission::Access, Permission::ManageNews] {
+        auth.check_in(&mut tx, context, permission)
+            .await
+            .map_err(|error| {
+                if matches!(error, oteryn_admin::rbac::Error::Denied) {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            })?;
+    }
     tx.commit().await.map_err(unavailable)?;
     Ok((
         StatusCode::FOUND,

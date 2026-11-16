@@ -230,6 +230,7 @@ pub async fn read_page(pool: &PgPool, page: Page) -> Result<Vec<u8>, Error> {
         return Err(Error::Invalid);
     }
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     sqlx::query("SELECT identity_security_revocation_reconcile()")
         .execute(&mut *tx)
         .await?;

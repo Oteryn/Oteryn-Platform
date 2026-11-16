@@ -79,13 +79,9 @@ impl Store {
         let world = Uuid::parse_str(world).map_err(|_| Error::Invalid)?;
         let epoch_number = wire::uint(&epoch)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         // Global serialization also enforces the four-exchange ceiling across processes.
-        sqlx::query("SET LOCAL statement_timeout = '3s'")
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("SET LOCAL lock_timeout = '3s'")
-            .execute(&mut *tx)
-            .await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(71140001)")
             .execute(&mut *tx)
             .await?;
@@ -404,12 +400,8 @@ pub async fn purge(pool: &PgPool, now: u64) -> Result<(), Error> {
 }
 async fn purge_bounded(pool: &PgPool, now: u64) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SET LOCAL statement_timeout = '3s'")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("SET LOCAL lock_timeout = '3s'")
-        .execute(&mut *tx)
-        .await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(71140001)")
         .execute(&mut *tx)
         .await?;

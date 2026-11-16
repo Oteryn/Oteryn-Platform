@@ -1819,3 +1819,193 @@ async fn postgres_stale_hold_form_preserves_replacement_and_receipt() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn postgres_drc_kick_rechecks_grant_after_revocation_counter_wait() {
+    let db = Db::open().await.expect("PostgreSQL required");
+    let actor = kick_fixture(&db).await;
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'drc-kicker@example.invalid','synthetic-hash','active','en',now())").bind(actor).execute(&db.pool).await.unwrap();
+    let _cookie = staff_security_cookie(&db.pool, actor, 'e').await;
+    sqlx::query("UPDATE account_mfa_tokens SET expires_at=clock_timestamp()+interval '1200 milliseconds' WHERE account_id=$1").bind(actor).execute(&db.pool).await.unwrap();
+    let (session, grant): (Vec<u8>,Vec<u8>) = sqlx::query_as("SELECT s.id_hash,t.token_hash FROM web_sessions s JOIN account_mfa_tokens t ON t.account_id=s.account_id WHERE s.account_id=$1").bind(actor).fetch_one(&db.pool).await.unwrap();
+    let mut context = context(actor);
+    context.session_proof = Some(crate::rbac::SessionProof {
+        session_hash: session.try_into().unwrap(),
+        grant_hash: grant.try_into().unwrap(),
+    });
+    let mut blocker = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("SELECT * FROM identity_security_revocation_counter FOR UPDATE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let before = kick_state(&db).await;
+    let service = db.service();
+    let target = db.target;
+    let task = tokio::spawn(async move { service.kick(context, target, "Expired grant").await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(1250)).await;
+    blocker.rollback().await.unwrap();
+    let result = task.await.unwrap();
+    assert!(
+        matches!(
+            result,
+            Err(Error::Authorization(crate::rbac::Error::Denied))
+        ),
+        "kick accepted authority after its final trigger wait"
+    );
+    assert_eq!(kick_state(&db).await, before);
+    let audits: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='players.kick'")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(audits, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_drc_reset_request_rechecks_expiry_after_adapter_wait() {
+    let db = Db::open().await.expect("PostgreSQL required");
+    let service = db.service();
+    let request = service
+        .request_reset(context(db.support), db.target, db.evidence, "Verified")
+        .await
+        .unwrap();
+    sqlx::query("UPDATE player_mfa_reset_requests SET expires_at=clock_timestamp()+interval '1200 milliseconds' WHERE id=$1")
+        .bind(request).execute(&db.pool).await.unwrap();
+    let mut blocker = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("SELECT account_id FROM test_security WHERE account_id=$1 FOR UPDATE")
+        .bind(db.target)
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let target = db.target;
+    let approver = db.approver;
+    let task = tokio::spawn(async move {
+        service
+            .approve_reset(context(approver), target, request)
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(1250)).await;
+    blocker.rollback().await.unwrap();
+    assert!(matches!(task.await.unwrap(), Err(Error::Denied)));
+    let reset: bool = sqlx::query_scalar("SELECT reset FROM test_security WHERE account_id=$1")
+        .bind(target)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert!(!reset);
+    let approved: bool = sqlx::query_scalar(
+        "SELECT approved_by IS NOT NULL FROM player_mfa_reset_requests WHERE id=$1",
+    )
+    .bind(request)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(!approved);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_drc_kick_rechecks_grant_after_audit_wait() {
+    let db = Db::open().await.expect("PostgreSQL required");
+    let actor = kick_fixture(&db).await;
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'drc-kicker@example.invalid','synthetic-hash','active','en',now())").bind(actor).execute(&db.pool).await.unwrap();
+    let _cookie = staff_security_cookie(&db.pool, actor, 'e').await;
+    sqlx::query("UPDATE account_mfa_tokens SET expires_at=clock_timestamp()+interval '1200 milliseconds' WHERE account_id=$1").bind(actor).execute(&db.pool).await.unwrap();
+    let (session, grant): (Vec<u8>,Vec<u8>) = sqlx::query_as("SELECT s.id_hash,t.token_hash FROM web_sessions s JOIN account_mfa_tokens t ON t.account_id=s.account_id WHERE s.account_id=$1").bind(actor).fetch_one(&db.pool).await.unwrap();
+    let mut context = context(actor);
+    context.session_proof = Some(crate::rbac::SessionProof {
+        session_hash: session.try_into().unwrap(),
+        grant_hash: grant.try_into().unwrap(),
+    });
+    let mut blocker = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("LOCK TABLE audit_log IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let before = kick_state(&db).await;
+    let service = db.service();
+    let target = db.target;
+    let task = tokio::spawn(async move { service.kick(context, target, "Expired grant").await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(1250)).await;
+    blocker.rollback().await.unwrap();
+    let result = task.await.unwrap();
+    assert!(
+        matches!(
+            result,
+            Err(Error::Authorization(crate::rbac::Error::Denied))
+        ),
+        "kick accepted authority after its final audit wait"
+    );
+    assert_eq!(kick_state(&db).await, before);
+    let audits: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='players.kick'")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(audits, 0);
+    db.close().await;
+}

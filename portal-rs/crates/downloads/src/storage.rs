@@ -73,19 +73,20 @@ impl Downloads {
         let verified = verification::verify(upload, root).await?;
         let channel = verified.upload.channel;
         let mut tx = self.pool.begin().await?;
-        sqlx::query(
-            "INSERT INTO client_channels (id, name) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING",
-        )
-        .bind(Uuid::now_v7())
-        .bind(channel.as_str())
-        .execute(&mut *tx)
-        .await?;
-        let row = sqlx::query(
-            "SELECT id, active_publication_id FROM client_channels WHERE name = $1 FOR UPDATE",
-        )
-        .bind(channel.as_str())
-        .fetch_one(&mut *tx)
-        .await?;
+        oteryn_admin::rbac::lock_accounts_resources_and_mutation(&mut tx, &[actor], |connection| {
+            Box::pin(async move {
+                sqlx::query("INSERT INTO client_channels (id,name) VALUES ($1,$2) ON CONFLICT (name) DO NOTHING")
+                    .bind(Uuid::now_v7()).bind(channel.as_str()).execute(&mut *connection).await?;
+                // Retain the channel lock before joining the RBAC fence.
+                sqlx::query("SELECT id FROM client_channels WHERE name=$1 FOR UPDATE")
+                    .bind(channel.as_str()).execute(connection).await?;
+                Ok(())
+            })
+        }).await?;
+        let row = sqlx::query("SELECT id,active_publication_id FROM client_channels WHERE name=$1")
+            .bind(channel.as_str())
+            .fetch_one(&mut *tx)
+            .await?;
         let channel_id: Uuid = row.try_get("id")?;
         let previous: Option<Uuid> = row.try_get("active_publication_id")?;
         if !access.authorize_in(&mut tx, actor, channel).await {
@@ -128,6 +129,9 @@ impl Downloads {
             .execute(&mut *tx).await?;
         sqlx::query("UPDATE client_channels SET active_publication_id = $1, updated_at = now() WHERE id = $2")
             .bind(id).bind(channel_id).execute(&mut *tx).await?;
+        if !access.authorize_in(&mut tx, actor, channel).await {
+            return Err(Error::Denied);
+        }
         tx.commit().await?;
         Ok(id)
     }

@@ -161,6 +161,7 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
             return Err(Error::Denied);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         // Legacy isolated adapters may not have the identity schema/FKs.
         let identity: bool = sqlx::query_scalar("SELECT to_regclass('accounts') IS NOT NULL")
             .fetch_one(&mut *tx)
@@ -250,6 +251,7 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
         valid(invitee)?;
         valid(invitation)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let row = sqlx::query(
             "SELECT * FROM referral_invitations WHERE id=$1 AND invitee_id=$2 FOR UPDATE",
         )
@@ -311,6 +313,7 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
         self.enabled()?;
         valid(actor)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         if !self
             .policy
             .allowed(&mut tx, actor, actor, Kind::New, Stage::Statistics)

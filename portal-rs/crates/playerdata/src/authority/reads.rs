@@ -63,8 +63,8 @@ impl JournalLoginAuthority {
         account_id: Uuid,
         character: Option<Uuid>,
     ) -> Result<Cut, Error> {
-        shared_fences(tx).await?;
         account(tx, account_id).await?;
+        shared_fences(tx).await?;
         let restored = restore_generation(tx).await?;
         // A character the account does not own now is denied before any stream.
         let owned = match character {
@@ -186,6 +186,10 @@ impl LoginPromoter {
                 break;
             }
             let exhausted = rows.len() < 128;
+            // All proofs retain their row/fence locks until the watermark commits.
+            // Bound the cache with the materialized batch, rather than repeating
+            // ownership and stream queries for every login of the same subject.
+            let mut cuts = std::collections::HashMap::<Option<Uuid>, Option<Cut>>::new();
             for row in rows {
                 after = super::counter(&row.try_get::<String, _>("revision")?)?;
                 let entity: String = row.try_get("entity_key")?;
@@ -205,31 +209,41 @@ impl LoginPromoter {
                     .map(|c| Uuid::parse_str(&c))
                     .transpose()
                     .map_err(|_| Error::Unavailable)?;
-                if let Some(character) = character {
-                    // A character sold since the record stays out of the seller's view.
-                    if !matches!(
-                        ownership(tx, account_id, character).await?,
-                        Ownership::Owner(_)
-                    ) {
-                        continue;
-                    }
+                if let std::collections::hash_map::Entry::Vacant(entry) = cuts.entry(character) {
+                    let owned = match character {
+                        Some(character) => matches!(
+                            ownership(tx, account_id, character).await?,
+                            Ownership::Owner(_)
+                        ),
+                        None => true,
+                    };
+                    let cut = if owned {
+                        Some(
+                            self.logins
+                                .authority
+                                .current(tx, account_id, character)
+                                .await
+                                .map_err(from_login)?,
+                        )
+                    } else {
+                        None
+                    };
+                    entry.insert(cut);
                 }
-                let cut = self
-                    .logins
-                    .authority
-                    .current(tx, account_id, character)
-                    .await
-                    .map_err(from_login)?;
+                let Some(cut) = cuts.get(&character).and_then(Option::as_ref) else {
+                    // A character sold since the record stays out of the seller's view.
+                    continue;
+                };
                 let record = PromotedLogin {
                     account: account_id,
                     character,
                     // The fence admitted the record at or above the ownership cut.
                     character_revision: cut.ownership_character_revision,
-                    cut,
+                    cut: cut.clone(),
                     source_revision: super::counter(&row.try_get::<String, _>("revision")?)?,
                     login: Login::parse(&payload).map_err(from_login)?,
                 };
-                match self.logins.apply(tx, &record).await {
+                match self.logins.apply_locked_cut(tx, &record, cut).await {
                     // Before the transfer floor or ahead of the trusted clock: not shown.
                     Err(logins::Error::Denied) => continue,
                     other => other.map_err(from_login)?,
@@ -280,8 +294,8 @@ impl JournalEvidence {
         character: Option<Uuid>,
         family: &str,
     ) -> Result<ItemScope, Error> {
-        shared_fences(db).await?;
         account(db, actor).await?;
+        shared_fences(db).await?;
         let restored = restore_generation(db).await?;
         let cut = match character {
             None => None,

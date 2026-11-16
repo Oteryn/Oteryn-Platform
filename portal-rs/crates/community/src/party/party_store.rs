@@ -58,7 +58,9 @@ impl Board {
             return Err(Error::Denied);
         }
         let mut tx = self.db.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         // Serialize per-account caps across serving processes; hash collisions only reduce throughput.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
             .bind(owner.to_string())
             .execute(&mut *tx)
@@ -87,6 +89,7 @@ impl Board {
             return Err(Error::Invalid);
         }
         let mut tx = self.db.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
             .bind(actor.to_string())
             .execute(&mut *tx)
@@ -161,6 +164,7 @@ impl Board {
             return Err(Error::Invalid);
         }
         let mut tx = self.db.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         oteryn_admin::rbac::authorize_mutation_with_resources_domain::<Error, _>(
             &mut tx,
             &[actor],
@@ -212,6 +216,12 @@ impl Board {
         )
         .await
         .map_err(|_| Error::Denied)?;
+        for permission in [
+            oteryn_admin::rbac::Permission::Access,
+            oteryn_admin::rbac::Permission::ManageSupportReports,
+        ] {
+            authority.check_in(&mut tx, context, permission).await?;
+        }
         tx.commit().await?;
         Ok(())
     }

@@ -105,6 +105,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     pub async fn create(&self, mut input: NewListing) -> Result<Listing, Error> {
         self.currency(input.currency)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, input.owner, true).await?;
         let now = clock(&mut tx).await?;
@@ -133,6 +134,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     pub async fn publish(&self, id: Uuid, owner: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
@@ -157,6 +159,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         key: &str,
     ) -> Result<BidOutcome, Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let result = self.bid_in(&mut tx, id, account, maximum, key).await?;
         tx.commit().await?;
@@ -272,6 +275,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
@@ -298,6 +302,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         {
             return Err(Error::IllegalTransition);
         }
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,57))")
             .bind(account.to_string())
             .execute(&mut *tx)
@@ -349,6 +354,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         self.enabled()?;
         loop {
             let mut tx = self.pool.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             crate::locking::listing_gate(&mut tx).await?;
             let listing = locked(&mut tx, id).await?;
             self.currency(listing.currency)?;
@@ -442,6 +448,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     pub async fn reject_offer(&self, id: Uuid, owner: Uuid, offer_id: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
@@ -473,6 +480,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     pub async fn cancel(&self, id: Uuid, owner: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
@@ -503,6 +511,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         self.enabled()?;
         loop {
             let mut tx = self.pool.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             crate::locking::listing_gate(&mut tx).await?;
             let listing = locked(&mut tx, id).await?;
             self.currency(listing.currency)?;
@@ -545,6 +554,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         self.enabled()?;
         validate_key(key)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;
@@ -615,6 +625,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
     pub async fn complete_delivery(&self, id: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
         self.currency(listing.currency)?;

@@ -135,6 +135,7 @@ impl<A: Accounts, V: PublicViews, L: PromotionLedger> Moderation<A, V, L> {
         }
         valid_id(seller)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         if !self
             .accounts
@@ -176,8 +177,10 @@ impl<A: Accounts, V: PublicViews, L: PromotionLedger> Moderation<A, V, L> {
         self.enabled()?;
         input.validate()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,64))")
             .bind(actor.to_string())
             .execute(&mut *tx)
@@ -234,6 +237,7 @@ impl<A: Accounts, V: PublicViews, L: PromotionLedger> Moderation<A, V, L> {
         }
         valid_id(id)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         if !self
@@ -400,6 +404,7 @@ impl StaffCommand {
 pub async fn lock_staff_target(tx: &mut PgConnection, command: &StaffCommand) -> Result<(), Error> {
     // Every staff command may take an account FOR UPDATE after its target.
     // Exclude trading transactions before taking either, never upgrade a shared gate.
+    oteryn_db::mutation_budget(&mut *tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(64002)")
         .execute(&mut *tx)
         .await?;
@@ -429,11 +434,13 @@ pub async fn lock_staff_target(tx: &mut PgConnection, command: &StaffCommand) ->
                 .await?;
         }
         StaffCommand::Fees { .. } => {
+            oteryn_db::mutation_budget(&mut *tx).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(64001)")
                 .execute(&mut *tx)
                 .await?;
         }
         StaffCommand::RestrictItem { .. } => {
+            oteryn_db::mutation_budget(&mut *tx).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(64002)")
                 .execute(&mut *tx)
                 .await?;
@@ -546,6 +553,7 @@ pub async fn execute_staff(
             if (*coin_bps, *gold_bps, *listing_fee) != (1000, 250, 0) || *promotion_price <= 0 {
                 return Err(Error::InvalidInput);
             }
+            oteryn_db::mutation_budget(&mut *tx).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(64001)")
                 .execute(&mut *tx)
                 .await?;
@@ -571,6 +579,7 @@ pub async fn execute_staff(
             {
                 return Err(Error::InvalidInput);
             }
+            oteryn_db::mutation_budget(&mut *tx).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(64002)")
                 .execute(&mut *tx)
                 .await?;

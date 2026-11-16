@@ -196,6 +196,7 @@ impl PlacesStore {
     pub async fn preference(&self, actor: Uuid, owner: Uuid) -> Result<bool, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         Self::active(&mut tx, actor, owner).await?;
         let value = sqlx::query_scalar(
             "SELECT participating FROM pd_places_preferences WHERE account_id=$1",
@@ -215,8 +216,10 @@ impl PlacesStore {
     ) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         // Serialize publication, contribution and privacy changes. Publication never
         // caches outputs: after this commit the next read recomputes its thresholds.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(81005230117)")
             .execute(&mut *tx)
             .await?;
@@ -241,6 +244,7 @@ impl PlacesStore {
             return Err(Error::Disabled);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(81005230117)")
             .execute(&mut *tx)
             .await?;
@@ -286,6 +290,7 @@ impl PlacesStore {
             return Err(Error::Disabled);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(81005230117)")
             .execute(&mut *tx)
             .await?;

@@ -59,6 +59,7 @@ pub async fn register(
         .map_err(|_| sqlx::Error::Protocol("password hashing unavailable".into()))?
         .map_err(sqlx::Error::Protocol)?;
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     let account = Accounts::create(&mut tx, &input.email, &hash, locale).await?;
     if let Some(account) = account {
         consents::record(&mut tx, account.id, config, ip).await?;

@@ -532,3 +532,53 @@ async fn nwave_consent_forms_accept_public_origin_and_reject_forgery() -> TestRe
     assert!(unconfigured.csrf.trusted_origins.is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_drc_rotation_accounts_precede_session_trigger_wait() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let old = Uuid::now_v7();
+    let target = Uuid::now_v7();
+    for account in [old, target] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'synthetic','active','en',now())")
+            .bind(account).bind(format!("{account}@example.invalid")).execute(&db.pool).await?;
+    }
+    let session = BrowserSession::new(db.pool.clone(), SessionConfig::default(), None, "test");
+    rotate(&session, PrivilegeChange::Login(old)).await?;
+    let hash = session.identity_hash().await.ok_or("missing session")?;
+    let mut blocker = db.pool.begin().await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(target)
+        .execute(&mut *blocker)
+        .await?;
+    let task = tokio::spawn(async move { rotate(&session, PrivilegeChange::Login(target)).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.pool)
+            .await?;
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        Ok::<(), sqlx::Error>(())
+    })
+    .await??;
+    let row = sqlx::query("SELECT id_hash FROM web_sessions WHERE id_hash=$1 FOR UPDATE NOWAIT")
+        .bind(hash)
+        .fetch_optional(&mut *blocker)
+        .await;
+    blocker.rollback().await?;
+    task.await??;
+    assert!(
+        row.is_ok(),
+        "rotation locked the old session before waiting for its new account"
+    );
+    db.close().await
+}

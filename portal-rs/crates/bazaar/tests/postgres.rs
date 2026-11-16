@@ -759,3 +759,73 @@ async fn bid_prepares_previous_leader_before_actor_account() -> TestResult {
     later?;
     h.finish().await
 }
+
+#[tokio::test]
+async fn postgres_drc_listing_gate_has_shared_budget() -> TestResult {
+    let h = Harness::new().await?.ok_or("PostgreSQL required")?;
+    let mut blocker = h.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(64002)")
+        .execute(&mut *blocker)
+        .await?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(3700),
+        h.listing(Form::Auction, Currency::Coins, 100),
+    )
+    .await;
+    blocker.rollback().await?;
+    assert!(
+        matches!(result, Ok(Err(_))),
+        "listing gate must refuse within the shared budget"
+    );
+    h.finish().await
+}
+
+#[tokio::test]
+async fn postgres_drc_trigger_gate_has_shared_budget() -> TestResult {
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+    let admin = sqlx::PgPool::connect(&url).await?;
+    let schema = format!("drc_trigger_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&admin)
+        .await?;
+    let path = schema.clone();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(move |connection, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await?;
+    oteryn_db::migrate(&pool).await?;
+    let mut blocker = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(64002)")
+        .execute(&mut *blocker)
+        .await?;
+    let mut writer = pool.begin().await?;
+    // No application gate or budget: the statement trigger is the first taker.
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(3700),
+        sqlx::query("UPDATE bazaar_listings SET updated_at=updated_at WHERE false")
+            .execute(&mut *writer),
+    )
+    .await;
+    blocker.rollback().await?;
+    writer.rollback().await?;
+    assert!(
+        matches!(result, Ok(Err(_))),
+        "raw SQL gate must establish its budget before waiting"
+    );
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    Ok(())
+}

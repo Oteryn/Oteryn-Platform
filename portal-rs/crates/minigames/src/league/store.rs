@@ -22,6 +22,7 @@ pub(super) async fn begin(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
     })
     .await
     .map_err(|_| Error::Unavailable)??;
+    oteryn_db::mutation_budget(&mut tx).await?;
     Ok(tx)
 }
 pub(super) const SERVING_LIMIT: usize = 128;
@@ -86,6 +87,7 @@ impl<A: Authority> League<A> {
         let fingerprint = schema::hash(&h.finalize());
         let mut tx = begin(&self.pool).await?;
         // One lock order for all league writes, receipt identities and final controls.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
             .execute(&mut *tx)
             .await?;
@@ -201,6 +203,7 @@ impl<A: Authority> League<A> {
             return Err(Error::Unavailable);
         }
         let mut tx = begin(&self.pool).await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock_shared(94000003)")
             .execute(&mut *tx)
             .await?;
@@ -262,6 +265,7 @@ impl<A: Authority> League<A> {
         }
         let cutoff = i64::try_from(now.saturating_sub(90 * 86400)).map_err(|_| Error::Invalid)?;
         let mut tx = begin(&self.pool).await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
             .execute(&mut *tx)
             .await?;

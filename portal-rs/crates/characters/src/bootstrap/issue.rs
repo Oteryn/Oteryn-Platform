@@ -162,6 +162,7 @@ pub async fn issue(pool: &PgPool, input: IssueInput, actor: Actor) -> Result<Iss
     if matches!(actor, Actor::Operator(_)) {
         // Retain the existing permission-revocation serialization through
         // authority acquisition, within the original acquisition deadline.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock_shared(71010)")
             .execute(&mut *tx)
             .await?;

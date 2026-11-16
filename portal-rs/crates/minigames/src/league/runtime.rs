@@ -192,6 +192,7 @@ async fn question(pool: &PgPool, s: &schema::Snapshot, c: &Config, m: &Meta) -> 
     identity.evidence_sha256.clear();
     let digest = schema::hash(&serde_json::to_vec(&identity).map_err(|_| Error::Invalid)?);
     let mut tx = super::store::begin(pool).await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
         .execute(&mut *tx)
         .await?;
@@ -255,6 +256,7 @@ pub(super) async fn initialize(pool: &PgPool, c: &Config) -> Result<()> {
 async fn initialize_inner(pool: &PgPool, c: &Config) -> Result<()> {
     let f = c.recovery()?;
     let mut tx = super::store::begin(pool).await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
         .execute(&mut *tx)
         .await?;
@@ -302,6 +304,7 @@ async fn receive_inner(
     let fingerprint = schema::hash(&[path.as_bytes(), meta, body].concat());
     let id = schema::id(&m.request_id)?;
     let mut tx = super::store::begin(pool).await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
         .execute(&mut *tx)
         .await?;
@@ -415,9 +418,12 @@ impl FeedJob {
         // Close-on-drop makes cancellation release the session leadership lock.
         let mut leader = self.pool.acquire().await?;
         leader.close_on_drop();
+        let mut acquisition = sqlx::Connection::begin(&mut *leader).await?;
+        oteryn_db::mutation_budget(&mut acquisition).await?;
         let owns: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(94000004)")
-            .fetch_one(&mut *leader)
+            .fetch_one(&mut *acquisition)
             .await?;
+        acquisition.commit().await?;
         if !owns {
             return Ok(());
         }
@@ -463,6 +469,7 @@ impl FeedJob {
                 Err(Error::Unavailable) | Err(Error::Database(_)) => break,
                 Err(_) => {
                     let mut tx = super::store::begin(&self.pool).await?;
+                    oteryn_db::mutation_budget(&mut tx).await?;
                     sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
                         .execute(&mut *tx)
                         .await?;
@@ -531,6 +538,7 @@ impl FeedJob {
                     .await?;
             }
             let mut tx = super::store::begin(&self.pool).await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
                 .execute(&mut *tx)
                 .await?;
@@ -568,6 +576,7 @@ impl FeedJob {
             tx.commit().await?;
         } else if path == admission::WATERMARK {
             let mut tx = super::store::begin(&self.pool).await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
                 .execute(&mut *tx)
                 .await?;
@@ -600,6 +609,7 @@ impl FeedJob {
     }
     async fn install(&self, c: &Config) -> Result<()> {
         let mut tx = super::store::begin(&self.pool).await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
             .execute(&mut *tx)
             .await?;
@@ -648,6 +658,7 @@ impl oteryn_db::outbox::Cleanup for Retention {
 impl Retention {
     pub async fn run(&self) -> Result<()> {
         let mut tx = super::store::begin(&self.pool).await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
             .execute(&mut *tx)
             .await?;

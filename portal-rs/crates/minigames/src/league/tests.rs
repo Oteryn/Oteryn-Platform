@@ -1380,3 +1380,37 @@ async fn postgres_league_database_execution_has_a_deadline() -> TestResult {
     assert!(started.elapsed() < std::time::Duration::from_secs(4));
     db.close().await
 }
+
+#[test]
+fn ascii_and_unicode_guild_names_preserve_validation_boundaries() -> TestResult {
+    let base: schema::SeasonSnapshot = serde_json::from_slice(&wire("tied_guilds_frozen")?)?;
+    let mut cases = vec![
+        ("&".repeat(64), true),
+        ("Aldric Guild".to_owned(), true),
+        ("Żółć".to_owned(), true),
+        ("Cafe\u{0301}".to_owned(), false),
+        ("Guild\u{202e}".to_owned(), false),
+        ("..".to_owned(), false),
+        ("Guild/name".to_owned(), false),
+    ];
+    for control in (0u8..=31).chain(std::iter::once(127)) {
+        cases.push((format!("Guild{}", char::from(control)), false));
+    }
+    for (name, valid) in cases {
+        let mut season = base.clone();
+        season
+            .season
+            .first_mut()
+            .ok_or("season missing")?
+            .standings
+            .first_mut()
+            .ok_or("guild missing")?
+            .guild_name = name.clone();
+        assert_eq!(
+            schema::Snapshot::decode(&serde_json::to_vec(&season)?, true, NOW).is_ok(),
+            valid,
+            "guild name {name:?}"
+        );
+    }
+    Ok(())
+}

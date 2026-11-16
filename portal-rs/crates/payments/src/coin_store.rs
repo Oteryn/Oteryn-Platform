@@ -370,6 +370,7 @@ impl CoinPurchases {
             self.owned(payer, character).await?;
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 90105))")
             .bind(payer)
             .execute(&mut *tx)
@@ -532,6 +533,7 @@ impl CoinPurchases {
         request: &CoinOrderRequest,
     ) -> Result<Created, CoinError> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         if let Some(reason) = self.restriction(&mut tx, payer).await? {
             tx.rollback().await?;
             self.refused(payer, request.request_id, "order", &reason)
@@ -539,6 +541,7 @@ impl CoinPurchases {
             return Err(CoinError::Conflict);
         }
         // Share the payer lock with issuance; replays bypass allocation budgets.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 90105))")
             .bind(payer)
             .execute(&mut *tx)
@@ -691,6 +694,7 @@ impl CoinPurchases {
     pub async fn webhook(&self, body: &[u8], signature: &[u8]) -> Result<WebhookOutcome, Error> {
         let event = self.verified(body, signature)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let outcome = self.apply_in(&mut tx, &event).await;
         if matches!(outcome, Ok(_) | Err(Error::InvalidInput)) {
             tx.commit().await?;

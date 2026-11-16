@@ -261,6 +261,8 @@ impl CatalogStore {
                 sqlx::query("INSERT INTO store_offers (catalog_revision,offer_key,currency,unit_price,max_quantity,purchasable,canonical_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7)").bind(catalog.revision()).bind(&offer.offer_key).bind(&offer.currency).bind(offer.unit_price.parse::<i64>().map_err(|_| Error::InvalidDocument)?).bind(i32::from(offer.max_quantity)).bind(offer.purchasable).bind(bytes).execute(&mut *tx).await?;
             }
         }
+        self.authorize(actor, Action::Import, access, &mut tx)
+            .await?;
         tx.commit().await?;
         Ok(catalog.revision)
     }
@@ -301,6 +303,8 @@ impl CatalogStore {
             sqlx::query("INSERT INTO store_catalog_activations (previous_revision,catalog_revision,actor_id,activation_id) VALUES ($1,$2,$3,$4)").bind(&current).bind(revision).bind(actor).bind(Uuid::now_v7()).execute(&mut *tx).await?;
             sqlx::query("UPDATE store_active_catalog SET catalog_revision=$1, activated_by=$2, updated_at=now() WHERE id=1").bind(revision).bind(actor).execute(&mut *tx).await?;
         }
+        self.authorize(actor, Action::Activate, access, &mut tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }

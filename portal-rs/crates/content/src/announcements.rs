@@ -190,6 +190,9 @@ impl Announcements {
             },
         )
         .await?;
+        for permission in [Permission::Access, Permission::ManagePortalAnnouncements] {
+            auth.check_in(&mut tx, context, permission).await?;
+        }
         tx.commit().await?;
         Ok(id)
     }

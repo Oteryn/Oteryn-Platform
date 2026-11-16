@@ -209,6 +209,7 @@ impl<A: AccountStateReader> Authorizer<A> {
             },
         )
         .await?;
+        self.revalidate_actor_in(&mut tx, context).await?;
         tx.commit().await?;
         Ok(Some(result))
     }

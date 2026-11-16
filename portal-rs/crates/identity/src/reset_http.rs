@@ -346,6 +346,7 @@ async fn audit_refusals(
     ) {
         let result = async {
             let mut tx = pool.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             reset::audit(&mut tx, None, "identity.password_reset_browser_refused").await?;
             tx.commit().await
         }

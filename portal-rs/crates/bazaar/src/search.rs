@@ -406,6 +406,7 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         if enabled {
@@ -425,6 +426,7 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
             {
                 return Err(Error::NotFound);
             }
+            oteryn_db::mutation_budget(&mut tx).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,64005))")
                 .bind(actor.to_string())
                 .execute(&mut *tx)
@@ -461,8 +463,10 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
         validate_name(name)?;
         let body = serde_json::to_string(query).map_err(|_| Error::InvalidInput)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,61))")
             .bind(actor.to_string())
             .execute(&mut *tx)
@@ -486,6 +490,7 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
     pub async fn saved(&self, actor: Uuid) -> Result<Vec<(String, SearchQuery)>, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         let rows: Vec<(String, String)> = sqlx::query_as(
@@ -508,6 +513,7 @@ impl<A: Accounts, P: SearchProjection> BazaarSearch<A, P> {
         self.enabled()?;
         validate_name(name)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         sqlx::query("DELETE FROM bazaar_saved_searches WHERE account=$1 AND name=$2")

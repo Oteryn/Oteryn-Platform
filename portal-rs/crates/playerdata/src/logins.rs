@@ -231,9 +231,35 @@ impl Logins {
             .authority
             .current(tx, record.account, record.character)
             .await?;
+        self.apply_locked_cut(tx, record, &current).await
+    }
+
+    /// The journal promoter retains account, issuance, restore, feed, ownership
+    /// and stream locks for this cut in the same transaction. Reuse that proof
+    /// within a bounded batch, while checking database time for every record.
+    pub(crate) async fn apply_locked_cut(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        record: &PromotedLogin,
+        current: &Cut,
+    ) -> Result<()> {
+        if !self.flags.progress_ingest_enabled {
+            return Err(Error::Unavailable);
+        }
+        record.login.validate()?;
+        if !valid_id(record.account)
+            || record.character.is_some_and(|id| !valid_id(id))
+            || record.character.is_some() != record.character_revision.is_some()
+            || record.character_revision == Some(0)
+            || record.source_revision == 0
+            || record.source_revision > record.cut.complete_through
+        {
+            return Err(Error::Invalid);
+        }
+        oteryn_db::mutation_budget(tx).await?;
         let now = now(tx).await?;
-        check_cut(&current, record.character, now)?;
-        if current != record.cut
+        check_cut(current, record.character, now)?;
+        if *current != record.cut
             || record
                 .character_revision
                 .zip(current.ownership_character_revision)
@@ -249,13 +275,12 @@ impl Logins {
         if left.is_some_and(|t| t > now) {
             return Err(Error::Invalid);
         }
-        // Referral inactivity outlives the presentation payload. T72 has already
-        // authenticated this cut, including a recent end of a very old session.
-        sqlx::query("INSERT INTO referral_activity(account_id,last_activity) VALUES($1,to_timestamp($2::double precision/1000.0)) ON CONFLICT(account_id) DO UPDATE SET last_activity=GREATEST(referral_activity.last_activity,EXCLUDED.last_activity),updated_at=clock_timestamp()")
-            .bind(record.account).bind(left.unwrap_or(entered)).execute(&mut **tx).await?;
-        // Expired payloads are never resurrected. T72 retains the minimal replay
-        // acknowledgement and sequence even when no presentation row is inserted.
+        // Ordinary retained logins update activity through the same-transaction
+        // referral_activity_game trigger. Only expired payloads need a separate
+        // high-water mark, since no presentation row will be written for them.
         if entered < now - 30 * 86_400_000 {
+            sqlx::query("INSERT INTO referral_activity(account_id,last_activity) VALUES($1,to_timestamp($2::double precision/1000.0)) ON CONFLICT(account_id) DO UPDATE SET last_activity=GREATEST(referral_activity.last_activity,EXCLUDED.last_activity),updated_at=clock_timestamp()")
+                .bind(record.account).bind(left.unwrap_or(entered)).execute(&mut **tx).await?;
             return Ok(());
         }
         let old: Option<ExistingLogin> = sqlx::query_as("SELECT entered_at,left_at,character_id,end_reason FROM pd_game_logins WHERE account_id=$1 AND login_event_id=$2 FOR UPDATE")

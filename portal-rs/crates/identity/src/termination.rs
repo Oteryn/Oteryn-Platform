@@ -220,6 +220,7 @@ impl Terminations {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let locked = lock(&mut tx, account).await?.ok_or(Error::Unavailable)?;
         if locked.status != "active" {
             return Err(Error::Unavailable);
@@ -250,6 +251,7 @@ impl Terminations {
     ) -> Result<()> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let locked = lock(&mut tx, account).await?.ok_or(Error::Unavailable)?;
         if !matches!(locked.status.as_str(), "active" | "suspended") {
             return Err(Error::Unavailable);
@@ -275,6 +277,7 @@ impl Terminations {
         // delivery is an outbox concern outside both account-lock transactions.
         {
             let mut tx = self.pool.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             if let Some(locked) = lock(&mut tx, account).await?
                 && let Some(termination) = pending(&mut tx, account).await?
             {
@@ -291,6 +294,7 @@ impl Terminations {
             tx.commit().await?;
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let Some(locked) = lock(&mut tx, account).await? else {
             return Ok(false);
         };

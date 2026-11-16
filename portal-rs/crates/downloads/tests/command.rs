@@ -186,3 +186,38 @@ async fn db_single_connection_publication_authorization() {
     ));
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_drc_download_operator_joins_rbac_before_permission_read() {
+    use oteryn_downloads::{PublishAccess, command::DatabaseAccess};
+    let db = Database::open().await.expect("PostgreSQL required");
+    let actor = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'drc-publisher@example.invalid','unused','active','en')").bind(actor).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,role_id FROM role_permissions WHERE permission='downloads.manage' LIMIT 1").bind(actor).execute(&db.pool).await.unwrap();
+    let mut writer = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let pool = db.pool.clone();
+    let task = tokio::spawn(async move {
+        let mut tx = pool.begin().await.unwrap();
+        DatabaseAccess(pool)
+            .authorize_in(&mut tx, actor, Channel::Stable)
+            .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let bypassed = task.is_finished();
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(actor)
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    writer.commit().await.unwrap();
+    assert!(
+        !task.await.unwrap(),
+        "publication accepted a committed revocation"
+    );
+    assert!(!bypassed, "publication bypassed the RBAC mutation fence");
+    db.close().await;
+}

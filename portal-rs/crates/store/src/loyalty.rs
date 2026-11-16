@@ -46,6 +46,7 @@ impl Ledger {
         revision: &str,
     ) -> Result<Vec<u8>, oteryn_db::retry::TransactionError<Error>> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT referral_campaign_prepare(ARRAY[$1::uuid] || ARRAY(SELECT inviter_id FROM referral_campaign_invitations WHERE invitee_id=$1 AND kind='new'))")
             .bind(account).execute(&mut *tx).await?;
         match self.accounts.state(account, &mut tx).await? {

@@ -162,6 +162,7 @@ impl Sessions {
     }
     pub async fn list(&self, actor: &Actor) -> Result<(Vec<ActiveSession>, Vec<SecurityEvent>)> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         self.authorize(&mut tx, actor).await?;
         let sessions = sqlx::query_as("SELECT session_id,user_agent_summary,host(ip) AS ip,last_seen_at,(id_hash=$2) AS current FROM web_sessions WHERE account_id=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp() ORDER BY last_seen_at DESC,session_id DESC LIMIT 50")
             .bind(actor.account).bind(&actor.hash).fetch_all(&mut *tx).await?;
@@ -172,6 +173,7 @@ impl Sessions {
     }
     pub async fn revoke(&self, actor: &Actor, selection: Revocation) -> Result<Outcome> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let current = self.authorize(&mut tx, actor).await?;
         let (target, others, all, kind) = match selection {
             Revocation::One(id) => (Some(id), false, false, "session_revoked"),
@@ -200,6 +202,7 @@ impl Sessions {
     /// Account locking makes first-device detection deterministic under concurrent logins.
     pub async fn record_login(&self, actor: &Actor) -> Result<()> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let id = self.authorize(&mut tx, actor).await?;
         let (device, ip): (String, Option<String>) = sqlx::query_as(
             "SELECT user_agent_summary,host(ip) FROM web_sessions WHERE session_id=$1",

@@ -7,6 +7,7 @@ pub struct PlacesRetention {
 impl PlacesRetention {
     pub async fn purge(&self) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(81005230117)")
             .execute(&mut *tx)
             .await?;

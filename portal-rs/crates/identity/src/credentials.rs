@@ -85,6 +85,7 @@ impl Credentials {
             return Ok(Outcome::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let Some((account, hash)) = authenticated(&mut tx, session_hash).await? else {
             return Ok(Outcome::Refused);
         };
@@ -142,6 +143,7 @@ pub async fn authenticated(
     if session_hash.len() != 32 {
         return Ok(None);
     }
+    oteryn_db::mutation_budget(tx).await?;
     // Account first, session second: every credential mutation uses the same lock order.
     let row: Option<(AccountId,String)> = sqlx::query_as("SELECT a.id,a.password_hash FROM accounts a JOIN web_sessions s ON s.account_id=a.id WHERE s.id_hash=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL FOR UPDATE OF a")
         .bind(session_hash).fetch_optional(&mut **tx).await?;

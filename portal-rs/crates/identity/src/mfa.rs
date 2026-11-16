@@ -164,6 +164,7 @@ impl Mfa {
     }
     pub async fn record_http_refusal(&self) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         Self::audit(&mut tx, None, "mfa.http_refused").await?;
         tx.commit().await
     }
@@ -220,6 +221,7 @@ impl Mfa {
             .map_err(|_| error())
     }
     async fn lock(tx: &mut Tx<'_>, id: AccountId) -> Result<Option<String>, sqlx::Error> {
+        oteryn_db::mutation_budget(tx).await?;
         sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL FOR UPDATE").bind(id).fetch_optional(&mut **tx).await
     }
     async fn state(tx: &mut Tx<'_>, id: AccountId) -> Result<Option<State>, sqlx::Error> {
@@ -255,6 +257,7 @@ impl Mfa {
         password: &str,
     ) -> Result<Option<Enrollment>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let hash = Self::lock(&mut tx, id).await?;
         let state = Self::state(&mut tx, id).await?;
         if hash.is_none()
@@ -310,6 +313,7 @@ impl Mfa {
         code: &str,
     ) -> Result<Option<Vec<String>>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let hash = Self::lock(&mut tx, id).await?;
         let state = Self::state(&mut tx, id).await?;
         let step = match state.as_ref() {
@@ -401,6 +405,7 @@ impl Mfa {
             .to_owned();
         let verified = Self::password(&input.password, &hash).await?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let Some(account) = account.filter(|_| verified) else {
             Self::refuse(tx, None).await?;
             return Ok(None);
@@ -455,6 +460,7 @@ impl Mfa {
     }
     pub async fn pending_account(&self, token: &str) -> Result<Option<AccountId>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         Ok(Self::valid(&mut tx, token, "challenge").await?.map(|v| v.0))
     }
     /// Returns plaintext only to the mail adapter, never to the browser or an audit payload.
@@ -463,6 +469,7 @@ impl Mfa {
         challenge: &str,
     ) -> Result<Option<(String, String)>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let Some((id, state, hash)) = Self::valid(&mut tx, challenge, "challenge").await? else {
             Self::refuse(tx, None).await?;
             return Ok(None);
@@ -487,6 +494,7 @@ impl Mfa {
         remember: bool,
     ) -> Result<Option<Authenticated>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let Some((id, state, hash)) = Self::valid(&mut tx, challenge, "challenge").await? else {
             Self::refuse(tx, None).await?;
             return Ok(None);
@@ -550,6 +558,7 @@ impl Mfa {
         device: &str,
     ) -> Result<Option<Authenticated>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let Some((id, state, hash)) = Self::valid(&mut tx, challenge, "challenge").await? else {
             Self::refuse(tx, None).await?;
             return Ok(None);
@@ -589,6 +598,7 @@ impl Mfa {
     /// Denies absent, revoked, expired, foreign and stale credential proofs.
     pub async fn satisfied(&self, id: AccountId, grant: &str) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         self.satisfied_in_transaction(&mut tx, id, grant).await
     }
     /// Read-only grant verification under the caller's transaction. The account
@@ -612,6 +622,7 @@ impl Mfa {
     /// Recovery/email/device proofs are deliberately not accepted for staff elevation.
     pub async fn verify_totp(&self, id: AccountId, code: &str) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let active = Self::lock(&mut tx, id).await?.is_some();
         let state = Self::state(&mut tx, id).await?;
         let step = match state.as_ref() {
@@ -668,6 +679,7 @@ impl Mfa {
         identifier: &str,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let active = Self::lock(&mut tx, id).await?.is_some();
         let removed = if active && valid_token(identifier) {
             sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1 AND purpose='trusted' AND encode(token_hash,'hex')=$2").bind(id).bind(identifier).execute(&mut *tx).await?.rows_affected()==1

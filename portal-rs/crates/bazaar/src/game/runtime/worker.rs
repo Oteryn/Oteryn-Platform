@@ -15,6 +15,7 @@ impl Runtime {
     pub async fn tick(&self) -> Result<(), Error> {
         self.config.current()?;
         let mut resync = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut resync).await?;
         crate::locking::listing_gate(&mut resync).await?;
         match self
             .authority()
@@ -135,6 +136,7 @@ impl Runtime {
     }
     async fn advance(&self, id: Uuid) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
             .bind(id)
@@ -387,6 +389,7 @@ impl Runtime {
             {
                 return Err(Error::Unavailable);
             }
+            oteryn_db::mutation_budget(tx).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
                 .execute(&mut **tx)
                 .await?;
@@ -675,6 +678,7 @@ pub(crate) async fn publish_transfer(
         }
         return Ok(());
     }
+    oteryn_db::mutation_budget(tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
         .execute(&mut **tx)
         .await?;

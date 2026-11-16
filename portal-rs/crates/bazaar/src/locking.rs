@@ -3,6 +3,7 @@
 //! verification reads immutable listing bindings without taking listing locks.
 use sqlx::PgConnection;
 pub(crate) async fn listing_gate(db: &mut PgConnection) -> Result<(), sqlx::Error> {
+    oteryn_db::mutation_budget(&mut *db).await?;
     sqlx::query("SELECT pg_advisory_xact_lock_shared(64002)")
         .execute(db)
         .await?;

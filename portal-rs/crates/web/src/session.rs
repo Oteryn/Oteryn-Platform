@@ -205,11 +205,14 @@ impl BrowserSession {
         let mut inner = self.inner.lock().await;
         self.ensure(&mut inner).await?;
         let record = inner.record.as_ref().ok_or(sqlx::Error::RowNotFound)?;
+        let mut tx = self.pool.begin().await?;
+        lock_session_accounts(&mut tx, &[record.account_id]).await?;
         let result = sqlx::query("UPDATE web_sessions SET data=jsonb_set(data,ARRAY[$2],$3::text::jsonb), updated_at=now() WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-            .bind(hash(&record.id)).bind(key.name).bind(value).execute(&self.pool).await?;
+            .bind(hash(&record.id)).bind(key.name).bind(value).execute(&mut *tx).await?;
         if result.rows_affected() != 1 {
             return Err(sqlx::Error::RowNotFound);
         }
+        tx.commit().await?;
         Ok(())
     }
 }
@@ -270,6 +273,33 @@ impl BrowserSession {
             .map(|record| hash(&record.id))
     }
 }
+// Authentication triggers may join referral serialization. Prepare both the
+// old and new account before the session row, in the same order as staff resets.
+async fn lock_session_accounts(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    accounts: &[Option<Uuid>],
+) -> Result<(), sqlx::Error> {
+    oteryn_db::mutation_budget(tx).await?;
+    let accounts: Vec<Uuid> = accounts.iter().flatten().copied().collect();
+    if accounts.is_empty() {
+        return Ok(());
+    }
+    // The generic session store also serves adapters without Identity tables.
+    // There is no account resource to lock in those schemas; this is not an
+    // identity authorization decision, which remains with the caller.
+    let identity: bool = sqlx::query_scalar("SELECT to_regclass('accounts') IS NOT NULL")
+        .fetch_one(&mut **tx)
+        .await?;
+    if !identity {
+        return Ok(());
+    }
+    sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE")
+        .bind(accounts)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result<(), sqlx::Error> {
     let mut inner = session.inner.lock().await;
     if matches!(change, PrivilegeChange::Logout) {
@@ -302,16 +332,19 @@ pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result
     };
     let id = random_token()?;
     let csrf = random_token()?;
+    let mut tx = session.pool.begin().await?;
+    lock_session_accounts(&mut tx, &[record.account_id, account]).await?;
     let result = if let PrivilegeChange::AuthorizedLogin(_, generation) = change {
         sqlx::query("UPDATE web_sessions SET id_hash=$2,csrf_token=$3,account_id=$4,sudo_until=$5,authorization_generation=$6,updated_at=clock_timestamp() WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-            .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).bind(generation).execute(&session.pool).await?
+            .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).bind(generation).execute(&mut *tx).await?
     } else {
         sqlx::query("UPDATE web_sessions SET id_hash=$2, csrf_token=$3, account_id=$4, sudo_until=$5, updated_at=now() WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-        .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).execute(&session.pool).await?
+        .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).execute(&mut *tx).await?
     };
     if result.rows_affected() != 1 {
         return Err(sqlx::Error::RowNotFound);
     }
+    tx.commit().await?;
     inner.cookie = Some(cookie(&id));
     inner.record = Some(Record {
         id,

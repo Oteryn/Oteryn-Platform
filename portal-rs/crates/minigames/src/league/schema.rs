@@ -313,14 +313,20 @@ impl Season {
                 seen.insert(gid)
                     && !g.guild_name.is_empty()
                     && g.guild_name.len() <= 64
-                    && g.guild_name.nfc().eq(g.guild_name.chars())
+                    // ASCII is already NFC; avoid Unicode decomposition for
+                    // every character of full 1,000-guild season snapshots.
+                    && (g.guild_name.is_ascii() || g.guild_name.nfc().eq(g.guild_name.chars()))
                     && !g.guild_name.contains(['"', '\\', '/'])
                     && !matches!(g.guild_name.as_str(), "." | "..")
                     && g.guild_name.chars().all(|c| {
-                        !matches!(
-                            get_general_category(c),
-                            GeneralCategory::Control | GeneralCategory::Format
-                        )
+                        if c.is_ascii() {
+                            !c.is_ascii_control()
+                        } else {
+                            !matches!(
+                                get_general_category(c),
+                                GeneralCategory::Control | GeneralCategory::Format
+                            )
+                        }
                     })
                     && g.scores.len() == self.challenges.len()
                     && number(&g.rank, false)? == (i + 1) as u64,

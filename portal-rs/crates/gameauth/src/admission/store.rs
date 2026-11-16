@@ -90,6 +90,9 @@ impl AdmissionAuthority for Unavailable {
 pub(super) async fn lock(connection: &mut PgConnection, key: &[u8]) -> Result<(), Error> {
     let mut bytes = [0; 8];
     bytes.copy_from_slice(&key[..8]);
+    oteryn_db::mutation_budget(&mut *connection)
+        .await
+        .map_err(|_| Error::Unavailable)?;
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(i64::from_be_bytes(bytes))
         .execute(connection)
@@ -147,6 +150,9 @@ async fn admit_inner(
         _ => return Err(Error::UnsupportedVersion.into()),
     };
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(|_| Error::Unavailable)?;
     sqlx::query("SET LOCAL lock_timeout = '2s'")
         .execute(&mut *tx)
         .await
@@ -319,7 +325,16 @@ async fn admit_inner(
     };
     sqlx::query("INSERT INTO native_admissions (attempt_ref, ticket_hash, request_digest, account_id, response_body, expires_at_ms) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(request.attempt_ref).bind(request.ticket_hash()).bind(request.digest()).bind(account.id).bind(&stored).bind(material.expires_at_ms)
-        .execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+        .execute(&mut *tx).await.map_err(|error| {
+            // A prepared grant must be discarded when the final admission write
+            // exhausts its bounded issuance window. Require a fresh login,
+            // preserving the grant-expiry refusal and rolling back all effects.
+            if matches!(error.as_database_error().and_then(|error| error.code()).as_deref(), Some("55P03" | "57014")) {
+                Error::GrantExpired
+            } else {
+                Error::Unavailable
+            }
+        })?;
     let response = final_validity(&mut tx, request, &response, material.expires_at_ms).await?;
     tx.commit()
         .await

@@ -282,6 +282,7 @@ impl Store {
     pub async fn register_agent(&self, hello: &AgentHello) -> Result<(), Error> {
         self.validate_registration(hello)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         self.register_agent_in(&mut tx, hello).await?;
         tx.commit().await?;
         Ok(())
@@ -340,6 +341,7 @@ impl Store {
         self.enabled()?;
         validate_request(input)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let request = self.enqueue_in(&mut tx, input).await?;
         tx.commit().await?;
         Ok(request)
@@ -410,6 +412,7 @@ impl Store {
         id: Uuid,
         preview: bool,
     ) -> Result<Request, Error> {
+        oteryn_db::mutation_budget(tx).await?;
         let request: Request =
             sqlx::query_as("SELECT * FROM admin_control_requests WHERE request_id=$1 FOR UPDATE")
                 .bind(id)
@@ -508,6 +511,7 @@ impl Store {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         ownership_lock(&mut tx, true).await?;
         let available: Option<String> = sqlx::query_scalar(
             "SELECT agent_id FROM admin_control_agents
@@ -586,6 +590,7 @@ impl Store {
     pub async fn record_result(&self, input: &NewResult, epoch: i64) -> Result<ResultRow, Error> {
         self.validate_result(input, epoch)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let result = self.record_result_in(&mut tx, input, epoch).await?;
         tx.commit().await?;
         Ok(result)
@@ -671,6 +676,7 @@ impl Store {
     pub async fn expire_due(&self) -> Result<u64, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let rows = sqlx::query(
             "SELECT request_id,status FROM admin_control_requests
             WHERE status IN ('queued','delivered') AND expires_at<=clock_timestamp()
@@ -840,12 +846,14 @@ pub(crate) async fn ownership_lock(
     shared: bool,
 ) -> Result<(), Error> {
     if shared {
+        oteryn_db::mutation_budget(tx).await?;
         sqlx::query(
             "SELECT pg_advisory_xact_lock_shared(hashtextextended('admin-control-ownership',0))",
         )
         .execute(&mut **tx)
         .await?;
     } else {
+        oteryn_db::mutation_budget(tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('admin-control-ownership',0))")
             .execute(&mut **tx)
             .await?;

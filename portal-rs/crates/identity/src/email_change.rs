@@ -165,6 +165,7 @@ impl Service {
             return Ok(Outcome::Refused);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let row: Option<(String,String,String)> = sqlx::query_as("SELECT email,password_hash,locale FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp() FOR UPDATE")
             .bind(account).fetch_optional(&mut *tx).await?;
         let Some((old, hash, locale)) = row else {
@@ -230,6 +231,7 @@ impl Service {
             return Ok(Outcome::Refused);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let id: Option<Uuid> = sqlx::query_scalar("SELECT account_id FROM account_email_changes WHERE (NOT $2 AND confirmation_hash=$1) OR ($2 AND revert_hash=$1)").bind(token_hash(token)).bind(revert).fetch_optional(&mut *tx).await?;
         let Some(account) = id else {
             return Ok(Outcome::Refused);
@@ -349,6 +351,7 @@ impl Service {
         let mut count = 0;
         for (id, account) in ids {
             let mut tx = self.pool.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             let current: Option<String> = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp() FOR UPDATE").bind(account).fetch_optional(&mut *tx).await?;
             let c: Change =
                 sqlx::query_as("SELECT * FROM account_email_changes WHERE id=$1 FOR UPDATE")

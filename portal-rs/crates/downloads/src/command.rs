@@ -109,6 +109,12 @@ impl PublishAccess for DatabaseAccess {
         actor: Uuid,
         _: Channel,
     ) -> bool {
+        if oteryn_admin::rbac::lock_accounts_and_mutation(connection, &[actor])
+            .await
+            .is_err()
+        {
+            return false;
+        }
         sqlx::query_scalar::<_, bool>("SELECT status='active' AND EXISTS(SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id WHERE ar.account_id=accounts.id AND rp.permission='downloads.manage') FROM accounts WHERE id=$1")
             .bind(actor).fetch_optional(connection).await.ok().flatten() == Some(true)
     }

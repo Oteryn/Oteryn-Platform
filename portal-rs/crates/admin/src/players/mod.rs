@@ -311,6 +311,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"note":note}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -341,6 +343,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
         self.accounts.revoke_all(&mut tx, id).await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         append(
             &mut tx,
             context,
@@ -349,6 +353,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"reason":reason.trim()}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -381,6 +387,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
                 oteryn_identity::security_revocations::Error::Encoding => Error::Unavailable,
             })?
             .ok_or(Error::NotFound)?;
+        self.check_in(&mut tx, context, Permission::KickAccountSessions)
+            .await?;
         append(
             &mut tx,
             context,
@@ -389,6 +397,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"reason":reason.trim(),"native_security_generation":generation}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::KickAccountSessions)
+            .await?;
         tx.commit().await?;
         Ok(generation)
     }
@@ -550,6 +560,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"ticket":ticket,"evidence":evidence}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(evidence)
     }
@@ -602,6 +614,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"request":request,"evidence":evidence,"reason":reason.trim()}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(request)
     }
@@ -666,6 +680,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             return Err(Error::Denied);
         }
         self.accounts.reset_mfa(&mut tx, id, evidence).await?;
+        self.check_in(&mut tx, context, Permission::ManageRoles)
+            .await?;
         sqlx::query(
             "UPDATE player_mfa_reset_requests SET approved_by=$2,updated_at=now() WHERE id=$1",
         )
@@ -681,6 +697,18 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"request":request,"requested_by":requester}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageRoles)
+            .await?;
+        // The adapter can wait after the earlier request-window check too.
+        let unexpired: bool = sqlx::query_scalar(
+            "SELECT expires_at>clock_timestamp() FROM player_mfa_reset_requests WHERE id=$1",
+        )
+        .bind(request)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !unexpired {
+            return Err(Error::Denied);
+        }
         tx.commit().await?;
         Ok(())
     }

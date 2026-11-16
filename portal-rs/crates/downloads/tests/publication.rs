@@ -627,3 +627,104 @@ async fn audit_09_04_history_reads_are_bounded_and_oldest_identity_is_checked() 
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn postgres_drc_publication_retains_rbac_through_history_wait() {
+    use oteryn_downloads::command::DatabaseAccess;
+    let db = Database::open().await.expect("PostgreSQL required");
+    let actor = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'drc-history@example.invalid','unused','active','en')")
+        .bind(actor).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,role_id FROM role_permissions WHERE permission='downloads.manage' LIMIT 1")
+        .bind(actor).execute(&db.pool).await.unwrap();
+    let operator = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'drc-role-writer@example.invalid','unused','active','en')")
+        .bind(operator).execute(&db.pool).await.unwrap();
+    // Existing channel avoids its FK admission touching the history table.
+    sqlx::query("INSERT INTO client_channels(id,name) VALUES($1,'stable')")
+        .bind(Uuid::now_v7())
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let signer = SignerFixture::new();
+    let downloads = Downloads::new(db.pool.clone(), ON, signer.roots());
+    let upload = signer.upload(signer.policy(1, "drc-history", 1));
+    let mut history = db.pool.begin().await.unwrap();
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *history)
+        .await
+        .unwrap();
+    sqlx::query("LOCK TABLE client_releases IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *history)
+        .await
+        .unwrap();
+    let pool = db.pool.clone();
+    let publication = tokio::spawn(async move {
+        downloads
+            .publish(&DatabaseAccess(pool), actor, upload)
+            .await
+    });
+    let observed = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let pid:Option<i32> = sqlx::query_scalar("SELECT pid FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND query LIKE '%FROM client_releases%' LIMIT 1")
+                .bind(blocker).fetch_optional(&db.pool).await.unwrap();
+            if let Some(pid) = pid { break pid; }
+            tokio::task::yield_now().await;
+        }
+    }).await;
+    let publisher = match observed {
+        Ok(pid) => pid,
+        Err(error) => {
+            history.rollback().await.unwrap();
+            panic!(
+                "history barrier failed: {error}; publication: {:?}",
+                publication.await
+            );
+        }
+    };
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let pool = db.pool.clone();
+    let revocation = tokio::spawn(async move {
+        let mut tx = pool.begin().await.unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        sender.send(pid).unwrap();
+        oteryn_admin::rbac::lock_accounts_and_mutation(&mut tx, &[operator])
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM role_permissions WHERE permission='downloads.manage' AND role_id IN (SELECT role_id FROM account_roles WHERE account_id=$1)")
+            .bind(actor)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    });
+    let writer = receiver.await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT $1=ANY(pg_blocking_pids($2))")
+                .bind(publisher)
+                .bind(writer)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+            if waiting || revocation.is_finished() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let revoked_during_history_wait = revocation.is_finished();
+    history.rollback().await.unwrap();
+    assert!(publication.await.unwrap().is_ok());
+    revocation.await.unwrap();
+    assert!(
+        !revoked_during_history_wait,
+        "role writer committed while publication retained its historical-release wait"
+    );
+    db.close().await;
+}

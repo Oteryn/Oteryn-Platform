@@ -48,6 +48,7 @@ impl Commands {
         intent: Intent,
     ) -> Result<CommandStatus, Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let status = self.issue_in(&mut tx, decision, key, intent).await?;
         tx.commit().await?;
         Ok(status)
@@ -62,6 +63,7 @@ impl Commands {
         let binding = binding(&intent);
         let binding_json = encode(&binding)?;
         // Hold the issuer lock through commit so no visible key lands behind the cursor.
+        oteryn_db::mutation_budget(&mut *conn).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
             .execute(&mut *conn)
             .await?;
@@ -221,6 +223,7 @@ impl Commands {
         self.source(&v)?;
         let id = uuid(get(&v, "operation_id")?)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         if self.restore_lock {
             let found: Option<i16> =
                 sqlx::query_scalar("SELECT id FROM character_restore_locks WHERE id=1 FOR SHARE")

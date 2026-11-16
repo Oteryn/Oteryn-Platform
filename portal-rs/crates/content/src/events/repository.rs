@@ -154,6 +154,9 @@ impl Events {
             },
         )
         .await?;
+        for permission in [Permission::Access, Permission::ManageEvents] {
+            auth.check_in(&mut tx, context, permission).await?;
+        }
         tx.commit().await?;
         Ok(id)
     }
@@ -231,6 +234,13 @@ impl Events {
             },
         )
         .await?;
+        for permission in [
+            Permission::Access,
+            Permission::ManageEvents,
+            Permission::PublishEvents,
+        ] {
+            auth.check_in(&mut tx, context, permission).await?;
+        }
         tx.commit().await?;
         Ok(())
     }

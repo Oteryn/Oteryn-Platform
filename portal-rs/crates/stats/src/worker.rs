@@ -41,6 +41,7 @@ impl StatisticsJob {
             return Ok(0);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(65001)")
             .execute(&mut *tx)
             .await?;
@@ -167,6 +168,7 @@ impl StatisticsJob {
         let mut days = 0;
         loop {
             let mut tx = self.pool.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             sqlx::query("SELECT pg_advisory_xact_lock(65001)")
                 .execute(&mut *tx)
                 .await?;

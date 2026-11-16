@@ -118,6 +118,7 @@ impl RecoveryKeys {
     pub async fn generate(&self, id: AccountId, current: &str) -> Result<String, Error> {
         self.gate()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         Self::authorize(&mut tx, id, current).await?;
         let mut bytes = [0u8; 20];
         getrandom::fill(&mut bytes).map_err(|_| Error::Unavailable)?;
@@ -142,6 +143,7 @@ impl RecoveryKeys {
         self.gate()?;
         validate_key(raw)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         Self::authorize(&mut tx, id, current).await?;
         let digest: Option<String>=sqlx::query_scalar("SELECT key_hash FROM account_recovery_keys WHERE account_id=$1 AND confirmed_at IS NULL AND used_at IS NULL AND revoked_at IS NULL").bind(id).fetch_optional(&mut *tx).await?;
         if !matches_digest(digest, raw).await? {
@@ -155,6 +157,7 @@ impl RecoveryKeys {
     pub async fn revoke(&self, id: AccountId, current: &str) -> Result<(), Error> {
         self.gate()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         Self::authorize(&mut tx, id, current).await?;
         let result=sqlx::query("UPDATE account_recovery_keys SET revoked_at=now(),updated_at=now() WHERE account_id=$1 AND used_at IS NULL AND revoked_at IS NULL").bind(id).execute(&mut *tx).await?;
         if result.rows_affected() != 1 {
@@ -188,6 +191,7 @@ impl RecoveryKeys {
             .await?
             .map_err(|_| Error::Unavailable)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let id: Option<AccountId> =
             sqlx::query_scalar("SELECT id FROM accounts WHERE lower(email)=$1 FOR UPDATE")
                 .bind(email)

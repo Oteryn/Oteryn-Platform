@@ -122,12 +122,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
         &self,
     ) -> Result<Transaction<'_, Postgres>, oteryn_db::retry::TransactionError<Error>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SET LOCAL lock_timeout='3s'")
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("SET LOCAL statement_timeout='5s'")
-            .execute(&mut *tx)
-            .await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         Ok(tx)
     }
     pub async fn purchase(&self, raw: &[u8]) -> Result<Vec<u8>, Error> {
@@ -152,6 +147,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
         key: Uuid,
     ) -> Result<Vec<u8>, oteryn_db::retry::TransactionError<Error>> {
         let mut tx = self.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,29))")
             .bind(format!("store-purchase:{key}"))
             .execute(&mut *tx)
@@ -241,6 +237,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             unit.quantity = quantity as u16;
         }
         // Serialize capacity reservations across accounts before charging anything.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(29,1)")
             .execute(&mut *tx)
             .await?;
@@ -393,6 +390,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
         .await?;
         let account = uuid(&request.account_id)?;
         let mut tx = self.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         match self.accounts.state(&mut tx, account).await? {
             AccountState::Missing => return Err(Error::UnknownAccount),
             AccountState::Unknown => return Err(Error::Unavailable),

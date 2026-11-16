@@ -117,6 +117,7 @@ impl<A: AccountStateReader> StaffBazaar<A> {
             },
         )
         .await?;
+        self.check_in(&mut tx, context).await?;
         tx.commit().await?;
         Ok(())
     }

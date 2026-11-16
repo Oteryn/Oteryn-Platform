@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+oteryn-db.workspace = true
 axum = "0.8.9"
 oteryn-internal-api = { path = "../internal-api" }
 serde = { version = "1.0.228", features = ["derive"] }
@@ -27,7 +28,6 @@ getrandom = "0.4.3"
 [dev-dependencies]
 oteryn-identity = { path = "../identity" }
 oteryn-notify = { path = "../notify" }
-oteryn-db = { path = "../db" }
 oteryn-gateway = { path = "../gateway" }
 tower = { version = "0.5.3", features = ["util"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }

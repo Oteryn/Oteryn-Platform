@@ -69,6 +69,7 @@ where
         .execute(&mut *connection)
         .await?;
     lock_mutation_resources_with(connection, resources).await?;
+    oteryn_db::mutation_budget(&mut *connection).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(71010)")
         .execute(&mut *connection)
         .await?;
@@ -315,6 +316,18 @@ impl<A: AccountStateReader> Authorizer<A> {
         {
             return Err(Error::Denied);
         }
+        self.revalidate_actor_in(connection, context).await?;
+        Self::check_permission(connection, context.account, permission).await
+    }
+
+    /// Revalidate the actor's live session/account after effects and audit waits.
+    /// Role writers retain RBAC, so their own intended permission changes must
+    /// not be mistaken for concurrent revocation of the original authorization.
+    pub async fn revalidate_actor_in(
+        &self,
+        connection: &mut PgConnection,
+        context: CheckContext,
+    ) -> Result<(), Error> {
         if context.account.is_nil()
             || !self
                 .accounts
@@ -328,7 +341,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         {
             return Err(Error::Denied);
         }
-        Self::check_permission(connection, context.account, permission).await
+        Ok(())
     }
 
     /// Recheck a workflow proposer's current account and grants. The proposer

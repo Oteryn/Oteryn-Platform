@@ -77,8 +77,10 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         input.validate()?;
         let binding = serde_json::to_string(&input).map_err(|_| Error::InvalidInput)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         self.authorize(&mut tx, actor, true).await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,60))")
             .bind(actor.to_string())
             .execute(&mut *tx)
@@ -117,6 +119,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn publish(&self, listing: Uuid, actor: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         let mut parties = vec![actor, row.owner];
@@ -152,6 +155,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         let mut parties = vec![actor, row.owner];
@@ -235,6 +239,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         let mut parties = vec![actor, row.owner];
@@ -265,6 +270,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         {
             return Err(Error::IllegalTransition);
         }
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,57))")
             .bind(actor.to_string())
             .execute(&mut *tx)
@@ -312,6 +318,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         self.enabled()?;
         loop {
             let mut tx = self.pool.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             crate::locking::listing_gate(&mut tx).await?;
             let row = locked(&mut tx, listing).await?;
             if row.owner != actor {
@@ -420,6 +427,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn reject(&self, listing: Uuid, actor: Uuid, offer: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         if row.owner != actor || row.state != State::Active {
@@ -464,6 +472,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         let mut parties = vec![actor, row.owner];
@@ -516,6 +525,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn close_auction(&self, listing: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         if row.form != Form::Auction
@@ -547,6 +557,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn cancel(&self, listing: Uuid, actor: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         let mut parties = vec![actor, row.owner];
@@ -583,6 +594,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn renew(&self, listing: Uuid, actor: Uuid, request: Uuid) -> Result<(), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         let mut parties = vec![actor, row.owner];
@@ -622,6 +634,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         self.enabled()?;
         loop {
             let mut tx = self.pool.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             crate::locking::listing_gate(&mut tx).await?;
             let row = locked(&mut tx, listing).await?;
             if row.state != State::Active
@@ -670,6 +683,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     ) -> Result<(ItemView, Vec<Offer>), Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         let mut parties = vec![actor, row.owner];
@@ -702,6 +716,7 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
     pub async fn view(&self, listing: Uuid) -> Result<ItemView, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let row = locked(&mut tx, listing).await?;
         if row.state != State::Active || row.ends_at <= clock(&mut tx).await? {

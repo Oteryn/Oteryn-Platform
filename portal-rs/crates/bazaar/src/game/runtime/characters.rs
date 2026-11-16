@@ -503,6 +503,7 @@ pub(crate) async fn reconcile_transfer(
     listing: Uuid,
     purpose: &str,
 ) -> Result<Option<Uuid>, Error> {
+    oteryn_db::mutation_budget(&mut *db).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
         .execute(&mut *db)
         .await?;

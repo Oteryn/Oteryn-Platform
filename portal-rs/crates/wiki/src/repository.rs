@@ -55,6 +55,7 @@ impl<A: AccountStateReader> Repository<A> {
             if let Err(error) = self.auth.check(context, required).await {
                 if matches!(error, oteryn_admin::rbac::Error::Denied) && !context.account.is_nil() {
                     let mut tx = self.pool.begin().await?;
+                    oteryn_admin::rbac::mutation_budget(&mut tx).await?;
                     audit::append(
                         &mut tx,
                         Entry {
@@ -106,6 +107,7 @@ impl<A: AccountStateReader> Repository<A> {
     ) -> Result<(Guide, Vec<Translation>), Error> {
         self.authorize(context, Permission::WikiAccess).await?;
         let mut tx = self.pool.begin().await?;
+        oteryn_admin::rbac::mutation_budget(&mut tx).await?;
         let guide = lock(&mut tx, id).await?;
         let values = values(&mut tx, id, guide.revision_version).await?;
         tx.commit().await?;
@@ -135,11 +137,13 @@ impl<A: AccountStateReader> Repository<A> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_admin::rbac::mutation_budget(&mut tx).await?;
         oteryn_admin::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account],
             |connection| {
                 Box::pin(async move {
+                    oteryn_admin::rbac::mutation_budget(&mut *connection).await?;
                     sqlx::query("SELECT pg_advisory_xact_lock(20261105220206)")
                         .execute(connection)
                         .await?;
@@ -174,6 +178,8 @@ impl<A: AccountStateReader> Repository<A> {
             json!({"version":1}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, Permission::ManageWikiArticles)
+            .await?;
         tx.commit().await?;
         Ok(id)
     }
@@ -192,11 +198,13 @@ impl<A: AccountStateReader> Repository<A> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_admin::rbac::mutation_budget(&mut tx).await?;
         oteryn_admin::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account],
             |connection| {
                 Box::pin(async move {
+                    oteryn_admin::rbac::mutation_budget(&mut *connection).await?;
                     sqlx::query("SELECT pg_advisory_xact_lock(20261105220206)")
                         .execute(&mut *connection)
                         .await?;
@@ -235,6 +243,8 @@ impl<A: AccountStateReader> Repository<A> {
             json!({"version":next}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, Permission::ManageWikiArticles)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -248,11 +258,13 @@ impl<A: AccountStateReader> Repository<A> {
     ) -> Result<(), Error> {
         self.authorize(context, Permission::PublishWiki).await?;
         let mut tx = self.pool.begin().await?;
+        oteryn_admin::rbac::mutation_budget(&mut tx).await?;
         oteryn_admin::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account],
             |connection| {
                 Box::pin(async move {
+                    oteryn_admin::rbac::mutation_budget(&mut *connection).await?;
                     sqlx::query("SELECT pg_advisory_xact_lock(20261105220206)")
                         .execute(&mut *connection)
                         .await?;
@@ -292,6 +304,8 @@ impl<A: AccountStateReader> Repository<A> {
             json!({"version":next,"source":source}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, Permission::PublishWiki)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -312,6 +326,7 @@ impl<A: AccountStateReader> Repository<A> {
         )
         .await?;
         let mut tx = self.pool.begin().await?;
+        oteryn_admin::rbac::mutation_budget(&mut tx).await?;
         oteryn_admin::rbac::authorize_mutation_with_resources(&mut tx, &[context.account], move |connection| Box::pin(async move {
             sqlx::query("SELECT id,status,version,revision_version,entity_key FROM wiki_guides WHERE id=$1 FOR UPDATE").bind(id).execute(connection).await?;
             Ok(())
@@ -350,6 +365,16 @@ impl<A: AccountStateReader> Repository<A> {
             json!({"status":target,"version":guide.version+1}),
         )
         .await?;
+        self.authorize_in(
+            &mut tx,
+            context,
+            if action.publisher() {
+                Permission::PublishWiki
+            } else {
+                Permission::ManageWikiArticles
+            },
+        )
+        .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -371,6 +396,7 @@ async fn values(
     Ok(sqlx::query_as("SELECT locale,title,slug,summary,markdown FROM wiki_revisions WHERE guide_id=$1 AND version=$2 ORDER BY locale").bind(id).bind(version).fetch_all(&mut **tx).await?)
 }
 async fn slug_lock(tx: &mut Transaction<'_, Postgres>) -> Result<(), Error> {
+    oteryn_admin::rbac::mutation_budget(tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(20261105220206)")
         .execute(&mut **tx)
         .await?;

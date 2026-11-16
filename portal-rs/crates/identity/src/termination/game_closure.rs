@@ -155,6 +155,7 @@ impl GameBoundary {
             return Err(Error::Unauthorized);
         }
         let mut tx = pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let operation = wire::id(&receipt.operation_id)?;
         let command: Option<(Vec<u8>,Vec<u8>,AccountId)>=sqlx::query_as("SELECT c.intent,c.intent_sha256,w.account_id FROM plat3_closure_commands c JOIN plat3_closure_work w USING(termination_id) WHERE c.operation_id=$1")
             .bind(operation).fetch_optional(&mut *tx).await?;
@@ -219,6 +220,7 @@ impl GameBoundary {
             return Err(Error::Unauthorized);
         }
         let mut tx = pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let account = wire::id(&projection.account_id)?;
         lock(&mut tx, account).await?.ok_or(Error::UnknownState)?;
         let now = now(&mut tx).await?;
@@ -296,6 +298,7 @@ impl GameBoundary {
             return Err(Error::Unauthorized);
         }
         let mut tx = pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let (epoch, old, invalid): (String, Option<Vec<u8>>, bool) = sqlx::query_as(
             "SELECT highest_epoch,watermark,invalid FROM plat3_closure_feed WHERE id=1 FOR UPDATE",
         )
@@ -508,6 +511,7 @@ impl GameBoundary {
         let rows: Vec<Termination> = sqlx::query_as("SELECT t.* FROM account_terminations t JOIN plat3_closure_work w ON w.termination_id=t.id WHERE w.resolution IS NOT NULL AND NOT w.invalid AND EXISTS(SELECT 1 FROM plat3_closure_commands c JOIN plat3_closure_receipts r USING(operation_id) WHERE c.termination_id=t.id AND c.command='ResolveAccountClosure') ORDER BY w.next_resolution_attempt,t.id LIMIT $1").bind(limit.clamp(1,1000)).fetch_all(pool).await?;
         for termination in rows {
             let mut tx = pool.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             lock(&mut tx, termination.account_id)
                 .await?
                 .ok_or(Error::UnknownState)?;

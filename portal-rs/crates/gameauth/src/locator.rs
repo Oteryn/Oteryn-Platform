@@ -203,6 +203,9 @@ pub async fn ingest(
     report: &Report,
 ) -> Result<&'static str, Failure> {
     let mut tx = pool.begin().await.map_err(|_| unavailable())?;
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(|_| unavailable())?;
     let lock: Option<i16> =
         sqlx::query_scalar("SELECT id FROM native_assignment_epoch_locks WHERE id = 1 FOR SHARE")
             .fetch_optional(&mut *tx)
@@ -250,6 +253,9 @@ pub async fn ingest(
         // Disabled, stale or invalid read model: refused and not stored.
         Err(_) => return Err(unavailable()),
     }
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(|_| unavailable())?;
     sqlx::query(
         "SELECT pg_advisory_xact_lock(hashtextextended('native-recovery-locator:' || $1::text, 0))",
     )

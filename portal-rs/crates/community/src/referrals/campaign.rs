@@ -105,6 +105,7 @@ impl<P: Policy> Campaign<P> {
             return Err(Error::Disabled.into());
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let enabled: bool =
             sqlx::query_scalar("SELECT enabled FROM referral_campaign_settings WHERE singleton")
                 .fetch_one(&mut *tx)
@@ -403,6 +404,7 @@ impl Worker {
         let mut premium_failed = false;
         for id in ids {
             let mut tx = self.campaign.pool.begin().await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
             let locked: Option<Uuid>=sqlx::query_scalar("SELECT id FROM referral_campaign_rewards WHERE id=$1 AND applied_at IS NULL FOR UPDATE SKIP LOCKED")
                 .bind(id).fetch_optional(&mut *tx).await?;
             if locked.is_none() {
@@ -418,8 +420,10 @@ impl Worker {
         if let Some(sender) = &self.sender {
             for _ in 0..25 {
                 let mut tx = self.campaign.pool.begin().await?;
+                oteryn_db::mutation_budget(&mut tx).await?;
                 // Serialize delivery budgets across workers without holding the
                 // referral qualification lock (5600) during SMTP I/O.
+                oteryn_db::mutation_budget(&mut tx).await?;
                 sqlx::query("SELECT pg_advisory_xact_lock(5601)")
                     .execute(&mut *tx)
                     .await?;

@@ -220,6 +220,9 @@ fn keys(v: &Value, out: &mut Vec<String>) {
 }
 async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
     let mut tx = db.begin().await.map_err(unavailable)?;
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(unavailable)?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,73))")
         .bind(&r.account)
         .execute(&mut *tx)
@@ -233,6 +236,9 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
         return Err(StatusCode::CONFLICT);
     }
 
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(unavailable)?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,729))")
         .bind(&r.authority)
         .execute(&mut *tx)
@@ -376,6 +382,9 @@ pub async fn enqueue(db: &PgPool, source: &str, raw: &[u8]) -> Result<(), Status
     let v = codec::intent(raw).map_err(invalid)?;
     let digest = hex(&Sha256::digest(raw));
     let mut tx = db.begin().await.map_err(unavailable)?;
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(unavailable)?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,729))")
         .bind(source)
         .execute(&mut *tx)
@@ -439,6 +448,9 @@ async fn exchange(
         .into_bytes());
     }
     let mut tx = db.begin().await.map_err(unavailable)?;
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(unavailable)?;
     let row=sqlx::query("SELECT intent,binding_digest,receipt FROM pd_g9_commands WHERE operation_id=$1 AND source_authority=$2 FOR UPDATE").bind(id(text(v,"operation_id")?)?).bind(source).fetch_optional(&mut *tx).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
     if matches!(kind, Exchange::Read) {
         return row.try_get("intent").map_err(unavailable);

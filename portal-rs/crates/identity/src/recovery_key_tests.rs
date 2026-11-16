@@ -53,16 +53,14 @@ impl Database {
         keys
     }
     async fn account(&self) -> Result<AccountId> {
-        let mut conn = self.pool.acquire().await?;
-        Ok(crate::accounts::Accounts::create(
-            &mut conn,
-            "owner@example.test",
-            &password::hash(CURRENT)?,
-            "en",
-        )
-        .await?
-        .ok_or("missing account")?
-        .id)
+        let hash = password::hash(CURRENT)?;
+        // Accounts::create retains its address claim in the caller transaction.
+        let mut tx = self.pool.begin().await?;
+        let account = crate::accounts::Accounts::create(&mut tx, "owner@example.test", &hash, "en")
+            .await?
+            .ok_or("missing account")?;
+        tx.commit().await?;
+        Ok(account.id)
     }
     async fn key(&self, id: AccountId) -> Result<String> {
         let key = self.keys().generate(id, CURRENT).await?;
@@ -598,7 +596,7 @@ async fn pg_recovery_requests_keep_single_worker_timers_responsive() -> Result {
     let hash = expensive(|| password::hash(CURRENT)).await??;
     let mut ids = Vec::new();
     for index in 0..3 {
-        let mut conn = db.pool.acquire().await?;
+        let mut conn = db.pool.begin().await?;
         let account = crate::accounts::Accounts::create(
             &mut conn,
             &format!("heartbeat-{index}@example.test"),
@@ -607,6 +605,7 @@ async fn pg_recovery_requests_keep_single_worker_timers_responsive() -> Result {
         )
         .await?
         .ok_or("account missing")?;
+        conn.commit().await?;
         ids.push(account.id);
     }
     let max_gap = Arc::new(AtomicU64::new(0));

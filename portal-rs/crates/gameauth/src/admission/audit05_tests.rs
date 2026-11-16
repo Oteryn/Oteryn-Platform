@@ -121,11 +121,13 @@ impl Fixture {
         let key = ring.generate_next("audit05")?;
         registry.publish(&key).await?;
         sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=trusted_at-interval '60 seconds'").execute(&db.pool).await?;
+        // Activation time must follow the trust snapshot's database clock cut.
+        let trust = registry.snapshot().await?;
         let now: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
                 .fetch_one(&db.pool)
                 .await?;
-        ring.activate("audit05", now as u64, &registry.snapshot().await?)?;
+        ring.activate("audit05", now as u64, &trust)?;
         let signer: Arc<dyn GrantSigner> = Arc::new(KeyringSigner::new(ring, registry));
         let authority = NativeTickets {
             projection_authority: "game".into(),

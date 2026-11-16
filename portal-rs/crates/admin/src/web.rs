@@ -705,6 +705,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
         )
         .await?;
     }
+    s.auth.revalidate_actor_in(&mut tx, context).await?;
     tx.commit().await?;
     Ok(())
 }

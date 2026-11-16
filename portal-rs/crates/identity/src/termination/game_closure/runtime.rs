@@ -159,6 +159,7 @@ impl GameBoundary {
         let account = wire::id(&request.account_id)?;
         let termination = wire::id(&request.termination_id)?;
         let mut tx = pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let locked = lock(&mut tx, account).await?.ok_or(Error::NoPending)?;
         if self.recovery(&mut tx).await? != wire::number(&request.recovery_generation, true)? {
             return Err(Error::UnknownState);

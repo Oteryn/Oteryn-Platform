@@ -336,11 +336,15 @@ async fn upload(
     let processed = tokio_process(name, bytes.to_vec()).await?;
     // Persist only after processing, with fresh transactional authorization.
     let mut tx = pool.begin().await.map_err(unavailable)?;
+    oteryn_admin::rbac::mutation_budget(&mut tx)
+        .await
+        .map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
         &mut tx,
         &[context.account],
         move |connection| {
             Box::pin(async move {
+                oteryn_admin::rbac::mutation_budget(&mut *connection).await?;
                 sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,12))")
                     .bind(context.account.to_string())
                     .execute(connection)
@@ -357,6 +361,9 @@ async fn upload(
         oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
+    oteryn_admin::rbac::mutation_budget(&mut tx)
+        .await
+        .map_err(unavailable)?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,12))")
         .bind(context.account.to_string())
         .execute(&mut *tx)
@@ -381,6 +388,17 @@ async fn upload(
         .bind(&processed.content).bind(Sha256::digest(&processed.content).to_vec()).bind(&processed.thumbnail)
         .bind(processed.thumbnail.as_ref().map(|b| Sha256::digest(b).to_vec())).execute(&mut *tx).await.map_err(unavailable)?;
     record(&mut tx, context, id, "editorial_media.uploaded").await?;
+    for permission in [Permission::Access, Permission::ManageMedia] {
+        auth.check_in(&mut tx, context, permission)
+            .await
+            .map_err(|error| {
+                if matches!(error, oteryn_admin::rbac::Error::Denied) {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            })?;
+    }
     tx.commit().await.map_err(unavailable)?;
     Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
 }
@@ -449,6 +467,9 @@ async fn delete(
     Path(id): Path<Uuid>,
 ) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
+    oteryn_admin::rbac::mutation_budget(&mut tx)
+        .await
+        .map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
         &mut tx,
         &[context.account],
@@ -513,6 +534,17 @@ async fn delete(
         return Err(StatusCode::NOT_FOUND);
     }
     record(&mut tx, context, id, "editorial_media.deleted").await?;
+    for permission in [Permission::Access, Permission::ManageMedia] {
+        auth.check_in(&mut tx, context, permission)
+            .await
+            .map_err(|error| {
+                if matches!(error, oteryn_admin::rbac::Error::Denied) {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            })?;
+    }
     tx.commit().await.map_err(unavailable)?;
     Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
 }

@@ -35,6 +35,7 @@ pub async fn consume(pool: &PgPool, token: &str) -> Result<bool, sqlx::Error> {
     }
     let hash = token_hash(token);
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     let id:Option<AccountId>=sqlx::query_scalar("SELECT account_id FROM account_email_tokens WHERE token_hash=$1 AND purpose='verify_email'").bind(&hash).fetch_optional(&mut *tx).await?;
     let Some(id) = id else {
         return Ok(false);
@@ -53,6 +54,7 @@ pub async fn consume(pool: &PgPool, token: &str) -> Result<bool, sqlx::Error> {
 }
 pub async fn resend(pool: &PgPool, id: AccountId) -> Result<bool, sqlx::Error> {
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     let locale:Option<String>=sqlx::query_scalar("SELECT locale FROM accounts WHERE id=$1 AND status='pending_verification' AND email_verified_at IS NULL FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?;
     let Some(locale) = locale else {
         return Ok(false);

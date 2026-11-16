@@ -55,6 +55,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
     pub async fn own_requests(&self, actor: Uuid) -> Result<Vec<OwnRequest>, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let state = self
             .accounts
@@ -70,6 +71,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
     pub async fn choices(&self, actor: Uuid) -> Result<Vec<CharacterChoice>, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let state = self
             .accounts
@@ -91,6 +93,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
             return Err(Error::Disabled);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let state = self
             .accounts
@@ -101,6 +104,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
             return Err(Error::Denied);
         }
         // Serialize retries, backlog and duplicate Character requests for this authenticated owner.
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,59))")
             .bind(actor.to_string())
             .execute(&mut *tx)
@@ -166,6 +170,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
             return Err(Error::Disabled);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let l: Listing = sqlx::query_as(
             "SELECT * FROM bazaar_listings WHERE id=$1 AND kind='character' FOR UPDATE",
@@ -223,6 +228,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
             return Err(Error::NotFound);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         crate::locking::listing_gate(&mut tx).await?;
         let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 AND kind='character' AND state='active' AND ends_at>clock_timestamp() FOR SHARE")
             .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
@@ -279,6 +285,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
         }
         super::id(key)?;
         let mut replay = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut replay).await?;
         crate::locking::listing_gate(&mut replay).await?;
         let state = self
             .accounts

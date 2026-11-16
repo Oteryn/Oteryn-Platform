@@ -758,3 +758,24 @@ async fn browser_redemption_locks_code_before_account_and_rechecks_status()
     db.close().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_drc_gift_request_has_shared_budget() {
+    let db = Database::create().await.expect("PostgreSQL required");
+    let service = db.service();
+    let r = request("2345-6789-ABCD-EFGH");
+    let mut blocker = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,55))")
+        .bind(r.key.to_string())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let result =
+        tokio::time::timeout(std::time::Duration::from_millis(3700), service.redeem(&r)).await;
+    blocker.rollback().await.unwrap();
+    assert!(
+        matches!(result, Ok(Err(_))),
+        "gift request must refuse within the shared budget"
+    );
+    db.close().await;
+}

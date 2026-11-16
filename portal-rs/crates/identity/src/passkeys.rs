@@ -144,6 +144,7 @@ impl Passkeys {
     ) -> Result<Challenge, Error> {
         let account = proof.account;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         eligible(&mut tx, account).await?;
         mutation_authorized(&mut tx, binding, account, proof.generation).await?;
         let rows: Vec<(Value,)> =
@@ -197,6 +198,7 @@ impl Passkeys {
             .finish_passkey_registration(&response, &state)
             .map_err(|_| Error::Refused)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         eligible(&mut tx, account).await?;
         mutation_authorized(&mut tx, binding, account, generation).await?;
         let count: i64 =
@@ -246,6 +248,7 @@ impl Passkeys {
             .identify_discoverable_authentication(&response)
             .map_err(|_| Error::Refused)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         eligible(&mut tx, account).await?;
         let value: Option<Value> = sqlx::query_scalar("SELECT credential FROM account_passkeys WHERE account_id=$1 AND credential_id=$2 FOR UPDATE")
             .bind(account).bind(credential_id).fetch_optional(&mut *tx).await?;
@@ -281,6 +284,7 @@ impl Passkeys {
     }
     pub async fn list(&self, account: Uuid) -> Result<Vec<Uuid>, Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         eligible(&mut tx, account).await?;
         let ids = sqlx::query_scalar(
             "SELECT id FROM account_passkeys WHERE account_id=$1 ORDER BY created_at,id",
@@ -299,6 +303,7 @@ impl Passkeys {
     ) -> Result<(), Error> {
         let account = proof.account;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         eligible(&mut tx, account).await?;
         mutation_authorized(&mut tx, binding, account, proof.generation).await?;
         let deleted = sqlx::query("DELETE FROM account_passkeys WHERE account_id=$1 AND id=$2")
@@ -316,6 +321,7 @@ impl Passkeys {
     }
     pub async fn audit(&self, account: Option<Uuid>, action: &str) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         audit_tx(&mut tx, account, action).await?;
         tx.commit().await?;
         Ok(())

@@ -320,9 +320,13 @@ async fn mutate<A: AccountStateReader>(
         &[context.account],
         |connection| {
             Box::pin(async move {
-                sqlx::query("SET LOCAL lock_timeout = '250ms'")
-                    .execute(&mut *connection)
-                    .await?;
+                // This adapter's 250 ms limit applies to publication pointers.
+                // Restore the incoming limit before the canonical RBAC helper
+                // refreshes the original transaction deadline.
+                let incoming: String = sqlx::query_scalar("SELECT current_setting('lock_timeout')")
+                    .fetch_one(&mut *connection).await?;
+                sqlx::query("SELECT set_config('lock_timeout',least(250,coalesce(nullif((extract(epoch FROM current_setting('lock_timeout')::interval)*1000)::bigint,0),250))::text || 'ms',true)")
+                    .execute(&mut *connection).await?;
                 sqlx::query(
                     "SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE",
                 )
@@ -331,8 +335,10 @@ async fn mutate<A: AccountStateReader>(
                 sqlx::query(
                     "SELECT snapshot_id FROM world_catalog_publication WHERE singleton FOR UPDATE",
                 )
-                .execute(connection)
+                .execute(&mut *connection)
                 .await?;
+                sqlx::query("SELECT set_config('lock_timeout',$1,true)")
+                    .bind(incoming).execute(connection).await?;
                 Ok(())
             })
         },
@@ -494,6 +500,17 @@ async fn mutate<A: AccountStateReader>(
     )
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    for required in [
+        Permission::Access,
+        Permission::GameCatalogAccess,
+        Permission::ViewGameCatalogSnapshots,
+        permission,
+    ] {
+        s.auth
+            .check_in(&mut tx, context, required)
+            .await
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+    }
     tx.commit().await.map_err(unavailable)?;
     Ok(())
 }
