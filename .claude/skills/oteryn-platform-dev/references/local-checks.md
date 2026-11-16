@@ -49,9 +49,9 @@ never cite it as the CI result.
 
 - Database tests read `PORTAL_TEST_DATABASE_URL` and print
   `SKIPPED ... PORTAL_TEST_DATABASE_URL is unset` and pass when it is
-  missing. `portal-rs-ci.yml` has no database service, so **CI never runs
-  them**: a green `Portal RS CI` proves nothing about SQL, migrations,
-  locking or transactions.
+  missing. `portal-rs-ci.yml` starts PostgreSQL 18.6 in each test shard and
+  sets the URL for the whole workflow, so CI runs them; locally they run
+  only when you set the URL.
 - For any change to SQL, migrations or a transactional path, run them
   locally against PostgreSQL 18.6 (the plan's version, D24), e.g. a
   throwaway `postgres:18.6` container on localhost, and export the URL
