@@ -300,18 +300,39 @@ pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result
         }
         _ => None,
     };
+    let previous_id = record.id.clone();
+    let previous_account = record.account_id;
+    // Release request memory before waiting for the account: a caller-owned
+    // authentication transaction can already hold that account before rotation.
+    drop(inner);
+    let mut tx = session.pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
+    let accounts: Vec<Uuid> = previous_account.into_iter().chain(account).collect();
+    sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR UPDATE")
+        .bind(&accounts)
+        .execute(&mut *tx)
+        .await?;
+    let mut inner = session.inner.lock().await;
+    if !inner
+        .record
+        .as_ref()
+        .is_some_and(|current| current.id == previous_id && current.account_id == previous_account)
+    {
+        return Err(sqlx::Error::RowNotFound);
+    }
     let id = random_token()?;
     let csrf = random_token()?;
     let result = if let PrivilegeChange::AuthorizedLogin(_, generation) = change {
         sqlx::query("UPDATE web_sessions SET id_hash=$2,csrf_token=$3,account_id=$4,sudo_until=$5,authorization_generation=$6,updated_at=clock_timestamp() WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-            .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).bind(generation).execute(&session.pool).await?
+            .bind(hash(&previous_id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).bind(generation).execute(&mut *tx).await?
     } else {
         sqlx::query("UPDATE web_sessions SET id_hash=$2, csrf_token=$3, account_id=$4, sudo_until=$5, updated_at=now() WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-        .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).execute(&session.pool).await?
+        .bind(hash(&previous_id)).bind(hash(&id)).bind(&csrf).bind(account).bind(sudo).execute(&mut *tx).await?
     };
     if result.rows_affected() != 1 {
         return Err(sqlx::Error::RowNotFound);
     }
+    tx.commit().await?;
     inner.cookie = Some(cookie(&id));
     inner.record = Some(Record {
         id,

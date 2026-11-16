@@ -68,6 +68,7 @@ path = "../../crates/bazaar"
 [dependencies.oteryn-playerdata]
 workspace = true
 [dev-dependencies]
+oteryn-db = { workspace = true, features = ["test-support"] }
 futures-util = "0.3"
 prost = "0.14"
 tower = { version = "0.5.3", features = ["util"] }

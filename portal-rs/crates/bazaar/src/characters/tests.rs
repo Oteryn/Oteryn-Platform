@@ -583,6 +583,14 @@ async fn postgres_real_session_csrf_and_origin_adapter() -> Result {
     ))
     .execute(&h.pool)
     .await?;
+    // Real browser rotation prepares identity before touching its session row.
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261105155256_t03_accounts.sql"
+    ))
+    .execute(&h.pool)
+    .await?;
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
+        .bind(h.owner).execute(&h.pool).await?;
     let actor = h.owner;
     let login = Router::new()
         .route(

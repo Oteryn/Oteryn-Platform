@@ -21,6 +21,14 @@ impl Policy for DatabasePolicy {
         kind: Kind,
         stage: Stage,
     ) -> Result<bool, sqlx::Error> {
+        // Eligibility is a locking SQL function. Its evaluation order inside
+        // an aggregate/WHERE clause depends on the plan, not the input array.
+        // Prepare the complete account set before evaluating either account.
+        oteryn_db::mutation_budget(conn).await?;
+        sqlx::query("SELECT id FROM accounts WHERE id=ANY($1) ORDER BY id FOR SHARE")
+            .bind(vec![actor, other])
+            .execute(&mut *conn)
+            .await?;
         let active = sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM accounts WHERE id=ANY($1) AND account_value_eligible(id)",
         )

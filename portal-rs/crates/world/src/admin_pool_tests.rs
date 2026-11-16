@@ -126,6 +126,7 @@ async fn wait_for_fence(db: &Fixture, count: i64) -> TestResult {
 }
 #[tokio::test]
 async fn world_two_queued_mutations_complete_with_two_connections() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(2).await?;
     let version = prepare(&db).await?;
@@ -170,6 +171,7 @@ async fn world_two_queued_mutations_complete_with_two_connections() -> TestResul
 }
 #[tokio::test]
 async fn world_refuses_revoked_prerequisite_with_action_retained() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
     let version = prepare(&db).await?;
@@ -254,6 +256,7 @@ async fn world_refuses_revoked_prerequisite_with_action_retained() -> TestResult
 
 #[tokio::test]
 async fn publication_wait_does_not_hold_global_authorization_fence() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(5).await?;
     let version = prepare(&db).await?;
@@ -346,6 +349,7 @@ impl oteryn_admin::web::StaffSession for AliasStaff {
 }
 #[tokio::test]
 async fn postgres_a3_alias_controls_use_canonical_state_after_staff_dispatch() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     use axum::{
         body::{Body, to_bytes},
         http::Request,
@@ -441,6 +445,7 @@ async fn postgres_a3_alias_controls_use_canonical_state_after_staff_dispatch() -
 
 #[tokio::test]
 async fn postgres_a3_world_fence_deadline_releases_publication_pointers() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
     let version = prepare(&db).await?;

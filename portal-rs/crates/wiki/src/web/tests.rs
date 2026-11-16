@@ -246,6 +246,7 @@ fn rules_rendering_and_localized_forms() {
 
 #[tokio::test]
 async fn database_editorial_lifecycle_and_restore() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -320,6 +321,7 @@ async fn database_editorial_lifecycle_and_restore() {
 }
 #[tokio::test]
 async fn database_refusals_bad_input_and_concurrent_edits() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -417,6 +419,7 @@ async fn database_refusals_bad_input_and_concurrent_edits() {
 }
 #[tokio::test]
 async fn database_history_immutable_and_audit_atomic() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -449,6 +452,7 @@ async fn database_history_immutable_and_audit_atomic() {
 }
 #[tokio::test]
 async fn database_browser_create_review_publish_and_csrf() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -563,6 +567,7 @@ async fn database_browser_create_review_publish_and_csrf() {
 }
 #[tokio::test]
 async fn database_public_search_locale_pagination_and_throttling() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -610,6 +615,7 @@ async fn database_public_search_locale_pagination_and_throttling() {
 }
 #[tokio::test]
 async fn staff_host_flag_and_unknown_identity_deny_without_database() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
@@ -675,6 +681,7 @@ fn revision_source_scroll_region_is_keyboard_reachable() -> Result<(), askama::E
 
 #[tokio::test]
 async fn database_history_pages_bound_response_and_retain_older_revisions() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -736,6 +743,7 @@ async fn database_history_pages_bound_response_and_retain_older_revisions() {
 
 #[tokio::test]
 async fn database_queued_create_edit_restore_recheck_revocation() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open().await.expect("PostgreSQL required");
     for operation in 0..3 {
@@ -808,6 +816,7 @@ async fn database_queued_create_edit_restore_recheck_revocation() {
 
 #[tokio::test]
 async fn postgres_pagination_wiki_ceiling() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open()
         .await
@@ -830,6 +839,7 @@ async fn postgres_pagination_wiki_ceiling() {
 
 #[tokio::test]
 async fn history_exact_ten_snapshots_has_no_older_control() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await else {
         return;
@@ -858,6 +868,7 @@ async fn history_exact_ten_snapshots_has_no_older_control() {
 
 #[tokio::test]
 async fn postgres_a3_wiki_rechecks_live_session_after_account_wait() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open().await.expect("PostgreSQL required");
     let mut context = db.context();
@@ -898,6 +909,7 @@ async fn postgres_a3_wiki_rechecks_live_session_after_account_wait() {
 
 #[tokio::test]
 async fn postgres_a3_wiki_edit_and_restore_wait_before_fence() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open().await.expect("PostgreSQL required");
     let mut context = db.context();

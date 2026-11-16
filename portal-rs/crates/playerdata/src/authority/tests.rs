@@ -331,6 +331,7 @@ fn stamina_at(revision: &str, suffix: &str) -> String {
 
 #[tokio::test]
 async fn postgres_owner_is_admitted_replay_is_idempotent_and_conflict_is_409() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -361,6 +362,7 @@ async fn postgres_owner_is_admitted_replay_is_idempotent_and_conflict_is_409() {
 
 #[tokio::test]
 async fn postgres_wrong_owner_unproven_owner_and_closed_account_are_refused() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -397,6 +399,7 @@ async fn postgres_wrong_owner_unproven_owner_and_closed_account_are_refused() {
 
 #[tokio::test]
 async fn postgres_pending_transfer_then_committed_transfer_moves_every_read() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -512,6 +515,7 @@ async fn postgres_pending_transfer_then_committed_transfer_moves_every_read() {
 
 #[tokio::test]
 async fn postgres_deleted_scope_gets_the_revision_4_refusal() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -545,6 +549,7 @@ async fn postgres_deleted_scope_gets_the_revision_4_refusal() {
 
 #[tokio::test]
 async fn postgres_clock_uncertainty_and_disabled_flag_store_nothing() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -579,6 +584,7 @@ async fn postgres_clock_uncertainty_and_disabled_flag_store_nothing() {
 
 #[tokio::test]
 async fn postgres_items_cut_must_equal_the_ownership_cut() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -623,6 +629,7 @@ async fn postgres_items_cut_must_equal_the_ownership_cut() {
 
 #[tokio::test]
 async fn postgres_game_login_is_promoted_by_a_baseline_watermark_only() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -738,6 +745,7 @@ fn buyer_stamina() -> String {
 
 #[tokio::test]
 async fn postgres_create_receipt_is_the_initial_cut_and_its_absence_is_503() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -789,6 +797,7 @@ async fn postgres_create_receipt_is_the_initial_cut_and_its_absence_is_503() {
 
 #[tokio::test]
 async fn postgres_transfers_chain_from_the_create_receipt() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -823,6 +832,7 @@ async fn postgres_transfers_chain_from_the_create_receipt() {
 
 #[tokio::test]
 async fn postgres_first_transfer_not_from_the_creator_is_a_broken_chain() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -902,6 +912,7 @@ async fn history(db: &Db, account: &str) -> Vec<Uuid> {
 
 #[tokio::test]
 async fn postgres_sold_character_history_is_hidden_from_both_sides_of_the_cut() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -981,6 +992,7 @@ async fn postgres_sold_character_history_is_hidden_from_both_sides_of_the_cut() 
 
 #[tokio::test]
 async fn postgres_global_feed_invalidation_refuses_admission_and_ownership() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::open().await else {
         return;
@@ -1015,6 +1027,7 @@ async fn postgres_global_feed_invalidation_refuses_admission_and_ownership() {
 
 #[tokio::test]
 async fn postgres_login_baseline_batches_are_complete_atomic_and_allow_other_accounts() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     super::reads::PROMOTION_BATCH_MAX.store(0, std::sync::atomic::Ordering::Relaxed);
     let Some(db) = Db::open().await else {
@@ -1137,6 +1150,7 @@ async fn postgres_login_baseline_batches_are_complete_atomic_and_allow_other_acc
 
 #[tokio::test]
 async fn postgres_account_stream_recovery_never_regresses() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::open().await else {
         return;
@@ -1232,6 +1246,7 @@ async fn postgres_account_stream_recovery_never_regresses() {
 
 #[tokio::test]
 async fn postgres_watermarks_share_the_record_account_budget() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::open().await else {
         return;
@@ -1279,6 +1294,7 @@ async fn postgres_watermarks_share_the_record_account_budget() {
 
 #[tokio::test]
 async fn postgres_pending_lifecycle_erasure_hides_character_before_worker() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::open().await else {
         return;
@@ -1309,6 +1325,7 @@ async fn postgres_pending_lifecycle_erasure_hides_character_before_worker() {
 
 #[tokio::test]
 async fn postgres_pd2_01_lifecycle_purges_recent_promoted_logins() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     for action in ["close", "delete", "transfer"] {
         let Some(db) = Db::open().await else { return };
@@ -1355,6 +1372,7 @@ async fn postgres_pd2_01_lifecycle_purges_recent_promoted_logins() {
 
 #[tokio::test]
 async fn postgres_pd2_02_return_transfer_admits_only_new_ownership_cut() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::open().await else { return };
     let now = db_now(&db).await;
@@ -1436,6 +1454,7 @@ async fn postgres_pd2_02_return_transfer_admits_only_new_ownership_cut() {
 
 #[tokio::test]
 async fn postgres_pd2_04_hidden_final_page_refuses_stale_empty_history() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::open().await else { return };
     let now = db_now(&db).await;
@@ -1545,6 +1564,7 @@ async fn postgres_pd2_04_hidden_final_page_refuses_stale_empty_history() {
 
 #[tokio::test]
 async fn postgres_pd2_05_erasure_keeps_only_minimal_replay_records() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     for character_only in [true, false] {
         let Some(db) = Db::open().await else { return };
@@ -1595,6 +1615,7 @@ async fn postgres_pd2_05_erasure_keeps_only_minimal_replay_records() {
 
 #[tokio::test]
 async fn postgres_pd2_02_upgrade_recovers_acknowledged_transfer_purges() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::open().await else { return };
     let now = db_now(&db).await;

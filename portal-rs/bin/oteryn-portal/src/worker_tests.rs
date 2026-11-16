@@ -1287,3 +1287,130 @@ async fn claiming_table_lock_has_a_deadline_and_closes_blocked_session() -> Test
     );
     db.close().await
 }
+
+struct LockingPaymentAccounts;
+impl oteryn_payments::AccountReader for LockingPaymentAccounts {
+    async fn state(
+        &self,
+        _: Uuid,
+    ) -> Result<oteryn_payments::AccountState, oteryn_payments::Error> {
+        Ok(oteryn_payments::AccountState::Unknown)
+    }
+    async fn state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> Result<oteryn_payments::AccountState, oteryn_payments::Error> {
+        let active: Option<bool> =
+            query_scalar("SELECT status='active' FROM accounts WHERE id=$1 FOR SHARE")
+                .bind(account)
+                .fetch_optional(connection)
+                .await?;
+        Ok(if active == Some(true) {
+            oteryn_payments::AccountState::Active
+        } else {
+            oteryn_payments::AccountState::Unknown
+        })
+    }
+}
+
+#[tokio::test]
+async fn lock_order_topup_and_refund_prepare_account_before_intent() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let mut inversions = Vec::new();
+    for refund in [false, true] {
+        let db = Database::new()
+            .await?
+            .ok_or("PostgreSQL required for lock-order regression")?;
+        let (intent, lock) = locked_topup(&db).await?;
+        lock.rollback().await?;
+        let account: Uuid = query_scalar("SELECT account_id FROM payment_intents WHERE id=$1")
+            .bind(intent)
+            .fetch_one(&db.pool)
+            .await?;
+        let payload: String =
+            query_scalar("SELECT payload::text FROM outbox WHERE kind='wallet.top_up'")
+                .fetch_one(&db.pool)
+                .await?;
+        let mut writer = db.pool.begin().await?;
+        let blocker: i32 = query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *writer)
+            .await?;
+        query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(account)
+            .execute(&mut *writer)
+            .await?;
+        let pool = db.pool.clone();
+        let effect = tokio::spawn(async move {
+            if refund {
+                let provider =
+                    oteryn_payments::TestProvider::new(&[5; 32]).map_err(|e| e.to_string())?;
+                let event = oteryn_payments::PaymentEvent {
+                    event_id: "ordered-refund".into(),
+                    intent_id: intent,
+                    provider_reference: intent.to_string(),
+                    amount: oteryn_payments::Amount {
+                        minor_units: 250,
+                        currency: "PLN".into(),
+                    },
+                    state: oteryn_payments::IntentState::Refunded,
+                };
+                let raw = serde_json::to_vec(&event).map_err(|e| e.to_string())?;
+                let signature = provider.sign(&raw).map_err(|e| e.to_string())?;
+                oteryn_payments::Payments::new(
+                    pool,
+                    provider,
+                    LockingPaymentAccounts,
+                    oteryn_payments::PaymentFlags { enabled: true },
+                )
+                .webhook(&raw, &signature)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+            } else {
+                crate::wallet_topup::Delivery {
+                    pool,
+                    payments_enabled: true,
+                    wallet_enabled: true,
+                }
+                .run(&Job {
+                    id: Uuid::now_v7(),
+                    kind: "wallet.top_up".into(),
+                    payload,
+                    attempts: 1,
+                })
+                .await
+                .map_err(|e| e.to_string())
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')")
+                    .bind(blocker).fetch_one(&db.pool).await?;
+                if waiting { return Ok::<_, sqlx::Error>(()); }
+                tokio::task::yield_now().await;
+            }
+        }).await.map_err(|_| "payment effect did not reach observable account wait within 2 seconds")??;
+        query("SET LOCAL lock_timeout='250ms'")
+            .execute(&mut *writer)
+            .await?;
+        let intent_lock = query("SELECT id FROM payment_intents WHERE id=$1 FOR UPDATE")
+            .bind(intent)
+            .execute(&mut *writer)
+            .await;
+        writer.rollback().await?;
+        let outcome = tokio::time::timeout(Duration::from_secs(4), effect)
+            .await
+            .map_err(|_| "payment effect did not finish after account release")??;
+        if intent_lock.is_err() {
+            inversions.push((refund, format!("{intent_lock:?}")));
+        }
+        db.close().await?;
+        outcome.map_err(std::io::Error::other)?;
+    }
+    assert!(
+        inversions.is_empty(),
+        "payment effects retained intents before account waits: {inversions:?}"
+    );
+    Ok(())
+}

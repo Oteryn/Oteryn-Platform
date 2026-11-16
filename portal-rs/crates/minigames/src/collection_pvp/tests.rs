@@ -569,3 +569,59 @@ async fn postgres_store_wallet_receipt_cannot_buy_a_set()
     cleanup(pool).await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn lock_order_challenge_prepares_all_accounts_before_waiting()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let pool = database()
+        .await?
+        .ok_or("PostgreSQL is required for lock-order regression")?;
+    let earlier = account(&pool).await?;
+    let later = account(&pool).await?;
+    assert!(earlier < later);
+    let mut writer = pool.begin().await?;
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(earlier)
+        .execute(&mut *writer)
+        .await?;
+    let service = Service::new(
+        pool.clone(),
+        Flags {
+            pvp: true,
+            sets: false,
+        },
+        Rules,
+        Rules,
+    );
+    let challenge = tokio::spawn(async move { service.challenge(later, earlier, later).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')")
+                .bind(blocker).fetch_one(&pool).await?;
+            if waiting { return Ok::<_, sqlx::Error>(()); }
+            tokio::task::yield_now().await;
+        }
+    }).await.map_err(|_| "challenge did not reach the observable account lock wait within 2 seconds")??;
+    sqlx::query("SET LOCAL lock_timeout='250ms'")
+        .execute(&mut *writer)
+        .await?;
+    let later_lock = sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(later)
+        .execute(&mut *writer)
+        .await;
+    writer.rollback().await?;
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(4), challenge)
+        .await
+        .map_err(|_| "challenge did not finish after releasing account blocker")??;
+    cleanup(pool).await?;
+    assert!(
+        later_lock.is_ok(),
+        "challenge retained the later account while waiting for the earlier one: {later_lock:?}"
+    );
+    outcome?;
+    Ok(())
+}

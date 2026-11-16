@@ -697,6 +697,7 @@ async fn pg_bank_chain_account_scope_and_default_off() {
 
 #[tokio::test]
 async fn pg_browser_owner_foreign_and_unknown_evidence() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use axum::{
         Extension, Router,
         body::Body,
@@ -748,6 +749,17 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
     .execute(&db.pool)
     .await
     .unwrap();
+    // Browser rotation now retains the real identity resource before sessions.
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261105155256_t03_accounts.sql"
+    ))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    for account in [actor(), Uuid::parse_str(&ident(99)).unwrap()] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
+            .bind(account).execute(&db.pool).await.unwrap();
+    }
     for r in snapshot(vec![item(11)]) {
         ingest(&p, &r).await.unwrap();
     }
