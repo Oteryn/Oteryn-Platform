@@ -21,6 +21,7 @@ use tower::ServiceExt;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const COMMIT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const POOL_CONNECTIONS: u32 = 6;
 
 // All records and images in this module are synthetic; no game fixtures are copied.
 fn text(value: &str) -> Text {
@@ -105,7 +106,7 @@ impl Database {
             .await?;
         let search_path = format!("{schema},pg_catalog");
         let pool = PgPoolOptions::new()
-            .max_connections(6)
+            .max_connections(POOL_CONNECTIONS)
             .after_connect(move |conn, _| {
                 let search_path = search_path.clone();
                 Box::pin(async move {
@@ -429,9 +430,10 @@ async fn postgres_concurrent_answers_complete_once_and_award_streak_badges() -> 
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 3);
-    // More requests than pool connections must finish without nested-pool starvation.
+    // As many requests as pool connections must all finish: the public reads
+    // before the transaction release their connections, so nothing starves.
     let mut requests = tokio::task::JoinSet::new();
-    for _ in 0..16 {
+    for _ in 0..POOL_CONNECTIONS {
         let service = db.service.clone();
         let account = db.account;
         requests.spawn(async move { service.answer(account, quiz, 1).await });
@@ -439,6 +441,31 @@ async fn postgres_concurrent_answers_complete_once_and_award_streak_badges() -> 
     while let Some(answer) = requests.join_next().await {
         assert!(answer??.replayed);
     }
+    // Beyond the pool, browser transactions shed load at the admission bound
+    // (W3-04) instead of queueing: each request replays or is refused there.
+    let mut requests = tokio::task::JoinSet::new();
+    for _ in 0..16 {
+        let service = db.service.clone();
+        let account = db.account;
+        requests.spawn(async move { service.answer(account, quiz, 1).await });
+    }
+    let mut replayed = 0;
+    while let Some(answer) = requests.join_next().await {
+        match answer? {
+            Ok(answer) => {
+                assert!(answer.replayed);
+                replayed += 1;
+            }
+            Err(Error::Database(sqlx::Error::PoolTimedOut)) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    assert!(replayed >= 1);
+    assert!(db.service.answer(db.account, quiz, 1).await?.replayed);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM puzzles_answers")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 3);
     assert_eq!(db.service.progress(db.account).await?.current, 7);
     db.close().await
 }
