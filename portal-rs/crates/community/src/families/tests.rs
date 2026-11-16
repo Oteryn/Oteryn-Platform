@@ -1126,3 +1126,66 @@ async fn postgres_equipment_conflict_quarantines_owner_and_stalls_completeness()
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn w3_c06_013_final_family_wait_rechecks_wall_time() {
+    let started = std::time::Instant::now();
+    let db = Db::open().await.expect("PostgreSQL required");
+    seed_public_skills(&db).await;
+    let entered = Arc::new(tokio::sync::Barrier::new(2));
+    let release = Arc::new(tokio::sync::Barrier::new(2));
+    let app = router(
+        db.pool.clone(),
+        Arc::new(PausedPrivacy {
+            db: db.pool.clone(),
+            entered: entered.clone(),
+            release: release.clone(),
+        }),
+        serving(true),
+        SessionLayer::new(db.pool.clone()),
+    );
+    let pending =
+        tokio::spawn(async move { get_page(&app, "/en/characters/Aldric/skills", None).await });
+    entered.wait().await;
+    let complete = now() - 29;
+    sqlx::query("UPDATE public_character_families_v2_watermarks SET complete_through=$1 WHERE family='character_skills'").bind(i64::try_from(complete).unwrap()).execute(&db.pool).await.unwrap();
+    let mut blocker = db.pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    sqlx::query("LOCK TABLE public_character_families_v2_watermarks IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    release.wait().await;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&db.admin)
+            .await
+            .unwrap();
+            if blocked {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    while now() < complete + 30 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    blocker.commit().await.unwrap();
+    let (status, body) = pending.await.unwrap();
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!body.contains("<dd>412</dd>"));
+    db.close().await;
+    eprintln!(
+        "w3_c06_013_final_family_wait_rechecks_wall_time {:?}",
+        started.elapsed()
+    );
+}

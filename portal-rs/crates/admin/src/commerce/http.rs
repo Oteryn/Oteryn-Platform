@@ -4,7 +4,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{
-        Path, State,
+        Path, Query, State,
         rejection::{FormRejection, PathRejection},
     },
     http::{HeaderMap, StatusCode},
@@ -53,6 +53,7 @@ fn routes<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
         .route("/admin/commerce", get(page::<A, E>))
         .route("/admin/commerce/{action}", post(submit::<A, E>))
         .route("/admin/commerce/approvals/{id}", post(approve::<A, E>))
+        .route("/admin/commerce/cancellations/{id}", post(cancel::<A, E>))
         .with_state(service)
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
@@ -163,15 +164,24 @@ struct Page {
     approvals: String,
     empty: String,
     approve: String,
+    cancel: String,
+    next_label: String,
+    next: Option<Uuid>,
     csrf: String,
     actions: Vec<Action>,
     pending: Vec<Pending>,
+}
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QueueFilter {
+    after: Option<Uuid>,
 }
 async fn page<A: rbac::AccountStateReader, E: Effects>(
     State(s): State<Arc<Commerce<A, E>>>,
     Extension(context): Extension<rbac::CheckContext>,
     Extension(session): Extension<BrowserSession>,
     headers: HeaderMap,
+    Query(filter): Query<QueueFilter>,
 ) -> Response {
     let locale = Locale::from_headers(&headers);
     let mut actions = vec![];
@@ -198,9 +208,9 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         }
     }
     // Apply permission predicates in SQL before exposing any queue entries.
-    let rows = sqlx::query("SELECT id,target_id,actor_id,command,review FROM commerce_operations WHERE result IS NULL AND ((command->>'kind'='adjust' AND $1) OR (command->>'kind'='refund' AND $2)) ORDER BY created_at,id LIMIT 100")
-        .bind(actions.iter().any(|a| a.key=="adjust")).bind(actions.iter().any(|a| a.key=="refund")).fetch_all(&s.pool).await;
-    let pending = match rows.and_then(|rows| {
+    let rows = sqlx::query("SELECT id,target_id,actor_id,command,review FROM commerce_operations WHERE result IS NULL AND ($3::uuid IS NULL OR (created_at,id)>(SELECT created_at,id FROM commerce_operations WHERE id=$3)) AND ((command->>'kind'='adjust' AND $1) OR (command->>'kind'='refund' AND $2)) ORDER BY created_at,id LIMIT 101")
+        .bind(actions.iter().any(|a| a.key=="adjust")).bind(actions.iter().any(|a| a.key=="refund")).bind(filter.after).fetch_all(&s.pool).await;
+    let mut pending = match rows.and_then(|rows| {
         rows.into_iter()
             .map(|r| {
                 let command: Value = r.try_get("command")?;
@@ -241,6 +251,12 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         Ok(value) => value,
         Err(e) => return failure(locale, Error::Storage(e)),
     };
+    let next = if pending.len() > 100 {
+        pending.truncate(100);
+        pending.last().map(|row| row.id)
+    } else {
+        None
+    };
     let csrf = match session.csrf_token().await {
         Ok(v) => v,
         Err(_) => return failure(locale, Error::Unavailable),
@@ -259,6 +275,9 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         approvals: locale.text("approvals"),
         empty: locale.text("empty"),
         approve: locale.text("approve"),
+        cancel: locale.text("cancel"),
+        next_label: locale.text("next"),
+        next,
         csrf,
         actions,
         pending,
@@ -318,6 +337,77 @@ async fn approve<A: rbac::AccountStateReader, E: Effects>(
     };
     match s.approve(context, id).await {
         Ok(_) => Redirect::to("/admin/commerce").into_response(),
+        Err(e) => failure(Locale::from_headers(&headers), e),
+    }
+}
+// Cancellation shares the approval authority and locking order, but never applies
+// a domain effect. A second authorized reviewer can retire obsolete intents even
+// after the original requester has lost authority.
+impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
+    async fn cancel(&self, context: rbac::CheckContext, id: Uuid) -> Result<(), Error> {
+        if !self.flags.enabled {
+            return Err(Error::Disabled);
+        }
+        if !valid_id(id) {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.pool.begin().await?;
+        let (original, target): (Uuid, Uuid) =
+            sqlx::query_as("SELECT actor_id,target_id FROM commerce_operations WHERE id=$1")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(Error::Invalid)?;
+        rbac::lock_accounts_and_mutation(&mut tx, &[context.account, original, target]).await?;
+        let row = sqlx::query("SELECT command,requires_approval,result,approved_by FROM commerce_operations WHERE id=$1 FOR UPDATE")
+            .bind(id).fetch_one(&mut *tx).await?;
+        let command: Command =
+            serde_json::from_value(row.try_get("command")?).map_err(|_| Error::Unavailable)?;
+        command.validate(self.flags)?;
+        self.authorize_in(&mut tx, context, &command).await?;
+        if original == context.account || !row.try_get::<bool, _>("requires_approval")? {
+            return Err(Error::Denied);
+        }
+        let cancelled = json!({"status":"cancelled"});
+        if let Some(result) = row.try_get::<Option<Value>, _>("result")? {
+            if result != cancelled
+                || row.try_get::<Option<Uuid>, _>("approved_by")? != Some(context.account)
+            {
+                return Err(Error::Conflict);
+            }
+            tx.commit().await?;
+            return Ok(());
+        }
+        complete(&mut tx, id, Some(context.account), cancelled).await?;
+        record(
+            &mut tx,
+            context.account,
+            &Request {
+                request_id: id,
+                target,
+                reason: String::new(),
+                command,
+            },
+            "commerce.cancelled",
+            json!({"pending":true}),
+            json!({"requested_by":original,"pending":false,"status":"cancelled"}),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+}
+async fn cancel<A: rbac::AccountStateReader, E: Effects>(
+    State(s): State<Arc<Commerce<A, E>>>,
+    Extension(context): Extension<rbac::CheckContext>,
+    path: Result<Path<Uuid>, PathRejection>,
+    headers: HeaderMap,
+) -> Response {
+    let Ok(Path(id)) = path else {
+        return failure(Locale::from_headers(&headers), Error::Invalid);
+    };
+    match s.cancel(context, id).await {
+        Ok(()) => Redirect::to("/admin/commerce").into_response(),
         Err(e) => failure(Locale::from_headers(&headers), e),
     }
 }

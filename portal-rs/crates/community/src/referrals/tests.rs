@@ -2589,3 +2589,163 @@ async fn lock_order_policy_prepares_accounts_before_eligibility_evaluation() {
     );
     assert!(allowed);
 }
+
+#[tokio::test]
+async fn w3_c06_008_queued_mail_requires_current_invitation_permission() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let owner = db.account().await;
+    let sender = Arc::new(oteryn_notify::CaptureSender::default());
+    let worker = Worker {
+        campaign: db.campaign.clone(),
+        sender: Some(sender.clone()),
+    };
+    for restriction in [0, 1, 2] {
+        db.campaign
+            .email(
+                owner,
+                &format!("restricted{restriction}@example.test"),
+                Kind::New,
+            )
+            .await
+            .unwrap();
+        match restriction {
+            0 => {
+                sqlx::query("UPDATE accounts SET email_change_blocked_until=clock_timestamp()+interval '1 day' WHERE id=$1").bind(owner).execute(&db.pool).await.unwrap();
+            }
+            1 => {
+                sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,clock_timestamp()+interval '14 days')").bind(owner).execute(&db.pool).await.unwrap();
+            }
+            _ => {
+                sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','test',clock_timestamp()-interval '1 minute',clock_timestamp()+interval '1 day',$1)").bind(owner).execute(&db.pool).await.unwrap();
+            }
+        }
+        worker.process().await.unwrap();
+        assert_eq!(sender.emails.lock().unwrap().len(), restriction as usize);
+        sqlx::query("UPDATE accounts SET email_change_blocked_until='-infinity' WHERE id=$1")
+            .bind(owner)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM account_terminations WHERE account_id=$1")
+            .bind(owner)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM sanctions WHERE account_id=$1")
+            .bind(owner)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        worker.process().await.unwrap();
+        assert_eq!(
+            sender.emails.lock().unwrap().len(),
+            restriction as usize + 1
+        );
+    }
+    db.close().await;
+    eprintln!(
+        "w3_c06_008_queued_mail_requires_current_invitation_permission {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn w3_c06_011_signup_triggers_bound_ancestry() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let owner = db.account().await;
+    let code = db.campaign.link(owner).await.unwrap();
+    // Unique indexed invitee lookups must ignore this unrelated graph.
+    sqlx::query("INSERT INTO referral_invitations(id,inviter_id,invitee_id,kind,expires_at,reward_amount,reward_actor,reward_key) SELECT uuidv7(),uuidv7(),uuidv7(),'new',clock_timestamp()+interval '1 day',1,$1,uuidv7() FROM generate_series(1,20000)").bind(owner).execute(&db.pool).await.unwrap();
+    let chain: Vec<Uuid> = (0..257).map(|_| Uuid::now_v7()).collect();
+    let mut child = owner;
+    for parent in &chain {
+        sqlx::query("INSERT INTO referral_invitations(id,inviter_id,invitee_id,kind,expires_at,reward_amount,reward_actor,reward_key) VALUES(uuidv7(),$1,$2,'new',clock_timestamp()+interval '1 day',1,$1,uuidv7())").bind(parent).bind(child).execute(&db.pool).await.unwrap();
+        child = *parent;
+    }
+    let invitee = db.account().await;
+    assert!(db.campaign.accept(invitee, code).await.is_err());
+    attribution_session(&db, Some(invitee), &code.to_string()).await;
+    sqlx::query("UPDATE accounts SET email_verified_at=clock_timestamp() WHERE id=$1")
+        .bind(invitee)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let accepted: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM referral_campaign_invitations WHERE invitee_id=$1)",
+    )
+    .bind(invitee)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(!accepted);
+    sqlx::query("DELETE FROM referral_invitations WHERE invitee_id=$1")
+        .bind(chain[254])
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let accepted: bool = sqlx::query_scalar("SELECT referral_campaign_signup($1,$2)")
+        .bind(invitee)
+        .bind(code.to_string())
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert!(accepted, "within-bound ancestry must remain eligible");
+    db.close().await;
+    eprintln!(
+        "w3_c06_011_signup_triggers_bound_ancestry {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a3_l6_05_legacy_claim_without_qualification_denied() {
+    let started = std::time::Instant::now();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let owner = db.account().await;
+    let invitee = db.account().await;
+    let reward_actor = db.account().await;
+    let service = super::super::Referrals::new(
+        db.pool.clone(),
+        Flags { enabled: true },
+        DatabasePolicy,
+        db.wallet(),
+        oteryn_notify::Notifications {
+            pool: db.pool.clone(),
+            accounts: Arc::new(Checks),
+            unsubscribe: oteryn_notify::Unsubscribe::new(
+                vec![7; 32],
+                "https://portal.example.test/unsubscribe".into(),
+            )
+            .unwrap(),
+        },
+        super::super::Reward {
+            actor: reward_actor,
+            amount: 25,
+        },
+    );
+
+    let invitation = super::super::Invitation {
+        id: Uuid::now_v7(),
+        inviter: owner,
+        invitee,
+        kind: Kind::New,
+        expires_at: time::OffsetDateTime::now_utc() + time::Duration::days(7),
+    };
+    service.invite(&invitation).await.unwrap();
+    assert_eq!(
+        service.claim(invitee, invitation.id).await,
+        Err(Error::Denied)
+    );
+    let entries: i64 = sqlx::query_scalar("SELECT count(*) FROM wallet_entries")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(entries, 0);
+    db.close().await;
+    eprintln!(
+        "PG a3_l6_05_legacy_claim_without_qualification_denied {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+}

@@ -78,25 +78,60 @@ pub async fn start_listener(
     for certificate in ca {
         roots.add(certificate)?;
     }
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
-        Arc::new(roots),
-        provider.clone(),
-    )
-    .build()?;
     let chain = certificates(&required("PORTAL_ACCOUNT_CLOSURE_TLS_CERT_FILE")?)?;
     let key = PrivateKeyDer::from_pem_file(required("PORTAL_ACCOUNT_CLOSURE_TLS_KEY_FILE")?)?;
-    let mut tls = rustls::ServerConfig::builder_with_provider(provider)
-        .with_protocol_versions(&[&rustls::version::TLS13])?
-        .with_client_cert_verifier(verifier)
-        .with_single_cert(chain, key)?;
-    tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+    let tls = tls_config(roots, chain, key)?;
     let command_pin = runtime::decode_hex(&required("PORTAL_ACCOUNT_CLOSURE_CLIENT_CERT_SHA256")?)?;
     let lcfa_pin =
         runtime::decode_hex(&required("PORTAL_ACCOUNT_CLOSURE_LCFA_CLIENT_CERT_SHA256")?)?;
     if command_pin.len() != 32 || lcfa_pin.len() != 32 || command_pin == lcfa_pin {
         return Err("closure identities must be distinct SHA-256 certificate pins".into());
     }
+    let ([character, portfolio], identities) = purpose_identities()?;
+    let app = routes(
+        pool,
+        game.clone(),
+        &runtime.config.key_id,
+        identities,
+        oteryn_characters::lcfa::Settings {
+            enabled: std::env::var("OTERYN_LCFA_ENABLED").as_deref() == Ok("true"),
+            environment: oteryn_core::Config::from_env()?.environment,
+            source_authority: runtime.config.authority.clone(),
+            ..Default::default()
+        },
+    );
+    let bind =
+        std::env::var("PORTAL_ACCOUNT_CLOSURE_BIND").unwrap_or_else(|_| "127.0.0.1:8092".into());
+    let listener = tokio::net::TcpListener::bind(bind).await?;
+    Ok(Some(serve(
+        listener,
+        tls,
+        app,
+        [command_pin, lcfa_pin],
+        [character, portfolio],
+    )))
+}
+
+fn tls_config(
+    roots: rustls::RootCertStore,
+    chain: Vec<CertificateDer<'static>>,
+    key: PrivateKeyDer<'static>,
+) -> Result<rustls::ServerConfig, Box<dyn std::error::Error>> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
+        Arc::new(roots),
+        provider.clone(),
+    )
+    .build()?;
+    let mut tls = rustls::ServerConfig::builder_with_provider(provider)
+        .with_protocol_versions(&[&rustls::version::TLS13])?
+        .with_client_cert_verifier(verifier)
+        .with_single_cert(chain, key)?;
+    tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(tls)
+}
+
+fn purpose_identities() -> Result<([Identity; 2], Arc<IdentityMap>), Box<dyn std::error::Error>> {
     let character = Identity::san("closure-character-authority")?;
     let portfolio = Identity::san("closure-portfolio-authority")?;
     let identities = Arc::new(IdentityMap::new(vec![
@@ -109,30 +144,35 @@ pub async fn start_listener(
             group: "native-account-characters".into(),
         },
     ])?);
-    // Includes lifecycle/read under the same pinned Character identity; no kid.
-    let closure = game_closure::http::router(
-        pool.clone(),
-        game.clone(),
-        runtime.config.key_id.clone(),
-        identities.clone(),
-    );
+    Ok(([character, portfolio], identities))
+}
+
+fn routes(
+    pool: PgPool,
+    game: Arc<game_closure::GameBoundary>,
+    key_id: &str,
+    identities: Arc<IdentityMap>,
+    settings: oteryn_characters::lcfa::Settings,
+) -> axum::Router {
+    let closure = game_closure::http::router(pool.clone(), game, key_id.into(), identities.clone());
     let lcfa = oteryn_characters::lcfa::Projection::new(
         pool,
-        oteryn_characters::lcfa::Settings {
-            enabled: std::env::var("OTERYN_LCFA_ENABLED").as_deref() == Ok("true"),
-            environment: oteryn_core::Config::from_env()?.environment,
-            source_authority: runtime.config.authority.clone(),
-            ..Default::default()
-        },
+        settings,
         Arc::new(oteryn_characters::lcfa::DenyAccounts),
     );
-    let app = closure.merge(oteryn_characters::lcfa::router(lcfa, identities));
-    let bind =
-        std::env::var("PORTAL_ACCOUNT_CLOSURE_BIND").unwrap_or_else(|_| "127.0.0.1:8092".into());
-    let listener = tokio::net::TcpListener::bind(bind).await?;
+    closure.merge(oteryn_characters::lcfa::router(lcfa, identities))
+}
+
+fn serve(
+    listener: tokio::net::TcpListener,
+    tls: rustls::ServerConfig,
+    app: axum::Router,
+    [command_pin, lcfa_pin]: [Vec<u8>; 2],
+    [character, portfolio]: [Identity; 2],
+) -> tokio::task::JoinHandle<()> {
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
     let slots = Arc::new(tokio::sync::Semaphore::new(16));
-    Ok(Some(tokio::spawn(async move {
+    tokio::spawn(async move {
         loop {
             let (socket, _) = match accept_with_retry(
                 || listener.accept(),
@@ -206,7 +246,7 @@ pub async fn start_listener(
                 let _ = tokio::time::timeout(Duration::from_secs(3), connection).await;
             });
         }
-    })))
+    })
 }
 
 // Accept failures (including descriptor exhaustion) must not silently remove a
@@ -286,3 +326,7 @@ mod accept_tests {
         assert_eq!(recorded, 8);
     }
 }
+
+#[cfg(test)]
+#[path = "account_closure_tls_tests.rs"]
+mod tls_tests;

@@ -1,5 +1,9 @@
 //! HTTP router, layout and cross-cutting web concerns for the Oteryn portal.
 
+#[cfg(test)]
+#[path = "../../../test-support/rate_clock.rs"]
+mod rate_clock;
+
 use askama::Template;
 use axum::{
     Router,
@@ -335,7 +339,11 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         }).post(|State(state): State<AppState>, axum::extract::Path(lang): axum::extract::Path<String>, axum::Extension(session): axum::Extension<session::BrowserSession>, config: Option<axum::Extension<oteryn_identity::consents::OptionalConfig>>, flags: Option<axum::Extension<oteryn_identity::consents::FeatureFlags>>, axum::Form(input): axum::Form<oteryn_identity::consents::http::Input>| async move {
             let mut config = config.map(|c| c.0).unwrap_or_else(oteryn_identity::consents::OptionalConfig::configured);
             config.enabled |= flags.is_some_and(|flags| flags.contains(oteryn_identity::consents::FEATURE));
-            oteryn_identity::consents::http::submit(&state.db, &config, session.account_id().await, &lang, input).await
+            let csrf = match session.csrf_token().await {
+                Ok(csrf) => csrf,
+                Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            };
+            oteryn_identity::consents::http::submit(&state.db, &config, session.account_id().await, &lang, input, &csrf).await
         }))
         .merge(register::routes())
         .merge(verify::routes())

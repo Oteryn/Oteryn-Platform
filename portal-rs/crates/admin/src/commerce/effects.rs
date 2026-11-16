@@ -68,6 +68,13 @@ impl<
         request: &Request,
         reason_hash: &str,
     ) -> Result<Value, Error> {
+        if matches!(
+            request.command,
+            Command::Grant { .. } | Command::Adjust { amount: 1.. }
+        ) && !wallet::value_eligible_in(tx, request.target).await?
+        {
+            return Err(Error::Denied);
+        }
         match request.command {
             Command::Grant { days: _ } | Command::Revoke => {
                 let change = match request.command {

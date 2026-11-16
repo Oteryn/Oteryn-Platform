@@ -878,7 +878,7 @@ async fn loyalty_stream_all_identity_reuse_503() {
             "GAME_AUTH_NATIVE_EVIDENCE_IDENTITIES",
             r#"{"loyalty-stream.test":["world-a"]}"#,
         ),
-        ("OTHER_INTERNAL_SAN", "loyalty-stream.test"),
+        ("PORTAL_PLAYERDATA_JOURNAL_ITEMS_SAN", "loyalty-stream.test"),
         ("PORTAL_SANCTION_EXPORT_IDENTITY", "loyalty-stream.test"),
         (
             "PORTAL_GAME_COINS_IDENTITIES",
@@ -1128,4 +1128,23 @@ async fn malformed_authenticated_stream_requests_consume_budget_before_validatio
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status().as_u16(), expected);
     }
+}
+
+#[test]
+fn recovery_locator_metadata_does_not_disable_loyalty_stream() {
+    let values = std::collections::BTreeMap::from([
+        (
+            "PRODUCTS_ENTITLEMENTS_LOYALTY_STREAM_MTLS_CLIENT_IDENTITY".into(),
+            "loyalty.oteryn.internal".into(),
+        ),
+        (
+            "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+            r#"{"locator.oteryn.internal":["019c0000-0000-7000-8000-000000000001/019c0000-0000-7000-8000-000000000002"]}"#.into(),
+        ),
+        (
+            "PORTAL_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+            r#"{"locator.oteryn.internal":"game-node-1"}"#.into(),
+        ),
+    ]);
+    assert!(http::identity_map(&values).is_ok());
 }

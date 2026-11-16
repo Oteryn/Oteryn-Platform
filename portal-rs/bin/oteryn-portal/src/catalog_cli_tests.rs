@@ -465,3 +465,117 @@ async fn drc_catalog_audit_budget() -> TestResult {
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn sw3_06_catalog_activation_fences_set_permissions() -> TestResult {
+    use oteryn_admin::rbac::{Authorizer, Change, CheckContext};
+    let started = std::time::Instant::now();
+    let db = Database::new().await?;
+    let revision = import(&db).await?;
+    let manager = Uuid::now_v7();
+    account(&db.pool, manager, "active").await?;
+    let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='catalog_operator'")
+        .fetch_one(&db.pool)
+        .await?;
+    let manager_role = Uuid::now_v7();
+    sqlx::query("INSERT INTO roles(id,key,built_in) VALUES($1,'catalog_manager',false)")
+        .bind(manager_role)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,$2)")
+        .bind(manager_role)
+        .bind(Permission::ManageRoles.as_str())
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(manager)
+        .bind(manager_role)
+        .execute(&db.pool)
+        .await?;
+    struct ObservedAccess {
+        inner: Access,
+        checked: tokio::sync::Notify,
+    }
+    impl CatalogAccess for ObservedAccess {
+        async fn account_state(
+            &self,
+            actor: Uuid,
+            db: &mut PgConnection,
+        ) -> Result<AccountState, Error> {
+            self.inner.account_state(actor, db).await
+        }
+        async fn permitted(
+            &self,
+            actor: Uuid,
+            action: Action,
+            db: &mut PgConnection,
+        ) -> Result<bool, Error> {
+            let allowed = self.inner.permitted(actor, action, db).await?;
+            self.checked.notify_one();
+            Ok(allowed)
+        }
+    }
+    let access = std::sync::Arc::new(ObservedAccess {
+        inner: Access::default(),
+        checked: tokio::sync::Notify::new(),
+    });
+    let mut pointer = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM store_active_catalog WHERE id=1 FOR UPDATE")
+        .execute(&mut *pointer)
+        .await?;
+    let store = CatalogStore::new(db.pool.clone(), CatalogFlags { enabled: true });
+    let actor = db.actor;
+    let observed = access.clone();
+    let activation =
+        tokio::spawn(async move { store.activate(&revision, actor, &*observed).await });
+    access.checked.notified().await;
+    sqlx::query("UPDATE accounts SET email_verified_at=now() WHERE id=$1")
+        .bind(manager)
+        .execute(&db.pool)
+        .await?;
+    let auth = Authorizer::new(
+        db.pool.clone(),
+        oteryn_admin::web::PortalIdentity::configured_from(db.pool.clone(), &|_| None),
+    );
+    let proof = staff_session_proof(&db.pool, manager).await?;
+    let mut revocation = tokio::spawn(async move {
+        auth.change(
+            CheckContext {
+                account: manager,
+                require_staff_mfa: true,
+                mfa_verified: true,
+                session_proof: Some(proof),
+            },
+            Uuid::now_v7(),
+            Change::SetPermissions {
+                role,
+                permissions: &[],
+            },
+        )
+        .await
+    });
+    let completed = tokio::time::timeout(std::time::Duration::from_millis(200), &mut revocation)
+        .await
+        .ok();
+    let blocked = completed.is_none();
+    pointer.commit().await?;
+    activation.await??;
+    match completed {
+        Some(result) => {
+            result??;
+        }
+        None => {
+            revocation.await??;
+        }
+    }
+    assert!(
+        blocked,
+        "SetPermissions committed before the already-authorized activation"
+    );
+    db.close().await?;
+    eprintln!(
+        "PG sw3_06_catalog_activation_fences_set_permissions {:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}

@@ -61,14 +61,20 @@ async fn sanction_export_disabled_503() -> TestResult {
                 "PORTAL_SANCTION_EXPORT_IDENTITY".into(),
                 "peer.example".into(),
             ),
-            ("OTHER_MTLS_CLIENT_IDENTITY".into(), "peer.example".into()),
+            (
+                "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY".into(),
+                "peer.example".into(),
+            ),
         ],
         vec![
             (
                 "PORTAL_SANCTION_EXPORT_IDENTITY".into(),
                 "peer.example".into(),
             ),
-            ("OTHER_IDENTITIES".into(), r#"{"peer.example":[]}"#.into()),
+            (
+                "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+                r#"{"peer.example":[]}"#.into(),
+            ),
         ],
     ] {
         assert!(identities(vars).is_err());
@@ -938,5 +944,25 @@ async fn postgres_expiry_candidates_bound_work_with_permanent_history() -> TestR
         "PG postgres_expiry_candidates_bound_work_with_permanent_history {:?}",
         started.elapsed()
     );
+    Ok(())
+}
+
+#[test]
+fn recovery_locator_metadata_does_not_disable_export() -> TestResult {
+    let vars = vec![
+        (
+            "PORTAL_SANCTION_EXPORT_IDENTITY".into(),
+            "export.oteryn.internal".into(),
+        ),
+        (
+            "GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+            r#"{"locator.oteryn.internal":["019c0000-0000-7000-8000-000000000001/019c0000-0000-7000-8000-000000000002"]}"#.into(),
+        ),
+        (
+            "PORTAL_NATIVE_RECOVERY_LOCATOR_IDENTITIES".into(),
+            r#"{"locator.oteryn.internal":"game-node-1"}"#.into(),
+        ),
+    ];
+    assert!(identities(vars).is_ok());
     Ok(())
 }

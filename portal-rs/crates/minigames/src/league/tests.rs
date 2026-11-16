@@ -915,6 +915,7 @@ async fn advance_watermarks(db: &Db, c: &config::Config, epoch: &str) -> TestRes
 #[tokio::test]
 async fn postgres_withdrawal_replay_and_new_epoch_revision_one() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -1015,7 +1016,12 @@ async fn postgres_withdrawal_replay_and_new_epoch_revision_one() -> TestResult {
     job.run_config(c.clone()).await?;
     advance_watermarks(&db, &c, "4").await?;
     assert!(league.read(runtime::now()?).await?.is_empty());
-    db.close().await
+    db.close().await?;
+    eprintln!(
+        "postgres_withdrawal_replay_and_new_epoch_revision_one duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
 }
 
 #[tokio::test]
@@ -1081,6 +1087,7 @@ async fn postgres_refresh_and_generation_recovery_preserve_serving_evidence() ->
 #[tokio::test]
 async fn postgres_queued_old_fences_retire_without_quarantine() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -1159,7 +1166,12 @@ async fn postgres_queued_old_fences_retire_without_quarantine() -> TestResult {
             .fetch_one(&db.pool)
             .await?;
     assert_eq!(refused, 0);
-    db.close().await
+    db.close().await?;
+    eprintln!(
+        "postgres_queued_old_fences_retire_without_quarantine duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -1293,7 +1305,7 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
         CountedAuthority(Default::default()),
     );
     let mut blocker = db.pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
+    sqlx::query("SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)")
         .execute(&mut *blocker)
         .await?;
     let started = std::time::Instant::now();
@@ -1334,6 +1346,7 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
 #[tokio::test]
 async fn postgres_obsolete_fence_still_refuses_forged_admission_metadata() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
@@ -1361,7 +1374,12 @@ async fn postgres_obsolete_fence_still_refuses_forged_admission_metadata() -> Te
         .fetch_one(&db.pool)
         .await?;
     assert!(conflicted);
-    db.close().await
+    db.close().await?;
+    eprintln!(
+        "postgres_obsolete_fence_still_refuses_forged_admission_metadata duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -1393,4 +1411,29 @@ async fn postgres_league_database_execution_has_a_deadline() -> TestResult {
     assert!(league.read(NOW).await.is_err());
     assert!(started.elapsed() < std::time::Duration::from_secs(4));
     db.close().await
+}
+
+#[tokio::test]
+async fn postgres_independent_schemas_do_not_share_league_fences() -> TestResult {
+    let started = std::time::Instant::now();
+    let a = Db::new().await?.ok_or("PostgreSQL required")?;
+    let b = Db::new().await?.ok_or("PostgreSQL required")?;
+    let mut blocker = a.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)")
+        .execute(&mut *blocker)
+        .await?;
+    let league = League::new(
+        b.pool.clone(),
+        flags(),
+        CountedAuthority(Default::default()),
+    );
+    assert!(league.read(NOW).await?.is_empty());
+    blocker.rollback().await?;
+    a.close().await?;
+    b.close().await?;
+    eprintln!(
+        "postgres_independent_schemas_do_not_share_league_fences duration={:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

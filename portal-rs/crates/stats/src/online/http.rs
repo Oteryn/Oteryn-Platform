@@ -15,7 +15,6 @@ struct Ingest {
     db: PgPool,
     config: Config,
     family: Option<Family>,
-    // One purpose-bound publisher per configured identity map, per route.
     requests: Arc<Mutex<VecDeque<std::time::Instant>>>,
 }
 /// Mount on the private listener only. VerifiedClient must come from the TLS adapter.
@@ -73,6 +72,7 @@ async fn headers(request: Request, next: Next) -> Response {
 }
 async fn handle(
     State(state): State<Ingest>,
+    axum::Extension(publisher): axum::Extension<guard::PublisherKey>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
@@ -108,6 +108,54 @@ async fn handle(
         return guard::failure(StatusCode::BAD_REQUEST);
     }
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let publication = match wire::publication(state.family, &body, now) {
+        Ok(p) => p,
+        Err(error) => return guard::failure(error.status()),
+    };
+    if !state.config.permits(publication.family) {
+        return guard::failure(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    if publication.authority != state.config.source_authority {
+        return guard::failure(StatusCode::UNAUTHORIZED);
+    }
+    if state.family.is_none() {
+        let limit = std::env::var("PORTAL_PUBLIC_PROJECTIONS_REQUESTS_PER_MINUTE")
+            .map_or(6000, |v| v.parse::<u16>().unwrap_or(0));
+        if !(1..=6000).contains(&limit) {
+            return guard::failure(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        match oteryn_db::ingest_budget::admit(
+            &state.db,
+            publisher.as_bytes(),
+            "v2/watermark",
+            limit,
+        )
+        .await
+        {
+            Ok(true) => (),
+            Ok(false) => {
+                let mut response = guard::failure(StatusCode::TOO_MANY_REQUESTS);
+                response
+                    .headers_mut()
+                    .insert("retry-after", axum::http::HeaderValue::from_static("60"));
+                return response;
+            }
+            Err(_) => return guard::failure(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    }
+    let route = state.family.map_or("v2/stats/watermark", Family::name);
+    let allowed =
+        match oteryn_db::ingest_budget::admit(&state.db, publisher.as_bytes(), route, 1200).await {
+            Ok(allowed) => allowed,
+            Err(_) => return guard::failure(StatusCode::SERVICE_UNAVAILABLE),
+        };
+    if !allowed {
+        let mut response = guard::failure(StatusCode::TOO_MANY_REQUESTS);
+        response
+            .headers_mut()
+            .insert("retry-after", axum::http::HeaderValue::from_static("60"));
+        return response;
+    }
     match ingest(&state.db, &state.config, state.family, &body, now).await {
         Ok(receipt) => {
             use axum::response::IntoResponse;
@@ -120,10 +168,7 @@ async fn handle(
 /// duration presentation is mounted without current authoritative policy adapters.
 pub fn configured_router(db: PgPool) -> Router {
     let enabled = std::env::var("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Ok("true")
-        && matches!(
-            std::env::var("APP_ENV").as_deref(),
-            Ok("testing" | "preproduction")
-        );
+        && oteryn_core::restricted_environment(|key| std::env::var(key).ok());
     let identities = std::env::var("PORTAL_PUBLIC_PROJECTIONS_SAN")
         .ok()
         .and_then(|s| guard::Identity::san(&s).ok())

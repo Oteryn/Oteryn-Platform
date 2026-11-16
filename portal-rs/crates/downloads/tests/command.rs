@@ -246,3 +246,152 @@ async fn drc_publication_rechecks_permission_under_rbac_fence() {
     assert_eq!(releases, 0);
     db.close().await;
 }
+
+/// Pause on the real publication connection immediately after database authorization.
+struct PausedAccess {
+    database: oteryn_downloads::command::DatabaseAccess,
+    authorized: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
+}
+#[async_trait::async_trait]
+impl oteryn_downloads::PublishAccess for PausedAccess {
+    async fn authorize_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        actor: Uuid,
+        channel: Channel,
+    ) -> bool {
+        let allowed = self.database.authorize_in(connection, actor, channel).await;
+        self.authorized.notify_one();
+        self.resume.notified().await;
+        allowed
+    }
+    async fn account_state(&self, actor: Uuid) -> oteryn_downloads::AccountState {
+        self.database.account_state(actor).await
+    }
+    async fn may_publish(&self, actor: Uuid, channel: Channel) -> Option<bool> {
+        self.database.may_publish(actor, channel).await
+    }
+}
+
+#[tokio::test]
+async fn db_publication_holds_authorization_until_commit() {
+    let started = std::time::Instant::now();
+    for mutation in ["revoke", "suspend", "permissions"] {
+        let Some(db) = Database::open().await else {
+            return;
+        };
+        let actor = Uuid::now_v7();
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'race@example.invalid','unused','active','en')")
+            .bind(actor).execute(&db.pool).await.unwrap();
+        let role: Uuid = sqlx::query_scalar(
+            "SELECT role_id FROM role_permissions WHERE permission='downloads.manage' LIMIT 1",
+        )
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+            .bind(actor)
+            .bind(role)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        let signer = SignerFixture::new();
+        let downloads = oteryn_downloads::Downloads::new(
+            db.pool.clone(),
+            FeatureFlags { downloads: true },
+            signer.roots(),
+        );
+        let access = std::sync::Arc::new(PausedAccess {
+            database: oteryn_downloads::command::DatabaseAccess(db.pool.clone()),
+            authorized: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        let publisher_access = access.clone();
+        let upload = signer.upload(signer.policy(1, "race", 1));
+        let publisher =
+            tokio::spawn(async move { downloads.publish(&*publisher_access, actor, upload).await });
+        access.authorized.notified().await;
+        let pool = db.pool.clone();
+        let (attempting, attempted) = tokio::sync::oneshot::channel();
+        let mut writer = tokio::spawn(async move {
+            let mut tx = pool.begin().await.unwrap();
+            attempting.send(()).unwrap();
+            // Established account-before-fence order, as used by RBAC writers.
+            if mutation != "permissions" {
+                sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+                    .bind(actor)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+            }
+            sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            let committed: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM client_channels WHERE name='stable' AND active_publication_id IS NOT NULL)",
+            ).fetch_one(&mut *tx).await.unwrap();
+            assert!(
+                committed,
+                "revocation acquired authorization locks before publication committed"
+            );
+            match mutation {
+                "revoke" => {
+                    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+                        .bind(actor)
+                        .execute(&mut *tx)
+                        .await
+                        .unwrap();
+                }
+                "suspend" => {
+                    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+                        .bind(actor)
+                        .execute(&mut *tx)
+                        .await
+                        .unwrap();
+                }
+                _ => {
+                    sqlx::query("DELETE FROM role_permissions WHERE role_id=$1 AND permission='downloads.manage'").bind(role).execute(&mut *tx).await.unwrap();
+                }
+            }
+            tx.commit().await.unwrap();
+        });
+        attempted.await.unwrap();
+        let blocked = tokio::time::timeout(std::time::Duration::from_millis(200), &mut writer)
+            .await
+            .is_err();
+        access.resume.notify_one();
+        let publication = publisher.await.unwrap().unwrap();
+        if blocked {
+            writer.await.unwrap();
+        }
+        assert!(
+            blocked,
+            "{mutation} committed while authorized publication was paused"
+        );
+        let active: Uuid = sqlx::query_scalar(
+            "SELECT active_publication_id FROM client_channels WHERE name='stable'",
+        )
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(active, publication);
+        let access = oteryn_downloads::command::DatabaseAccess(db.pool.clone());
+        assert!(matches!(
+            oteryn_downloads::Downloads::new(
+                db.pool.clone(),
+                FeatureFlags { downloads: true },
+                signer.roots()
+            )
+            .publish(&access, actor, signer.upload(signer.policy(2, "after", 2)))
+            .await,
+            Err(Error::Denied)
+        ));
+        db.close().await;
+    }
+    eprintln!(
+        "db_publication_holds_authorization_until_commit duration: {:?}",
+        started.elapsed()
+    );
+}

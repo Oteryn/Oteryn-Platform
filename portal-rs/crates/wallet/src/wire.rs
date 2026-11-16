@@ -457,7 +457,7 @@ async fn execute<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook>(
         }
         _ => {
             let a = id(&value, "seller_account_id", false)?;
-            ledger.coin_account(a).await?;
+            ledger.coin_return_account(a).await?;
             ledger
                 .release(key, a, id(&value, "reservation_id", true)?)
                 .await?
@@ -586,7 +586,9 @@ pub fn identities(vars: Vec<(String, String)>) -> Result<IdentityMap, guard::Con
     let mut bindings = Vec::new();
     let mut coins = false;
     for (key, raw) in vars {
-        if key.ends_with("_IDENTITIES") {
+        if oteryn_internal_api::identity_config::shape(key.as_str())
+            == Some(oteryn_internal_api::identity_config::Shape::Map)
+        {
             let Value::Object(members) =
                 canonical::decode(raw.as_bytes(), 131072, 4).map_err(|_| guard::ConfigError)?
             else {
@@ -605,7 +607,9 @@ pub fn identities(vars: Vec<(String, String)>) -> Result<IdentityMap, guard::Con
                     group: if own { GROUP.into() } else { key.clone() },
                 });
             }
-        } else if key.ends_with("_IDENTITY") || key.ends_with("_SAN") {
+        } else if oteryn_internal_api::identity_config::shape(key.as_str())
+            == Some(oteryn_internal_api::identity_config::Shape::Single)
+        {
             bindings.push(Binding {
                 identity: Identity::san(&raw)?,
                 group: key,

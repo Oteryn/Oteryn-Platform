@@ -44,6 +44,16 @@ pub struct Flags {
 /// restore fences. Unknown, stale, erased or transitioning state returns false.
 /// Browser input must never implement or construct this authority.
 pub trait Authority {
+    /// Mutation adapters must retain current ownership/catalog/restore fences
+    /// in this transaction until commit. Read-only adapters fail closed.
+    fn lock_mutation<'a>(
+        &'a self,
+        _tx: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+        _account: Uuid,
+        _character: Uuid,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async { Err(Error::Unavailable) })
+    }
     fn permits(&self, subject: Subject<'_>) -> bool;
     fn source(&self) -> &str;
     fn catalog_accepts(&self, family: &str, payload: &Payload) -> bool;

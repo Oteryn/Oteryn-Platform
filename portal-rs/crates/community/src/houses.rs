@@ -127,10 +127,7 @@ pub fn configured_watermark_router(db: PgPool) -> Router {
 }
 fn configured<S: Clone + Send + Sync + 'static>(db: PgPool, part: Part) -> Router<S> {
     let prerequisite = std::env::var("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Ok("true")
-        && matches!(
-            std::env::var("APP_ENV").as_deref(),
-            Ok("testing" | "preproduction")
-        );
+        && oteryn_core::restricted_environment(|key| std::env::var(key).ok());
     let identities = std::env::var("PORTAL_PUBLIC_PROJECTIONS_SAN")
         .ok()
         .and_then(|s| guard::Identity::san(&s).ok())
@@ -221,6 +218,9 @@ async fn load(
     if !state.contract_accepted {
         return Err(unavailable);
     }
+    let privacy_cut = crate::privacy::Cut::read(&state.db)
+        .await
+        .map_err(|_| unavailable)?;
     // One committed cut covers the watermark, shared epoch and all catalogue rows.
     let rows=sqlx::query("SELECT m.epoch::text AS generation,m.complete_through,h.payload,h.observed FROM public_houses_v2_watermark m JOIN public_projection_state s ON s.id=1 AND s.highest_epoch=m.epoch LEFT JOIN public_houses_v2 h ON h.epoch=m.epoch AND h.source_authority=m.source_authority AND ($2::text IS NULL OR h.payload->>'world_id'=$2) AND ($3::text IS NULL OR h.payload->>'house_key'=$3) WHERE m.id=1 AND NOT public_projection_conflicted('house') AND m.source_authority=$1 ORDER BY h.subject LIMIT 257") .bind(&state.config.ingest.source_authority).bind(world).bind(key).fetch_all(&state.db).await.map_err(|_|unavailable)?;
     if rows.len() > 256 {
@@ -317,15 +317,22 @@ async fn load(
         .await
         .map_err(|_| unavailable)?;
     for payload in identities {
-        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_houses_v2 WHERE epoch=$1::numeric AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND subject=$2 AND payload=$3)").bind(&generation).bind(format!("{}:{}", payload["world_id"].as_str().ok_or(unavailable)?, payload["house_key"].as_str().ok_or(unavailable)?)).bind(payload).fetch_one(&mut *fence).await.map_err(|_| unavailable)?;
+        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_houses_v2 WHERE NOT public_projection_conflicted('house') AND epoch=$1::numeric AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND subject=$2 AND payload=$3)").bind(&generation).bind(format!("{}:{}", payload["world_id"].as_str().ok_or(unavailable)?, payload["house_key"].as_str().ok_or(unavailable)?)).bind(payload).fetch_one(&mut *fence).await.map_err(|_| unavailable)?;
         if !current {
             return Err(unavailable);
         }
     }
     // Recheck after asynchronous privacy resolution; an epoch raise or elapsed
     // freshness budget must not publish the previously loaded cut.
-    let current: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM public_projection_state WHERE id=1 AND highest_epoch=$1::numeric)").bind(&generation).fetch_one(&mut *fence).await.map_err(|_| unavailable)?;
+    let current: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM public_projection_state WHERE id=1 AND highest_epoch=$1::numeric AND NOT public_projection_conflicted('house') AND EXISTS(SELECT 1 FROM public_houses_v2_watermark w WHERE w.id=1 AND w.epoch=highest_epoch AND w.source_authority=$2 AND w.complete_through >= $3))").bind(&generation).bind(&state.config.ingest.source_authority).bind(complete).fetch_one(&mut *fence).await.map_err(|_| unavailable)?;
     if !current || now().saturating_sub(complete as u64).saturating_add(1) > 30 {
+        return Err(unavailable);
+    }
+    if !privacy_cut
+        .validate(&mut fence)
+        .await
+        .map_err(|_| unavailable)?
+    {
         return Err(unavailable);
     }
     fence.commit().await.map_err(|_| unavailable)?;

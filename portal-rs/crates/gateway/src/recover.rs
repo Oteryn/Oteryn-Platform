@@ -323,7 +323,7 @@ pub fn parse_issuer_error(status: u16, b: &[u8], attempt: Option<&str>) -> Optio
         return None;
     }
     let echo = v["attempt_ref"].as_str();
-    if echo.is_some() && echo != attempt {
+    if !v["attempt_ref"].is_null() && (echo.is_none() || echo != attempt) {
         return None;
     }
     let name = match v["error"]["code"].as_str()? {

@@ -54,10 +54,16 @@ impl Eq for Identity {}
 /// Only the trusted connection adapter may insert this extension, after verifying
 /// the certificate chain, TLS 1.3 and HTTP/1.1. Never populate from public headers.
 #[derive(Debug, Clone)]
-pub struct VerifiedClient(Identity);
+pub struct VerifiedClient(Option<Identity>);
 impl VerifiedClient {
+    /// Trusted composition refusal, carried through route-local admission probes.
+    /// This sentinel never grants peer provenance or permission.
+    pub fn invalid_configuration() -> Self {
+        Self(None)
+    }
+
     pub fn from_verified_tls13_http11(identity: Identity) -> Self {
-        Self(identity)
+        Self(Some(identity))
     }
 }
 /// Authenticated publisher key, inserted only after all existing guard checks pass.
@@ -103,7 +109,10 @@ impl IdentityMap {
     /// Routing hint only. The destination guard must still check configuration
     /// and authorize the peer before consuming a body or invoking a handler.
     pub fn peer_in_group(&self, client: &VerifiedClient, group: &str) -> bool {
-        self.permits(&client.0, group)
+        client
+            .0
+            .as_ref()
+            .is_some_and(|identity| self.permits(identity, group))
     }
     fn has_group(&self, group: &str) -> bool {
         self.0.iter().any(|binding| binding.group == group)
@@ -223,7 +232,11 @@ fn transport(headers: &HeaderMap, max: usize) -> Result<(), StatusCode> {
 }
 async fn check_peer(State(guard): State<Guard>, request: Request, next: Next) -> Response {
     let policy = &guard.policy;
-    if !policy.enabled
+    if request
+        .extensions()
+        .get::<VerifiedClient>()
+        .is_some_and(|client| client.0.is_none())
+        || !policy.enabled
         || policy.max_body_bytes == 0
         || !(2..=128).contains(&policy.max_json_depth)
         || !guard.identities.has_group(&policy.group)
@@ -233,7 +246,7 @@ async fn check_peer(State(guard): State<Guard>, request: Request, next: Next) ->
     if !request
         .extensions()
         .get::<VerifiedClient>()
-        .is_some_and(|client| guard.identities.permits(&client.0, &policy.group))
+        .is_some_and(|client| guard.identities.peer_in_group(client, &policy.group))
     {
         return failure(StatusCode::UNAUTHORIZED);
     }
@@ -241,9 +254,13 @@ async fn check_peer(State(guard): State<Guard>, request: Request, next: Next) ->
         return failure(StatusCode::NO_CONTENT);
     }
     let (mut parts, body) = request.into_parts();
-    if let Some(client) = parts.extensions.get::<VerifiedClient>() {
-        let mut key = vec![client.0.kind, client.0.len];
-        key.extend_from_slice(&client.0.bytes[..usize::from(client.0.len)]);
+    if let Some(identity) = parts
+        .extensions
+        .get::<VerifiedClient>()
+        .and_then(|client| client.0.as_ref())
+    {
+        let mut key = vec![identity.kind, identity.len];
+        key.extend_from_slice(&identity.bytes[..usize::from(identity.len)]);
         parts.extensions.insert(PublisherKey(key));
     }
     next.run(Request::from_parts(parts, body)).await

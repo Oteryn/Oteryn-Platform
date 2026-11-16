@@ -718,6 +718,8 @@ async fn recover_inner(
             )
             .await
             .map_err(|_| RecoveryError::ReconciliationRequired)?;
+        // Signing may wait for blocking capacity or signer serialization.
+        let at = store::now(&mut tx).await?;
         if expires - at < 1000 {
             return Err(RecoveryError::GrantExpired.into());
         }

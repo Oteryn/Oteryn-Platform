@@ -39,6 +39,11 @@ async fn world_postgres_observations_privacy_and_gaps() -> Result {
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
+    ))
+    .execute(&db)
+    .await?;
     let date = Date::from_calendar_date(2026, time::Month::November, 1)?;
     let end = date.next_day().ok_or("date")?;
     let world = Uuid::now_v7();

@@ -76,6 +76,14 @@ async fn online_real_privacy_owner_mutations_and_missing_state() -> Result {
     ] {
         sqlx::raw_sql(sql).execute(&db).await?;
     }
+    sqlx::raw_sql(
+        include_str!("../../../migrations/20261115216000_fix_a3-06-community_serving.sql")
+            .split("-- Indexed parent")
+            .next()
+            .ok_or("missing privacy migration")?,
+    )
+    .execute(&db)
+    .await?;
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     let owner = Uuid::now_v7();
     let foreign = Uuid::now_v7();
@@ -210,64 +218,8 @@ async fn audit06_configured_rankings_uses_authority() -> Result {
         db.close().await;
         return Ok(());
     }
-    let admin = PgPool::connect(&url).await?;
-    let schema = format!("ranking_config06_{}", Uuid::now_v7().simple());
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-        .execute(&admin)
-        .await?;
-    let db = PgPool::connect_with(
-        admin
-            .connect_options()
-            .as_ref()
-            .clone()
-            .options([("search_path", schema.as_str())]),
-    )
-    .await?;
-    oteryn_db::migrate(&db).await?;
-    let now = time::OffsetDateTime::now_utc().unix_timestamp();
-    let owner = Uuid::now_v7();
-    let character = Uuid::now_v7();
-    let hidden = Uuid::now_v7();
-    let world = Uuid::now_v7();
-    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at,public_status_visible) VALUES($1,'rank@example.invalid','test','active','en',now(),true)").bind(owner).execute(&db).await?;
-    sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'privacy-test','1','1',$2,$3)").bind(owner).bind(now).bind(vec![0u8;32]).execute(&db).await?;
-    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='privacy-test',complete_through=$1,observed_at=$1 WHERE id=1").bind(now).execute(&db).await?;
-    sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
-        .execute(&db)
-        .await?;
-    let service = Service::new(
-        db.clone(),
-        Settings {
-            enabled: true,
-            environment: oteryn_core::Environment::Testing,
-            source_authority: "privacy-test".into(),
-            ..Settings::default()
-        },
-        true,
-    );
-    let mut rows = vec![];
-    for (i, id, name, hidden) in [
-        (1, character, "Aldric", false),
-        (2, hidden, "HiddenSecret", true),
-    ] {
-        sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,$4,'AVAILABLE')").bind(owner).bind(id).bind(world).bind(name).execute(&db).await?;
-        service
-            .update(
-                owner,
-                name,
-                Preferences {
-                    hidden,
-                    ..Preferences::default()
-                },
-                now,
-            )
-            .await
-            .map_err(|_| "privacy save failed")?;
-        sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('character_profile',$1,1,1,$2,$3)").bind(id.to_string()).bind(now).bind(serde_json::json!({"profile":[{"world_id":world,"name":name}]})).execute(&db).await?;
-        rows.push(serde_json::json!({"rank":i.to_string(),"character_id":id,"name":name,"vocation":1,"level":"100","value":"1000"}));
-    }
-    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,1,1,$1,'null')").bind(now).execute(&db).await?;
-    sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('highscores',$1,1,1,$2,$3)").bind(format!("{world}:1:0")).bind(now).bind(serde_json::json!({"world_id":world,"category":1,"filter":0,"rows":rows})).execute(&db).await?;
+    let fixture = RankingFixture::new().await?;
+    let schema = &fixture.schema;
     // Configure only the child test process; other tests never observe these flags.
     let status = std::process::Command::new(std::env::current_exe()?)
         .args([
@@ -275,7 +227,7 @@ async fn audit06_configured_rankings_uses_authority() -> Result {
             "audit06_configured_rankings_uses_authority",
             "--nocapture",
         ])
-        .env("AUDIT06_RANKINGS_SCHEMA", &schema)
+        .env("AUDIT06_RANKINGS_SCHEMA", schema)
         .env("PORTAL_PUBLIC_RANKINGS_ENABLED", "true")
         .env("OTERYN_CHARACTER_PROFILES_ENABLED", "true")
         .env("OTERYN_LCFA_ENABLED", "true")
@@ -283,10 +235,285 @@ async fn audit06_configured_rankings_uses_authority() -> Result {
         .env("OTERYN_LCFA_SOURCE_AUTHORITY", "privacy-test")
         .status()?;
     assert!(status.success());
-    db.close().await;
-    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-        .execute(&admin)
+    fixture.finish().await
+}
+
+struct RankingFixture {
+    admin: PgPool,
+    db: PgPool,
+    schema: String,
+    service: Service,
+    owner: Uuid,
+    character: Uuid,
+    hidden: Uuid,
+    now: i64,
+}
+impl RankingFixture {
+    async fn new() -> Result<Self> {
+        let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+        let admin = PgPool::connect(&url).await?;
+        let schema = format!("ranking_config06_{}", Uuid::now_v7().simple());
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&admin)
+            .await?;
+        let db = PgPool::connect_with(
+            admin
+                .connect_options()
+                .as_ref()
+                .clone()
+                .options([("search_path", schema.as_str())]),
+        )
         .await?;
-    admin.close().await;
-    Ok(())
+        oteryn_db::migrate(&db).await?;
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let owner = Uuid::now_v7();
+        let character = Uuid::now_v7();
+        let hidden = Uuid::now_v7();
+        let world = Uuid::now_v7();
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at,public_status_visible) VALUES($1,'rank@example.invalid','test','active','en',now(),true)").bind(owner).execute(&db).await?;
+        sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'privacy-test','1','1',$2,$3)").bind(owner).bind(now).bind(vec![0u8;32]).execute(&db).await?;
+        sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='privacy-test',complete_through=$1,observed_at=$1 WHERE id=1").bind(now).execute(&db).await?;
+        sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
+            .execute(&db)
+            .await?;
+        let service = Service::new(
+            db.clone(),
+            Settings {
+                enabled: true,
+                environment: oteryn_core::Environment::Testing,
+                source_authority: "privacy-test".into(),
+                ..Settings::default()
+            },
+            true,
+        );
+        let mut rows = vec![];
+        for (i, id, name, hidden) in [
+            (1, character, "Aldric", false),
+            (2, hidden, "HiddenSecret", true),
+        ] {
+            sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,$4,'AVAILABLE')").bind(owner).bind(id).bind(world).bind(name).execute(&db).await?;
+            service
+                .update(
+                    owner,
+                    name,
+                    Preferences {
+                        hidden,
+                        ..Preferences::default()
+                    },
+                    now,
+                )
+                .await
+                .map_err(|_| "privacy save failed")?;
+            sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('character_profile',$1,1,1,$2,$3)").bind(id.to_string()).bind(now).bind(serde_json::json!({"profile":[{"world_id":world,"name":name}]})).execute(&db).await?;
+            rows.push(serde_json::json!({"rank":i.to_string(),"character_id":id,"name":name,"vocation":1,"level":"100","value":"1000"}));
+        }
+        sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,1,1,$1,'null')").bind(now).execute(&db).await?;
+        sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('highscores',$1,1,1,$2,$3)").bind(format!("{world}:1:0")).bind(now).bind(serde_json::json!({"world_id":world,"category":1,"filter":0,"rows":rows})).execute(&db).await?;
+
+        Ok(Self {
+            admin,
+            db,
+            schema,
+            service,
+            owner,
+            character,
+            hidden,
+            now,
+        })
+    }
+    async fn finish(self) -> Result {
+        self.db.close().await;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&self.admin)
+        .await?;
+        self.admin.close().await;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn w3_c06_007_real_preference_update_during_rankings() -> Result {
+    let pg_started = std::time::Instant::now();
+    let fixture = RankingFixture::new().await?;
+    let db = fixture.db.clone();
+    let service = fixture.service.clone();
+    let owner = fixture.owner;
+    let character = fixture.character;
+    let now = fixture.now;
+    // The first allow must not survive a restrictive save during the next lookup.
+    #[derive(Debug)]
+    struct RestrictSecond {
+        authority: Authority,
+        service: Service,
+        owner: Uuid,
+        first: String,
+        changed: std::sync::atomic::AtomicBool,
+    }
+    impl oteryn_community::rankings::PublicVisibility for RestrictSecond {
+        fn is_hidden<'a>(
+            &'a self,
+            id: &'a str,
+        ) -> oteryn_community::rankings::VisibilityFuture<'a, bool> {
+            Box::pin(async move {
+                if id != self.first && !self.changed.swap(true, std::sync::atomic::Ordering::SeqCst)
+                {
+                    self.service
+                        .update(
+                            self.owner,
+                            "Aldric",
+                            Preferences {
+                                hidden: true,
+                                ..Preferences::default()
+                            },
+                            time::OffsetDateTime::now_utc().unix_timestamp(),
+                        )
+                        .await
+                        .map_err(|_| oteryn_community::rankings::VisibilityUnavailable)?;
+                }
+                oteryn_community::rankings::PublicVisibility::is_hidden(&self.authority, id).await
+            })
+        }
+    }
+    let authority = Authority::new(
+        db.clone(),
+        ProfileAuthority {
+            service: service.clone(),
+        },
+    );
+    let (before, _) =
+        oteryn_community::rankings::home_top(&db, &authority, oteryn_web::Language::En, 10, true)
+            .await
+            .map_err(|_| "initial ranking")?;
+    assert!(before.iter().any(|row| row.name == "Aldric"));
+    for home in [false, true] {
+        service
+            .update(
+                owner,
+                "Aldric",
+                Preferences {
+                    hidden: false,
+                    ..Preferences::default()
+                },
+                now,
+            )
+            .await
+            .map_err(|_| "reset privacy")?;
+        let visibility = Arc::new(RestrictSecond {
+            authority: authority.clone(),
+            service: service.clone(),
+            owner,
+            first: character.to_string(),
+            changed: std::sync::atomic::AtomicBool::new(false),
+        });
+        if home {
+            assert!(
+                oteryn_community::rankings::home_top(
+                    &db,
+                    visibility.as_ref(),
+                    oteryn_web::Language::En,
+                    10,
+                    true
+                )
+                .await
+                .is_err()
+            );
+        } else {
+            let response = oteryn_community::rankings::router(db.clone(), true, visibility)
+                .oneshot(Request::get("/en/rankings/level").body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert!(
+                !String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?
+                    .contains("Aldric")
+            );
+        }
+    }
+    eprintln!(
+        "w3_c06_007_real_preference_update_during_rankings {:?}",
+        pg_started.elapsed()
+    );
+    fixture.finish().await
+}
+
+#[tokio::test]
+async fn w3_c06_006_ranking_name_handoff() -> Result {
+    let pg_started = std::time::Instant::now();
+    let fixture = RankingFixture::new().await?;
+    let db = fixture.db.clone();
+    let service = fixture.service.clone();
+    let owner = fixture.owner;
+    let character = fixture.character;
+    let now = fixture.now;
+    let hidden = fixture.hidden;
+    let authority = Authority::new(
+        db.clone(),
+        ProfileAuthority {
+            service: service.clone(),
+        },
+    );
+    service
+        .update(
+            owner,
+            "Aldric",
+            Preferences {
+                hidden: false,
+                ..Preferences::default()
+            },
+            now,
+        )
+        .await
+        .map_err(|_| "reset privacy")?;
+    sqlx::query("UPDATE account_characters SET name='Newname' WHERE character_id=$1")
+        .bind(character)
+        .execute(&db)
+        .await?;
+    sqlx::query("UPDATE account_characters SET name='Aldric' WHERE character_id=$1")
+        .bind(hidden)
+        .execute(&db)
+        .await?;
+    service
+        .update(
+            owner,
+            "Aldric",
+            Preferences {
+                hidden: false,
+                ..Preferences::default()
+            },
+            now,
+        )
+        .await
+        .map_err(|_| "new holder privacy")?;
+    for (id, name) in [(character, "Newname"), (hidden, "Aldric")] {
+        sqlx::query("UPDATE public_snapshots SET payload=jsonb_set(payload,'{profile,0,name}',to_jsonb($2::text)),version=version+1 WHERE family='character_profile' AND subject=$1").bind(id.to_string()).bind(name).execute(&db).await?;
+    }
+    assert!(
+        !oteryn_community::rankings::PublicVisibility::is_hidden(
+            &authority,
+            &character.to_string()
+        )
+        .await
+        .map_err(|_| "current visibility")?
+    );
+    let (ranks, _) =
+        oteryn_community::rankings::home_top(&db, &authority, oteryn_web::Language::En, 10, true)
+            .await
+            .map_err(|_| "ranking read")?;
+    assert!(
+        ranks.is_empty(),
+        "retained statistics must not link to a new name holder"
+    );
+    let response = oteryn_community::rankings::router(db.clone(), true, Arc::new(authority))
+        .oneshot(Request::get("/en/rankings/level").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        !String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?
+            .contains("Aldric")
+    );
+    eprintln!("w3_c06_006_ranking_name_handoff {:?}", pg_started.elapsed());
+
+    fixture.finish().await
 }

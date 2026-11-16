@@ -9,7 +9,6 @@ use axum::{
 };
 use sqlx::PgPool;
 use std::{future::Future, pin::Pin, sync::Arc};
-use unicode_normalization::UnicodeNormalization;
 
 #[path = "profiles_details.rs"]
 pub mod details;
@@ -150,13 +149,7 @@ fn page(en: bool, status: StatusCode, message: &str, character: Option<Character
     }
 }
 fn valid_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 64
-        && name.nfc().eq(name.chars())
-        && name.bytes().all(|b| {
-            (32..=126).contains(&b) && !matches!(b, b'/' | b'\\' | b'"' | b'%' | b'?' | b'#')
-        })
-        && !name.chars().all(|c| c == '.')
+    crate::ingest::valid_projection_name(name)
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -170,7 +163,11 @@ async fn search(Path(locale): Path<String>, RawQuery(raw): RawQuery) -> Response
     let Some(raw) = raw else {
         return page(en, StatusCode::OK, "", None);
     };
-    let query = if raw.len() <= 1024 {
+    let query = if raw.len() <= 1024
+        && percent_encoding::percent_decode_str(&raw)
+            .decode_utf8()
+            .is_ok()
+    {
         serde_urlencoded::from_str::<Search>(&raw).ok()
     } else {
         None
@@ -219,6 +216,9 @@ async fn profile(
     }
 }
 async fn load(state: &Profiles, name: &str) -> Result<Option<Character>, Unavailable> {
+    let privacy_cut = crate::privacy::Cut::read(&state.db)
+        .await
+        .map_err(|_| Unavailable)?;
     // Keep epoch, watermark, world resolution and name handoff in one committed cut.
     let mut tx = state.db.begin().await.map_err(|_| Unavailable)?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
@@ -227,10 +227,6 @@ async fn load(state: &Profiles, name: &str) -> Result<Option<Character>, Unavail
         .map_err(|_| Unavailable)?;
     let fresh: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='character_profile' AND NOT public_projection_conflicted('character_profile') AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND watermark BETWEEN floor(extract(epoch FROM now()))::bigint-29 AND floor(extract(epoch FROM now()))::bigint+1)").fetch_one(&mut *tx).await.map_err(|_|Unavailable)?;
     if !fresh {
-        return Err(Unavailable);
-    }
-    let worlds: Vec<String> = sqlx::query_scalar("SELECT DISTINCT payload->'profile'->0->>'world_id' FROM public_snapshots WHERE family='character_profile' AND NOT public_projection_conflicted('character_profile') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND jsonb_array_length(payload->'profile')=1 LIMIT 2").fetch_all(&mut *tx).await.map_err(|_|Unavailable)?;
-    if worlds.len() != 1 {
         return Err(Unavailable);
     }
     let rows: Vec<(String,serde_json::Value,String)> = sqlx::query_as("SELECT subject,payload,epoch::text FROM public_snapshots WHERE family='character_profile' AND NOT public_projection_conflicted('character_profile') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND lower(payload->'profile'->0->>'name')=lower($1) LIMIT 2").bind(name).fetch_all(&mut *tx).await.map_err(|_|Unavailable)?;
@@ -243,14 +239,12 @@ async fn load(state: &Profiles, name: &str) -> Result<Option<Character>, Unavail
     }
     let (id, payload, epoch) = &rows[0];
     let value = &payload["profile"][0];
-    if value["world_id"].as_str() != Some(worlds[0].as_str()) {
-        return Err(Unavailable);
-    }
+    let world = value["world_id"].as_str().ok_or(Unavailable)?;
     let mut character: Character =
         serde_json::from_value(value.clone()).map_err(|_| Unavailable)?;
     let subject = details::Subject {
         character_id: id.clone(),
-        world_id: worlds[0].clone(),
+        world_id: world.to_owned(),
         epoch: epoch.clone(),
     };
     // Consult the privacy authority after reading facts; no stored allow or response cache.
@@ -316,9 +310,29 @@ async fn load(state: &Profiles, name: &str) -> Result<Option<Character>, Unavail
     }
     // External readers may await I/O. Recheck source eligibility at serving time,
     // so an epoch raise or expired watermark during those waits cannot disclose facts.
+    let mut final_cut = state.db.begin().await.map_err(|_| Unavailable)?;
+    sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
+        .execute(&mut *final_cut)
+        .await
+        .map_err(|_| Unavailable)?;
+    let through: Option<i64> = sqlx::query_scalar("SELECT watermark FROM public_snapshots WHERE family='character_profile' AND is_watermark AND epoch=$1::numeric").bind(epoch).fetch_optional(&mut *final_cut).await.map_err(|_| Unavailable)?;
     let eligible: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='character_profile' AND NOT public_projection_conflicted('character_profile') AND is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND epoch::text=$1 AND watermark BETWEEN floor(extract(epoch FROM statement_timestamp()))::bigint-29 AND floor(extract(epoch FROM statement_timestamp()))::bigint+1 AND EXISTS(SELECT 1 FROM public_snapshots current_profile WHERE current_profile.family='character_profile' AND NOT public_projection_conflicted('character_profile') AND current_profile.subject=$2 AND NOT current_profile.is_watermark AND current_profile.epoch=public_snapshots.epoch AND current_profile.payload=$3))")
-        .bind(epoch).bind(id).bind(payload).fetch_one(&state.db).await.map_err(|_|Unavailable)?;
+        .bind(epoch).bind(id).bind(payload).fetch_one(&mut *final_cut).await.map_err(|_|Unavailable)?;
     if !eligible {
+        return Err(Unavailable);
+    }
+    if !privacy_cut
+        .validate(&mut final_cut)
+        .await
+        .map_err(|_| Unavailable)?
+    {
+        return Err(Unavailable);
+    }
+    final_cut.commit().await.map_err(|_| Unavailable)?;
+    let current = time::OffsetDateTime::now_utc().unix_timestamp();
+    let through = through.ok_or(Unavailable)?;
+    if through > current.saturating_add(1) || current.saturating_sub(through).saturating_add(1) > 30
+    {
         return Err(Unavailable);
     }
     character.comment = fields

@@ -94,6 +94,18 @@ fn id(s: &str) -> Result<Uuid, StatusCode> {
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
+async fn conflict_alarm(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    binding: &str,
+    kind: &str,
+    authority: &str,
+) -> Result<(), StatusCode> {
+    let reference = hex(&Sha256::digest(binding.as_bytes()));
+    let metadata = serde_json::json!({"authority":authority, "record_id":reference, "family":"G9", "reason":"IMMUTABLE_BINDING", "binding_kind":kind});
+    sqlx::query("WITH alarm AS (INSERT INTO audit_log(id,actor,action,target,before,after,request_id) VALUES(md5('ops.playerdata_binding_conflict:G9:' || $1 || ':' || $2)::uuid,NULL,'ops.playerdata_binding_conflict',$1,'null'::jsonb,$3,uuidv7()) ON CONFLICT(id) DO NOTHING RETURNING id) SELECT pg_notify('oteryn_operator_alerts',id::text) FROM alarm")
+        .bind(reference).bind(kind).bind(metadata).execute(&mut **tx).await.map_err(unavailable)?;
+    Ok(())
+}
 async fn budget(State(s): State<Surface>, request: axum::extract::Request, next: Next) -> Response {
     let allowed = s.budget.lock().map_err(|_| ()).map(|mut w| {
         if w.0.elapsed().as_secs() >= 60 {
@@ -238,7 +250,7 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
         .execute(&mut *tx)
         .await
         .map_err(unavailable)?;
-    let stream=sqlx::query("SELECT admitted,blocked,conflicted,recovery_generation::text AS recovery,stored_through::text FROM pd_g9_streams WHERE source_authority=$1 AND account_id=$2 AND stream_generation=$3 FOR UPDATE")
+    let stream=sqlx::query("SELECT admitted,blocked,conflicted,retention_floor::text,recovery_generation::text AS recovery,stored_through::text FROM pd_g9_streams WHERE source_authority=$1 AND account_id=$2 AND stream_generation=$3 FOR UPDATE")
  .bind(&r.authority).bind(account).bind(generation).fetch_optional(&mut *tx).await.map_err(unavailable)?.ok_or(StatusCode::CONFLICT)?;
     if stream.try_get::<bool, _>("blocked").map_err(unavailable)? {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
@@ -248,6 +260,11 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let admitted_recovery = stream
         .try_get::<String, _>("recovery")
+        .map_err(unavailable)?
+        .parse::<u64>()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let floor = stream
+        .try_get::<String, _>("retention_floor")
         .map_err(unavailable)?
         .parse::<u64>()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -267,6 +284,10 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
     if cut.character_revision != r.character_revision {
         return Err(StatusCode::CONFLICT);
     }
+    // Retention must not bypass the existing current-owner refusal order.
+    if r.revision <= floor {
+        return Err(StatusCode::CONFLICT);
+    }
     if let Some(prior) = prior {
         if prior.try_get::<Vec<u8>, _>("digest").map_err(unavailable)? == digest
             && prior
@@ -278,6 +299,13 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
             return Ok(());
         }
         sqlx::query("UPDATE pd_g9_streams SET conflicted=true WHERE source_authority=$1 AND account_id=$2 AND stream_generation=$3").bind(&r.authority).bind(account).bind(generation).execute(&mut *tx).await.map_err(unavailable)?;
+        conflict_alarm(
+            &mut tx,
+            &format!("{}:{account}:{generation}:{}", r.authority, r.revision),
+            "RECORD",
+            &r.authority,
+        )
+        .await?;
         tx.commit().await.map_err(unavailable)?;
         return Err(StatusCode::CONFLICT);
     }
@@ -317,7 +345,13 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
     if end < cut.decided_at as i64 || end <= now - 90 * 86400 || end > now + 1 {
         return Err(StatusCode::CONFLICT);
     }
-    if r.kind == "HUNT_SEGMENT" && text(record, "world_id")? != cut.world.to_string() {
+    if r.kind == "HUNT_SEGMENT"
+        && (text(record, "world_id")? != cut.world.to_string()
+            || text(record, "started_at")?
+                .parse::<i64>()
+                .map_err(|_| StatusCode::BAD_REQUEST)?
+                < cut.decided_at as i64)
+    {
         return Err(StatusCode::CONFLICT);
     }
     let index = if r.kind == "HUNT_SEGMENT" {
@@ -350,6 +384,13 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
         ))"#).bind(&r.authority).bind(id(&r.session)?).bind(account).bind(generation).bind(id(&r.character)?).bind(&r.kind).bind(index).bind(&record_json).bind(id(&r.segment)?).fetch_one(&mut *tx).await.map_err(unavailable)?;
     if conflicting || semantic_conflict {
         sqlx::query("UPDATE pd_g9_streams SET conflicted=true WHERE source_authority=$1 AND account_id=$2 AND stream_generation=$3").bind(&r.authority).bind(account).bind(generation).execute(&mut *tx).await.map_err(unavailable)?;
+        conflict_alarm(
+            &mut tx,
+            &format!("{}:{account}:{generation}:{}", r.authority, r.revision),
+            "RECORD",
+            &r.authority,
+        )
+        .await?;
         tx.commit().await.map_err(unavailable)?;
         return Err(StatusCode::CONFLICT);
     }
@@ -357,13 +398,14 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
  .bind(&r.authority).bind(account).bind(generation).bind(r.revision.to_string()).bind(&r.kind).bind(id(&r.session)?).bind(id(&r.segment)?).bind(id(&r.business_id)?).bind(index).bind(id(&r.character)?).bind(digest).bind(&r.bytes).bind(record_json).bind(end+90*86400).execute(&mut *tx).await.map_err(unavailable)?;
     // The first absent revision bounds the contiguous durable prefix. Application
     // stays separately fenced until session/drop reconciliation is proven.
-    sqlx::query("UPDATE pd_g9_streams s SET highest_seen=greatest(highest_seen,$4::numeric),stored_through=CASE WHEN EXISTS(SELECT 1 FROM pd_g9_records first_record WHERE first_record.source_authority=$1 AND first_record.account_id=$2 AND first_record.stream_generation=$3 AND first_record.source_revision=1) THEN COALESCE((SELECT min(r.source_revision+1)-1 FROM pd_g9_records r WHERE r.source_authority=$1 AND r.account_id=$2 AND r.stream_generation=$3 AND NOT EXISTS(SELECT 1 FROM pd_g9_records n WHERE n.source_authority=r.source_authority AND n.account_id=r.account_id AND n.stream_generation=r.stream_generation AND n.source_revision=r.source_revision+1)),0) ELSE 0 END WHERE s.source_authority=$1 AND s.account_id=$2 AND s.stream_generation=$3")
+    sqlx::query("UPDATE pd_g9_streams s SET highest_seen=greatest(highest_seen,$4::numeric),stored_through=CASE WHEN EXISTS(SELECT 1 FROM pd_g9_records first_record WHERE first_record.source_authority=$1 AND first_record.account_id=$2 AND first_record.stream_generation=$3 AND first_record.source_revision=s.retention_floor+1) THEN COALESCE((SELECT min(r.source_revision+1)-1 FROM pd_g9_records r WHERE r.source_authority=$1 AND r.account_id=$2 AND r.stream_generation=$3 AND r.source_revision>s.retention_floor AND NOT EXISTS(SELECT 1 FROM pd_g9_records n WHERE n.source_authority=r.source_authority AND n.account_id=r.account_id AND n.stream_generation=r.stream_generation AND n.source_revision=r.source_revision+1)),s.retention_floor) ELSE s.retention_floor END WHERE s.source_authority=$1 AND s.account_id=$2 AND s.stream_generation=$3")
  .bind(&r.authority).bind(account).bind(generation).bind(r.revision.to_string()).execute(&mut *tx).await.map_err(unavailable)?;
     // All segment indices and sealed drop counts must reconcile before any
     // member of a completed session can advance the applied prefix.
     sqlx::query(r#"UPDATE pd_g9_records r SET resolved=true WHERE r.source_authority=$1 AND r.account_id=$2 AND r.stream_generation=$3 AND r.session_id=$4 AND EXISTS(
       SELECT 1 FROM pd_g9_records final WHERE final.source_authority=$1 AND final.account_id=$2 AND final.stream_generation=$3 AND final.session_id=$4 AND final.record_kind='HUNT_SEGMENT' AND (final.record->>'final_segment')::boolean
       AND (SELECT count(*) FROM pd_g9_records s WHERE s.source_authority=$1 AND s.session_id=$4 AND s.record_kind='HUNT_SEGMENT')=final.segment_index+1
+      AND NOT EXISTS(SELECT 1 FROM pd_g9_records d WHERE d.source_authority=$1 AND d.session_id=$4 AND d.record_kind='RARE_DROP' AND NOT EXISTS(SELECT 1 FROM pd_g9_records s WHERE s.source_authority=d.source_authority AND s.account_id=d.account_id AND s.stream_generation=d.stream_generation AND s.session_id=d.session_id AND s.character_id=d.character_id AND s.record_kind='HUNT_SEGMENT' AND s.segment_id=d.segment_id AND s.record->>'character_revision'=d.record->>'character_revision' AND s.record->>'catalog_revision'=d.record->>'catalog_revision' AND (d.record->>'occurred_at')::bigint >= (s.record->>'started_at')::bigint AND (d.record->>'occurred_at')::bigint < (s.record->>'ended_at')::bigint))
       AND NOT EXISTS(SELECT 1 FROM pd_g9_records s WHERE s.source_authority=$1 AND s.session_id=$4 AND s.record_kind='HUNT_SEGMENT' AND (s.record->>'rare_drop_count')::bigint<>(SELECT count(*) FROM pd_g9_records d WHERE d.source_authority=$1 AND d.segment_id=s.segment_id AND d.record_kind='RARE_DROP'))
     )"#).bind(&r.authority).bind(account).bind(generation).bind(id(&r.session)?).execute(&mut *tx).await.map_err(unavailable)?;
     sqlx::query("UPDATE pd_g9_streams s SET applied_through=least(stored_through,COALESCE((SELECT min(source_revision)-1 FROM pd_g9_records r WHERE r.source_authority=$1 AND r.account_id=$2 AND r.stream_generation=$3 AND NOT resolved),stored_through)) WHERE s.source_authority=$1 AND s.account_id=$2 AND s.stream_generation=$3")
@@ -394,11 +436,12 @@ pub async fn enqueue(db: &PgPool, source: &str, raw: &[u8]) -> Result<(), Status
     .await
     .map_err(unavailable)?;
     if let Some((bytes, partition)) = existing {
-        return if bytes == raw && partition == source {
-            Ok(())
-        } else {
-            Err(StatusCode::CONFLICT)
-        };
+        if bytes == raw && partition == source {
+            return Ok(());
+        }
+        conflict_alarm(&mut tx, text(&v, "operation_id")?, "COMMAND_INTENT", source).await?;
+        tx.commit().await.map_err(unavailable)?;
+        return Err(StatusCode::CONFLICT);
     }
     sqlx::query("INSERT INTO pd_g9_commands(operation_id,source_authority,source_revision,account_id,stream_generation,intent,binding_digest) VALUES($1,$2,$3::numeric,$4,$5,$6,$7)")
  .bind(id(text(&v,"operation_id")?)?).bind(source).bind(text(&v,"source_revision")?).bind(id(text(&v,"account_id")?)?).bind(id(text(&v,"stream_generation")?)?).bind(raw).bind(digest).execute(&mut *tx).await.map_err(unavailable)?;
@@ -448,17 +491,20 @@ async fn exchange(
         .map_err(unavailable)?
         != text(v, "binding_digest")?
     {
+        conflict_alarm(&mut tx, text(v, "operation_id")?, "COMMAND_RECEIPT", source).await?;
+        tx.commit().await.map_err(unavailable)?;
         return Err(StatusCode::CONFLICT);
     }
     if let Some(prior) = row
         .try_get::<Option<Vec<u8>>, _>("receipt")
         .map_err(unavailable)?
     {
-        return if prior == raw {
-            Ok(accepted())
-        } else {
-            Err(StatusCode::CONFLICT)
-        };
+        if prior == raw {
+            return Ok(accepted());
+        }
+        conflict_alarm(&mut tx, text(v, "operation_id")?, "COMMAND_RECEIPT", source).await?;
+        tx.commit().await.map_err(unavailable)?;
+        return Err(StatusCode::CONFLICT);
     }
     sqlx::query("UPDATE pd_g9_commands SET receipt=$2 WHERE operation_id=$1")
         .bind(id(text(v, "operation_id")?)?)

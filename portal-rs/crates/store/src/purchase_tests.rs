@@ -1493,6 +1493,15 @@ async fn db_wallet_upgrade_preserves_existing_rows_and_uuid_history() {
     .execute(&pool)
     .await
     .unwrap();
+    sqlx::raw_sql(
+        include_str!("../../../migrations/20261115225000_fix_a3-l6_incoming_capacity.sql")
+            .split("-- Preserve")
+            .next()
+            .unwrap(),
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::raw_sql("CREATE TABLE purchase_test_accounts(id uuid PRIMARY KEY,state text NOT NULL);CREATE TABLE purchase_test_audit(id uuid PRIMARY KEY)").execute(&pool).await.unwrap();
     sqlx::raw_sql(crate::codes::tests::NO_COIN_DEBT_STUB)
         .execute(&pool)

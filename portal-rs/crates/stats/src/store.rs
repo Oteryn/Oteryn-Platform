@@ -213,7 +213,7 @@ pub async fn history(
         .bind(character).bind(start).bind(end).fetch_all(db).await? {
         result.daily.push(Daily { day: row.try_get("day")?, level: row.try_get("level")?, experience: row.try_get("experience")?, skills: if p.skills {row.try_get("skills")?} else {None}, achievement_points: row.try_get("achievement_points")?, minutes_online: if p.online {row.try_get("minutes_online")?} else {None} });
     }
-    for row in sqlx::query("SELECT day,kind,details FROM stats_character_events WHERE character_ref=$1 AND day BETWEEN $2 AND $3 AND ($4 OR kind NOT LIKE 'guild_%') AND ($5 OR kind<>'death') ORDER BY day,kind,event_key LIMIT 1001")
+    for row in sqlx::query("SELECT day,kind,details FROM stats_character_events WHERE character_ref=$1 AND day BETWEEN $2 AND $3 AND ($4 OR kind NOT LIKE 'guild_%') AND ($5 OR kind<>'death') AND (kind<>'death' OR NOT public_projection_conflicted('character_deaths')) ORDER BY day,kind,event_key LIMIT 1001")
         .bind(character).bind(start).bind(end).bind(p.guild).bind(p.deaths).fetch_all(db).await? {
         if result.events.len() == 1000 { return Err(invalid()); }
         let kind: String = row.try_get("kind")?;

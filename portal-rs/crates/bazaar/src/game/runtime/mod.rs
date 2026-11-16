@@ -111,7 +111,7 @@ impl Runtime {
         )
     }
     #[allow(clippy::too_many_arguments)]
-    pub(super) async fn issue(
+    pub(crate) async fn issue(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing: &Listing,
@@ -122,10 +122,20 @@ impl Runtime {
         extra: Vec<(&str, Value)>,
     ) -> Result<Uuid, Error> {
         self.authority().lock(tx).await?;
-        // Follow immutable attempts. Only audited terminal no-effect evidence
-        // permits a new cleanup operation; pending/ambiguous attempts stay fenced.
-        let mut step = step;
-        loop {
+        // Advance at most one audited refusal per call, including legacy chains.
+        // Immutable history is retained, but never traversed under the issuer lock.
+        let root_step = step;
+        let cleanup = matches!(
+            command,
+            Command::Release | Command::Return | Command::Unlock | Command::Payout
+        );
+        let mut step = if cleanup {
+            sqlx::query_scalar("INSERT INTO bazaar_cleanup_attempts(listing_id,command,root_step,current_step) VALUES($1,$2,$3,$3) ON CONFLICT(listing_id,command,root_step) DO UPDATE SET current_step=bazaar_cleanup_attempts.current_step RETURNING current_step")
+                .bind(listing.id).bind(command.wire()).bind(root_step).fetch_one(&mut **tx).await?
+        } else {
+            step
+        };
+        for attempt in 0..2 {
             let key = format!("bazaar:{}:{}:{step}:1", listing.id, command.wire());
             let raw = sqlx::query_scalar::<_, String>(
                 "SELECT intent FROM bazaar_game_outbox WHERE issuance_key=$1",
@@ -144,13 +154,14 @@ impl Runtime {
                 }
             }
             let operation = id(text(&intent.value, "operation_id")?)?;
-            if matches!(
-                command,
-                Command::Release | Command::Return | Command::Unlock | Command::Payout
-            ) && let Some((_, receipt)) = self.authority().retained(tx, operation).await?
+            if cleanup
+                && attempt == 0
+                && let Some((_, receipt)) = self.authority().retained(tx, operation).await?
                 && !receipt.committed
             {
                 step = operation;
+                sqlx::query("UPDATE bazaar_cleanup_attempts SET current_step=$4 WHERE listing_id=$1 AND command=$2 AND root_step=$3")
+                    .bind(listing.id).bind(command.wire()).bind(root_step).bind(step).execute(&mut **tx).await?;
                 continue;
             }
             return Ok(operation);

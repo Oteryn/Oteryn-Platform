@@ -158,9 +158,11 @@ impl Service {
     }
     pub async fn request(
         &self,
-        account: AccountId,
+        account: impl Into<crate::mutation_actor::MutationActor>,
         input: Request,
     ) -> Result<Outcome, sqlx::Error> {
+        let actor = account.into();
+        let account = actor.account;
         if !self.ready() || !input.valid() {
             return Ok(Outcome::Refused);
         }
@@ -170,6 +172,10 @@ impl Service {
         let Some((old, hash, locale)) = row else {
             return Ok(Outcome::Refused);
         };
+        if !actor.live(&mut tx).await? {
+            return Ok(Outcome::Refused);
+        }
+
         let new = normalize_email(&input.email);
         if new == old {
             return Ok(Outcome::Refused);

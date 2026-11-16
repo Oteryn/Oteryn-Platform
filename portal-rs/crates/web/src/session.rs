@@ -405,7 +405,9 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
     let ip = request
         .extensions()
         .get::<axum::extract::ConnectInfo<SocketAddr>>()
-        .map(|v| v.0.ip());
+        .map(|v| crate::ratelimit::client_source(v.0, request.headers()))
+        .transpose()
+        .map_err(|_| sqlx::Error::Protocol("invalid client source".into()))?;
     let agent = request
         .headers()
         .get(header::USER_AGENT)

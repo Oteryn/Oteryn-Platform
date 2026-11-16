@@ -359,7 +359,7 @@ fn ticket_error(error: Error) -> StaffError {
         Error::Invalid => StaffError::Invalid,
         Error::NotFound => StaffError::NotFound,
         Error::Denied => StaffError::Denied,
-        Error::Conflict => StaffError::Conflict,
+        Error::Conflict | Error::RequestKeyConflict => StaffError::Conflict,
         _ => StaffError::Unavailable,
     }
 }

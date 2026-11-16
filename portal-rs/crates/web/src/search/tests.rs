@@ -76,7 +76,7 @@ impl Database {
             .after_connect(move |conn, _| {
                 let path = path.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                    sqlx::query("SELECT set_config('search_path',$1 || ',pg_catalog',false)")
                         .bind(path)
                         .execute(conn)
                         .await?;
@@ -86,6 +86,7 @@ impl Database {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
+        crate::rate_clock::install(&pool).await?;
         Ok(Some(Self {
             pool,
             admin,

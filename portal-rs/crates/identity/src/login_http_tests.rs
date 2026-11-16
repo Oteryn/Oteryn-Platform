@@ -194,19 +194,9 @@ async fn postgres_browser_login_logout_csrf_and_limits() -> TestResult {
             .await?;
         assert_eq!(response.status(), StatusCode::FOUND);
     }
-    // Earlier credential checks can span fixed windows under hashing load. Seed
-    // this email/source through the real key derivation, without password work
-    // between charges. Keep a small database-clock margin before the HTTP check.
+    // The schema's statement clock stays frozen throughout seeding and the
+    // HTTP probe, including any password hashing work.
     let policy = NamedPolicy::IdentityLogin;
-    let remaining: f64 = sqlx::query_scalar(
-        "SELECT ($1::bigint - mod(extract(epoch FROM statement_timestamp()), $1::bigint))::double precision",
-    )
-    .bind(policy.window_seconds())
-    .fetch_one(&pool)
-    .await?;
-    if remaining < 3.0 {
-        tokio::time::sleep(std::time::Duration::from_secs_f64(remaining)).await;
-    }
     // Each test has its own schema; discard only the earlier email quota.
     sqlx::query("DELETE FROM web_rate_limits WHERE limiter_name = $1")
         .bind(policy.name())
@@ -279,16 +269,7 @@ async fn postgres_source_limit_bad_input_and_missing_transport() -> TestResult {
         app.clone().oneshot(no_peer).await?.status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
-    // The source budget uses fixed 60-second windows on the database clock.
-    // Start the 21 requests early in a window so a boundary cannot reset it.
-    let remaining: f64 = sqlx::query_scalar(
-        "SELECT (60 - mod(extract(epoch FROM statement_timestamp()), 60))::float8",
-    )
-    .fetch_one(&database.pool)
-    .await?;
-    if remaining < 30.0 {
-        tokio::time::sleep(std::time::Duration::from_secs_f64(remaining + 0.2)).await;
-    }
+    // The frozen statement clock keeps all 21 requests in one source bucket.
     for _ in 0..20 {
         let response = app
             .clone()

@@ -722,14 +722,19 @@ impl Database {
     }
     /// Waits until the database clock has passed `second`.
     async fn after(&self, second: i64) -> TestResult {
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(40);
-        while self.now().await? <= second {
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "clock did not advance"
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
+        self.after_with_budget(second, std::time::Duration::from_secs(40))
+            .await
+    }
+    async fn after_with_budget(&self, second: i64, budget: std::time::Duration) -> TestResult {
+        let deadline = tokio::time::Instant::now() + budget;
+        tokio::time::timeout_at(deadline, async {
+            while self.now().await? <= second {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            Ok::<(), Box<dyn std::error::Error>>(())
+        })
+        .await
+        .map_err(|_| "database clock watchdog timeout")??;
         Ok(())
     }
     async fn execute(&self, sql: &'static str) -> TestResult {
@@ -1449,3 +1454,34 @@ mod protocol3;
 
 #[path = "game_login_devices_sanctions_tests.rs"]
 mod device_sanctions;
+
+#[tokio::test]
+async fn clock_watchdog_bounds_database_pool_wait() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let mut connections = Vec::new();
+    for _ in 0..db.pool.options().get_max_connections() {
+        connections.push(db.pool.acquire().await?);
+    }
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        db.after_with_budget(i64::MAX, std::time::Duration::from_millis(100)),
+    )
+    .await?;
+    assert!(
+        result
+            .err()
+            .ok_or("watchdog accepted exhausted pool")?
+            .to_string()
+            .contains("database clock watchdog timeout")
+    );
+    drop(connections);
+    db.close().await?;
+    eprintln!(
+        "PG clock_watchdog_bounds_database_pool_wait duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}

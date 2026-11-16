@@ -129,11 +129,13 @@ pub enum DecisionError {
 pub async fn decide(
     pool: &sqlx::PgPool,
     config: &OptionalConfig,
-    account: AccountId,
+    account: impl Into<crate::mutation_actor::MutationActor>,
     kind: Kind,
     granted: bool,
     version: &str,
 ) -> Result<(), DecisionError> {
+    let actor = account.into();
+    let account = actor.account;
     if !config.enabled {
         return Err(DecisionError::Disabled);
     }
@@ -155,6 +157,14 @@ pub async fn decide(
             .fetch_optional(&mut *tx)
             .await
             .map_err(|_| DecisionError::Unavailable)?;
+
+    if !actor
+        .live(&mut tx)
+        .await
+        .map_err(|_| DecisionError::Unavailable)?
+    {
+        return Err(DecisionError::Refused);
+    }
     if active.is_none() {
         return Err(DecisionError::Refused);
     }

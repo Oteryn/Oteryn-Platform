@@ -708,7 +708,16 @@ async fn enroll(
     let input = form.map(|v| v.0).unwrap_or_default();
     if let Some(enrollment) = context
         .mfa
-        .enroll(id, &input.password)
+        .enroll(
+            oteryn_identity::mutation_actor::MutationActor::browser(
+                id,
+                session
+                    .csrf_token()
+                    .await
+                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+            ),
+            &input.password,
+        )
         .await
         .map_err(unavailable)?
     {
@@ -755,7 +764,17 @@ async fn confirm(
     let input = form.map(|v| v.0).unwrap_or_default();
     if let Some(codes) = context
         .mfa
-        .confirm(id, &input.password, &input.code)
+        .confirm(
+            oteryn_identity::mutation_actor::MutationActor::browser(
+                id,
+                session
+                    .csrf_token()
+                    .await
+                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+            ),
+            &input.password,
+            &input.code,
+        )
         .await
         .map_err(unavailable)?
     {
@@ -808,7 +827,16 @@ async fn remove_device(
     let input = form.map(|v| v.0).unwrap_or_default();
     let removed = context
         .mfa
-        .remove_device(id, &input.device)
+        .remove_device(
+            oteryn_identity::mutation_actor::MutationActor::browser(
+                id,
+                session
+                    .csrf_token()
+                    .await
+                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+            ),
+            &input.device,
+        )
         .await
         .map_err(unavailable)?;
     page(

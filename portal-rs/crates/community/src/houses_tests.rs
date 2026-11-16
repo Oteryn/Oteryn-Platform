@@ -191,6 +191,7 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
         .clone()
         .options([("search_path", schema)]);
     let db = PgPool::connect_with(options).await?;
+    sqlx::raw_sql("CREATE TABLE community_privacy_revision(id integer PRIMARY KEY,revision bigint NOT NULL DEFAULT 0); INSERT INTO community_privacy_revision(id) VALUES(1)").execute(&db).await?;
     sqlx::raw_sql(include_str!(
         "../../../migrations/20261105180000_t24_public_snapshots.sql"
     ))
@@ -508,4 +509,65 @@ async fn audit06_house_same_epoch_suppression_during_privacy() -> TestResult {
             .contains("Private Owner")
     );
     d.close().await
+}
+
+#[tokio::test]
+async fn w3_c06_002_house_conflict_during_privacy() -> TestResult {
+    struct Suppress(PgPool);
+    impl OwnerVisibility for Suppress {
+        fn visible<'a>(
+            &'a self,
+            _: &'a str,
+            _: &'a str,
+            _: &'a str,
+        ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async {
+                assert_eq!(
+                    send(
+                        app(self.0.clone(), true),
+                        "house",
+                        snapshot(1, 1, VACANT),
+                        true
+                    )
+                    .await
+                    .status(),
+                    StatusCode::CONFLICT
+                );
+                true
+            })
+        }
+    }
+    let started = std::time::Instant::now();
+    let d = crate::audit06_test_db::Database::new().await?;
+    let owned=VACANT.replace("\"status\":\"VACANT\"","\"status\":\"OWNED\",\"owner_kind\":\"CHARACTER\",\"owner_name\":\"Private Owner\",\"paid_until\":\"1799999999\"");
+    let raw = snapshot(1, 1, &owned);
+    let a = app(d.db.clone(), true);
+    assert_eq!(
+        send(a.clone(), "house", raw, true).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(a, "watermark", watermark(1, now()), true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let a = router(
+        d.db.clone(),
+        Arc::new(IdentityMap::default()),
+        Arc::new(Suppress(d.db.clone())),
+        config(true),
+    );
+    let response = get(a, "/en/houses").await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        !String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?
+            .contains("Private Owner")
+    );
+    d.close().await?;
+    eprintln!(
+        "w3_c06_002_house_conflict_during_privacy {:?}",
+        started.elapsed()
+    );
+    Ok(())
 }

@@ -112,6 +112,7 @@ async fn search_success_refusal_bad_input() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_profile_success_privacy_fences_and_name_handoff() -> TestResult {
+    let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping profile PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(());
@@ -139,12 +140,14 @@ async fn postgres_profile_success_privacy_fences_and_name_handoff() -> TestResul
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql("CREATE TABLE community_privacy_revision(id integer PRIMARY KEY,revision bigint NOT NULL DEFAULT 0); INSERT INTO community_privacy_revision(id) VALUES(1)").execute(&db).await?;
     sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
         .execute(&db)
         .await?;
     let payload = serde_json::json!({"profile":[{"world_id":"world-fixture","name":"Aldric","level":"412","vocation":4,"guild_visible":true,"guild":[{"guild_id":"guild-fixture","rank_level":1}]}]});
     sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES ('character_profile','subject-fixture',1,1,extract(epoch FROM now())::bigint,$1)").bind(payload).execute(&db).await?;
     sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('character_profile','',true,1,1,extract(epoch FROM now())::bigint,'{}')").execute(&db).await?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) SELECT family,'other-world',epoch,version,watermark,jsonb_set(jsonb_set(payload,'{profile,0,world_id}','\"second-world\"'),'{profile,0,name}','\"Other Hero\"') FROM public_snapshots WHERE subject='subject-fixture'").execute(&db).await?;
     let app = router(db.clone(), true, Arc::new(Visible(true)));
     assert_eq!(
         send(
@@ -155,6 +158,18 @@ async fn postgres_profile_success_privacy_fences_and_name_handoff() -> TestResul
         .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+    for name in ["Élodie", "100% Hero", "Name?Tag#One"] {
+        sqlx::query("UPDATE public_snapshots SET payload=jsonb_set(payload,'{profile,0,name}',to_jsonb($1::text)) WHERE subject='other-world'").bind(name).execute(&db).await?;
+        let encoded =
+            percent_encoding::utf8_percent_encode(name, percent_encoding::NON_ALPHANUMERIC);
+        assert_eq!(
+            send(app.clone(), &format!("/en/characters/{encoded}"))
+                .await?
+                .status(),
+            StatusCode::OK,
+            "{name}"
+        );
+    }
     let r = send(app.clone(), "/en/characters/aldric").await?;
     assert_eq!(r.status(), StatusCode::OK);
     let body = String::from_utf8(to_bytes(r.into_body(), 20000).await?.to_vec())?;
@@ -253,6 +268,20 @@ async fn postgres_profile_success_privacy_fences_and_name_handoff() -> TestResul
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)
         .await?;
-    eprintln!("Profile PostgreSQL tests ran: 1");
+    eprintln!(
+        "postgres_profile_success_privacy_fences_and_name_handoff {:?}",
+        started.elapsed()
+    );
     Ok(())
+}
+
+#[test]
+fn w3_c06_009_projection_names_match_route_validation() {
+    for name in ["Élodie", "100% Hero", "Name?Tag#One", "..."] {
+        assert!(crate::ingest::valid_projection_name(name));
+        assert!(valid_name(name), "{name}");
+    }
+    for name in [".", "..", "A/B", "A\\B", "A\"B", "A\u{200b}B", "A\nB"] {
+        assert!(!valid_name(name), "{name}");
+    }
 }

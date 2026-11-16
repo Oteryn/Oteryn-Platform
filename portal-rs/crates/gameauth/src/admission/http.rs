@@ -373,7 +373,7 @@ pub async fn start_private_listener(
     signer: Option<Arc<dyn GrantSigner>>,
     protocol3: Option<Protocol3>,
     recovery: Option<RecoveryIssuer>,
-) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
+) -> Result<tokio::task::JoinHandle<std::io::Result<()>>, Box<dyn std::error::Error>> {
     let enabled = std::env::var("PORTAL_NATIVE_ADMISSIONS_ENABLED").is_ok_and(|v| v == "true");
     let current = std::env::var_os("PORTAL_GATEWAY_TOKEN_SHA256_FILE");
     let previous = std::env::var_os("PORTAL_GATEWAY_PREVIOUS_TOKEN_SHA256_FILE");
@@ -402,7 +402,7 @@ pub async fn start_private_listener(
         return Err("native admission listener requires loopback private ingress".into());
     }
     let listener = tokio::net::TcpListener::bind(address).await?;
-    Ok(tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
-    }))
+    Ok(tokio::spawn(
+        async move { axum::serve(listener, app).await },
+    ))
 }

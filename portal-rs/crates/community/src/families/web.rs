@@ -105,10 +105,7 @@ fn segment(family: Family) -> &'static str {
 pub fn configured_router(db: PgPool) -> Router {
     let on = |key: &str| std::env::var(key).as_deref() == Ok("true");
     let base = on("PORTAL_PUBLIC_PROJECTIONS_ENABLED")
-        && matches!(
-            std::env::var("APP_ENV").as_deref(),
-            Ok("testing" | "preproduction")
-        );
+        && oteryn_core::restricted_environment(|key| std::env::var(key).ok());
     let mut layer = SessionLayer::new(db.clone());
     layer.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
         .ok()
@@ -271,6 +268,7 @@ async fn public_skills(
     en: bool,
 ) -> Result<Vec<(String, String)>, Refusal> {
     let authority = &s.config.source_authority;
+    let privacy_cut = crate::privacy::Cut::read(&s.db).await?;
     let mut db = s.db.begin().await?;
     sqlx::query("SET LOCAL statement_timeout = '2500ms'")
         .execute(&mut *db)
@@ -339,7 +337,16 @@ async fn public_skills(
     if !profile_current {
         return Err(Refusal::Unavailable);
     }
+    if !privacy_cut
+        .validate(&mut tx)
+        .await
+        .map_err(|_| Refusal::Unavailable)?
+    {
+        return Err(Refusal::Unavailable);
+    }
+    let profile_through: i64 = sqlx::query_scalar("SELECT watermark FROM public_snapshots WHERE family='character_profile' AND is_watermark AND epoch=$1::numeric").bind(&epoch).fetch_one(&mut *tx).await?;
     tx.commit().await?;
+    serving_fresh(current_through.min(profile_through))?;
     Ok([
         ("level", r.level.clone()),
         ("experience", r.total_experience.clone()),
@@ -442,6 +449,7 @@ async fn owner_rows(
     }
     let (body, _) = evidence;
     tx.commit().await?;
+    serving_fresh(through)?;
     // The snapshot must be bound to the current ownership relation: same World and a
     // character revision at or above the ownership-transition floor. An older
     // owner's snapshot is never shown to the new owner.
@@ -490,4 +498,14 @@ async fn owner_rows(
         }
     };
     Ok(rows)
+}
+
+fn serving_fresh(through: i64) -> Result<(), Refusal> {
+    let through = u64::try_from(through).map_err(|_| Refusal::Unavailable)?;
+    let current = now();
+    if through > current.saturating_add(1) || current.saturating_sub(through).saturating_add(1) > 30
+    {
+        return Err(Refusal::Unavailable);
+    }
+    Ok(())
 }

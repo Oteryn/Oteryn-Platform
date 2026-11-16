@@ -318,6 +318,24 @@ async fn save(
         .begin()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let actor = oteryn_identity::mutation_actor::MutationActor::browser(
+        id,
+        s.csrf_token()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+    );
+    if !actor
+        .live(&mut tx)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
     for (category, email, portal) in [
         (
             oteryn_notify::Category::News,

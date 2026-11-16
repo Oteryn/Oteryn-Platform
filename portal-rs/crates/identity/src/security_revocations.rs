@@ -45,7 +45,9 @@ pub fn identities(vars: Vec<(String, String)>) -> Result<IdentityMap, guard::Con
     let mut bindings = Vec::new();
     let mut own = false;
     for (key, raw) in vars {
-        if key.ends_with("_IDENTITIES") {
+        if oteryn_internal_api::identity_config::shape(key.as_str())
+            == Some(oteryn_internal_api::identity_config::Shape::Map)
+        {
             let Value::Object(members) =
                 canonical::decode(raw.as_bytes(), 131072, 4).map_err(|_| guard::ConfigError)?
             else {
@@ -57,7 +59,9 @@ pub fn identities(vars: Vec<(String, String)>) -> Result<IdentityMap, guard::Con
                     group: key.clone(),
                 });
             }
-        } else if key.ends_with("_IDENTITY") || key.ends_with("_SAN") {
+        } else if oteryn_internal_api::identity_config::shape(key.as_str())
+            == Some(oteryn_internal_api::identity_config::Shape::Single)
+        {
             let dedicated = key == IDENTITY_KEY;
             own |= dedicated;
             // The trusted adapter extracts DNS SANs; require a DNS name here.

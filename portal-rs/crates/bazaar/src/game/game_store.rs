@@ -109,12 +109,12 @@ impl Outbox {
         if revision <= previous {
             return Err(Error::Conflict);
         }
-        let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_game_outbox o WHERE NOT EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id AND r.recovery_generation=$1::text::numeric)")
+        let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM ((SELECT operation_id FROM bazaar_command_receipt_heads WHERE receipt_generation<$1::text::numeric LIMIT 24) UNION ALL (SELECT operation_id FROM bazaar_command_receipt_heads WHERE receipt_generation>$1::text::numeric LIMIT 24)) pending")
             .bind(generation.to_string()).fetch_one(&mut **db).await?;
         if pending >= 24 {
             return Err(Error::Backlog);
         }
-        let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_game_outbox WHERE actor_id=$1 AND created_at>now()-interval '60 seconds'")
+        let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM bazaar_game_outbox WHERE actor_id=$1 AND created_at>now()-interval '60 seconds' LIMIT 20) recent")
             .bind(actor).fetch_one(&mut **db).await?;
         if recent >= 20 {
             return Err(Error::Backlog);

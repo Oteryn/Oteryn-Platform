@@ -71,6 +71,63 @@ impl Collection {
         }
         card.matches_entity(&entity)
     }
+    async fn visible_locked(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        card: &Card,
+    ) -> Result<()> {
+        card.validate()?;
+        let entity = self
+            .world
+            .get_entity_locked(tx, &card.kind, &card.key)
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .ok_or(Error::Unavailable)?;
+        if entity.version_id != card.world_version {
+            return Err(Error::Unavailable);
+        }
+        card.matches_entity(&entity)
+    }
+    async fn require_locked(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        account: Uuid,
+        character: Uuid,
+        ids: &[Uuid],
+        authority: &impl Authority,
+        now: u64,
+    ) -> Result<()> {
+        let progress = self
+            .progress
+            .read_locked(
+                tx,
+                Actor::Owner(account),
+                &ReadScope {
+                    account,
+                    character: Some(character),
+                    family: "bestiary",
+                },
+                authority,
+                now,
+            )
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        // Stable UUID order for overlapping decks. Immutable publications and
+        // stream/adapter fences keep all evidence valid through commit.
+        let mut ids = ids.to_vec();
+        ids.sort_unstable();
+        for id in ids {
+            let sqlx::types::Json(card): sqlx::types::Json<Card> =
+                sqlx::query_scalar("SELECT definition FROM collection_cards WHERE id=$1 FOR SHARE")
+                    .bind(id)
+                    .fetch_optional(&mut **tx)
+                    .await?
+                    .ok_or(Error::Denied)?;
+            self.visible_locked(tx, &card).await?;
+            if !progress.iter().any(|p| matches!(p, Payload::Bestiary(b) if b.race_key==card.race_key && b.race_definition_revision==card.race_revision && b.final_kill_threshold==card.final_kill_threshold && b.kill_count>=b.final_kill_threshold)) { return Err(Error::Denied); }
+        }
+        Ok(())
+    }
     /// Trusted worker only: the caller verifies the native creature→race, revision,
     /// threshold, bilingual labels and appearance mapping. Immutable publication
     /// prevents changing a card after it has been used by a deck or battle.
@@ -86,7 +143,8 @@ impl Collection {
         if report.source_commit != sprite.commit || card.appearance_id != sprite.appearance {
             return Err(Error::Unavailable);
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
+        self.visible_locked(&mut tx, &card).await?;
         sqlx::query("INSERT INTO collection_cards(id,definition,sprite) VALUES($1,$2,$3) ON CONFLICT DO NOTHING")
             .bind(card.id).bind(sqlx::types::Json(&card)).bind(&sprite.bytes).execute(&mut *tx).await?;
         let row = sqlx::query("SELECT definition,sprite FROM collection_cards WHERE id=$1")
@@ -200,9 +258,18 @@ impl Collection {
         }
         let owned = self.cards(account, deck.character, authority, now).await?;
         require_cards(&owned, &deck.cards)?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         // Lock the owning account, serializing quota checks, edits and battle starts.
         self.lock_account(&mut tx, account).await?;
+        self.require_locked(
+            &mut tx,
+            account,
+            deck.character,
+            &deck.cards,
+            authority,
+            now,
+        )
+        .await?;
         let owner: Option<Uuid> =
             sqlx::query_scalar("SELECT account_id FROM collection_decks WHERE id=$1")
                 .bind(deck.id)
@@ -250,12 +317,21 @@ impl Collection {
         let seed = getrandom::u64().map_err(|_| Error::Unavailable)?;
         let battle = Battle::new(player, enemy, seed)?;
         let id = Uuid::now_v7();
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         self.lock_account(&mut tx, account).await?;
         let current: (Uuid,Vec<Uuid>) = sqlx::query_as("SELECT character_id,cards FROM collection_decks WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(deck_id).bind(account).fetch_one(&mut *tx).await?;
-        if current != (deck.character, deck.cards) {
+        if current.0 != deck.character || current.1 != deck.cards {
             return Err(Error::Conflict);
         }
+        self.require_locked(
+            &mut tx,
+            account,
+            deck.character,
+            &deck.cards,
+            authority,
+            now,
+        )
+        .await?;
         let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_battles WHERE account_id=$1 AND created_at > clock_timestamp() - interval '1 hour'").bind(account).fetch_one(&mut *tx).await?;
         if recent >= 30 {
             return Err(Error::Conflict);
@@ -314,7 +390,7 @@ impl Collection {
     ) -> Result<()> {
         // Check ownership and freshness before exposing or changing any private state.
         let checked = self.battle(account, id, authority, now).await?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         self.lock_account(&mut tx, account).await?;
         let sqlx::types::Json(mut state): sqlx::types::Json<Battle> = sqlx::query_scalar(
             "SELECT state FROM collection_battles WHERE id=$1 AND account_id=$2 FOR UPDATE",
@@ -329,6 +405,22 @@ impl Collection {
         {
             return Err(Error::Conflict);
         }
+        let character: Uuid = sqlx::query_scalar(
+            "SELECT character_id FROM collection_battles WHERE id=$1 AND account_id=$2",
+        )
+        .bind(id)
+        .bind(account)
+        .fetch_one(&mut *tx)
+        .await?;
+        self.require_locked(
+            &mut tx,
+            account,
+            character,
+            &state.player.iter().map(|f| f.card).collect::<Vec<_>>(),
+            authority,
+            now,
+        )
+        .await?;
         state.advance(expected, action)?;
         sqlx::query(
             "UPDATE collection_battles SET state=$3,updated_at=now() WHERE id=$1 AND account_id=$2",
@@ -386,7 +478,7 @@ impl Collection {
     /// character is transferred. It exposes no history and grants no rewards.
     pub async fn forfeit(&self, account: Uuid, id: Uuid) -> Result<Uuid> {
         self.eligible(account).await?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         self.lock_account(&mut tx, account).await?;
         let character = sqlx::query_scalar("UPDATE collection_battles SET state=jsonb_set(state,'{outcome}','\"defeat\"'),updated_at=now() WHERE id=$1 AND account_id=$2 AND state->>'outcome'='active' RETURNING character_id").bind(id).bind(account).fetch_optional(&mut *tx).await?.ok_or(Error::Denied)?;
         tx.commit().await?;
@@ -397,7 +489,7 @@ impl Collection {
 impl Collection {
     pub async fn delete_deck(&self, account: Uuid, id: Uuid) -> Result<Uuid> {
         self.eligible(account).await?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
         self.lock_account(&mut tx, account).await?;
         let character = sqlx::query_scalar(
             "DELETE FROM collection_decks WHERE id=$1 AND account_id=$2 RETURNING character_id",

@@ -158,7 +158,7 @@ async fn postgres_creation_idempotency_limit_and_validation() -> TestResult {
     assert!(matches!(
         t.create(account, key, "technical", "different", "different")
             .await,
-        Err(Error::Conflict)
+        Err(Error::RequestKeyConflict)
     ));
     assert!(matches!(
         t.create(account, Uuid::now_v7(), "other", "subject", "body")
@@ -793,7 +793,7 @@ async fn postgres_message_pages_and_payload_binding() -> TestResult {
     ] {
         assert!(matches!(
             service.create(account, key, category, subject, body).await,
-            Err(Error::Conflict)
+            Err(Error::RequestKeyConflict)
         ));
     }
 
@@ -1307,6 +1307,74 @@ async fn postgres_a3_support_refuses_session_revoked_during_account_wait() -> Te
     db.finish().await?;
     eprintln!(
         "postgres_a3_support_refuses_session_revoked_during_account_wait duration: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn audit_w3_02_changed_payload_draft_recovers_on_postgres() -> TestResult {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let owner = db.account("en").await?;
+    let service = db.tickets(5)?;
+    let app = router(service.clone(), "http://localhost:3000");
+    let (cookie, csrf) = db.cookie(owner).await?;
+    let post = |key: Uuid, subject: &str, body: &str| {
+        let request = Request::post("/en/support/tickets")
+            .header("cookie", &cookie)
+            .header("origin", "http://localhost:3000")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .extension(ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                3210,
+            ))))
+            .body(Body::from(format!(
+                "_csrf={csrf}&request_key={key}&category=account&subject={subject}&body={body}"
+            )));
+        let app = app.clone();
+        async move { Ok::<_, Box<dyn std::error::Error + Send + Sync>>(app.oneshot(request?).await?) }
+    };
+    let key = Uuid::now_v7();
+    assert_eq!(
+        post(key, "Original", "Original+message").await?.status(),
+        StatusCode::FOUND
+    );
+    let response = post(key, "Edited", "Edited+message").await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.headers()["location"], "/en/support/tickets/create");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/en/support/tickets/create")
+                .header("cookie", &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains("Edited"));
+    assert!(html.contains("Edited message"));
+    let displayed = html
+        .split("name=\"request_key\" value=\"")
+        .nth(1)
+        .ok_or("request key field")?
+        .split('"')
+        .next()
+        .ok_or("key value")?;
+    let fresh = Uuid::parse_str(displayed)?;
+    assert_ne!(fresh, key);
+    let response = post(fresh, "Edited", "Edited+message").await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_ne!(response.headers()["location"], "/en/support/tickets/create");
+    let tickets = service.list(owner, false, 0).await?;
+    assert_eq!(tickets.len(), 2);
+    assert!(tickets.iter().any(|t| t.subject == "Edited"));
+    db.finish().await?;
+    eprintln!(
+        "audit_w3_02_changed_payload_draft_recovers_on_postgres duration: {:?}",
         started.elapsed()
     );
     Ok(())

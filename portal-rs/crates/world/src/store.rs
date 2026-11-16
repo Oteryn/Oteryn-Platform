@@ -242,6 +242,30 @@ impl WorldStore {
         .await?)
     }
 
+    /// Validate on the caller's mutation transaction. Share locks retain the
+    /// active publication pointer and allow-list decision through commit.
+    pub async fn get_entity_locked(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        kind: &str,
+        key: &str,
+    ) -> Result<Option<Entity>, WorldError> {
+        self.check_enabled()?;
+        let kind = crate::canonical_kind(kind);
+        validate_label(kind, "kind")?;
+        validate_label(key, "key")?;
+        Ok(sqlx::query_as(
+            "SELECT e.version_id,e.kind,e.key,e.data FROM world_entities e
+             JOIN world_active_version a ON a.version_id=e.version_id
+             JOIN world_visibility v ON v.kind=e.kind AND v.key=e.key AND v.allowed
+             WHERE e.kind=$1 AND e.key=$2 AND e.publishable FOR SHARE OF a,v,e",
+        )
+        .bind(kind)
+        .bind(key)
+        .fetch_optional(&mut **tx)
+        .await?)
+    }
+
     /// Keyset pagination, ordered by bytewise key. Limits must be 1..=1000.
     pub async fn list_by_kind(
         &self,

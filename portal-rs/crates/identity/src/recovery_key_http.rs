@@ -230,7 +230,13 @@ async fn generate(
     if let Err(response) = (context.rate)(String::new()).await {
         return Ok(response);
     }
-    match service.generate(id, &input.current_password).await {
+    match service
+        .generate(
+            crate::mutation_actor::MutationActor::browser(id, context.csrf.clone()),
+            &input.current_password,
+        )
+        .await
+    {
         Ok(raw) => page(&context, "confirm", &raw, "save", StatusCode::OK),
         Err(error) => failure(error, &context, "manage").await,
     }
@@ -248,7 +254,11 @@ async fn confirm(
         return Ok(response);
     }
     match service
-        .confirm(id, &input.current_password, &input.recovery_key)
+        .confirm(
+            crate::mutation_actor::MutationActor::browser(id, context.csrf.clone()),
+            &input.current_password,
+            &input.recovery_key,
+        )
         .await
     {
         Ok(()) => page(&context, "manage", "", "confirmed", StatusCode::OK),
@@ -267,7 +277,13 @@ async fn revoke(
     if let Err(response) = (context.rate)(String::new()).await {
         return Ok(response);
     }
-    match service.revoke(id, &input.current_password).await {
+    match service
+        .revoke(
+            crate::mutation_actor::MutationActor::browser(id, context.csrf.clone()),
+            &input.current_password,
+        )
+        .await
+    {
         Ok(()) => redirect(&format!("/{}/account/recovery-key", context.language)),
         Err(error) => failure(error, &context, "manage").await,
     }

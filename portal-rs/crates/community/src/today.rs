@@ -29,7 +29,7 @@ impl Config {
         Self::from_lookup(|key| std::env::var(key).ok())
     }
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
-        let environment = matches!(get("APP_ENV").as_deref(), Some("testing" | "preproduction"));
+        let environment = oteryn_core::restricted_environment(&get);
         let worlds = get("PORTAL_WORLD_DAILY_WORLDS")
             .and_then(|s| {
                 let values = s

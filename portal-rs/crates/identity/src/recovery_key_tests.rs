@@ -656,3 +656,58 @@ async fn pg_recovery_requests_keep_single_worker_timers_responsive() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn audit3_revoked_session_cannot_confirm_after_account_lock() -> Result {
+    let started = std::time::Instant::now();
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for this regression")?;
+    let id = db.account().await?;
+    let key = db.keys().generate(id, CURRENT).await?;
+    let cookie = db.session(Some(id)).await?;
+    let form = serde_urlencoded::to_string([
+        ("_csrf", "b".repeat(64)),
+        ("current_password", CURRENT.to_owned()),
+        ("recovery_key", key),
+    ])?;
+    let mut lock = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .execute(&mut *lock)
+        .await?;
+    let app = db.app();
+    let request = post("/en/account/recovery-key/confirm", &cookie, &form)?;
+    let dispatched = tokio::spawn(async move { app.oneshot(request).await });
+    // Observe the dispatched SQL actually waiting on our account lock.
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a JOIN pg_locks l ON l.pid=a.pid WHERE a.datname=current_database() AND a.wait_event_type='Lock' AND l.relation='accounts'::regclass AND a.query LIKE 'SELECT * FROM accounts WHERE id=%FOR UPDATE%')").fetch_one(&db.pool).await?;
+            if waiting { break Ok::<(), sqlx::Error>(()); }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await??;
+    sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
+        .bind(id)
+        .execute(&mut *lock)
+        .await?;
+    lock.commit().await?;
+    let response = dispatched.await??;
+    assert_ne!(response.status(), StatusCode::OK);
+    let confirmed: bool = sqlx::query_scalar(
+        "SELECT confirmed_at IS NOT NULL FROM account_recovery_keys WHERE account_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(
+        !confirmed,
+        "revoked browser session confirmed a recovery key"
+    );
+    db.close().await?;
+    eprintln!(
+        "PG audit3_revoked_session_cannot_confirm_after_account_lock: {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

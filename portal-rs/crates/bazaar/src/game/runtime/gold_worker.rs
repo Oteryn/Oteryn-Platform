@@ -440,7 +440,9 @@ impl Runtime {
                 .execute(&mut **tx)
                 .await?;
             }
-            State::Completed if l.kind == Kind::Character => self.unlock(tx, l).await?,
+            State::Completed | State::Cancelled if l.kind == Kind::Character => {
+                self.unlock(tx, l).await?;
+            }
             _ => {}
         }
         Ok(())

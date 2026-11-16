@@ -24,6 +24,9 @@ pub(super) async fn begin(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
     .map_err(|_| Error::Unavailable)??;
     Ok(tx)
 }
+// All league consumers scope advisory fences to the resolved table, so schema
+// fixtures (or independent tenants) never contend. Using its OID rather than
+// current_schema also preserves coordination across equivalent search paths.
 pub(super) const SERVING_LIMIT: usize = 128;
 
 #[derive(Debug)]
@@ -86,9 +89,11 @@ impl<A: Authority> League<A> {
         let fingerprint = schema::hash(&h.finalize());
         let mut tx = begin(&self.pool).await?;
         // One lock order for all league writes, receipt identities and final controls.
-        sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)",
+        )
+        .execute(&mut *tx)
+        .await?;
         let fence = self.authority.admission_fence(&mut tx, now).await?;
         if fence.epoch == 0
             || fence.recovery_generation == 0
@@ -201,9 +206,11 @@ impl<A: Authority> League<A> {
             return Err(Error::Unavailable);
         }
         let mut tx = begin(&self.pool).await?;
-        sqlx::query("SELECT pg_advisory_xact_lock_shared(94000003)")
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock_shared('league_subjects'::regclass::oid::int, 94000003)",
+        )
+        .execute(&mut *tx)
+        .await?;
         let fence = self.authority.fence(&mut tx, now).await?;
         if !fence.valid(now) {
             return Err(Error::Unavailable);
@@ -262,9 +269,11 @@ impl<A: Authority> League<A> {
         }
         let cutoff = i64::try_from(now.saturating_sub(90 * 86400)).map_err(|_| Error::Invalid)?;
         let mut tx = begin(&self.pool).await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(94000003)")
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)",
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("DELETE FROM league_audit WHERE ctid IN (SELECT ctid FROM league_audit WHERE occurred_at_unix_ms / 1000 <= $1 LIMIT 256)")
             .bind(cutoff)
             .execute(&mut *tx)

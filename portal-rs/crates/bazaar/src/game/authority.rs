@@ -374,6 +374,8 @@ impl Authority {
         }
         sqlx::query("INSERT INTO bazaar_authority_decisions(event_id,transaction_id,ordinal,event_count,operation_id,recovery_generation,source_authority,payload,payload_digest,envelope_semantics) VALUES($1,$2,$3,$4,$5,$6::text::numeric,$7,$8,$9,$10)")
             .bind(e.event_id).bind(e.transaction_id).bind(e.ordinal as i32).bind(e.count as i32).bind(e.operation_id).bind(self.fence.recovery_generation.to_string()).bind(peer).bind(raw).bind(Sha256::digest(raw).to_vec()).bind(semantics).execute(&mut **db).await?;
+        // Cache no-effect only after exact receipt and audit verification.
+        self.retained(db, e.operation_id).await?;
         Ok(ReceiptResult::Stored)
     }
 }

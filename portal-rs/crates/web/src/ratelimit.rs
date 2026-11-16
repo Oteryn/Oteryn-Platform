@@ -152,58 +152,66 @@ impl Keys {
         Ok(digest.finalize().to_vec())
     }
 }
-/// Exact deployment-configured proxy addresses; empty means no trust.
-/// Walk X-Forwarded-For right to left, stopping at the first untrusted address.
-/// Trusted proxies must append/overwrite the header correctly.
+/// Exact deployment-configured proxy addresses shared with the gateway resolver.
 #[derive(Clone, Debug, Default)]
 pub struct TrustedProxies(pub Vec<IpAddr>);
 impl TrustedProxies {
     pub fn parse(value: &str) -> Result<Self, Denial> {
-        if value.trim().is_empty() {
-            return Ok(Self::default());
-        }
-        let addresses = value
-            .split(',')
-            .map(|ip| ip.trim().parse::<IpAddr>().map_err(|_| Denial::BadInput))
-            .collect::<Result<Vec<_>, _>>()?;
-        if addresses.len() > 32 {
-            return Err(Denial::BadInput);
-        }
-        Ok(Self(addresses))
+        Ok(Self(
+            oteryn_internal_api::proxy::TrustedProxies::parse(value)?.0,
+        ))
     }
     pub fn configured() -> Result<Self, Denial> {
-        match std::env::var("TRUSTED_PROXIES") {
-            Ok(value) => Self::parse(&value),
-            Err(std::env::VarError::NotPresent) => Ok(Self::default()),
-            Err(_) => Err(Denial::BadInput),
-        }
+        Ok(Self(
+            oteryn_internal_api::proxy::TrustedProxies::configured()?.0,
+        ))
     }
-
     pub fn client_ip(&self, peer: SocketAddr, headers: &HeaderMap) -> Result<IpAddr, Denial> {
-        if !self.0.contains(&peer.ip()) {
-            return Ok(peer.ip());
+        Ok(oteryn_internal_api::proxy::TrustedProxies(self.0.clone()).client_ip(peer, headers)?)
+    }
+}
+impl From<oteryn_internal_api::proxy::ProxyError> for Denial {
+    fn from(_: oteryn_internal_api::proxy::ProxyError) -> Self {
+        Self::BadInput
+    }
+}
+/// Resolve using the same policy for every browser adapter, including merged routers.
+pub fn client_source(peer: SocketAddr, headers: &HeaderMap) -> Result<IpAddr, Denial> {
+    TrustedProxies::configured()?.client_ip(peer, headers)
+}
+/// Client source for account/source budgets; never trusts headers from arbitrary peers.
+#[derive(Debug, Clone, Copy)]
+pub struct ClientSource(pub IpAddr);
+impl<S: Send + Sync> FromRequestParts<S> for ClientSource {
+    type Rejection = StatusCode;
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
+        let peer = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        parts
+            .extensions
+            .get::<RateLimiter>()
+            .map(|limiter| limiter.trusted_proxies.clone())
+            .map(Ok)
+            .unwrap_or_else(TrustedProxies::configured)
+            .and_then(|proxies| proxies.client_ip(peer.0, &parts.headers))
+            .map(Self)
+            .map_err(|e| e.status())
+    }
+}
+impl<S: Send + Sync> axum::extract::OptionalFromRequestParts<S> for ClientSource {
+    type Rejection = StatusCode;
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> Result<Option<Self>, Self::Rejection> {
+        if parts.extensions.get::<ConnectInfo<SocketAddr>>().is_none() {
+            return Ok(None);
         }
-        let mut chain = Vec::new();
-        for value in headers.get_all("x-forwarded-for") {
-            let value = value.to_str().map_err(|_| Denial::BadInput)?;
-            if value.len() > 4096 {
-                return Err(Denial::BadInput);
-            }
-            for ip in value.split(',') {
-                if chain.len() >= 32 {
-                    return Err(Denial::BadInput);
-                }
-                chain.push(ip.trim().parse::<IpAddr>().map_err(|_| Denial::BadInput)?);
-            }
-        }
-        let mut client = peer.ip();
-        for ip in chain.into_iter().rev() {
-            if !self.0.contains(&client) {
-                break;
-            }
-            client = ip;
-        }
-        Ok(client)
+        <Self as FromRequestParts<S>>::from_request_parts(parts, state)
+            .await
+            .map(Some)
     }
 }
 /// Share clones across route extensions. Database failures log once per policy window

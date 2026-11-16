@@ -26,7 +26,7 @@ impl Board {
         if !filter.valid() {
             return Err(Error::Invalid);
         }
-        let rows = sqlx::query("SELECT *, starts_at::text AS starts, expires_at::text AS expires FROM pd_party_posts WHERE status='active' AND expires_at>now() AND ($1::uuid IS NULL OR world_id=$1) AND ($2::text IS NULL OR purpose=$2) AND ($3::int IS NULL OR $3 BETWEEN min_level AND max_level) AND ($4::text IS NULL OR profession='any' OR profession=$4) ORDER BY starts_at,id LIMIT 100")
+        let rows = sqlx::query("SELECT *, starts_at::text AS starts, expires_at::text AS expires FROM pd_party_posts WHERE status='active' AND expires_at>clock_timestamp() AND ($1::uuid IS NULL OR world_id=$1) AND ($2::text IS NULL OR purpose=$2) AND ($3::int IS NULL OR $3 BETWEEN min_level AND max_level) AND ($4::text IS NULL OR profession='any' OR profession=$4) ORDER BY starts_at,id LIMIT 100")
             .bind(filter.world).bind(&filter.purpose).bind(filter.level).bind(&filter.profession).fetch_all(&self.db).await?;
         rows.into_iter()
             .map(|row| listing(row, String::new()))
@@ -37,15 +37,22 @@ impl Board {
             return Err(Error::Denied);
         }
         self.authority.active(owner).await.ok_or(Error::Denied)?;
-        let now: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM now()))::bigint")
-            .fetch_one(&self.db)
-            .await?;
-        if !draft.valid(now) {
+        let admitted_at: i64 =
+            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+                .fetch_one(&self.db)
+                .await?;
+        if !draft.valid(admitted_at) {
             return Err(Error::Invalid);
         }
+        let mut tx = self.db.begin().await?;
+        // Serialize per-account caps across serving processes; hash collisions only reduce throughput.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
+            .bind(owner.to_string())
+            .execute(&mut *tx)
+            .await?;
         let character = self
             .authority
-            .character(owner, draft.character)
+            .character_in(&mut tx, owner, draft.character)
             .await
             .ok_or(Error::Denied)?;
         if character.id != draft.character
@@ -57,20 +64,25 @@ impl Board {
         {
             return Err(Error::Denied);
         }
-        let mut tx = self.db.begin().await?;
-        // Serialize per-account caps across serving processes; hash collisions only reduce throughput.
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,83))")
-            .bind(owner.to_string())
-            .execute(&mut *tx)
-            .await?;
-        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_party_posts WHERE account_id=$1 AND status='active' AND expires_at>now()")
+        self.authority
+            .active_in(&mut tx, owner)
+            .await
+            .ok_or(Error::Denied)?;
+        let now: i64 =
+            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+                .fetch_one(&mut *tx)
+                .await?;
+        if !draft.valid(now) {
+            return Err(Error::Invalid);
+        }
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_party_posts WHERE account_id=$1 AND status='active' AND expires_at>clock_timestamp()")
             .bind(owner).fetch_one(&mut *tx).await?;
-        let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_party_posts WHERE account_id=$1 AND created_at>now()-interval '1 hour'")
+        let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_party_posts WHERE account_id=$1 AND created_at>clock_timestamp()-interval '1 hour'")
             .bind(owner).fetch_one(&mut *tx).await?;
         if count >= 5 || recent >= 10 {
             return Err(Error::Limited);
         }
-        let id = sqlx::query_scalar("INSERT INTO pd_party_posts(account_id,character_id,character_name,world_id,purpose,min_level,max_level,profession,note,starts_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,to_timestamp($10),to_timestamp($11)) RETURNING id")
+        let id = sqlx::query_scalar("INSERT INTO pd_party_posts(account_id,character_id,character_name,world_id,purpose,min_level,max_level,profession,note,starts_at,expires_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,to_timestamp($10),to_timestamp($11),clock_timestamp(),clock_timestamp()) RETURNING id")
             .bind(owner).bind(character.id).bind(character.name).bind(character.world).bind(draft.purpose)
             .bind(draft.min_level).bind(draft.max_level).bind(draft.profession).bind(draft.note.trim())
             .bind(draft.starts_at as f64).bind(draft.expires_at as f64).fetch_one(&mut *tx).await?;
@@ -91,9 +103,26 @@ impl Board {
             .bind(actor.to_string())
             .execute(&mut *tx)
             .await?;
-        let owner: Option<Uuid> = sqlx::query_scalar("SELECT account_id FROM pd_party_posts WHERE id=$1 AND status='active' AND expires_at>now() FOR UPDATE")
-            .bind(id).fetch_optional(&mut *tx).await?;
+        self.authority
+            .active_in(&mut tx, actor)
+            .await
+            .ok_or(Error::Denied)?;
+        self.authority
+            .reporting_allowed_in(&mut tx, actor)
+            .await
+            .ok_or(Error::Denied)?;
+        let owner: Option<Uuid> = sqlx::query_scalar(
+            "SELECT account_id FROM pd_party_posts WHERE id=$1 AND status='active' FOR UPDATE",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
         let owner = owner.ok_or(Error::Missing)?;
+        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_party_posts WHERE id=$1 AND expires_at>clock_timestamp())").bind(id).fetch_one(&mut *tx).await?;
+        if !current {
+            return Err(Error::Missing);
+        }
+
         if owner == actor {
             return Err(Error::Denied);
         }
@@ -107,7 +136,7 @@ impl Board {
         if exists {
             return Ok(());
         }
-        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_party_reports WHERE account_id=$1 AND created_at>now()-interval '1 hour'").bind(actor).fetch_one(&mut *tx).await?;
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_party_reports WHERE account_id=$1 AND created_at>clock_timestamp()-interval '1 hour'").bind(actor).fetch_one(&mut *tx).await?;
         let pending: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM pd_party_reports WHERE account_id=$1 AND status='open'",
         )
@@ -118,21 +147,27 @@ impl Board {
             return Err(Error::Limited);
         }
         // A repeated report is idempotent and never overwrites the original evidence.
-        sqlx::query("INSERT INTO pd_party_reports(post_id,account_id,reason) VALUES($1,$2,$3) ON CONFLICT(post_id,account_id) DO NOTHING")
+        sqlx::query("INSERT INTO pd_party_reports(post_id,account_id,reason,created_at,updated_at) VALUES($1,$2,$3,clock_timestamp(),clock_timestamp()) ON CONFLICT(post_id,account_id) DO NOTHING")
             .bind(id).bind(actor).bind(reason.trim()).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
     }
     pub async fn remove(&self, owner: Uuid, id: Uuid) -> Result<(), Error> {
         self.authority.active(owner).await.ok_or(Error::Denied)?;
+        let mut tx = self.db.begin().await?;
+        self.authority
+            .active_in(&mut tx, owner)
+            .await
+            .ok_or(Error::Denied)?;
         if owner.is_nil() || id.is_nil() {
             return Err(Error::Denied);
         }
-        let result = sqlx::query("UPDATE pd_party_posts SET status='removed', updated_at=now() WHERE id=$1 AND account_id=$2 AND status='active' AND expires_at>now()")
-            .bind(id).bind(owner).execute(&self.db).await?;
+        let result = sqlx::query("UPDATE pd_party_posts SET status='removed', updated_at=now() WHERE id=$1 AND account_id=$2 AND status='active' AND expires_at>clock_timestamp()")
+            .bind(id).bind(owner).execute(&mut *tx).await?;
         if result.rows_affected() != 1 {
             return Err(Error::Missing);
         }
+        tx.commit().await?;
         Ok(())
     }
     pub(super) async fn reports(&self) -> Result<Vec<Listing>, Error> {

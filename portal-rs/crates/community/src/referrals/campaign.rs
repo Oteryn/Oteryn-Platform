@@ -21,6 +21,11 @@ impl Policy for DatabasePolicy {
         kind: Kind,
         stage: Stage,
     ) -> Result<bool, sqlx::Error> {
+        // Campaign purchase rewards have their own authoritative evidence. This
+        // adapter has no qualification source for the legacy coin claim service.
+        if matches!(stage, Stage::Claim) {
+            return Ok(false);
+        }
         // Eligibility is a locking SQL function. Its evaluation order inside
         // an aggregate/WHERE clause depends on the plan, not the input array.
         // Prepare the complete account set before evaluating either account.
@@ -431,7 +436,7 @@ impl Worker {
                 sqlx::query("SELECT pg_advisory_xact_lock(5601)")
                     .execute(&mut *tx)
                     .await?;
-                let row=sqlx::query("SELECT a.id,i.id AS code,i.recipient,owner.locale FROM referral_email_attempts a JOIN referral_email_invitations i ON i.id=a.invitation_id JOIN accounts owner ON owner.id=i.inviter_id WHERE a.delivered_at IS NULL AND a.next_attempt_at<=clock_timestamp() AND owner.status='active' AND owner.email_verified_at IS NOT NULL AND (SELECT count(*) FROM referral_email_attempts sent WHERE sent.inviter_id=a.inviter_id AND sent.delivered_at>clock_timestamp()-interval '24 hours')<25 AND (i.kind<>'returning' OR (SELECT count(*) FROM referral_email_attempts sent JOIN referral_email_invitations invitation ON invitation.id=sent.invitation_id WHERE sent.inviter_id=a.inviter_id AND invitation.kind='returning' AND sent.delivered_at>clock_timestamp()-interval '30 days')<20) ORDER BY a.created_at FOR UPDATE OF a SKIP LOCKED LIMIT 1")
+                let row=sqlx::query("SELECT a.id,i.id AS code,i.recipient,owner.locale FROM referral_email_attempts a JOIN referral_email_invitations i ON i.id=a.invitation_id JOIN accounts owner ON owner.id=i.inviter_id WHERE a.delivered_at IS NULL AND a.next_attempt_at<=clock_timestamp() AND community_invitation_delivery_eligible(owner.id) AND (SELECT count(*) FROM referral_email_attempts sent WHERE sent.inviter_id=a.inviter_id AND sent.delivered_at>clock_timestamp()-interval '24 hours')<25 AND (i.kind<>'returning' OR (SELECT count(*) FROM referral_email_attempts sent JOIN referral_email_invitations invitation ON invitation.id=sent.invitation_id WHERE sent.inviter_id=a.inviter_id AND invitation.kind='returning' AND sent.delivered_at>clock_timestamp()-interval '30 days')<20) ORDER BY a.created_at FOR UPDATE OF a SKIP LOCKED LIMIT 1")
                     .fetch_optional(&mut *tx).await?;
                 let Some(row) = row else {
                     break;

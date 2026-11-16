@@ -155,3 +155,36 @@ mod tests {
         assert!(first < second);
     }
 }
+
+/// Both deployment selectors must permit restricted testing/preproduction facilities.
+/// Missing or invalid canonical configuration fails closed.
+pub fn restricted_environment(lookup: impl Fn(&str) -> Option<String>) -> bool {
+    matches!(lookup("OTERYN_ENV").as_deref(), Some("testing" | "preprod"))
+        && matches!(
+            lookup("APP_ENV").as_deref(),
+            Some("testing" | "preproduction")
+        )
+}
+#[cfg(test)]
+mod restricted_tests {
+    #[test]
+    fn production_vetoes_testing_selector() {
+        for canonical in [None, Some("production"), Some("local"), Some("invalid")] {
+            assert!(!super::restricted_environment(|key| if key == "APP_ENV" {
+                Some("testing".into())
+            } else {
+                canonical.map(str::to_owned)
+            }));
+        }
+        for canonical in ["testing", "preprod"] {
+            assert!(super::restricted_environment(|key| Some(
+                if key == "APP_ENV" {
+                    "testing"
+                } else {
+                    canonical
+                }
+                .into()
+            )));
+        }
+    }
+}

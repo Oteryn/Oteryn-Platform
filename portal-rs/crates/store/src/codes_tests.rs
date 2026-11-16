@@ -96,6 +96,15 @@ impl Database {
         ] {
             sqlx::raw_sql(migration).execute(&pool).await.unwrap();
         }
+        sqlx::raw_sql(
+            include_str!("../../../migrations/20261115225000_fix_a3-l6_incoming_capacity.sql")
+                .split("-- Preserve")
+                .next()
+                .unwrap(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         Some(Self {
             pool,
             admin,

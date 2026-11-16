@@ -83,3 +83,13 @@ PostgreSQL tests use PORTAL_TEST_DATABASE_URL, create isolated schemas and print
 a skip notice when unset. Tests exercise success, ownership/visibility/freshness
 refusals, duplicate/locked cards, stale turns, concurrent retries, malformed forms,
 CSRF, shared authenticated sessions, and both localized rendered pages.
+
+Mutation adapters must implement `Authority::lock_mutation` and retain their
+ownership, catalog, transfer, restore and erasure fences in the supplied database
+transaction until commit. Its default refuses mutation. After the account lock,
+deck saves and battle starts/turns reread unlock evidence under the progress
+stream lock and retain world publication/visibility locks. No second pool
+connection is acquired for these mutation checks. Publication uses the same
+world fence. Browser operations have a three-second deadline, 250 ms transaction
+pool admission, 500 ms local lock waits and two-second statement limits; dropping
+a cancelled operation rolls back its transaction.

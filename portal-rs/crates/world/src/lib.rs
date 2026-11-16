@@ -40,3 +40,12 @@ pub fn canonical_kind(kind: &str) -> &str {
 #[cfg(test)]
 #[path = "../../admin/src/test_staff.rs"]
 pub mod test_staff;
+
+/// Resolve world reads consistently across public consumers. All explicit flags must enable reads.
+pub fn configured_world_enabled() -> bool {
+    let primary = std::env::var("OTERYN_WORLD_ENABLED").ok();
+    let legacy = std::env::var("PORTAL_WORLD_ENABLED").ok();
+    (primary.is_some() || legacy.is_some())
+        && primary.as_deref().is_none_or(|v| v == "true")
+        && legacy.as_deref().is_none_or(|v| v == "1")
+}

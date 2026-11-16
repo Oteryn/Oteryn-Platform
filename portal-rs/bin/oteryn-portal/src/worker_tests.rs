@@ -907,8 +907,31 @@ async fn sixteen_locked_topups_finish_after_heartbeat_with_exhausted_handler_poo
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        let baseline: time::OffsetDateTime =
+            query_scalar("SELECT max(leased_until) FROM outbox WHERE state='running'")
+                .fetch_one(&db.pool)
+                .await?;
+        let renewal = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let renewed: i64 = query_scalar(
+                    "SELECT count(*) FROM outbox WHERE state='running' AND leased_until > $1",
+                )
+                .bind(baseline)
+                .fetch_one(&db.pool)
+                .await?;
+                if renewed == 16 {
+                    return Ok::<_, sqlx::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
         lock.rollback().await?;
+        assert!(
+            renewal.is_ok(),
+            "heartbeat must successfully extend all sixteen live leases before releasing handlers"
+        );
+        renewal??;
         Ok::<_, Box<dyn std::error::Error>>(())
     };
     let (batch, unlock) = tokio::time::timeout(Duration::from_secs(10), async {
@@ -954,6 +977,7 @@ async fn handler_finishes_while_renewal_waits_for_capacity() -> TestResult {
         .connect_with((*db.pool.connect_options()).clone())
         .await?;
     let held = leases.acquire().await?;
+    let renewal_started = tokio::sync::Notify::new();
     let started = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
     let handler = Arc::new(GatedHandler {
@@ -962,17 +986,23 @@ async fn handler_finishes_while_renewal_waits_for_capacity() -> TestResult {
     });
     let control = async {
         started.notified().await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        renewal_started.notified().await;
+        assert_eq!(
+            leases.num_idle(),
+            0,
+            "renewal must wait for exhausted capacity"
+        );
         release.notify_one();
     };
-    let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(3), async {
         tokio::join!(
-            execute(
+            execute_observed(
                 &db.pool,
                 &leases,
                 job,
                 Some(handler),
-                Duration::from_secs(15)
+                Duration::from_secs(15),
+                || renewal_started.notify_one(),
             ),
             control
         )
@@ -1411,6 +1441,221 @@ async fn lock_order_topup_and_refund_prepare_account_before_intent() -> TestResu
     assert!(
         inversions.is_empty(),
         "payment effects retained intents before account waits: {inversions:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn disabled_consumers_preserve_approved_refund_and_resume_once() -> TestResult {
+    use oteryn_admin::commerce::*;
+    // A child process supplies enabled configuration without racing global
+    // environment mutation against the rest of the test suite.
+    if let Ok(schema) = std::env::var("OTERYN_AUDIT3_REFUND_SCHEMA") {
+        let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+        let pool = outbox::PgPoolOptions::new()
+            .max_connections(4)
+            .after_connect(move |connection, _| {
+                let schema = schema.clone();
+                Box::pin(async move {
+                    query("SELECT set_config('search_path', $1, false)")
+                        .bind(schema)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&url)
+            .await?;
+        let registry = configured(pool.clone()).await?;
+        assert!(registry.handlers.contains_key("commerce.refund"));
+        registry.batch(&pool).await?;
+        registry.batch(&pool).await?;
+        pool.close().await;
+        return Ok(());
+    }
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let staff = Uuid::now_v7();
+    let approver = Uuid::now_v7();
+    let buyer = Uuid::now_v7();
+    for id in [staff, approver, buyer] {
+        query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES ($1,$2,'test-only','active',now(),'en')")
+            .bind(id).bind(format!("{id}@example.test")).execute(&db.pool).await?;
+    }
+    for id in [staff, approver] {
+        query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+            .bind(id).execute(&db.pool).await?;
+    }
+    let intent = Uuid::now_v7();
+    query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,100,'PLN','succeeded')")
+        .bind(intent).bind(buyer).bind(format!("test:{intent}")).execute(&db.pool).await?;
+    let adapter = || -> Result<TestPaymentAdapter, Box<dyn std::error::Error>> {
+        Ok(TestPaymentAdapter::new(
+            db.pool.clone(),
+            oteryn_payments::TestProvider::new(&[7; 32])?,
+            oteryn_payments::PaymentFlags { enabled: true },
+        ))
+    };
+    let flags = Flags {
+        enabled: true,
+        payments: true,
+        refunds: true,
+        premium: false,
+        wallet: false,
+    };
+    let service = Commerce::new(
+        db.pool.clone(),
+        oteryn_admin::web::PortalIdentity::configured(db.pool.clone()),
+        domain_effects(db.pool.clone(), flags, Some(adapter()?)),
+        flags,
+    );
+    let staff_proof = crate::test_staff::proof(&db.pool, staff).await.ok();
+    let approver_proof = crate::test_staff::proof(&db.pool, approver).await.ok();
+    let context = |account| oteryn_admin::rbac::CheckContext {
+        account,
+        require_staff_mfa: true,
+        mfa_verified: true,
+        session_proof: if account == staff {
+            staff_proof
+        } else {
+            approver_proof
+        },
+    };
+    let operation = Uuid::now_v7();
+    service
+        .submit(
+            context(staff),
+            Request {
+                request_id: operation,
+                target: intent,
+                reason: "Approved customer refund request".into(),
+                command: Command::Refund,
+            },
+        )
+        .await?;
+    service.approve(context(approver), operation).await?;
+    let registry = configured(db.pool.clone()).await?;
+    assert!(
+        registry.disabled.iter().any(|k| k == "commerce.refund"),
+        "run this regression with refunds disabled"
+    );
+    // Exercise every conditionally absent consumer, including a final-attempt
+    // expired lease: disabled kinds must be excluded from exhaustion cleanup too.
+    for kind in [
+        "wallet.top_up",
+        "email.password-reset",
+        "email.verify",
+        "email.account_exists",
+        "notify.email",
+        "bazaar.authority",
+        "league.ingest",
+        "identity.account-closure-audit",
+        "identity.email-change",
+        "admin.control.expire",
+    ] {
+        assert!(
+            registry.disabled.iter().any(|disabled| disabled == kind),
+            "{kind} should be disabled in the default configuration"
+        );
+        db.enqueue(kind, "disabled", 1).await?;
+    }
+    // Disabled work exceeding the claim batch must not starve unknown-kind
+    // rejection or other enabled deliveries.
+    for i in 0..20 {
+        db.enqueue("email.account_exists", &format!("backlog-{i}"), 1)
+            .await?;
+    }
+    query("UPDATE outbox SET state='running', attempts=max_attempts, leased_until=now()-interval '1 second' WHERE kind='email.verify'")
+        .execute(&db.pool).await?;
+    db.enqueue("unknown.audit3", "unknown", 1).await?;
+    for _ in 0..3 {
+        registry.batch(&db.pool).await?;
+    }
+    let refund: (String, i32) =
+        outbox::query_as("SELECT state,attempts FROM outbox WHERE kind='commerce.refund'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(refund, ("pending".into(), 0));
+    let dead: i64 =
+        query_scalar("SELECT count(*) FROM outbox WHERE state='dead' AND kind<>'unknown.audit3'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(dead, 0);
+    assert_eq!(outbox::counts(&db.pool).await?.dead, 1);
+    let key_file = tempfile::NamedTempFile::new()?;
+    std::fs::write(key_file.path(), [7u8; 32])?;
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "worker::tests::disabled_consumers_preserve_approved_refund_and_resume_once",
+        ])
+        .env("OTERYN_AUDIT3_REFUND_SCHEMA", &db.schema)
+        .env("OTERYN_ADMIN_COMMERCE", "true")
+        .env("OTERYN_REFUNDS_ENABLED", "true")
+        .env("OTERYN_PAYMENTS_ENABLED", "true")
+        .env("OTERYN_ENV", "testing")
+        .env("OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE", key_file.path())
+        .output()?;
+    assert!(
+        output.status.success(),
+        "configured refund worker failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let dispatched: i64 =
+        query_scalar("SELECT count(*) FROM audit_log WHERE action='commerce.refund.dispatched'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(dispatched, 1);
+    let state: String = query_scalar("SELECT state FROM outbox WHERE kind='commerce.refund'")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(state, "done");
+    db.close().await?;
+    eprintln!(
+        "PG disabled_consumers_preserve_approved_refund_and_resume_once duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn configured_token_cleanup_preserves_live_tokens_and_resend_window() -> TestResult {
+    let started = std::time::Instant::now();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account: Uuid = query_scalar("INSERT INTO accounts(email,password_hash,locale) VALUES ('cleanup@example.test','test-only','en') RETURNING id")
+        .fetch_one(&db.pool).await?;
+    // Old expired, old consumed, live, and recently consumed respectively.
+    for (byte, expired, consumed, recent) in [
+        (1u8, true, false, false),
+        (2, false, true, false),
+        (3, false, false, false),
+        (4, false, true, true),
+    ] {
+        query("INSERT INTO account_email_tokens(token_hash,account_id,purpose,expires_at,used_at,created_at) VALUES ($1,$2,'verify_email',now()+make_interval(secs=>$3),CASE WHEN $4 THEN now() ELSE NULL END,now()-make_interval(secs=>$5))")
+            .bind(vec![byte;32]).bind(account).bind(if expired { -1.0 } else { 86400.0 })
+            .bind(consumed).bind(if recent { 0.0 } else { 120.0 }).execute(&db.pool).await?;
+    }
+    let registry = configured(db.pool.clone()).await?;
+    db.enqueue("cleanup.tokens", "cleanup", 5).await?;
+    registry.batch(&db.pool).await?;
+    let hashes: Vec<Vec<u8>> =
+        query_scalar("SELECT token_hash FROM account_email_tokens ORDER BY token_hash")
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(hashes, vec![vec![3; 32], vec![4; 32]]);
+    assert!(
+        !oteryn_identity::verify::resend(&db.pool, account).await?,
+        "cleanup must preserve the resend throttle"
+    );
+    assert_eq!(outbox::counts(&db.pool).await?.done, 1);
+    db.close().await?;
+    eprintln!(
+        "PG configured_token_cleanup_preserves_live_tokens_and_resend_window duration={:.3}s",
+        started.elapsed().as_secs_f64()
     );
     Ok(())
 }

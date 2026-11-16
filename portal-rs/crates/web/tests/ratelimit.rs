@@ -1,3 +1,5 @@
+#[path = "../../../test-support/rate_clock.rs"]
+mod rate_clock;
 use axum::{
     Extension, Router,
     body::{Body, to_bytes},
@@ -41,7 +43,7 @@ impl Database {
             .after_connect(move |conn, _| {
                 let sql = search_path.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('search_path', $1, false)")
+                    sqlx::query("SELECT set_config('search_path', $1 || ',pg_catalog', false)")
                         .bind(sql)
                         .execute(conn)
                         .await?;
@@ -51,6 +53,7 @@ impl Database {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
+        rate_clock::install(&pool).await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -175,9 +178,14 @@ async fn limit_returns_429_retry_after_and_localized_html_or_api_json() -> TestR
 }
 #[tokio::test]
 async fn expired_window_rolls_over_and_keys_are_independent() -> TestResult {
+    let started = std::time::Instant::now();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
+    // A distant bucket also detects an accidental bypass of the schema clock.
+    sqlx::query("UPDATE audit_rate_clock SET instant=TIMESTAMPTZ '2100-01-01 00:00:59.999+00'")
+        .execute(&db.pool)
+        .await?;
     let limiter = RateLimiter::new(db.pool.clone());
     let a = keys("192.0.2.2")?;
     let b = keys("192.0.2.3")?;
@@ -198,28 +206,29 @@ async fn expired_window_rolls_over_and_keys_are_independent() -> TestResult {
     limiter
         .check(NamedPolicy::IdentityRegistration, &[b])
         .await?;
-    // Cross a real PostgreSQL clock boundary, preserving the expired counters.
-    let window: i64 =
+    // Start at 59.999 seconds: filling and denial cannot cross the boundary.
+    let before: i64 =
         sqlx::query_scalar("SELECT floor(extract(epoch FROM statement_timestamp()) / 60)::bigint")
             .fetch_one(&db.pool)
             .await?;
-    // A host timer does not prove that the database clock crossed its boundary
-    // (notably with PostgreSQL in another VM). Observe the actual bucket clock.
-    tokio::time::timeout(Duration::from_secs(65), async {
-        loop {
-            let rolled: bool = sqlx::query_scalar(
-                "SELECT floor(extract(epoch FROM statement_timestamp()) / 60)::bigint > $1",
-            )
-            .bind(window)
+    sqlx::query("UPDATE audit_rate_clock SET instant=instant+interval '1 millisecond'")
+        .execute(&db.pool)
+        .await?;
+    let after: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM statement_timestamp()) / 60)::bigint")
             .fetch_one(&db.pool)
             .await?;
-            if rolled {
-                return Ok::<(), sqlx::Error>(());
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await??;
+    assert_eq!(after, before + 1);
+    let windows: Vec<i64> = sqlx::query_scalar(
+        "SELECT DISTINCT floor(extract(epoch FROM window_start) / 60)::bigint FROM web_rate_limits",
+    )
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(
+        windows,
+        vec![before],
+        "quota probes must use the frozen statement clock"
+    );
     limiter
         .check(NamedPolicy::IdentityRegistration, &[a])
         .await?;
@@ -227,7 +236,12 @@ async fn expired_window_rolls_over_and_keys_are_independent() -> TestResult {
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 3);
-    db.close().await
+    db.close().await?;
+    eprintln!(
+        "PG expired_window_rolls_over_and_keys_are_independent duration={:.3}s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
 }
 
 #[tokio::test]

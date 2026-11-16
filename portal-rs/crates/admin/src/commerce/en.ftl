@@ -20,3 +20,6 @@ empty = No pending requests.
 note = Corrections and refunds require approval by a different staff member. Refund requests await provider confirmation; reviewing a payment does not change its state.
 back = Back to commerce
 pending = Awaiting a second staff member
+
+cancel = Cancel request
+next = Next page
