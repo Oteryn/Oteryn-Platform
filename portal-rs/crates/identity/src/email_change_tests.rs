@@ -672,3 +672,38 @@ async fn d1_recovery_key_cancels_pending_email_change() -> TestResult {
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn d1_recovery_cancels_confirmed_change_waiting_for_worker() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    let mut keys = crate::recovery_key::RecoveryKeys::new(db.pool.clone());
+    keys.enabled = crate::recovery_key::Enabled(true);
+    let key = keys.generate(id, "test-password").await?;
+    keys.confirm(id, "test-password", &key).await?;
+    assert_eq!(
+        s.request(id, input(false, false)).await?,
+        Outcome::Requested
+    );
+    let (confirmation, _) = tokens(&db.pool).await?;
+    assert_eq!(s.confirm(&confirmation).await?, Outcome::Confirmed);
+    // The owner recovers the account before the delayed change is applied.
+    keys.recover(
+        "old@example.invalid",
+        &key,
+        "owner recovered password",
+        "owner recovered password",
+    )
+    .await?;
+    sqlx::query("UPDATE account_email_changes SET apply_after=now()-interval '1 second'")
+        .execute(&db.pool)
+        .await?;
+    let applied = s.apply_due().await?;
+    let email: String = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!((applied, email.as_str()), (0, "old@example.invalid"));
+    db.close().await
+}
