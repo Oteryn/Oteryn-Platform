@@ -21,22 +21,50 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  # Disposable CI-only service credentials; PostgreSQL-backed tests skip when this is unset.
+  PORTAL_TEST_DATABASE_URL: postgres://portal:portal-ci-only@127.0.0.1:5432/portal_test
+  # Test shards. Shard 3 is every other workspace package, so a new crate always runs somewhere.
+  PORTAL_SHARD_1: oteryn-gateway oteryn-admin oteryn-gameauth oteryn-bazaar oteryn-wallet
+  PORTAL_SHARD_2: oteryn-portal oteryn-world oteryn-playerdata oteryn-minigames oteryn-content
+
 concurrency:
   group: portal-rs-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
       run:
         working-directory: portal-rs
-    env:
-      CARGO_TERM_COLOR: always
-      CARGO_INCREMENTAL: '0'
-      # Disposable CI-only service credentials; PostgreSQL-backed tests skip when this is unset.
-      PORTAL_TEST_DATABASE_URL: postgres://portal:portal-ci-only@127.0.0.1:5432/portal_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  test:
+    name: test (shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    defaults:
+      run:
+        working-directory: portal-rs
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -63,14 +91,56 @@ jobs:
       - name: Install pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
 
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Run clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
-
       - name: Run tests
-        run: cargo test --locked
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          case "$SHARD" in
+            1) read -ra packages <<< "$PORTAL_SHARD_1"; args=(); for p in "${packages[@]}"; do args+=(-p "$p"); done ;;
+            2) read -ra packages <<< "$PORTAL_SHARD_2"; args=(); for p in "${packages[@]}"; do args+=(-p "$p"); done ;;
+            3) read -ra packages <<< "$PORTAL_SHARD_1 $PORTAL_SHARD_2"; args=(--workspace); for p in "${packages[@]}"; do args+=(--exclude "$p"); done ;;
+            *) echo "unknown shard $SHARD" >&2; exit 1 ;;
+          esac
+          cargo test --locked "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/test.log"
+          test "${PIPESTATUS[0]}" -eq 0
+          passed="$(grep -Eo 'test result: ok\. [0-9]+ passed' "$RUNNER_TEMP/test.log" | awk '{s+=$4} END {print s+0}')"
+          if [ "$passed" -eq 0 ]; then
+            echo "shard $SHARD passed no tests" >&2
+            exit 1
+          fi
+          echo "### test shard $SHARD: $passed passed (${args[*]})" >> "$GITHUB_STEP_SUMMARY"
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: portal-rs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start PostgreSQL 18.6
+        # The Rust portal's pinned engine (docs/architecture/OTERYN_PORTAL_RUST_PLAN.md). Started as a
+        # step, not a service, because tests create a schema each and run every migration in parallel,
+        # which needs more lock slots and connections than the defaults.
+        working-directory: .
+        run: |
+          docker run -d --name portal-rs-ci-pg -p 127.0.0.1:5432:5432 \
+            -e POSTGRES_USER=portal -e POSTGRES_PASSWORD=portal-ci-only -e POSTGRES_DB=portal_test \
+            postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42 \
+            -c max_locks_per_transaction=1024 -c max_connections=300
+          for i in $(seq 1 60); do
+            if docker exec portal-rs-ci-pg pg_isready -U portal -d portal_test -h 127.0.0.1 >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs portal-rs-ci-pg
+          exit 1
+
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
 
       - name: Install browser qualification dependencies
         # Pinned Playwright core and axe for the browser tests below; Chromium comes from the same
@@ -112,3 +182,19 @@ jobs:
           run 1 -p oteryn-portal --bin oteryn-portal postgres_dummy_checkout_browser_360px -- --ignored
           run 1 -p oteryn-payments db_browser_layout_labels_and_keyboard_at_360px -- --ignored
           run 1 -p oteryn-atlas postgres_spawns_private_markers_and_reports
+
+  check:
+    # Aggregate of the jobs above, under the job name this workflow has always reported.
+    if: ${{ always() }}
+    needs: [lint, test, browser]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to succeed
+        env:
+          LINT: ${{ needs.lint.result }}
+          TEST: ${{ needs.test.result }}
+          BROWSER: ${{ needs.browser.result }}
+        run: |
+          echo "lint=$LINT test=$TEST browser=$BROWSER"
+          test "$LINT" = success && test "$TEST" = success && test "$BROWSER" = success

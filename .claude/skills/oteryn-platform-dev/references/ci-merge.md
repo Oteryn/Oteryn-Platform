@@ -7,7 +7,7 @@ authorised; this file only says how the flow behaves.
 
 | workflow | jobs | runs on |
 |---|---|---|
-| `portal-rs-ci.yml` (`Portal RS CI`) | `check`: `cargo fmt --all --check`, `cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked` | PR and push to `main` touching `portal-rs/**` or the workflow; **not** in the Merge Queue; no database |
+| `portal-rs-ci.yml` (`Portal RS CI`) | `lint` (`cargo fmt --all --check`, `cargo clippy --locked --all-targets -- -D warnings`); `test (shard 1..3)` (`cargo test --locked` split by package: shards 1 and 2 list theirs in `PORTAL_SHARD_1`/`PORTAL_SHARD_2`, shard 3 is every other package); `browser` (the five browser qualification tests); aggregator `check`, green only when all of them are | PR and push to `main` touching `portal-rs/**`, `docs/contracts/**` or the workflow; **not** in the Merge Queue; each test and browser job has its own PostgreSQL 18.6 |
 | `ci.yml` (`CI`) | `classify-changes`, `runtime-tests`, `platform-postgres (17)`, `platform-postgres (16)`, `test`, aggregator `platform-gate`; `php-coverage-report` on push and queue only | PR, Merge Queue (`merge_group`), push to `main` |
 | retired heavy lanes (stubs) | `phase7-production-like-validation.yml` (incl. `premium-physical-e2e`), `edge-security-emulation.yml`, `platform-db-outage-validation.yml`, `game-auth-ticket-concurrency.yml` | PR only, when `classify-changes` selects them |
 | `agent-governance.yml` | `checkpoint-validation` | PR and push touching `AGENTS.md`, `docs/agents/**`, `tools/agents/**` |
