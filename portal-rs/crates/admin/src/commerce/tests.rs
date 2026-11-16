@@ -240,7 +240,7 @@ impl Harness {
 }
 #[tokio::test]
 async fn postgres_premium_success_replay_refusal_and_bad_input() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(h) = Harness::new().await else {
         return;
     };
@@ -311,7 +311,7 @@ async fn postgres_premium_success_replay_refusal_and_bad_input() {
 }
 #[tokio::test]
 async fn postgres_wallet_four_eyes_atomicity_concurrency_and_revocation() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(h) = Harness::new().await else {
         return;
     };
@@ -374,7 +374,7 @@ async fn postgres_wallet_four_eyes_atomicity_concurrency_and_revocation() {
 }
 #[tokio::test]
 async fn postgres_payments_review_and_refund_queue_without_forged_settlement() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(h) = Harness::new().await else {
         return;
     };
@@ -439,7 +439,7 @@ async fn postgres_payments_review_and_refund_queue_without_forged_settlement() {
 }
 #[tokio::test]
 async fn default_flags_and_host_deny_without_database() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
@@ -485,7 +485,7 @@ async fn default_flags_and_host_deny_without_database() {
 }
 #[tokio::test]
 async fn postgres_http_forms_localization_csrf_permissions_and_input() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(h) = Harness::new().await else {
         return;
     };
@@ -596,7 +596,7 @@ async fn postgres_http_forms_localization_csrf_permissions_and_input() {
 
 #[tokio::test]
 async fn postgres_audit_failure_rolls_back_domain_effect_and_request() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(h) = Harness::new().await else {
         return;
     };
@@ -618,7 +618,7 @@ async fn postgres_audit_failure_rolls_back_domain_effect_and_request() {
 
 #[tokio::test]
 async fn lk_commerce_single_connection_and_sixteen_mutations() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     for maximum in [1, 16] {
         let h = Harness::with_connections(maximum)
@@ -702,7 +702,7 @@ async fn lk_commerce_single_connection_and_sixteen_mutations() {
 
 #[tokio::test]
 async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let h = Harness::with_connections(1)
         .await
@@ -839,7 +839,7 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
 
 #[tokio::test]
 async fn a2_commerce_role_writer_waits_are_bounded() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let h = Harness::new().await.expect("PostgreSQL required");
     let service = h.service();
@@ -880,7 +880,7 @@ async fn a2_commerce_role_writer_waits_are_bounded() {
 
 #[tokio::test]
 async fn postgres_a3_commerce_locks_payment_owner_before_role_fence() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let h = Harness::new().await.expect("PostgreSQL required");
     let payment = Uuid::now_v7();

@@ -58,7 +58,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         return Ok(());
     }
     // Acquire in the child that owns the database fixture, never its launcher.
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let root = PgPool::connect(&url).await?;
@@ -645,7 +645,7 @@ impl oteryn_admin::support::Backend for PausedPreparation {
 }
 #[tokio::test]
 async fn postgres_ticket_preparation_and_player_note_share_account_order() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_admin::{
         players::{Flags, IdentityAccounts, Players},
         rbac::{Authorizer, CheckContext},

@@ -2,7 +2,7 @@ use super::*;
 #[tokio::test]
 async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dyn std::error::Error>>
 {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL profile test: PORTAL_TEST_DATABASE_URL is unset");

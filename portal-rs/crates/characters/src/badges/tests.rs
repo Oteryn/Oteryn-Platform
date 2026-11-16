@@ -80,7 +80,7 @@ fn validation_success_refusal_and_bad_input() {
 }
 #[tokio::test]
 async fn disabled_anonymous_bad_locale() -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let service = Service {
         pool: sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://portal@127.0.0.1:1/unreachable")?,
@@ -121,7 +121,7 @@ async fn disabled_anonymous_bad_locale() -> Result<(), Box<dyn std::error::Error
 }
 #[tokio::test]
 async fn postgres_selections_privacy_and_http() -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL badges test: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(());

@@ -23,19 +23,19 @@ pub struct GlobalLockGuard {
 /// lock also coordinates different crates/binaries. This key is test-only and
 /// distinct from production gates (64002, 71010, and 22005160000). Waiting here
 /// happens before the unchanged three-second mutation acquisition budget begins.
-#[allow(clippy::expect_used)]
-pub async fn global_lock_guard() -> Option<GlobalLockGuard> {
-    let url = std::env::var("PORTAL_TEST_DATABASE_URL").ok()?;
+///
+/// Returns `Ok(None)` when no test database is configured.
+pub async fn global_lock_guard() -> Result<Option<GlobalLockGuard>, sqlx::Error> {
+    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        return Ok(None);
+    };
     let local = GLOBAL_LOCK_TEST.lock().await;
-    let mut connection = PgConnection::connect(&url)
-        .await
-        .expect("connect PostgreSQL test isolation session");
+    let mut connection = PgConnection::connect(&url).await?;
     sqlx::query("SELECT pg_advisory_lock(684326110016002)")
         .execute(&mut connection)
-        .await
-        .expect("acquire PostgreSQL test isolation guard");
-    Some(GlobalLockGuard {
+        .await?;
+    Ok(Some(GlobalLockGuard {
         _connection: connection,
         _local: local,
-    })
+    }))
 }

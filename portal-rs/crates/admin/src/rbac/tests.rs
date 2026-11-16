@@ -85,7 +85,7 @@ fn permission_catalog_is_stable_unique_and_covered() {
 
 #[tokio::test]
 async fn account_and_mfa_fail_closed_without_database_access() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
         .unwrap();
@@ -120,7 +120,7 @@ impl RequiredPermission for AuditView {
 
 #[tokio::test]
 async fn guard_rejects_missing_or_unverified_identity() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
         .unwrap();
@@ -225,7 +225,7 @@ impl Database {
 
 #[tokio::test]
 async fn db_deny_by_default_and_refuse_unprivileged_mutation() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -254,7 +254,7 @@ async fn db_deny_by_default_and_refuse_unprivileged_mutation() {
 
 #[tokio::test]
 async fn db_grant_revoke_and_guard_use_current_permissions() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -300,7 +300,7 @@ async fn db_grant_revoke_and_guard_use_current_permissions() {
 
 #[tokio::test]
 async fn db_custom_role_permissions_and_bad_input() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -405,7 +405,7 @@ async fn db_custom_role_permissions_and_bad_input() {
 
 #[tokio::test]
 async fn db_audit_change_commits_atomically_with_actor_and_diff() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -449,7 +449,7 @@ async fn db_audit_change_commits_atomically_with_actor_and_diff() {
 
 #[tokio::test]
 async fn db_audit_failure_rolls_back_role_change() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -477,7 +477,7 @@ async fn db_audit_failure_rolls_back_role_change() {
 
 #[tokio::test]
 async fn db_audit_update_delete_and_truncate_are_rejected() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -514,7 +514,7 @@ async fn db_audit_update_delete_and_truncate_are_rejected() {
 
 #[tokio::test]
 async fn db_built_in_seeds_match_rust_catalog_and_state_still_denies_grants() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -591,7 +591,7 @@ impl AccountStateReader for TargetState {
 
 #[tokio::test]
 async fn db_grants_deny_unknown_targets_and_database_rejects_unknown_permissions() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -830,7 +830,7 @@ fn game_roles_have_exact_contract_permissions() {
 
 #[tokio::test]
 async fn game_flags_deny_without_database_access() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
         .unwrap();
@@ -865,7 +865,7 @@ async fn game_flags_deny_without_database_access() {
 
 #[tokio::test]
 async fn db_game_roles_authorize_only_explicit_grants_and_deploy_stays_dormant() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
         return;
     };
@@ -951,7 +951,7 @@ async fn bounded_pool(db: &Database, size: u32) -> PgPool {
 
 #[tokio::test]
 async fn db_transaction_authorization_two_queued_mutations_do_not_starve() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open()
         .await
@@ -1002,7 +1002,7 @@ async fn db_transaction_authorization_two_queued_mutations_do_not_starve() {
 
 #[tokio::test]
 async fn db_transaction_authorization_one_connection_identity_read() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open()
         .await
@@ -1051,7 +1051,7 @@ async fn db_transaction_authorization_one_connection_identity_read() {
 
 #[tokio::test]
 async fn db_transaction_authorization_observes_revocation_after_resource_wait() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Database::open()
         .await

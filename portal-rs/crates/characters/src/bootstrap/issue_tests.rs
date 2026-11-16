@@ -226,7 +226,7 @@ fn every_field_is_validated_before_any_transaction() {
 
 #[tokio::test]
 async fn issues_once_replays_exactly_and_refuses_conflicts() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -291,7 +291,7 @@ async fn issues_once_replays_exactly_and_refuses_conflicts() -> TestResult {
 
 #[tokio::test]
 async fn refuses_inactive_or_unknown_identity_and_bad_input() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -320,7 +320,7 @@ async fn refuses_inactive_or_unknown_identity_and_bad_input() -> TestResult {
 
 #[tokio::test]
 async fn authority_rollback_and_retired_rows_fail_closed() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -361,7 +361,7 @@ async fn authority_rollback_and_retired_rows_fail_closed() -> TestResult {
 
 #[tokio::test]
 async fn operator_issuance_audits_once_without_the_intent_body() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -418,7 +418,7 @@ async fn operator_issuance_audits_once_without_the_intent_body() -> TestResult {
 
 #[tokio::test]
 async fn unauthorized_actor_issues_and_audits_nothing() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -446,7 +446,7 @@ async fn unauthorized_actor_issues_and_audits_nothing() -> TestResult {
 
 #[tokio::test]
 async fn failed_audit_rolls_back_the_intent() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -470,7 +470,7 @@ async fn failed_audit_rolls_back_the_intent() -> TestResult {
 
 #[tokio::test]
 async fn testing_seed_issues_without_an_actor_or_audit_row() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -482,7 +482,7 @@ async fn testing_seed_issues_without_an_actor_or_audit_row() -> TestResult {
 
 #[tokio::test]
 async fn issuer_authority_wait_uses_shared_mutation_deadline() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = Database::open().await?.ok_or("PostgreSQL is required")?;
     sqlx::query("INSERT INTO character_bootstrap_intent_authority(id,last_source_revision) VALUES(1,'0') ON CONFLICT DO NOTHING").execute(&db.pool).await?;
     let mut blocker = db.pool.begin().await?;

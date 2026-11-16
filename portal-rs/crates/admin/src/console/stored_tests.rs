@@ -202,7 +202,7 @@ async fn exercise_reads(
 #[tokio::test]
 async fn a2_stored_console_browser_query_verified_result_and_ownership()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let root = PgPool::connect(&url).await?;

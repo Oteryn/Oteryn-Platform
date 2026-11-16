@@ -39,7 +39,7 @@ async fn html(app: Router, path: &str) -> Result<String, Box<dyn std::error::Err
 #[tokio::test]
 async fn postgres_a3_staff_libraries_reach_records_beyond_each_cap()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let root = PgPool::connect(&url).await?;

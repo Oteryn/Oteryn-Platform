@@ -127,7 +127,7 @@ fn cursor_pair_and_limits_are_strict() {
 }
 #[tokio::test]
 async fn flags_fail_closed_and_allow_delivery_without_purchases() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
         .unwrap();
@@ -265,7 +265,7 @@ impl Db {
 }
 #[tokio::test]
 async fn postgres_delivery_exact_read_receipt_replay_and_reconcile() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (id, intent, receipt) = db.seed(false).await;
     assert_eq!(
@@ -320,7 +320,7 @@ async fn postgres_delivery_exact_read_receipt_replay_and_reconcile() {
 }
 #[tokio::test]
 async fn postgres_concurrent_first_receipts_and_conflicts() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (_, _, raw) = db.seed(false).await;
     let (a, b) = tokio::join!(db.delivery.receipt(&raw), db.delivery.receipt(&raw));
@@ -337,7 +337,7 @@ async fn postgres_concurrent_first_receipts_and_conflicts() {
 }
 #[tokio::test]
 async fn postgres_refusals_do_not_change_delivery() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (id, _, raw) = db.seed(false).await;
     for (field, new, error) in [
@@ -361,7 +361,7 @@ async fn postgres_refusals_do_not_change_delivery() {
 }
 #[tokio::test]
 async fn postgres_rejected_delivery_enters_manual_review() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (_, _, raw) = db.seed(false).await;
     let mut v = val(&raw);
@@ -382,7 +382,7 @@ async fn postgres_rejected_delivery_enters_manual_review() {
 }
 #[tokio::test]
 async fn postgres_item_delivery_creates_one_stable_claim() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (id, _, raw) = db.seed(true).await;
     db.delivery.receipt(&raw).await.unwrap();
@@ -446,7 +446,7 @@ async fn postgres_item_delivery_creates_one_stable_claim() {
 }
 #[tokio::test]
 async fn postgres_restore_reopens_retains_history_and_fences_old_receipts() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (id, intent, raw) = db.seed(true).await;
     db.delivery.receipt(&raw).await.unwrap();
@@ -489,7 +489,7 @@ async fn postgres_restore_reopens_retains_history_and_fences_old_receipts() {
 }
 #[tokio::test]
 async fn postgres_restore_carries_unresolved_and_preserves_current_exact_replay() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (_, _, raw) = db.seed(false).await;
     db.delivery.receipt(&raw).await.unwrap();
@@ -530,7 +530,7 @@ async fn postgres_restore_carries_unresolved_and_preserves_current_exact_replay(
 }
 #[tokio::test]
 async fn postgres_pages_cover_all_operations_and_uint64_end() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let mut ids = Vec::new();
     for _ in 0..4 {
@@ -615,7 +615,7 @@ async fn call(
 }
 #[tokio::test]
 async fn postgres_http_peer_transport_canonical_and_source_order() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let app = http::router(db.delivery.clone(), vec![]);
     let raw = page_request(false, 0, Uuid::nil(), 32);
@@ -701,7 +701,7 @@ async fn postgres_http_peer_transport_canonical_and_source_order() {
 }
 #[tokio::test]
 async fn postgres_http_default_off_overlap_and_rate_limit() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let raw = page_request(false, 0, Uuid::nil(), 32);
     let app = http::router(Delivery::new(db.pool.clone(), Settings::default()), vec![]);
@@ -748,7 +748,7 @@ async fn postgres_http_default_off_overlap_and_rate_limit() {
 
 #[tokio::test]
 async fn postgres_restore_lock_serializes_receipts_and_rollback_keeps_evidence() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (_, _, raw) = db.seed(false).await;
     let mut tx = db.pool.begin().await.unwrap();
@@ -772,7 +772,7 @@ async fn postgres_restore_lock_serializes_receipts_and_rollback_keeps_evidence()
 }
 #[tokio::test]
 async fn postgres_missing_restore_lock_and_ambiguous_state_deny() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (_, _, raw) = db.seed(false).await;
     sqlx::query("DELETE FROM character_restore_locks")
@@ -795,7 +795,7 @@ async fn postgres_missing_restore_lock_and_ambiguous_state_deny() {
 }
 #[tokio::test]
 async fn postgres_receipt_history_is_immutable() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (_, _, raw) = db.seed(false).await;
     db.delivery.receipt(&raw).await.unwrap();
@@ -816,7 +816,7 @@ async fn postgres_receipt_history_is_immutable() {
 }
 #[tokio::test]
 async fn postgres_reclaim_binds_claim_digest_quantity_and_target() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (_, _, raw) = db.seed(true).await;
     db.delivery.receipt(&raw).await.unwrap();
@@ -918,7 +918,7 @@ async fn postgres_reclaim_binds_claim_digest_quantity_and_target() {
 
 #[tokio::test]
 async fn postgres_http_read_receipt_and_reconcile_round_trip() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await else { return };
     let (id, intent, receipt) = db.seed(false).await;
     let app = http::router(db.delivery.clone(), vec![]);
@@ -1035,7 +1035,7 @@ async fn postgres_http_read_receipt_and_reconcile_round_trip() {
 
 #[tokio::test]
 async fn postgres_restore_selection_is_bounded_and_atomic() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::new().await else { return };
     // Reopened operations already qualify without manufacturing receipts.
@@ -1068,7 +1068,7 @@ async fn postgres_restore_selection_is_bounded_and_atomic() {
 
 #[tokio::test]
 async fn non_rfc_v7_restore_event_never_changes_store_fence() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Db::new().await.expect("PORTAL_TEST_DATABASE_URL required");
     for variant in ["0000", "c000", "e000"] {

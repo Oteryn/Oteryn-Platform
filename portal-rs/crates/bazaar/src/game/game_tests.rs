@@ -107,7 +107,7 @@ impl Accounts for Account {
 }
 #[tokio::test]
 async fn postgres_staged_outbox_replay_refusal_conflict_and_restore() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIP PostgreSQL T58: PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -219,7 +219,7 @@ async fn postgres_staged_outbox_replay_refusal_conflict_and_restore() {
 
 #[tokio::test]
 async fn postgres_projection_ordering_poison_watermark_and_epoch_fences() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("SKIP PostgreSQL T58: PORTAL_TEST_DATABASE_URL unset");
         return;

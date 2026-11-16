@@ -91,7 +91,7 @@ async fn enqueue(
 #[tokio::test]
 async fn stored_evidence_accepts_bound_proof_refuses_replay_foreign_stale_and_audit_failure()
 -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -233,7 +233,7 @@ async fn stored_evidence_accepts_bound_proof_refuses_replay_foreign_stale_and_au
 
 #[tokio::test]
 async fn stored_approval_refuses_self_expired_and_rolls_back_with_audit() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -370,7 +370,7 @@ async fn stored_approval_refuses_self_expired_and_rolls_back_with_audit() -> Tes
 #[tokio::test]
 async fn real_identity_provider_accepts_fresh_request_step_up_and_denies_revoked_grant()
 -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_identity::{login::Credentials, mfa::Mfa, password};
     let Some(db) = Database::open().await? else {
         return Ok(());
@@ -463,7 +463,7 @@ pub(in crate::control::controls) fn wire(
 
 #[tokio::test]
 async fn lk_control_evidence_with_one_available_connection() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Database::open()
         .await?

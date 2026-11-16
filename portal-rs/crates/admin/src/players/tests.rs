@@ -194,7 +194,7 @@ fn rejects_bad_input_and_defaults_off() {
 }
 #[tokio::test]
 async fn postgres_read_note_and_logout_success_refusal_bad_input() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -236,7 +236,7 @@ async fn postgres_read_note_and_logout_success_refusal_bad_input() {
 }
 #[tokio::test]
 async fn postgres_reset_requires_two_current_staff_and_is_single_use() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -278,7 +278,7 @@ async fn postgres_reset_requires_two_current_staff_and_is_single_use() {
 }
 #[tokio::test]
 async fn postgres_reset_refuses_missing_evidence_expiry_and_revoked_requester() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -330,7 +330,7 @@ async fn postgres_reset_refuses_missing_evidence_expiry_and_revoked_requester() 
 }
 #[tokio::test]
 async fn postgres_audit_failure_rolls_back_notes_logout_and_reset() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -370,7 +370,7 @@ async fn postgres_audit_failure_rolls_back_notes_logout_and_reset() {
 }
 #[tokio::test]
 async fn postgres_concurrent_approvals_execute_once() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -405,7 +405,7 @@ impl StaffSession for Browser {
 }
 #[tokio::test]
 async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -507,7 +507,7 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
 }
 #[tokio::test]
 async fn postgres_flags_and_pending_security_fail_closed() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -568,7 +568,7 @@ async fn postgres_flags_and_pending_security_fail_closed() {
 
 #[tokio::test]
 async fn postgres_real_identity_lookup_safe_projection_and_missing_character_watermark() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -637,7 +637,7 @@ async fn kick_state(db: &Db) -> (i64, String, String, i64) {
 }
 #[tokio::test]
 async fn postgres_kick_permission_mfa_bad_input_audit_and_stream() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -723,7 +723,7 @@ async fn postgres_kick_permission_mfa_bad_input_audit_and_stream() {
 }
 #[tokio::test]
 async fn postgres_kick_audit_failure_rolls_back_generation_and_stream() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -808,7 +808,7 @@ async fn kick_post(app: axum::Router, path: &str, cookie: &str, body: String) ->
 }
 #[tokio::test]
 async fn postgres_http_kick_csrf_permission_and_mfa() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -925,7 +925,7 @@ async fn coin_hold_state(db: &Db) -> (i64, i64, i64) {
 }
 #[tokio::test]
 async fn postgres_coin_hold_release_permission_reason_audit_and_idempotent() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -1104,7 +1104,7 @@ async fn postgres_coin_hold_release_permission_reason_audit_and_idempotent() {
 }
 #[tokio::test]
 async fn postgres_coin_hold_release_audit_failure_keeps_the_hold() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -1171,7 +1171,7 @@ async fn coin_hold_post(
 }
 #[tokio::test]
 async fn postgres_http_coin_hold_release_csrf_permission_mfa_and_result() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
         return;
     };
@@ -1289,7 +1289,7 @@ async fn postgres_http_coin_hold_release_csrf_permission_mfa_and_result() {
 
 #[tokio::test]
 async fn postgres_reset_rechecks_live_expiry_after_advisory_lock() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Db::open().await else {
         return;
@@ -1364,7 +1364,7 @@ async fn postgres_reset_rechecks_live_expiry_after_advisory_lock() {
 
 #[tokio::test]
 async fn postgres_identity_adapter_sessions_logout_and_two_person_reset() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Db::open().await.expect("PORTAL_TEST_DATABASE_URL required");
     for id in [db.target, db.support, db.approver] {
@@ -1778,7 +1778,7 @@ async fn staff_security_post(
 
 #[tokio::test]
 async fn postgres_stale_hold_form_preserves_replacement_and_receipt() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let db = Db::open().await.expect("PORTAL_TEST_DATABASE_URL required");
     let order = coin_hold_fixture(&db).await;

@@ -90,7 +90,7 @@ impl Fixture {
 use oteryn_content::events::{Draft, Events, Translation};
 #[tokio::test]
 async fn event_save_and_transition_complete_with_one_connection() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(1).await?;
     let auth = Authorizer::new(db.pool.clone(), Active);
@@ -129,7 +129,7 @@ async fn event_save_and_transition_complete_with_one_connection() -> TestResult 
 
 #[tokio::test]
 async fn announcement_save_completes_with_one_connection() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_content::announcements::{Announcements, Input};
     let started = std::time::Instant::now();
     let db = Fixture::open(1).await?;
@@ -203,7 +203,7 @@ async fn blocked_by(pool: &PgPool, pid: i32) -> TestResult {
 
 #[tokio::test]
 async fn content_mutations_recheck_after_resource_wait() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use axum::{
         Router,
         body::{Body, to_bytes},
@@ -405,7 +405,7 @@ fn event_draft() -> Draft {
 }
 #[tokio::test]
 async fn editorial_mutations_require_access() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_content::announcements::Announcements;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
@@ -446,7 +446,7 @@ async fn editorial_mutations_require_access() -> TestResult {
 
 #[tokio::test]
 async fn editorial_mutations_bound_fence_and_resource_waits() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_content::announcements::Announcements;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
@@ -514,7 +514,7 @@ async fn editorial_mutations_bound_fence_and_resource_waits() -> TestResult {
 
 #[tokio::test]
 async fn announcement_unchanged_and_metadata_saves_preserve_translation() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
@@ -583,7 +583,7 @@ async fn announcement_unchanged_and_metadata_saves_preserve_translation() -> Tes
 // The database clock and blocker PID are the only interleaving barriers.
 #[tokio::test]
 async fn editorial_writers_reject_grant_expired_during_resource_wait() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use oteryn_content::announcements::Announcements;
     use sha2::{Digest, Sha256};
     let db = Fixture::open(4).await?;

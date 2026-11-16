@@ -42,7 +42,7 @@ fn refuses_bad_input_and_disguised_payloads() {
 }
 #[tokio::test]
 async fn postgres_media_atomic_storage_references_and_integrity() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL media test: PORTAL_TEST_DATABASE_URL unset");
         return;
@@ -174,7 +174,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
 }
 #[tokio::test]
 async fn missing_staff_context_is_refused() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use tower::ServiceExt;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
@@ -358,7 +358,7 @@ async fn browser_lifecycle(pool: &PgPool) {
 
 #[tokio::test]
 async fn a3_media_host_gate_precedes_multipart_validation() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -424,7 +424,7 @@ fn postgres_a3_processing_releases_rbac_for_other_mutations() {
         return;
     }
     tokio::runtime::Builder::new_multi_thread().worker_threads(2).max_blocking_threads(1).enable_all().build().unwrap().block_on(async {
-        let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
         use axum::{body::{Body,to_bytes},http::Request};
         use oteryn_admin::rbac::{Authorizer,Change};
         use tower::ServiceExt;

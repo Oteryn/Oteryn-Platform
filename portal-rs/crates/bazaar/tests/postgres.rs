@@ -10,7 +10,7 @@ type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[tokio::test]
 async fn proxy_sequence_reserves_full_maximum_and_replays_original_response() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -44,7 +44,7 @@ async fn proxy_sequence_reserves_full_maximum_and_replays_original_response() ->
 
 #[tokio::test]
 async fn anti_sniping_adds_five_minutes_once_per_request() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -62,7 +62,7 @@ async fn anti_sniping_adds_five_minutes_once_per_request() -> TestResult {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_bids_and_retries_keep_one_winner() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -88,7 +88,7 @@ async fn concurrent_bids_and_retries_keep_one_winner() -> TestResult {
 
 #[tokio::test]
 async fn settlement_commission_is_exact_and_proceeds_wait_for_delivery() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -137,7 +137,7 @@ async fn settlement_commission_is_exact_and_proceeds_wait_for_delivery() -> Test
 
 #[tokio::test]
 async fn adapter_failure_rolls_back_ledger_settlement_listing_and_audit() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -170,7 +170,7 @@ async fn adapter_failure_rolls_back_ledger_settlement_listing_and_audit() -> Tes
 
 #[tokio::test]
 async fn offers_accept_reject_release_and_reverse_want_to_buy_roles() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -202,7 +202,7 @@ async fn offers_accept_reject_release_and_reverse_want_to_buy_roles() -> TestRes
 
 #[tokio::test]
 async fn illegal_transitions_and_bad_inputs_are_refused() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -272,7 +272,7 @@ async fn illegal_transitions_and_bad_inputs_are_refused() -> TestResult {
 
 #[tokio::test]
 async fn flags_account_state_and_escrow_fail_closed() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -349,7 +349,7 @@ async fn flags_account_state_and_escrow_fail_closed() -> TestResult {
 
 #[tokio::test]
 async fn expiry_releases_offers_and_cancellation_requires_no_activity() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -382,7 +382,7 @@ async fn expiry_releases_offers_and_cancellation_requires_no_activity() -> TestR
 
 #[tokio::test]
 async fn concurrent_listings_cannot_over_reserve_one_account() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -404,7 +404,7 @@ async fn concurrent_listings_cannot_over_reserve_one_account() -> TestResult {
 
 #[tokio::test]
 async fn sql_failure_after_reservation_rolls_back_the_whole_bid() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -429,7 +429,7 @@ async fn sql_failure_after_reservation_rolls_back_the_whole_bid() -> TestResult 
 
 #[tokio::test]
 async fn offer_limits_fixed_prices_and_acceptance_release_other_holds() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -468,7 +468,7 @@ async fn offer_limits_fixed_prices_and_acceptance_release_other_holds() -> TestR
 
 #[tokio::test]
 async fn terminal_cancellation_and_expiry_require_return_evidence() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
@@ -487,7 +487,7 @@ async fn terminal_cancellation_and_expiry_require_return_evidence() -> TestResul
 
 #[tokio::test]
 async fn postgres_core_legacy_offer_cleanup_keeps_every_reservation_accounted_for() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(h) = Harness::new().await? else {
         return Ok(());
@@ -551,7 +551,7 @@ async fn postgres_core_legacy_offer_cleanup_keeps_every_reservation_accounted_fo
 
 #[tokio::test]
 async fn postgres_committed_delivery_completes_after_trade_restriction() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(h) = Harness::new().await? else {
         return Err("PostgreSQL required".into());
@@ -603,7 +603,7 @@ impl Accounts for RowLockedAccounts {
 
 #[tokio::test]
 async fn creation_waits_for_moderation_before_locking_its_account() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
     sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
         .execute(&h.pool)
@@ -714,7 +714,7 @@ impl Reservations for RowLockedFunds {
 
 #[tokio::test]
 async fn bid_prepares_previous_leader_before_actor_account() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
     let mut ids = [h.owner, h.a, h.b];
     ids.sort_unstable();

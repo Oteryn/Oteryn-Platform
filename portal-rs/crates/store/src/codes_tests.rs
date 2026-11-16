@@ -202,7 +202,7 @@ fn normalization_bad_input_and_defaults() {
 }
 #[tokio::test]
 async fn db_generate_redeem_coins_premium_and_plaintext_absent() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -261,7 +261,7 @@ async fn db_generate_redeem_coins_premium_and_plaintext_absent() {
 }
 #[tokio::test]
 async fn db_limits_across_codes_and_accounts() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -286,7 +286,7 @@ async fn db_limits_across_codes_and_accounts() {
 }
 #[tokio::test]
 async fn db_expired_future_bad_input_and_disabled() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -337,7 +337,7 @@ async fn db_expired_future_bad_input_and_disabled() {
 }
 #[tokio::test]
 async fn db_twenty_concurrent_redemptions_have_one_success() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -371,7 +371,7 @@ async fn db_twenty_concurrent_redemptions_have_one_success() {
 }
 #[tokio::test]
 async fn db_item_requires_character_and_only_enqueues_pending_command() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -402,7 +402,7 @@ async fn db_item_requires_character_and_only_enqueues_pending_command() {
 }
 #[tokio::test]
 async fn db_ledger_refusal_and_final_insert_failure_roll_back_everything() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -435,7 +435,7 @@ async fn db_ledger_refusal_and_final_insert_failure_roll_back_everything() {
 }
 #[tokio::test]
 async fn db_wallet_adjust_in_commit_rollback_and_replay() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -474,7 +474,7 @@ async fn db_wallet_adjust_in_commit_rollback_and_replay() {
 }
 #[tokio::test]
 async fn db_premium_mutate_in_commit_rollback_and_replay() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -506,7 +506,7 @@ async fn db_premium_mutate_in_commit_rollback_and_replay() {
 
 #[tokio::test]
 async fn db_concurrent_batch_account_limit_and_same_key_retry() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {
         return;
     };
@@ -562,7 +562,7 @@ pub(crate) const NO_COIN_DEBT_STUB: &str = "CREATE TABLE coin_purchase_reversals
 
 #[tokio::test]
 async fn postgres_a3_browser_premium_redemption_one_connection_and_value_restrictions() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     for maximum in [1, 16] {
         let url = std::env::var("PORTAL_TEST_DATABASE_URL").expect("PostgreSQL required");
@@ -705,7 +705,7 @@ async fn postgres_a3_browser_premium_redemption_one_connection_and_value_restric
 #[tokio::test]
 async fn browser_redemption_locks_code_before_account_and_rechecks_status()
 -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = Database::create().await.ok_or("PostgreSQL is required")?;
     sqlx::raw_sql("CREATE TABLE accounts(id uuid PRIMARY KEY,status text NOT NULL,email_verified_at timestamptz); CREATE FUNCTION account_value_eligible(uuid) RETURNS boolean LANGUAGE sql AS 'SELECT true'").execute(&db.pool).await?;
     let player = account();

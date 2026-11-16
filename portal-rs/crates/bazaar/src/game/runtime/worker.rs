@@ -714,7 +714,7 @@ mod fairness_tests {
     #[tokio::test]
     async fn postgres_blocked_listing_and_gold_batches_rotate()
     -> Result<(), Box<dyn std::error::Error>> {
-        let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
         let started = std::time::Instant::now();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)

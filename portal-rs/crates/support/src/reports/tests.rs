@@ -80,7 +80,7 @@ fn categories_and_input_are_bounded_and_deny_unknown_values() {
 
 #[tokio::test]
 async fn disabled_router_and_service_do_not_connect() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
     let service = Reports::new(pool.clone(), Policy::default());
     assert!(matches!(
@@ -161,7 +161,7 @@ impl Database {
 
 #[tokio::test]
 async fn postgres_success_idempotency_privacy_and_history() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -209,7 +209,7 @@ async fn postgres_success_idempotency_privacy_and_history() -> TestResult {
 
 #[tokio::test]
 async fn postgres_refusal_bad_input_and_rejection_block_survives_closure() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -260,7 +260,7 @@ async fn postgres_refusal_bad_input_and_rejection_block_survives_closure() -> Te
 
 #[tokio::test]
 async fn postgres_concurrent_pending_limit_and_replays() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -293,7 +293,7 @@ async fn postgres_concurrent_pending_limit_and_replays() -> TestResult {
 
 #[tokio::test]
 async fn postgres_rate_limit_is_persistent_and_resets() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -372,7 +372,7 @@ fn values() -> Vec<(&'static str, String)> {
 
 #[tokio::test]
 async fn postgres_browser_flow_csrf_localization_private_output_and_bad_input() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -482,7 +482,7 @@ async fn postgres_browser_flow_csrf_localization_private_output_and_bad_input() 
 
 #[tokio::test]
 async fn postgres_browser_configured_origin_still_requires_csrf() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -523,7 +523,7 @@ async fn postgres_browser_configured_origin_still_requires_csrf() -> TestResult 
 
 #[tokio::test]
 async fn postgres_request_key_binds_every_report_field() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await? else {
         return Ok(());
     };
@@ -564,7 +564,7 @@ async fn postgres_request_key_binds_every_report_field() -> TestResult {
 
 #[tokio::test]
 async fn postgres_conflicting_replays_consume_submission_budget() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some(db) = Database::open().await? else {
         return Ok(());

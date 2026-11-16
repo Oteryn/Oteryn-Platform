@@ -38,7 +38,7 @@ fn app(pool: PgPool, enabled: bool) -> TestResult<Router> {
 }
 #[tokio::test]
 async fn sanction_export_disabled_503() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     assert!(!Settings::from_lookup(|_| None).enabled);
     let response = app(lazy_pool()?, false)?
         .oneshot(request(REQUEST, None)?)
@@ -77,7 +77,7 @@ async fn sanction_export_disabled_503() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_wrong_identity_refused() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     for identity in [None, Some("other.game.example.invalid")] {
         let mut req = request(REQUEST, identity)?;
         req.headers_mut().insert(
@@ -92,7 +92,7 @@ async fn sanction_export_wrong_identity_refused() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_bad_body_400() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let app = app(lazy_pool()?, true)?;
     for body in [
         "{}",
@@ -119,7 +119,7 @@ async fn sanction_export_bad_body_400() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_rate_limit_retry_after() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let app = app(lazy_pool()?, true)?;
     for _ in 0..1200 {
         assert_eq!(
@@ -255,7 +255,7 @@ async fn page(db: &Database, after: Option<i64>, limit: i64) -> TestResult<serde
 }
 #[tokio::test]
 async fn sanction_export_paging_cursor_stable() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -314,7 +314,7 @@ async fn sanction_export_paging_cursor_stable() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_revision_on_revoke_and_appeal() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -372,7 +372,7 @@ async fn sanction_export_revision_on_revoke_and_appeal() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_reason_text_limits() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     assert!(valid_reason(&"ą".repeat(60)));
     for reason in [
         "".to_owned(),
@@ -411,7 +411,7 @@ async fn sanction_export_reason_text_limits() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_fixtures_match() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     assert_eq!(
         Page::decode(&canonical::decode(REQUEST, 256, 4)?)?,
         Page {
@@ -454,7 +454,7 @@ async fn sanction_export_fixtures_match() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_typed_revisions_and_private_notation() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use super::super::{Features, SanctionAction, SanctionIntent, Service};
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -502,7 +502,7 @@ async fn sanction_export_typed_revisions_and_private_notation() -> TestResult {
 
 #[tokio::test]
 async fn sanction_export_namelock_and_immutable_journal() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use super::super::{Features, SanctionAction, SanctionIntent, Service};
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -591,7 +591,7 @@ fn sanction_export_full_page_byte_bound() -> TestResult {
 }
 #[tokio::test]
 async fn sanction_export_reused_internal_identities_503() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     for key in [
         "PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_MTLS_CLIENT_IDENTITY",
         "PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_MTLS_CLIENT_IDENTITY",
@@ -626,7 +626,7 @@ async fn sanction_export_reused_internal_identities_503() -> TestResult {
 
 #[tokio::test]
 async fn nwave_lifted_sanction_requires_new_identity() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use super::super::{Features, SanctionAction, SanctionIntent, Service};
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -706,7 +706,7 @@ async fn nwave_lifted_sanction_requires_new_identity() -> TestResult {
 
 #[tokio::test]
 async fn sanction_export_temporary_namelock_revokes_on_expiry() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use super::super::{Features, SanctionAction, SanctionIntent, Service};
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -815,7 +815,7 @@ async fn sanction_export_temporary_namelock_revokes_on_expiry() -> TestResult {
 
 #[tokio::test]
 async fn postgres_expiry_candidates_bound_work_with_permanent_history() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use super::super::{Features, SanctionAction, SanctionIntent, Service};
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {

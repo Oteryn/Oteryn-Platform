@@ -82,7 +82,7 @@ async fn html(response: Response) -> Result<String, Box<dyn std::error::Error>> 
 }
 #[tokio::test]
 async fn pages_escape_input_localize_and_use_accessible_components() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     for (lang, title) in [("pl", "Utwórz postać"), ("en", "Create character")] {
         let body = html(super::page::form(
             lang,
@@ -161,7 +161,7 @@ fn post(name: &str, world: Uuid, submission: Uuid, csrf: &str) -> Request<Body> 
 }
 #[tokio::test]
 async fn unauthenticated_disabled_and_csrf_fail_closed_without_storage() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let pool = PgPoolOptions::new().connect_lazy("postgres://portal@127.0.0.1:1/unreachable")?;
     let (anonymous, _) = app(pool.clone(), Settings::default(), None);
     assert_eq!(
@@ -272,7 +272,7 @@ fn input(world: Uuid) -> Submission {
 }
 #[tokio::test]
 async fn db_success_concurrent_replay_and_changed_intent_conflict() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -320,7 +320,7 @@ async fn db_success_concurrent_replay_and_changed_intent_conflict() -> TestResul
 }
 #[tokio::test]
 async fn db_refuses_ineligible_unknown_bad_world_and_reserved_names() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -355,7 +355,7 @@ async fn db_refuses_ineligible_unknown_bad_world_and_reserved_names() -> TestRes
 }
 #[tokio::test]
 async fn db_browser_actor_to_command_flash_and_owner_only_status() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -458,7 +458,7 @@ async fn db_browser_actor_to_command_flash_and_owner_only_status() -> TestResult
 }
 #[tokio::test]
 async fn db_rate_limits_are_shared_and_expire() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -488,7 +488,7 @@ async fn db_rate_limits_are_shared_and_expire() -> TestResult {
 }
 #[tokio::test]
 async fn db_receipts_decide_outcome_and_expiry_alone_stays_pending() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -562,7 +562,7 @@ async fn db_receipts_decide_outcome_and_expiry_alone_stays_pending() -> TestResu
 
 #[tokio::test]
 async fn db_all_pool_connections_can_submit_concurrently() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());
@@ -620,7 +620,7 @@ async fn db_all_pool_connections_can_submit_concurrently() -> TestResult {
 
 #[tokio::test]
 async fn audit_a210_db_browser_rejected_attempts_consume_admission_budget() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let Some(db) = Database::new().await? else {
         return Ok(());

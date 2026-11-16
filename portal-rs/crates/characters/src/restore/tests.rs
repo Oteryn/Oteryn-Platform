@@ -174,7 +174,7 @@ fn invalid_notices_and_uint64_boundaries() {
 }
 #[tokio::test]
 async fn guards_refuse_wrong_identity_bad_schema_source_and_disabled() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unreachable")
         .unwrap();
@@ -294,7 +294,7 @@ async fn seed(pool: &PgPool) {
 }
 #[tokio::test]
 async fn db_notice_replay_conflict_stale_and_acknowledgement_once() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -333,7 +333,7 @@ async fn db_notice_replay_conflict_stale_and_acknowledgement_once() {
 }
 #[tokio::test]
 async fn db_reopens_receipts_preserves_history_and_queues_reversed_outcome() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -422,7 +422,7 @@ async fn db_reopens_receipts_preserves_history_and_queues_reversed_outcome() {
 }
 #[tokio::test]
 async fn db_chained_restores_carry_original_receipt_until_new_decision() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -472,7 +472,7 @@ async fn db_chained_restores_carry_original_receipt_until_new_decision() {
 }
 #[tokio::test]
 async fn db_selection_is_numeric_inclusive_and_ignores_restore_time() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -509,7 +509,7 @@ async fn db_selection_is_numeric_inclusive_and_ignores_restore_time() {
 }
 #[tokio::test]
 async fn db_unavailable_exchange_rolls_back_but_empty_notices_acknowledge() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -562,7 +562,7 @@ async fn db_unavailable_exchange_rolls_back_but_empty_notices_acknowledge() {
 }
 #[tokio::test]
 async fn db_unknown_history_is_denied_and_queued_without_notice() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some((pool, admin, schema)) = database().await else {
         return;
@@ -608,7 +608,7 @@ async fn db_unknown_history_is_denied_and_queued_without_notice() {
 }
 #[tokio::test]
 async fn db_recovery_exchange_does_not_enable_issuance_and_rates_are_per_identity() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -676,7 +676,7 @@ async fn db_recovery_exchange_does_not_enable_issuance_and_rates_are_per_identit
 }
 #[tokio::test]
 async fn db_concurrent_receipt_and_notice_never_lose_a_reopen() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -711,7 +711,7 @@ async fn db_concurrent_receipt_and_notice_never_lose_a_reopen() {
 }
 #[tokio::test]
 async fn db_migration_preserves_existing_receipts_and_reopens_them() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database_at(false).await else {
         return;
     };
@@ -743,7 +743,7 @@ async fn db_migration_preserves_existing_receipts_and_reopens_them() {
 }
 #[tokio::test]
 async fn db_invalid_legacy_generation_is_queued_instead_of_guessed() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database_at(false).await else {
         return;
     };
@@ -771,7 +771,7 @@ async fn db_invalid_legacy_generation_is_queued_instead_of_guessed() {
 
 #[tokio::test]
 async fn db_restore_receipt_with_one_connection() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some((pool, admin, schema)) = database_with_connections(true, 1).await else {
         return;
@@ -798,7 +798,7 @@ async fn db_restore_receipt_with_one_connection() {
 
 #[tokio::test]
 async fn db_restore_receipt_with_exhausted_pool() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Some((pool, admin, schema)) = database_with_connections(true, 2).await else {
         return;
@@ -824,7 +824,7 @@ async fn db_restore_receipt_with_exhausted_pool() {
 
 #[tokio::test]
 async fn audit_a210_rate_admission_precedes_body_validation_v1_and_restore() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unused")
         .unwrap();

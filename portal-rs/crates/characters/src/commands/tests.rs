@@ -227,7 +227,7 @@ fn malformed_wire_and_cross_command_codes_are_refused() {
 }
 #[tokio::test]
 async fn guard_denies_wrong_identity_disabled_surface_and_bad_input() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unreachable")
         .unwrap();
@@ -275,7 +275,7 @@ async fn guard_denies_wrong_identity_disabled_surface_and_bad_input() {
 }
 #[tokio::test]
 async fn account_state_and_invalid_input_deny_before_storage() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unreachable")
         .unwrap();
@@ -309,7 +309,7 @@ async fn account_state_and_invalid_input_deny_before_storage() {
 }
 #[tokio::test]
 async fn db_golden_exchange_replay_conflicts_and_unknown_operations() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -425,7 +425,7 @@ async fn db_golden_exchange_replay_conflicts_and_unknown_operations() {
 }
 #[tokio::test]
 async fn db_enqueue_retries_paging_and_backlog_are_serialized() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -506,7 +506,7 @@ async fn db_enqueue_retries_paging_and_backlog_are_serialized() {
 }
 #[tokio::test]
 async fn db_transfer_enqueue_checks_both_accounts_and_sequence_regression() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some((pool, admin, schema)) = database().await else {
         return;
     };
@@ -572,7 +572,7 @@ async fn db_transfer_enqueue_checks_both_accounts_and_sequence_regression() {
 
 #[tokio::test]
 async fn invalid_configuration_and_disabled_profiles_fail_closed() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://localhost/unreachable")
         .unwrap();

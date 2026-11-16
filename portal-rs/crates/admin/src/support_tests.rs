@@ -93,7 +93,7 @@ fn temporary_sanctions_only() {
 }
 #[tokio::test]
 async fn missing_backend_denies_reads() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     assert_eq!(
         PendingSupport.list(Area::Tickets, 1).await.err(),
         Some(Error::Unavailable)
@@ -159,7 +159,7 @@ impl Backend for TestBackend {
 }
 #[tokio::test]
 async fn postgres_support_atomic_audit_and_refusal() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
         return;
@@ -247,7 +247,7 @@ async fn postgres_support_atomic_audit_and_refusal() {
 
 #[tokio::test]
 async fn disabled_routes_hide_all_support_surfaces() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use axum::{
         body::Body,
         http::{Request, StatusCode},

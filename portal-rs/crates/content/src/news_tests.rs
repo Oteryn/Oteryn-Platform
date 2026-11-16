@@ -22,7 +22,7 @@ fn validation_and_escaping() {
 }
 #[tokio::test]
 async fn postgres_news_lifecycle() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL news test: PORTAL_TEST_DATABASE_URL unset");
@@ -490,7 +490,7 @@ fn home_excerpt_and_date() {
 
 #[tokio::test]
 async fn postgres_pagination_language_and_caps() {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")
         .expect("PORTAL_TEST_DATABASE_URL required for pagination regression");

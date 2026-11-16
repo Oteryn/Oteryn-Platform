@@ -186,7 +186,7 @@ fn strict_amounts_and_default_flags() {
 }
 #[tokio::test]
 async fn postgres_transfer_success_replay_refusal_and_bad_input() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -283,7 +283,7 @@ async fn postgres_transfer_success_replay_refusal_and_bad_input() -> TestResult 
 }
 #[tokio::test]
 async fn postgres_pages_authentication_flags_and_pagination() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -347,7 +347,7 @@ async fn postgres_pages_authentication_flags_and_pagination() -> TestResult {
 }
 #[tokio::test]
 async fn postgres_unconfigured_mutations_and_rate_limit_deny() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -433,7 +433,7 @@ async fn catalog(
 }
 #[tokio::test]
 async fn postgres_purchase_uses_quote_ownership_and_domain_idempotency() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -562,7 +562,7 @@ impl TopUps for TestTopUps {
 }
 #[tokio::test]
 async fn postgres_topup_pending_replay_and_no_browser_credit() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -616,7 +616,7 @@ async fn postgres_topup_pending_replay_and_no_browser_credit() -> TestResult {
 #[tokio::test]
 #[ignore = "requires Chromium and PORTAL_BROWSER_MODULES"]
 async fn postgres_browser_at_360px() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -686,7 +686,7 @@ async fn postgres_browser_at_360px() -> TestResult {
 
 #[tokio::test]
 async fn postgres_configured_identity_d14_transfer_and_ownership_deny() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await? else {
         return Ok(());
     };

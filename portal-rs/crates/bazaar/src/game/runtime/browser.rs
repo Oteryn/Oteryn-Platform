@@ -614,7 +614,7 @@ mod catalogue_tests {
     #[tokio::test]
     async fn postgres_terminal_history_cannot_hide_active_catalogue_candidate()
     -> Result<(), Box<dyn std::error::Error>> {
-        let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
         let started = std::time::Instant::now();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)

@@ -19,7 +19,7 @@ async fn database() -> Result<Option<PgConnection>, Box<dyn std::error::Error>> 
 #[tokio::test]
 async fn postgres_success_acknowledge_reject_resubmit_accept()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(mut db) = database().await? else {
         return Ok(());
     };
@@ -92,7 +92,7 @@ async fn postgres_success_acknowledge_reject_resubmit_accept()
 #[tokio::test]
 async fn postgres_refuses_foreign_owner_stale_version_and_duplicate_appeal()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(mut db) = database().await? else {
         return Ok(());
     };
@@ -142,7 +142,7 @@ async fn postgres_refuses_foreign_owner_stale_version_and_duplicate_appeal()
 
 #[tokio::test]
 async fn postgres_bad_input_preserves_state() -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(mut db) = database().await? else {
         return Ok(());
     };
@@ -257,7 +257,7 @@ async fn service_pool() -> Result<Option<sqlx::PgPool>, Box<dyn std::error::Erro
 #[tokio::test]
 async fn postgres_service_rolls_back_decision_and_effects_together()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(pool) = service_pool().await? else {
         return Ok(());
     };
@@ -336,7 +336,7 @@ async fn postgres_service_rolls_back_decision_and_effects_together()
 
 #[tokio::test]
 async fn postgres_service_unknown_authority_denies() -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(pool) = service_pool().await? else {
         return Ok(());
     };

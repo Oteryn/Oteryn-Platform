@@ -146,7 +146,7 @@ async fn post(db: &Fixture, cookie: &str, csrf: &str, body: String) -> TestResul
 }
 #[tokio::test]
 async fn panel_refuses_last_eligible_administrator_revocation() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
     insert_account(&db, db.actor.account, "active").await?;
@@ -234,7 +234,7 @@ async fn panel_refuses_last_eligible_administrator_revocation() -> TestResult {
 }
 #[tokio::test]
 async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
     insert_account(&db, db.actor.account, "active").await?;
@@ -354,7 +354,7 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
 
 #[tokio::test]
 async fn player_notes_complete_when_small_pool_is_queued_on_role_fence() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use crate::players::{Flags, IdentityAccounts, Players};
     let started = std::time::Instant::now();
     let mut db = Fixture::open(2).await?;
@@ -420,7 +420,7 @@ async fn player_notes_complete_when_small_pool_is_queued_on_role_fence() -> Test
 
 #[tokio::test]
 async fn role_fence_wait_is_bounded_and_releases_pool_capacity() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let mut db = Fixture::open(1).await?;
     let auth = Authorizer::new(db.pool.clone(), PortalIdentity::configured(db.pool.clone()));
@@ -462,7 +462,7 @@ async fn role_fence_wait_is_bounded_and_releases_pool_capacity() -> TestResult {
 
 #[tokio::test]
 async fn postgres_role_pages_and_survivor_batches_are_bounded() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
     insert_account(&db, db.actor.account, "active").await?;
@@ -559,7 +559,7 @@ impl StaffSession for PausedPortalIdentity {
 #[tokio::test]
 async fn postgres_a3_real_player_request_refuses_revoked_session_after_authentication() -> TestResult
 {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     use sha2::{Digest, Sha256};
     let started = std::time::Instant::now();
     let db = Fixture::open(4).await?;
@@ -648,7 +648,7 @@ async fn staff_waiters(db: &Fixture) -> Result<i64, sqlx::Error> {
 }
 #[tokio::test]
 async fn postgres_a3_staff_barrier_ignores_another_fixture_waiter() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(2).await?;
     let other = Fixture::open(2).await?;
@@ -708,7 +708,7 @@ async fn postgres_a3_staff_barrier_ignores_another_fixture_waiter() -> TestResul
 
 #[tokio::test]
 async fn postgres_a3_role_writer_rechecks_current_session_mfa_binding() -> TestResult {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await;
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
     insert_account(&db, db.actor.account, "active").await?;
