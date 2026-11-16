@@ -222,18 +222,48 @@ pub struct Witness {
     namespace: String,
     _lock: File,
 }
+/// Why a retained witness operation failed. Internal detail for signing-trust
+/// refusal causes; every public path still answers `Failure` (503).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WitnessFault {
+    /// Another holder has the namespace lock.
+    LockBusy,
+    Io(std::io::ErrorKind),
+    /// The bounded blocking pool refused or lost the work.
+    Blocking,
+    /// Namespace, path or retained content failed validation.
+    Integrity,
+    Entropy,
+}
+impl From<WitnessFault> for Failure {
+    fn from(_: WitnessFault) -> Self {
+        unavailable()
+    }
+}
+fn io_fault(error: &std::io::Error) -> WitnessFault {
+    WitnessFault::Io(error.kind())
+}
+fn lock_fault(error: &fs::TryLockError) -> WitnessFault {
+    match error {
+        fs::TryLockError::WouldBlock => WitnessFault::LockBusy,
+        fs::TryLockError::Error(e) => io_fault(e),
+    }
+}
 impl Witness {
     pub fn lock(directory: &Path, namespace: &str) -> Result<Self, Failure> {
+        Self::lock_detailed(directory, namespace).map_err(|_| unavailable())
+    }
+    pub(crate) fn lock_detailed(directory: &Path, namespace: &str) -> Result<Self, WitnessFault> {
         if namespace.len() != 64
             || !namespace
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         {
-            return Err(unavailable());
+            return Err(WitnessFault::Integrity);
         }
-        let directory = directory.canonicalize().map_err(|_| unavailable())?;
+        let directory = directory.canonicalize().map_err(|e| io_fault(&e))?;
         if !directory.is_dir() {
-            return Err(unavailable());
+            return Err(WitnessFault::Integrity);
         }
         let lock_path = directory.join(format!("{namespace}.lock"));
         reject_symlink(&lock_path)?;
@@ -243,8 +273,8 @@ impl Witness {
             .read(true)
             .write(true)
             .open(lock_path)
-            .map_err(|_| unavailable())?;
-        lock.try_lock().map_err(|_| unavailable())?;
+            .map_err(|e| io_fault(&e))?;
+        lock.try_lock().map_err(|e| lock_fault(&e))?;
         Ok(Self {
             directory,
             namespace: namespace.to_owned(),
@@ -255,25 +285,40 @@ impl Witness {
         self.directory.join(format!("{namespace}.floor"))
     }
     pub fn floor(&self, namespace: &str) -> Result<Option<i64>, Failure> {
+        self.floor_detailed(namespace).map_err(|_| unavailable())
+    }
+    pub(crate) fn floor_detailed(&self, namespace: &str) -> Result<Option<i64>, WitnessFault> {
         valid_namespace(namespace)?;
         if namespace != self.namespace {
-            return Err(unavailable());
+            return Err(WitnessFault::Integrity);
         }
         read_small(&self.path(namespace))?
             .map(|s| {
-                let n = decimal(s.trim(), true).map_err(|_| unavailable())?;
-                n.try_into().map_err(|_| unavailable())
+                let n = decimal(s.trim(), true).map_err(|_| WitnessFault::Integrity)?;
+                n.try_into().map_err(|_| WitnessFault::Integrity)
             })
             .transpose()
     }
     /// Domain writers call while holding this namespace lock, before committing state.
     pub fn advance(&self, namespace: &str, revision: i64) -> Result<(), Failure> {
+        self.advance_detailed(namespace, revision)
+            .map_err(|_| unavailable())
+    }
+    pub(crate) fn advance_detailed(
+        &self,
+        namespace: &str,
+        revision: i64,
+    ) -> Result<(), WitnessFault> {
         valid_namespace(namespace)?;
         if namespace != self.namespace {
-            return Err(unavailable());
+            return Err(WitnessFault::Integrity);
         }
-        if revision <= 0 || self.floor(namespace)?.is_some_and(|n| n > revision) {
-            return Err(unavailable());
+        if revision <= 0
+            || self
+                .floor_detailed(namespace)?
+                .is_some_and(|n| n > revision)
+        {
+            return Err(WitnessFault::Integrity);
         }
         durable_write(&self.path(namespace), format!("{revision}\n").as_bytes())
     }
@@ -346,58 +391,60 @@ impl Witness {
         }
     }
 }
-fn valid_namespace(s: &str) -> Result<(), Failure> {
+fn valid_namespace(s: &str) -> Result<(), WitnessFault> {
     if s.len() == 64
         && s.bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     {
         Ok(())
     } else {
-        Err(unavailable())
+        Err(WitnessFault::Integrity)
     }
 }
-fn reject_symlink(path: &Path) -> Result<(), Failure> {
+fn reject_symlink(path: &Path) -> Result<(), WitnessFault> {
     match fs::symlink_metadata(path) {
-        Ok(meta) if !meta.is_file() || meta.file_type().is_symlink() => Err(unavailable()),
+        Ok(meta) if !meta.is_file() || meta.file_type().is_symlink() => {
+            Err(WitnessFault::Integrity)
+        }
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(unavailable()),
+        Err(e) => Err(io_fault(&e)),
     }
 }
-fn read_small(path: &Path) -> Result<Option<String>, Failure> {
+fn read_small(path: &Path) -> Result<Option<String>, WitnessFault> {
     reject_symlink(path)?;
     let file = match File::open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err(unavailable()),
+        Err(e) => return Err(io_fault(&e)),
     };
     let mut value = String::new();
     file.take(129)
         .read_to_string(&mut value)
-        .map_err(|_| unavailable())?;
+        .map_err(|e| io_fault(&e))?;
     if value.len() > 128 {
-        return Err(unavailable());
+        return Err(WitnessFault::Integrity);
     }
     Ok(Some(value))
 }
-fn durable_write(path: &Path, bytes: &[u8]) -> Result<(), Failure> {
+fn durable_write(path: &Path, bytes: &[u8]) -> Result<(), WitnessFault> {
     reject_symlink(path)?;
     let mut random = [0; 16];
-    getrandom::fill(&mut random).map_err(|_| unavailable())?;
+    getrandom::fill(&mut random).map_err(|_| WitnessFault::Entropy)?;
     let temporary = path.with_extension(format!("tmp.{}", hash(random)));
     let result = (|| {
         let mut file = OpenOptions::new()
             .create_new(true)
             .write(true)
             .open(&temporary)
-            .map_err(|_| unavailable())?;
-        file.write_all(bytes).map_err(|_| unavailable())?;
-        file.sync_all().map_err(|_| unavailable())?;
-        fs::rename(&temporary, path).map_err(|_| unavailable())?;
-        File::open(path.parent().ok_or_else(unavailable)?)
-            .map_err(|_| unavailable())?
+            .map_err(|e| io_fault(&e))?;
+        file.write_all(bytes).map_err(|e| io_fault(&e))?;
+        file.sync_all().map_err(|e| io_fault(&e))?;
+        fs::rename(&temporary, path).map_err(|e| io_fault(&e))?;
+        File::open(path.parent().ok_or(WitnessFault::Integrity)?)
+            .map_err(|e| io_fault(&e))?
             .sync_all()
-            .map_err(|_| unavailable())
+            .map_err(|e| io_fault(&e))
     })();
     if result.is_err() {
         let _ = fs::remove_file(temporary);
@@ -432,27 +479,52 @@ pub fn trust_state_namespace(
 pub(crate) struct AsyncWitness(Arc<Witness>);
 impl AsyncWitness {
     pub(crate) async fn lock(directory: &Path, namespace: &str) -> Result<Self, Failure> {
+        Self::lock_detailed(directory, namespace)
+            .await
+            .map_err(|_| unavailable())
+    }
+    pub(crate) async fn lock_detailed(
+        directory: &Path,
+        namespace: &str,
+    ) -> Result<Self, WitnessFault> {
         let directory = directory.to_owned();
         let namespace = namespace.to_owned();
         crate::blocking::run(move || {
-            Witness::lock(&directory, &namespace).map(|w| Self(Arc::new(w)))
+            Witness::lock_detailed(&directory, &namespace).map(|w| Self(Arc::new(w)))
         })
         .await
-        .map_err(|_| unavailable())?
+        .map_err(|()| WitnessFault::Blocking)?
     }
     pub(crate) async fn floor(&self, namespace: &str) -> Result<Option<i64>, Failure> {
-        let witness = self.0.clone();
-        let namespace = namespace.to_owned();
-        crate::blocking::run(move || witness.floor(&namespace))
+        self.floor_detailed(namespace)
             .await
-            .map_err(|_| unavailable())?
+            .map_err(|_| unavailable())
     }
     pub(crate) async fn advance(&self, namespace: &str, revision: i64) -> Result<(), Failure> {
+        self.advance_detailed(namespace, revision)
+            .await
+            .map_err(|_| unavailable())
+    }
+    pub(crate) async fn floor_detailed(
+        &self,
+        namespace: &str,
+    ) -> Result<Option<i64>, WitnessFault> {
         let witness = self.0.clone();
         let namespace = namespace.to_owned();
-        crate::blocking::run(move || witness.advance(&namespace, revision))
+        crate::blocking::run(move || witness.floor_detailed(&namespace))
             .await
-            .map_err(|_| unavailable())?
+            .map_err(|()| WitnessFault::Blocking)?
+    }
+    pub(crate) async fn advance_detailed(
+        &self,
+        namespace: &str,
+        revision: i64,
+    ) -> Result<(), WitnessFault> {
+        let witness = self.0.clone();
+        let namespace = namespace.to_owned();
+        crate::blocking::run(move || witness.advance_detailed(&namespace, revision))
+            .await
+            .map_err(|()| WitnessFault::Blocking)?
     }
     async fn provenance(&self, pool: &PgPool) -> Result<(), Failure> {
         self.0.provenance(pool).await
