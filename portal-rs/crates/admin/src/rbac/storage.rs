@@ -132,6 +132,11 @@ impl<A: AccountStateReader> Authorizer<A> {
                     .bind(role).fetch_all(&mut *tx).await?;
                 let after = permission_ids(permissions);
                 if before == after {
+                    self.check_in(&mut tx, context, Permission::ManageRoles)
+                        .await?;
+                    if panel {
+                        self.check_in(&mut tx, context, Permission::Access).await?;
+                    }
                     tx.commit().await?;
                     return Ok(None);
                 }
@@ -179,6 +184,11 @@ impl<A: AccountStateReader> Authorizer<A> {
                         .rows_affected()
                 };
                 if affected == 0 {
+                    self.check_in(&mut tx, context, Permission::ManageRoles)
+                        .await?;
+                    if panel {
+                        self.check_in(&mut tx, context, Permission::Access).await?;
+                    }
                     tx.commit().await?;
                     return Ok(None);
                 }
@@ -209,6 +219,11 @@ impl<A: AccountStateReader> Authorizer<A> {
             },
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageRoles)
+            .await?;
+        if panel {
+            self.check_in(&mut tx, context, Permission::Access).await?;
+        }
         tx.commit().await?;
         Ok(Some(result))
     }

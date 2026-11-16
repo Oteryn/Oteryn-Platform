@@ -705,6 +705,9 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
         )
         .await?;
     }
+    for permission in [Permission::Access, Permission::ManageRoles] {
+        s.auth.check_in(&mut tx, context, permission).await?;
+    }
     tx.commit().await?;
     Ok(())
 }
