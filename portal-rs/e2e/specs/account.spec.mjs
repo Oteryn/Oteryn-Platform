@@ -77,7 +77,7 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
  await expect(page.locator('html')).toHaveAttribute('lang',lang);
  await expect(page.locator('main')).toBeVisible();
  await assertShell(page);
- if(label==='wallet balance') {expect(await page.locator('main dl dd').count()).toBeGreaterThanOrEqual(3);await expect(page.locator('main dl dd').first()).toHaveText('0');}
+ if(label==='wallet balance') {expect(await page.locator('main dl dd').count()).toBe(2);await expect(page.locator('main dl dd').first()).toHaveText('0');}
  const forms=await page.locator('form[method=post],form[method=POST]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
  for(const form of forms) await csrfRejected(page,form.action,form.fields);
 });

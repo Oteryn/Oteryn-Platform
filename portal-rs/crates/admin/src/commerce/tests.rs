@@ -533,7 +533,7 @@ async fn postgres_http_forms_localization_csrf_permissions_and_input() {
     let polish = app
         .clone()
         .oneshot(
-            HttpRequest::get("/admin/commerce")
+            HttpRequest::get("/admin/commerce?lang=pl")
                 .header("host", "staff.test")
                 .header("accept-language", "pl")
                 .body(Body::empty())
@@ -541,6 +541,8 @@ async fn postgres_http_forms_localization_csrf_permissions_and_input() {
         )
         .await
         .unwrap();
+    // Admin navigation links carry the site-wide locale parameter.
+    assert_eq!(polish.status(), StatusCode::OK);
     let polish =
         String::from_utf8(to_bytes(polish.into_body(), 200000).await.unwrap().to_vec()).unwrap();
     assert!(polish.contains("Nadaj premium"));

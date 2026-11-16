@@ -175,6 +175,9 @@ struct Page {
 #[serde(deny_unknown_fields)]
 struct QueueFilter {
     after: Option<Uuid>,
+    // Site-wide locale switch parameter carried by admin navigation links.
+    #[serde(rename = "lang")]
+    _lang: Option<String>,
 }
 async fn page<A: rbac::AccountStateReader, E: Effects>(
     State(s): State<Arc<Commerce<A, E>>>,
