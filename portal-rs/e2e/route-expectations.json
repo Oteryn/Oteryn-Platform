@@ -516,7 +516,7 @@
     "route": "/admin/{lang}/party",
     "actor": "staff",
     "method": "GET",
-    "status": 403,
+    "status": 200,
     "reason": "page, redirect alias or resource read"
   },
   {
