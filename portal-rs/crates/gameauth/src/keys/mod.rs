@@ -126,7 +126,10 @@ pub enum CauseKind {
     LockBusy,
     Deadline,
     Blocking,
+    /// The trust snapshot is older than its 5 second bound, or from the future.
     Stale,
+    /// The trust snapshot serves another issuer, profile or purpose.
+    Mismatch,
     Decode,
     Encode,
     Entropy,
@@ -185,6 +188,7 @@ impl fmt::Debug for CauseKind {
             Self::Deadline => f.write_str("Deadline"),
             Self::Blocking => f.write_str("Blocking"),
             Self::Stale => f.write_str("Stale"),
+            Self::Mismatch => f.write_str("Mismatch"),
             Self::Decode => f.write_str("Decode"),
             Self::Encode => f.write_str("Encode"),
             Self::Entropy => f.write_str("Entropy"),

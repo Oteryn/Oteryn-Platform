@@ -45,9 +45,10 @@ impl SigningTrust for TrustSnapshot {
         if issuer != self.scope.issuer()
             || profile != self.scope.profile()
             || purpose != self.purpose
-            || now < self.observed_at
-            || now - self.observed_at >= 5
         {
+            return Err(unavailable(CauseKind::Mismatch));
+        }
+        if now < self.observed_at || now - self.observed_at >= 5 {
             return Err(unavailable(CauseKind::Stale));
         }
         Ok(self.keys.get(kid).copied())

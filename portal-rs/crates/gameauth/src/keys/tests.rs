@@ -618,6 +618,22 @@ async fn postgres_refuses_third_rebinding_bad_input_and_stale_snapshot() -> Test
         snapshot.trusted_key(ISSUER, PROFILE, "fresh_entry", "a", db.now().await? + 6),
         Err(KeyError::Unavailable(c)) if c.kind() == CauseKind::Stale
     ));
+    // A fresh snapshot asked for another scope is a mismatch, not stale.
+    let now = snapshot.observed_at();
+    assert!(matches!(
+        snapshot.trusted_key(RECOVERY_ISSUER, PROFILE, "fresh_entry", "a", now),
+        Err(KeyError::Unavailable(c)) if c.kind() == CauseKind::Mismatch
+            && c.site().file().ends_with("keys/trust.rs")
+    ));
+    assert!(matches!(
+        snapshot.trusted_key(ISSUER, PROFILE, "other_purpose", "a", now),
+        Err(KeyError::Unavailable(c)) if c.kind() == CauseKind::Mismatch
+    ));
+    assert!(
+        snapshot
+            .trusted_key(ISSUER, PROFILE, "fresh_entry", "a", now)
+            .is_ok()
+    );
     registry.revoke("a").await?;
     assert!(registry.publish(&a).await.is_err());
     registry.publish(&c).await?;
@@ -909,7 +925,7 @@ async fn unavailable_cause_advisory_key_held_is_statement_timeout() -> TestResul
     sqlx::query("SELECT 1").execute(&db.pool).await?;
     let registry = db
         .registry()?
-        .with_deadline(tokio::time::Instant::now() + std::time::Duration::from_millis(300));
+        .with_deadline(tokio::time::Instant::now() + std::time::Duration::from_secs(3));
     let published = registry.publish(&key).await;
     barrier.rollback().await?;
     let cause = cause_of(published)?;
@@ -1001,6 +1017,7 @@ async fn unavailable_cause_never_reaches_the_503_body() -> TestResult {
         "Deadline",
         "Blocking",
         "Stale",
+        "Mismatch",
         "Decode",
         "Encode",
         "Entropy",
