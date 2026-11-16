@@ -49,7 +49,7 @@ requested integration disposition, not a claim that this branch includes drc-a.
 
 | Site | Lock(s) and mode | Level | Budget before first lock | Authorization after last wait | Compliant |
 |---|---|---|---|---|---|
-| `portal-rs/crates/admin/src/players/mod.rs` staff kick | accounts UPDATE; RBAC exclusive; security-revocation effects | 3,5,7 | yes | no | fixed in parallel task drc-a |
+| `portal-rs/crates/admin/src/players/mod.rs` staff kick | accounts UPDATE; RBAC exclusive; security-revocation effects | 3,5,7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | fixed in parallel task drc-a |
 | `portal-rs/crates/bazaar/src/locking.rs` listing_gate | advisory 64002 shared | 1 | no | n.a. | fixed in parallel task drc-a |
 | `portal-rs/crates/store/src/codes.rs` request key 55 | request advisory exclusive; code UPDATE; batch/account key 56; account UPDATE | 2,3,7 | no | n.a. | fixed in parallel task drc-a |
 | `portal-rs/bin/oteryn-portal/src/catalog_cli.rs` audit key 281510004 | exclusive advisory in audit transaction | namespace prefix | no | n.a. | fixed in parallel task drc-a |
@@ -574,21 +574,21 @@ fresh audit appends do not authorize later domain effects.
 
 | Site | Locks and mode | Level | Budget before first lock | Authorization after last wait | Compliant |
 |---|---|---|---|---|---|
-| `portal-rs/crates/admin/src/rbac/storage.rs:32` `change` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
-| `portal-rs/crates/admin/src/rbac/storage.rs:43` `change_from_panel` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
-| `portal-rs/crates/admin/src/rbac/storage.rs:52` `change_impl` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:282` `note` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:317` `logout_all` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:359` `kick` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | no | fixed in parallel task drc-a |
-| `portal-rs/crates/admin/src/players/mod.rs:426` `release_coin_hold` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:506` `attest_reset_evidence_impl` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:556` `request_reset` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:608` `approve_reset` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
-| `portal-rs/crates/admin/src/bazaar.rs:79` `execute` | 64002 exclusive; listing/target UPDATE; ordered accounts UPDATE; RBAC/proof/effects | 1→2→3→5→6→7 | yes | yes | yes |
+| `portal-rs/crates/admin/src/rbac/storage.rs:32` `change` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/rbac/storage.rs:43` `change_from_panel` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/rbac/storage.rs:52` `change_impl` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:282` `note` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:317` `logout_all` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:359` `kick` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | fixed in parallel task drc-a |
+| `portal-rs/crates/admin/src/players/mod.rs:426` `release_coin_hold` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:506` `attest_reset_evidence_impl` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:556` `request_reset` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:608` `approve_reset` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/bazaar.rs:79` `execute` | 64002 exclusive; listing/target UPDATE; ordered accounts UPDATE; RBAC/proof/effects | 1→2→3→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/support.rs:252` `execute` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
 | `portal-rs/crates/admin/src/commerce/mod.rs:177` `submit` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
 | `portal-rs/crates/admin/src/commerce/mod.rs:299` `approve` | ordered accounts UPDATE; prepared resources UPDATE; RBAC exclusive; durable proof UPDATE; effects | 3→4→5→6→7 | yes | yes | yes |
-| `portal-rs/crates/admin/src/console/stored.rs:126` `submit_query` | canonical account/RBAC/proof; ownership advisory shared; retained proof SHARE; enqueue/audit | 3→5→6→7 | yes | yes | yes |
+| `portal-rs/crates/admin/src/console/stored.rs:126` `submit_query` | canonical account/RBAC/proof; ownership advisory shared; retained proof SHARE; enqueue/audit | 3→5→6→7 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/control/integration.rs:34` `step_up_for_request` | request row UPDATE and evidence inserts through Authority adapter; configured production authorize/approver deny; test adapters exercise storage only | 4→7 | no | n.a. | yes |
 | `portal-rs/crates/admin/src/control/integration.rs:95` `record_request_preview` | request row UPDATE and evidence inserts through Authority adapter; configured production authorize/approver deny; test adapters exercise storage only | 4→7 | no | n.a. | yes |
 | `portal-rs/crates/admin/src/control/integration.rs:154` `approve_request` | request row UPDATE and evidence inserts through Authority adapter; configured production authorize/approver deny; test adapters exercise storage only | 4→7 | no | n.a. | yes |
@@ -1013,7 +1013,7 @@ exclusive advisory; S is shared advisory. SQL row modes are written out.
 | `portal-rs/crates/admin/src/bazaar.rs:79` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/bazaar.rs:82` | comment/document/template reference; no acquisition | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/bazaar.rs:88` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/bazaar.rs:93` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | yes |
+| `portal-rs/crates/admin/src/bazaar.rs:93` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/bazaar.rs:98` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/bazaar.rs:101` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/bazaar.rs:103` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
@@ -1309,14 +1309,14 @@ exclusive advisory; S is shared advisory. SQL row modes are written out.
 | `portal-rs/crates/admin/src/console/stored.rs:138` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:150` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:154` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/console/stored.rs:158` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | yes |
+| `portal-rs/crates/admin/src/console/stored.rs:158` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:164` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:165` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:182` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:185` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:188` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:193` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/console/stored.rs:201` | FOR SHARE OF t,s; query tables account_mfa_tokens, web_sessions; let evidence: Option&lt;(OffsetDateTime, String)&gt; = sqlx::query_as("SELECT t.created_at,COALESCE(s.ip::text,'') FROM account_mfa_tokens t JOIN  | 6 | yes | yes | yes |
+| `portal-rs/crates/admin/src/console/stored.rs:201` | FOR SHARE OF t,s; query tables account_mfa_tokens, web_sessions; let evidence: Option&lt;(OffsetDateTime, String)&gt; = sqlx::query_as("SELECT t.created_at,COALESCE(s.ip::text,'') FROM account_mfa_tokens t JOIN  | 6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:204` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:223` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/console/stored.rs:250` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
@@ -1716,17 +1716,17 @@ exclusive advisory; S is shared advisory. SQL row modes are written out.
 | `portal-rs/crates/admin/src/players/mod.rs:261` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:275` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:283` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:288` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:288` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:293` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:296` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:323` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:328` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:332` | FOR UPDATE; query tables web_sessions; sqlx::query("SELECT id_hash FROM web_sessions WHERE account_id=$1 ORDER BY id_hash FOR UPDATE") | 4 (prepared target sessions) | yes | yes | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:328` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:332` | FOR UPDATE; query tables web_sessions; sqlx::query("SELECT id_hash FROM web_sessions WHERE account_id=$1 ORDER BY id_hash FOR UPDATE") | 4 (prepared target sessions) | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:338` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:341` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:355` | comment/document/template reference; no acquisition | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:360` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:364` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | fixed in parallel task drc-a |
+| `portal-rs/crates/admin/src/players/mod.rs:364` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | fixed in parallel task drc-a |
 | `portal-rs/crates/admin/src/players/mod.rs:369` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:372` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:374` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
@@ -1736,7 +1736,7 @@ exclusive advisory; S is shared advisory. SQL row modes are written out.
 | `portal-rs/crates/admin/src/players/mod.rs:412` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:421` | comment/document/template reference; no acquisition | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:433` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:442` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:442` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:447` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:450` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:463` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
@@ -1744,22 +1744,22 @@ exclusive advisory; S is shared advisory. SQL row modes are written out.
 | `portal-rs/crates/admin/src/players/mod.rs:487` | comment/document/template reference; no acquisition | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:488` | comment/document/template reference; no acquisition | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:512` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:522` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:527` | FOR UPDATE; query tables tickets; sqlx::query("SELECT id FROM tickets WHERE id=$1 FOR UPDATE") | 4 / owning domain resource | yes | yes | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:522` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:527` | FOR UPDATE; query tables tickets; sqlx::query("SELECT id FROM tickets WHERE id=$1 FOR UPDATE") | 4 / owning domain resource | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:536` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:539` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:563` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:572` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:577` | FOR UPDATE; query tables support_mfa_reset_evidence; sqlx::query("SELECT id FROM support_mfa_reset_evidence WHERE id=$1 FOR UPDATE") | 4 / owning domain resource | yes | yes | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:572` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:577` | FOR UPDATE; query tables support_mfa_reset_evidence; sqlx::query("SELECT id FROM support_mfa_reset_evidence WHERE id=$1 FOR UPDATE") | 4 / owning domain resource | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:586` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:589` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:594` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:614` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:627` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:631` | FOR UPDATE OF e; query tables player_mfa_reset_requests, support_mfa_reset_evidence; sqlx::query("SELECT e.id FROM support_mfa_reset_evidence e JOIN player_mfa_reset_requests r ON r.evidence=e.id WHERE r.id=$1 FOR UPDATE OF e | 4 / owning domain resource | yes | yes | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:632` | FOR UPDATE; query tables web_sessions; sqlx::query("SELECT id_hash FROM web_sessions WHERE account_id=$1 ORDER BY id_hash FOR UPDATE").bind(id).execute(connection).await?; | 4 (prepared target sessions) | yes | yes | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:627` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:631` | FOR UPDATE OF e; query tables player_mfa_reset_requests, support_mfa_reset_evidence; sqlx::query("SELECT e.id FROM support_mfa_reset_evidence e JOIN player_mfa_reset_requests r ON r.evidence=e.id WHERE r.id=$1 FOR UPDATE OF e | 4 / owning domain resource | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:632` | FOR UPDATE; query tables web_sessions; sqlx::query("SELECT id_hash FROM web_sessions WHERE account_id=$1 ORDER BY id_hash FOR UPDATE").bind(id).execute(connection).await?; | 4 (prepared target sessions) | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:637` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/players/mod.rs:640` | FOR UPDATE; query tables player_mfa_reset_requests; let row: Option&lt;(Uuid,Uuid)&gt; = sqlx::query_as("SELECT requested_by,evidence FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2 AND | 4 / owning domain resource | yes | yes | yes |
+| `portal-rs/crates/admin/src/players/mod.rs:640` | FOR UPDATE; query tables player_mfa_reset_requests; let row: Option&lt;(Uuid,Uuid)&gt; = sqlx::query_as("SELECT requested_by,evidence FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2 AND | 4 / owning domain resource | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:645` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:647` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/players/mod.rs:649` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
@@ -2167,7 +2167,7 @@ exclusive advisory; S is shared advisory. SQL row modes are written out.
 | `portal-rs/crates/admin/src/rbac/storage.rs:16` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:28` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:41` | comment/document/template reference; no acquisition | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/rbac/storage.rs:68` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | yes |
+| `portal-rs/crates/admin/src/rbac/storage.rs:68` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:73` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:76` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:79` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
@@ -2186,14 +2186,14 @@ exclusive advisory; S is shared advisory. SQL row modes are written out.
 | `portal-rs/crates/admin/src/rbac/storage.rs:129` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:131` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:133` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/rbac/storage.rs:138` | implicit SQL write locks; sqlx::query("DELETE FROM role_permissions WHERE role_id = $1") | 7 (effects; owning entry above) | yes | yes | yes |
+| `portal-rs/crates/admin/src/rbac/storage.rs:138` | implicit SQL write locks; sqlx::query("DELETE FROM role_permissions WHERE role_id = $1") | 7 (effects; owning entry above) | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:142` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:148` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:150` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:151` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:164` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/rbac/storage.rs:171` | implicit SQL write locks; sqlx::query("INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING") | 7 (effects; owning entry above) | yes | yes | yes |
-| `portal-rs/crates/admin/src/rbac/storage.rs:174` | implicit SQL write locks; sqlx::query("DELETE FROM account_roles WHERE account_id = $1 AND role_id = $2") | 7 (effects; owning entry above) | yes | yes | yes |
+| `portal-rs/crates/admin/src/rbac/storage.rs:171` | implicit SQL write locks; sqlx::query("INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING") | 7 (effects; owning entry above) | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
+| `portal-rs/crates/admin/src/rbac/storage.rs:174` | implicit SQL write locks; sqlx::query("DELETE FROM account_roles WHERE account_id = $1 AND role_id = $2") | 7 (effects; owning entry above) | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:230` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:231` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:232` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
@@ -2202,7 +2202,7 @@ exclusive advisory; S is shared advisory. SQL row modes are written out.
 | `portal-rs/crates/admin/src/rbac/storage.rs:262` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:265` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:267` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/rbac/storage.rs:268` | implicit SQL write locks; sqlx::query("INSERT INTO role_permissions (role_id, permission) VALUES ($1, $2)") | 7 (effects; owning entry above) | yes | yes | yes |
+| `portal-rs/crates/admin/src/rbac/storage.rs:268` | implicit SQL write locks; sqlx::query("INSERT INTO role_permissions (role_id, permission) VALUES ($1, $2)") | 7 (effects; owning entry above) | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:270` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:277` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/rbac/storage.rs:279` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
@@ -2402,7 +2402,7 @@ exclusive advisory; S is shared advisory. SQL row modes are written out.
 | `portal-rs/crates/admin/src/web.rs:578` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/web.rs:580` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/web.rs:615` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
-| `portal-rs/crates/admin/src/web.rs:647` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | yes | yes |
+| `portal-rs/crates/admin/src/web.rs:647` | canonical account/resource/RBAC/durable-proof acquisition + live authority | 3→4→5→6 | yes | Same-transaction authority rechecked after final write before commit (MFA approval also request expiry) | yes |
 | `portal-rs/crates/admin/src/web.rs:652` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/web.rs:655` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
 | `portal-rs/crates/admin/src/web.rs:656` | reference / declaration / authorization read | n.a. | n.a. | n.a. | yes |
@@ -5845,3 +5845,7 @@ exclusive advisory; S is shared advisory. SQL row modes are written out.
 | `portal-rs/templates/oauth/en.ftl:1` | comment/document/template reference; no acquisition | n.a. | n.a. | n.a. | yes |
 | `portal-rs/templates/pages/home.html:12` | comment/document/template reference; no acquisition | n.a. | n.a. | n.a. | yes |
 | `portal-rs/templates/stats/world/en.ftl:6` | comment/document/template reference; no acquisition | n.a. | n.a. | n.a. | yes |
+
+### Post-wait revalidation correction
+
+Authorization after last wait: admin bazaar moderation; players notes, logout, kick, reset evidence, reset requests and MFA approval; console query admission; RBAC role changes; and panel role revocation now recheck the existing actor permissions on the same transaction after the final awaited write and before commit. MFA approval also rechecks request expiry. This supersedes the matching inventory cells above.

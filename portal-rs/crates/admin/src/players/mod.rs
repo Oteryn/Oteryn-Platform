@@ -311,6 +311,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"note":note}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -349,6 +351,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"reason":reason.trim()}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -393,6 +397,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"reason":reason.trim(),"native_security_generation":generation}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::KickAccountSessions)
+            .await?;
         tx.commit().await?;
         Ok(generation)
     }
@@ -461,6 +467,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         .fetch_optional(&mut *tx)
         .await?;
         if let Some(order) = receipt {
+            self.check_in(&mut tx, context, Permission::ReleaseCoinPurchaseHold)
+                .await?;
             tx.commit().await?;
             return Ok(Some(order));
         }
@@ -554,6 +562,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"ticket":ticket,"evidence":evidence}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(evidence)
     }
@@ -606,6 +616,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"request":request,"evidence":evidence,"reason":reason.trim()}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await?;
         tx.commit().await?;
         Ok(request)
     }
@@ -685,6 +697,17 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"request":request,"requested_by":requester}),
         )
         .await?;
+        self.check_in(&mut tx, context, Permission::ManageRoles)
+            .await?;
+        let unexpired: bool = sqlx::query_scalar(
+            "SELECT expires_at>clock_timestamp() FROM player_mfa_reset_requests WHERE id=$1",
+        )
+        .bind(request)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !unexpired {
+            return Err(Error::Denied);
+        }
         tx.commit().await?;
         Ok(())
     }

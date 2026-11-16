@@ -293,6 +293,16 @@ impl StoredChannel {
         )
         .await
         .map_err(|_| Error::Unavailable)?;
+        auth.check_in(&mut tx, actor, Permission::Access)
+            .await
+            .map_err(|_| Error::Denied)?;
+        auth.check_in(
+            &mut tx,
+            actor,
+            permission.parse().map_err(|_| Error::Denied)?,
+        )
+        .await
+        .map_err(|_| Error::Denied)?;
         tx.commit().await?;
         Ok(request_id)
     }
