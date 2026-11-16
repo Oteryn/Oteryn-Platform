@@ -19,7 +19,7 @@ impl Database {
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&admin)
             .await?;
-        let path = schema.clone();
+        let path = format!("{schema}, pg_catalog");
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
             .after_connect(move |conn, _| {
@@ -40,6 +40,21 @@ impl Database {
             admin,
             schema,
         }))
+    }
+    // Keep both identity's clock_timestamp budget and the web route's
+    // statement_timestamp budget in the same controlled minute. These functions
+    // exist only in this test's schema, ahead of pg_catalog on its search path.
+    async fn freeze_budget_clock(&self) -> TestResult {
+        sqlx::query("CREATE TABLE test_budget_clock AS SELECT clock_timestamp() AS instant")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("CREATE FUNCTION clock_timestamp() RETURNS timestamptz LANGUAGE sql AS 'SELECT instant FROM test_budget_clock'")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("CREATE FUNCTION statement_timestamp() RETURNS timestamptz LANGUAGE sql AS 'SELECT instant FROM test_budget_clock'")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
     async fn enable(&self) -> TestResult {
         sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
@@ -439,8 +454,9 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
     };
     db.enable().await?;
     db.range("a fresh registration passphrase", false).await?;
-    // Prepare every form and solve its work token first, so that only the
-    // submissions fall inside the one-minute registration budget window.
+    db.freeze_budget_clock().await?;
+    // Solving work and hashing passwords may span a wall-clock minute under
+    // load. Keep the fixed-window budgets on the schema-local database clock.
     let mut forms = Vec::new();
     for _ in 0..7 {
         let (app, cookie, csrf) = browser_form(&db).await?;
@@ -458,6 +474,7 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
         ])?;
         forms.push((app, cookie, body));
     }
+    let (reset_app, reset_cookie, reset_body) = forms[5].clone();
     for (n, (app, cookie, body)) in forms.into_iter().enumerate() {
         let response = app
             .oneshot(
@@ -488,6 +505,43 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
     );
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM outbox WHERE kind='email.verify'")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    let budgets: Vec<(String, i64)> =
+        sqlx::query_as("SELECT limiter_name,count FROM web_rate_limits ORDER BY limiter_name")
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(
+        budgets,
+        vec![
+            ("identity-registration".into(), 5),
+            ("identity-registration-attempt".into(), 6),
+        ]
+    );
+    // Refusals precede work consumption. Both fixed windows reset at the next
+    // database minute; the very same refused form then reaches registration.
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM registration_work")
+            .fetch_one(&db.pool)
+            .await?,
+        2
+    );
+    sqlx::query("UPDATE test_budget_clock SET instant=instant+interval '1 minute'")
+        .execute(&db.pool)
+        .await?;
+    let response = reset_app
+        .oneshot(
+            axum::http::Request::post("/en/register")
+                .header("cookie", reset_cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(axum::body::Body::from(reset_body))?,
+        )
+        .await?;
+    assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM registration_work")
             .fetch_one(&db.pool)
             .await?,
         1
