@@ -236,6 +236,14 @@ impl Commands {
             .execute(&mut *tx)
             .await?;
         let row=sqlx::query("SELECT command,binding_json,receipt_json FROM character_commands WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        // V2 service commands settle only through their own receipt path,
+        // which also releases or settles the wallet reservation.
+        if !matches!(
+            row.try_get::<String, _>("command")?.as_str(),
+            CREATE | TRANSFER
+        ) {
+            return Err(Error::NotFound);
+        }
         if row.try_get::<String, _>("command")? != get(&v, "command")? {
             return Err(Error::Conflict);
         }
