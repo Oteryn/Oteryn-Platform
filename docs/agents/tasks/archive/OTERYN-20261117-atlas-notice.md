@@ -23,7 +23,7 @@ report outcomes now use their own `outcome` status node; spawn loading keeps
 
 - [x] A spawn load held until after the report refusal no longer erases the refusal (browser check red without the change, green with it)
 - [x] Spawn loading, marker save/delete and report messages and timeouts unchanged
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -47,10 +47,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T05:33:05Z
-head: c6361bd0a0d891f3d45d6dbe164a0b448362ac50
+head: 4d5672d9cc1cc030f4d35774037412407f836e66
 branch: claude/happy-davinci-ijz3wy-atlas-notice
 pr: 1907
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-atlas-notice.md
@@ -81,5 +81,13 @@ validation:
     evidence: CI browser job 133845420228 failed with "route.continue Route is already handled" when unroute raced the released handler; the route now stays and the released handler is the only one to continue the request; five green runs
 blockers:
   - none
-next_action: "wait for Portal RS CI on PR 1907, then squash auto-merge"
+next_action: none; delivered by PR 1907 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1907 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1907 merged as 4d5672d9cc1cc030f4d35774037412407f836e66
 ```
