@@ -17,6 +17,14 @@ pub async fn issue(
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     sqlx::query("UPDATE account_email_tokens SET used_at=now(),updated_at=now() WHERE account_id=$1 AND purpose='verify_email' AND used_at IS NULL").bind(id).execute(&mut **tx).await?;
     sqlx::query("INSERT INTO account_email_tokens (account_id,token_hash,purpose,expires_at) VALUES ($1,$2,'verify_email',now()+interval '24 hours')").bind(id).bind(token_hash(&token)).execute(&mut **tx).await?;
+    enqueue(tx, id, locale, &token).await
+}
+async fn enqueue(
+    tx: &mut Transaction<'_, Postgres>,
+    id: AccountId,
+    locale: &str,
+    token: &str,
+) -> Result<(), sqlx::Error> {
     let payload = serde_json::json!({"account_id":id,"locale":locale,"token":token}).to_string();
     oteryn_db::outbox::enqueue(
         tx,
@@ -28,6 +36,14 @@ pub async fn issue(
     )
     .await?;
     Ok(())
+}
+/// Check whether to present the confirmation form without consuming the link.
+pub async fn available(pool: &PgPool, token: &str) -> Result<bool, sqlx::Error> {
+    if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Ok(false);
+    }
+    sqlx::query_scalar("SELECT EXISTS(SELECT FROM account_email_tokens t JOIN accounts a ON a.id=t.account_id WHERE t.token_hash=$1 AND t.purpose='verify_email' AND t.used_at IS NULL AND t.expires_at>clock_timestamp() AND a.status='pending_verification' AND a.email_verified_at IS NULL)")
+        .bind(token_hash(token)).fetch_one(pool).await
 }
 pub async fn consume(pool: &PgPool, token: &str) -> Result<Option<AccountId>, sqlx::Error> {
     if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -66,11 +82,30 @@ pub async fn resend(
         return Ok(false);
     }
 
-    let recent: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_email_tokens WHERE account_id=$1 AND purpose='verify_email' AND created_at>clock_timestamp()-interval '60 seconds')").bind(id).fetch_one(&mut *tx).await?;
+    let recent: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_email_tokens WHERE account_id=$1 AND purpose='verify_email' AND updated_at>clock_timestamp()-interval '60 seconds')").bind(id).fetch_one(&mut *tx).await?;
     if recent {
         return Ok(false);
     }
-    issue(&mut tx, id, &locale).await?;
+    let active: Option<Vec<u8>> = sqlx::query_scalar("SELECT token_hash FROM account_email_tokens WHERE account_id=$1 AND purpose='verify_email' AND used_at IS NULL AND expires_at>clock_timestamp() ORDER BY created_at DESC LIMIT 1")
+        .bind(id).fetch_optional(&mut *tx).await?;
+    if let Some(hash) = active {
+        // The delivery job already holds the bearer value. Never invalidate a live
+        // link if its delivery record has been pruned.
+        let token: Option<String> = sqlx::query_scalar("SELECT payload->>'token' FROM outbox WHERE kind='email.verify' AND payload->>'account_id'=$1 AND sha256(convert_to(payload->>'token','UTF8'))=$2 ORDER BY created_at DESC LIMIT 1")
+            .bind(id.to_string()).bind(&hash).fetch_optional(&mut *tx).await?;
+        let Some(token) = token else {
+            return Ok(false);
+        };
+        enqueue(&mut tx, id, &locale, &token).await?;
+        sqlx::query(
+            "UPDATE account_email_tokens SET updated_at=clock_timestamp() WHERE token_hash=$1",
+        )
+        .bind(hash)
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        issue(&mut tx, id, &locale).await?;
+    }
     tx.commit().await?;
     Ok(true)
 }

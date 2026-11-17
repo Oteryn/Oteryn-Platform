@@ -10,11 +10,23 @@ async fn postgres_mfa_browser_csrf_limiter_and_login_challenge()
     let Some(db) = database::Database::open().await? else {
         return Ok(());
     };
-    tokio::time::timeout(std::time::Duration::from_secs(30), browser_flow(&db)).await??;
+    tokio::time::timeout(std::time::Duration::from_secs(30), browser_flow(&db, false)).await??;
     db.close().await?;
     Ok(())
 }
-async fn browser_flow(db: &database::Database) -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::test]
+async fn grant_write_failure_withholds_login() -> Result<(), Box<dyn std::error::Error>> {
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    browser_flow(&db, true).await?;
+    db.close().await?;
+    Ok(())
+}
+async fn browser_flow(
+    db: &database::Database,
+    reject_grant: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mfa = Mfa::new(db.pool.clone(), [7; 32]);
     let id:uuid::Uuid=sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('browser@example.test',$1,'active','en',now()) RETURNING id").bind(oteryn_identity::password::hash("test password")?).fetch_one(&db.pool).await?;
     let enrollment = mfa.enroll(id, "test password").await?.ok_or("enrollment")?;
@@ -168,6 +180,29 @@ async fn browser_flow(db: &database::Database) -> Result<(), Box<dyn std::error:
     .fetch_one(&db.pool)
     .await?;
     assert_eq!(audited, 1);
+    if reject_grant {
+        sqlx::query("ALTER TABLE web_sessions ADD CHECK (COALESCE(data->>'mfa_grant','') = '')")
+            .execute(&db.pool)
+            .await?;
+        let response = app.oneshot(challenge_request(&codes[0])?).await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let authenticated: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id=$1")
+                .bind(id)
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(
+            authenticated, 0,
+            "failed grant must leave no authenticated session"
+        );
+        for value in response.headers().get_all(header::SET_COOKIE) {
+            assert!(
+                value.to_str()?.contains("Max-Age=0"),
+                "failed login must withhold new cookies"
+            );
+        }
+        return Ok(());
+    }
     let accepted = app.clone().oneshot(challenge_request(&codes[0])?).await?;
     assert_eq!(accepted.status(), StatusCode::FOUND);
     assert_eq!(

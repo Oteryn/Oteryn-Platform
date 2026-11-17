@@ -16,9 +16,9 @@ use serde::Deserialize;
 const FLASH: SessionKey<String> = SessionKey::new("identity.verification_flash");
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/verify-email", get(consume))
-        .route("/pl/verify-email", get(consume))
-        .route("/en/verify-email", get(consume))
+        .route("/verify-email", get(verification).post(verification))
+        .route("/pl/verify-email", get(verification).post(verification))
+        .route("/en/verify-email", get(verification).post(verification))
         .route("/verify-email/resend", get(resend_form).merge(post(resend)))
         .route(
             "/pl/verify-email/resend",
@@ -67,14 +67,38 @@ pub(crate) async fn message(
     *response.status_mut() = status;
     Ok(response)
 }
-async fn consume(
+#[derive(Template)]
+#[template(
+    ext = "html",
+    source = r#"{% extends "account/register_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}<h1>{{ title }}</h1>
+<form method="post" action="/{{ lang }}/verify-email?token={{ token }}">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<button type="submit">{{ confirm }}</button></form>{% endblock %}"#
+)]
+struct Confirmation<'a> {
+    lang: &'static str,
+    language: Language,
+    title: String,
+    confirm: &'static str,
+    token: &'a str,
+    csrf: String,
+}
+
+impl Confirmation<'_> {
+    fn text(&self, key: &str) -> String {
+        self.language.text(key)
+    }
+}
+async fn verification(
     State(state): State<AppState>,
     Extension(limiter): Extension<crate::ratelimit::RateLimiter>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     Extension(query): Extension<Token>,
     peer: Option<Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
-    headers: axum::http::HeaderMap,
+    (method, headers): (axum::http::Method, axum::http::HeaderMap),
 ) -> Result<Response, StatusCode> {
     let Some(Extension(axum::extract::ConnectInfo(peer))) = peer else {
         return Ok(crate::ratelimit::Denial::Unavailable.response(language, false));
@@ -92,32 +116,51 @@ async fn consume(
     {
         return Ok(error.response(language, false));
     }
-    let valid = verify::consume(&state.db, query.token.as_deref().unwrap_or_default())
+    let token = query.token.as_deref().unwrap_or_default();
+    if method != axum::http::Method::POST {
+        if verify::available(&state.db, token)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        {
+            return Ok(crate::render(&Confirmation {
+                lang: language.code(),
+                language,
+                title: language.text("verify-title"),
+                confirm: match language {
+                    Language::En => "Verify e-mail address",
+                    Language::Pl => "Potwierdź adres e-mail",
+                },
+                token,
+                csrf: session
+                    .csrf_token()
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            }));
+        }
+        return message(
+            language,
+            &session,
+            "verify-invalid",
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
+    }
+    let valid = verify::consume(&state.db, token)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if let Some(id) = valid {
         // Start a fresh anonymous session after verification, including when
         // registration left this browser anonymous. Preserve other live identities.
-        let stale = match session.identity_hash().await {
-            Some(hash) => !sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1)",
-            )
-            .bind(hash)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-            None => false,
-        };
         if session
             .account_id()
             .await
-            .is_none_or(|account| account == id)
-            || stale
+            .is_some_and(|account| account != id)
         {
-            crate::session::rotate(&session, crate::session::PrivilegeChange::Logout)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            return message(language, &session, "verify-success", StatusCode::OK).await;
         }
+        crate::session::rotate(&session, crate::session::PrivilegeChange::Logout)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         session
             .set(FLASH, &language.text("verify-success"))
             .await
