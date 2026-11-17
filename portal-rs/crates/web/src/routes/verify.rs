@@ -14,6 +14,8 @@ use axum::{
 use oteryn_identity::verify;
 use serde::Deserialize;
 const FLASH: SessionKey<String> = SessionKey::new("identity.verification_flash");
+/// Pending referral code set by the community referral link (anonymous browsers).
+const REFERRAL: SessionKey<String> = SessionKey::new("referral.code");
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/verify-email", get(verification).post(verification))
@@ -155,14 +157,17 @@ async fn verification(
         if current.is_some_and(|account| account != id) {
             return message(language, &session, "verify-success", StatusCode::OK).await;
         }
-        // An anonymous browser keeps its pending state (a referral code) under a
-        // fresh identifier; the verified account's own session is ended.
-        let reissued = current.is_none()
-            && crate::session::rotate(&session, crate::session::PrivilegeChange::Reissue)
-                .await
-                .is_ok();
-        if !reissued {
-            crate::session::rotate(&session, crate::session::PrivilegeChange::Logout)
+        // The fresh anonymous session keeps only a pending referral code.
+        let referral = session
+            .get(REFERRAL)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        crate::session::rotate(&session, crate::session::PrivilegeChange::Logout)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(code) = referral {
+            session
+                .set(REFERRAL, &code)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         }
