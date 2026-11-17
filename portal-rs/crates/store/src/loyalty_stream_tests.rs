@@ -1148,3 +1148,45 @@ fn recovery_locator_metadata_does_not_disable_loyalty_stream() {
     ]);
     assert!(http::identity_map(&values).is_ok());
 }
+
+#[tokio::test]
+async fn postgres_stream_held_head_lock_sheds_within_mutation_budget() {
+    use sqlx::Connection;
+    use std::time::{Duration, Instant};
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    let mut blocker = sqlx::PgConnection::connect(&url).await.unwrap();
+    sqlx::query("BEGIN").execute(&mut blocker).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT position FROM {schema}.loyalty_stream_head WHERE singleton FOR UPDATE"
+    )))
+    .execute(&mut blocker)
+    .await
+    .unwrap();
+
+    let stream = Stream::new(
+        db.pool.clone(),
+        Arc::new(super::http::DatabaseAccounts),
+        true,
+    );
+    let started = Instant::now();
+    let observed = tokio::time::timeout(Duration::from_secs(10), stream.read(None, 1)).await;
+    let elapsed = started.elapsed();
+    sqlx::query("ROLLBACK").execute(&mut blocker).await.unwrap();
+    blocker.close().await.unwrap();
+    db.close().await;
+
+    let observed = observed.expect("stream still waiting at 10 s on a held head lock");
+    assert!(matches!(observed, Err(Error::Unavailable)), "{observed:?}");
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "budget exceeded: {elapsed:?}"
+    );
+}

@@ -26,6 +26,22 @@ impl AccountReader for Accounts {
     }
 }
 
+/// Answers `Active` except on the `fail_on`-th call (1-based), which fails as a
+/// timed-out account read does.
+#[derive(Debug, Clone)]
+struct FlakyAccounts {
+    calls: Arc<AtomicU8>,
+    fail_on: u8,
+}
+impl AccountReader for FlakyAccounts {
+    async fn state(&self, _: Uuid) -> Result<AccountState, Error> {
+        if self.calls.fetch_add(1, Ordering::SeqCst) + 1 == self.fail_on {
+            return Err(Error::Database(sqlx::Error::PoolTimedOut));
+        }
+        Ok(AccountState::Active)
+    }
+}
+
 struct Harness {
     pool: PgPool,
     admin: PgPool,
@@ -249,11 +265,13 @@ async fn disabled_and_ineligible_accounts_deny() -> TestResult {
     ));
     for state in 1..=4 {
         h.accounts.0.store(state, Ordering::SeqCst);
-        assert!(matches!(h.create().await, Err(Error::AccountDenied)));
-        assert!(matches!(
-            h.service(true).intent(intent.id).await,
-            Err(Error::AccountDenied)
-        ));
+        // State 4 is a failed account read: still refused, but as retryable Unavailable.
+        let refused = |e: &Result<Intent, Error>| match state {
+            4 => matches!(e, Err(Error::Unavailable)),
+            _ => matches!(e, Err(Error::AccountDenied)),
+        };
+        assert!(refused(&h.create().await));
+        assert!(refused(&h.service(true).intent(intent.id).await));
         assert!(matches!(
             h.service(true).webhook(&body, &signature).await,
             Err(Error::AccountDenied)
@@ -573,4 +591,67 @@ async fn l6_03_undelivered_browser_checkout_can_still_be_refunded() -> TestResul
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn account_state_read_failure_is_unavailable_not_denied() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let intent = h.create().await?;
+    for state in 1..=3 {
+        h.accounts.0.store(state, Ordering::SeqCst);
+        assert!(matches!(h.create().await, Err(Error::AccountDenied)));
+        assert!(matches!(
+            h.service(true).intent(intent.id).await,
+            Err(Error::AccountDenied)
+        ));
+    }
+    h.accounts.0.store(4, Ordering::SeqCst);
+    assert!(matches!(h.create().await, Err(Error::Unavailable)));
+    assert!(matches!(
+        h.service(true).intent(intent.id).await,
+        Err(Error::Unavailable)
+    ));
+    assert!(matches!(
+        h.service(true)
+            .ensure_intent(Uuid::now_v7(), Uuid::now_v7(), amount())
+            .await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(h.count("payment_intents").await?, 1);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn ensure_intent_reread_failure_is_unavailable_and_replay_returns_same_intent() -> TestResult
+{
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    // Call 1 is the eligibility check before the provider; call 2 is the re-read
+    // after commit, which fails.
+    let flaky = FlakyAccounts {
+        calls: Arc::new(AtomicU8::new(0)),
+        fail_on: 2,
+    };
+    let service = Payments::new(
+        h.pool.clone(),
+        h.provider.clone(),
+        flaky.clone(),
+        PaymentFlags { enabled: true },
+    );
+    let (id, account) = (Uuid::now_v7(), Uuid::now_v7());
+    assert!(matches!(
+        service.ensure_intent(id, account, amount()).await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(flaky.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(h.count("payment_intents").await?, 1);
+    let replay = service.ensure_intent(id, account, amount()).await?;
+    assert_eq!(replay.id, id);
+    assert_eq!(replay.account_id, account);
+    assert_eq!(replay.state, IntentState::Pending);
+    assert_eq!(h.count("payment_intents").await?, 1);
+    h.finish().await
 }

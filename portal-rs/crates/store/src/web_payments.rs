@@ -38,6 +38,11 @@ impl AccountReader for Accounts {
 
     async fn state(&self, id: Uuid) -> Result<AccountState, oteryn_payments::Error> {
         let mut tx = self.0.begin().await?;
+        sqlx::query(
+            "SELECT set_config('lock_timeout','1s',true),set_config('statement_timeout','2500ms',true)",
+        )
+        .execute(&mut *tx)
+        .await?;
         let allowed = oteryn_wallet::value_eligible_in(&mut tx, id).await?;
         tx.commit().await?;
         Ok(if allowed {

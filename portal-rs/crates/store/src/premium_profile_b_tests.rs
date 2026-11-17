@@ -911,3 +911,67 @@ fn fixtures_are_canonical() {
         assert_eq!(canonical::encode(&value).unwrap(), bytes, "{name}");
     }
 }
+
+#[tokio::test]
+async fn db_authority_held_account_lock_sheds_within_mutation_budget() {
+    use sqlx::Connection;
+    use std::time::{Duration, Instant};
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let account = known();
+    sqlx::query("INSERT INTO accounts VALUES($1)")
+        .bind(account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    let mut blocker = sqlx::PgConnection::connect(&url).await.unwrap();
+    sqlx::query("BEGIN").execute(&mut blocker).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT id FROM {schema}.accounts WHERE id=$1 FOR UPDATE"
+    )))
+    .bind(account)
+    .execute(&mut blocker)
+    .await
+    .unwrap();
+
+    // The production account adapter takes the row FOR SHARE and arms nothing.
+    let authority = Authority::new(
+        db.pool.clone(),
+        Arc::new(crate::loyalty::stream::http::DatabaseAccounts),
+        Arc::new(NoGenericLedger),
+        true,
+    );
+    let started = Instant::now();
+    let observed = tokio::time::timeout(
+        Duration::from_secs(10),
+        authority.read(account, NONCE, BUILD, &[]),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    sqlx::query("ROLLBACK").execute(&mut blocker).await.unwrap();
+    blocker.close().await.unwrap();
+    let issued: i64 = sqlx::query_scalar("SELECT count(*) FROM profile_b_authority")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    db.close().await;
+
+    let observed = observed.expect("authority still waiting at 10 s on a held account lock");
+    assert_eq!(observed, Err(Error::Unavailable));
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "budget exceeded: {elapsed:?}"
+    );
+    assert_eq!(issued, 0);
+}
