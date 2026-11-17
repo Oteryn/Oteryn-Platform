@@ -229,9 +229,24 @@ pub async fn schedule_with_deadline(
             .bind(format!("{}ms", budget.as_millis().max(1)))
             .execute(&mut *tx)
             .await?;
+        // Compute the slot after earlier schedulers commit so a delayed scheduler
+        // cannot recreate a completed slot that a newer scheduler already pruned.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('outbox-schedule:' || current_schema() || ':' || $1::text, 0))")
+            .bind(kind)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
-            "INSERT INTO outbox (kind, payload, idempotency_key)
-         VALUES ($1, '{}'::jsonb, 'schedule:' || floor(extract(epoch FROM now()) / $2)::text)
+            "WITH slot AS (
+             SELECT floor(extract(epoch FROM statement_timestamp()) / $2)::bigint AS current_slot
+         ), expired AS (
+             SELECT id FROM outbox, slot
+             WHERE kind = $1 AND state = 'done' AND schedule_slot < current_slot
+             ORDER BY schedule_slot LIMIT 1000 FOR UPDATE SKIP LOCKED
+         ), pruned AS (
+             DELETE FROM outbox USING expired WHERE outbox.id = expired.id
+         )
+         INSERT INTO outbox (kind, payload, idempotency_key, schedule_slot)
+         SELECT $1, '{}'::jsonb, 'schedule:' || current_slot::text, current_slot FROM slot
          ON CONFLICT (kind, idempotency_key) DO NOTHING",
         )
         .bind(kind)
