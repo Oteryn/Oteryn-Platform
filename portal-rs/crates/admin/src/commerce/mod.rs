@@ -53,8 +53,12 @@ impl Command {
         }
     }
     fn approval(&self) -> bool {
-        // No approved threshold exists yet: every correction needs four eyes.
-        matches!(self, Self::Adjust { .. } | Self::Refund)
+        // No approved threshold exists yet: every correction and every staff
+        // premium grant needs four eyes. Revocation only removes value.
+        matches!(
+            self,
+            Self::Grant { .. } | Self::Adjust { .. } | Self::Refund
+        )
     }
     fn validate(&self, flags: Flags) -> Result<(), Error> {
         let enabled = match self {
@@ -228,6 +232,17 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
                 Err(Error::Denied)
             }
         });
+        // A pending grant must not wait on an account that cannot hold value;
+        // the approval applies the same check again under its own locks.
+        let authorization = match authorization {
+            Ok(())
+                if matches!(request.command, Command::Grant { .. })
+                    && !oteryn_wallet::value_eligible_in(&mut tx, request.target).await? =>
+            {
+                Err(Error::Denied)
+            }
+            other => other,
+        };
         if let Err(error) = authorization {
             if matches!(error, Error::Denied) {
                 record(

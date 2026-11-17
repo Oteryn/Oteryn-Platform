@@ -21,8 +21,11 @@ Targets and request keys are RFC 4122 UUIDv7 identifiers. Reasons are persisted
 only as SHA-256 hashes. Idempotency binds actor, target, command and reason hash.
 Reusing a key with another payload refuses the request. No approved correction
 threshold exists, so **every correction** requires a different staff member.
-Refunds always require a different staff member. The approval queue presents
-the immutable target and requested amount. Approval never trusts submitted
+Refunds and premium grants always require a different staff member; a grant is
+refused at submit when the target cannot hold value and is checked again at
+approval, which applies it from the stored reason hash. Revocation applies
+directly. The approval queue presents the immutable target and requested amount
+or days. Approval never trusts submitted
 amounts or actor identifiers.
 
 `PaymentActions` is the narrow T31 integration seam. The included
