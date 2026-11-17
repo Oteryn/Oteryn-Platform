@@ -175,12 +175,10 @@ impl Budget {
 struct AuthorityState {
     authority: Authority,
     settings: Settings,
-    budget: Budget,
 }
 #[derive(Debug)]
 struct ChangesState {
     changes: Changes,
-    budget: Budget,
 }
 
 /// IdentityMap must hold both dedicated group bindings and every other internal
@@ -195,13 +193,9 @@ pub fn router(
     let changes_enabled = settings.changes_valid();
     let authority_state = Arc::new(AuthorityState {
         authority,
-        budget: Budget::new(settings.authority_budget),
         settings: settings.clone(),
     });
-    let changes_state = Arc::new(ChangesState {
-        changes,
-        budget: Budget::new(settings.changes_budget),
-    });
+    let changes_state = Arc::new(ChangesState { changes });
     let policy = |enabled, group: &str| RoutePolicy {
         enabled,
         group: group.into(),
@@ -209,21 +203,44 @@ pub fn router(
         max_json_depth: 4,
         json: JsonRule::Object,
     };
-    let b1 = guard::protect(
-        Router::new()
-            .route(AUTHORITY_PATH, post(read_authority))
-            .with_state(authority_state),
+    let authority_policy = policy(authority_enabled, AUTHORITY_GROUP);
+    let changes_policy = policy(changes_enabled, CHANGES_GROUP);
+    let b1 = guard::protect_peer(
+        guard::validate_body(
+            Router::new()
+                .route(AUTHORITY_PATH, post(read_authority))
+                .with_state(authority_state),
+            authority_policy.clone(),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            Arc::new(Budget::new(settings.authority_budget)),
+            refuse_mw,
+        )),
         identities.clone(),
-        policy(authority_enabled, AUTHORITY_GROUP),
+        authority_policy,
     );
-    let b2 = guard::protect(
-        Router::new()
-            .route(CHANGES_PATH, post(read_changes))
-            .with_state(changes_state),
+    let b2 = guard::protect_peer(
+        guard::validate_body(
+            Router::new()
+                .route(CHANGES_PATH, post(read_changes))
+                .with_state(changes_state),
+            changes_policy.clone(),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            Arc::new(Budget::new(settings.changes_budget)),
+            refuse_mw,
+        )),
         identities,
-        policy(changes_enabled, CHANGES_GROUP),
+        changes_policy,
     );
     b1.merge(b2).layer(middleware::from_fn(contract_response))
+}
+
+async fn refuse_mw(State(budget): State<Arc<Budget>>, request: Request, next: Next) -> Response {
+    if let Some(refused) = budget.refuse() {
+        return refused;
+    }
+    next.run(request).await
 }
 
 async fn contract_response(request: Request, next: Next) -> Response {
@@ -248,9 +265,6 @@ fn json(bytes: Vec<u8>) -> Response {
 }
 
 async fn read_authority(State(state): State<Arc<AuthorityState>>, request: Request) -> Response {
-    if let Some(refused) = state.budget.refuse() {
-        return refused;
-    }
     if request.uri().query().is_some() {
         return guard::failure(StatusCode::BAD_REQUEST);
     }
@@ -276,9 +290,6 @@ async fn read_authority(State(state): State<Arc<AuthorityState>>, request: Reque
 }
 
 async fn read_changes(State(state): State<Arc<ChangesState>>, request: Request) -> Response {
-    if let Some(refused) = state.budget.refuse() {
-        return refused;
-    }
     if request.uri().query().is_some() {
         return guard::failure(StatusCode::BAD_REQUEST);
     }
