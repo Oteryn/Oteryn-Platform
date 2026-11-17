@@ -47,7 +47,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T14:00:00Z
 head: 149b24b6
 branch: claude/happy-davinci-ijz3wy-kick-view
-pr: null
+pr: 1932
 status: ready
 context_routes: []
 owned_paths:
