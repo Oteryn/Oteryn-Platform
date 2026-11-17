@@ -277,6 +277,7 @@ impl Service {
         now: i64,
     ) -> Result<(), SaveError> {
         let mut tx = self.begin().await.map_err(SaveError::Domain)?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let status =
             sqlx::query_scalar::<_, String>("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
                 .bind(account)
