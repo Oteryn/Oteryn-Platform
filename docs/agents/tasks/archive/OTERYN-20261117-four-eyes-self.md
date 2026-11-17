@@ -30,7 +30,7 @@ hash) and a second staff identity in the E2E setup.
 - [x] Self role grant is refused with no membership; widening a held role is refused; narrowing it succeeds (`db_role_managers_never_grant_or_widen_their_own_roles`)
 - [x] Grant and Adjust targeting the actor are denied and audited; the beneficiary cannot approve a correction for itself (`postgres_staff_never_grant_premium_or_balance_to_themselves`)
 - [x] E2E `staff-rbac-self` expects the self grant refusal and still proves self revocation
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -57,10 +57,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T13:20:00Z
-head: 149b24b6
+head: 528f4d455a41267300896795d7b39d1fa8a1dd79
 branch: claude/happy-davinci-ijz3wy-four-eyes
 pr: 1930
-status: ready
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -103,13 +103,13 @@ validation:
     evidence: no live portal in this session; node --check passes
 blockers:
   - none
-next_action: Portal RS CI on the PR head; archive this packet once the PR lands.
+next_action: none; delivered by PR 1930 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Task branch for four-eyes self refusals; retained until merge
-source_branch_evidence: The branch records the published head
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1930 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1930 merged as 528f4d455a41267300896795d7b39d1fa8a1dd79
 ```

@@ -30,7 +30,7 @@ receipt, never inferred from a timeout. No migration.
 - [x] COINS: after `RETURNED` the listing is cancelled, the buyer is refunded once and one Unlock is issued; extra ticks change nothing
 - [x] GOLD: one `TERMINAL_REFUSAL` Release, then cancelled with one Unlock; extra ticks change nothing
 - [x] An expired settlement Bind still retries for both currencies
-- [ ] Portal RS CI green on the PR head (no PR yet)
+- [x] Portal RS CI green on the PR head (no PR yet)
 
 ## Ownership
 
@@ -53,10 +53,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T20:00:00Z
-head: 149b24b6
+head: 1ae9b27eb8ee72fcf183ca39f66bc94e5054b75f
 branch: claude/happy-davinci-ijz3wy-bazaar-bindcomp
 pr: 1931
-status: ready
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -95,15 +95,15 @@ validation:
     evidence: both exit 0
 blockers:
   - none
-next_action: Portal RS CI on the PR head; archive this packet once the PR lands.
+next_action: none; delivered by PR 1931 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1931 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1931 merged as 1ae9b27eb8ee72fcf183ca39f66bc94e5054b75f
 ```
 
 ## Notes
