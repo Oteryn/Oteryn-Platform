@@ -46,10 +46,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-17T04:10:00Z
+updated_at: 2026-11-17T04:15:00Z
 head: d2453556bdcb8cc3b66d0c22d5c57e5b45adc8b9
 branch: claude/happy-davinci-ijz3wy-classb-atlas
-pr: none
+pr: 1903
 status: validating
 context_routes: []
 owned_paths:
@@ -85,5 +85,5 @@ validation:
     evidence: exit 0
 blockers:
   - none
-next_action: open the PR and wait for Portal RS CI
+next_action: "Portal RS CI on PR #1903, then squash merge"
 ```
