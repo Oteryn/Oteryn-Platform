@@ -285,6 +285,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         self.target(id).await?;
         valid_text(body, 4000)?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         crate::rbac::authorize_mutation(
             &mut tx,
             &[context.account, id],
@@ -327,6 +328,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         crate::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account, id],
@@ -365,6 +367,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         crate::rbac::authorize_mutation(
             &mut tx,
             &[context.account, id],
@@ -449,6 +452,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_id(hold)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         crate::rbac::authorize_mutation(
             &mut tx,
             &[context.account, id],
@@ -525,6 +529,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             .await?;
         valid_id(ticket)?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let target: Uuid =
             sqlx::query_scalar("SELECT account_id FROM tickets WHERE id=$1 AND category='account'")
                 .bind(ticket)
@@ -583,6 +588,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             return Err(Error::Denied);
         }
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         crate::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account, id],

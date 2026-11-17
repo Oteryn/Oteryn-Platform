@@ -79,6 +79,7 @@ impl<A: AccountStateReader> StaffBazaar<A> {
     pub async fn execute(&self, context: CheckContext, command: StaffCommand) -> Result<(), Error> {
         self.check(context).await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         // Bazaar globally locks its exclusive staff moderation gate/target before accounts.
         // Start the shared budget before that first domain lock; the canonical
         // helper retains it while locking ordered accounts and then RBAC.
