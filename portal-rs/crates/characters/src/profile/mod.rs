@@ -155,7 +155,17 @@ impl Service {
             return Err(Error::Unavailable);
         }
         let rows = sqlx::query_as::<_, (Uuid, String)>(
-            "SELECT character_id,name FROM account_characters WHERE account_id=$1",
+            "SELECT c.character_id,c.name FROM account_characters c
+             JOIN account_character_snapshots s USING(account_id) WHERE c.account_id=$1
+            AND NOT EXISTS (
+                SELECT 1 FROM character_commands t
+                WHERE t.command='TransferCharacterOwnership' AND t.state='TERMINAL'
+                  AND t.account_id=c.account_id AND t.receipt_json::jsonb->>'character_id'=c.character_id::text
+                  AND t.receipt_json::jsonb->>'outcome'='COMMITTED'
+                  AND ((t.receipt_json::jsonb->>'projection_epoch')::numeric,
+                       (t.receipt_json::jsonb->>'from_projection_revision')::numeric)
+                      > (s.projection_epoch::numeric,s.projection_revision::numeric)
+            )",
         )
         .bind(account)
         .fetch_all(&mut **tx)
