@@ -1522,5 +1522,30 @@ async fn r7_committed_transfer_denies_seller() {
         ),
         "seller service accepted after transfer"
     );
+    sqlx::query(
+        "UPDATE account_character_snapshots SET projection_revision=$2 WHERE account_id=$1",
+    )
+    .bind(a)
+    .bind(receipt["from_projection_revision"].as_str().unwrap())
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    // Isolate the revision fence: at equality the association in LCFA decides.
+    let mut tx = db.pool.begin().await.unwrap();
+    assert!(
+        s.owner_state(&mut tx, a, c).await.is_ok(),
+        "receipt overrode the association at the same projection revision"
+    );
+    sqlx::query("DELETE FROM account_characters WHERE account_id=$1 AND character_id=$2")
+        .bind(a)
+        .bind(c)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(matches!(
+        s.owner_state(&mut tx, a, c).await,
+        Err(Error::Unavailable)
+    ));
+    tx.rollback().await.unwrap();
     db.close().await;
 }
