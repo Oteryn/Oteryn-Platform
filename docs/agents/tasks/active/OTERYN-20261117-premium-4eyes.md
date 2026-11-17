@@ -47,6 +47,7 @@ owned_paths:
   - portal-rs/crates/admin/src/commerce/mod.rs
   - portal-rs/crates/admin/src/commerce/tests.rs
   - portal-rs/e2e/specs/staff-commerce-premium.spec.mjs
+  - docs/architecture/OTERYN_PORTAL_RUST_PLAN.md
 modules:
   - admin
   - store
