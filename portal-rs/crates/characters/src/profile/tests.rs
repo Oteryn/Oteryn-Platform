@@ -460,6 +460,23 @@ async fn postgres_profile_takes_account_before_feed_like_termination()
         );
         assert!(done, "{op} deadlocked against termination");
     }
+    // A held account row lock sheds the preference save within the mutation budget
+    // instead of waiting for the holder.
+    let mut holding = pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(account)
+        .execute(&mut *holding)
+        .await?;
+    let started = std::time::Instant::now();
+    let shed = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        service.update(account, "Aldric", Preferences::default(), 1000),
+    )
+    .await
+    .map_err(|_| "profile update waited past the mutation budget")?;
+    assert!(matches!(shed, Err(Error::Unavailable)), "{shed:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    holding.rollback().await?;
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)
