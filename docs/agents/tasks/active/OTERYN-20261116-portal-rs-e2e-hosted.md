@@ -51,10 +51,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-16T23:59:00Z
-head: e9b0bcaa
+updated_at: 2026-11-17T00:55:00Z
+head: 73f0de7a7775d04443c043656a46a13b98323e84
 branch: claude/happy-davinci-ijz3wy-e2e-hosted
-pr: none
+pr: 1896
 status: ready
 context_routes: []
 owned_paths:
@@ -88,7 +88,7 @@ validation:
     evidence: every script exit 0
 blockers:
   - none
-next_action: Push, open the PR, read build and per-project times from its Portal RS E2E run
+next_action: First run 43980291709 built in 2m22s; e2e jobs failed on ubuntu-latest 26.04 (no Chromium for the pinned Playwright); pinned both jobs to ubuntu-24.04, read per-project times from the next run
 ```
 
 ## Source branch closeout

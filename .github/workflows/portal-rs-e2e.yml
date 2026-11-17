@@ -41,7 +41,9 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pinned image: the pinned Playwright release has no Chromium build for ubuntu-latest
+    # (26.04), and the binary built here must run on the same glibc as the e2e jobs.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -104,7 +106,7 @@ jobs:
   e2e:
     name: e2e (${{ matrix.project }} ${{ matrix.shard }})
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
