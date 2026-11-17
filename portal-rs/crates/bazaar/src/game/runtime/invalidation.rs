@@ -204,7 +204,13 @@ impl Runtime {
         for operation in deposits {
             match self.authority().retained(tx, operation).await? {
                 Some((_, receipt)) if receipt.committed => {
-                    self.stage_return(tx, listing).await?;
+                    if receipt.command == Command::Lock
+                        && super::characters::never_transferred(tx, listing.id).await?
+                    {
+                        self.unlock(tx, listing).await?;
+                    } else {
+                        self.stage_return(tx, listing).await?;
+                    }
                     return Ok(false);
                 }
                 Some(_) => {}

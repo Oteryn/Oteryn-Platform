@@ -447,6 +447,15 @@ fn to_core(e: Error) -> crate::Error {
     }
 }
 
+// Called under the issuer lock. A staged transfer or bind is already an
+// obligation, even before a command becomes listable or a receipt arrives.
+pub(super) async fn never_transferred(db: &mut PgConnection, listing: Uuid) -> Result<bool, Error> {
+    Ok(sqlx::query_scalar(
+        "SELECT NOT EXISTS(SELECT 1 FROM bazaar_all_transfers WHERE listing_id=$1)
+            AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE listing_id=$1 AND command='BindBazaarCharacterTransfer')"
+    ).bind(listing).fetch_one(db).await?)
+}
+
 pub(crate) async fn verify_unlock(
     a: &Authority,
     db: &mut PgConnection,
@@ -463,6 +472,32 @@ pub(crate) async fn verify_unlock(
         id(text(&receipt, "to_account_id")?)?
     } else if let Some((_, receipt, _, _)) = proof(a, db, listing, "BAZAAR_ESCROW_RETURN").await? {
         id(text(&receipt, "to_account_id")?)?
+    } else if never_transferred(db, listing).await? {
+        // Only the approved cancellation can publish this unlock. Receipt
+        // admission follows its durable dispatch even if staff revise the hold.
+        let authorized = if current.is_some() {
+            sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM bazaar_authority_dispatch WHERE operation_id=$1)",
+            )
+            .bind(id(text(&i.value, "operation_id")?)?)
+            .fetch_one(&mut *db)
+            .await?
+        } else {
+            super::invalidation::approved(db, listing).await?
+        };
+        if !authorized {
+            return Err(Error::Denied);
+        }
+        let (lock, receipt, _) = lock_record(a, db, listing)
+            .await?
+            .ok_or(Error::Unavailable)?;
+        for key in ["character_id", "world_id", "seller_account_id"] {
+            same(&lock.value, key, &i.value, key)?;
+        }
+        let facts = receipt.value.get("result_data").ok_or(Error::Invalid)?;
+        same(facts, "lock_id", &i.value, "lock_id")?;
+        same(facts, "lock_revision", &i.value, "expected_lock_revision")?;
+        id(text(&lock.value, "seller_account_id")?)?
     } else {
         return Err(Error::Unavailable);
     };
