@@ -321,25 +321,16 @@ async fn recovery_at(s: &StateData, source: &str, body: &[u8], now: Duration) ->
                 &Sha256::digest(request.recovery_handle.as_bytes()),
             );
             if let Ok(mut limits) = s.recovery.attempts.lock() {
-                limits.finish(
-                    &key,
-                    now,
-                    result.is_ok()
-                        || result.as_ref().err().is_some_and(|r| {
-                            matches!(
-                                r.code,
-                                RecoverCode::AttemptPending
-                                    | RecoverCode::CharacterConflict
-                                    | RecoverCode::WorldStale
-                                    | RecoverCode::RouteUnavailable
-                                    | RecoverCode::GrantExpired
-                            )
-                        }),
-                    result
-                        .as_ref()
-                        .err()
-                        .is_some_and(|r| r.code == RecoverCode::AuthenticationRequired),
-                );
+                let outcome = if result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|r| r.code == RecoverCode::AuthenticationRequired)
+                {
+                    AttemptOutcome::Rejected
+                } else {
+                    AttemptOutcome::Counted
+                };
+                limits.finish(&key, now, outcome);
             }
             result
         }
@@ -615,17 +606,33 @@ struct PendingAttempt {
     count: usize,
     in_flight: usize,
 }
+enum AttemptOutcome {
+    Counted,
+    Rejected,
+    Transient,
+}
+
 #[derive(Debug)]
 struct AttemptLimits {
     confirmed: WindowLimiter,
+    // Reusable charges in live confirmed windows after a transient issuer refusal.
+    refunds: std::collections::HashMap<Vec<u8>, usize>,
     unverified: std::collections::HashMap<Vec<u8>, PendingAttempt>,
     reservation_window: Duration,
 }
 impl AttemptLimits {
     fn allow(&mut self, key: &[u8], now: Duration) -> Result<(), u64> {
         if self.confirmed.contains(key, now) {
+            if let Some(credit) = self.refunds.get_mut(key) {
+                *credit -= 1;
+                if *credit == 0 {
+                    self.refunds.remove(key);
+                }
+                return Ok(());
+            }
             return self.confirmed.allow(key, now);
         }
+        self.refunds.remove(key);
         if let Some(pending) = self.unverified.get_mut(key)
             && now.saturating_sub(pending.start) < self.reservation_window
         {
@@ -645,6 +652,8 @@ impl AttemptLimits {
         // the memory bound so promotion always has a reserved slot.
         if self.confirmed.len() + self.unverified.len() >= 100_000 {
             self.confirmed.prune(now);
+            self.refunds
+                .retain(|key, _| self.confirmed.contains(key, now));
             self.unverified
                 .retain(|_, pending| now.saturating_sub(pending.start) < self.reservation_window);
             if self.confirmed.len() + self.unverified.len() >= 100_000 {
@@ -661,13 +670,46 @@ impl AttemptLimits {
         );
         Ok(())
     }
-    fn finish(&mut self, key: &[u8], now: Duration, authenticated: bool, rejected: bool) {
-        if authenticated || !rejected {
+    fn refund(&mut self, key: &[u8], now: Duration) {
+        if self.confirmed.contains(key, now) {
+            // The request's timestamp predates this window if the window will
+            // still be live a full reservation lifetime after dispatch.
+            if self
+                .confirmed
+                .contains(key, now.saturating_add(self.reservation_window))
+            {
+                return;
+            }
+            *self.refunds.entry(key.to_vec()).or_default() += 1;
+        } else if let Some(pending) = self.unverified.get_mut(key)
+            && now >= pending.start
+        {
+            pending.count -= 1;
+            pending.in_flight -= 1;
+            if pending.in_flight == 0 {
+                self.unverified.remove(key);
+            }
+        }
+    }
+    fn finish(&mut self, key: &[u8], now: Duration, outcome: AttemptOutcome) {
+        if matches!(outcome, AttemptOutcome::Transient) {
+            self.refund(key, now);
+            return;
+        }
+        if self
+            .unverified
+            .get(key)
+            .is_some_and(|pending| now < pending.start)
+        {
+            return;
+        }
+        if matches!(outcome, AttemptOutcome::Counted) {
             if let Some(pending) = self.unverified.remove(key)
                 && !self.confirmed.contains(key, now)
             {
                 // Count all concurrent reservations conservatively. A rejected
                 // exchange cannot erase another exchange's pending reservation.
+                self.refunds.remove(key);
                 self.confirmed.insert(key, pending.start, pending.count);
             }
         } else if let Some(pending) = self.unverified.get_mut(key) {
@@ -680,6 +722,7 @@ impl AttemptLimits {
 }
 fn attempt_limiter() -> AttemptLimits {
     AttemptLimits {
+        refunds: Default::default(),
         confirmed: WindowLimiter::new(6, Duration::from_secs(12 * 60 * 60), 100_000),
         unverified: std::collections::HashMap::new(),
         reservation_window: Duration::from_secs(12 * 60 * 60),
@@ -703,27 +746,44 @@ fn reserve(l: &Mutex<AttemptLimits>, key: &[u8], now: Duration) -> Result<(), Re
 }
 fn finish(l: &Mutex<AttemptLimits>, key: &[u8], now: Duration, code: Option<Code>) {
     if let Ok(mut limits) = l.lock() {
-        limits.finish(
-            key,
-            now,
-            code.is_none()
-                || matches!(
-                    code,
-                    Some(
-                        Code::CharacterConflict
-                            | Code::RouteUnavailable
-                            | Code::GrantExpired
-                            | Code::ChannelUnavailable
-                    )
-                ),
-            code == Some(Code::AuthenticationRequired),
-        );
+        let outcome = match code {
+            Some(Code::RateLimited | Code::Unavailable) => AttemptOutcome::Transient,
+            Some(Code::AuthenticationRequired) => AttemptOutcome::Rejected,
+            _ => AttemptOutcome::Counted,
+        };
+        limits.finish(key, now, outcome);
     }
 }
 
 #[cfg(test)]
 mod attempt_budget_tests {
     use super::*;
+
+    #[test]
+    fn transient_issuer_errors_release_attempt_budget() {
+        for code in [Code::RateLimited, Code::Unavailable] {
+            let limiter = Mutex::new(attempt_limiter());
+            let key = b"credential";
+            assert!(reserve(&limiter, key, Duration::ZERO).is_ok());
+            finish(&limiter, key, Duration::ZERO, Some(code));
+            assert!(
+                limiter
+                    .lock()
+                    .is_ok_and(|l| l.confirmed.is_empty() && l.unverified.is_empty()),
+                "transient refusal retained a slot"
+            );
+            // A successful overlapping exchange can promote the pending reservation.
+            for _ in 0..2 {
+                assert!(reserve(&limiter, key, Duration::ZERO).is_ok());
+            }
+            finish(&limiter, key, Duration::ZERO, None);
+            finish(&limiter, key, Duration::ZERO, Some(code));
+            for _ in 0..5 {
+                assert!(reserve(&limiter, key, Duration::ZERO).is_ok());
+            }
+            assert!(reserve(&limiter, key, Duration::ZERO).is_err());
+        }
+    }
 
     #[test]
     fn login_total_budget_survives_old_window() {
@@ -779,7 +839,7 @@ mod attempt_budget_tests {
             .attempts
             .lock()
             .map_err(|_| "poisoned")?
-            .finish(&key, Duration::ZERO, true, false);
+            .finish(&key, Duration::ZERO, AttemptOutcome::Counted);
         let result = prepare_recovery(&state, "127.0.0.1", body, Duration::from_secs(121));
         assert!(result.is_err());
         let refusal = result.err().ok_or("exhausted total budget")?;
@@ -839,8 +899,7 @@ mod attempt_budget_tests {
                         &Sha256::digest(request.recovery_handle.as_bytes()),
                     ),
                     Duration::ZERO,
-                    false,
-                    false,
+                    AttemptOutcome::Counted,
                 );
         }
         let login = prepare(&state, "client", login, Duration::from_secs(61))
@@ -860,8 +919,8 @@ mod attempt_budget_tests {
         let mut limits = attempt_limiter();
         assert!(limits.allow(b"same-credential", Duration::ZERO).is_ok());
         assert!(limits.allow(b"same-credential", Duration::ZERO).is_ok());
-        limits.finish(b"same-credential", Duration::ZERO, false, true);
-        limits.finish(b"same-credential", Duration::ZERO, true, false);
+        limits.finish(b"same-credential", Duration::ZERO, AttemptOutcome::Rejected);
+        limits.finish(b"same-credential", Duration::ZERO, AttemptOutcome::Counted);
         for _ in 0..4 {
             assert!(
                 limits
@@ -882,12 +941,12 @@ mod attempt_budget_tests {
         for _ in 0..6 {
             assert!(limits.allow(b"confirmed", Duration::ZERO).is_ok());
         }
-        limits.finish(b"confirmed", Duration::ZERO, true, false);
+        limits.finish(b"confirmed", Duration::ZERO, AttemptOutcome::Counted);
         for i in 0u64..99_999 {
             let now = Duration::from_secs(i / 150 * 60);
             let key = i.to_be_bytes();
             assert!(limits.allow(&key, now).is_ok());
-            limits.finish(&key, now, false, false);
+            limits.finish(&key, now, AttemptOutcome::Counted);
         }
         assert_eq!(limits.confirmed.len(), 100_000);
         assert!(
@@ -904,7 +963,7 @@ mod attempt_budget_tests {
         let mut limits = attempt_limiter();
         for _ in 0..6 {
             assert!(limits.allow(b"uncertain", Duration::ZERO).is_ok());
-            limits.finish(b"uncertain", Duration::ZERO, false, false);
+            limits.finish(b"uncertain", Duration::ZERO, AttemptOutcome::Counted);
         }
         for seconds in [61, 121, 3600, 43199] {
             assert!(
@@ -924,7 +983,11 @@ mod attempt_budget_tests {
         for _ in 0..6 {
             assert!(limiter.allow(b"attempt-and-handle", Duration::ZERO).is_ok());
         }
-        limiter.finish(b"attempt-and-handle", Duration::ZERO, true, false);
+        limiter.finish(
+            b"attempt-and-handle",
+            Duration::ZERO,
+            AttemptOutcome::Counted,
+        );
         for seconds in [121, 3600, 43199] {
             assert!(
                 limiter
