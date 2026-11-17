@@ -25,7 +25,7 @@ both wait indefinitely. Each now arms `oteryn_db::mutation_budget` right after
 
 - [x] A held account row lock sheds a termination request and a cancel as errors within the mutation budget (test red without the change, green with it), and nothing is written
 - [x] Request, cancel, reschedule, finalize and race behaviour unchanged
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -49,10 +49,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T05:11:18Z
-head: c69b998f8a1d471626e0a993d873ee9c1d6a5acf
+head: c6361bd0a0d891f3d45d6dbe164a0b448362ac50
 branch: claude/happy-davinci-ijz3wy-classb-identity
 pr: 1905
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-classb-identity.md
@@ -86,5 +86,13 @@ validation:
     evidence: exit 0
 blockers:
   - none
-next_action: "wait for Portal RS CI on PR 1905, then squash auto-merge"
+next_action: none; delivered by PR 1905 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1905 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1905 merged as c6361bd0a0d891f3d45d6dbe164a0b448362ac50
 ```
