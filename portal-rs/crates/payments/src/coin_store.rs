@@ -1014,6 +1014,11 @@ impl CoinPurchases {
             if order.order.state == OrderState::Failed {
                 return Err(Error::IllegalTransition);
             }
+            // A reversal can precede settlement. Keep the fence, and never
+            // downgrade a chargeback when an older refund arrives later.
+            sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1 AND state NOT IN ($2,'chargeback')")
+                .bind(event.intent_id).bind(event.state.as_str())
+                .execute(&mut **tx).await?;
             if reversal.is_none() {
                 self.record_reversal(tx, key, event, order, kind, "fenced")
                     .await?;
