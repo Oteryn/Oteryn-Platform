@@ -27,7 +27,7 @@ with its reason.
 - [x] A held projection lock sheds the guild page as 503 within the budget (red without the change)
 - [x] A held invitation lock sheds a referral claim within the mutation budget (red without the change)
 - [x] Crate guard: every begin() is budgeted or listed with a reason (red on main)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -59,10 +59,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T06:50:00Z
-head: 8633994271bcca625c2c7a9b1186918553e2770a
+head: a6b97122a8ba252d5e876e7493bfbe8920b8f92c
 branch: claude/happy-davinci-ijz3wy-community-fence
 pr: 1910
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-community-fence.md
@@ -117,5 +117,13 @@ validation:
     evidence: lib 134 passed, 0 failed; fmt and clippy exit 0
 blockers:
   - none
-next_action: "open the PR, set pr, wait for Portal RS CI, then squash auto-merge"
+next_action: none; delivered by PR 1910 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1910 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1910 merged as a6b97122a8ba252d5e876e7493bfbe8920b8f92c
 ```
