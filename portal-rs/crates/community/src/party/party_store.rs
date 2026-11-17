@@ -26,7 +26,7 @@ impl Board {
         if !filter.valid() {
             return Err(Error::Invalid);
         }
-        let rows = sqlx::query("SELECT *, starts_at::text AS starts, expires_at::text AS expires FROM pd_party_posts WHERE status='active' AND expires_at>clock_timestamp() AND ($1::uuid IS NULL OR world_id=$1) AND ($2::text IS NULL OR purpose=$2) AND ($3::int IS NULL OR $3 BETWEEN min_level AND max_level) AND ($4::text IS NULL OR profession='any' OR profession=$4) ORDER BY starts_at,id LIMIT 100")
+        let rows = sqlx::query("SELECT *, starts_at::text AS starts, expires_at::text AS expires FROM pd_party_posts p WHERE status='active' AND expires_at>clock_timestamp() AND EXISTS (SELECT 1 FROM account_characters c WHERE c.account_id=p.account_id AND c.character_id=p.character_id AND c.world_id=p.world_id AND c.availability='AVAILABLE') AND ($1::uuid IS NULL OR world_id=$1) AND ($2::text IS NULL OR purpose=$2) AND ($3::int IS NULL OR $3 BETWEEN min_level AND max_level) AND ($4::text IS NULL OR profession='any' OR profession=$4) ORDER BY starts_at,id LIMIT 100")
             .bind(filter.world).bind(&filter.purpose).bind(filter.level).bind(&filter.profession).fetch_all(&self.db).await?;
         rows.into_iter()
             .map(|row| listing(row, String::new()))
@@ -174,7 +174,7 @@ impl Board {
         Ok(())
     }
     pub(super) async fn reports(&self) -> Result<Vec<Listing>, Error> {
-        let rows = sqlx::query("SELECT p.*,p.starts_at::text AS starts,p.expires_at::text AS expires, (SELECT string_agg(recent.reason, ' | ') FROM (SELECT r.reason FROM pd_party_reports r WHERE r.post_id=p.id AND r.status='open' ORDER BY r.created_at LIMIT 50) recent) AS reasons FROM pd_party_posts p WHERE EXISTS(SELECT 1 FROM pd_party_reports r WHERE r.post_id=p.id AND r.status='open') ORDER BY p.created_at,p.id LIMIT 100").fetch_all(&self.db).await?;
+        let rows = sqlx::query("SELECT p.*,p.starts_at::text AS starts,p.expires_at::text AS expires, (SELECT string_agg(r.reason, ' | ' ORDER BY r.created_at,r.id) FROM pd_party_reports r WHERE r.post_id=p.id AND r.status='open') AS reasons FROM pd_party_posts p WHERE EXISTS(SELECT 1 FROM pd_party_reports r WHERE r.post_id=p.id AND r.status='open') ORDER BY p.created_at,p.id LIMIT 100").fetch_all(&self.db).await?;
         rows.into_iter()
             .map(|row| {
                 let reasons: String = row.try_get("reasons")?;

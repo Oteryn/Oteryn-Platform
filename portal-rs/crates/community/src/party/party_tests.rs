@@ -120,6 +120,8 @@ impl Database {
                 profession: "druid".into(),
             },
         });
+        sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,$4,'AVAILABLE')")
+            .bind(trusted.owner).bind(trusted.character.id).bind(trusted.character.world).bind(&trusted.character.name).execute(&pool).await.unwrap();
         let board = Board::new(pool.clone(), trusted.clone());
         Some(Self {
             root,
@@ -655,7 +657,7 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
     }
     sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1").execute(&db.pool).await.unwrap();
     sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'test','1','1',0,decode(repeat('00',32),'hex'))").bind(owner).execute(&db.pool).await.unwrap();
-    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(owner).bind(character).bind(world).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE') ON CONFLICT(account_id,character_id) DO UPDATE SET name=excluded.name").bind(owner).bind(character).bind(world).execute(&db.pool).await.unwrap();
     sqlx::query("INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,from_projection_revision,to_projection_revision,projection_epoch,recovery_generation) VALUES($1,$2,$3,1,1,1,1,1)").bind(character).bind(owner).bind(world).execute(&db.pool).await.unwrap();
     sqlx::query("UPDATE public_projection_state SET highest_epoch=1 WHERE id=1")
         .execute(&db.pool)
@@ -942,7 +944,7 @@ async fn w3_c06_003_party_rechecks_authority_after_mutation_wait() {
     }
     sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1").execute(&db.pool).await.unwrap();
     sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'test','1','1',0,decode(repeat('00',32),'hex'))").bind(owner).execute(&db.pool).await.unwrap();
-    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(owner).bind(character).bind(world).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE') ON CONFLICT(account_id,character_id) DO UPDATE SET name=excluded.name").bind(owner).bind(character).bind(world).execute(&db.pool).await.unwrap();
     sqlx::query("INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,from_projection_revision,to_projection_revision,projection_epoch,recovery_generation) VALUES($1,$2,$3,1,1,1,1,1)").bind(character).bind(owner).bind(world).execute(&db.pool).await.unwrap();
     sqlx::query("UPDATE public_projection_state SET highest_epoch=1 WHERE id=1")
         .execute(&db.pool)
@@ -1204,4 +1206,67 @@ async fn party_request_lock_wait_is_bounded_by_mutation_budget() {
         .unwrap();
     assert_eq!((posts, reports), (1, 0));
     db.close().await;
+}
+
+#[tokio::test]
+async fn r7_configured_report_limit() {
+    const CHILD: &str = "PARTY_REPORT_LIMIT_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "party::party_tests::r7_configured_report_limit",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("OTERYN_REPORTS_UNJUSTIFIED_LIMIT", "0")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        return;
+    }
+    let db = Database::open().await.unwrap();
+    let actor = db.trusted.reporter;
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'reporter@example.test','test','active',now(),'en')").bind(actor).execute(&db.pool).await.unwrap();
+    let allowed = production_board(db.pool.clone())
+        .authority
+        .reporting_allowed(actor)
+        .await;
+    db.close().await;
+    assert!(allowed.is_none(), "zero limit must deny reporting");
+}
+
+#[tokio::test]
+async fn r7_transferred_character_hidden() {
+    let db = Database::open().await.unwrap();
+    let id = db
+        .board
+        .create(db.trusted.owner, db.draft().await)
+        .await
+        .unwrap();
+    assert_eq!(db.board.list(&Filter::default()).await.unwrap()[0].id, id);
+    sqlx::query("UPDATE account_characters SET account_id=$1 WHERE character_id=$2")
+        .bind(db.trusted.reporter)
+        .bind(db.trusted.character.id)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let visible = db.board.list(&Filter::default()).await.unwrap();
+    db.close().await;
+    assert!(visible.is_empty(), "transferred character still advertised");
+}
+
+#[tokio::test]
+async fn r7_queue_shows_all_open_reasons() {
+    let db = Database::open().await.unwrap();
+    let id = db
+        .board
+        .create(db.trusted.owner, db.draft().await)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO pd_party_reports(post_id, account_id, reason) SELECT $1, uuidv7(), n::text FROM generate_series(1,51) n")
+        .bind(id).execute(&db.pool).await.unwrap();
+    let rows = db.board.reports().await.unwrap();
+    db.close().await;
+    assert_eq!(rows[0].reports.split(" | ").count(), 51);
 }
