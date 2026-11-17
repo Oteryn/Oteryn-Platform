@@ -336,7 +336,7 @@ async fn audit02_verification_and_session_expire_while_waiting_for_account_lock(
     tokio::time::sleep(std::time::Duration::from_millis(450)).await;
     assert!(!consume.is_finished());
     lock.commit().await?;
-    assert!(!consume.await??);
+    assert!(consume.await??.is_none());
     sqlx::query("UPDATE accounts SET status='active',email_verified_at=now() WHERE id=$1")
         .bind(id)
         .execute(&db.pool)
