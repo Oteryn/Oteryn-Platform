@@ -53,7 +53,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T03:05:00Z
 head: bb2f6c07f2aa9d2fa820750753aa7daba376b9e4
 branch: claude/happy-davinci-ijz3wy-leaguefence
-pr: none
+pr: 1899
 status: validating
 context_routes: []
 owned_paths:
@@ -82,5 +82,5 @@ validation:
     evidence: 74 passed each run
 blockers:
   - none
-next_action: open the PR and wait for Portal RS CI
+next_action: wait for Portal RS CI on PR 1899
 ```
