@@ -86,6 +86,20 @@ impl Database {
         sqlx::query("INSERT INTO web_sessions (id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES ($1,$2,$3,'test',now()+interval '1 hour',now()+interval '2 hours')").bind(token_hash(&raw)).bind(id).bind("b".repeat(64)).execute(&self.pool).await?;
         Ok(format!("__Host-oteryn_session={raw}"))
     }
+    /// Budgets are fixed windows on the database clock: wait for a fresh one
+    /// when less than a minute is left, so filling a budget cannot straddle a rollover.
+    async fn fresh_window(&self, policy: oteryn_web::ratelimit::NamedPolicy) -> Result {
+        loop {
+            let left: f64 = sqlx::query_scalar("SELECT ($1::numeric - mod(extract(epoch FROM statement_timestamp()), $1::numeric))::float8")
+                .bind(policy.window_seconds())
+                .fetch_one(&self.pool)
+                .await?;
+            if left > 60.0 {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_secs_f64(left)).await;
+        }
+    }
     async fn close(self) -> Result {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -405,6 +419,8 @@ async fn postgres_browser_csrf_authorization_locales_and_rate_limit() -> Result 
         .await?;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let form = format!("_csrf={}&current_password=wrong", "b".repeat(64));
+    db.fresh_window(oteryn_web::ratelimit::NamedPolicy::IdentityRecoveryKeyManage)
+        .await?;
     for _ in 0..5 {
         let response = db
             .app()
@@ -527,6 +543,8 @@ async fn audit02_varied_email_recovery_exhausts_aggregate_source_budget() -> Res
     };
     let cookie = db.session(None).await?;
     let app = db.app();
+    db.fresh_window(oteryn_web::ratelimit::NamedPolicy::IdentityRecoveryKeyUse)
+        .await?;
     for n in 0..7 {
         let form = serde_urlencoded::to_string([
             ("_csrf", "b".repeat(64)),
