@@ -34,6 +34,7 @@ and the two unicode crates. No product code, timeout or test changes.
 owned_paths:
   - portal-rs/Cargo.toml
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-l5-league-read.md
+  - docs/agents/tasks/archive/OTERYN-20261116-r4-identity-d1-d2-d3.md
 modules:
   - ci
 dependencies:
@@ -57,6 +58,7 @@ context_routes: []
 owned_paths:
   - portal-rs/Cargo.toml
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-l5-league-read.md
+  - docs/agents/tasks/archive/OTERYN-20261116-r4-identity-d1-d2-d3.md
 proven:
   - Base is origin/main 8e16fc6d; CI test shards run plain cargo test (dev profile)
   - Per-season decode 92-93 ms with no override or with any one override alone; 17 ms with all three
@@ -72,6 +74,7 @@ rejected_hypotheses:
 changed_paths:
   - portal-rs/Cargo.toml
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-l5-league-read.md
+  - docs/agents/tasks/archive/OTERYN-20261116-r4-identity-d1-d2-d3.md
 validation:
   - command: cargo test --locked -p oteryn-minigames -p oteryn-portal (PostgreSQL 18)
     result: PASS
