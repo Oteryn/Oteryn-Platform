@@ -1429,3 +1429,26 @@ async fn audit02_private_closure_throttling_supplies_retry_after() -> TestResult
     }
     db.close().await
 }
+
+#[tokio::test]
+async fn r7_cancel_at_capacity() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let mut b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    Arc::get_mut(&mut b).unwrap().limits.max_pending = 1;
+    let s = service(&db, b);
+    let account = db.account().await?;
+    issue(&db, &s, account).await;
+    assert!(
+        s.cancel(
+            account,
+            &ActorProof(account.to_string()),
+            "termination test password"
+        )
+        .await
+        .is_ok(),
+        "full queue blocked cancellation"
+    );
+    db.close().await
+}
