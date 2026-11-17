@@ -49,7 +49,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T05:33:05Z
 head: c6361bd0a0d891f3d45d6dbe164a0b448362ac50
 branch: claude/happy-davinci-ijz3wy-atlas-notice
-pr: none
+pr: 1907
 status: validating
 context_routes: []
 owned_paths:
