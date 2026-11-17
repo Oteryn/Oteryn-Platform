@@ -291,15 +291,8 @@ pub(crate) async fn page<B: Backend>(
     headers: axum::http::HeaderMap,
     Query(input): Query<Input>,
 ) -> Result<Response, Error> {
-    if input.q.is_some() || input.character.is_some() {
-        let mut sites = headers.get_all("sec-fetch-site").iter();
-        if !matches!(
-            sites.next().map(|site| site.as_bytes()),
-            Some(b"same-origin" | b"none")
-        ) || sites.next().is_some()
-        {
-            return Err(Error::Denied);
-        }
+    if (input.q.is_some() || input.character.is_some()) && !super::trusted_navigation(&headers) {
+        return Err(Error::Denied);
     }
     let scoped = Console {
         pool: state.pool.clone(),

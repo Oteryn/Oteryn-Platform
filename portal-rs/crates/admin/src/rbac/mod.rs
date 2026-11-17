@@ -173,9 +173,40 @@ pub async fn durable_session_in(
     sqlx::query("SELECT s.id_hash FROM web_sessions s JOIN account_mfa_totp m ON m.account_id=s.account_id JOIN account_mfa_tokens t ON t.account_id=m.account_id AND t.generation=m.generation WHERE s.account_id=$1 AND s.id_hash=$2 AND t.token_hash=$3 FOR UPDATE OF s,m,t")
         .bind(account).bind(proof.session_hash.as_slice()).bind(proof.grant_hash.as_slice())
         .execute(&mut *connection).await.map_err(|_| AccountStateUnavailable)?;
+    // A native Game kick advances this generation. Failing closed on subsequent
+    // browser staff mutations until fresh authentication is intentional.
     sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id JOIN account_mfa_totp m ON m.account_id=a.id JOIN account_mfa_tokens t ON t.account_id=a.id AND t.generation=m.generation WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND s.id_hash=$2 AND sha256(convert_to(s.data->>'mfa_grant','UTF8'))=$3 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() AND s.authorization_generation=a.native_security_generation AND m.confirmed AND t.token_hash=$3 AND t.purpose='grant' AND t.expires_at>clock_timestamp() AND t.created_at<=clock_timestamp() AND t.credential_hash=$4 FOR UPDATE OF s,m,t)")
         .bind(account).bind(proof.session_hash.as_slice()).bind(proof.grant_hash.as_slice())
         .bind(Sha256::digest(password.as_bytes()).to_vec()).fetch_one(connection).await.map_err(|_| AccountStateUnavailable)
+}
+
+/// Capture expiry under the durable authorization locks before a mutation
+/// deliberately removes the browser credentials it used for authorization.
+pub(crate) struct SessionExpiry(Option<time::OffsetDateTime>);
+impl SessionExpiry {
+    pub(crate) async fn capture(
+        connection: &mut PgConnection,
+        context: CheckContext,
+    ) -> Result<Self, Error> {
+        let Some(proof) = context.session_proof else {
+            return Ok(Self(None));
+        };
+        let expiry = sqlx::query_scalar("SELECT least(s.idle_expires_at,s.absolute_expires_at,t.expires_at) FROM web_sessions s JOIN account_mfa_tokens t ON t.account_id=s.account_id WHERE s.account_id=$1 AND s.id_hash=$2 AND t.token_hash=$3")
+            .bind(context.account).bind(proof.session_hash.as_slice()).bind(proof.grant_hash.as_slice()).fetch_optional(connection).await?.ok_or(Error::Denied)?;
+        Ok(Self(Some(expiry)))
+    }
+
+    pub(crate) async fn check(self, connection: &mut PgConnection) -> Result<(), Error> {
+        if let Some(expiry) = self.0
+            && !sqlx::query_scalar::<_, bool>("SELECT clock_timestamp() < $1::timestamptz")
+                .bind(expiry)
+                .fetch_one(connection)
+                .await?
+        {
+            return Err(Error::Denied);
+        }
+        Ok(())
+    }
 }
 
 /// Trusted, per-request authentication state. Staff MFA is required by default.

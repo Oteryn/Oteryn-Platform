@@ -74,6 +74,17 @@ pub trait Backend: Clone + Send + Sync + 'static {
     fn for_session(&self, _: oteryn_web::session::BrowserSession) -> Self {
         self.clone()
     }
+    fn for_navigation(
+        &self,
+        session: oteryn_web::session::BrowserSession,
+        headers: &axum::http::HeaderMap,
+    ) -> Self {
+        if super::trusted_navigation(headers) {
+            self.for_session(session)
+        } else {
+            self.clone()
+        }
+    }
     fn permitted(
         &self,
         actor: CheckContext,
@@ -577,6 +588,7 @@ pub(crate) async fn page<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    headers: axum::http::HeaderMap,
     Query(input): Query<Locale>,
 ) -> Result<Response, Error> {
     state.check(actor, "admin.roles.manage").await?;
@@ -617,7 +629,7 @@ pub(crate) async fn page<B: Backend>(
                 .collect()
         }),
     );
-    let backend = state.backend.for_session(session);
+    let backend = state.backend.for_navigation(session, &headers);
     let policy = if backend.permitted(actor, "game.ops.read").await
         && backend.advertised("admin.policy.get").await
     {
