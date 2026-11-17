@@ -5,6 +5,7 @@ pub mod sessions;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     Invalid,
+    ArrayTooLarge,
     Unavailable,
 }
 impl std::fmt::Display for Error {
@@ -183,6 +184,12 @@ fn array(v: &Value, min: usize, max: usize) -> Result<&[Value]> {
     require((min..=max).contains(&a.len()))?;
     Ok(a)
 }
+fn progress_array(v: &Value, min: usize, max: usize) -> Result<&[Value]> {
+    if matches!(v, Value::Array(a) if a.len() > max) {
+        return Err(Error::ArrayTooLarge);
+    }
+    array(v, min, max)
+}
 fn ordered<'a>(a: &'a [Value], k: &str) -> Result<Vec<&'a str>> {
     let keys = a.iter().map(|v| s(v, k)).collect::<Result<Vec<_>>>()?;
     require(keys.windows(2).all(|w| w[0] < w[1]))?;
@@ -338,7 +345,7 @@ fn progress_payload(scope: &Scope, entity: &str, p: &Value) -> Result<()> {
             revision(p, "pinned_content_revision")?;
             hex(s(p, "definition_hash")?, 64)?;
             boolean(get(p, "completed")?)?;
-            let a = array(get(p, "tracks")?, 0, 256)?;
+            let a = progress_array(get(p, "tracks")?, 0, 256)?;
             ordered(a, "track_key")?;
             for t in a {
                 fields(t, "track_key value")?;
@@ -384,7 +391,7 @@ fn progress_payload(scope: &Scope, entity: &str, p: &Value) -> Result<()> {
                 "training vocation_choice promotion offline_settlement logout death",
             )?;
             revision(p, "policy_revision")?;
-            let a = array(get(p, "skills")?, 1, 8)?;
+            let a = progress_array(get(p, "skills")?, 1, 8)?;
             ordered(a, "skill")?;
             for t in a {
                 fields(
@@ -416,7 +423,7 @@ fn progress_payload(scope: &Scope, entity: &str, p: &Value) -> Result<()> {
             dec(p, "experience_lost", 0, i64::MAX as u64)?;
             let mut sets = Vec::new();
             for name in ["blessings_before", "blessings_after"] {
-                let a = array(get(p, name)?, 0, 32)?;
+                let a = progress_array(get(p, name)?, 0, 32)?;
                 let values = a.iter().map(text).collect::<Result<Vec<_>>>()?;
                 require(values.windows(2).all(|w| w[0] < w[1]))?;
                 for t in &values {
@@ -426,7 +433,7 @@ fn progress_payload(scope: &Scope, entity: &str, p: &Value) -> Result<()> {
             }
             require(sets[1].iter().all(|x| sets[0].contains(x)))?;
             let mut last = None;
-            for t in array(get(p, "lost_items")?, 0, 256)? {
+            for t in progress_array(get(p, "lost_items")?, 0, 256)? {
                 fields(t, "loss_index item_key quantity")?;
                 let n = num(t, "loss_index", 0, 255)?;
                 require(last.is_none_or(|l| l < n))?;
@@ -436,7 +443,7 @@ fn progress_payload(scope: &Scope, entity: &str, p: &Value) -> Result<()> {
             }
             require(s(p, "recap_state")? == "UNAVAILABLE")?;
             num(p, "window_ms", 0, 0)?;
-            array(get(p, "actions")?, 0, 0)?;
+            progress_array(get(p, "actions")?, 0, 0)?;
         }
         "pvp" => {
             fields(

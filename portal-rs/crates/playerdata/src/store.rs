@@ -39,7 +39,7 @@ impl From<sqlx::Error> for Error {
 impl From<playerdata::Error> for Error {
     fn from(e: playerdata::Error) -> Self {
         match e {
-            playerdata::Error::Invalid => Self::Invalid,
+            playerdata::Error::Invalid | playerdata::Error::ArrayTooLarge => Self::Invalid,
             playerdata::Error::Unavailable => Self::Unavailable,
         }
     }
@@ -477,7 +477,7 @@ impl Store {
         let key = stream_key(&r.scope);
         let c = stream(&mut tx, &r.scope, r.progress).await?;
         let digest = hash(&r.bytes);
-        let existing=sqlx::query("SELECT stream_key,source_revision::text,digest,kind,record_id,authority FROM pd_records WHERE (stream_key=$1 AND source_revision=$2::numeric) OR (authority=$3 AND recovery_generation=$4 AND record_id=$5)").bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).fetch_all(&mut *tx).await?;
+        let existing=sqlx::query("SELECT stream_key,source_revision::text,digest,kind,record_id,authority,(payload IS NULL OR expires_ms <= $6) AS expired FROM pd_records WHERE (stream_key=$1 AND source_revision=$2::numeric) OR (authority=$3 AND recovery_generation=$4 AND record_id=$5)").bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).bind(now as i64).fetch_all(&mut *tx).await?;
         if !existing.is_empty() {
             if existing.len() != 1
                 || existing[0].try_get::<String, _>("stream_key")? != key
@@ -519,7 +519,7 @@ impl Store {
                 tx.commit().await?;
                 return Err(Error::Conflict);
             };
-            if transferred {
+            if transferred || (!r.progress && existing[0].try_get::<bool, _>("expired")?) {
                 return Err(Error::Conflict);
             }
             let kind = existing[0].try_get::<String, _>("kind")?;

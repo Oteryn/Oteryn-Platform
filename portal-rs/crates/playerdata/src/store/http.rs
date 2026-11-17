@@ -145,6 +145,9 @@ async fn publish(State(state): State<HttpState>, bytes: Bytes) -> Response {
 async fn progress(State(state): State<HttpState>, bytes: Bytes) -> Response {
     let r = match playerdata::progress(&bytes) {
         Ok(r) => r,
+        Err(playerdata::Error::ArrayTooLarge) => {
+            return guard::failure(StatusCode::PAYLOAD_TOO_LARGE);
+        }
         Err(e) => return response(Err(e.into())),
     };
     match state.accounts.admit(&r.scope.account) {
@@ -206,55 +209,11 @@ fn too_many(retry_after: &'static str) -> Response {
     );
     response
 }
-/// Set by [`over_budget`] on a request from a peer whose budget is spent.
-#[derive(Debug, Clone, Copy)]
-struct OverBudget(&'static str);
-/// Runs before the guard (G-10/G-11 §3 order: 503, 401, 429, then transport).
-/// A request over the peer budget keeps its method, URI and peer extension but
-/// reaches the guard with an empty JSON object in place of its body, so the
-/// guard still answers 503 and 401 first and no transport or size check runs
-/// on the refused body; [`budget`] then answers 429. Only [`budget`] counts.
-async fn over_budget(
-    State(budget): State<Budget>,
-    request: axum::extract::Request,
-    next: Next,
-) -> Response {
-    let spent = match budget.window.lock() {
-        Ok(b) => b.0.elapsed().as_secs() < 60 && b.1 >= budget.per_minute,
-        Err(_) => return response(Err(Error::Unavailable)),
-    };
-    let full = budget
-        .in_flight
-        .as_ref()
-        .is_some_and(|slots| slots.available_permits() == 0);
-    if !spent && !full {
-        return next.run(request).await;
-    }
-    let (mut parts, _) = request.into_parts();
-    parts
-        .extensions
-        .insert(OverBudget(if spent { "60" } else { "1" }));
-    parts.headers.remove(header::TRANSFER_ENCODING);
-    parts.headers.remove(header::CONTENT_ENCODING);
-    parts.headers.insert(
-        header::CONTENT_TYPE,
-        header::HeaderValue::from_static("application/json"),
-    );
-    parts.headers.insert(
-        header::CONTENT_LENGTH,
-        header::HeaderValue::from_static("2"),
-    );
-    next.run(axum::extract::Request::from_parts(parts, Body::from("{}")))
-        .await
-}
 async fn budget(
     State(budget): State<Budget>,
     request: axum::extract::Request,
     next: Next,
 ) -> Response {
-    if let Some(OverBudget(retry_after)) = request.extensions().get::<OverBudget>() {
-        return too_many(retry_after);
-    }
     let allowed = match budget.window.lock() {
         Ok(mut b) => {
             if b.0.elapsed().as_secs() >= 60 {
@@ -279,6 +238,9 @@ async fn budget(
         },
         None => None,
     };
+    next.run(request).await
+}
+async fn check_length(request: axum::extract::Request, next: Next) -> Response {
     let expected = request
         .headers()
         .get(header::CONTENT_LENGTH)
@@ -396,19 +358,17 @@ pub fn router(state: HttpState, identities: Arc<IdentityMap>) -> Router {
                 Arc::<str>::from(configured.as_str()),
                 source,
             ))
-            .route_layer(middleware::from_fn_with_state(budget_state.clone(), budget));
-        let routes = guard::protect(
-            routes,
-            identities.clone(),
-            RoutePolicy {
-                enabled,
-                group: group.to_owned(),
-                max_body_bytes: max,
-                max_json_depth: 9,
-                json: JsonRule::Object,
-            },
-        )
-        .route_layer(middleware::from_fn_with_state(budget_state, over_budget));
+            .route_layer(middleware::from_fn(check_length));
+        let policy = RoutePolicy {
+            enabled,
+            group: group.to_owned(),
+            max_body_bytes: max,
+            max_json_depth: 9,
+            json: JsonRule::Object,
+        };
+        let routes = guard::validate_body(routes, policy.clone())
+            .route_layer(middleware::from_fn_with_state(budget_state, budget));
+        let routes = guard::protect_peer(routes, identities.clone(), policy);
         combined = combined.merge(routes);
     }
     combined
