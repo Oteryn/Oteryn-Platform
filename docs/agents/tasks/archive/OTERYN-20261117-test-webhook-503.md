@@ -24,7 +24,7 @@ payments flag and an explicit test key; nothing else changes.
 
 - [x] A valid signed event that hits a storage failure answers 503 (red on main's handler)
 - [x] A forged signature, a missing signature and an unparsable body answer 400
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -48,10 +48,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T09:30:00Z
-head: eb881d55af6fdc010ec520afd48871f15ac60fab
+head: 984ba5ac13a2f516304efbc3350bb79a0031b392
 branch: claude/happy-davinci-ijz3wy-test-webhook-503
 pr: 1924
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-test-webhook-503.md
@@ -86,13 +86,13 @@ validation:
     evidence: both exit 0
 blockers:
   - none
-next_action: push and open the PR
+next_action: none; delivered by PR 1924 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Task branch for the test webhook 503 PR; retained until merge
-source_branch_evidence: The PR records the published head
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1924 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1924 merged as 984ba5ac13a2f516304efbc3350bb79a0031b392
 ```
