@@ -27,7 +27,7 @@ refusal. The webhook and `intent_in` paths are unchanged.
 - [x] A failed account read gives Unavailable, not AccountDenied, for create_intent, ensure_intent and intent (red without the change)
 - [x] Ok(Restricted/Unknown/Ambiguous) still gives AccountDenied
 - [x] ensure_intent whose re-read after commit fails returns Unavailable; the repeated request returns the same intent and no second row is written
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -52,10 +52,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T12:40:00Z
-head: 83c0255669c088c639b6e24234fadde5d65da337
+head: 4f7f55e72e4a08447261831b37234f351ba2b58c
 branch: claude/happy-davinci-ijz3wy-payments-unavailable
 pr: 1918
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-payments-unavailable.md
@@ -96,13 +96,13 @@ validation:
     evidence: both exit 0 with no warnings
 blockers:
   - none
-next_action: open the PR and record CI on its head
+next_action: none; delivered by PR 1918 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: not yet merged
-source_branch_evidence: none
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1918 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1918 merged as 4f7f55e72e4a08447261831b37234f351ba2b58c
 ```
