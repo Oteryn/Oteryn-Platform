@@ -63,7 +63,8 @@ owned_paths:
   - portal-rs/crates/bazaar/src/game/**
 proven:
   - Without the production change the COINS and GOLD tests fail (escrow-return Bind never staged); without the listing_batch change they fail (return transfer never published)
-  - The expired-Bind test passes with and without the change (guards retry behaviour)
+  - The expired-Bind test is red when the worker stops excluding CHAR_CMD_INTENT_EXPIRED from refusal
+  - A refused Bind that is not a settlement refusal keeps its recorded code without a worker error
   - No migration, contract, fixture or flag change
 derived:
   - Retirement plus return Bind matches the contract rule that one competing binding must be terminally refused before the other becomes executable
@@ -106,5 +107,7 @@ source_branch_evidence: pending
 
 ## Notes
 
-A non-expired refusal of the escrow-return Bind still strands the listing
+`listing_batch` now polls every listing in `awaiting_delivery`, including
+characters with a recorded refusal. The binding-digest denial has no
+dedicated test. A non-expired refusal of the escrow-return Bind still strands the listing
 and needs an operator.

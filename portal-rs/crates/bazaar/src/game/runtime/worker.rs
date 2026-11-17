@@ -380,9 +380,10 @@ impl Runtime {
         if l.kind != Kind::Character || l.state != State::AwaitingDelivery {
             return Err(Error::Unavailable);
         }
+        // Any other refusal keeps its recorded code and stays for the operator.
         let Some((bind, transfer)) = self.authority().settlement_bind_refused(tx, l.id).await?
         else {
-            return Err(Error::Unavailable);
+            return Ok(());
         };
         sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
             .execute(&mut **tx)
