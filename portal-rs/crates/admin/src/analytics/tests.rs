@@ -1747,3 +1747,45 @@ async fn a3_receipt_outcome_migration_preserves_existing_receipts() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn expired_bucket_commit_replays_superseded() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some((pool, root, name)) = database().await else {
+        return;
+    };
+    let s = store(pool.clone()).await;
+    let mut p = page();
+    p.bucket_start = "86400".into();
+    p.bucket_end = "172800".into();
+    assert_eq!(publish(&s, &p).await.unwrap(), "superseded");
+    let c = commit(&p);
+    for _ in 0..2 {
+        let outcome = apply(&s, &c).await;
+        assert!(
+            matches!(outcome, Ok("superseded")),
+            "expired commit returned {outcome:?}"
+        );
+    }
+    clean(pool, root, name).await;
+}
+
+#[tokio::test]
+async fn committed_pages_release_staging_budget() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some((pool, root, name)) = database().await else {
+        return;
+    };
+    let mut s = store(pool.clone()).await;
+    let mut p = page();
+    s.max_staging_bytes = serde_json::to_vec(&p).unwrap().len() as u64;
+    assert_eq!(publish(&s, &p).await.unwrap(), "accepted");
+    assert_eq!(apply(&s, &commit(&p)).await.unwrap(), "accepted");
+    p.snapshot_revision = "2".into();
+    let outcome = publish(&s, &p).await;
+    assert!(
+        matches!(outcome, Ok("accepted")),
+        "next page returned {outcome:?}"
+    );
+    clean(pool, root, name).await;
+}
