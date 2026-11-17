@@ -487,3 +487,74 @@ async fn browser_check(pool: &PgPool, app: &Router, token: &str) -> TestResult {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_held_account_lock_sheds_marker_and_report_within_mutation_budget() -> TestResult {
+    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        eprintln!("SKIPPED PostgreSQL spawn test: PORTAL_TEST_DATABASE_URL is unset");
+        return Ok(());
+    };
+    let admin = PgPool::connect(&url).await?;
+    let schema = format!("spawn_test_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&admin)
+        .await?;
+    let search = schema.clone();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .after_connect(move |conn, _| {
+            let search = search.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(search)
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await?;
+    oteryn_db::migrate(&pool).await?;
+    let app = router(pool.clone(), true, true);
+    let account = Uuid::now_v7();
+    let token = "a".repeat(64);
+    let csrf = "c".repeat(64);
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES ($1,$2,'test-only','active','en')").bind(account).bind(format!("{account}@example.invalid")).execute(&pool).await?;
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at) VALUES ($1,$2,'test',$3,now()+interval '1 hour',now()+interval '1 day')").bind(Sha256::digest(token.as_bytes()).to_vec()).bind(account).bind(&csrf).execute(&pool).await?;
+    let mut holder = pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(account)
+        .execute(&mut *holder)
+        .await?;
+    for (path, body) in [
+        (
+            "/atlas/private-markers",
+            r#"{"x":100,"y":200,"floor":7,"text":"My home"}"#,
+        ),
+        (
+            "/atlas/map-reports",
+            r#"{"x":100,"y":200,"floor":7,"text":"The map tile is incorrect."}"#,
+        ),
+    ] {
+        let started = std::time::Instant::now();
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            call(&app, "POST", path, Some(&token), Some(&csrf), body),
+        )
+        .await
+        .map_err(|_| {
+            format!("{path} still waiting at 10 s on a held account lock; expected 503 within the 3 s mutation budget")
+        })??;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "{path} {:?}",
+            started.elapsed()
+        );
+    }
+    holder.rollback().await?;
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    Ok(())
+}

@@ -241,6 +241,10 @@ async fn add_marker(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
     let mut tx = pool.begin().await.map_err(unavailable)?;
+    // Writer waits are bounded by the shared mutation budget.
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(unavailable)?;
     let active: Option<bool> =
         sqlx::query_scalar("SELECT status='active' FROM accounts WHERE id=$1 FOR UPDATE")
             .bind(account)
@@ -291,6 +295,10 @@ async fn report(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
     let mut tx = pool.begin().await.map_err(unavailable)?;
+    // Writer waits are bounded by the shared mutation budget.
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(unavailable)?;
     let active: Option<bool> =
         sqlx::query_scalar("SELECT status='active' FROM accounts WHERE id=$1 FOR UPDATE")
             .bind(account)
