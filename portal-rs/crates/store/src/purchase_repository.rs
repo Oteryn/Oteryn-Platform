@@ -165,6 +165,15 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             tx.commit().await?;
             return Ok(answer);
         }
+        // Settlement uses the intent ID as its global wallet operation key.
+        let reserved: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM payment_intents WHERE id = $1)")
+                .bind(key)
+                .fetch_one(&mut *tx)
+                .await?;
+        if reserved {
+            return Err(Error::Conflict.into());
+        }
         let referrals: bool =
             sqlx::query_scalar("SELECT to_regclass('referral_campaign_settings') IS NOT NULL")
                 .fetch_one(&mut *tx)
