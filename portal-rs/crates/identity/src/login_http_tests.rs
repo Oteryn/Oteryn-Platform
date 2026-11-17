@@ -624,3 +624,47 @@ async fn production_proxy_policy_isolates_registration_verification_login_and_se
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn separate_admin_origin_can_submit_login() -> TestResult {
+    const CHILD: &str = "OTERYN_TEST_SEPARATE_LOGIN_ORIGIN";
+    if std::env::var_os(CHILD).is_none() {
+        let status = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "login_http::tests::separate_admin_origin_can_submit_login",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("OTERYN_ACCOUNT_LOGIN", "true")
+            .env("OTERYN_PUBLIC_ORIGIN", "https://pub.test")
+            .env("OTERYN_ADMIN_HOST", "staff.test")
+            .status()?;
+        assert!(status.success());
+        return Ok(());
+    }
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let app = configured_router(db.pool.clone());
+    let response = app
+        .clone()
+        .oneshot(request("GET", "/login", "", "")?)
+        .await?;
+    let guest = cookie(&response)?;
+    let html = body(response).await?;
+    let mut post = request(
+        "POST",
+        "/login",
+        &guest,
+        &format!("_csrf={}&email=bad&password=", csrf(&html)?),
+    )?;
+    post.headers_mut()
+        .insert(header::ORIGIN, "https://staff.test".parse()?);
+    post.headers_mut()
+        .insert(header::HOST, "staff.test".parse()?);
+    let status = app.oneshot(post).await?.status();
+    db.close().await?;
+    assert_eq!(status, StatusCode::FOUND, "admin-origin login form");
+    Ok(())
+}

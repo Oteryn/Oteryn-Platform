@@ -24,6 +24,14 @@ pub fn configured_router(pool: PgPool) -> Router {
         .ok()
         .into_iter()
         .collect();
+    if let Ok(host) = std::env::var("OTERYN_ADMIN_HOST")
+        && let Ok(authority) = host.parse::<axum::http::uri::Authority>()
+    {
+        sessions
+            .csrf
+            .trusted_origins
+            .push(format!("https://{authority}"));
+    }
     router(pool, enabled, sessions)
 }
 fn router(pool: PgPool, enabled: bool, sessions: SessionLayer) -> Router {

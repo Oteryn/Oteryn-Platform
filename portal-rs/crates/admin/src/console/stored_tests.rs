@@ -87,6 +87,7 @@ async fn browser_get(
         .clone()
         .oneshot(
             Request::get(path)
+                .header("sec-fetch-site", "same-origin")
                 .header("host", "staff.test")
                 .header("cookie", cookie)
                 .body(Body::empty())?,
