@@ -37,6 +37,7 @@ impl Runtime {
                 .await?;
         }
         reconciliation.commit().await?;
+        self.tick_invalidations().await?;
         self.tick_gold_bids().await?;
         let ids = listing_batch(&self.pool, self.config.fence.recovery_generation).await?;
         for listing in ids {
@@ -152,6 +153,11 @@ impl Runtime {
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
+        if matches!(l.state, State::Draft | State::Active)
+            && super::invalidation::approved(&mut tx, id).await?
+        {
+            return Ok(());
+        }
         let mut parties = vec![l.owner];
         parties.extend(l.leader);
         crate::locking::accounts(&mut tx, &parties).await?;
@@ -727,6 +733,22 @@ impl Runtime {
         if l.leader.is_some() {
             return Err(Error::Denied);
         }
+        self.stage_return(tx, l).await?;
+        if self
+            .authority()
+            .cancellation_ready(tx, l)
+            .await
+            .map_err(core_error)?
+        {
+            self.finish_cancellation(tx, l).await?;
+        }
+        Ok(())
+    }
+    pub(super) async fn stage_return(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        l: &Listing,
+    ) -> Result<(), Error> {
         if l.kind == Kind::Character {
             self.transfer(tx, l, "BAZAAR_ESCROW_RETURN", None).await?;
         } else {
@@ -759,16 +781,9 @@ impl Runtime {
             )
             .await?;
         }
-        if self
-            .authority()
-            .cancellation_ready(tx, l)
-            .await
-            .map_err(core_error)?
-        {
-            self.finish_cancellation(tx, l).await?;
-        }
         Ok(())
     }
+
     async fn finish_cancellation(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
