@@ -3241,11 +3241,14 @@ async fn returned_character_fixture(currency: &str) -> BrowserFixture {
 }
 
 async fn reject_expired(db: &BrowserFixture, intent: &PreparedIntent) {
+    reject(db, intent, "CHAR_CMD_INTENT_EXPIRED").await;
+}
+async fn reject(db: &BrowserFixture, intent: &PreparedIntent, code: &str) {
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
     let operation = text(&intent.value, "operation_id").unwrap();
     let receipt = format!(
-        r#"{{"contract_version":2,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"{}","operation_id":"{operation}","outcome":"REJECTED","result_code":"CHAR_CMD_INTENT_EXPIRED","result_data":null,"recovery_generation":"3","decided_at":"{now}"}}"#,
+        r#"{{"contract_version":2,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"{}","operation_id":"{operation}","outcome":"REJECTED","result_code":"{code}","result_data":null,"recovery_generation":"3","decided_at":"{now}"}}"#,
         intent.command().wire()
     );
     assert_eq!(
@@ -3344,6 +3347,437 @@ async fn postgres_cancelled_character_unlock_retries_both_currencies() {
     }
     eprintln!(
         "postgres_cancelled_character_unlock_retries_both_currencies: {:?}",
+        started.elapsed()
+    );
+}
+
+async fn character_status(
+    db: &BrowserFixture,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    state: &str,
+    last_operation: Uuid,
+    revisions: (&str, &str),
+    now: u64,
+) {
+    let a = db.runtime.authority();
+    let snapshot = decode(vector("locked_character_snapshot").as_bytes(), 262144).unwrap();
+    let hash = text(&snapshot, "snapshot_hash").unwrap();
+    let Value::Object(mut status) = decode(vector("delivered_status").as_bytes(), 4096).unwrap()
+    else {
+        panic!("status")
+    };
+    for (name, value) in &mut status {
+        *value = match name.as_str() {
+            "listing_id" => Value::String(uid("30").to_string()),
+            "projection_revision" => Value::String(revisions.0.into()),
+            "asset_kind" => Value::String("CHARACTER".into()),
+            "asset_id" => Value::String(uid("31").to_string()),
+            "state" => Value::String(state.into()),
+            "custody_id" => Value::String(uid("32").to_string()),
+            "custody_revision" => Value::String(revisions.1.into()),
+            "snapshot_hash" => Value::String(hash.into()),
+            "last_operation_id" => Value::String(last_operation.to_string()),
+            "source_observed_at" => Value::String(now.to_string()),
+            _ => value.clone(),
+        };
+    }
+    let status = String::from_utf8(canonical::encode(&Value::Object(status)).unwrap()).unwrap();
+    Outbox {
+        settings: Settings {
+            preparation_enabled: true,
+            game_enabled: false,
+        },
+    }
+    .ingest(tx, &a.config.projection_authority, status.as_bytes(), now)
+    .await
+    .unwrap();
+}
+async fn character_transfer_receipt(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    operation: Uuid,
+    (from, to): (Uuid, Uuid),
+    now: u64,
+) {
+    let receipt = format!(
+        "{{\"contract_version\":1,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"TransferCharacterOwnership\",\"operation_id\":\"{operation}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"character_id\":\"{}\",\"from_account_id\":\"{from}\",\"to_account_id\":\"{to}\",\"character_revision\":\"8\",\"projection_epoch\":\"3\",\"from_projection_revision\":\"5\",\"to_projection_revision\":\"6\",\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}",
+        uid("31")
+    );
+    sqlx::query("UPDATE character_commands SET state='TERMINAL',receipt_json=$2 WHERE id=$1")
+        .bind(operation)
+        .bind(receipt)
+        .execute(&mut **tx)
+        .await
+        .unwrap();
+}
+/// A sold Character in escrow (uid 40) awaiting its settlement leg, funded in
+/// `currency` by buyer uid 13 for 100 under sale uid 33.
+async fn settling_character_fixture(currency: &str) -> BrowserFixture {
+    use crate::{Currency, Reservation, Reservations, Settlement};
+    let mut db = BrowserFixture::new().await;
+    let config = std::sync::Arc::make_mut(&mut db.runtime.config);
+    config.authority.config.escrow_account_id = Some(uid("40"));
+    config.escrow_account = Some(uid("40"));
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let listing = uid("30");
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at,leader,leader_max,reservation) VALUES($1,$2,'character','auction',$3::text::bazaar_currency,100,false,'active',now()-interval '1 second',$4,100,$1)").bind(listing).bind(uid("11")).bind(currency).bind(uid("13")).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE bazaar_listings SET state='awaiting_delivery' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$3,7,$4,1,true,'character-settlement')").bind(listing).bind(uid("12")).bind(uid("31")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
+    let strval = |value: Uuid| Value::String(value.to_string());
+    let lock = character_intent(
+        Command::Lock,
+        101,
+        now,
+        vec![
+            ("character_id", strval(uid("31"))),
+            ("expected_character_revision", Value::String("7".into())),
+            ("eligibility_revision", Value::String("4".into())),
+            ("snapshot_schema_version", Value::Unsigned(1)),
+        ],
+    );
+    let data = format!(
+        "{{\"character_id\":\"{}\",\"lock_id\":\"{}\",\"lock_revision\":\"1\",\"eligibility_revision\":\"4\",\"signed_snapshot\":{}}}",
+        uid("31"),
+        uid("32"),
+        vector("locked_character_snapshot")
+    );
+    committed_fact(a, &mut tx, &lock, &data, now).await;
+    let revision: i64 = sqlx::query_scalar(
+        "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let operation = Uuid::now_v7();
+    let Value::Object(mut fields) = transfer_fixture(operation, revision, now) else {
+        panic!("transfer")
+    };
+    for (name, value) in &mut fields {
+        *value = match name.as_str() {
+            "expected_from_account_id" => strval(uid("11")),
+            "to_account_id" => strval(uid("40")),
+            "purpose" => Value::String("BAZAAR_LISTING_ESCROW".into()),
+            _ => value.clone(),
+        };
+    }
+    let transfer = Value::Object(fields);
+    stage_transfer_fixture(&mut tx, listing, &transfer).await;
+    let raw = canonical::encode(&transfer).unwrap();
+    runtime::worker::publish_transfer(
+        &mut tx,
+        listing,
+        "BAZAAR_LISTING_ESCROW",
+        operation,
+        &transfer,
+        &raw,
+    )
+    .await
+    .unwrap();
+    character_transfer_receipt(&mut tx, operation, (uid("11"), uid("40")), now).await;
+    let bind = character_intent(
+        Command::Bind,
+        103,
+        now,
+        vec![
+            ("character_id", strval(uid("31"))),
+            ("lock_id", strval(uid("32"))),
+            ("expected_lock_revision", Value::String("1".into())),
+            ("transfer_operation_id", strval(operation)),
+            ("transfer_binding_digest", Value::String(digest(&raw))),
+            ("purpose", Value::String("BAZAAR_LISTING_ESCROW".into())),
+            ("sale_id", Value::Null),
+            ("funding", Value::Null),
+        ],
+    );
+    let data = format!(
+        "{{\"character_id\":\"{}\",\"lock_id\":\"{}\",\"lock_revision\":\"2\",\"transfer_operation_id\":\"{operation}\",\"transfer_binding_digest\":\"{}\"}}",
+        uid("31"),
+        uid("32"),
+        digest(&raw)
+    );
+    committed_fact(a, &mut tx, &bind, &data, now).await;
+    character_status(&db, &mut tx, "locked", operation, ("2", "2"), now).await;
+    let funds = CoinReservations {
+        authority: a.clone(),
+    };
+    if currency == "coins" {
+        funds.lock_accounts(&mut tx, &[uid("13")]).await.unwrap();
+        let op = Uuid::now_v7();
+        sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,100)").bind(op).bind(uid("13")).execute(&mut *tx).await.unwrap();
+        oteryn_wallet::credit_in(&mut tx, op, uid("13"), 100)
+            .await
+            .unwrap();
+        funds
+            .reserve(
+                &mut tx,
+                Reservation {
+                    id: listing,
+                    account: uid("13"),
+                    currency: Currency::Coins,
+                    amount: 100,
+                },
+            )
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO bazaar_settlements(id,listing_id,buyer,seller,currency,amount,commission,seller_net,reservation,idempotency_key) VALUES($1,$2,$3,$4,'coins',100,10,90,$2,'bind-refusal')").bind(uid("33")).bind(listing).bind(uid("13")).bind(uid("11")).execute(&mut *tx).await.unwrap();
+        let sale = Settlement {
+            id: uid("33"),
+            listing_id: listing,
+            buyer: uid("13"),
+            seller: uid("11"),
+            currency: Currency::Coins,
+            amount: 100,
+            commission: 10,
+            seller_net: 90,
+            reservation: listing,
+        };
+        funds.settle(&mut tx, &sale).await.unwrap();
+    } else {
+        let hold = character_intent(
+            Command::Hold,
+            104,
+            now,
+            vec![
+                ("buyer_account_id", strval(uid("13"))),
+                ("buyer_character_id", strval(uid("14"))),
+                ("offer_id", strval(uid("35"))),
+                ("hold_purpose", Value::String("RESERVE".into())),
+                ("amount", Value::String("100".into())),
+                ("expected_hold_revision", Value::String("0".into())),
+            ],
+        );
+        let data = format!(
+            "{{\"hold_id\":\"{}\",\"hold_revision\":\"1\",\"buyer_account_id\":\"{}\",\"offer_id\":\"{}\",\"hold_purpose\":\"RESERVE\",\"held_amount\":\"100\"}}",
+            uid("34"),
+            uid("13"),
+            uid("35")
+        );
+        committed_fact(a, &mut tx, &hold, &data, now).await;
+        sqlx::query("INSERT INTO bazaar_authority_gold_sales(id,listing_id,buyer,seller,gross_amount,fee_amount,seller_amount,hold_id,hold_revision) VALUES($1,$2,$3,$4,100,3,97,$5,1)").bind(uid("33")).bind(listing).bind(uid("13")).bind(uid("11")).bind(uid("34")).execute(&mut *tx).await.unwrap();
+    }
+    sqlx::query("UPDATE bazaar_game_issuer SET source_revision=110")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    db
+}
+async fn listing_state(db: &BrowserFixture) -> crate::State {
+    sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+        .bind(uid("30"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap()
+}
+async fn outbox_count(db: &BrowserFixture, command: Command) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM bazaar_game_outbox WHERE listing_id=$1 AND command=$2")
+        .bind(uid("30"))
+        .bind(command.wire())
+        .fetch_one(&db.pool)
+        .await
+        .unwrap()
+}
+/// Coin releases to the buyer for sale uid 33, and the buyer's spendable coins.
+async fn coin_refunds(db: &BrowserFixture) -> (i64, i64) {
+    sqlx::query_as("SELECT (SELECT count(*) FROM wallet_operations WHERE kind='release' AND account_id=$1 AND reference_id=$2),(SELECT COALESCE(sum(available_delta),0)::bigint FROM wallet_entries WHERE account_id=$1)")
+        .bind(uid("13")).bind(uid("33")).fetch_one(&db.pool).await.unwrap()
+}
+async fn bind_refusal_scenario(currency: &str) {
+    let db = settling_character_fixture(currency).await;
+    db.runtime.tick().await.unwrap();
+    let settlement = newest_intent(&db, uid("30"), Command::Bind).await;
+    assert_eq!(
+        text(&settlement.value, "purpose").unwrap(),
+        "BAZAAR_SETTLEMENT"
+    );
+    reject(&db, &settlement, "CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE").await;
+    // The refusal retires the never-published settlement leg and issues the
+    // escrow return; funds stay held until that return is proven.
+    db.runtime.tick().await.unwrap();
+    let returning = newest_intent(&db, uid("30"), Command::Bind).await;
+    assert_eq!(
+        text(&returning.value, "purpose").unwrap(),
+        "BAZAAR_ESCROW_RETURN"
+    );
+    let retired: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM bazaar_authority_transfer_retirements WHERE operation_id=$1)",
+    )
+    .bind(id(text(&settlement.value, "transfer_operation_id").unwrap()).unwrap())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(retired);
+    assert_eq!(listing_state(&db).await, crate::State::AwaitingDelivery);
+    assert_eq!(outbox_count(&db, Command::Release).await, 0);
+    if currency == "coins" {
+        assert_eq!(coin_refunds(&db).await, (0, 0));
+    }
+    db.runtime.tick().await.unwrap();
+    assert_eq!(
+        newest_intent(&db, uid("30"), Command::Bind).await.bytes(),
+        returning.bytes()
+    );
+    let transfer = id(text(&returning.value, "transfer_operation_id").unwrap()).unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let data = format!(
+        "{{\"character_id\":\"{}\",\"lock_id\":\"{}\",\"lock_revision\":\"3\",\"transfer_operation_id\":\"{transfer}\",\"transfer_binding_digest\":\"{}\"}}",
+        uid("31"),
+        uid("32"),
+        text(&returning.value, "transfer_binding_digest").unwrap()
+    );
+    committed_fact(db.runtime.authority(), &mut tx, &returning, &data, now).await;
+    tx.commit().await.unwrap();
+    // A committed return Bind publishes the return leg, never a new settlement.
+    db.runtime.tick().await.unwrap();
+    let published: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM character_commands WHERE id=$1 AND state='PENDING')",
+    )
+    .bind(transfer)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(published);
+    let settlements: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_SETTLEMENT'",
+    )
+    .bind(uid("30"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(settlements, 1);
+    assert_eq!(listing_state(&db).await, crate::State::AwaitingDelivery);
+    assert_eq!(outbox_count(&db, Command::Unlock).await, 0);
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    character_transfer_receipt(&mut tx, transfer, (uid("40"), uid("11")), now).await;
+    character_status(&db, &mut tx, "RETURNED", transfer, ("3", "3"), now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    if currency == "gold" {
+        assert_eq!(listing_state(&db).await, crate::State::AwaitingDelivery);
+        assert_eq!(outbox_count(&db, Command::Unlock).await, 0);
+        let release = newest_intent(&db, uid("30"), Command::Release).await;
+        assert_eq!(
+            text(&release.value, "release_reason").unwrap(),
+            "TERMINAL_REFUSAL"
+        );
+        assert_eq!(text(&release.value, "amount").unwrap(), "100");
+        assert_eq!(
+            text(&release.value, "hold_id").unwrap(),
+            uid("34").to_string()
+        );
+        let mut tx = db.pool.begin().await.unwrap();
+        let now = runtime::now(&mut tx).await.unwrap();
+        let data = format!(
+            "{{\"hold_id\":\"{}\",\"hold_revision\":\"2\",\"released_amount\":\"100\",\"remaining_held\":\"0\",\"hold_state\":\"RELEASED\"}}",
+            uid("34")
+        );
+        committed_fact(db.runtime.authority(), &mut tx, &release, &data, now).await;
+        tx.commit().await.unwrap();
+        db.runtime.tick().await.unwrap();
+    }
+    assert_eq!(listing_state(&db).await, crate::State::Cancelled);
+    let compensation: Uuid = sqlx::query_scalar(
+        "SELECT return_operation_id FROM bazaar_authority_compensations WHERE listing_id=$1",
+    )
+    .bind(uid("30"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        compensation,
+        id(text(&returning.value, "operation_id").unwrap()).unwrap()
+    );
+    assert_eq!(outbox_count(&db, Command::Unlock).await, 1);
+    // Running the worker again neither releases twice nor issues a new leg.
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    assert_eq!(outbox_count(&db, Command::Unlock).await, 1);
+    assert_eq!(outbox_count(&db, Command::Bind).await, 3);
+    if currency == "coins" {
+        assert_eq!(coin_refunds(&db).await, (1, 100));
+        let hold: (i64, bool) = sqlx::query_as(
+            "SELECT amount,completed FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2",
+        )
+        .bind(uid("30"))
+        .bind(uid("13"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(hold, (0, true));
+    } else {
+        assert_eq!(outbox_count(&db, Command::Release).await, 1);
+    }
+    db.end().await;
+}
+#[tokio::test]
+async fn postgres_refused_character_settlement_bind_returns_and_refunds_coins_once() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    bind_refusal_scenario("coins").await;
+    eprintln!(
+        "postgres_refused_character_settlement_bind_returns_and_refunds_coins_once: {:?}",
+        started.elapsed()
+    );
+}
+#[tokio::test]
+async fn postgres_refused_character_settlement_bind_returns_and_releases_gold_once() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    bind_refusal_scenario("gold").await;
+    eprintln!(
+        "postgres_refused_character_settlement_bind_returns_and_releases_gold_once: {:?}",
+        started.elapsed()
+    );
+}
+#[tokio::test]
+async fn postgres_expired_character_settlement_bind_still_retries_both_currencies() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let started = std::time::Instant::now();
+    for currency in ["coins", "gold"] {
+        let db = settling_character_fixture(currency).await;
+        db.runtime.tick().await.unwrap();
+        let first = newest_intent(&db, uid("30"), Command::Bind).await;
+        assert_eq!(text(&first.value, "purpose").unwrap(), "BAZAAR_SETTLEMENT");
+        reject_expired(&db, &first).await;
+        db.runtime.tick().await.unwrap();
+        let retry = newest_intent(&db, uid("30"), Command::Bind).await;
+        assert_eq!(text(&retry.value, "purpose").unwrap(), "BAZAAR_SETTLEMENT");
+        assert_ne!(
+            text(&retry.value, "transfer_operation_id").unwrap(),
+            text(&first.value, "transfer_operation_id").unwrap()
+        );
+        let refusal: Option<String> = sqlx::query_scalar(
+            "SELECT refusal_code FROM bazaar_authority_assets WHERE listing_id=$1",
+        )
+        .bind(uid("30"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(refusal, None);
+        let returns: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_ESCROW_RETURN'",
+        )
+        .bind(uid("30"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(returns, 0);
+        assert_eq!(listing_state(&db).await, crate::State::AwaitingDelivery);
+        assert_eq!(outbox_count(&db, Command::Release).await, 0);
+        if currency == "coins" {
+            assert_eq!(coin_refunds(&db).await, (0, 0));
+        }
+        db.end().await;
+    }
+    eprintln!(
+        "postgres_expired_character_settlement_bind_still_retries_both_currencies: {:?}",
         started.elapsed()
     );
 }
