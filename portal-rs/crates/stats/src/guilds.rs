@@ -142,7 +142,7 @@ pub async fn list(config: Config, source: &dyn Source) -> Result<Vec<Summary>, E
 pub struct Observation {
     pub day: Date,
     pub member: String,
-    pub level: i64,
+    pub level: u64,
 }
 #[derive(Debug)]
 pub struct History {
@@ -172,7 +172,7 @@ pub async fn history(
         .ok_or(Error::Unavailable)?
         .guild;
     let ids: Vec<_> = guild.members.iter().map(|m| m.id).collect();
-    let rows = sqlx::query("SELECT character_ref,day,level,experience::text FROM stats_character_daily WHERE guild=$1 AND world=$2 AND character_ref=ANY($3) AND day BETWEEN $4 AND $5 ORDER BY day,character_ref LIMIT 62001")
+    let rows = sqlx::query("SELECT character_ref,day,level::text,experience::text FROM stats_character_daily WHERE guild=$1 AND world=$2 AND character_ref=ANY($3) AND day BETWEEN $4 AND $5 ORDER BY day,character_ref LIMIT 62001")
         .bind(guild.id).bind(guild.world).bind(&ids).bind(start).bind(end)
         .fetch_all(db).await.map_err(|_|Error::Unavailable)?;
     if rows.len() > 62000 {
@@ -205,7 +205,7 @@ pub async fn history(
         observations.push(Observation {
             day,
             member: member.name.clone(),
-            level: row.try_get("level").map_err(|_| Error::Unavailable)?,
+            level: crate::store::read_level(&row, "level").map_err(|_| Error::Unavailable)?,
         });
     }
     let experience_gain = if ids.is_empty() {

@@ -144,6 +144,11 @@ async fn postgres_guild_history_growth_privacy_and_missing_endpoints() -> Result
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261117230011_r9_sta.sql"
+    ))
+    .execute(&db)
+    .await?;
     let source = fixture();
     let guild = &source.guilds[0];
     let end = time::OffsetDateTime::now_utc().date();

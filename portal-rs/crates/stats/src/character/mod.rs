@@ -212,7 +212,7 @@ impl Characters {
                 history
                     .daily
                     .last()
-                    .is_some_and(|d| i64::from(*level) > d.level)
+                    .is_some_and(|d| u64::from(*level) > d.level)
             })
             .and_then(|level| self.current.experience_at_level(id, level));
         let predicted = predict(&history.daily, end, threshold);
