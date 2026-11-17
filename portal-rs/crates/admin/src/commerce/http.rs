@@ -355,6 +355,7 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let (original, target): (Uuid, Uuid) =
             sqlx::query_as("SELECT actor_id,target_id FROM commerce_operations WHERE id=$1")
                 .bind(id)
