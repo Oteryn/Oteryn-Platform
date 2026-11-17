@@ -543,6 +543,24 @@ impl CoinPurchases {
             .bind(payer)
             .execute(&mut *tx)
             .await?;
+        // A reversal records its hold under the wallet row lock: share it, then
+        // recheck, so a hold committed while this create waited is not missed.
+        sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR SHARE")
+            .bind(payer)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let held: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)",
+        )
+        .bind(payer)
+        .fetch_one(&mut *tx)
+        .await?;
+        if held {
+            tx.rollback().await?;
+            self.refused(payer, request.request_id, "order", "coin_purchase_hold")
+                .await?;
+            return Err(CoinError::Conflict);
+        }
         let prior = sqlx::query(concat!(
             "SELECT ",
             order_columns!(),
