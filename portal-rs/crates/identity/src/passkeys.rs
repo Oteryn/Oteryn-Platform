@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Transaction, types::time::OffsetDateTime};
 use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
@@ -95,25 +95,26 @@ impl Passkeys {
         Ok(Challenge { token, options })
     }
     /// A DELETE statement commits before parsing or verification. Even invalid proofs burn state.
+    /// Returns the ceremony expiry too: callers recheck it after their account lock wait.
     async fn consume<T: serde::de::DeserializeOwned>(
         &self,
         binding: &str,
         token: &str,
         purpose: &str,
         account: Option<Uuid>,
-    ) -> Result<T, Error> {
+    ) -> Result<(T, OffsetDateTime), Error> {
         if token.len() != 64 || binding.len() != 64 {
             return Err(Error::Refused);
         }
-        let row: Option<(Value, Option<Uuid>, bool)> = sqlx::query_as("DELETE FROM passkey_ceremonies WHERE token_hash=$1 AND session_hash=$2 AND purpose=$3 RETURNING state,account_id,expires_at>clock_timestamp()")
+        let row: Option<(Value, Option<Uuid>, bool, OffsetDateTime)> = sqlx::query_as("DELETE FROM passkey_ceremonies WHERE token_hash=$1 AND session_hash=$2 AND purpose=$3 RETURNING state,account_id,expires_at>clock_timestamp(),expires_at")
             .bind(hash(token)).bind(hash(binding)).bind(purpose).fetch_optional(&self.pool).await?;
-        let Some((state, owner, true)) = row else {
+        let Some((state, owner, true, expires_at)) = row else {
             return Err(Error::Refused);
         };
         if owner != account {
             return Err(Error::Refused);
         }
-        decode(state)
+        Ok((decode(state)?, expires_at))
     }
     /// Browser credential mutations require a fresh password proof for the session owner.
     pub async fn confirm_password(
@@ -188,7 +189,7 @@ impl Passkeys {
         account: Uuid,
         input: Completion,
     ) -> Result<(), Error> {
-        let (state, generation): (PasskeyRegistration, i64) = self
+        let ((state, generation), expires_at): ((PasskeyRegistration, i64), _) = self
             .consume(binding, &input.token, "register", Some(account))
             .await?;
         let response: RegisterPublicKeyCredential = decode(input.credential)?;
@@ -198,6 +199,7 @@ impl Passkeys {
             .map_err(|_| Error::Refused)?;
         let mut tx = self.pool.begin().await?;
         eligible(&mut tx, account).await?;
+        live(&mut tx, expires_at).await?;
         mutation_authorized(&mut tx, binding, account, generation).await?;
         let count: i64 =
             sqlx::query_scalar("SELECT count(*) FROM account_passkeys WHERE account_id=$1")
@@ -237,7 +239,7 @@ impl Passkeys {
         binding: &str,
         input: Completion,
     ) -> Result<Authentication, Error> {
-        let state: DiscoverableAuthentication = self
+        let (state, expires_at): (DiscoverableAuthentication, _) = self
             .consume(binding, &input.token, "authenticate", None)
             .await?;
         let response: PublicKeyCredential = decode(input.credential)?;
@@ -247,6 +249,7 @@ impl Passkeys {
             .map_err(|_| Error::Refused)?;
         let mut tx = self.pool.begin().await?;
         eligible(&mut tx, account).await?;
+        live(&mut tx, expires_at).await?;
         let value: Option<Value> = sqlx::query_scalar("SELECT credential FROM account_passkeys WHERE account_id=$1 AND credential_id=$2 FOR UPDATE")
             .bind(account).bind(credential_id).fetch_optional(&mut *tx).await?;
         let mut key: Passkey = decode(value.ok_or(Error::Refused)?)?;
@@ -325,6 +328,17 @@ async fn eligible(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(
     let valid: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL AND NOT login_mfa_required FROM accounts WHERE id=$1 FOR UPDATE")
         .bind(account).fetch_optional(&mut **tx).await?;
     if valid != Some(true) {
+        return Err(Error::Refused);
+    }
+    Ok(())
+}
+/// A ceremony consumed before the account lock wait must still be live after it.
+async fn live(tx: &mut Transaction<'_, Postgres>, expires_at: OffsetDateTime) -> Result<(), Error> {
+    let live: bool = sqlx::query_scalar("SELECT $1::timestamptz>clock_timestamp()")
+        .bind(expires_at)
+        .fetch_one(&mut **tx)
+        .await?;
+    if !live {
         return Err(Error::Refused);
     }
     Ok(())
