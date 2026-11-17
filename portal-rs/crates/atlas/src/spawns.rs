@@ -80,7 +80,7 @@ struct Declaration {
 pub struct Point {
     pub cell: Cell,
     pub creature: String,
-    pub respawn_ms: u32,
+    pub respawn_ms: Option<u32>,
 }
 #[derive(Debug, Serialize)]
 pub struct SpawnPoint {
@@ -150,7 +150,7 @@ async fn spawn_layer(
                 if !view.contains(point.cell) {
                     continue;
                 }
-                if point.creature.is_empty() || point.respawn_ms == 0 {
+                if point.creature.is_empty() || point.respawn_ms == Some(0) {
                     return Err(StatusCode::SERVICE_UNAVAILABLE);
                 }
                 if !creatures.contains_key(&point.creature) {
@@ -319,7 +319,7 @@ async fn report(
         return Err(StatusCode::FORBIDDEN);
     }
     let pending: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM atlas_map_reports WHERE account_id=$1 AND status='pending'",
+        "SELECT count(*) FROM atlas_map_reports WHERE account_id=$1 AND status='pending' AND created_at>now()-interval '24 hours'",
     )
     .bind(account)
     .fetch_one(&mut *tx)
@@ -368,6 +368,7 @@ async fn texts(Path(lang): Path<String>) -> Result<Json<HashMap<String, String>>
         "monsters",
         "sites",
         "respawn",
+        "no-ordinary-respawn",
         "place",
         "fullscreen",
         "private",

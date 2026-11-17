@@ -168,7 +168,10 @@ async function atlasSpawns(view, redraw, install) {
       for(const point of group) {
         const row=element('p'), wiki=element('a',point.creature);
         wiki.href=`/${lang}/wiki/creatures/${encodeURIComponent(point.creature)}`;
-        row.append(wiki,document.createTextNode(`; ${text.respawn}: ${point.respawn_ms/1000}; `),link(point.cell,`${point.cell.x}, ${point.cell.y}, ${point.cell.floor}`));
+        const respawn = point.respawn_ms == null
+          ? text['no-ordinary-respawn']
+          : `${text.respawn}: ${point.respawn_ms / 1000}`;
+        row.append(wiki,document.createTextNode(`; ${respawn}; `),link(point.cell,`${point.cell.x}, ${point.cell.y}, ${point.cell.floor}`));
         details.append(row);
       }
       item.append(details); list.append(item);

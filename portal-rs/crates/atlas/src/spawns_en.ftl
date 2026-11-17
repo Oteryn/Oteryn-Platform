@@ -2,6 +2,7 @@ spawns = Monster spawns
 monsters = Monsters
 sites = Spawns
 respawn = Respawn (seconds)
+no-ordinary-respawn = No ordinary respawn
 place = Link to this place
 fullscreen = Full screen
 private = Private markers
