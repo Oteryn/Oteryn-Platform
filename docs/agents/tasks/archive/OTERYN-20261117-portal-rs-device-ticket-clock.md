@@ -30,7 +30,7 @@ bound itself. The issuer is unchanged.
 - [x] Real issuer: a temporary wait for the next database second after the rotation clock read makes `database_native_normal_ticket_consumes_oauth_but_device_continues` fail at its `rotate(..., Purpose::Ticket)` assert with the old bound and pass with the new one
 - [x] Green: the same test passes with the post-issuance bound; a 120-second lifetime is still refused
 - [x] `cargo test -p oteryn-gameauth --lib` 166 passed; fmt and clippy clean
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -58,10 +58,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T03:50:00Z
-head: bb2f6c07f2aa9d2fa820750753aa7daba376b9e4
+head: 75da9df4e36ded1fd4c5a3e9f9b4e95c64911cb4
 branch: claude/happy-davinci-ijz3wy-devclock
 pr: 1901
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/crates/gameauth/src/devices.rs
@@ -102,5 +102,13 @@ validation:
     evidence: fmt clean; clippy finished with no warnings
 blockers:
   - none
-next_action: wait for Portal RS CI on PR 1901
+next_action: none; delivered by PR 1901 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1901 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1901 merged as 75da9df4e36ded1fd4c5a3e9f9b4e95c64911cb4
 ```

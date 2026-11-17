@@ -40,6 +40,10 @@ Claims pdsessions and lockref were checked and are not real; no change.
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-r4-lock-order-fixes.md
   - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-device-ticket-clock.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-device-ticket-clock.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-trust-snapshot-race.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-trust-snapshot-race.md
   - portal-rs/bin/oteryn-portal/src/coin_purchases_tests.rs
   - portal-rs/crates/characters/src/commands/storage.rs
   - portal-rs/crates/characters/src/commands/tests.rs
@@ -77,6 +81,10 @@ context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-r4-lock-order-fixes.md
   - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-device-ticket-clock.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-device-ticket-clock.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-trust-snapshot-race.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-trust-snapshot-race.md
   - portal-rs/bin/oteryn-portal/src/coin_purchases_tests.rs
   - portal-rs/crates/characters/src/commands/storage.rs
   - portal-rs/crates/characters/src/commands/tests.rs
@@ -108,6 +116,10 @@ rejected_hypotheses:
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20261117-r4-lock-order-fixes.md
   - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-device-ticket-clock.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-device-ticket-clock.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-trust-snapshot-race.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-trust-snapshot-race.md
   - portal-rs/bin/oteryn-portal/src/coin_purchases_tests.rs
   - portal-rs/crates/characters/src/commands/storage.rs
   - portal-rs/crates/characters/src/commands/tests.rs
