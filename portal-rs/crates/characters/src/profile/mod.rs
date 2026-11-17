@@ -68,6 +68,11 @@ impl Service {
         }
     }
     async fn lock(&self) -> Result<Transaction<'_, Postgres>, Error> {
+        let mut tx = self.begin().await?;
+        Self::share_feed(&mut tx).await?;
+        Ok(tx)
+    }
+    async fn begin(&self) -> Result<Transaction<'_, Postgres>, Error> {
         if !self.enabled {
             return Err(Error::NotFound);
         }
@@ -92,12 +97,16 @@ impl Service {
         {
             return Err(Error::Unavailable);
         }
-        let mut tx = self.pool.begin().await?;
+        Ok(self.pool.begin().await?)
+    }
+    /// Account rows are locked before the feed: termination finalization locks
+    /// the account and then the feed, so the reverse order deadlocks with it.
+    async fn share_feed(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::Error> {
         // Publishers lock the feed exclusively before replacing snapshots/rows.
         sqlx::query("SELECT id FROM account_character_feed WHERE id=1 FOR SHARE")
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
-        Ok(tx)
+        Ok(())
     }
     async fn feed(&self, tx: &mut Transaction<'_, Postgres>, now: i64) -> Result<String, Error> {
         let feed = sqlx::query("SELECT highest_epoch,watermark_epoch,source_authority,complete_through FROM account_character_feed WHERE id=1").fetch_one(&mut **tx).await?;
@@ -218,12 +227,13 @@ impl Service {
         name: &str,
         now: i64,
     ) -> Result<(String, Preferences), Error> {
-        let mut tx = self.lock().await?;
+        let mut tx = self.begin().await?;
         sqlx::query("SELECT id FROM accounts WHERE id=$1 AND status='active' FOR SHARE")
             .bind(account)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
+        Self::share_feed(&mut tx).await?;
         let c = self.owned(&mut tx, account, name, now).await?;
         let p = Self::preferences(&mut tx, account, c.0).await?;
         tx.commit().await?;
@@ -266,7 +276,7 @@ impl Service {
         value: Preferences,
         now: i64,
     ) -> Result<(), SaveError> {
-        let mut tx = self.lock().await.map_err(SaveError::Domain)?;
+        let mut tx = self.begin().await.map_err(SaveError::Domain)?;
         let status =
             sqlx::query_scalar::<_, String>("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
                 .bind(account)
@@ -275,6 +285,7 @@ impl Service {
         if status.as_deref() != Some("active") {
             return Err(SaveError::Domain(Error::NotFound));
         }
+        Self::share_feed(&mut tx).await?;
         let c = self
             .owned(&mut tx, account, name, now)
             .await
@@ -314,7 +325,11 @@ impl Service {
         now: i64,
         reference: Option<(&str, &str)>,
     ) -> Result<Preferences, Error> {
-        let mut tx = self.lock().await?;
+        let mut tx = self.begin().await?;
+        // Candidate owners are locked before the feed, in account order.
+        let candidates = sqlx::query_scalar::<_, Uuid>("SELECT a.id FROM accounts a WHERE a.status='active' AND EXISTS(SELECT 1 FROM account_characters c WHERE c.account_id=a.id AND c.character_id=$1) ORDER BY a.id LIMIT 8 FOR SHARE OF a")
+            .bind(character).fetch_all(&mut *tx).await?;
+        Self::share_feed(&mut tx).await?;
         let highest = self.feed(&mut tx, now).await?;
         // Invalid current snapshots remain unknown, even when another owner is valid.
         let invalid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_characters c JOIN accounts a ON a.id=c.account_id JOIN account_character_snapshots s ON s.account_id=c.account_id WHERE c.character_id=$1 AND a.status='active' AND (s.invalid OR s.projection_epoch IS DISTINCT FROM $2 OR s.source_authority IS DISTINCT FROM $3))")
@@ -335,11 +350,11 @@ impl Service {
                 return Err(Error::NotFound);
             }
         }
-        // The Rust identity schema has one identity per canonical account.
-        sqlx::query("SELECT id FROM accounts WHERE id=$1 AND status='active' FOR SHARE")
-            .bind(owners[0])
-            .fetch_one(&mut *tx)
-            .await?;
+        // An owner that appeared after the candidate lock is not locked yet;
+        // locking it now would take the account after the feed.
+        if !candidates.contains(&owners[0]) {
+            return Err(Error::Unavailable);
+        }
         let saved: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_profiles WHERE account_id=$1 AND character_id=$2)").bind(owners[0]).bind(character).fetch_one(&mut *tx).await?;
         if !saved {
             return Err(Error::NotFound);
@@ -361,12 +376,13 @@ impl Service {
         self.read_main(account, now).await.ok().flatten()
     }
     async fn read_main(&self, account: Uuid, now: i64) -> Result<Option<Uuid>, Error> {
-        let mut tx = self.lock().await?;
+        let mut tx = self.begin().await?;
         sqlx::query("SELECT id FROM accounts WHERE id=$1 AND status='active' FOR SHARE")
             .bind(account)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
+        Self::share_feed(&mut tx).await?;
         let characters = self.characters(&mut tx, account, now).await?;
         let main = sqlx::query_scalar::<_, Option<Uuid>>(
             "SELECT character_id FROM character_profiles WHERE account_id=$1 AND is_main_character",

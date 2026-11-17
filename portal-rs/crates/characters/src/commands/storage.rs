@@ -230,6 +230,11 @@ impl Commands {
                 return Err(Error::Unavailable);
             }
         }
+        // A receipt changes ownership evidence: join the issuance fence that
+        // ownership readers hold shared, before the command row (as V2 receipts).
+        sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+            .execute(&mut *tx)
+            .await?;
         let row=sqlx::query("SELECT command,binding_json,receipt_json FROM character_commands WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         if row.try_get::<String, _>("command")? != get(&v, "command")? {
             return Err(Error::Conflict);

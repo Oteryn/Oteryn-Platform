@@ -27,7 +27,7 @@ No product code or guard change.
 - [x] Red: a temporary 1.1 s sleep between the clock read and the snapshot reproduces the exact CI error in wave3_01
 - [x] Green: with the reorder, the same sleep between the snapshot and the clock read passes
 - [x] `cargo test --locked -p oteryn-gameauth --lib` 165 passed; fmt and clippy clean
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -54,10 +54,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T03:20:00Z
-head: bb2f6c07f2aa9d2fa820750753aa7daba376b9e4
+head: d6b16a54cccded8656c09ee343614d84e574d51c
 branch: claude/happy-davinci-ijz3wy-trustrace
 pr: 1900
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/crates/gameauth/src/admission/audit05_tests.rs
@@ -94,5 +94,13 @@ validation:
     evidence: fmt clean; clippy finished with no warnings
 blockers:
   - none
-next_action: wait for Portal RS CI on PR 1900
+next_action: none; delivered by PR 1900 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1900 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1900 merged as d6b16a54cccded8656c09ee343614d84e574d51c
 ```

@@ -634,3 +634,58 @@ async fn invalid_configuration_and_disabled_profiles_fail_closed() {
         (StatusCode::TOO_MANY_REQUESTS, String::new())
     );
 }
+/// r4 lockcmd: a V1 receipt changes ownership evidence, so publication joins
+/// the character issuance fence that ownership readers hold shared.
+#[tokio::test]
+async fn db_receipt_publication_waits_for_shared_issuance_fence() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some((pool, admin, schema)) = database().await else {
+        return;
+    };
+    let c = Commands::new(pool.clone(), settings());
+    seed(&c, include_str!("fixtures/create-intent.json")).await;
+    let mut reader = pool.begin().await.unwrap();
+    let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reader)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock_shared(22005160000)")
+        .execute(&mut *reader)
+        .await
+        .unwrap();
+    let publish = tokio::spawn({
+        let c = c.clone();
+        async move { c.publish(RECEIPT.as_bytes()).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            assert!(
+                !publish.is_finished(),
+                "receipt published while the issuance fence was held"
+            );
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(holder)
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    reader.commit().await.unwrap();
+    publish.await.unwrap().unwrap();
+    assert!(
+        c.status(Uuid::parse_str(OP).unwrap())
+            .await
+            .unwrap()
+            .receipt_json
+            .is_some()
+    );
+    cleanup(pool, admin, schema).await;
+}
