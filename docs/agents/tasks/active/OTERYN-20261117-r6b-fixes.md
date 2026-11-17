@@ -60,7 +60,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T18:14:00Z
 head: 079010aa6d4be530ec6f47c7c537d9155e98ab73
 branch: claude/happy-davinci-ijz3wy-r6b-fixes
-pr: null
+pr: 1942
 status: validating
 terminal_pr_policy: archive_pending
 context_routes: []
