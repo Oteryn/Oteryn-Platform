@@ -595,3 +595,37 @@ async fn r7_worker_rotates_failed_row() -> TestResult {
     assert_eq!(s.run_worker(1).await?.finalized, 1);
     db.close().await
 }
+
+#[tokio::test]
+async fn reclaimed_backup_receives_password_reset_for_new_owner() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let old = db.account().await?;
+    let email = "reclaimed@example.test";
+    sqlx::query(
+        "INSERT INTO account_backup_emails(account_id,email,verified_at) VALUES($1,$2,now())",
+    )
+    .bind(old)
+    .bind(email)
+    .execute(&db.pool)
+    .await?;
+    db.due(request(&s, old).await?.id).await?;
+    assert!(s.finalize(old).await?);
+    let mut tx = db.pool.begin().await?;
+    let new = crate::accounts::Accounts::create(&mut tx, email, "unusable", "en")
+        .await?
+        .ok_or("registration refused")?;
+    tx.commit().await?;
+    let key = crate::reset::DeliveryKey::parse(&"11".repeat(32)).ok_or("invalid test key")?;
+    crate::reset::request(&db.pool, email, &key).await?;
+    let delivery: Option<(AccountId,String)> = sqlx::query_as("SELECT r.account_id,r.recovery_email FROM outbox o JOIN account_password_resets r ON r.account_id=(o.payload->>'account_id')::uuid WHERE o.kind='email.password-reset'")
+        .fetch_optional(&db.pool).await?;
+    assert_eq!(
+        delivery,
+        Some((new.id, email.to_owned())),
+        "reset delivery missing for new owner"
+    );
+    db.close().await
+}

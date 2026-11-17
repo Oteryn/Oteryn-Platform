@@ -314,6 +314,10 @@ impl Terminations {
         }
         self.boundary.check_blockers(&mut tx, account).await?;
         self.boundary.revoke(&mut tx, account, true).await?;
+        sqlx::query("DELETE FROM account_backup_emails WHERE account_id=$1")
+            .bind(account)
+            .execute(&mut *tx)
+            .await?;
         // Closed status and a non-PHC password prevent credential use even after a retry.
         sqlx::query("UPDATE accounts SET email=$2,password_hash='!closed',status='closed',email_verified_at=NULL,public_account_association=false,public_status_visible=false,native_security_generation=native_security_generation+1,updated_at=now() WHERE id=$1")
             .bind(account).bind(format!("terminated+{account}")).execute(&mut *tx).await?;
