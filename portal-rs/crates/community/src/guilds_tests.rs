@@ -598,3 +598,110 @@ async fn w3_c06_010_guild_privacy_unavailability_returns_503() -> TestResult {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn guild_migration_preserves_history_and_serves_both_versions() -> TestResult {
+    let admin = PgPool::connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?).await?;
+    let schema = format!("guild_upgrade_{}", uuid::Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&admin)
+        .await?;
+    let db = PgPool::connect_with(
+        admin
+            .connect_options()
+            .as_ref()
+            .clone()
+            .options([("search_path", schema.as_str())]),
+    )
+    .await?;
+    sqlx::raw_sql(concat!(
+        include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
+        include_str!("../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql")
+    ))
+    .execute(&db)
+    .await?;
+    let displaced = publication(GOLDEN, false);
+    let mut current = displaced.payload.clone();
+    let current_id = "01934f10-7c06-7001-805b-3b1122334402";
+    current["guild_id"] = current_id.into();
+    current["guild"][0]["name"] = "Blue Rose".into();
+    let legacy = serde_json::json!({"guild_id": displaced.subject, "guild":[]});
+    let history = serde_json::json!({
+        "epoch":"1", "version":displaced.revision, "watermark":displaced.observed,
+        "payload":displaced.payload
+    });
+    let ambiguous = serde_json::json!({"contract_version": 3, "guild":[]});
+    let timestamp = i64::try_from(now())?;
+    sqlx::raw_sql(
+        "UPDATE public_projection_state SET highest_epoch=1;
+         CREATE TABLE community_privacy_revision(id integer PRIMARY KEY, revision bigint NOT NULL);
+         INSERT INTO community_privacy_revision VALUES (1,0);",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload,previous_snapshot) VALUES
+         ('guild',$1,false,1,6,$2,$3,$4),
+         ('guild',$5,false,1,5,$2,$6,NULL),
+         ('guild','unknown',false,1,1,$2,$7,NULL),
+         ('guild','',true,1,1,$2,'null',NULL),
+         ('guild','v2',true,1,1,$2,'{\"contract_version\":2,\"source_authority\":\"oteryn:game:primary\"}',NULL),
+         ('character_profile','',true,1,1,$2,'null',NULL)",
+    )
+    .bind(&displaced.subject)
+    .bind(timestamp)
+    .bind(&legacy)
+    .bind(&history)
+    .bind(current_id)
+    .bind(&current)
+    .bind(&ambiguous)
+    .execute(&db).await?;
+
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261117200006_r7_com_a.sql"
+    ))
+    .execute(&db)
+    .await?;
+    let saved_history: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT previous_snapshot FROM public_snapshots WHERE family='guild_v1' AND subject=$1",
+    )
+    .bind(&displaced.subject)
+    .fetch_one(&db)
+    .await?;
+    let unknown_family: String =
+        sqlx::query_scalar("SELECT family FROM public_snapshots WHERE subject='unknown'")
+            .fetch_one(&db)
+            .await?;
+    let saved_legacy = crate::ingest::latest(&db, "guild_v1", &displaced.subject).await?;
+    let restored = crate::ingest::latest(&db, "guild", &displaced.subject).await?;
+    let saved_current = crate::ingest::latest(&db, "guild", current_id).await?;
+    let pages = router(
+        db.clone(),
+        Arc::new(Visible),
+        Config {
+            enabled: true,
+            source_authority: "oteryn:game:primary".into(),
+        },
+    );
+    let (red_status, red_page) = page_body(pages.clone(), "/en/guilds/Red%20Rose").await;
+    let (blue_status, blue_page) = page_body(pages, "/en/guilds/Blue%20Rose").await;
+    db.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+
+    assert_eq!(
+        saved_history,
+        Some(history),
+        "displaced V2 history must be preserved"
+    );
+    assert_eq!(unknown_family, "guild");
+    assert_eq!(saved_legacy, Some(legacy));
+    assert_eq!(restored, Some(displaced.payload));
+    assert_eq!(saved_current, Some(current));
+    assert_eq!(red_status, StatusCode::OK);
+    assert!(red_page.contains("Red Rose"));
+    assert_eq!(blue_status, StatusCode::OK);
+    assert!(blue_page.contains("Blue Rose"));
+    Ok(())
+}
