@@ -240,14 +240,29 @@ async fn registration_creates_account_consents_outbox_and_rotates_session() -> R
     assert_eq!(authenticated, 1);
     db.close().await
 }
+/// Whether a response sets a session cookie, whether it replaces the request's
+/// session, and the cookie attributes.
+fn issuance(
+    response: &axum::response::Response,
+    request_cookie: &str,
+) -> Result<Vec<(bool, String)>> {
+    let mut issued = Vec::new();
+    for value in response.headers().get_all(header::SET_COOKIE) {
+        let value = value.to_str()?;
+        let (pair, attributes) = value.split_once(';').unwrap_or((value, ""));
+        issued.push((pair != request_cookie, attributes.to_owned()));
+    }
+    Ok(issued)
+}
 #[tokio::test]
 async fn duplicate_email_has_same_response_without_authenticating_existing_account() -> Result {
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
     let app = db.app();
-    let (cookie, csrf, _) = credentials(&app).await?;
-    let first = submit(&app, &cookie, &csrf, &[]).await?;
+    let (first_request_cookie, csrf, _) = credentials(&app).await?;
+    let first = submit(&app, &first_request_cookie, &csrf, &[]).await?;
+    let first_issuance = issuance(&first, &first_request_cookie)?;
     let first_cookie = first.headers()[header::SET_COOKIE]
         .to_str()?
         .split(';')
@@ -276,6 +291,8 @@ async fn duplicate_email_has_same_response_without_authenticating_existing_accou
         to_bytes(duplicate_inbox.into_body(), 1024 * 1024).await?
     );
     let duplicate = submit(&app, &cookie, &csrf, &[("email", "new@EXAMPLE.test")]).await?;
+    // Session-cookie issuance must not reveal whether the address exists.
+    assert_eq!(first_issuance, issuance(&duplicate, &cookie)?);
     assert_eq!(first.status(), duplicate.status());
     assert_eq!(
         first.headers()[header::LOCATION],

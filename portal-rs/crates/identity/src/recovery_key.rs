@@ -232,6 +232,7 @@ impl RecoveryKeys {
         }
         reset_base(&mut tx, id).await?;
         (self.reset)(&mut tx, id).await?;
+        crate::email_change::cancel_pending(&mut tx, id).await?;
         sqlx::query("UPDATE accounts SET password_hash=$2,updated_at=now() WHERE id=$1")
             .bind(id)
             .bind(hash)

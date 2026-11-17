@@ -736,3 +736,112 @@ async fn audit02_registration_and_removal_refuse_revoked_authorization() {
     );
     db.close().await.unwrap();
 }
+
+/// Holds the account row, lets the ceremony expire while `run` waits for it, then releases it.
+async fn ceremony_expires_during_account_lock_wait<T: Send + 'static>(
+    pool: &PgPool,
+    id: Uuid,
+    purpose: &str,
+    run: impl FnOnce() -> tokio::task::JoinHandle<Result<T, Error>>,
+) -> Result<T, Error> {
+    let mut holder = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *holder)
+        .await
+        .unwrap();
+    // Fixture: a ceremony that is still valid when consumed but expires during the lock wait.
+    let expires_at: sqlx::types::time::OffsetDateTime = sqlx::query_scalar(
+        "UPDATE passkey_ceremonies SET expires_at=clock_timestamp()+interval '2 seconds' WHERE purpose=$1 RETURNING expires_at",
+    )
+    .bind(purpose)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let task = run();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(holder_pid)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            if blocked {
+                break;
+            }
+            assert!(
+                !task.is_finished(),
+                "{purpose} returned before the lock wait"
+            );
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let expired: bool = sqlx::query_scalar("SELECT clock_timestamp()>$1")
+                .bind(expires_at)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+            if expired {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    holder.commit().await.unwrap();
+    task.await.unwrap()
+}
+
+#[tokio::test]
+async fn d3_authentication_ceremony_expires_while_waiting_for_account_lock() {
+    let Some(db) = database::Database::open().await.unwrap() else {
+        return;
+    };
+    let service = service(db.pool.clone());
+    let id = account(&db.pool).await;
+    let mut auth = SoftPasskey::new(true);
+    registered(&service, id, &mut auth).await;
+    let input = assertion(&service, id, &mut auth).await;
+    let result = ceremony_expires_during_account_lock_wait(&db.pool, id, "authenticate", || {
+        let service = service.clone();
+        tokio::spawn(async move { service.finish_authorized(BINDING, input).await })
+    })
+    .await;
+    assert!(
+        matches!(result, Err(Error::Refused)),
+        "expired ceremony accepted after the account lock wait"
+    );
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn d3_registration_ceremony_expires_while_waiting_for_account_lock() {
+    let Some(db) = database::Database::open().await.unwrap() else {
+        return;
+    };
+    let service = service(db.pool.clone());
+    let id = account(&db.pool).await;
+    let mut auth = SoftPasskey::new(true);
+    let input = registration_input(&service, id, &mut auth).await;
+    let result = ceremony_expires_during_account_lock_wait(&db.pool, id, "register", || {
+        let service = service.clone();
+        tokio::spawn(async move { service.finish_registration(BINDING, id, input).await })
+    })
+    .await;
+    assert!(
+        matches!(result, Err(Error::Refused)),
+        "expired registration ceremony accepted after the account lock wait"
+    );
+    db.close().await.unwrap();
+}

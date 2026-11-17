@@ -657,3 +657,116 @@ async fn r4_address_claim_wait_retains_no_account_row() -> TestResult {
     }
     db.close().await
 }
+
+#[tokio::test]
+async fn d1_password_reset_cancels_pending_email_change() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    assert_eq!(s.request(id, input(true, false)).await?, Outcome::Requested);
+    let (confirmation, _) = tokens(&db.pool).await?;
+    // The owner recovers the account through the real reset path.
+    let key = crate::reset::DeliveryKey::parse(&"11".repeat(32)).unwrap();
+    crate::reset::request(&db.pool, "old@example.invalid", &key).await?;
+    let payload: serde_json::Value = sqlx::query_scalar(
+        "SELECT payload FROM outbox WHERE kind='email.password-reset' ORDER BY created_at DESC LIMIT 1",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    let reset_token = key
+        .open(&serde_json::from_value::<Vec<u8>>(
+            payload["ciphertext"].clone(),
+        )?)
+        .unwrap();
+    assert!(
+        crate::reset::complete(
+            &db.pool,
+            crate::reset::Input {
+                email: "old@example.invalid".into(),
+                token: reset_token,
+                password: "owner recovered password".into(),
+                password_confirmation: "owner recovered password".into(),
+            }
+        )
+        .await?
+    );
+    let outcome = s.confirm(&confirmation).await?;
+    let email: String = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(
+        (outcome, email.as_str()),
+        (Outcome::Refused, "old@example.invalid")
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn d1_recovery_key_cancels_pending_email_change() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    let mut keys = crate::recovery_key::RecoveryKeys::new(db.pool.clone());
+    keys.enabled = crate::recovery_key::Enabled(true);
+    let key = keys.generate(id, "test-password").await?;
+    keys.confirm(id, "test-password", &key).await?;
+    assert_eq!(
+        s.request(id, input(false, false)).await?,
+        Outcome::Requested
+    );
+    let (confirmation, _) = tokens(&db.pool).await?;
+    // The owner recovers the account through the real recovery-key path.
+    keys.recover(
+        "old@example.invalid",
+        &key,
+        "owner recovered password",
+        "owner recovered password",
+    )
+    .await?;
+    let outcome = s.confirm(&confirmation).await?;
+    let email: String = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(
+        (outcome, email.as_str()),
+        (Outcome::Refused, "old@example.invalid")
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn d1_recovery_cancels_confirmed_change_waiting_for_worker() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    let mut keys = crate::recovery_key::RecoveryKeys::new(db.pool.clone());
+    keys.enabled = crate::recovery_key::Enabled(true);
+    let key = keys.generate(id, "test-password").await?;
+    keys.confirm(id, "test-password", &key).await?;
+    assert_eq!(
+        s.request(id, input(false, false)).await?,
+        Outcome::Requested
+    );
+    let (confirmation, _) = tokens(&db.pool).await?;
+    assert_eq!(s.confirm(&confirmation).await?, Outcome::Confirmed);
+    // The owner recovers the account before the delayed change is applied.
+    keys.recover(
+        "old@example.invalid",
+        &key,
+        "owner recovered password",
+        "owner recovered password",
+    )
+    .await?;
+    sqlx::query("UPDATE account_email_changes SET apply_after=now()-interval '1 second'")
+        .execute(&db.pool)
+        .await?;
+    let applied = s.apply_due().await?;
+    let email: String = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!((applied, email.as_str()), (0, "old@example.invalid"));
+    db.close().await
+}
