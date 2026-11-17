@@ -1707,3 +1707,243 @@ async fn postgres_refund_settled_rows_skip_the_provider() {
     assert_eq!(dispatched_audits(&h).await, 2);
     h.close().await;
 }
+/// Marks the refund's `commerce.refund` job dead after its last attempt.
+async fn kill_refund_job(h: &Harness, payment: Uuid) {
+    let killed = sqlx::query("UPDATE outbox SET state='dead',attempts=max_attempts,leased_until=NULL WHERE kind='commerce.refund' AND idempotency_key=$1")
+        .bind(payment.to_string())
+        .execute(&h.pool)
+        .await
+        .expect("kill refund job")
+        .rows_affected();
+    assert_eq!(killed, 1);
+}
+/// Moves the row to `refunding` under an attempt claimed `age` seconds ago.
+async fn claim_refund_row(h: &Harness, operation: Uuid, age: f64) -> Uuid {
+    let attempt = Uuid::now_v7();
+    sqlx::query("UPDATE commerce_refunds SET state='refunding',attempt_id=$2,claimed_at=now() - make_interval(secs => $3) WHERE operation_id=$1")
+        .bind(operation)
+        .bind(attempt)
+        .bind(age)
+        .execute(&h.pool)
+        .await
+        .expect("claim refund row");
+    attempt
+}
+async fn refund_job(h: &Harness, payment: Uuid) -> (String, i32) {
+    sqlx::query_as(
+        "SELECT state,attempts FROM outbox WHERE kind='commerce.refund' AND idempotency_key=$1",
+    )
+    .bind(payment.to_string())
+    .fetch_one(&h.pool)
+    .await
+    .expect("refund job")
+}
+async fn reconciled_audits(h: &Harness) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='commerce.refund.reconciled'")
+        .fetch_one(&h.pool)
+        .await
+        .expect("reconciled audits")
+}
+/// Claims the revived job from the outbox and runs the delivery path on it.
+async fn deliver_revived(h: &Harness, stub: &RefundStub, operation: Uuid) {
+    let jobs = oteryn_db::outbox::claim(&h.pool, 10, 60)
+        .await
+        .expect("claim outbox");
+    let job = jobs
+        .iter()
+        .find(|job| job.kind == "commerce.refund")
+        .expect("revived job is claimable");
+    assert_eq!(job.attempts, 1);
+    assert_eq!(
+        serde_json::from_str::<Value>(&job.payload).expect("payload"),
+        json!({"operation":operation})
+    );
+    h.effects()
+        .payments
+        .deliver_refund_with(stub, &h.pool, operation)
+        .await
+        .expect("deliver revived refund");
+    assert!(
+        oteryn_db::outbox::finish(&h.pool, job, None, false)
+            .await
+            .expect("finish job")
+    );
+}
+/// A dead job over a `pending` row is revived; delivery calls the provider
+/// with the intent id and settles the row with one dispatch audit.
+#[tokio::test]
+async fn postgres_refund_reconcile_revives_dead_pending_row() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard()
+        .await
+        .expect("database guard");
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let (operation, payment) = queued_refund(&h).await;
+    kill_refund_job(&h, payment).await;
+    let revived = reconcile_dead_refunds(&h.pool, h.actor, false)
+        .await
+        .expect("reconcile");
+    assert_eq!(revived.len(), 1);
+    assert_eq!(
+        (
+            revived[0].operation,
+            revived[0].state.as_str(),
+            revived[0].attempt
+        ),
+        (operation, "pending", None)
+    );
+    assert_eq!(refund_job(&h, payment).await, ("pending".into(), 0));
+    assert_eq!(reconciled_audits(&h).await, 1);
+    let stub = RefundStub::default();
+    deliver_revived(&h, &stub, operation).await;
+    assert_eq!(stub.keys(), vec![payment]);
+    let (state, _, reference) = refund_row(&h, operation).await;
+    assert_eq!(state, "done");
+    assert_eq!(reference, Some(format!("refund:{payment}")));
+    assert_eq!(dispatched_audits(&h).await, 1);
+    assert_eq!(refund_job(&h, payment).await, ("done".into(), 1));
+    h.close().await;
+}
+/// A dead job over a stale `refunding` claim is revived and settles; a fresh
+/// claim is left alone with its job still dead.
+#[tokio::test]
+async fn postgres_refund_reconcile_revives_stale_refunding_row() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard()
+        .await
+        .expect("database guard");
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let (fresh_op, fresh_pay) = queued_refund(&h).await;
+    kill_refund_job(&h, fresh_pay).await;
+    let fresh_attempt = claim_refund_row(&h, fresh_op, 0.0).await;
+    let (operation, payment) = queued_refund(&h).await;
+    kill_refund_job(&h, payment).await;
+    let stale_attempt =
+        claim_refund_row(&h, operation, REFUND_CLAIM_STALE_AFTER.as_secs_f64() + 1.0).await;
+    let revived = reconcile_dead_refunds(&h.pool, h.actor, false)
+        .await
+        .expect("reconcile");
+    assert_eq!(revived.len(), 1);
+    assert_eq!(
+        (
+            revived[0].operation,
+            revived[0].state.as_str(),
+            revived[0].attempt
+        ),
+        (operation, "refunding", Some(stale_attempt))
+    );
+    assert_eq!(reconciled_audits(&h).await, 1);
+    assert_eq!(refund_job(&h, fresh_pay).await.0, "dead");
+    assert_eq!(
+        refund_row(&h, fresh_op).await,
+        ("refunding".into(), Some(fresh_attempt), None)
+    );
+    let stub = RefundStub::default();
+    deliver_revived(&h, &stub, operation).await;
+    assert_eq!(stub.keys(), vec![payment]);
+    let (state, attempt, reference) = refund_row(&h, operation).await;
+    assert_eq!(state, "done");
+    assert_ne!(attempt, Some(stale_attempt));
+    assert_eq!(reference, Some(format!("refund:{payment}")));
+    assert_eq!(dispatched_audits(&h).await, 1);
+    h.close().await;
+}
+/// A settled row, or one whose intent the ledger shows refunded, with a dead
+/// job is neither revived nor audited and the provider is not called again.
+#[tokio::test]
+async fn postgres_refund_reconcile_leaves_settled_rows() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard()
+        .await
+        .expect("database guard");
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let (operation, payment) = queued_refund(&h).await;
+    let stub = RefundStub::default();
+    h.effects()
+        .payments
+        .deliver_refund_with(&stub, &h.pool, operation)
+        .await
+        .expect("deliver");
+    kill_refund_job(&h, payment).await;
+    let before = refund_row(&h, operation).await;
+    let revived = reconcile_dead_refunds(&h.pool, h.actor, false)
+        .await
+        .expect("reconcile");
+    assert!(revived.is_empty());
+    assert_eq!(refund_row(&h, operation).await, before);
+    assert_eq!(refund_job(&h, payment).await.0, "dead");
+    assert_eq!(reconciled_audits(&h).await, 0);
+    assert_eq!(stub.keys(), vec![payment]);
+    assert_eq!(dispatched_audits(&h).await, 1);
+    let (ledger, refunded) = queued_refund(&h).await;
+    kill_refund_job(&h, refunded).await;
+    sqlx::query("UPDATE payment_intents SET state='refunded' WHERE id=$1")
+        .bind(refunded)
+        .execute(&h.pool)
+        .await
+        .expect("refund intent");
+    let revived = reconcile_dead_refunds(&h.pool, h.actor, false)
+        .await
+        .expect("reconcile ledger-refunded");
+    assert!(revived.is_empty());
+    assert_eq!(refund_row(&h, ledger).await, ("pending".into(), None, None));
+    assert_eq!(refund_job(&h, refunded).await.0, "dead");
+    assert_eq!(reconciled_audits(&h).await, 0);
+    h.close().await;
+}
+/// A dry run reports the dead refund and writes nothing; a non-staff actor
+/// is refused.
+#[tokio::test]
+async fn postgres_refund_reconcile_dry_run_changes_nothing() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard()
+        .await
+        .expect("database guard");
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let (operation, payment) = queued_refund(&h).await;
+    kill_refund_job(&h, payment).await;
+    let listed = reconcile_dead_refunds(&h.pool, h.actor, true)
+        .await
+        .expect("dry run");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].operation, operation);
+    let (job_state, job_attempts) = refund_job(&h, payment).await;
+    assert_eq!(job_state, "dead");
+    assert_eq!(job_attempts, REFUND_MAX_ATTEMPTS);
+    assert_eq!(reconciled_audits(&h).await, 0);
+    assert_eq!(
+        refund_row(&h, operation).await,
+        ("pending".into(), None, None)
+    );
+    assert!(matches!(
+        reconcile_dead_refunds(&h.pool, h.target, true).await,
+        Err(Error::Denied)
+    ));
+    h.close().await;
+}
+/// A second run finds the revived job no longer dead and revives nothing.
+#[tokio::test]
+async fn postgres_refund_reconcile_is_idempotent() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard()
+        .await
+        .expect("database guard");
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let (_, payment) = queued_refund(&h).await;
+    kill_refund_job(&h, payment).await;
+    let first = reconcile_dead_refunds(&h.pool, h.actor, false)
+        .await
+        .expect("first reconcile");
+    let second = reconcile_dead_refunds(&h.pool, h.actor, false)
+        .await
+        .expect("second reconcile");
+    assert_eq!((first.len(), second.len()), (1, 0));
+    assert_eq!(reconciled_audits(&h).await, 1);
+    assert_eq!(refund_job(&h, payment).await, ("pending".into(), 0));
+    h.close().await;
+}

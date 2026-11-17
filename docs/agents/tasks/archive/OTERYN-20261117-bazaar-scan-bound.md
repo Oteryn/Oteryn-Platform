@@ -122,7 +122,7 @@ path exists. A query with no index path still seq-scans and is counted. The
 - [x] Bound `< 100` unchanged; test passes with the production layout
 - [x] Red without the change: production layout without `enable_seqscan=off` fails `Return: 269 tuples read`
 - [x] Guard still catches an unindexed lookup: with `enable_seqscan=off` kept and the fences UPDATE predicate made unindexable (`operation_id::text=$1::text`, temporary), the test fails `Return: 266 tuples read`
-- [ ] Portal RS CI green on the PR head (#1925)
+- [x] Portal RS CI green on the PR head (#1925)
 
 ## Ownership
 
@@ -145,10 +145,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T10:40:00Z
-head: 20d4f17d0945834f463193ff5d689f0fdcc932d2
+head: afb4a8fdcef46003e3b259ee9c0daa41625bc7c4
 branch: claude/happy-davinci-ijz3wy-bazaar-scan-bound
 pr: 1925
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-bazaar-scan-bound.md
@@ -189,13 +189,13 @@ validation:
     evidence: 116 passed, 1 failed; 62 postgres_ tests ran; the failure is runtime::tls postgres_exchange_deadline_cancels_issuer_wait_and_releases_pool (Elapsed), which fails the same way on untouched main 20d4f17d (2 of 2) in this container and is outside owned paths
 blockers:
   - none
-next_action: Portal RS CI confirms the tls deadline test on CI PostgreSQL
+next_action: none; delivered by PR 1925 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Task branch for the issue 1919 test change; retained until merge
-source_branch_evidence: The PR records the published head
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1925 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1925 merged as afb4a8fdcef46003e3b259ee9c0daa41625bc7c4
 ```
