@@ -2079,3 +2079,27 @@ async fn postgres_retention_keeps_live_login_digest_after_payload_expiry()
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn retention_expires_last_bank_balance() -> std::result::Result<(), Box<dyn std::error::Error>>
+{
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let r = playerdata::items(&bank(1, None, 0, 100))?;
+    let a = TestAuthority::default();
+    a.allow(r.scope.clone()).await;
+    db.store(&a).ingest(r, clock()).await?;
+    sqlx::query("UPDATE pd_records SET expires_ms=0")
+        .execute(&db.pool)
+        .await?;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await?;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_bank_continuations")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 0);
+    db.close().await?;
+    Ok(())
+}

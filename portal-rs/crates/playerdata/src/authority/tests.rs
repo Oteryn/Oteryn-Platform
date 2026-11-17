@@ -1938,6 +1938,47 @@ async fn postgres_g9_returned_owner_honors_transfer_tombstone_cutoff() {
         .expire_batch()
         .await
         .unwrap();
+    let (app, body) = session_fixture(&db, 11).await;
+    let send = |body: String| {
+        let app = app.clone();
+        async move {
+            post(
+                &app,
+                "sessions.oteryn.internal",
+                crate::sessions::RECORDS,
+                &body,
+            )
+            .await
+            .0
+        }
+    };
+    assert_eq!(
+        send(body.clone()).await,
+        StatusCode::OK,
+        "returned owner must ingest beyond the transfer tombstone cutoff"
+    );
+    for revision in ["9", "10"] {
+        assert_eq!(
+            send(body.replace(
+                r#""character_revision":"11""#,
+                &format!(r#""character_revision":"{revision}""#)
+            ))
+            .await,
+            StatusCode::CONFLICT
+        );
+    }
+    sqlx::query(
+        "INSERT INTO pd_deleted_scopes(scope_digest,deleted_ms,expires_ms) VALUES($1,0,9223372036854775807)",
+    )
+    .bind(crate::store::scope_digest(SELLER, None))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(send(body).await, StatusCode::CONFLICT);
+    db.close().await;
+}
+
+async fn session_fixture(db: &Db, revision: u64) -> (axum::Router, String) {
     let generation = "019a5000-0000-7000-8000-000000000001";
     db.exec("INSERT INTO pd_g9_streams(source_authority,account_id,stream_generation,admitted,recovery_generation) VALUES('game.test',$1::uuid,$2::uuid,true,3)", &[SELLER, generation]).await;
     for key in ["vocation:knight", "place:cave", "item:ruby"] {
@@ -1982,45 +2023,76 @@ async fn postgres_g9_returned_owner_honors_transfer_tombstone_cutoff() {
         .replace("019a5000-0000-7000-8000-000000000006", WORLD)
         .replace(
             r#""character_revision":"1""#,
-            r#""character_revision":"11""#,
+            &format!(r#""character_revision":"{revision}""#),
         )
         .replace("1793836800", &(now - 60).to_string())
         .replace("1793836860", &now.to_string());
-    let send = |body: String| {
-        let app = app.clone();
-        async move {
-            post(
-                &app,
-                "sessions.oteryn.internal",
-                crate::sessions::RECORDS,
-                &body,
-            )
-            .await
-            .0
-        }
-    };
-    assert_eq!(
-        send(body.clone()).await,
-        StatusCode::OK,
-        "returned owner must ingest beyond the transfer tombstone cutoff"
-    );
-    for revision in ["9", "10"] {
-        assert_eq!(
-            send(body.replace(
-                r#""character_revision":"11""#,
-                &format!(r#""character_revision":"{revision}""#)
-            ))
-            .await,
-            StatusCode::CONFLICT
-        );
-    }
-    sqlx::query(
-        "INSERT INTO pd_deleted_scopes(scope_digest,deleted_ms,expires_ms) VALUES($1,0,9223372036854775807)",
+    (app, body)
+}
+
+async fn publish_segment(app: &axum::Router, body: &str) -> StatusCode {
+    post(
+        app,
+        "sessions.oteryn.internal",
+        crate::sessions::RECORDS,
+        body,
     )
-    .bind(crate::store::scope_digest(SELLER, None))
-    .execute(&db.pool)
     .await
-    .unwrap();
-    assert_eq!(send(body).await, StatusCode::CONFLICT);
+    .0
+}
+
+fn next_segment(body: &str) -> String {
+    body.replace(r#""source_revision":"1""#, r#""source_revision":"2""#)
+        .replace(
+            "019a5000-0000-7000-8000-000000000003",
+            &Uuid::now_v7().to_string(),
+        )
+        .replace(
+            "019a5000-0000-7000-8000-000000000004",
+            &Uuid::now_v7().to_string(),
+        )
+        .replace(r#""rare_drop_count":1"#, r#""rare_drop_count":0"#)
+}
+
+#[tokio::test]
+async fn retention_unapplied_floor_blocks_next_segment() {
+    let db = Db::open().await.unwrap();
+    seller(&db).await;
+    let (app, body) = session_fixture(&db, 9).await;
+    assert_eq!(publish_segment(&app, &body).await, StatusCode::OK);
+    db.exec("UPDATE pd_g9_records SET expires_at=0,purged_at=0", &[])
+        .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(
+        publish_segment(&app, &next_segment(&body)).await,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let applied: String = sqlx::query_scalar("SELECT applied_through::text FROM pd_g9_streams")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(applied, "0");
+    db.close().await;
+}
+
+#[tokio::test]
+async fn retention_digest_retry_preserves_stream() {
+    let db = Db::open().await.unwrap();
+    seller(&db).await;
+    let (app, body) = session_fixture(&db, 9).await;
+    assert_eq!(publish_segment(&app, &body).await, StatusCode::OK);
+    db.exec("UPDATE pd_g9_records SET expires_at=0", &[]).await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(publish_segment(&app, &body).await, StatusCode::CONFLICT);
+    assert_eq!(
+        publish_segment(&app, &next_segment(&body)).await,
+        StatusCode::OK
+    );
     db.close().await;
 }
