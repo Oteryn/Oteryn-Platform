@@ -179,7 +179,11 @@ impl Service {
         if !self.ready() || !input.valid() {
             return Ok(Outcome::Refused);
         }
+        let new = normalize_email(&input.email);
         let mut tx = self.pool.begin().await?;
+        // Serialize cross-account reservations without relying on check-then-insert.
+        // The address claim precedes the account row, as on registration.
+        crate::accounts::claim_lock(&mut tx, &new).await?;
         let row: Option<(String,String,String)> = sqlx::query_as("SELECT email,password_hash,locale FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp() FOR UPDATE")
             .bind(account).fetch_optional(&mut *tx).await?;
         let Some((old, hash, locale)) = row else {
@@ -189,7 +193,6 @@ impl Service {
             return Ok(Outcome::Refused);
         }
 
-        let new = normalize_email(&input.email);
         if new == old {
             return Ok(Outcome::Refused);
         }
@@ -205,8 +208,6 @@ impl Service {
         {
             return Ok(Outcome::Refused);
         }
-        // Serialize cross-account reservations without relying on check-then-insert.
-        crate::accounts::claim_lock(&mut tx, &new).await?;
         if !available(&mut tx, account, &new).await? {
             return Ok(Outcome::Refused);
         }
@@ -249,10 +250,13 @@ impl Service {
             return Ok(Outcome::Refused);
         }
         let mut tx = self.pool.begin().await?;
-        let id: Option<Uuid> = sqlx::query_scalar("SELECT account_id FROM account_email_changes WHERE (NOT $2 AND confirmation_hash=$1) OR ($2 AND revert_hash=$1)").bind(token_hash(token)).bind(revert).fetch_optional(&mut *tx).await?;
-        let Some(account) = id else {
+        let id: Option<(Uuid, String)> = sqlx::query_as("SELECT account_id,CASE WHEN $2 THEN old_email ELSE new_email END FROM account_email_changes WHERE (NOT $2 AND confirmation_hash=$1) OR ($2 AND revert_hash=$1)").bind(token_hash(token)).bind(revert).fetch_optional(&mut *tx).await?;
+        let Some((account, address)) = id else {
             return Ok(Outcome::Refused);
         };
+        // The immutable target address is claimed before the account row; the
+        // claims taken below reacquire this same lock.
+        crate::accounts::claim_lock(&mut tx, &address).await?;
         // Every path locks account first, then the change, including the worker.
         let active: Option<String> = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL FOR UPDATE").bind(account).fetch_optional(&mut *tx).await?;
         let Some(current) = active else {
@@ -364,10 +368,12 @@ impl Service {
         if !self.ready() {
             return Ok(0);
         }
-        let ids: Vec<(Uuid,Uuid)> = sqlx::query_as("SELECT c.id,c.account_id FROM account_email_changes c JOIN accounts a ON a.id=c.account_id WHERE a.status='active' AND a.email_verified_at IS NOT NULL AND a.email_change_blocked_until<=clock_timestamp() AND a.email=c.old_email AND kind='primary' AND confirmed_at IS NOT NULL AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND apply_after<=clock_timestamp() AND expires_at>clock_timestamp() ORDER BY next_attempt_at,apply_after,c.id LIMIT 100").fetch_all(&self.pool).await?;
+        let ids: Vec<(Uuid,Uuid,String)> = sqlx::query_as("SELECT c.id,c.account_id,c.new_email FROM account_email_changes c JOIN accounts a ON a.id=c.account_id WHERE a.status='active' AND a.email_verified_at IS NOT NULL AND a.email_change_blocked_until<=clock_timestamp() AND a.email=c.old_email AND kind='primary' AND confirmed_at IS NOT NULL AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND apply_after<=clock_timestamp() AND expires_at>clock_timestamp() ORDER BY next_attempt_at,apply_after,c.id LIMIT 100").fetch_all(&self.pool).await?;
         let mut count = 0;
-        for (id, account) in ids {
+        for (id, account, address) in ids {
             let mut tx = self.pool.begin().await?;
+            // Address claim before the account row, as in request and confirmation.
+            crate::accounts::claim_lock(&mut tx, &address).await?;
             let current: Option<String> = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL AND email_change_blocked_until<=clock_timestamp() FOR UPDATE").bind(account).fetch_optional(&mut *tx).await?;
             let c: Change =
                 sqlx::query_as("SELECT * FROM account_email_changes WHERE id=$1 FOR UPDATE")
