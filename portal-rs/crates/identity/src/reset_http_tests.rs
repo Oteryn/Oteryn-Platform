@@ -385,3 +385,20 @@ async fn reset_and_source_limits_and_authenticated_refusal() -> TestResult {
     assert_eq!(count, 2);
     db.close().await
 }
+
+#[tokio::test]
+async fn r9_bare_forgot_password_redirects() -> Result<(), Box<dyn std::error::Error>> {
+    let db = db::Database::open().await?.ok_or("PostgreSQL required")?;
+    let app = router(
+        db.pool.clone(),
+        DeliveryKey::parse(&"11".repeat(32)).ok_or("key")?,
+        SessionLayer::new(db.pool.clone()),
+    )
+    .fallback(oteryn_web::redirects::redirect);
+    let response = app
+        .oneshot(axum::http::Request::get("/forgot-password").body(axum::body::Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::MOVED_PERMANENTLY);
+    assert_eq!(response.headers()["location"], "/pl/forgot-password");
+    db.close().await
+}

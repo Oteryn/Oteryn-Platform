@@ -502,3 +502,97 @@ async fn postgres_mfa_http_refusal_records_only_the_session_account()
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn r9_admin_origin_login_reaches_challenge() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("R9_ADMIN_LOGIN_TEST").is_none() {
+        let result = std::process::Command::new(std::env::current_exe()?)
+            .args(["r9_admin_origin_login_reaches_challenge", "--nocapture"])
+            .env("R9_ADMIN_LOGIN_TEST", "1")
+            .env("OTERYN_ACCOUNT_MFA", "true")
+            .env("OTERYN_ACCOUNT_LOGIN", "true")
+            .env("OTERYN_ADMIN_PANEL", "true")
+            .env("OTERYN_ADMIN_HOST", "admin.example.test")
+            .env("OTERYN_PUBLIC_ORIGIN", "https://portal.example.test")
+            .env("OTERYN_MFA_KEY", "07".repeat(32))
+            .status()?;
+        assert!(result.success());
+        return Ok(());
+    }
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let app = oteryn_web::register::configured(configured(Router::new(), db.pool.clone())?);
+    let mfa = Mfa::new(db.pool.clone(), [7; 32]);
+    let id:uuid::Uuid=sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('browser@example.test',$1,'active','en',now()) RETURNING id").bind(oteryn_identity::password::hash("test password")?).fetch_one(&db.pool).await?;
+    let enrollment = mfa.enroll(id, "test password").await?.ok_or("enrollment")?;
+    let secret = totp_rs::Secret::Encoded(enrollment.secret).to_bytes()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let code = totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, secret)?.generate(now);
+    let _codes = mfa
+        .confirm(id, "test password", &code)
+        .await?
+        .ok_or("confirm")?;
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/login")
+                .header(header::HOST, "admin.example.test")
+                .body(axum::body::Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .ok_or("cookie")?
+        .to_str()?
+        .split(';')
+        .next()
+        .ok_or("cookie")?
+        .to_owned();
+    let bytes = axum::body::to_bytes(response.into_body(), 32768).await?;
+    let body = String::from_utf8(bytes.to_vec())?;
+    let csrf = body
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .and_then(|v| v.split('"').next())
+        .ok_or("csrf")?;
+    let request = |token: &str| -> Result<_, Box<dyn std::error::Error>> {
+        Ok(axum::http::Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::HOST, "admin.example.test")
+            .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, "https://admin.example.test")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
+            .body(axum::body::Body::from(format!(
+                "_csrf={token}&email=browser%40example.test&password=test+password"
+            )))?)
+    };
+    let mut wrong_host = request(csrf)?;
+    wrong_host
+        .headers_mut()
+        .insert(header::HOST, "portal.example.test".parse()?);
+    assert_eq!(
+        app.clone().oneshot(wrong_host).await?.status(),
+        StatusCode::FORBIDDEN
+    );
+    let response = app.oneshot(request(csrf)?).await?;
+    assert!(
+        response.status().is_redirection(),
+        "expected challenge redirect, got {}",
+        response.status()
+    );
+    assert!(
+        response.headers()["location"]
+            .to_str()?
+            .contains("/mfa/challenge")
+    );
+    db.close().await?;
+    Ok(())
+}

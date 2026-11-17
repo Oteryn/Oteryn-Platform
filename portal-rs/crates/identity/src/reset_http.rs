@@ -42,7 +42,6 @@ pub fn configured_router(pool: PgPool) -> Router {
 fn router(pool: PgPool, key: DeliveryKey, sessions: SessionLayer) -> Router {
     let limiter = RateLimiter::new(pool.clone());
     let mut routes = Router::new();
-    // Bare GET recovery routes already belong to the legacy redirect router.
     routes = routes
         .route("/forgot-password", axum::routing::post(submit_forgot))
         .route("/reset-password", get(show_reset).post(submit_reset));
@@ -83,7 +82,8 @@ fn router(pool: PgPool, key: DeliveryKey, sessions: SessionLayer) -> Router {
                 },
                 audit_refusals,
             ))
-            .with_state(pool),
+            .with_state(pool)
+            .route("/forgot-password", get(oteryn_web::redirects::redirect)),
     )
 }
 #[derive(Template)]
