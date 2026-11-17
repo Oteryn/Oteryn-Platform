@@ -964,6 +964,16 @@ async fn audit_09_01_ceiling_settlement_is_held_and_balance_readable() -> TestRe
             .await,
         1
     );
+    let reference: String = sqlx::query_scalar("SELECT provider_reference FROM payment_intents")
+        .fetch_one(&h.pool)
+        .await?;
+    let (status, reply) = deliver(&h.app(), &event("held_refund", "refund", &reference, 499)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reply["outcome"], "applied");
+    let state: String = sqlx::query_scalar("SELECT state FROM payment_intents")
+        .fetch_one(&h.pool)
+        .await?;
+    assert_eq!(state, "refunded", "held refund must update the intent");
     h.finish().await?;
     eprintln!(
         "PG audit_09_01_ceiling_settlement_is_held_and_balance_readable: {:.3}s",

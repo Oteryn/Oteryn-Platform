@@ -112,7 +112,7 @@ impl Delivery {
         .ok_or("top-up intent missing")?;
         // Check after acquiring the intent lock so a concurrent approval is visible.
         let refund_approved: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM commerce_refunds WHERE intent_id=$1)")
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM commerce_refunds r JOIN commerce_operations o ON o.id=r.operation_id WHERE r.intent_id=$1 AND (r.provider_reference IS NOT NULL OR o.result->>'refund_outcome' IS DISTINCT FROM 'refused'))")
                 .bind(payload.intent_id)
                 .fetch_one(&mut *tx)
                 .await

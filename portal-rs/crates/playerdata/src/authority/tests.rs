@@ -2291,3 +2291,140 @@ async fn r7_deleted_character_absent_from_projection() {
     );
     db.close().await;
 }
+
+#[tokio::test]
+async fn r8_bank_restore_generation() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let bank = items("record-bank-entry.valid.json");
+    db.account("019a0000-0000-7000-8000-000000000001", "1", "1")
+        .await;
+    db.exec("INSERT INTO character_restore_notices(restore_event_id,notice_json,new_recovery_generation,acknowledged_at) VALUES(gen_random_uuid(),'{}','00000000000000000003',now())",&[]).await;
+    let app = app(&db, Arc::new(FixedClock(ITEMS_NOW)), true);
+    let body = bank.replace(
+        r#""recovery_generation":"1""#,
+        r#""recovery_generation":"4""#,
+    );
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, &body).await.0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_streams").await, 0);
+    let acknowledged = bank.replace(
+        r#""recovery_generation":"1""#,
+        r#""recovery_generation":"3""#,
+    );
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, &acknowledged)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r8_pending_numeric_page() {
+    let Some(db) = Db::open().await else { return };
+    db.exec("INSERT INTO pd_g9_commands SELECT uuidv7(),'game.test',rev,uuidv7(),uuidv7(),''::bytea,repeat('a',64),NULL FROM unnest(ARRAY[2,10]) rev",&[]).await;
+    let san = "sessions.oteryn.internal";
+    let identities = Arc::new(
+        IdentityMap::new(vec![Binding {
+            identity: Identity::san(san).unwrap(),
+            group: crate::sessions::GROUP.into(),
+        }])
+        .unwrap(),
+    );
+    let app = crate::sessions::router(
+        db.pool.clone(),
+        crate::sessions::Settings {
+            commands: true,
+            ingest: false,
+            source: "game.test".into(),
+        },
+        identities,
+    );
+    let mut revision = "0".to_owned();
+    let mut operation = Uuid::nil().to_string();
+    for expected in ["2", "10"] {
+        let body = format!(
+            r#"{{"contract_version":1,"operation":"ListPendingGameJournalCommandsV1","source_authority":"game.test","after_source_revision":"{revision}","after_operation_id":"{operation}","max_entries":1}}"#
+        );
+        let (status, result) = post(&app, san, crate::sessions::COMMANDS[0], &body).await;
+        assert_eq!(status, StatusCode::OK);
+        let page: serde_json::Value = serde_json::from_str(&result).unwrap();
+        revision = page["entries"][0]["source_revision"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        operation = page["entries"][0]["operation_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(revision, expected);
+    }
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r8_drop_retention() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    let (app, segment) = session_fixture(&db, 9).await;
+    let value: serde_json::Value = serde_json::from_str(&segment).unwrap();
+    let end = value["record"]["ended_at"]
+        .as_str()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap();
+    db.exec(
+        "UPDATE pd_ownership_baselines SET accepted_at=now()-interval '3 hours'",
+        &[],
+    )
+    .await;
+    let segment = segment.replace(&(end - 60).to_string(), &(end - 7201).to_string());
+    db.exec(
+        "INSERT INTO pd_g9_catalogue_keys VALUES('game.test','fixture.v1','rarity:rare')",
+        &[],
+    )
+    .await;
+    let doc = fixture("..", "OTERYN_V2_GAME_JOURNAL_SESSIONS_CONTRACT_PROPOSAL.md");
+    let drop = doc
+        .lines()
+        .find(|l| l.starts_with('{') && l.contains(r#""record_kind":"RARE_DROP""#))
+        .unwrap()
+        .replace("019a5000-0000-7000-8000-000000000002", SELLER)
+        .replace("019a5000-0000-7000-8000-000000000005", CHARACTER)
+        .replace(r#""character_revision":"1""#, r#""character_revision":"9""#)
+        .replace("1793836830", &(end - 7200).to_string());
+    assert_eq!(publish_segment(&app, &segment).await, StatusCode::OK);
+    assert_eq!(publish_segment(&app, &drop).await, StatusCode::OK);
+    assert_eq!(
+        db.count("SELECT count(DISTINCT expires_at) FROM pd_g9_records")
+            .await,
+        1
+    );
+    // An existing drop may still have an occurrence-based expiry.
+    db.exec(
+        "UPDATE pd_g9_records SET expires_at=0 WHERE record_kind='RARE_DROP'",
+        &[],
+    )
+    .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(db.count("SELECT count(record) FROM pd_g9_records").await, 2);
+    db.exec(
+        "UPDATE pd_g9_records SET expires_at=0 WHERE record_kind='HUNT_SEGMENT'",
+        &[],
+    )
+    .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(db.count("SELECT count(record) FROM pd_g9_records").await, 0);
+    db.close().await;
+}

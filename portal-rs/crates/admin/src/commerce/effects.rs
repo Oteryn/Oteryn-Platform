@@ -217,6 +217,16 @@ impl TestPaymentAdapter {
             {
                 reference
             }
+            // These provider responses reject the bound request. An unavailable
+            // provider or a malformed success leaves the remote outcome unknown.
+            Err(
+                oteryn_payments::Error::InvalidInput
+                | oteryn_payments::Error::AccountDenied
+                | oteryn_payments::Error::NotFound
+                | oteryn_payments::Error::IllegalTransition,
+            ) => {
+                return refuse_refund(pool, operation, intent.id, attempt).await;
+            }
             outcome => {
                 // A failed release leaves the claim to go stale and be re-claimed;
                 // the caller still sees the provider outcome.
@@ -250,11 +260,15 @@ impl TestPaymentAdapter {
     ) -> Result<Option<(Uuid, oteryn_payments::Intent)>, Error> {
         let mut tx = pool.begin().await?;
         rbac::mutation_budget(&mut tx).await?;
-        let row = sqlx::query("SELECT r.intent_id,r.account_id,r.amount,r.currency,r.provider,r.provider_reference,r.state='refunding' AND r.claimed_at > now() - make_interval(secs => $2) AS claim_live FROM commerce_refunds r JOIN commerce_operations o ON o.id=r.operation_id WHERE r.operation_id=$1 AND o.approved_by IS NOT NULL AND o.result IS NOT NULL FOR UPDATE OF r")
+        let row = sqlx::query("SELECT r.intent_id,r.account_id,r.amount,r.currency,r.provider,r.provider_reference,o.result->>'refund_outcome' AS refund_outcome,r.state='refunding' AND r.claimed_at > now() - make_interval(secs => $2) AS claim_live FROM commerce_refunds r JOIN commerce_operations o ON o.id=r.operation_id WHERE r.operation_id=$1 AND o.approved_by IS NOT NULL AND o.result IS NOT NULL FOR UPDATE OF r,o")
             .bind(operation).bind(REFUND_CLAIM_STALE_AFTER.as_secs_f64()).fetch_optional(&mut *tx).await?.ok_or(Error::Denied)?;
         if row
             .try_get::<Option<String>, _>("provider_reference")?
             .is_some()
+            || row
+                .try_get::<Option<String>, _>("refund_outcome")?
+                .as_deref()
+                == Some("refused")
         {
             return Ok(None);
         }
@@ -327,6 +341,30 @@ async fn record_dispatch(
     )
     .await?;
     Ok(true)
+}
+/// The operation result records a definitive provider refusal independently of
+/// the payment ledger. Only the current claimant may release wallet delivery.
+async fn refuse_refund(
+    pool: &PgPool,
+    operation: Uuid,
+    intent: Uuid,
+    attempt: Uuid,
+) -> Result<(), Error> {
+    let mut tx = pool.begin().await?;
+    rbac::mutation_budget(&mut tx).await?;
+    let released = sqlx::query("UPDATE commerce_refunds SET state='pending',attempt_id=NULL,claimed_at=NULL,updated_at=now() WHERE operation_id=$1 AND attempt_id=$2 AND state='refunding' AND provider_reference IS NULL")
+        .bind(operation).bind(attempt).execute(&mut *tx).await?.rows_affected();
+    if released != 1 {
+        return Err(Error::Unavailable);
+    }
+    sqlx::query("UPDATE commerce_operations SET result=result || jsonb_build_object('refund_outcome','refused'::text,'queued',false),updated_at=now() WHERE id=$1")
+        .bind(operation).execute(&mut *tx).await?;
+    // The original job can be dead or finishing its final attempt. A fresh
+    // delivery uses the same intent key in the wallet ledger.
+    sqlx::query("INSERT INTO outbox(kind,payload,idempotency_key,max_attempts) SELECT kind,payload,$2,max_attempts FROM outbox WHERE kind='wallet.top_up' AND idempotency_key=$1 AND state<>'done' ON CONFLICT(kind,idempotency_key) DO NOTHING")
+        .bind(intent.to_string()).bind(format!("refund-refused:{operation}")).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
 }
 /// Returns a failed attempt's claim to `pending` so the outbox retry can
 /// dispatch again at once; a re-claimed or settled row is left untouched.

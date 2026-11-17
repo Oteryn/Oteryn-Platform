@@ -1247,6 +1247,7 @@ async fn a3_l6_02_staff_routes_refuse_restricted_acquisitions() {
 struct RefundStub {
     keys: Arc<std::sync::Mutex<Vec<Uuid>>>,
     failures: Arc<std::sync::atomic::AtomicUsize>,
+    refuse: bool,
     malformed: Arc<std::sync::atomic::AtomicUsize>,
     hold: bool,
     entered: Arc<tokio::sync::Notify>,
@@ -1292,6 +1293,9 @@ impl oteryn_payments::PaymentProvider for RefundStub {
         if self.hold {
             self.entered.notify_one();
             self.release.notified().await;
+        }
+        if self.refuse {
+            return Err(oteryn_payments::Error::InvalidInput);
         }
         let failing = self
             .failures
@@ -2403,11 +2407,61 @@ async fn credited_topup_blocks_refund() {
     );
     assert!(stub.keys().is_empty());
     let mut tx = h.pool.begin().await.unwrap();
-    let refund = request(payment, Command::Refund);
+    let mut refund = request(payment, Command::Refund);
+    refund.request_id = operation;
     assert!(matches!(
         adapter.inspect(&mut tx, &refund).await,
         Err(Error::Conflict)
     ));
+    // Remove the prior queue entry so uniqueness cannot mask an ineligible approval.
+    sqlx::query("DELETE FROM commerce_refunds WHERE operation_id=$1")
+        .bind(operation)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(matches!(
+        adapter.apply(&mut tx, &refund).await,
+        Err(Error::Conflict)
+    ));
     tx.rollback().await.unwrap();
+    h.close().await;
+}
+
+#[tokio::test]
+async fn provider_refusal_is_terminal() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let (operation, payment) = queued_refund(&h).await;
+    let adapter = h.effects().payments;
+    sqlx::query("INSERT INTO outbox(kind,payload,idempotency_key,state) VALUES('wallet.top_up',jsonb_build_object('intent_id',$1::uuid),$2,'dead')")
+        .bind(payment).bind(payment.to_string()).execute(&h.pool).await.unwrap();
+    let provider = RefundStub {
+        refuse: true,
+        ..Default::default()
+    };
+    adapter
+        .deliver_refund_with(&provider, &h.pool, operation)
+        .await
+        .unwrap();
+    adapter
+        .deliver_refund_with(&provider, &h.pool, operation)
+        .await
+        .unwrap();
+    assert_eq!(
+        provider.keys(),
+        vec![payment],
+        "terminal refusal was retried"
+    );
+    let outcome: Option<String> =
+        sqlx::query_scalar("SELECT result->>'refund_outcome' FROM commerce_operations WHERE id=$1")
+            .bind(operation)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(outcome.as_deref(), Some("refused"));
+    let retries: i64 = sqlx::query_scalar("SELECT count(*) FROM outbox WHERE kind='wallet.top_up' AND state='pending' AND payload->>'intent_id'=$1").bind(payment.to_string()).fetch_one(&h.pool).await.unwrap();
+    assert_eq!(retries, 1);
     h.close().await;
 }

@@ -1315,3 +1315,56 @@ async fn postgres_l8_source_revisions_supersede_current_state() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn r8_malformed_body_consumes_budget() {
+    let app = configured_router(lazy_pool(), &settings(), identities());
+    for _ in 0..599 {
+        assert_eq!(
+            post(&app, PROGRESS_SAN, http::PROGRESS_RECORD_PATH, b"{}")
+                .await
+                .status,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(
+        post(&app, PROGRESS_SAN, http::PROGRESS_RECORD_PATH, b"{")
+            .await
+            .status,
+        StatusCode::BAD_REQUEST
+    );
+    assert_too_many(
+        &post(&app, PROGRESS_SAN, http::PROGRESS_RECORD_PATH, b"{}").await,
+        "60",
+    );
+}
+
+#[tokio::test]
+async fn r8_quest_track_limit() {
+    let app = configured_router(lazy_pool(), &settings(), identities());
+    let base = progress(&["PublishGameJournalProgressV1", r#""source_revision":"1""#]);
+    let (prefix, _) = base.split_once(r#""payload":"#).unwrap();
+    let tracks = (0..257)
+        .map(|i| format!(r#"{{"track_key":"track:{i:03}","value":"0"}}"#))
+        .collect::<Vec<_>>()
+        .join(",");
+    let body = format!(
+        r#"{}"payload":{{"quest_key":"quest:test","pinned_content_revision":"v1","definition_hash":"{}","completed":false,"tracks":[{}]}}}}"#,
+        prefix
+            .replace(r#""family":"stamina""#, r#""family":"quest""#)
+            .replace(r#""entity_key":"stamina""#, r#""entity_key":"quest:test""#),
+        "a".repeat(64),
+        tracks
+    );
+    assert_eq!(
+        post(
+            &app,
+            PROGRESS_SAN,
+            http::PROGRESS_RECORD_PATH,
+            body.as_bytes()
+        )
+        .await
+        .status,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+}
