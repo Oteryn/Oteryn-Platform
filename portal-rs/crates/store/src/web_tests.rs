@@ -882,3 +882,11 @@ async fn postgres_value_eligibility_held_account_lock_sheds_within_read_budget()
     );
     Ok(())
 }
+
+#[test]
+fn r8_currency_minor_unit_scale() {
+    assert_eq!(Locale("en").currency(500, "JPY"), "JPY 500");
+    assert_eq!(Locale("pl").currency(500, "JPY"), "500 JPY");
+    assert_eq!(Locale("en").currency(500, "KWD"), "KWD 0.500");
+    assert_eq!(Locale("pl").currency(500, "CLF"), "0,0500 CLF");
+}

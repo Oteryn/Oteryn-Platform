@@ -216,13 +216,31 @@ impl Locale {
         self.text_args("coin-count", Some(&args))
     }
     fn currency(self, minor_units: i64, currency: &str) -> String {
-        let units = minor_units / 100;
-        let cents = minor_units.unsigned_abs() % 100;
+        // ISO 4217 minor-unit exponents for currencies outside the two-digit default.
+        let digits = match currency {
+            "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF"
+            | "UGX" | "UYI" | "VND" | "VUV" | "XAF" | "XOF" | "XPF" => 0,
+            "BHD" | "IQD" | "JOD" | "KWD" | "LYD" | "OMR" | "TND" => 3,
+            "CLF" | "UYW" => 4,
+            _ => 2,
+        };
+        let scale = 10_u64.pow(digits);
+        let magnitude = minor_units.unsigned_abs();
+        let sign = if minor_units < 0 { "-" } else { "" };
+        let mut amount = format!("{sign}{}", magnitude / scale);
+        if digits > 0 {
+            let separator = if self.0 == "pl" { ',' } else { '.' };
+            let fraction = magnitude % scale;
+            amount.push_str(&format!(
+                "{separator}{fraction:0width$}",
+                width = digits as usize
+            ));
+        }
         if self.0 == "pl" {
             let symbol = if currency == "PLN" { "zł" } else { currency };
-            format!("{units},{cents:02} {symbol}")
+            format!("{amount} {symbol}")
         } else {
-            format!("{currency} {units}.{cents:02}")
+            format!("{currency} {amount}")
         }
     }
     fn text_args(self, key: &str, args: Option<&FluentArgs<'_>>) -> String {
@@ -519,7 +537,7 @@ async fn coins(
         .packages()
         .into_iter()
         .filter(|p| {
-            p.coins > 0
+            (1..=oteryn_wallet::MAX_BALANCE).contains(&p.coins)
                 && p.minor_units > 0
                 && p.currency.len() == 3
                 && p.currency.bytes().all(|b| b.is_ascii_uppercase())
