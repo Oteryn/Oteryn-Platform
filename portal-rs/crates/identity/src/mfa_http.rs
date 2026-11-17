@@ -74,14 +74,18 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
             .route(&format!("{prefix}/mfa/confirm"), post(confirm))
             .route(&format!("{prefix}/mfa/devices"), post(remove_device));
     }
+    let admin_host = std::env::var("OTERYN_ADMIN_HOST").ok().filter(|host| {
+        std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|flag| flag == "true")
+            && host.parse::<axum::http::uri::Authority>().is_ok()
+    });
     let routes = routes
         .route_layer(axum::middleware::from_fn_with_state(
             context.mfa.clone(),
             audit_account_refusal,
         ))
         .route_layer(axum::middleware::from_fn_with_state(
-            sessions,
-            session::middleware,
+            (sessions, admin_host),
+            mfa_session,
         ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024))
         .with_state(context);
@@ -89,6 +93,26 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
     Router::new()
         .fallback_service(app.merge(oteryn_web::ratelimit::finish_routes(routes)))
         .layer(axum::middleware::from_fn(rewrite_login))
+}
+async fn mfa_session(
+    State((layer, admin_host)): State<(SessionLayer, Option<String>)>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let mut hosts = request.headers().get_all(header::HOST).iter();
+    if let Some(host) = admin_host
+        && hosts
+            .next()
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.eq_ignore_ascii_case(&host))
+        && hosts.next().is_none()
+    {
+        // The outer router can supply its public CSRF policy via an extension.
+        // Keep its other settings while selecting the dedicated host's origin.
+        let csrf = request.extensions_mut().get_or_insert(layer.csrf.clone());
+        csrf.trusted_origins = vec![format!("https://{}", host.to_ascii_lowercase())];
+    }
+    session::middleware(State(layer), request, next).await
 }
 async fn audit_account_refusal(
     State(mfa): State<Mfa>,
