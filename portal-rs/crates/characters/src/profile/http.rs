@@ -146,7 +146,12 @@ async fn edit_inner(
         Err(e) => failure(e, lang),
     }
 }
-fn parse(body: &[u8]) -> Result<Preferences, Error> {
+struct Form {
+    preferences: Preferences,
+    rendered_hide_all: Option<bool>,
+}
+
+fn parse(body: &[u8]) -> Result<Form, Error> {
     if body.len() > 4096 {
         return Err(Error::BadInput);
     }
@@ -157,6 +162,7 @@ fn parse(body: &[u8]) -> Result<Preferences, Error> {
         hidden: false,
         ..Preferences::default()
     };
+    let mut rendered_hide_all = None;
     let mut seen = std::collections::HashSet::new();
     for (key, value) in fields {
         if !seen.insert(key.clone()) {
@@ -171,6 +177,7 @@ fn parse(body: &[u8]) -> Result<Preferences, Error> {
             | "is_main_character"
             | "hidden"
             | "hide_all_characters"
+            | "rendered_hide_all_characters"
             | "show_account"
             | "show_status"
             | "show_house"
@@ -188,6 +195,7 @@ fn parse(body: &[u8]) -> Result<Preferences, Error> {
                     "is_main_character" => p.is_main_character = value,
                     "hidden" => p.hidden = value,
                     "hide_all_characters" => p.hide_all_characters = value,
+                    "rendered_hide_all_characters" => rendered_hide_all = Some(value),
                     "show_account" => p.show_account = value,
                     "show_status" => p.show_status = value,
                     "show_house" => p.show_house = value,
@@ -204,7 +212,29 @@ fn parse(body: &[u8]) -> Result<Preferences, Error> {
     if p.comment.chars().count() > 500 || p.comment.chars().any(|c| c.is_control() && c != '\n') {
         return Err(Error::BadInput);
     }
-    Ok(p)
+    Ok(Form {
+        preferences: p,
+        rendered_hide_all,
+    })
+}
+
+pub(super) async fn save_form(
+    service: &Service,
+    account: Uuid,
+    name: &str,
+    body: &[u8],
+    now: i64,
+) -> Result<(), Error> {
+    let form = parse(body)?;
+    let submitted = form.preferences.hide_all_characters;
+    // Forms rendered before the baseline field was added can still save character edits.
+    let account_hide = form
+        .rendered_hide_all
+        .filter(|&rendered| rendered != submitted)
+        .map(|_| submitted);
+    service
+        .update_with_account_hide(account, name, form.preferences, account_hide, now)
+        .await
 }
 /// The mounting router must enforce session CSRF before this browser mutation.
 pub async fn update(
@@ -216,10 +246,8 @@ pub async fn update(
 ) -> Response {
     let result = async {
         let account = preflight(account, lang).map_err(|r| *r)?;
-        let p = parse(&body).map_err(|e| failure(e, lang))?;
         let time = now().map_err(|e| failure(e, lang))?;
-        service(pool)
-            .update(account, name, p, time)
+        save_form(&service(pool), account, name, &body, time)
             .await
             .map_err(|e| failure(e, lang))?;
         let segment: String = name
@@ -247,7 +275,9 @@ mod tests {
     #[test]
     fn form_validation_and_translations() {
         assert_eq!(
-            parse(b"show_guild=1&is_main_character=true").ok(),
+            parse(b"show_guild=1&is_main_character=true")
+                .ok()
+                .map(|form| form.preferences),
             Some(Preferences {
                 show_guild: true,
                 is_main_character: true,
@@ -260,14 +290,16 @@ mod tests {
         assert!(parse(b"hidden=true&hidden=false").is_err());
         assert!(parse(b"comment=%00").is_err());
         assert_eq!(
-            parse(b"comment=first%0D%0Asecond").ok().map(|p| p.comment),
+            parse(b"comment=first%0D%0Asecond")
+                .ok()
+                .map(|form| form.preferences.comment),
             Some("first\nsecond".into())
         );
         assert!(parse("comment=żółć".as_bytes()).is_ok());
         assert!(parse(b"show_guild=1&show_guild=0").is_err());
         assert!(parse(b"account_id=foreign").is_err());
         assert_eq!(
-            parse(b"").ok(),
+            parse(b"").ok().map(|form| form.preferences),
             Some(Preferences {
                 show_guild: false,
                 is_main_character: false,
@@ -310,6 +342,7 @@ mod tests {
         assert!(!html.contains("<script>"));
         assert!(html.contains("script"));
         assert!(html.contains("name=\"_csrf\""));
+        assert!(html.contains(r#"name="rendered_hide_all_characters" value="0""#));
         assert!(html.contains("for=\"show_guild\""));
         assert!(html.contains("width=device-width"));
         Ok(())
