@@ -37,9 +37,9 @@ numbers are rejected; surrounding whitespace and control characters in text are
 No account ID is accepted from the client. All responses are private/no-store.
 
 T33c is absent from the base and has no published dependency branch. Its bounded
-seam is the local `atlas_map_reports` pending queue. Five pending reports or five
-submissions in an hour refuse further submissions with 429; five rejected reports
-refuse with 403. All limits use the same account lock. Future support integration
+seam is the local `atlas_map_reports` pending queue. Five pending reports created in the last 24 hours or
+five submissions in the last hour cause subsequent submissions to return 429.
+Five rejected reports cause subsequent submissions to return 403. All limits use the same account lock. Future support integration
 must drain this queue and supply its authoritative cross-category eligibility
 policy through a public API; no other crate's tables or implementation are read.
 There is no moderation UI in this task and no game mutation.

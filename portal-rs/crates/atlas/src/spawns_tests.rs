@@ -242,6 +242,30 @@ async fn postgres_spawns_private_markers_and_reports() -> TestResult {
         .status(),
         StatusCode::TOO_MANY_REQUESTS
     );
+    for (age, expected) in [
+        (23, StatusCode::TOO_MANY_REQUESTS),
+        (25, StatusCode::CREATED),
+    ] {
+        sqlx::query("UPDATE atlas_map_reports SET created_at=now()-make_interval(hours => $2) WHERE account_id=$1")
+            .bind(first)
+            .bind(age)
+            .execute(&pool)
+            .await?;
+        let response = call(
+            &app,
+            "POST",
+            "/atlas/map-reports",
+            Some(&token),
+            Some(&csrf),
+            report,
+        )
+        .await?;
+        assert_eq!(
+            response.status(),
+            expected,
+            "pending reports aged {age} hours"
+        );
+    }
     assert_eq!(
         call(
             &app,

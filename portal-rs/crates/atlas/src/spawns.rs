@@ -319,7 +319,7 @@ async fn report(
         return Err(StatusCode::FORBIDDEN);
     }
     let pending: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM atlas_map_reports WHERE account_id=$1 AND status='pending'",
+        "SELECT count(*) FROM atlas_map_reports WHERE account_id=$1 AND status='pending' AND created_at>now()-interval '24 hours'",
     )
     .bind(account)
     .fetch_one(&mut *tx)
