@@ -329,6 +329,71 @@ async fn checkout_and_webhook_routes_absent_outside_testing_gate() -> TestResult
     Ok(())
 }
 
+/// The test-payment webhook answers 503 when storage fails after a valid
+/// signed event, so the sender redelivers, and 400 for signature or input
+/// refusals, which no redelivery can fix.
+#[tokio::test]
+async fn test_webhook_answers_unavailable_for_storage_failure_and_bad_request_for_refusals()
+-> TestResult {
+    use base64::Engine;
+    // Nothing listens on port 1: every acquire fails with a storage error.
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_millis(500))
+        .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")?;
+    let provider = TestProvider::new(&[5; 32])?;
+    let payments = Arc::new(Payments::new(
+        pool.clone(),
+        provider.clone(),
+        Accounts(pool),
+        PaymentFlags { enabled: true },
+    ));
+    let event = oteryn_payments::PaymentEvent {
+        event_id: "storage-down".into(),
+        intent_id: Uuid::now_v7(),
+        provider_reference: "test:storage-down".into(),
+        amount: Amount {
+            minor_units: 250,
+            currency: "PLN".into(),
+        },
+        state: oteryn_payments::IntentState::Succeeded,
+    };
+    let body = serde_json::to_vec(&event)?;
+    let header = |signature: Vec<u8>| {
+        axum::http::HeaderValue::from_str(
+            &base64::engine::general_purpose::STANDARD.encode(signature),
+        )
+    };
+    let call = |signature: Option<axum::http::HeaderValue>, body: Vec<u8>| {
+        let payments = payments.clone();
+        async move {
+            let mut headers = axum::http::HeaderMap::new();
+            if let Some(signature) = signature {
+                headers.insert("x-test-payment-signature", signature);
+            }
+            test_webhook(axum::extract::State(payments), headers, body.into()).await
+        }
+    };
+    assert_eq!(
+        call(Some(header(provider.sign(&body)?)?), body.clone()).await,
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let forged = TestProvider::new(&[6; 32])?.sign(&body)?;
+    assert_eq!(
+        call(Some(header(forged)?), body.clone()).await,
+        axum::http::StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        call(None, body.clone()).await,
+        axum::http::StatusCode::BAD_REQUEST
+    );
+    let malformed = b"{}".to_vec();
+    assert_eq!(
+        call(Some(header(provider.sign(&malformed)?)?), malformed).await,
+        axum::http::StatusCode::BAD_REQUEST
+    );
+    Ok(())
+}
+
 async fn database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error::Error>> {
     database_with_connections(8).await
 }

@@ -323,8 +323,13 @@ async fn test_webhook(
     let Some(signature) = signature else {
         return axum::http::StatusCode::BAD_REQUEST;
     };
+    // A storage or account-read failure is retryable: 503 makes the sender
+    // redeliver. Signature, input and state refusals stay 400.
     match payments.webhook(&body, &signature).await {
         Ok(_) => axum::http::StatusCode::NO_CONTENT,
+        Err(oteryn_payments::Error::Unavailable | oteryn_payments::Error::Database(_)) => {
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        }
         Err(_) => axum::http::StatusCode::BAD_REQUEST,
     }
 }
