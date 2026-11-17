@@ -489,3 +489,45 @@ async fn postgres_grace_period_boundaries() -> TestResult {
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_held_account_lock_sheds_request_and_cancel_within_mutation_budget() -> TestResult
+{
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = db.account().await?;
+    let service = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let pending = request(&service, account).await?;
+    let mut holder = db.pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(account)
+        .execute(&mut *holder)
+        .await?;
+    let proof = ActorProof(account.to_string());
+    let started = std::time::Instant::now();
+    let (requested, cancelled) = tokio::join!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            request(&service, account),
+        ),
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            service.cancel(account, &proof, "termination test password"),
+        ),
+    );
+    let requested = requested.map_err(|_| "termination request waited past the mutation budget")?;
+    let cancelled = cancelled.map_err(|_| "termination cancel waited past the mutation budget")?;
+    assert!(started.elapsed() < std::time::Duration::from_secs(6));
+    assert!(requested.is_err());
+    assert!(cancelled.is_err());
+    holder.rollback().await?;
+    let cancelled_at: bool =
+        sqlx::query_scalar("SELECT cancelled_at IS NOT NULL FROM account_terminations WHERE id=$1")
+            .bind(pending.id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert!(!cancelled_at);
+    assert_eq!(events(&db).await?, 1);
+    db.close().await
+}
