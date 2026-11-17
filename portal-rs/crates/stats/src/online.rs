@@ -183,7 +183,7 @@ pub async fn world_total(
     if day_start <= 0 || day_start % 86400 != 0 {
         return Err(Error::Invalid);
     }
-    let mut tx = db.begin().await?;
+    let mut tx = storage::read_fence(db).await?;
     let cut = storage::fresh(&mut tx, config, Family::WorldDailyKills, now, coverage).await?;
     if day_start < cut.start || day_start > cut.through {
         return Err(Error::Unavailable);

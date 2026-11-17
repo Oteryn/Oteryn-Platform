@@ -158,6 +158,20 @@ pub async fn purge(db: &PgPool, now: i64) -> Result<u64, Error> {
     tx.commit().await?;
     Ok(erased)
 }
+/// Begin a public read transaction. Ingest holds the projection row FOR UPDATE, so
+/// the shared lock of `fresh` waits at most one second and each statement at
+/// most 2.5 seconds before the request answers unavailable.
+pub(crate) async fn read_fence(
+    db: &sqlx::PgPool,
+) -> Result<Transaction<'static, Postgres>, sqlx::Error> {
+    let mut tx = db.begin().await?;
+    sqlx::query(
+        "SELECT set_config('lock_timeout','1s',true),set_config('statement_timeout','2500ms',true)",
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(tx)
+}
 pub(crate) async fn fresh(
     tx: &mut Transaction<'_, Postgres>,
     config: &Config,

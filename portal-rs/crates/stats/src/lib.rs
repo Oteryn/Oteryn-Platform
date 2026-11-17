@@ -1,4 +1,6 @@
 //! Durable public-projection statistics. Missing game metrics remain unavailable.
+#[cfg(test)]
+mod begin_guard_tests;
 pub mod rankings;
 pub mod store;
 #[cfg(test)]
