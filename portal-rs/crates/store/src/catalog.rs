@@ -207,10 +207,20 @@ pub struct CatalogFlags {
 pub struct CatalogStore {
     pool: PgPool,
     flags: CatalogFlags,
+    audit_log: bool,
 }
 impl CatalogStore {
     pub fn new(pool: PgPool, flags: CatalogFlags) -> Self {
-        Self { pool, flags }
+        Self {
+            pool,
+            flags,
+            audit_log: false,
+        }
+    }
+    /// Record each operator change in the same transaction as its source history.
+    pub fn with_audit_log(mut self) -> Self {
+        self.audit_log = true;
+        self
     }
     async fn authorize(
         &self,
@@ -273,6 +283,11 @@ impl CatalogStore {
                 let bytes = canonical::encode(&value).map_err(|_| Error::InvalidDocument)?;
                 sqlx::query("INSERT INTO store_offers (catalog_revision,offer_key,currency,unit_price,max_quantity,purchasable,canonical_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7)").bind(catalog.revision()).bind(&offer.offer_key).bind(&offer.currency).bind(offer.unit_price.parse::<i64>().map_err(|_| Error::InvalidDocument)?).bind(i32::from(offer.max_quantity)).bind(offer.purchasable).bind(bytes).execute(&mut *tx).await?;
             }
+            if self.audit_log {
+                write_audit(&mut tx, actor, "store.catalog.imported", catalog.revision(),
+                    serde_json::json!({"catalog_revision": catalog.revision(), "offers": catalog.offers().len()}),
+                    Uuid::now_v7()).await?;
+            }
         }
         tx.commit().await?;
         Ok(catalog.revision)
@@ -312,8 +327,20 @@ impl CatalogStore {
         self.authorize(actor, Action::Activate, access, &mut tx)
             .await?;
         if current.as_deref() != Some(revision) {
-            sqlx::query("INSERT INTO store_catalog_activations (previous_revision,catalog_revision,actor_id,activation_id) VALUES ($1,$2,$3,$4)").bind(&current).bind(revision).bind(actor).bind(Uuid::now_v7()).execute(&mut *tx).await?;
+            let activation_id = Uuid::now_v7();
+            sqlx::query("INSERT INTO store_catalog_activations (previous_revision,catalog_revision,actor_id,activation_id) VALUES ($1,$2,$3,$4)").bind(&current).bind(revision).bind(actor).bind(activation_id).execute(&mut *tx).await?;
             sqlx::query("UPDATE store_active_catalog SET catalog_revision=$1, activated_by=$2, updated_at=now() WHERE id=1").bind(revision).bind(actor).execute(&mut *tx).await?;
+            if self.audit_log {
+                write_audit(
+                    &mut tx,
+                    actor,
+                    "store.catalog.activated",
+                    revision,
+                    serde_json::json!({"catalog_revision": revision, "previous_revision": current}),
+                    activation_id,
+                )
+                .await?;
+            }
         }
         tx.commit().await?;
         Ok(())
@@ -326,6 +353,23 @@ impl CatalogStore {
         row.map(|r| Catalog::parse(&r.try_get::<Vec<u8>, _>("canonical_bytes")?))
             .transpose()
     }
+}
+
+async fn write_audit(
+    connection: &mut PgConnection,
+    actor: Uuid,
+    action: &str,
+    revision: &str,
+    after: serde_json::Value,
+    request_id: Uuid,
+) -> Result<(), Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(281510004)")
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("INSERT INTO audit_log (actor,action,target,before,after,request_id) VALUES ($1,$2,$3,'{}'::jsonb,$4,$5)")
+        .bind(actor).bind(action).bind(revision).bind(after).bind(request_id)
+        .execute(connection).await?;
+    Ok(())
 }
 
 #[cfg(test)]

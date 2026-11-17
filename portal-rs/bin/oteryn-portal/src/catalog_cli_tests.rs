@@ -250,10 +250,8 @@ async fn catalog_cli_does_not_audit_unchanged_library_history() -> TestResult {
     let db = Database::new().await?;
     let store = CatalogStore::new(db.pool.clone(), CatalogFlags { enabled: true });
     let raw = std::fs::read(fixtures().join("price-list.valid.json"))?;
-    let revision = store.import(&raw, db.actor, &Access::default()).await?;
-    store
-        .activate(&revision, db.actor, &Access::default())
-        .await?;
+    let revision = store.import(&raw, db.actor, &Access).await?;
+    store.activate(&revision, db.actor, &Access).await?;
     assert_eq!(db.counts().await?, (1, 1, 1, 0));
     assert_eq!(import(&db).await?, revision);
     activate(&db, &revision).await?;
@@ -267,7 +265,7 @@ async fn delta_catalog_permission_read_retains_rbac_fence() -> TestResult {
     let started = std::time::Instant::now();
     let db = Database::new().await?;
     let mut issuance = db.pool.begin().await?;
-    let access = Access::default();
+    let access = Access;
     assert!(
         access
             .permitted(db.actor, Action::Activate, &mut issuance)
@@ -450,18 +448,14 @@ async fn drc_catalog_audit_budget() -> TestResult {
     sqlx::query("SELECT pg_advisory_xact_lock(281510004)")
         .execute(&mut *blocker)
         .await?;
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        audit(&db.pool, "absent", Action::Import, "0"),
-    )
-    .await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), import(&db)).await;
     assert!(
         result.is_ok(),
         "catalog audit lock exceeded the shared three-second budget"
     );
     assert!(result?.is_err());
     blocker.rollback().await?;
-    audit(&db.pool, "absent", Action::Import, "0").await?;
+    import(&db).await?;
     db.close().await?;
     Ok(())
 }
@@ -516,7 +510,7 @@ async fn sw3_06_catalog_activation_fences_set_permissions() -> TestResult {
         }
     }
     let access = std::sync::Arc::new(ObservedAccess {
-        inner: Access::default(),
+        inner: Access,
         checked: tokio::sync::Notify::new(),
     });
     let mut pointer = db.pool.begin().await?;
@@ -577,5 +571,44 @@ async fn sw3_06_catalog_activation_fences_set_permissions() -> TestResult {
         "PG sw3_06_catalog_activation_fences_set_permissions {:.3}s",
         started.elapsed().as_secs_f64()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_audit_rolls_back_import() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new().await?;
+    sqlx::query("ALTER TABLE audit_log ADD CHECK (action <> 'store.catalog.imported')")
+        .execute(&db.pool)
+        .await?;
+    assert!(import(&db).await.is_err());
+    let counts = db.counts().await?;
+    let offers: i64 = sqlx::query_scalar("SELECT count(*) FROM store_offers")
+        .fetch_one(&db.pool)
+        .await?;
+    db.close().await?;
+    assert_eq!(
+        (counts, offers),
+        ((0, 0, 0, 0), 0),
+        "import survived audit failure"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_audit_rolls_back_activation() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new().await?;
+    let revision = import(&db).await?;
+    sqlx::query("ALTER TABLE audit_log ADD CHECK (action <> 'store.catalog.activated')")
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
+        execute(&db.pool, &command("activate", &revision, db.actor)?).await,
+        Err("Database")
+    );
+    let counts = db.counts().await?;
+    db.close().await?;
+    assert_eq!(counts, (1, 0, 0, 1), "activation survived audit failure");
     Ok(())
 }
