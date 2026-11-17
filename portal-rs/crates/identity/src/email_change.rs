@@ -212,6 +212,17 @@ impl Service {
             return Ok(Outcome::Refused);
         }
         let kind = if input.backup { "backup" } else { "primary" };
+        // One primary change at a time: while an applied change can still be
+        // reverted, no new one is accepted, so a revert always restores the
+        // address from before the change rather than one link of a chain.
+        if !input.backup
+            && sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM account_email_changes WHERE account_id=$1 AND kind='primary' AND applied_at IS NOT NULL AND reverted_at IS NULL AND revert_until>clock_timestamp())")
+                .bind(account)
+                .fetch_one(&mut *tx)
+                .await?
+        {
+            return Ok(Outcome::Refused);
+        }
         sqlx::query("UPDATE account_email_changes SET cancelled_at=now(),updated_at=now() WHERE account_id=$1 AND kind=$2 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL").bind(account).bind(kind).execute(&mut *tx).await?;
         let confirmation = random_token()?;
         let revert = random_token()?;

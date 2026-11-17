@@ -770,7 +770,6 @@ async fn d1_recovery_cancels_confirmed_change_waiting_for_worker() -> TestResult
     assert_eq!((applied, email.as_str()), (0, "old@example.invalid"));
     db.close().await
 }
-
 /// Review 5: the old primary address of an applied change stays reserved for
 /// its account during the revert window, so registering it cannot block the
 /// owner's "this was not me" revert.
@@ -807,4 +806,40 @@ async fn r5_old_address_stays_reserved_through_the_revert_window() -> TestResult
     );
     tx.commit().await?;
     db.close().await
+}
+
+#[tokio::test]
+async fn r5_no_chained_primary_change_inside_the_revert_window() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    assert_eq!(s.request(id, input(true, false)).await?, Outcome::Requested);
+    let (confirm, revert) = tokens(&db.pool).await?;
+    assert_eq!(s.confirm(&confirm).await?, Outcome::Changed);
+    // Past the 72-hour block, the first change can still be reverted.
+    sqlx::query("UPDATE accounts SET email_change_blocked_until=now() WHERE id=$1")
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+    let next = || {
+        let mut r = input(true, false);
+        r.email = "third@example.invalid".into();
+        r.email_confirmation = r.email.clone();
+        r
+    };
+    assert_eq!(s.request(id, next()).await?, Outcome::Refused);
+    assert_eq!(s.revert(&revert).await?, Outcome::Reverted);
+    let email: String = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(email, "old@example.invalid");
+    // Once nothing is revertible, a new change is accepted again.
+    sqlx::query("UPDATE accounts SET email_change_blocked_until=now() WHERE id=$1")
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(s.request(id, next()).await?, Outcome::Requested);
+    db.close().await?;
+    Ok(())
 }
