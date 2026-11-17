@@ -241,11 +241,13 @@ async fn policy(mut request: Request, next: Next) -> Response {
         response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     let status = response.status();
-    if matches!(
-        status.as_u16(),
-        400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503
-    ) && !(status == StatusCode::UNPROCESSABLE_ENTITY
-        && response.extensions().get::<crate::RenderedPage>().is_some())
+    if path != oteryn_gameauth::locator::PATH
+        && matches!(
+            status.as_u16(),
+            400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503
+        )
+        && !(status == StatusCode::UNPROCESSABLE_ENTITY
+            && response.extensions().get::<crate::RenderedPage>().is_some())
     {
         let mut replacement = if json {
             let error = serde_json::json!({"status": status.as_u16(), "error": message(lang, &format!("error-{}-title", status.as_u16()))});
@@ -350,6 +352,35 @@ mod tests {
                 .to_vec(),
         )?)
     }
+    #[tokio::test]
+    async fn r7_device_keeps_contract_error() -> TestResult {
+        let response = app()?
+            .oneshot(HttpRequest::post("/api/v1/game-auth/device-sessions").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            html(response).await?,
+            r#"{"error":"device_authorization_unavailable"}"#
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn r7_locator_keeps_empty_body() -> TestResult {
+        let response = app()?
+            .oneshot(
+                HttpRequest::post("/internal/v1/game-auth/native-recovery-locators")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            html(response).await?.is_empty(),
+            "locator 503 must be empty"
+        );
+        Ok(())
+    }
+
     fn assert_headers(response: &Response) {
         for name in [
             "content-security-policy",

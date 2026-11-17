@@ -66,9 +66,11 @@ async fn readyz(State(state): State<AppState>) -> StatusCode {
     }
 }
 
-fn security_headers(router: Router) -> Router {
+fn security_headers(router: Router, device_routes: Router) -> Router {
     let router = surface::finish(router);
-    let router = router.layer(axum::middleware::from_fn(ratelimit::api_errors));
+    let router = router
+        .layer(axum::middleware::from_fn(ratelimit::api_errors))
+        .merge(device_routes);
     let headers: [(HeaderName, &'static str); 5] = [
         (
             header::CONTENT_SECURITY_POLICY,
@@ -101,6 +103,7 @@ fn public_sessions(db: sqlx::PgPool, origin: Option<String>) -> session::Session
 
 /// Builds the public router. Module routers are merged here as their tasks land.
 pub fn router(state: AppState, static_dir: &str) -> Router {
+    let device_routes = oteryn_gameauth::devices::routes(state.db.clone());
     let shared_limiter = ratelimit::RateLimiter::new(state.db.clone());
     let session_layer =
         public_sessions(state.db.clone(), std::env::var("OTERYN_PUBLIC_ORIGIN").ok());
@@ -523,14 +526,13 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .fallback(redirects::redirect)
         .merge(oteryn_gameauth::runtime::routes(state.db.clone()))
         .merge(oteryn_gameauth::scopes::routes(state.db.clone()))
-        .merge(oteryn_gameauth::devices::routes(state.db.clone()))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http().make_span_with(request_span));
     let router = router
         .layer(axum::middleware::from_fn(resolve_client_ip))
         .layer(axum::middleware::from_fn(verify::protect_token));
-    security_headers(router)
+    security_headers(router, device_routes)
         // OAuth keeps its protocol envelopes outside the site error renderer.
         .merge(oauth_routes)
         .layer(axum::middleware::from_fn_with_state(

@@ -490,6 +490,7 @@ async fn nwave_consent_forms_accept_public_origin_and_reject_forgery() -> TestRe
     let session = BrowserSession::new(db, SessionConfig::default(), None, "consent regression");
     let token = "a".repeat(64);
     session.inner.lock().await.record = Some(Record {
+        session_id: Uuid::now_v7(),
         id: "test-session".into(),
         csrf: token.clone(),
         account_id: Some(Uuid::now_v7()),
@@ -586,4 +587,23 @@ async fn lock_order_rotation_locks_account_before_session() -> TestResult {
     );
     outcome?;
     Ok(())
+}
+
+#[tokio::test]
+async fn r7_logout_revokes_rotated_row() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let (cookie, _) = credentials(&app(db.pool.clone())).await?;
+    let mut request = HttpRequest::get("/")
+        .header(header::COOKIE, cookie)
+        .body(Body::empty())?;
+    let layer = SessionLayer::new(db.pool.clone());
+    let logout = run(&layer, &mut request).await?;
+    let concurrent = run(&layer, &mut request).await?;
+    rotate(&concurrent, PrivilegeChange::Reissue).await?;
+    rotate(&logout, PrivilegeChange::Logout).await?;
+    let live: i64 = sqlx::query_scalar("SELECT count(*) FROM web_sessions")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(live, 0, "rotated session survived logout");
+    db.close().await
 }

@@ -77,6 +77,7 @@ impl<T> SessionKey<T> {
 }
 
 struct Record {
+    session_id: Uuid,
     id: String,
     csrf: String,
     account_id: Option<Uuid>,
@@ -122,10 +123,11 @@ impl BrowserSession {
         }
         let id = random_token()?;
         let csrf = random_token()?;
-        sqlx::query("INSERT INTO web_sessions (id_hash, csrf_token, ip, user_agent_summary, idle_expires_at, absolute_expires_at) VALUES ($1,$2,$3::text::inet,$4,now()+make_interval(secs=>$5),now()+make_interval(secs=>$6))")
-            .bind(hash(&id)).bind(&csrf).bind(self.ip.map(|ip| ip.to_string())).bind(&self.agent).bind(f64::from(self.config.idle_seconds)).bind(f64::from(self.config.absolute_seconds)).execute(&self.pool).await?;
+        let session_id = sqlx::query_scalar("INSERT INTO web_sessions (id_hash, csrf_token, ip, user_agent_summary, idle_expires_at, absolute_expires_at) VALUES ($1,$2,$3::text::inet,$4,now()+make_interval(secs=>$5),now()+make_interval(secs=>$6)) RETURNING session_id")
+            .bind(hash(&id)).bind(&csrf).bind(self.ip.map(|ip| ip.to_string())).bind(&self.agent).bind(f64::from(self.config.idle_seconds)).bind(f64::from(self.config.absolute_seconds)).fetch_one(&self.pool).await?;
         inner.cookie = Some(cookie(&id));
         inner.record = Some(Record {
+            session_id,
             id,
             csrf,
             account_id: None,
@@ -227,6 +229,7 @@ pub enum PrivilegeChange {
 }
 /// Prepared durable rotation. Apply to request memory only after its transaction commits.
 pub struct CommittedRotation {
+    session_id: Uuid,
     id: String,
     csrf: String,
     account: Option<Uuid>,
@@ -247,6 +250,7 @@ pub async fn rotate_in_transaction(
         return Err(sqlx::Error::RowNotFound);
     }
     Ok(CommittedRotation {
+        session_id: record.session_id,
         id,
         csrf,
         account: Some(account),
@@ -256,6 +260,7 @@ pub async fn apply_rotation(session: &BrowserSession, rotation: CommittedRotatio
     let mut inner = session.inner.lock().await;
     inner.cookie = Some(cookie(&rotation.id));
     inner.record = Some(Record {
+        session_id: rotation.session_id,
         id: rotation.id,
         csrf: rotation.csrf,
         account_id: rotation.account,
@@ -275,14 +280,14 @@ impl BrowserSession {
 pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result<(), sqlx::Error> {
     let mut inner = session.inner.lock().await;
     if matches!(change, PrivilegeChange::Logout) {
-        let previous = inner.record.as_ref().map(|record| hash(&record.id));
+        let previous = inner.record.as_ref().map(|record| record.session_id);
         // Withhold any newly rotated identity even when durable deletion is unavailable.
         inner.record = None;
         inner.cookie = Some(format!(
             "{COOKIE_NAME}=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
         ));
         if let Some(previous) = previous {
-            sqlx::query("DELETE FROM web_sessions WHERE id_hash=$1")
+            sqlx::query("DELETE FROM web_sessions WHERE session_id=$1")
                 .bind(previous)
                 .execute(&session.pool)
                 .await?;
@@ -302,6 +307,7 @@ pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result
         }
         _ => None,
     };
+    let session_id = record.session_id;
     let previous_id = record.id.clone();
     let previous_account = record.account_id;
     // Release request memory before waiting for the account: a caller-owned
@@ -337,6 +343,7 @@ pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result
     tx.commit().await?;
     inner.cookie = Some(cookie(&id));
     inner.record = Some(Record {
+        session_id,
         id,
         csrf,
         account_id: account,
@@ -429,10 +436,11 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         if !valid_id(id) || identifiers.next().is_some() {
             return Err(sqlx::Error::Protocol("invalid session cookie".into()));
         }
-        let row: Option<(String, Option<Uuid>)> = sqlx::query_as("UPDATE web_sessions SET last_seen_at=now(), updated_at=now(), idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2)) WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp() RETURNING csrf_token, account_id")
+        let row: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as("UPDATE web_sessions SET last_seen_at=now(), updated_at=now(), idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2)) WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp() RETURNING session_id, csrf_token, account_id")
             .bind(hash(id)).bind(f64::from(layer.config.idle_seconds)).fetch_optional(&layer.pool).await?;
-        if let Some((csrf, account_id)) = row {
+        if let Some((session_id, csrf, account_id)) = row {
             session.inner.lock().await.record = Some(Record {
+                session_id,
                 id: id.into(),
                 csrf,
                 account_id,
