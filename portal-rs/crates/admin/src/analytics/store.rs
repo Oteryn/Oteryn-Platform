@@ -252,7 +252,12 @@ impl Store {
             return Ok("superseded");
         }
         let used: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(sum(octet_length(body)),0)::bigint FROM admin_analytics.pages",
+            "SELECT COALESCE(sum(octet_length(body)),0)::bigint FROM admin_analytics.pages p
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM admin_analytics.receipts c
+                 WHERE (c.authority,c.family,c.world,c.bucket_start,c.epoch,c.revision)
+                     = (p.authority,p.family,p.world,p.bucket_start,p.epoch,p.revision)
+             )",
         )
         .fetch_one(&mut **tx)
         .await?;
@@ -324,12 +329,19 @@ impl Store {
             wire::uint(&c.analytics_epoch)?,
             wire::uint(&c.snapshot_revision)?,
         );
-        if old.is_some_and(|(e, r)| {
-            wire::uint(&e)
-                .ok()
-                .zip(wire::uint(&r).ok())
-                .is_some_and(|old| old > order)
-        }) {
+        let end = wire::uint(&c.bucket_end)?;
+        let expired = end
+            .checked_add(c.family.retention())
+            .ok_or(Error::Invalid)?
+            <= now;
+        if expired
+            || old.is_some_and(|(e, r)| {
+                wire::uint(&e)
+                    .ok()
+                    .zip(wire::uint(&r).ok())
+                    .is_some_and(|old| old > order)
+            })
+        {
             sqlx::query("INSERT INTO admin_analytics.receipts(authority,family,world,bucket_start,epoch,revision,digest,outcome) VALUES($1,$2,$3,$4::text::numeric,$5::text::numeric,$6::text::numeric,$7,'superseded')")
                 .bind(&self.authority).bind(family).bind(world).bind(&c.bucket_start).bind(&c.analytics_epoch).bind(&c.snapshot_revision).bind(digest(raw)).execute(&mut **tx).await?;
             return Ok("superseded");
@@ -367,14 +379,6 @@ impl Store {
         }
         if c.state == "replace" {
             wire::rows(c.family, &rows, true)?
-        }
-        let end = wire::uint(&c.bucket_end)?;
-        if end
-            .checked_add(c.family.retention())
-            .ok_or(Error::Invalid)?
-            <= now
-        {
-            return Ok("superseded");
         }
         let generation:Option<Uuid>=sqlx::query_scalar("SELECT id FROM admin_analytics.generations WHERE authority=$1 AND epoch=$2::text::numeric ORDER BY created_at DESC LIMIT 1")
             .bind(&self.authority).bind(&c.analytics_epoch).fetch_optional(&mut **tx).await?;
