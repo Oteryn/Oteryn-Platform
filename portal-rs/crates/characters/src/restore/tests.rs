@@ -631,7 +631,9 @@ async fn db_recovery_exchange_does_not_enable_issuance_and_rates_are_per_identit
                 Intent::Create {
                     account_id: Uuid::now_v7(),
                     world_id: Uuid::now_v7(),
-                    name: "Aldric".into()
+                    name: "Aldric".into(),
+                    sex: commands::Sex::Male,
+                    vocation: commands::Vocation::Knight,
                 }
             )
             .await,

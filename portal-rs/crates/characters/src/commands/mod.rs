@@ -50,12 +50,72 @@ impl TransferPurpose {
         }
     }
 }
+/// Create intent v2 `requested_sex`: exact, case-sensitive wire names, no default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sex {
+    Female,
+    Male,
+}
+impl Sex {
+    pub const ALL: [Self; 2] = [Self::Female, Self::Male];
+    pub fn wire(self) -> &'static str {
+        match self {
+            Self::Female => "Female",
+            Self::Male => "Male",
+        }
+    }
+    /// Only the exact wire name parses; case variants, numbers and empty fail.
+    pub fn parse(raw: &str) -> Result<Self, Error> {
+        Self::ALL
+            .into_iter()
+            .find(|sex| sex.wire() == raw)
+            .ok_or(Error::BadInput)
+    }
+}
+/// Create intent v2 `requested_vocation`: in Newhaven the vocation is chosen at
+/// creation, so every create carries exactly one of these, with no default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Vocation {
+    Knight,
+    Paladin,
+    Sorcerer,
+    Druid,
+    Monk,
+}
+impl Vocation {
+    pub const ALL: [Self; 5] = [
+        Self::Knight,
+        Self::Paladin,
+        Self::Sorcerer,
+        Self::Druid,
+        Self::Monk,
+    ];
+    pub fn wire(self) -> &'static str {
+        match self {
+            Self::Knight => "Knight",
+            Self::Paladin => "Paladin",
+            Self::Sorcerer => "Sorcerer",
+            Self::Druid => "Druid",
+            Self::Monk => "Monk",
+        }
+    }
+    /// Only the exact wire name parses; case variants, numbers and empty fail.
+    pub fn parse(raw: &str) -> Result<Self, Error> {
+        Self::ALL
+            .into_iter()
+            .find(|vocation| vocation.wire() == raw)
+            .ok_or(Error::BadInput)
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Intent {
+    /// Serialized as create intent v2 (`contract_version` 2); v1 is retired.
     Create {
         account_id: Uuid,
         world_id: Uuid,
         name: String,
+        sex: Sex,
+        vocation: Vocation,
     },
     Transfer {
         character_id: Uuid,
@@ -247,6 +307,8 @@ impl Commands {
         self.load(operation_id).await
     }
 }
+#[cfg(test)]
+mod create_v2_tests;
 #[cfg(test)]
 mod tests;
 

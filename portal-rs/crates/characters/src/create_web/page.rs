@@ -1,4 +1,5 @@
 use super::{Flash, World, http::WorldFilters};
+use crate::commands::{Sex, Vocation};
 use askama::Template;
 use axum::{
     http::{StatusCode, header},
@@ -46,6 +47,8 @@ fn text(lang: &str, key: &str) -> String {
 <div class="op-field"><label for="name">{{ name_label }}</label><input class="op-input" id="name" name="name" value="{{ name }}" required maxlength="255" autocomplete="off" aria-describedby="rules"></div>
 <div><a class="op-button op-button--secondary" href="/{{ lang }}/account/characters/suggest">{{ suggest }}</a><p class="op-hint">{{ suggestion_note }}</p></div>
 <div class="op-field"><label for="world">{{ world_label }}</label><select class="op-input" id="world" name="world" required><option value="">{{ choose }}</option>{% for world in worlds %}<option value="{{ world.id }}"{% if selected_world == world.id.to_string() %} selected{% endif %}>{{ world.name }}{% if !world.pvp.is_empty() %} · {{ world.pvp }}{% endif %}{% if !world.location.is_empty() %} · {{ world.location }}{% endif %}</option>{% endfor %}</select></div>
+<fieldset class="op-field"><legend>{{ sex_label }}</legend><div class="op-row">{% for choice in sexes %}<label><input type="radio" name="sex" value="{{ choice.value }}"{% if choice.checked %} checked{% endif %} required> {{ choice.label }}</label>{% endfor %}</div></fieldset>
+<fieldset class="op-field"><legend>{{ vocation_label }}</legend><div class="op-row">{% for choice in vocations %}<label><input type="radio" name="vocation" value="{{ choice.value }}"{% if choice.checked %} checked{% endif %} required> {{ choice.label }}</label>{% endfor %}</div></fieldset>
 <button class="op-button" type="submit"{% if worlds.is_empty() %} disabled{% endif %}>{{ submit }}</button></form>
 {% else %}<p><a class="op-button op-button--secondary" href="">{{ refresh }}</a></p>{% endif %}
 </main></body></html>"##,
@@ -81,8 +84,37 @@ struct Page<'a> {
     choose: String,
     worlds: Vec<World>,
     selected_world: String,
+    sex_label: String,
+    sexes: Vec<Choice>,
+    vocation_label: String,
+    vocations: Vec<Choice>,
     submit: String,
     refresh: String,
+}
+/// One required radio option: `value` is the exact wire name, `label` is localized.
+struct Choice {
+    value: &'static str,
+    label: String,
+    checked: bool,
+}
+fn choices(
+    lang: &str,
+    values: impl IntoIterator<Item = &'static str>,
+    prefix: &str,
+) -> Vec<Choice> {
+    values
+        .into_iter()
+        .map(|value| Choice {
+            value,
+            label: text(lang, &format!("{prefix}-{}", value.to_ascii_lowercase())),
+            checked: false,
+        })
+        .collect()
+}
+fn check(choices: &mut [Choice], selected: &str) {
+    for choice in choices {
+        choice.checked = choice.value == selected;
+    }
 }
 fn page<'a>(lang: &'a str, csrf: &'a str) -> Page<'a> {
     Page {
@@ -115,6 +147,10 @@ fn page<'a>(lang: &'a str, csrf: &'a str) -> Page<'a> {
         choose: text(lang, "choose"),
         worlds: Vec::new(),
         selected_world: String::new(),
+        sex_label: text(lang, "sex"),
+        sexes: choices(lang, Sex::ALL.map(Sex::wire), "sex"),
+        vocation_label: text(lang, "vocation"),
+        vocations: choices(lang, Vocation::ALL.map(Vocation::wire), "vocation"),
         submit: text(lang, "submit"),
         refresh: text(lang, "refresh"),
     }
@@ -163,6 +199,8 @@ pub(super) fn form(
     if let Some(flash) = flash {
         page.name = flash.name;
         page.selected_world = flash.world;
+        check(&mut page.sexes, &flash.sex);
+        check(&mut page.vocations, &flash.vocation);
         if super::http::valid_submission(&flash.submission) {
             page.submission = flash.submission;
         }

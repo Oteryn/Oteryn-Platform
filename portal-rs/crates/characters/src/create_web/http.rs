@@ -1,4 +1,5 @@
 use super::{page, service::*};
+use crate::commands::{Sex, Vocation};
 use axum::{
     Extension, Form, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
@@ -33,6 +34,11 @@ pub struct Flash {
     pub world: String,
     pub submission: String,
     pub error: String,
+    /// Defaulted so a flash stored by an older build still deserializes.
+    #[serde(default)]
+    pub sex: String,
+    #[serde(default)]
+    pub vocation: String,
 }
 #[derive(Clone, Debug)]
 pub enum SessionAction {
@@ -199,6 +205,11 @@ struct Input {
     name: String,
     world: String,
     submission: String,
+    /// Defaulted so a missing choice takes the validation redirect, not a 422.
+    #[serde(default)]
+    sex: String,
+    #[serde(default)]
+    vocation: String,
 }
 async fn submit<S, F, Fut>(
     State(state): State<Web<S, F>>,
@@ -227,6 +238,8 @@ where
             id,
             world: canonical_uuid(&input.world)?,
             name: input.name.clone(),
+            sex: Sex::parse(&input.sex).map_err(|_| Error::Invalid)?,
+            vocation: Vocation::parse(&input.vocation).map_err(|_| Error::Invalid)?,
         })
     });
     let result = match parsed {
@@ -244,6 +257,8 @@ where
                 world: input.world.chars().take(36).collect(),
                 submission: input.submission.chars().take(36).collect(),
                 error: error_key(&error).into(),
+                sex: input.sex.chars().take(16).collect(),
+                vocation: input.vocation.chars().take(16).collect(),
             };
             context(&state, session, SessionAction::Store(flash)).await?;
             Ok(redirect(format!("/{lang}/account/characters/new")))
@@ -282,6 +297,8 @@ where
                     world: String::new(),
                     submission: Uuid::now_v7().to_string(),
                     error: "suggestion-note".into(),
+                    sex: String::new(),
+                    vocation: String::new(),
                 }),
             )
             .await?;

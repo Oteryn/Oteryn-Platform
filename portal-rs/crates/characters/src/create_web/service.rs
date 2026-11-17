@@ -1,5 +1,5 @@
 use super::names;
-use crate::commands::{self, AccountState, AccountStateReader, Commands, Intent};
+use crate::commands::{self, AccountState, AccountStateReader, Commands, Intent, Sex, Vocation};
 use oteryn_identity::accounts::Accounts;
 use sqlx::{Acquire, PgConnection, PgPool, Row};
 use uuid::Uuid;
@@ -59,6 +59,9 @@ pub struct Submission {
     pub id: Uuid,
     pub world: Uuid,
     pub name: String,
+    /// Required: there is no default sex or vocation (#1937).
+    pub sex: Sex,
+    pub vocation: Vocation,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -208,6 +211,8 @@ impl Creation {
             account_id: account,
             world_id: input.world,
             name: name.clone(),
+            sex: input.sex,
+            vocation: input.vocation,
         };
         let key = format!("web-create:{account}:{}", input.id);
         if let Some(status) = self
@@ -245,6 +250,8 @@ impl Creation {
                         account_id: account,
                         world_id: input.world,
                         name,
+                        sex: input.sex,
+                        vocation: input.vocation,
                     },
                 )
                 .await?;

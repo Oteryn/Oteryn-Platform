@@ -19,6 +19,10 @@ const LIST: &str = include_str!("fixtures/pending-request.json");
 const READ: &str = include_str!("fixtures/read-request.json");
 const RECEIPT: &str = include_str!("fixtures/create-receipt.json");
 const REJECTED: &str = include_str!("fixtures/rejected-receipt.json");
+/// Create intent v2 for the same operation as the v1 golden (#1937).
+const CREATE_V2: &str = include_str!(
+    "../../../../../docs/contracts/fixtures/character-create-v2/create-intent-knight.json"
+);
 fn settings() -> Settings {
     Settings {
         enabled: true,
@@ -33,6 +37,8 @@ fn create() -> Intent {
         account_id: Uuid::parse_str(ACCOUNT).unwrap(),
         world_id: Uuid::parse_str(WORLD).unwrap(),
         name: "Aldric".into(),
+        sex: Sex::Male,
+        vocation: Vocation::Knight,
     }
 }
 #[derive(Debug)]
@@ -135,7 +141,19 @@ async fn cleanup(pool: PgPool, admin: PgPool, schema: String) {
 async fn seed(commands: &Commands, fixture: &str) {
     let v = wire::decode(fixture.as_bytes(), 4096).unwrap();
     let fields = if wire::get(&v, "command").unwrap() == CREATE {
-        ["account_id", "target_world_id", "requested_name"].as_slice()
+        // A v1 create (still stored by older builds) has no sex or vocation.
+        if v.get("requested_vocation").is_some() {
+            [
+                "account_id",
+                "target_world_id",
+                "requested_name",
+                "requested_sex",
+                "requested_vocation",
+            ]
+            .as_slice()
+        } else {
+            ["account_id", "target_world_id", "requested_name"].as_slice()
+        }
     } else {
         [
             "character_id",
@@ -180,7 +198,9 @@ fn game_golden_vectors_round_trip_and_match_intent_encoder() {
         1790000300,
     )
     .unwrap();
-    assert_eq!(raw, include_str!("fixtures/create-intent.json"));
+    // Create is produced only as v2; the pinned Game v1 golden is retired.
+    assert_eq!(raw, CREATE_V2);
+    assert!(wire::create_intent(include_bytes!("fixtures/create-intent.json")).is_err());
     let transfer = Intent::Transfer {
         character_id: Uuid::parse_str("01934f10-7c04-7001-805b-3b1122334401").unwrap(),
         from_account_id: Uuid::parse_str(ACCOUNT).unwrap(),
@@ -314,7 +334,7 @@ async fn db_golden_exchange_replay_conflicts_and_unknown_operations() {
         return;
     };
     let c = Commands::new(pool.clone(), settings());
-    seed(&c, include_str!("fixtures/create-intent.json")).await;
+    seed(&c, CREATE_V2).await;
     let app = router(c.clone(), identities());
     assert_eq!(
         response(app.clone(), "pending", LIST, Some(1)).await,
@@ -325,10 +345,7 @@ async fn db_golden_exchange_replay_conflicts_and_unknown_operations() {
     );
     assert_eq!(
         response(app.clone(), "read", READ, Some(1)).await,
-        (
-            StatusCode::OK,
-            include_str!("fixtures/create-intent.json").into()
-        )
+        (StatusCode::OK, CREATE_V2.into())
     );
     assert_eq!(
         response(
@@ -405,10 +422,7 @@ async fn db_golden_exchange_replay_conflicts_and_unknown_operations() {
         c.pending(LIST.as_bytes()).await.unwrap(),
         "{\"contract_version\":1,\"pending\":[]}"
     );
-    assert_eq!(
-        c.read(READ.as_bytes()).await.unwrap(),
-        include_str!("fixtures/create-intent.json")
-    );
+    assert_eq!(c.read(READ.as_bytes()).await.unwrap(), CREATE_V2);
     seed(&c, include_str!("fixtures/transfer-intent.json")).await;
     c.publish(include_bytes!("fixtures/transfer-receipt.json"))
         .await
@@ -448,6 +462,22 @@ async fn db_enqueue_retries_paging_and_backlog_are_serialized() {
         c.enqueue(&accounts, decision, "same", changed).await,
         Err(Error::Conflict)
     ));
+    // Sex and vocation are part of the immutable binding (#1937).
+    for (sex, vocation) in [(Sex::Male, Vocation::Monk), (Sex::Female, Vocation::Knight)] {
+        let mut changed = create();
+        if let Intent::Create {
+            sex: s,
+            vocation: v,
+            ..
+        } = &mut changed
+        {
+            (*s, *v) = (sex, vocation);
+        }
+        assert!(matches!(
+            c.enqueue(&accounts, decision, "same", changed).await,
+            Err(Error::Conflict)
+        ));
+    }
     let second = c
         .enqueue(&accounts, decision, "second", create())
         .await
@@ -723,6 +753,48 @@ async fn db_v1_receipt_refuses_v2_service_commands() {
     ));
     let state: String = sqlx::query_scalar("SELECT state FROM character_commands WHERE id=$1")
         .bind(queued.operation_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(state, "PENDING");
+    cleanup(pool, admin, schema).await;
+}
+/// #1937: create intents are produced only as v2. A stored v1 create that is
+/// still pending is neither listed nor read, so Game never receives one;
+/// transfer intents keep their v1 bytes and stay served.
+#[tokio::test]
+async fn db_stored_v1_create_fails_closed_and_transfer_is_still_served() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some((pool, admin, schema)) = database().await else {
+        return;
+    };
+    let c = Commands::new(pool.clone(), settings());
+    seed(&c, include_str!("fixtures/create-intent.json")).await;
+    seed(&c, include_str!("fixtures/transfer-intent.json")).await;
+    let app = router(c.clone(), identities());
+    assert_eq!(
+        response(app.clone(), "pending", LIST, Some(1)).await,
+        (
+            StatusCode::OK,
+            "{\"contract_version\":1,\"pending\":[{\"command\":\"TransferCharacterOwnership\",\"operation_id\":\"0192a000-0000-7000-8000-000000000002\",\"source_revision\":\"18\"}]}".into()
+        )
+    );
+    assert_eq!(
+        response(app.clone(), "read", READ, Some(1)).await,
+        (StatusCode::NOT_FOUND, String::new())
+    );
+    let transfer = READ
+        .replace(CREATE, TRANSFER)
+        .replace(OP, "0192a000-0000-7000-8000-000000000002");
+    assert_eq!(
+        response(app.clone(), "read", &transfer, Some(1)).await,
+        (
+            StatusCode::OK,
+            include_str!("fixtures/transfer-intent.json").into()
+        )
+    );
+    let state: String = sqlx::query_scalar("SELECT state FROM character_commands WHERE id=$1")
+        .bind(Uuid::parse_str(OP).unwrap())
         .fetch_one(&pool)
         .await
         .unwrap();

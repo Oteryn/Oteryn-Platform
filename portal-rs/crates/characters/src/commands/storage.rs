@@ -160,7 +160,7 @@ impl Commands {
         };
         let mut entries = Vec::new();
         if let Ok(revision) = i64::try_from(revision) {
-            let rows=sqlx::query("SELECT id,command,source_revision FROM character_commands WHERE state='PENDING' AND command IN ('CreateCharacter','TransferCharacterOwnership') AND (source_revision,id)>($1,$2) ORDER BY source_revision,id LIMIT $3").bind(revision).bind(id).bind(limit).fetch_all(&self.pool).await?;
+            let rows=sqlx::query("SELECT id,command,source_revision FROM character_commands WHERE state='PENDING' AND command IN ('CreateCharacter','TransferCharacterOwnership') AND (command<>'CreateCharacter' OR starts_with(intent_json,'{\"contract_version\":2,')) AND (source_revision,id)>($1,$2) ORDER BY source_revision,id LIMIT $3").bind(revision).bind(id).bind(limit).fetch_all(&self.pool).await?;
             for row in rows {
                 entries.push(object(vec![
                     ("command", text(row.try_get::<String, _>("command")?)),
@@ -209,6 +209,11 @@ impl Commands {
         }
         let stored = self.load(id).await?;
         if !matches!(stored.command.as_str(), CREATE | TRANSFER) {
+            return Err(Error::NotFound);
+        }
+        // #1937: only create intent v2 is current. A stored v1 create is not
+        // served (and not listed by `pending`), so Game never receives one.
+        if stored.command == CREATE && create_intent(stored.intent_json.as_bytes()).is_err() {
             return Err(Error::NotFound);
         }
         if stored.command != cmd {
