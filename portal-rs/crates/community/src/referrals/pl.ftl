@@ -29,3 +29,4 @@ accept = Przyjmij zaproszenie
 accept-hint = Przejdź do rejestracji lub zaloguj się, a następnie otwórz stronę poleceń. Zaproszenie nowego gracza mogą przyjąć tylko uprawnione nowe konta.
 mail-title = Zaproszenie do Oteryn
 mail-body = Gracz zaprosił Cię do Oteryn. Otwórz ten link w przeglądarce, aby kontynuować:
+create-link = Utwórz link polecający

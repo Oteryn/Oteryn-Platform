@@ -276,7 +276,7 @@ where
     Fut: Future<Output = Result<BrowserContext, sqlx::Error>> + Send,
 {
     locale(&lang)?;
-    let ctx = context(&state, session.clone(), SessionAction::Peek).await?;
+    let ctx = context(&state, session, SessionAction::Peek).await?;
     let account = account(&ctx)?;
     if !state.creation.available() {
         return Ok(failure(&lang, Error::Unavailable));
@@ -289,20 +289,27 @@ where
     .await;
     match result {
         Ok(name) => {
-            context(
-                &state,
-                session,
-                SessionAction::Store(Flash {
-                    name,
-                    world: String::new(),
-                    submission: Uuid::now_v7().to_string(),
-                    error: "suggestion-note".into(),
-                    sex: String::new(),
-                    vocation: String::new(),
-                }),
-            )
-            .await?;
-            Ok(redirect(format!("/{lang}/account/characters/new")))
+            let worlds = match state.creation.worlds().await {
+                Ok(worlds) if !worlds.is_empty() => worlds,
+                _ => return Ok(failure(&lang, Error::Unavailable)),
+            };
+            let mut flash = ctx.flash.unwrap_or_else(|| Flash {
+                name: String::new(),
+                world: String::new(),
+                submission: Uuid::now_v7().to_string(),
+                error: String::new(),
+                sex: String::new(),
+                vocation: String::new(),
+            });
+            flash.name = name;
+            flash.error = "suggestion-note".into();
+            Ok(page::form(
+                &lang,
+                &ctx.csrf_token,
+                Some(flash),
+                worlds,
+                WorldFilters::default(),
+            ))
         }
         Err(error) => Ok(failure(&lang, error)),
     }
