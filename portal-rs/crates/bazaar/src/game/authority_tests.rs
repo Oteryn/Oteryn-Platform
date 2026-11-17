@@ -4897,3 +4897,6 @@ async fn r7_held_delivery_captures() {
     assert_eq!(balance, 9001);
     db.end().await;
 }
+
+#[path = "invalidation_tests.rs"]
+mod invalidation_tests;

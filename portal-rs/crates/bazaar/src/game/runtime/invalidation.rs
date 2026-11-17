@@ -194,8 +194,9 @@ impl Runtime {
         // attempted deposit is harmless only with current terminal no-effect proof.
         let deposits: Vec<Uuid> = sqlx::query_scalar(
             "SELECT o.operation_id FROM bazaar_game_outbox o
-             JOIN bazaar_authority_dispatch d USING(operation_id)
-             WHERE o.listing_id=$1 AND o.command IN ('EscrowBazaarItem','LockBazaarCharacter')",
+             WHERE o.listing_id=$1 AND o.command IN ('EscrowBazaarItem','LockBazaarCharacter')
+             AND (EXISTS(SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
+               OR EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id))",
         )
         .bind(listing.id)
         .fetch_all(&mut **tx)
