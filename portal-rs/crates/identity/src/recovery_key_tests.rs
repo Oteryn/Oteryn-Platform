@@ -53,6 +53,14 @@ impl Database {
         keys
     }
     async fn account(&self) -> Result<AccountId> {
+        let id = self.pending_account().await?;
+        sqlx::query("UPDATE accounts SET status='active',email_verified_at=now() WHERE id=$1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(id)
+    }
+    async fn pending_account(&self) -> Result<AccountId> {
         let mut conn = self.pool.acquire().await?;
         Ok(crate::accounts::Accounts::create(
             &mut conn,
@@ -191,7 +199,8 @@ async fn postgres_success_consumes_key_and_revokes_sessions() -> Result {
             .bind(id)
             .fetch_one(&db.pool)
             .await?;
-    assert_eq!(generation, 2);
+    // Verification (account setup) and recovery each advance it once.
+    assert_eq!(generation, 3);
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM account_recovery_key_events WHERE account_id=$1")
             .bind(id)
@@ -344,7 +353,8 @@ async fn postgres_reset_failure_rolls_back_everything() -> Result {
             .bind(id)
             .fetch_one(&db.pool)
             .await?;
-    assert_eq!(generation, 1);
+    // Only the verification at account setup advanced it.
+    assert_eq!(generation, 2);
     let account = crate::accounts::Accounts {
         pool: db.pool.clone(),
     }
@@ -625,6 +635,10 @@ async fn pg_recovery_requests_keep_single_worker_timers_responsive() -> Result {
         )
         .await?
         .ok_or("account missing")?;
+        sqlx::query("UPDATE accounts SET status='active',email_verified_at=now() WHERE id=$1")
+            .bind(account.id)
+            .execute(&db.pool)
+            .await?;
         ids.push(account.id);
     }
     let max_gap = Arc::new(AtomicU64::new(0));
@@ -728,4 +742,37 @@ async fn audit3_revoked_session_cannot_confirm_after_account_lock() -> Result {
         started.elapsed()
     );
     Ok(())
+}
+
+/// Review 5: a pending account may belong to whoever registered the address,
+/// so it cannot hold a recovery key, and a key from before verification
+/// cannot recover the verified account.
+#[tokio::test]
+async fn r5_recovery_key_requires_a_verified_owner() -> Result {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let id = db.pending_account().await?;
+    assert!(matches!(
+        db.keys().generate(id, CURRENT).await,
+        Err(Error::Rejected)
+    ));
+    // Verification (also bumped again by every confirmed email change)
+    // unlocks generation without invalidating keys made since.
+    sqlx::query("UPDATE accounts SET status='active',email_verified_at=now() WHERE id=$1")
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+    let key = db.key(id).await?;
+    sqlx::query("UPDATE accounts SET email_verified_at=now()+interval '1 minute' WHERE id=$1")
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
+    assert!(
+        db.keys()
+            .recover("owner@example.test", &key, NEW, NEW)
+            .await
+            .is_ok()
+    );
+    db.close().await
 }

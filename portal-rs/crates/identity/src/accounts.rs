@@ -87,11 +87,14 @@ pub async fn claim_lock(conn: &mut PgConnection, email: &str) -> Result<(), sqlx
         .await?;
     Ok(())
 }
+/// An address is taken while another account holds it as primary or backup,
+/// claims it in a pending change, or may still revert to it as the old
+/// primary address of an applied change.
 pub async fn address_available(
     conn: &mut PgConnection,
     owner: Option<AccountId>,
     email: &str,
 ) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM accounts WHERE lower(email)=lower($2) AND id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_backup_emails WHERE lower(email)=lower($2) AND account_id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE lower(new_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp())")
+    sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM accounts WHERE lower(email)=lower($2) AND id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_backup_emails WHERE lower(email)=lower($2) AND account_id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE lower(new_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE kind='primary' AND lower(old_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND applied_at IS NOT NULL AND reverted_at IS NULL AND revert_until>clock_timestamp())")
         .bind(owner).bind(email).fetch_one(conn).await
 }

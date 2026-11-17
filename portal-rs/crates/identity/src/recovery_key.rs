@@ -101,6 +101,19 @@ impl RecoveryKeys {
             .filter(|a| matches!(a.status.as_str(), "active" | "pending_verification"))
             .ok_or(Error::Rejected)
     }
+    /// A recovery key is a credential of the verified owner: an account still
+    /// pending verification may belong to whoever registered the address.
+    async fn verified(conn: &mut PgConnection, id: AccountId) -> Result<(), Error> {
+        let verified: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL)")
+            .bind(id)
+            .fetch_one(conn)
+            .await?;
+        if verified {
+            Ok(())
+        } else {
+            Err(Error::Rejected)
+        }
+    }
     async fn authorize(conn: &mut PgConnection, id: AccountId, current: &str) -> Result<(), Error> {
         if current.is_empty() || current.len() > 1024 {
             return Err(Error::InvalidInput);
@@ -128,6 +141,7 @@ impl RecoveryKeys {
         if !actor.live(&mut tx).await? {
             return Err(Error::Rejected);
         }
+        Self::verified(&mut tx, id).await?;
 
         let mut bytes = [0u8; 20];
         getrandom::fill(&mut bytes).map_err(|_| Error::Unavailable)?;
@@ -163,6 +177,7 @@ impl RecoveryKeys {
         if !actor.live(&mut tx).await? {
             return Err(Error::Rejected);
         }
+        Self::verified(&mut tx, id).await?;
 
         let digest: Option<String>=sqlx::query_scalar("SELECT key_hash FROM account_recovery_keys WHERE account_id=$1 AND confirmed_at IS NULL AND used_at IS NULL AND revoked_at IS NULL").bind(id).fetch_optional(&mut *tx).await?;
         if !matches_digest(digest, raw).await? {
