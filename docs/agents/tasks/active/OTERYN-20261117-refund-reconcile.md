@@ -68,7 +68,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T14:00:00Z
 head: 20d4f17d
 branch: claude/happy-davinci-ijz3wy-refund-reconcile
-pr: none
+pr: 1926
 status: ready
 context_routes: []
 owned_paths:
@@ -118,7 +118,7 @@ validation:
     evidence: both exit 0
 blockers:
   - none
-next_action: open the PR when the coordinator asks
+next_action: Portal RS CI on PR 1926
 ```
 
 ## Source branch closeout
