@@ -2316,3 +2316,59 @@ async fn commerce_review_owner_cannot_cancel_refund() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     h.close().await;
 }
+
+#[tokio::test]
+async fn commerce_review_displays_refund_amount() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let actor = context(&h.pool, h.actor).await;
+    for currency in ["PLN", "JPY", "KWD"] {
+        let payment = Uuid::now_v7();
+        sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,250,$4,'succeeded')")
+            .bind(payment).bind(h.target).bind(payment.to_string()).bind(currency)
+            .execute(&h.pool).await.unwrap();
+        h.service()
+            .submit(actor, request(payment, Command::Refund))
+            .await
+            .unwrap();
+    }
+    let app = router(
+        h.pool.clone(),
+        crate::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Session(h.second, h.pool.clone()),
+        Authority(h.pool.clone()),
+        h.effects(),
+        flags(),
+    );
+    for (language, label) in [("en", "Refund amount"), ("pl", "Kwota zwrotu")] {
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::get("/admin/commerce")
+                    .header("host", "staff.test")
+                    .header("accept-language", language)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), 200000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        for amount in ["2.50 PLN", "250 JPY", "0.250 KWD"] {
+            assert!(
+                html.contains(&format!("<p>{label}: {amount}</p>")),
+                "missing {label}: {amount}"
+            );
+        }
+    }
+    h.close().await;
+}

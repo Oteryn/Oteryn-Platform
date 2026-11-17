@@ -145,7 +145,8 @@ struct Pending {
     target: Uuid,
     actor: Uuid,
     command: String,
-    amount: String,
+    adjustment_amount: Option<i64>,
+    refund_amount: Option<String>,
     can_approve: bool,
 }
 #[derive(Template)]
@@ -159,6 +160,7 @@ struct Page {
     reason: String,
     days: String,
     amount: String,
+    refund_amount: String,
     submit: String,
     pending_label: String,
     approvals: String,
@@ -179,6 +181,23 @@ struct QueueFilter {
     #[serde(rename = "lang")]
     _lang: Option<String>,
 }
+fn format_refund_amount(minor_units: i64, currency: &str) -> String {
+    // ISO 4217 currencies whose minor units differ from the usual hundredths.
+    let exponent = match currency {
+        "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX"
+        | "UYI" | "VND" | "VUV" | "XAF" | "XOF" | "XPF" => 0,
+        "BHD" | "IQD" | "JOD" | "KWD" | "LYD" | "OMR" | "TND" => 3,
+        "CLF" | "UYW" => 4,
+        _ => 2,
+    };
+    oteryn_payments::coin::Price {
+        minor_units,
+        currency: currency.to_owned(),
+        exponent,
+    }
+    .display()
+}
+
 async fn page<A: rbac::AccountStateReader, E: Effects>(
     State(s): State<Arc<Commerce<A, E>>>,
     Extension(context): Extension<rbac::CheckContext>,
@@ -230,27 +249,20 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
                 } else {
                     locale.text(kind)
                 };
+                let review: Value = r.try_get("review")?;
+                let amount = review.get("amount").and_then(Value::as_i64);
+                let currency = review.get("currency").and_then(Value::as_str);
                 Ok(Pending {
                     id: r.try_get("id")?,
                     target: r.try_get("target_id")?,
                     actor: r.try_get("actor_id")?,
                     command: label,
                     can_approve: r.try_get::<Uuid, _>("actor_id")? != context.account,
-                    amount: {
-                        let review: Value = r.try_get("review")?;
-                        format!(
-                            "{} {}",
-                            review
-                                .get("amount")
-                                .and_then(Value::as_i64)
-                                .map(|n| n.to_string())
-                                .unwrap_or_default(),
-                            review
-                                .get("currency")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                        )
-                    },
+                    adjustment_amount: amount.filter(|_| kind == "adjust"),
+                    refund_amount: amount
+                        .filter(|_| kind == "refund")
+                        .zip(currency)
+                        .map(|(amount, currency)| format_refund_amount(amount, currency)),
                 })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()
@@ -277,6 +289,7 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         reason: locale.text("reason"),
         days: locale.text("days"),
         amount: locale.text("amount"),
+        refund_amount: locale.text("refund-amount"),
         submit: locale.text("submit"),
         pending_label: locale.text("pending"),
         approvals: locale.text("approvals"),
