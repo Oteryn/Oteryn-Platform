@@ -23,7 +23,7 @@ Codex Cloud with a red-then-green test and integrated here:
 
 - [x] Each fix has a test that fails with its source reverted to main and passes with it
 - [x] Focused crate tests pass on the integrated tree
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -58,10 +58,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T18:14:00Z
-head: 079010aa6d4be530ec6f47c7c537d9155e98ab73
+head: 1d68385b92b28c6e1eb7a322844b73f66fd762fa
 branch: claude/happy-davinci-ijz3wy-r6b-fixes
 pr: 1942
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -115,5 +115,13 @@ validation:
     evidence: narrow server-side fixes covered by tests through the real routers
 blockers:
   - none
-next_action: wait for Portal RS CI on the PR head
+next_action: none; delivered by PR 1942 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1942 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1942 merged as 1d68385b92b28c6e1eb7a322844b73f66fd762fa
 ```
