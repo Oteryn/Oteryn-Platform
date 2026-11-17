@@ -90,3 +90,48 @@ async fn switching_account_with_previous_authorization_generation_is_refused()
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn r7_registration_leaves_both_sessions_anonymous() -> Result<(), Box<dyn std::error::Error>>
+{
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
+        .execute(&db.pool)
+        .await?;
+    // Empty breach-cache range for the form password below.
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at) VALUES('AE9F0',ARRAY[]::text[],now()+interval '1 hour')").execute(&db.pool).await?;
+    let app = routes()
+        .with_state(AppState {
+            db: db.pool.clone(),
+        })
+        .layer(axum::middleware::from_fn_with_state(
+            crate::session::SessionLayer::new(db.pool.clone()),
+            crate::session::middleware,
+        ))
+        .layer(Extension(Language::En))
+        .layer(Extension(crate::ratelimit::RateLimiter::new(
+            db.pool.clone(),
+        )))
+        .layer(Extension(axum::extract::ConnectInfo(
+            "192.0.2.82:1234".parse::<std::net::SocketAddr>()?,
+        )));
+    for raw in ["a".repeat(64), "c".repeat(64)] {
+        let csrf = "b".repeat(64);
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at) VALUES($1,NULL,'registration-test',$2,now()+interval '1 hour',now()+interval '1 day')").bind(Sha256::digest(raw.as_bytes()).to_vec()).bind(&csrf).execute(&db.pool).await?;
+
+        let response = app.clone().oneshot(Request::post("/en/register")
+            .header("cookie", format!("{}={raw}", crate::session::COOKIE_NAME))
+            .header("x-csrf-token", &csrf)
+            .header("content-type","application/x-www-form-urlencoded")
+            .body(Body::from("email=new%40example.test&password=long-test-password99&password_confirmation=long-test-password99&terms=2026-11-05&privacy=2026-11-05"))?).await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        let signed_in: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id IS NOT NULL")
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(signed_in, 0, "registration must leave an anonymous session");
+    }
+    db.close().await
+}

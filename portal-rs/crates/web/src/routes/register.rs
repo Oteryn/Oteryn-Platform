@@ -128,13 +128,10 @@ async fn submit(
         *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
         return Ok(response);
     }
-    let account = register::register(&state.db, input, &config, language.code(), Some(source))
+    register::register(&state.db, input, &config, language.code(), Some(source))
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    // A known address still gets a fresh anonymous session, so the response
-    // does not reveal whether the account exists.
-    let change = account.map_or(PrivilegeChange::Reissue, PrivilegeChange::Login);
-    session::rotate(&session, change)
+    session::rotate(&session, PrivilegeChange::Reissue)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Redirect::to(&format!("/{}/register/check-inbox", language.code())).into_response())

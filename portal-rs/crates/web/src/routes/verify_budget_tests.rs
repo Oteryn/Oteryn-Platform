@@ -125,3 +125,68 @@ async fn verification_preserves_unrelated_session_and_logs_out_own_account()
     }
     db.close().await
 }
+
+#[tokio::test]
+async fn r7_anonymous_resend() -> Result<(), Box<dyn std::error::Error>> {
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    sqlx::query("INSERT INTO accounts(email,password_hash,locale) VALUES('resend-budget@example.test','unused','en')").execute(&db.pool).await?;
+    let app = crate::router(
+        AppState {
+            db: db.pool.clone(),
+        },
+        "static",
+    )
+    .layer(Extension(ConnectInfo(
+        "192.0.2.80:1234".parse::<std::net::SocketAddr>()?,
+    )));
+    let form = app
+        .clone()
+        .oneshot(Request::get("/en/verify-email/resend").body(Body::empty())?)
+        .await?;
+    let cookie = form.headers()["set-cookie"]
+        .to_str()?
+        .split(';')
+        .next()
+        .ok_or("missing session cookie")?
+        .to_owned();
+    let body = axum::body::to_bytes(form.into_body(), 65536).await?;
+    let html = std::str::from_utf8(&body)?;
+    assert!(html.contains("name=\"email\""));
+    let csrf = html
+        .split_once("name=\"_csrf\" value=\"")
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .ok_or("missing resend form CSRF token")?
+        .0;
+
+    for (attempt, email) in ["absent@example.test", "resend-budget@example.test"]
+        .into_iter()
+        .cycle()
+        .take(6)
+        .enumerate()
+    {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/en/verify-email/resend")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("email={email}&_csrf={csrf}")))?,
+            )
+            .await?;
+        if attempt == 5 {
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            break;
+        }
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()["location"], "/en/register/check-inbox");
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM outbox WHERE kind='email.verify'")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    db.close().await
+}
