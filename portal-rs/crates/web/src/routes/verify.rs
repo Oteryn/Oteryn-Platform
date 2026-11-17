@@ -96,8 +96,8 @@ async fn consume(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if let Some(id) = valid {
-        // Verification revokes the verified account's sessions. Preserve an
-        // unrelated browser identity, but discard any already-revoked record.
+        // Start a fresh anonymous session after verification, including when
+        // registration left this browser anonymous. Preserve other live identities.
         let stale = match session.identity_hash().await {
             Some(hash) => !sqlx::query_scalar::<_, bool>(
                 "SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1)",
@@ -108,7 +108,12 @@ async fn consume(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             None => false,
         };
-        if session.account_id().await == Some(id) || stale {
+        if session
+            .account_id()
+            .await
+            .is_none_or(|account| account == id)
+            || stale
+        {
             crate::session::rotate(&session, crate::session::PrivilegeChange::Logout)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

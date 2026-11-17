@@ -108,6 +108,41 @@ async fn create(db: &Database) -> Result<uuid::Uuid> {
 async fn token(db: &Database) -> Result<String> {
     Ok(sqlx::query_scalar("SELECT payload->>'token' FROM outbox WHERE kind='email.verify' ORDER BY created_at DESC,id DESC LIMIT 1").fetch_one(&db.pool).await?)
 }
+fn session_cookie(response: &axum::response::Response) -> Result<&str> {
+    response.headers()[header::SET_COOKIE]
+        .to_str()?
+        .split(';')
+        .next()
+        .ok_or_else(|| "missing cookie".into())
+}
+async fn session_row(
+    db: &Database,
+    cookie: &str,
+) -> Result<Option<(uuid::Uuid, Option<uuid::Uuid>, String)>> {
+    let (_, value) = cookie.split_once('=').ok_or("invalid cookie")?;
+    Ok(sqlx::query_as(
+        "SELECT session_id, account_id, csrf_token FROM web_sessions WHERE id_hash=$1",
+    )
+    .bind(sha2::Sha256::digest(value.as_bytes()).to_vec())
+    .fetch_optional(&db.pool)
+    .await?)
+}
+async fn assert_anonymous_rotation(
+    db: &Database,
+    old: &str,
+    old_csrf: &str,
+    response: &axum::response::Response,
+) -> Result {
+    let new = session_cookie(response)?;
+    assert_ne!(new, old);
+    assert!(session_row(db, old).await?.is_none());
+    let (_, account, csrf) = session_row(db, new)
+        .await?
+        .ok_or("missing rotated session")?;
+    assert!(account.is_none());
+    assert_ne!(csrf, old_csrf);
+    Ok(())
+}
 async fn credentials(app: &Router) -> Result<(String, String, String)> {
     let response = app
         .clone()
@@ -199,13 +234,7 @@ async fn registration_creates_account_consents_outbox_and_rotates_session() -> R
         response.headers()[header::LOCATION],
         "/en/register/check-inbox"
     );
-    assert_ne!(
-        response.headers()[header::SET_COOKIE]
-            .to_str()?
-            .split(';')
-            .next(),
-        Some(cookie.as_str())
-    );
+    assert_anonymous_rotation(&db, &cookie, &csrf, &response).await?;
     let account = Accounts {
         pool: db.pool.clone(),
     }
@@ -237,7 +266,7 @@ async fn registration_creates_account_consents_outbox_and_rotates_session() -> R
             .bind(account.id)
             .fetch_one(&db.pool)
             .await?;
-    assert_eq!(authenticated, 1);
+    assert_eq!(authenticated, 0);
     db.close().await
 }
 /// Whether a response sets a session cookie, whether it replaces the request's
@@ -263,34 +292,29 @@ async fn duplicate_email_has_same_response_without_authenticating_existing_accou
     let (first_request_cookie, csrf, _) = credentials(&app).await?;
     let first = submit(&app, &first_request_cookie, &csrf, &[]).await?;
     let first_issuance = issuance(&first, &first_request_cookie)?;
-    let first_cookie = first.headers()[header::SET_COOKIE]
-        .to_str()?
-        .split(';')
-        .next()
-        .ok_or("missing cookie")?
-        .to_owned();
-    let first_inbox = app
-        .clone()
-        .oneshot(
-            Request::get("/en/register/check-inbox")
-                .header(header::COOKIE, first_cookie)
-                .body(Body::empty())?,
-        )
-        .await?;
+    assert_anonymous_rotation(&db, &first_request_cookie, &csrf, &first).await?;
     let (cookie, csrf, _) = credentials(&app).await?;
-    let duplicate_inbox = app
-        .clone()
-        .oneshot(
-            Request::get("/en/register/check-inbox")
-                .header(header::COOKIE, &cookie)
-                .body(Body::empty())?,
-        )
-        .await?;
-    assert_eq!(
-        to_bytes(first_inbox.into_body(), 1024 * 1024).await?,
-        to_bytes(duplicate_inbox.into_body(), 1024 * 1024).await?
-    );
     let duplicate = submit(&app, &cookie, &csrf, &[("email", "new@EXAMPLE.test")]).await?;
+    assert_anonymous_rotation(&db, &cookie, &csrf, &duplicate).await?;
+    let mut inbox_bodies = Vec::new();
+    for response in [&first, &duplicate] {
+        let issued = session_cookie(response)?;
+        for path in ["/en/register", "/en/register/check-inbox"] {
+            let page = app
+                .clone()
+                .oneshot(
+                    Request::get(path)
+                        .header(header::COOKIE, issued)
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(page.status(), StatusCode::OK);
+            if path.ends_with("check-inbox") {
+                inbox_bodies.push(to_bytes(page.into_body(), 1024 * 1024).await?);
+            }
+        }
+    }
+    assert_eq!(inbox_bodies[0], inbox_bodies[1]);
     // Session-cookie issuance must not reveal whether the address exists.
     assert_eq!(first_issuance, issuance(&duplicate, &cookie)?);
     assert_eq!(first.status(), duplicate.status());
@@ -315,7 +339,7 @@ async fn duplicate_email_has_same_response_without_authenticating_existing_accou
         sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id IS NOT NULL")
             .fetch_one(&db.pool)
             .await?;
-    assert_eq!(count, 1);
+    assert_eq!(count, 0);
     db.close().await
 }
 #[tokio::test]
@@ -411,47 +435,55 @@ async fn expired_unknown_and_malformed_tokens_have_identical_error() -> Result {
     db.close().await
 }
 #[tokio::test]
-async fn resend_invalidates_old_token_and_requires_authenticated_csrf() -> Result {
+async fn resend_invalidates_old_token_and_requires_anonymous_csrf() -> Result {
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
     let app = db.app();
-    let (cookie, csrf, _) = credentials(&app).await?;
-    let response = submit(&app, &cookie, &csrf, &[]).await?;
-    let cookie = response.headers()[header::SET_COOKIE]
-        .to_str()?
-        .split(';')
-        .next()
-        .ok_or("missing cookie")?
-        .to_owned();
+    let id = create(&db).await?;
     let old = token(&db).await?;
-    let id: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM accounts WHERE lower(email)='new@example.test'")
-            .fetch_one(&db.pool)
-            .await?;
     assert!(!verify::resend(&db.pool, id).await?);
     sqlx::query("UPDATE account_email_tokens SET created_at=clock_timestamp()-interval '61 seconds' WHERE account_id=$1").bind(id).execute(&db.pool).await?;
     let response = app
         .clone()
-        .oneshot(
-            Request::get("/en/verify-email/resend")
-                .header(header::COOKIE, &cookie)
-                .body(Body::empty())?,
-        )
+        .oneshot(Request::get("/en/verify-email/resend").body(Body::empty())?)
         .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = session_cookie(&response)?.to_owned();
     let html = String::from_utf8(to_bytes(response.into_body(), 1024 * 1024).await?.to_vec())?;
+    assert!(html.contains("name=\"email\""));
     let csrf = html
         .split("name=\"_csrf\" value=\"")
         .nth(1)
         .and_then(|v| v.split('"').next())
         .ok_or("csrf missing")?;
+    let (_, foreign_csrf, _) = credentials(&app).await?;
+    for invalid in [None, Some(foreign_csrf.as_str())] {
+        let mut fields = vec![("email", "NEW@example.test")];
+        if let Some(invalid) = invalid {
+            fields.push(("_csrf", invalid));
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/en/verify-email/resend")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(serde_urlencoded::to_string(fields)?))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    assert_eq!(token(&db).await?, old);
     let response = app
-        .clone()
         .oneshot(
             Request::post("/en/verify-email/resend")
                 .header(header::COOKIE, &cookie)
-                .header("x-csrf-token", csrf)
-                .body(Body::empty())?,
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(serde_urlencoded::to_string([
+                    ("email", "NEW@example.test"),
+                    ("_csrf", csrf),
+                ])?))?,
         )
         .await?;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
@@ -459,25 +491,6 @@ async fn resend_invalidates_old_token_and_requires_authenticated_csrf() -> Resul
     let new = token(&db).await?;
     assert_ne!(old, new);
     assert_eq!(verify::consume(&db.pool, &new).await?, Some(id));
-    let (cookie, csrf, _) = credentials(&app).await?;
-    let response = app
-        .clone()
-        .oneshot(
-            Request::post("/en/verify-email/resend")
-                .header(header::COOKIE, &cookie)
-                .header("x-csrf-token", csrf)
-                .body(Body::empty())?,
-        )
-        .await?;
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let response = app
-        .oneshot(
-            Request::post("/en/verify-email/resend")
-                .header(header::COOKIE, &cookie)
-                .body(Body::empty())?,
-        )
-        .await?;
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     db.close().await
 }
 #[tokio::test]
@@ -558,12 +571,11 @@ async fn verification_from_registration_session_rotates_revoked_session() -> Res
     let (cookie, csrf, _) = credentials(&app).await?;
     let registered = submit(&app, &cookie, &csrf, &[]).await?;
     assert_eq!(registered.status(), StatusCode::SEE_OTHER);
-    let cookie = registered.headers()[header::SET_COOKIE]
-        .to_str()?
-        .split(';')
-        .next()
-        .ok_or("cookie missing")?
-        .to_owned();
+    assert_anonymous_rotation(&db, &cookie, &csrf, &registered).await?;
+    let cookie = session_cookie(&registered)?;
+    let (registration_id, _, registration_csrf) = session_row(&db, cookie)
+        .await?
+        .ok_or("missing registration session")?;
     let raw = token(&db).await?;
     let response = app
         .oneshot(
@@ -573,7 +585,13 @@ async fn verification_from_registration_session_rotates_revoked_session() -> Res
         )
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(response.headers().contains_key(header::SET_COOKIE));
+    assert_anonymous_rotation(&db, cookie, &registration_csrf, &response).await?;
+    let revoked: bool =
+        sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM web_sessions WHERE session_id=$1)")
+            .bind(registration_id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert!(revoked);
     let authenticated: i64 =
         sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id IS NOT NULL")
             .fetch_one(&db.pool)
