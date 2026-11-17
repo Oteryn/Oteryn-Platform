@@ -110,6 +110,16 @@ impl Delivery {
         .await
         .map_err(|_| "top-up intent unavailable")?
         .ok_or("top-up intent missing")?;
+        // Check after acquiring the intent lock so a concurrent approval is visible.
+        let refund_approved: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM commerce_refunds WHERE intent_id=$1)")
+                .bind(payload.intent_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|_| "top-up refund lookup unavailable")?;
+        if refund_approved {
+            return Err("top-up refund approved");
+        }
         let topup = sqlx::query("SELECT account_id,coins,minor_units,currency FROM store_web_topups WHERE payment_intent_id=$1 FOR SHARE")
             .bind(payload.intent_id).fetch_optional(&mut *tx).await.map_err(|_| "top-up checkout unavailable")?.ok_or("top-up checkout missing")?;
         let matches = intent.try_get::<Uuid, _>("account_id").ok() == Some(payload.account_id)
