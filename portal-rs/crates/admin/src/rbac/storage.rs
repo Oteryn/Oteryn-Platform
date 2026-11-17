@@ -61,6 +61,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         }
         self.validate_account(context).await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let target = match &change {
             Change::Grant { account, .. } | Change::Revoke { account, .. } => *account,
             _ => context.account,

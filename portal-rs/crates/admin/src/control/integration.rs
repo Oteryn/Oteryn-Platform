@@ -99,6 +99,7 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
     ) -> Result<Uuid, Refusal> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let request = store::Store::lock_control_request(&mut tx, request_id, true).await?;
         let (identity, op) = self
             .authorized_in(&mut tx, session, &request.operation)
@@ -158,6 +159,7 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
     ) -> Result<Uuid, Refusal> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let request = store::Store::lock_control_request(&mut tx, request_id, true).await?;
         let p = Self::preview_in(&mut tx, request_id).await?;
         let (identity, op) = self
@@ -197,6 +199,7 @@ impl<A: Authority, T: TotpVerifier> ControlEvidence for Controls<A, T> {
     ) -> Result<Evidence, Refusal> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         match self.control_evidence_in(&mut tx, session, submission).await {
             Ok(evidence) => {
                 tx.commit().await?;

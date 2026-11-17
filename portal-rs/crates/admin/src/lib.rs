@@ -19,6 +19,9 @@ pub use control::control_http;
 pub mod analytics;
 
 #[cfg(test)]
+mod begin_guard_tests;
+
+#[cfg(test)]
 pub mod test_staff;
 
 #[cfg(test)]

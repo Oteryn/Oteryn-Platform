@@ -147,6 +147,7 @@ impl StoredChannel {
         let request_id = Uuid::now_v7();
         let stamp = now.format(&Rfc3339).map_err(|_| Error::Unavailable)?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let auth = rbac::Authorizer::new(
             self.pool.clone(),
             web::PortalIdentity::configured(self.pool.clone()),

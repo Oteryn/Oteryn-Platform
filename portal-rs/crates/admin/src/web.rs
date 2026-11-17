@@ -642,6 +642,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
         }
     }
     let mut tx = s.pool.begin().await?;
+    crate::rbac::mutation_budget(&mut tx).await?;
     let mut accounts = vec![context.account, account];
     accounts.extend(survivor);
     crate::rbac::authorize_mutation(

@@ -282,6 +282,7 @@ impl Store {
     pub async fn register_agent(&self, hello: &AgentHello) -> Result<(), Error> {
         self.validate_registration(hello)?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         self.register_agent_in(&mut tx, hello).await?;
         tx.commit().await?;
         Ok(())
@@ -321,15 +322,18 @@ impl Store {
         if !bounded(agent, 128) || epoch <= 0 {
             return Err(Error::InvalidInput);
         }
+        let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let changed = sqlx::query(
             "UPDATE admin_control_agents SET last_seen_at=clock_timestamp(), updated_at=clock_timestamp()
             WHERE agent_id=$1 AND owner_epoch=$2",
         )
         .bind(agent)
         .bind(epoch)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
+        tx.commit().await?;
         if changed == 0 {
             return Err(Error::Unavailable);
         }
@@ -340,6 +344,7 @@ impl Store {
         self.enabled()?;
         validate_request(input)?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let request = self.enqueue_in(&mut tx, input).await?;
         tx.commit().await?;
         Ok(request)
@@ -508,6 +513,7 @@ impl Store {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         ownership_lock(&mut tx, true).await?;
         let available: Option<String> = sqlx::query_scalar(
             "SELECT agent_id FROM admin_control_agents
@@ -586,6 +592,7 @@ impl Store {
     pub async fn record_result(&self, input: &NewResult, epoch: i64) -> Result<ResultRow, Error> {
         self.validate_result(input, epoch)?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let result = self.record_result_in(&mut tx, input, epoch).await?;
         tx.commit().await?;
         Ok(result)

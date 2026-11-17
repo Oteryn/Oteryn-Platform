@@ -800,6 +800,68 @@ async fn pg_claim_checks_live_expiry_after_waiting_for_an_agent_lock() {
 }
 
 #[tokio::test]
+async fn pg_claim_answers_unavailable_within_budget_while_the_agent_row_stays_locked() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let store = db.store();
+    store.register_agent(&hello("agent-a", 1)).await.unwrap();
+    store.enqueue(&request()).await.unwrap();
+    // A writer that never releases the agent row must not hold the claim (and
+    // its pooled connection) past the shared mutation budget.
+    let mut lock = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT agent_id FROM admin_control_agents WHERE agent_id='agent-a' FOR UPDATE")
+        .execute(&mut *lock)
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let claimed = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        store.claim_pending("agent-a", 1, 32),
+    )
+    .await
+    .expect("claim must not wait for the agent row lock without bound");
+    assert!(matches!(claimed, Err(Error::Storage(_))), "{claimed:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    lock.rollback().await.unwrap();
+    assert_eq!(
+        store.claim_pending("agent-a", 1, 32).await.unwrap().len(),
+        1
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn pg_heartbeat_answers_unavailable_within_budget_while_the_agent_row_stays_locked() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let store = db.store();
+    store.register_agent(&hello("agent-a", 1)).await.unwrap();
+    // `/channel` refreshes the agent row before it claims; a writer holding that
+    // row must not stall the poll past the shared mutation budget.
+    let mut lock = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT agent_id FROM admin_control_agents WHERE agent_id='agent-a' FOR UPDATE")
+        .execute(&mut *lock)
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let beat = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        store.heartbeat("agent-a", 1),
+    )
+    .await
+    .expect("heartbeat must not wait for the agent row lock without bound");
+    assert!(matches!(beat, Err(Error::Storage(_))), "{beat:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    lock.rollback().await.unwrap();
+    store.heartbeat("agent-a", 1).await.unwrap();
+    db.close().await;
+}
+
+#[tokio::test]
 async fn pg_expiry_bounds_each_ordered_batch() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();

@@ -288,6 +288,7 @@ async fn hello(
         .map_err(|_| HttpError::invalid())?;
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
+    crate::rbac::mutation_budget(&mut tx).await?;
     // Control ownership precedes HTTP ownership (crates/admin/src/rbac/README.md).
     store::ownership_lock(&mut tx, false).await?;
     ingress_lock(&mut tx, false).await?;
@@ -332,6 +333,7 @@ async fn channel(
         return Err(HttpError::invalid());
     }
     let mut tx = ctx.pool.begin().await?;
+    crate::rbac::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
     session(&mut tx, &p.agent_id, p.owner_epoch).await?;
     tx.commit().await?;
@@ -398,6 +400,7 @@ async fn results(
             .map_err(|_| HttpError::invalid())?;
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
+    crate::rbac::mutation_budget(&mut tx).await?;
     // Control ownership precedes HTTP ownership (crates/admin/src/rbac/README.md).
     store::ownership_lock(&mut tx, true).await?;
     ingress_lock(&mut tx, true).await?;
@@ -489,6 +492,7 @@ async fn stream(
         chunks.push((c.index, bytes));
     }
     let mut tx = ctx.pool.begin().await?;
+    crate::rbac::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
     lock_request(&mut tx, p.request_id).await?;
     owns_request(&mut tx, &p.agent_id, p.owner_epoch, p.request_id).await?;
@@ -531,6 +535,7 @@ async fn heartbeat(
     }
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
+    crate::rbac::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
     session(&mut tx, &p.agent_id, p.owner_epoch).await?;
     sqlx::query("UPDATE admin_control_agents SET last_seen_at=clock_timestamp(),updated_at=clock_timestamp() WHERE agent_id=$1 AND owner_epoch=$2").bind(&p.agent_id).bind(p.owner_epoch).execute(&mut *tx).await?;
@@ -550,6 +555,7 @@ async fn rollups(
     }
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
+    crate::rbac::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
     session(&mut tx, &p.agent_id, p.owner_epoch).await?;
     sqlx::query("UPDATE admin_control_agents SET last_seen_at=clock_timestamp(),updated_at=clock_timestamp() WHERE agent_id=$1 AND owner_epoch=$2").bind(&p.agent_id).bind(p.owner_epoch).execute(&mut *tx).await?;
