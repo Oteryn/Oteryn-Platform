@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20261117-bazaar-bindcomp
-governing_issue: 1922
+governing_issue: 1928
 required_reads: []
 search_first: []
 optional_reads: []
@@ -10,7 +10,7 @@ optional_reads: []
 
 ## Goal
 
-Governing GitHub Issue: https://github.com/Oteryn/Oteryn-Platform/issues/1922.
+Governing GitHub Issue: https://github.com/Oteryn/Oteryn-Platform/issues/1928.
 
 Bazaar runtime, character sale, money path. When Game terminally refuses
 the settlement `BindBazaarCharacterTransfer` (any refusal code except
@@ -53,7 +53,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T20:00:00Z
-head: UNKNOWN
+head: 149b24b6
 branch: claude/happy-davinci-ijz3wy-bazaar-bindcomp
 pr: none
 status: ready
