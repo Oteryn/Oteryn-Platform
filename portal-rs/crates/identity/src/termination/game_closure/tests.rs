@@ -448,6 +448,57 @@ async fn postgres_cancel_before_delivery_and_after_proof_never_issues_finalize()
             wire::number(&intent.lifecycle_generation, true)? + 1
         );
         assert_eq!(resolution.close_operation_id, Some(intent.operation_id));
+        let retry = s
+            .request(
+                account,
+                &ActorProof(account.to_string()),
+                "termination test password",
+                "TERMINATE",
+            )
+            .await;
+        assert!(
+            matches!(retry, Err(Error::UnknownState)),
+            "new termination must wait for the CANCEL receipt"
+        );
+        let raw = serde_json::to_vec(&wire::LifecycleRequest {
+            contract_version: 2,
+            operation: "ReadAccountClosureLifecycleV1".into(),
+            source_authority: b.authority.clone(),
+            account_id: account.to_string(),
+            termination_id: t.id.to_string(),
+            recovery_generation: "3".into(),
+            audience: "OTERYN_PLATFORM_CHARACTER_AUTHORITY".into(),
+        })?;
+        let observation: wire::LifecycleObservation =
+            serde_json::from_slice(&b.read_lifecycle(&db.pool, &raw).await?)?;
+        assert_eq!(observation.phase, "CANCEL");
+        assert_eq!(
+            observation.lifecycle_generation,
+            resolution.lifecycle_generation
+        );
+
+        let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
+        receipt.command = resolution.command.clone();
+        receipt.operation_id = resolution.operation_id.clone();
+        receipt.decided_at = resolution.issued_at_source.clone();
+        let result = receipt.result_data.as_mut().ok_or("receipt result")?;
+        result.account_id = resolution.account_id.clone();
+        result.termination_id = resolution.termination_id.clone();
+        result.lifecycle_generation = resolution.lifecycle_generation.clone();
+        result.closure_state = "CANCELLED".into();
+        let bytes = serde_json::to_vec(result)?;
+        let marker = b",\"proof_sha256\":";
+        let end = bytes
+            .windows(marker.len())
+            .position(|w| w == marker)
+            .ok_or("proof")?;
+        let mut body = bytes[..end].to_vec();
+        body.push(b'}');
+        result.proof_sha256 = wire::hex(&digest(&body));
+        let raw = serde_json::to_vec(&receipt)?;
+        b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+            .await?;
+
         let next = request(&s, account).await;
         let generation: i64 =
             sqlx::query_scalar("SELECT generation FROM plat3_closure_work WHERE termination_id=$1")
