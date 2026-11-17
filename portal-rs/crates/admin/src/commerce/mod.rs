@@ -217,8 +217,12 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         .map_err(Error::from);
         // Preserve the input refusal boundary; a captured positive MFA flag is
         // insufficient without the helper's durable proof validation above.
+        // Staff never act on their own account's premium, balance or payments.
         let authorization = authorization.and_then(|()| {
-            if context.mfa_verified && valid_id(context.account) {
+            if context.mfa_verified
+                && valid_id(context.account)
+                && (owner != context.account || matches!(request.command, Command::Reconcile))
+            {
                 Ok(())
             } else {
                 Err(Error::Denied)
@@ -344,7 +348,10 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             serde_json::from_value(row.try_get("command")?).map_err(|_| Error::Unavailable)?;
         command.validate(self.flags)?;
         self.authorize_in(&mut tx, context, &command).await?;
-        if actor == context.account || !row.try_get::<bool, _>("requires_approval")? {
+        if actor == context.account
+            || owner == context.account
+            || !row.try_get::<bool, _>("requires_approval")?
+        {
             return Err(Error::Denied);
         }
         if row.try_get::<Option<Value>, _>("result")?.is_some() {

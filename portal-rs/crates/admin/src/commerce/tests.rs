@@ -1947,3 +1947,35 @@ async fn postgres_refund_reconcile_is_idempotent() {
     assert_eq!(refund_job(&h, payment).await, ("pending".into(), 0));
     h.close().await;
 }
+#[tokio::test]
+async fn postgres_staff_never_grant_premium_or_balance_to_themselves() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let service = h.service();
+    let ctx = context(&h.pool, h.actor).await;
+    let second = context(&h.pool, h.second).await;
+    for command in [Command::Grant { days: 30 }, Command::Adjust { amount: 100 }] {
+        assert!(matches!(
+            service.submit(ctx, request(h.actor, command)).await,
+            Err(Error::Denied)
+        ));
+    }
+    // Nor does the approver approve a correction whose beneficiary they are.
+    let req = request(h.second, Command::Adjust { amount: 100 });
+    assert!(service.submit(ctx, req.clone()).await.unwrap().pending);
+    assert!(matches!(
+        service.approve(second, req.request_id).await,
+        Err(Error::Denied)
+    ));
+    assert_eq!(h.count("premium_ledger").await, 0);
+    assert_eq!(h.count("wallet_entries").await, 0);
+    let denied: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='commerce.denied'")
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(denied, 2);
+    h.close().await;
+}
