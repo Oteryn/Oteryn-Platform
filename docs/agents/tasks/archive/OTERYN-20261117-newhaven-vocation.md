@@ -24,7 +24,7 @@ PR under the same Issue.
 - [x] CLI `requestedVocation` is required; the seed issues a vocation
 - [x] Fixtures `character-bootstrap-intent-v4/` match the serializer and validator byte for byte
 - [x] Additive nullable migration with a CHECK on the five values
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -57,10 +57,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T16:20:00Z
-head: cdab6dfffe27af4070bf5953d5059be991676b81
+head: 5b67d4aed872106010dbef8ac0d27692f3958920
 branch: claude/happy-davinci-ijz3wy-vocation
 pr: 1938
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -130,5 +130,13 @@ validation:
     evidence: operator CLI and private mTLS read only; covered by the PostgreSQL CLI and reader tests
 blockers:
   - none
-next_action: wait for Portal RS CI on the PR head, then part 2 (character-command create)
+next_action: none; delivered by PR 1938 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1938 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1938 merged as 5b67d4aed872106010dbef8ac0d27692f3958920
 ```
