@@ -697,6 +697,33 @@ pub(super) async fn revalidate(
     }
     current(db, world, route.channel, &route.endpoint, &route.revision).await
 }
+/// §19.2.3 M1 at signing: no other valid route record of the World may have
+/// taken the selected endpoint since selection. Only the selected record is
+/// share-locked, so a write to another record does not wait for the grant.
+pub(super) async fn unshared(
+    db: &mut PgConnection,
+    world: Uuid,
+    route: &Route,
+) -> Result<(), Error> {
+    let rows = sqlx::query("SELECT channel_id, native_route_host, native_route_port, native_route_tls_server_name, native_route_version, native_route_revision FROM game_channels WHERE world_id=$1 AND channel_id<>$2 AND native_route_port=$3 AND native_route_revision IS NOT NULL")
+        .bind(world)
+        .bind(route.channel)
+        .bind(i32::from(route.endpoint.port))
+        .fetch_all(&mut *db)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    for row in &rows {
+        if record(world, row)?.is_some_and(|other| {
+            other
+                .endpoint
+                .host
+                .eq_ignore_ascii_case(&route.endpoint.host)
+        }) {
+            return Err(Error::RouteUnavailable);
+        }
+    }
+    Ok(())
+}
 fn runtime_matches(report: &Value, revision: &str) -> bool {
     matches!(report.get("ready"), Some(Value::Bool(true)))
         && matches!(report.get("route_revision"), Some(Value::String(r)) if r == revision)

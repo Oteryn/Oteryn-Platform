@@ -1172,3 +1172,130 @@ async fn wave3_02_replacement_refuses_disabled_devices() -> TestResult {
 async fn wave3_02_replacement_refuses_idle_expired_family() -> TestResult {
     replacement_requires_current_device_eligibility(true).await
 }
+
+/// Pauses protocol 3 issuance in signer preparation, after selection.
+#[derive(Debug)]
+struct PausingSigner {
+    inner: Arc<dyn GrantSigner>,
+    reached: Arc<tokio::sync::Notify>,
+    resume: Arc<tokio::sync::Notify>,
+}
+impl GrantSigner for PausingSigner {
+    fn prepare(&self) -> Future<'_, ()> {
+        self.inner.prepare()
+    }
+    fn prepare_on<'a>(&'a self, db: &'a mut PgConnection) -> Future<'a, ()> {
+        Box::pin(async move {
+            self.reached.notify_one();
+            self.resume.notified().await;
+            self.inner.prepare_on(db).await
+        })
+    }
+    fn sign(&self, payload: &[u8], expires: u64, now: u64) -> Result<String, Error> {
+        self.inner.sign(payload, expires, now)
+    }
+    fn resign(&self, input: &str, expires: u64, now: u64) -> Result<String, Error> {
+        self.inner.resign(input, expires, now)
+    }
+}
+
+/// Round 4 `grant.rs:698`: protocol 3 selected and share-locked A, then waited
+/// in signer preparation; a route write gives another record A's endpoint and
+/// commits. A shared endpoint routes nowhere (§19.2.3 M1), so no grant is
+/// signed for A.
+#[tokio::test]
+async fn r4_protocol3_refuses_an_endpoint_shared_after_selection() -> TestResult {
+    let mut f = Fixture::new().await?;
+    let world: Uuid = runtime::tests::WORLD.parse()?;
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let signer: Arc<dyn GrantSigner> = Arc::new(PausingSigner {
+        inner: f.signer.clone(),
+        reached: reached.clone(),
+        resume: resume.clone(),
+    });
+    f.authority.issuance.signer = Some(signer.clone());
+    // A third, fresh candidate C keeps the response's channel list non-empty.
+    let third = Uuid::now_v7();
+    let third_revision = grant::route_revision(
+        1,
+        world,
+        third,
+        "gamma.example.test",
+        7172,
+        "gamma.example.test",
+    )?;
+    for peer in &mut f.authority.issuance.runtime.peers {
+        peer.scopes.push((world, third));
+    }
+    sqlx::query("INSERT INTO native_scope_assignments (world_id,channel_id,assignment_epoch,ownership_generation,node_identity,assigned_at) VALUES ($1,$2,1,1,'node',0)")
+        .bind(world).bind(third).execute(&f.db.pool).await?;
+    sqlx::query("INSERT INTO game_channels(world_id,channel_id,channel_key,native_login_enabled,native_route_host,native_route_port,native_route_tls_server_name,native_route_version,native_route_revision) VALUES($1,$2,'gamma',true,'gamma.example.test',7172,'gamma.example.test',1,$3)")
+        .bind(world).bind(third).bind(&third_revision).execute(&f.db.pool).await?;
+    let at: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+        .fetch_one(&f.db.pool)
+        .await?;
+    let mut report = runtime::tests::value("1", at).map_err(runtime::tests::TestError::from)?;
+    if let oteryn_internal_api::canonical::Value::Object(fields) = &mut report {
+        for (name, value) in fields {
+            match name.as_str() {
+                "route_revision" => {
+                    *value = oteryn_internal_api::canonical::Value::String(third_revision.clone())
+                }
+                "channel_id" => {
+                    *value = oteryn_internal_api::canonical::Value::String(third.to_string())
+                }
+                _ => {}
+            }
+        }
+    }
+    let report = runtime::Report::decode(&report).map_err(|s| format!("report: {s}"))?;
+    assert_eq!(
+        runtime::ingest(&f.db.pool, "node", &report).await,
+        Ok("accepted")
+    );
+    let mut request = f.request.clone();
+    request.protocol = 3;
+    let settings = Protocol3 {
+        runtime: f.authority.issuance.runtime.clone(),
+        handles: Handles::Off,
+    };
+    let route = async {
+        reached.notified().await;
+        // As seed::route: a new channel record takes A's endpoint and commits
+        // without waiting on A's share lock.
+        let other = Uuid::now_v7();
+        let revision = grant::route_revision(
+            1,
+            world,
+            other,
+            "node.example.test",
+            7172,
+            "node.example.test",
+        )?;
+        sqlx::query("INSERT INTO game_channels(world_id,channel_id,channel_key,native_login_enabled,native_route_host,native_route_port,native_route_tls_server_name,native_route_version,native_route_revision) VALUES($1,$2,'beta',true,'node.example.test',7172,'node.example.test',1,$3)")
+            .bind(world).bind(other).bind(revision).execute(&f.db.pool).await?;
+        resume.notify_one();
+        Ok::<_, Box<dyn std::error::Error>>(())
+    };
+    let (result, written) = tokio::join!(
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            store::admit(
+                &f.db.pool,
+                &request,
+                &Accounts,
+                &f.authority,
+                Some(signer.as_ref()),
+                Some(&settings),
+            ),
+        ),
+        route
+    );
+    written?;
+    assert_eq!(
+        result?.err().map(|r| r.error),
+        Some(Error::RouteUnavailable)
+    );
+    f.close().await
+}
