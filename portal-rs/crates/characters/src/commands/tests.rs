@@ -689,3 +689,43 @@ async fn db_receipt_publication_waits_for_shared_issuance_fence() {
     );
     cleanup(pool, admin, schema).await;
 }
+/// Review 5: the v1 receipt route only settles the v1 commands it exchanges
+/// (create, transfer); a v2 service command keeps its own receipt path.
+#[tokio::test]
+async fn db_v1_receipt_refuses_v2_service_commands() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some((pool, admin, schema)) = database().await else {
+        return;
+    };
+    let c = Commands::new(pool.clone(), settings());
+    let accounts = Accounts(AccountState::Eligible);
+    let queued = c
+        .enqueue(&accounts, Uuid::now_v7(), "v2-service", create())
+        .await
+        .unwrap();
+    // The t46 migration widens this CHECK; this schema only carries t22.
+    sqlx::query("ALTER TABLE character_commands DROP CONSTRAINT character_commands_command_check")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE character_commands SET command='RenameCharacter' WHERE id=$1")
+        .bind(queued.operation_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let receipt = REJECTED
+        .replace(OP, &queued.operation_id.to_string())
+        .replace("CreateCharacter", "RenameCharacter")
+        .replace("CHAR_CMD_NAME_UNAVAILABLE", "CHAR_CMD_UNSUPPORTED");
+    assert!(matches!(
+        c.publish(receipt.as_bytes()).await,
+        Err(Error::NotFound)
+    ));
+    let state: String = sqlx::query_scalar("SELECT state FROM character_commands WHERE id=$1")
+        .bind(queued.operation_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(state, "PENDING");
+    cleanup(pool, admin, schema).await;
+}
