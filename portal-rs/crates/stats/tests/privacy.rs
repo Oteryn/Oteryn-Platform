@@ -29,6 +29,7 @@ async fn current_statistics_switches_and_missing_state_deny()
         include_str!("../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"),
         include_str!("../../../migrations/20261105155256_t03_accounts.sql"),
         include_str!("../../../migrations/20261105145653_t18_account_characters.sql"),
+        include_str!("../../../migrations/20261105160001_t22_character_commands.sql"),
         include_str!("../../../migrations/20261105220226_t09c_privacy.sql"),
         include_str!("../../../migrations/20261105231104_t45_profile_preferences.sql"),
         include_str!("../../../migrations/20261107130001_t45_privacy.up.sql"),
