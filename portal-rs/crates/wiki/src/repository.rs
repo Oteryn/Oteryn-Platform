@@ -131,7 +131,7 @@ impl<A: AccountStateReader> Repository<A> {
         self.authorize(context, Permission::ManageWikiArticles)
             .await?;
         domain::translations(values, false)?;
-        if note.chars().count() > 500 || entity.is_some_and(|v| v.is_empty() || v.len() > 256) {
+        if note.chars().count() > 500 || invalid_entity_key(entity) {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
@@ -187,10 +187,25 @@ impl<A: AccountStateReader> Repository<A> {
         input: &[Translation],
         note: &str,
     ) -> Result<(), Error> {
+        self.edit_with_entity(context, id, expected, input, note, None)
+            .await
+    }
+
+    /// An omitted field preserves the binding. An empty field clears it.
+    pub(crate) async fn edit_with_entity(
+        &self,
+        context: CheckContext,
+        id: Uuid,
+        expected: i64,
+        input: &[Translation],
+        note: &str,
+        entity_field: Option<&str>,
+    ) -> Result<(), Error> {
+        let entity = entity_field.filter(|key| !key.is_empty());
         self.authorize(context, Permission::ManageWikiArticles)
             .await?;
         domain::translations(input, false)?;
-        if note.chars().count() > 500 {
+        if note.chars().count() > 500 || invalid_entity_key(entity) {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
@@ -227,7 +242,11 @@ impl<A: AccountStateReader> Repository<A> {
         reserve(&mut tx, input, Some(id)).await?;
         let next = guide.version.checked_add(1).ok_or(Error::Conflict)?;
         append(&mut tx, id, next, input, context.account, note, None).await?;
-        update_revision(&mut tx, id, next).await?;
+        let binding = match entity_field {
+            Some(_) => entity,
+            None => guide.entity_key.as_deref(),
+        };
+        update_revision(&mut tx, id, next, binding).await?;
         record(
             &mut tx,
             context,
@@ -286,7 +305,7 @@ impl<A: AccountStateReader> Repository<A> {
         reserve(&mut tx, &input, Some(id)).await?;
         let next = expected.checked_add(1).ok_or(Error::Conflict)?;
         append(&mut tx, id, next, &input, context.account, "", Some(source)).await?;
-        update_revision(&mut tx, id, next).await?;
+        update_revision(&mut tx, id, next, guide.entity_key.as_deref()).await?;
         record(
             &mut tx,
             context,
@@ -370,6 +389,10 @@ impl<A: AccountStateReader> Repository<A> {
         Ok(())
     }
 }
+fn invalid_entity_key(entity: Option<&str>) -> bool {
+    entity.is_some_and(|v| v.is_empty() || v.len() > 256)
+}
+
 fn editable(guide: &Guide, expected: i64) -> Result<(), Error> {
     if guide.version != expected || !matches!(guide.status.as_str(), "draft" | "in_review") {
         return Err(Error::Conflict);
@@ -424,8 +447,9 @@ async fn update_revision(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
     next: i64,
+    entity: Option<&str>,
 ) -> Result<(), Error> {
-    sqlx::query("UPDATE wiki_guides SET version=$2,revision_version=$2,status='draft',published_at=NULL,updated_at=now() WHERE id=$1").bind(id).bind(next).execute(&mut **tx).await?;
+    sqlx::query("UPDATE wiki_guides SET version=$2,revision_version=$2,status='draft',published_at=NULL,updated_at=now(),entity_key=$3 WHERE id=$1").bind(id).bind(next).bind(entity).execute(&mut **tx).await?;
     Ok(())
 }
 async fn record(
