@@ -804,3 +804,60 @@ async fn drc_listing_gate_budget() -> TestResult {
     h.listing(Form::Auction, Currency::Coins, 100).await?;
     h.finish().await
 }
+
+#[tokio::test]
+async fn settle_waits_at_moderation_gate_before_locking_listing() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
+    let listing = h.listing(Form::Auction, Currency::Coins, 100).await?;
+    h.api.bid(listing.id, h.a, 200, "bid").await?;
+    h.end_in(listing.id, -1).await?;
+
+    let mut staff = h.pool.begin().await?;
+    let staff_pid: i32 =
+        sqlx::query_scalar("SELECT pg_backend_pid() FROM pg_advisory_xact_lock(64002)")
+            .fetch_one(&mut *staff)
+            .await?;
+    let api = h.api.clone();
+    let id = listing.id;
+    let settlement = tokio::spawn(async move { api.settle(id, "settle").await });
+    let waiting = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting_at_gate: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND NOT granted AND objid=64002 AND $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(staff_pid)
+            .fetch_one(&h.pool)
+            .await?;
+            if waiting_at_gate {
+                return Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(
+        waiting.is_ok(),
+        "settle did not wait at the moderation gate"
+    );
+    waiting??;
+
+    let row_lock = sqlx::query("SELECT id FROM bazaar_listings WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(id)
+        .execute(&mut *staff)
+        .await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), settlement).await;
+    assert!(result.is_ok(), "settle exceeded the mutation budget");
+    let result = result??;
+    staff.rollback().await?;
+    assert!(
+        row_lock.is_ok(),
+        "settle already locked the listing while waiting for the gate"
+    );
+    assert!(
+        matches!(&result, Err(Error::Database(sqlx::Error::Database(err))) if matches!(err.code().as_deref(), Some("55P03" | "57014"))),
+        "expected the gate wait to time out, got {result:?}"
+    );
+    assert_eq!(h.api.settle(id, "settle").await?.listing_id, id);
+    h.finish().await
+}
