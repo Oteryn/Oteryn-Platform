@@ -2370,6 +2370,7 @@ async fn commerce_review_displays_refund_amount() {
             );
         }
     }
+}
 
 #[tokio::test]
 async fn credited_topup_blocks_refund() {
