@@ -55,7 +55,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T20:00:00Z
 head: 149b24b6
 branch: claude/happy-davinci-ijz3wy-bazaar-bindcomp
-pr: none
+pr: 1931
 status: ready
 context_routes: []
 owned_paths:
