@@ -122,7 +122,7 @@ path exists. A query with no index path still seq-scans and is counted. The
 - [x] Bound `< 100` unchanged; test passes with the production layout
 - [x] Red without the change: production layout without `enable_seqscan=off` fails `Return: 269 tuples read`
 - [x] Guard still catches an unindexed lookup: with `enable_seqscan=off` kept and the fences UPDATE predicate made unindexable (`operation_id::text=$1::text`, temporary), the test fails `Return: 266 tuples read`
-- [ ] Portal RS CI green on the PR head (no PR yet)
+- [ ] Portal RS CI green on the PR head (#1925)
 
 ## Ownership
 
@@ -147,7 +147,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T10:40:00Z
 head: 20d4f17d0945834f463193ff5d689f0fdcc932d2
 branch: claude/happy-davinci-ijz3wy-bazaar-scan-bound
-pr: none
+pr: 1925
 status: ready
 context_routes: []
 owned_paths:
@@ -189,7 +189,7 @@ validation:
     evidence: 116 passed, 1 failed; 62 postgres_ tests ran; the failure is runtime::tls postgres_exchange_deadline_cancels_issuer_wait_and_releases_pool (Elapsed), which fails the same way on untouched main 20d4f17d (2 of 2) in this container and is outside owned paths
 blockers:
   - none
-next_action: coordinator opens the PR; Portal RS CI confirms the tls deadline test on CI PostgreSQL
+next_action: Portal RS CI confirms the tls deadline test on CI PostgreSQL
 ```
 
 ## Source branch closeout
