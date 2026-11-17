@@ -190,7 +190,7 @@ Dlatego portal serwuje base URL w korzeniu domeny, bez prefiksu.
 | --- | --- | --- |
 | `GET /oauth/authorize` | `response_type=code`, `scope=game:ticket`, PKCE S256, `state` | Jest (Passport) |
 | `POST /oauth/token` (form) | Tylko `authorization_code`; odpowiedź `{token_type:"bearer", access_token ≤8192 B}`; klient czyta tylko te dwa pola | Jest (Passport) |
-| `GET /v1/client/directory` | `{epoch:u64, worlds:[{id, name, channels:[{id,name}], characters:[{character_ref, display_name}]}]}` (pola postaci według `platform-contracts`; do potwierdzenia w G-1); ≤1 MiB, ≤256 światów, ≤128 kanałów, ≤256 postaci, `name` ≤96 B | Brak w Platform i w locku |
+| `GET /v1/client/directory` | `{epoch:u64, worlds:[{id, name, channels:[{id, name, pvp_type, region}], characters:[{id, name}]}]}` według `docs/contracts/OTERYN_V2_CLIENT_DIRECTORY_CONTRACT.md` v1 (wektory `client-directory-v1`); ≤1 MiB, ≤256 światów, ≤128 kanałów, ≤256 postaci, `name` ≤96 B, `region` ≤32 B | Kontrakt v1 jest; brak handlera w Platform (T36b) |
 | `POST /api/v1/game-auth/tickets` | Bearer, `{protocol_version:1}` → `{protocol_version:1, ticket ≤256 B, expires_in>0}`, `deny_unknown_fields`; 401/403 → AUTHENTICATION_REQUIRED | Jest; U1 w grze: NOT_IMPLEMENTED po stronie Platform |
 | `GET /api/v1/game-auth/native-characters` | `{protocol_version:2, characters:[{character_id, world_id, name, availability: AVAILABLE\|UNAVAILABLE}]}`, UUIDv7, ≤16384 B | Jest |
 | `POST /api/v1/game-auth/device-sessions` oraz `/native-characters`, `/tickets`, `/revoke` | Kontrakt tylko po stronie Platform; gra ich nie woła | Jest (Platform) |
@@ -198,7 +198,7 @@ Dlatego portal serwuje base URL w korzeniu domeny, bez prefiksu.
 
 Uwagi:
 
-- **Directory nie służy do odkrywania tras.** Klient odrzuca na każdej głębokości klucze `host`, `port`, `endpoint`, `protocol`, `ticket`, `credential`, `game_session`, `admission`, `route`, `address`. Nowe trasy klient zna z wersji kontraktu, nie z directory.
+- **Directory nie służy do odkrywania tras.** Klient odrzuca na każdej głębokości klucze `host`, `port`, `endpoint`, `endpoint_uri`, `protocol`, `protocol_profile`, `ticket`, `credential`, `game_session`, `admission`, `route`, `address`. Nowe trasy klient zna z wersji kontraktu, nie z directory.
 - **`world.characters` w directory.** Kontraktu directory w grze nie ma, jest tylko konsument (`platform-contracts`: `DirectoryCharacter{character_ref, display_name}`, ≤256 na świat). LCFA (Accepted rev 2) zabrania publicznej listy postaci konta. Reguła: `characters` tylko dla uwierzytelnionego właściciela konta, a anonimowo `characters: []`. G-1 zapisze kontrakt directory z tą regułą w locku; do tego czasu portal zawsze zwraca `[]`.
 - **Refresh token** jest nowym zachowaniem: dzisiejszy klient go nie używa. Portal może go wydawać (z rotacją i unieważnieniem rodziny przy ponownym użyciu), ale odpowiedź dla `authorization_code` musi pozostać zgodna z tym, co czyta klient.
 - Kontrakty „jak dziś” portal implementuje na własnych typach wire. Zgodność bajt w bajt sprawdzają testy z wektorami (golden) skopiowanymi z Game. Portal nie zależy od crate'ów gry: `platform-contracts` przypina tokio przez workspace gry, a `build.rs` w `protocol-oteryn` czyta docs repo gry.
