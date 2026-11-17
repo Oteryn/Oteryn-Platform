@@ -239,8 +239,17 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
         .map_err(unavailable)?;
     let account = id(&r.account)?;
     let generation = id(&r.generation)?;
-    let erased:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=ANY($1)) OR EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$2 AND (character_id IS NULL OR character_id=$3))")
-        .bind(vec![crate::store::scope_digest(&r.account,None),crate::store::scope_digest(&r.account,Some(&r.character))]).bind(&r.account).bind(&r.character).fetch_one(&mut *tx).await.map_err(unavailable)?;
+    let erased: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1 OR (scope_digest=$2 AND (closed_revision IS NULL OR closed_revision >= $5::numeric))) OR EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$3 AND (character_id IS NULL OR character_id=$4))",
+    )
+    .bind(crate::store::scope_digest(&r.account, None))
+    .bind(crate::store::scope_digest(&r.account, Some(&r.character)))
+    .bind(&r.account)
+    .bind(&r.character)
+    .bind(r.character_revision.to_string())
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(unavailable)?;
     if erased {
         return Err(StatusCode::CONFLICT);
     }
