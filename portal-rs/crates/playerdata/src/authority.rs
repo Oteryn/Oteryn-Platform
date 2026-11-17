@@ -251,7 +251,7 @@ async fn initial_cut(tx: &mut PgConnection, character: Uuid) -> Result<Ownership
 /// Proves who owns `character` now. Pending or ambiguous evidence denies
 /// (`Unavailable`). Locks the character's commands and projection rows shared.
 pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) -> Result<Ownership> {
-    live_feed(tx).await?;
+    let (_, source) = live_feed(tx).await?;
     let rows = sqlx::query("SELECT state,receipt_json FROM character_commands WHERE command='TransferCharacterOwnership' AND binding_json::jsonb->>'character_id'=$1 ORDER BY source_revision LIMIT $2 FOR SHARE")
         .bind(character.to_string())
         .bind(MAX_TRANSFERS + 1)
@@ -310,6 +310,23 @@ pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) ->
     {
         return Err(Error::Unavailable);
     }
+    // The buyer row proves inclusion. The seller's publication must also
+    // cover the transfer cut for the missing character row to prove removal.
+    if let Some(seller) = chain.iter().rev().nth(1) {
+        let revision: Option<String> = sqlx::query_scalar(
+            "SELECT projection_revision FROM account_character_snapshots
+             WHERE account_id=$1 AND source_authority=$2 AND projection_epoch=$3 AND NOT invalid
+             FOR SHARE",
+        )
+        .bind(seller.account)
+        .bind(source)
+        .bind(row.try_get::<String, _>("projection_epoch")?)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if opt_counter(revision.as_deref())? < current.from_projection_revision {
+            return Err(Error::Unavailable);
+        }
+    }
     if current.account == account {
         return Ok(Ownership::Owner(current.clone()));
     }
@@ -332,7 +349,9 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
     shared_fences(tx).await?;
     let restored = restore_generation(tx).await?;
     let recovery = counter(&scope.recovery).map_err(|_| Error::Conflict)?;
-    if recovery < restored {
+    // Zero denotes no restore notice. Once acknowledged, the generation
+    // is authoritative for progress records and watermarks.
+    if recovery < restored || (!items && restored != 0 && recovery != restored) {
         return Err(Error::Conflict);
     }
     // A G-11 stream is bound to the account's current projection epoch; a G-10
@@ -347,14 +366,10 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
         return Ok(Admission::Owner);
     };
     let character_id = uuid(character).map_err(|_| Error::Conflict)?;
-    let deleted = crate::store::character_deleted(tx, &scope.account, character, None).await?;
-    let proof = ownership(tx, account_id, character_id).await;
-    let cut = match proof {
-        Err(_) if deleted => return Ok(Admission::Deleted),
-        Ok(Ownership::Owner(cut)) => cut,
-        Ok(Ownership::Former) => return Ok(Admission::Transferred),
-        Ok(Ownership::Stranger) => return Err(Error::Conflict),
-        Err(e) => return Err(e),
+    let cut = match ownership(tx, account_id, character_id).await? {
+        Ownership::Owner(cut) => cut,
+        Ownership::Former => return Ok(Admission::Transferred),
+        Ownership::Stranger => return Err(Error::Conflict),
     };
     // A pending purge of an older period must not consume a new period's
     // revision as a terminal deletion. Retry after cleanup establishes its fence.
@@ -379,7 +394,7 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
                 == Some(cut.from_projection_revision)
             && opt_counter(pr).ok() == Some(cut.to_projection_revision)
             && opt_counter(scope.epoch.as_deref()).ok() == Some(cut.epoch)
-            && recovery >= cut.recovery
+            && recovery == cut.recovery
     } else {
         cr >= cut.character_revision
             && recovery >= cut.recovery

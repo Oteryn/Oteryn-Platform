@@ -969,7 +969,7 @@ impl Store {
         r: &Record,
         key: &str,
     ) -> Result<()> {
-        let last=sqlx::query("SELECT entity_key,kind,occurred_ms,payload,source_revision::text FROM pd_records WHERE stream_key=$1 ORDER BY source_revision DESC LIMIT 1").bind(key).fetch_optional(&mut **tx).await?;
+        let last=sqlx::query("SELECT entity_key,kind,occurred_ms,payload FROM pd_records WHERE stream_key=$1 ORDER BY source_revision DESC LIMIT 1").bind(key).fetch_optional(&mut **tx).await?;
         if r.kind == "ITEMS_BEGIN" {
             if last.is_some_and(|row| {
                 row.try_get::<String, _>("kind")
@@ -1011,7 +1011,7 @@ impl Store {
         key: &str,
         now: u64,
     ) -> Result<()> {
-        let rows=sqlx::query("SELECT source_revision::text,kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND entity_key=$2 ORDER BY source_revision").bind(key).bind(&r.entity).fetch_all(&mut **tx).await?;
+        let rows=sqlx::query("SELECT source_revision::text,kind,payload,expires_ms FROM pd_records WHERE stream_key=$1 AND entity_key=$2 ORDER BY pd_records.source_revision").bind(key).bind(&r.entity).fetch_all(&mut **tx).await?;
         let first = rows.first().ok_or(Error::Conflict)?;
         if first.try_get::<String, _>("kind")? != "ITEMS_BEGIN"
             || first.try_get::<i64, _>("expires_ms")? <= now as i64

@@ -188,10 +188,21 @@ impl Db {
     /// A committed `CreateCharacter` receipt at epoch 1, recovery 3:
     /// (character revision, projection revision, decided at seconds).
     async fn create(&self, account: &str, character: &str, world: &str, cut: [&str; 3]) {
+        self.create_at_generation(account, character, world, cut, "3")
+            .await;
+    }
+    async fn create_at_generation(
+        &self,
+        account: &str,
+        character: &str,
+        world: &str,
+        cut: [&str; 3],
+        generation: &str,
+    ) {
         let id = Uuid::now_v7();
         let [cr, pr, at] = cut;
         let receipt = format!(
-            r#"{{"contract_version":1,"operation":"PublishCharacterCommandReceiptV1","source_authority":"test","command":"CreateCharacter","operation_id":"{id}","outcome":"COMMITTED","result_code":"CHAR_CMD_OK","character_id":"{character}","account_id":"{account}","world_id":"{world}","name":"Hero","character_revision":"{cr}","projection_epoch":"1","projection_revision":"{pr}","recovery_generation":"3","decided_at":"{at}"}}"#
+            r#"{{"contract_version":1,"operation":"PublishCharacterCommandReceiptV1","source_authority":"test","command":"CreateCharacter","operation_id":"{id}","outcome":"COMMITTED","result_code":"CHAR_CMD_OK","character_id":"{character}","account_id":"{account}","world_id":"{world}","name":"Hero","character_revision":"{cr}","projection_epoch":"1","projection_revision":"{pr}","recovery_generation":"{generation}","decided_at":"{at}"}}"#
         );
         self.exec(
             "INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,binding_json,intent_json,receipt_json,state) VALUES($1::uuid,$1::uuid,$1,'CreateCharacter',$2::uuid,'{}','',$3,'TERMINAL')",
@@ -2022,5 +2033,102 @@ async fn postgres_g9_returned_owner_honors_transfer_tombstone_cutoff() {
     .await
     .unwrap();
     assert_eq!(send(body).await, StatusCode::CONFLICT);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r7_items_recovery_matches_cut() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let (account, world, character) = (
+        "019a0000-0000-7000-8000-000000000001",
+        "019a0000-0000-7000-8000-000000000002",
+        "019a0000-0000-7000-8000-000000000003",
+    );
+    db.account(account, "1", "1").await;
+    db.character(account, character, world).await;
+    let app = app(&db, Arc::new(FixedClock(ITEMS_NOW)), true);
+    let begin = items("record-items-begin.valid.json");
+    db.create_at_generation(account, character, world, ["1", "1", "1789999000"], "1")
+        .await;
+    let newer = begin.replace(
+        r#""recovery_generation":"1""#,
+        r#""recovery_generation":"2""#,
+    );
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, &newer).await.0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r7_generation_requires_restore() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    db.exec("INSERT INTO character_restore_notices(restore_event_id,notice_json,new_recovery_generation,acknowledged_at) VALUES(gen_random_uuid(),'{}','00000000000000000003',now())",&[]).await;
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    assert_eq!(
+        record(
+            &app,
+            &progress("record-stamina.valid.json").replace(
+                r#""recovery_generation":"3""#,
+                r#""recovery_generation":"4""#
+            )
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
+    assert_eq!(db.count("SELECT count(*) FROM pd_streams").await, 0);
+    assert_eq!(
+        record(&app, &progress("record-stamina.valid.json")).await.0,
+        StatusCode::OK
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r7_invalid_seller_snapshot() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", "1789999000"])
+        .await;
+    db.exec(
+        "UPDATE account_character_snapshots SET invalid=true WHERE account_id=$1::uuid",
+        &[SELLER],
+    )
+    .await;
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    assert_eq!(
+        record(&app, &buyer_stamina()).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r7_returned_owner_pending_purge() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", "1789999000"])
+        .await;
+    db.transfer(CHARACTER, BUYER, SELLER, ["11", "13", "14", "1789999001"])
+        .await;
+    assert!(db.count("SELECT count(*) FROM pd_erasure_jobs").await > 0);
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    assert_eq!(
+        record(&app, &progress("record-stamina.valid.json")).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
     db.close().await;
 }

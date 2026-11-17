@@ -2079,3 +2079,24 @@ async fn postgres_retention_keeps_live_login_digest_after_payload_expiry()
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn r7_snapshot_revisions_cross_ten() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let store = db.store(&a);
+    for revision in (1..12).step_by(2) {
+        let entity = Uuid::now_v7().to_string();
+        let begin = snapshot(revision, &entity, false);
+        a.allow(begin.scope.clone()).await;
+        store.ingest(begin, clock()).await?;
+        let end = store
+            .ingest(snapshot(revision + 1, &entity, true), clock())
+            .await;
+        assert!(end.is_ok(), "END {}: {end:?}", revision + 1);
+    }
+    db.close().await?;
+    Ok(())
+}
