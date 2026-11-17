@@ -27,7 +27,7 @@ current one is left; audit02 and
 - [x] Shifting `web_rate_limits.window_start` back an hour mid-loop reproduces the CI failure (302 vs 429 at the same assertion)
 - [x] The wait path runs and the test passes after it (scratch run with a 120 s window forced to wait for the next window)
 - [x] Both recovery-key budget tests start inside one window; three consecutive green runs of audit02
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -52,10 +52,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T05:55:00Z
-head: 32890246deff80a1f6bec79e55ff08ce397c5ba2
+head: 0ac09b7960c2a4ee0fc3fb3d0a08ff7dcf78e062
 branch: claude/happy-davinci-ijz3wy-audit02-window
 pr: 1908
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-audit02-window.md
@@ -94,5 +94,13 @@ validation:
     evidence: exit 0
 blockers:
   - none
-next_action: "wait for Portal RS CI on the PR, then squash auto-merge"
+next_action: none; delivered by PR 1908 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1908 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1908 merged as 0ac09b7960c2a4ee0fc3fb3d0a08ff7dcf78e062
 ```
