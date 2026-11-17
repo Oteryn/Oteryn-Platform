@@ -222,6 +222,8 @@ pub enum PrivilegeChange {
     AuthorizedLogin(Uuid, i64),
     Logout,
     Sudo(OffsetDateTime),
+    /// Replaces the identifier and CSRF token without changing the account.
+    Reissue,
 }
 /// Prepared durable rotation. Apply to request memory only after its transaction commits.
 pub struct CommittedRotation {
