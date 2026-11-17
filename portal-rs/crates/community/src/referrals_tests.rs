@@ -226,6 +226,32 @@ async fn postgres_success_replay_and_statistics() {
     db.close().await;
 }
 #[tokio::test]
+async fn postgres_held_referral_lock_sheds_invite_within_mutation_budget() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let svc = service(db.pool.clone(), Checks::new(), true);
+    let mut holder = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(5600)")
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+    let request = invitation(Kind::New);
+    let started = std::time::Instant::now();
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(10), svc.invite(&request)).await;
+    let elapsed = started.elapsed();
+    holder.rollback().await.unwrap();
+    assert!(
+        result.is_ok(),
+        "invite still waiting at 10 s on a held referral lock; expected a refusal within the 3 s mutation budget"
+    );
+    assert!(matches!(result, Ok(Err(_))), "{result:?}");
+    assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
+    db.close().await;
+}
+#[tokio::test]
 async fn postgres_refusals_and_bad_input() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::create().await else {

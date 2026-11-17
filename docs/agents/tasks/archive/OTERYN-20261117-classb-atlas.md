@@ -22,7 +22,7 @@ rotation already does. `oteryn-db` moves from dev-dependencies to dependencies.
 
 - [x] A held account row lock sheds marker creation and map reports as 503 within the mutation budget (test red without the change, green with it)
 - [x] Lock order and refusals unchanged
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -47,10 +47,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T04:15:00Z
-head: d2453556bdcb8cc3b66d0c22d5c57e5b45adc8b9
+head: a5bd9b02a10ecb1b4d346f4d09f42f4281d1943e
 branch: claude/happy-davinci-ijz3wy-classb-atlas
 pr: 1903
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-classb-atlas.md
@@ -85,5 +85,13 @@ validation:
     evidence: exit 0
 blockers:
   - none
-next_action: "Portal RS CI on PR #1903, then squash merge"
+next_action: none; delivered by PR 1903 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1903 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1903 merged as a5bd9b02a10ecb1b4d346f4d09f42f4281d1943e
 ```

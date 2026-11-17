@@ -161,6 +161,7 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
             return Err(Error::Denied);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         // Legacy isolated adapters may not have the identity schema/FKs.
         let identity: bool = sqlx::query_scalar("SELECT to_regclass('accounts') IS NOT NULL")
             .fetch_one(&mut *tx)
