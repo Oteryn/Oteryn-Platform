@@ -910,6 +910,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         self.allowed(&mut tx, seller).await?;
         self.allowed(&mut tx, buyer).await?;
         if !replayed {
+            crate::debt::unlocked(&mut tx, seller).await?;
             let row = sqlx::query("SELECT amount-consumed AS remaining,status FROM wallet_reservations WHERE id=$1 FOR UPDATE").bind(reservation).fetch_one(&mut *tx).await?;
             let remaining: i64 = row.try_get("remaining")?;
             let status: String = row.try_get("status")?;
