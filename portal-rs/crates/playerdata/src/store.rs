@@ -262,6 +262,24 @@ async fn tombstone(
         .await?;
     Ok(())
 }
+/// A permanent character deletion remains authoritative after LCFA removes
+/// the character. Transfer cuts close only one ownership period.
+pub(crate) async fn character_permanently_deleted(
+    conn: &mut PgConnection,
+    account: &str,
+    character: &str,
+) -> Result<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1 AND closed_revision IS NULL)
+             OR EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$2 AND character_id=$3 AND closed_revision IS NULL)",
+    )
+    .bind(scope_digest(account, Some(character)))
+    .bind(account)
+    .bind(character)
+    .fetch_one(conn)
+    .await?)
+}
+
 /// Whether this account's character scope carries a deletion tombstone.
 pub(crate) async fn character_deleted(
     conn: &mut PgConnection,

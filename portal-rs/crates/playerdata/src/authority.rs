@@ -356,20 +356,39 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
     }
     // A G-11 stream is bound to the account's current projection epoch; a G-10
     // cut's epoch is proven with its receipt below.
-    if !items
-        && let Some(epoch) = scope.epoch.as_deref()
-        && counter(epoch).map_err(|_| Error::Conflict)? != account_epoch(tx, account_id).await?
-    {
-        return Err(Error::Conflict);
+    if !items && let Some(epoch) = scope.epoch.as_deref() {
+        if counter(epoch).map_err(|_| Error::Conflict)? != account_epoch(tx, account_id).await? {
+            return Err(Error::Conflict);
+        }
+        // The store holds the account lock across admission and acceptance.
+        // A new epoch has its own stream and can establish its generation.
+        let newer_generation: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pd_streams WHERE stream_key=$1
+               AND GREATEST(recovery_high_water,watermark_recovery) < $2::text::numeric)",
+        )
+        .bind(crate::store::stream_key(scope))
+        .bind(&scope.recovery)
+        .fetch_one(&mut *tx)
+        .await?;
+        if newer_generation {
+            return Err(Error::Conflict);
+        }
     }
     let Some(character) = scope.character.as_deref() else {
         return Ok(Admission::Owner);
     };
     let character_id = uuid(character).map_err(|_| Error::Conflict)?;
-    let cut = match ownership(tx, account_id, character_id).await? {
-        Ownership::Owner(cut) => cut,
-        Ownership::Former => return Ok(Admission::Transferred),
-        Ownership::Stranger => return Err(Error::Conflict),
+    let cut = match ownership(tx, account_id, character_id).await {
+        Ok(Ownership::Owner(cut)) => cut,
+        Ok(Ownership::Former) => return Ok(Admission::Transferred),
+        Ok(Ownership::Stranger) => return Err(Error::Conflict),
+        Err(Error::Unavailable)
+            if crate::store::character_permanently_deleted(tx, &scope.account, character)
+                .await? =>
+        {
+            return Ok(Admission::Deleted);
+        }
+        Err(e) => return Err(e),
     };
     // A pending purge of an older period must not consume a new period's
     // revision as a terminal deletion. Retry after cleanup establishes its fence.
