@@ -578,14 +578,19 @@ async fn postgres_real_session_csrf_and_origin_adapter() -> Result {
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
+    // Real browser rotation prepares identity before touching its session row.
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261105155256_t03_accounts.sql"
+    ))
+    .execute(&h.pool)
+    .await?;
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261105144852_t02_web_sessions.sql"
     ))
     .execute(&h.pool)
     .await?;
-    // Real browser rotation prepares identity before touching its session row.
     sqlx::raw_sql(include_str!(
-        "../../../../migrations/20261105155256_t03_accounts.sql"
+        "../../../../migrations/20261105220221_t08_sessions.sql"
     ))
     .execute(&h.pool)
     .await?;

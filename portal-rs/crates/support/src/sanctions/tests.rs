@@ -52,6 +52,7 @@ impl Database {
             include_str!("../../../../migrations/20261105220235_t34_sanctions.sql"),
             include_str!("../../../../migrations/20261105231600_support_sanction_revisions.sql"),
             include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
+            include_str!("../../../../migrations/20261105220221_t08_sessions.sql"),
             include_str!("../../../../migrations/20261105220202_t04_login_guard.sql"),
             include_str!(
                 "../../../../migrations/20261105220209_accounts_native_security_generation.sql"
