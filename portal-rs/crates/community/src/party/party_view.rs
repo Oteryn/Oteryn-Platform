@@ -28,6 +28,7 @@ struct Labels {
     remove: String,
     dismiss: String,
     moderation: String,
+    more_reports: String,
     empty: String,
     hint: String,
     hunt: String,
@@ -144,7 +145,9 @@ fn translate(bundle: &FluentBundle<FluentResource>, key: &str) -> Result<String,
 </dl>
 <p>{{ row.note }}</p>
 {% if moderation %}<p>{{ row.reports }}</p>
+{% if row.more_reports > 0 %}<p>{{ row.more_reports }} {{ t.more_reports }}</p>{% endif %}
 <form class="op-stack" method="post" action="/admin/{{ lang }}/party/{{ row.id }}/moderate">
+<input type="hidden" name="report_ids" value="{{ row.report_ids }}">
 <input class="op-input" type="hidden" name="_csrf" value="{{ token }}">
 <label class="op-field">{{ t.reason }}<input class="op-input" name="reason" type="text" maxlength="500" required>
 </label>
@@ -215,6 +218,7 @@ pub(super) fn page(
         remove: translate(&bundle, "remove")?,
         dismiss: translate(&bundle, "dismiss")?,
         moderation: translate(&bundle, "moderation")?,
+        more_reports: translate(&bundle, "more-reports")?,
         empty: translate(&bundle, "empty")?,
         hint: translate(&bundle, "hint")?,
         hunt: translate(&bundle, "hunt")?,

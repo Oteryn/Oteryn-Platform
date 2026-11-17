@@ -29,3 +29,4 @@ sorcerer = Czarownik
 druid = Druid
 monk = Mnich
 unavailable = Publikacja jest niedostępna do czasu potwierdzenia konta i własności postaci.
+more-reports = więcej
