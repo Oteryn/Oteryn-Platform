@@ -65,7 +65,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T13:57:19Z
 head: b2400627b46fd5995bd840623245ede837705032
 branch: claude/happy-davinci-ijz3wy-premium-4eyes
-pr: none
+pr: 1933
 status: ready
 terminal_pr_policy: archive_pending
 context_routes: []
