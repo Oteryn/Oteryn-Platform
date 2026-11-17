@@ -131,6 +131,9 @@ validation:
   - command: cargo test --locked -p oteryn-admin -p oteryn-bazaar -p oteryn-identity -p oteryn-payments -p oteryn-playerdata -p oteryn-portal (each)
     result: PASS
     evidence: admin 209, bazaar 143, identity 181, payments 49 (1 existing ignore), playerdata 166, portal 223 (1 existing ignore); PostgreSQL 18 set
+  - command: follow-up (closure guard, retention batch) cargo test --locked -p oteryn-identity termination; cargo test --locked -p oteryn-playerdata
+    result: PASS
+    evidence: identity termination 31, playerdata 166; the terminal-REJECTED case of postgres_cancel_before_delivery_and_after_proof_never_issues_finalize fails with the previous guard
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: narrow server-side fixes covered by the PostgreSQL tests through the real entry points

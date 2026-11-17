@@ -643,18 +643,24 @@ impl Boundary for GameBoundary {
         Box::pin(async move {
             self.settings.ready()?;
             // The caller holds the account lock, as do cancellation and receipt
-            // ingestion. Preserve CANCEL's generation until restoration commits.
+            // ingestion. Preserve CANCEL's generation while restoration is still
+            // in flight: no receipt yet, or only a rejection that reconciliation
+            // re-issues. A committed or terminally rejected restoration, or an
+            // invalid row, no longer holds the generation.
             let restoration_pending: bool = sqlx::query_scalar(
                 "SELECT EXISTS(
                     SELECT 1 FROM plat3_closure_work w
                     WHERE w.account_id=$1 AND w.resolution='CANCEL'
                       AND w.close_operation_id IS NOT NULL
+                      AND NOT w.invalid
                       AND NOT EXISTS(
                         SELECT 1 FROM plat3_closure_commands c
                         JOIN plat3_closure_receipts r USING(operation_id)
                         WHERE c.termination_id=w.termination_id
                           AND c.command='ResolveAccountClosure'
-                          AND convert_from(r.receipt,'UTF8')::jsonb->>'outcome'='COMMITTED'
+                          AND (convert_from(r.receipt,'UTF8')::jsonb->>'outcome'<>'REJECTED'
+                            OR convert_from(r.receipt,'UTF8')::jsonb->>'result_code' NOT IN
+                              ('CHAR_CMD_INTENT_EXPIRED','CHAR_CMD_ACCOUNT_CLOSE_STALE_GENERATION'))
                       )
                 )",
             )

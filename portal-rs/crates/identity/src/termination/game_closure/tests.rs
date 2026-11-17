@@ -427,7 +427,7 @@ async fn postgres_cancel_before_delivery_and_after_proof_never_issues_finalize()
     };
     let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
     let s = service(&db, b.clone());
-    for proof in [false, true] {
+    for (proof, terminal_reject) in [(false, false), (true, false), (false, true)] {
         let account = db.account().await?;
         let (t, intent) = issue(&db, &s, account).await;
         if proof {
@@ -481,20 +481,28 @@ async fn postgres_cancel_before_delivery_and_after_proof_never_issues_finalize()
         receipt.command = resolution.command.clone();
         receipt.operation_id = resolution.operation_id.clone();
         receipt.decided_at = resolution.issued_at_source.clone();
-        let result = receipt.result_data.as_mut().ok_or("receipt result")?;
-        result.account_id = resolution.account_id.clone();
-        result.termination_id = resolution.termination_id.clone();
-        result.lifecycle_generation = resolution.lifecycle_generation.clone();
-        result.closure_state = "CANCELLED".into();
-        let bytes = serde_json::to_vec(result)?;
-        let marker = b",\"proof_sha256\":";
-        let end = bytes
-            .windows(marker.len())
-            .position(|w| w == marker)
-            .ok_or("proof")?;
-        let mut body = bytes[..end].to_vec();
-        body.push(b'}');
-        result.proof_sha256 = wire::hex(&digest(&body));
+        if terminal_reject {
+            // A terminal rejection is not re-issued, so it must not hold the
+            // generation and block every later termination request.
+            receipt.outcome = "REJECTED".into();
+            receipt.result_code = "CHAR_CMD_ACCOUNT_CLOSE_RESOLUTION_CONFLICT".into();
+            receipt.result_data = None;
+        } else {
+            let result = receipt.result_data.as_mut().ok_or("receipt result")?;
+            result.account_id = resolution.account_id.clone();
+            result.termination_id = resolution.termination_id.clone();
+            result.lifecycle_generation = resolution.lifecycle_generation.clone();
+            result.closure_state = "CANCELLED".into();
+            let bytes = serde_json::to_vec(result)?;
+            let marker = b",\"proof_sha256\":";
+            let end = bytes
+                .windows(marker.len())
+                .position(|w| w == marker)
+                .ok_or("proof")?;
+            let mut body = bytes[..end].to_vec();
+            body.push(b'}');
+            result.proof_sha256 = wire::hex(&digest(&body));
+        }
         let raw = serde_json::to_vec(&receipt)?;
         b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
             .await?;
