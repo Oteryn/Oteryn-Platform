@@ -680,3 +680,58 @@ async fn malformed_authenticated_premium_requests_consume_budget_before_validati
         assert_eq!(response.headers()["retry-after"], "60");
     }
 }
+
+#[tokio::test]
+async fn snapshot_held_authority_lock_sheds_within_mutation_budget() {
+    use std::time::{Duration, Instant};
+
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let version: i32 = sqlx::query_scalar("SELECT current_setting('server_version_num')::integer")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        version / 10000,
+        18,
+        "this regression requires PostgreSQL 18"
+    );
+    let account = known();
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES ($1)")
+        .bind(account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut blocker = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM premium_authority WHERE account_id=$1 FOR UPDATE")
+        .bind(account)
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+
+    // The awaited FOR UPDATE above establishes ordering. The outer timeout only
+    // observes the product; it must shed with Unavailable on its own budget.
+    let ledger = db.ledger(true);
+    let started = Instant::now();
+    let observed = tokio::time::timeout(
+        Duration::from_secs(10),
+        ledger.snapshot(account, NONCE, BUILD),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    blocker.rollback().await.unwrap();
+    db.close().await;
+
+    assert!(
+        observed.is_ok(),
+        "snapshot still waiting at 10 s on a held authority lock; expected Unavailable within the 3 s mutation budget"
+    );
+    assert_eq!(observed.unwrap(), Err(Error::Unavailable));
+    // Permit scheduling/transport overhead around the unchanged three-second budget.
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "budget exceeded: {elapsed:?}"
+    );
+}
