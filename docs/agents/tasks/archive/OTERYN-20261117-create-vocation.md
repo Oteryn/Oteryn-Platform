@@ -22,7 +22,7 @@ Member order and value sets agreed with the Game server lane on 2026-11-17.
 - [x] Stored v1 creates are not served by pending or read
 - [x] The web form requires sex and vocation; bad or missing values create no command
 - [x] Fixtures `character-create-v2/` match the serializer and validator byte for byte
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -49,10 +49,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T16:40:00Z
-head: 07fe2ba851f94b526e39810e15a7e6e2811ea618
+head: 6d04b52a16145723eedb0c56640ad052dbd26e94
 branch: claude/happy-davinci-ijz3wy-create-vocation
 pr: 1940
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -119,5 +119,13 @@ validation:
     evidence: create flags stay off until the Game consumer accepts v2; form-to-intent path covered by the web PostgreSQL tests
 blockers:
   - none
-next_action: wait for Portal RS CI on the PR head
+next_action: none; delivered by PR 1940 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1940 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1940 merged as 6d04b52a16145723eedb0c56640ad052dbd26e94
 ```

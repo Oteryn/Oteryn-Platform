@@ -1336,6 +1336,77 @@ async fn concurrent_reversals_debit_once_even_for_a_banned_payer() -> TestResult
 }
 
 #[tokio::test]
+async fn settlement_waiting_for_wallet_observes_committed_purchase_hold() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::open().await?.ok_or("PostgreSQL is required")?;
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let service = db.service(vec![]);
+    let (reversed_order, _, _) = paid_order(&db, &service, payer).await?;
+    let (_, intent, request) = awaiting_order(&db, &service, payer, &token).await?;
+    let before = wallet_of(&service, payer).await;
+
+    // Model the reversal's critical section: its hold is committed while
+    // settlement is waiting for the same payer's wallet lock.
+    let mut reversal = db.pool.begin().await?;
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reversal)
+        .await?;
+    sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+        .bind(payer)
+        .fetch_one(&mut *reversal)
+        .await?;
+    let settling = service.clone();
+    let settlement = tokio::spawn(async move {
+        deliver(
+            &settling,
+            &coin_event(
+                intent,
+                &format!("provider:{intent}:paid"),
+                EventState::Succeeded,
+            ),
+        )
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(blocker)
+            .fetch_one(&db.pool)
+            .await?;
+            if waiting {
+                return Ok::<_, sqlx::Error>(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    sqlx::query("INSERT INTO coin_purchase_holds (account_id,order_id,reason) VALUES ($1,$2,'reversal_insufficient_balance')")
+        .bind(payer).bind(reversed_order).execute(&mut *reversal).await?;
+    reversal.commit().await?;
+    assert_eq!(settlement.await??, WebhookOutcome::Applied);
+
+    let held = service.order(payer, request).await?;
+    assert_eq!(held.state, OrderState::Processing);
+    assert!(held.review_required);
+    assert_eq!(held.code, "COIN_ORDER_REVIEW_REQUIRED");
+    assert!(held.receipt_id.is_none());
+    let after = wallet_of(&service, payer).await;
+    assert_eq!(after.total_coins, before.total_coins);
+    assert_eq!(after.available_coins, before.available_coins);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM wallet_operations WHERE id=$1")
+            .bind(intent)
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await
+}
+
+#[tokio::test]
 async fn reversal_of_unavailable_coins_holds_and_freezes_purchasing() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {

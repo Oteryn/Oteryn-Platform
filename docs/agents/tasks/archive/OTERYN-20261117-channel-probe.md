@@ -23,7 +23,7 @@ handler, route, migration or flag; the list route is a follow-up to T36b.
 - [x] Fixtures probes-ok, rejected-route-key, rejected-http-url, rejected-query and probe-target-204 with manifest and README
 - [x] Manifest digests checked (`native_client_fixture_manifests_match_their_files`)
 - [x] Each vector matches its declared client outcome (`client_channel_probe_vectors_match_their_declared_outcome`)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 - [x] Game client session confirmed the contract (warm-up plus 3 timed HEAD, 2 s timeout)
 
 ## Ownership
@@ -50,10 +50,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T18:00:00Z
-head: 1bb15ad3af64a975dd01da79f5d210f5806d6077
+head: d2e54f2ebe2d8be5ac592bba355c4ba2d13b5c57
 branch: claude/happy-davinci-ijz3wy-channel-probe
 pr: 1939
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-channel-probe.md
@@ -103,13 +103,13 @@ validation:
     evidence: contract and fixtures only; no route, handler or flag changes
 blockers:
   - none
-next_action: open PR 1940 and run Portal RS CI on its head
+next_action: none; delivered by PR 1939 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1939 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1939 merged as d2e54f2ebe2d8be5ac592bba355c4ba2d13b5c57
 ```
