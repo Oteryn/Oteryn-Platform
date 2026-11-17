@@ -1004,3 +1004,42 @@ async fn r8_distinct_issuance_requests_create_two_batches() {
     );
     db.close().await;
 }
+
+#[tokio::test]
+async fn r9_coin_redemption_leaves_client_wallet_key_free() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let service = db.service();
+    let generated = service
+        .generate(&staff(), &batch(Kind::Coins), 1)
+        .await
+        .unwrap();
+    let req = request(&generated.codes[0]);
+    let receipt = service.redeem(&req).await.unwrap();
+    assert!(db.wallet().operation(req.key).await.unwrap().is_none());
+    assert!(
+        db.wallet()
+            .operation(receipt.redemption_id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r9_coin_batch_respects_wallet_ceiling() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let mut spec = batch(Kind::Coins);
+    spec.amount = oteryn_wallet::MAX_BALANCE + 1;
+    let result = db.service().generate(&staff(), &spec, 1).await;
+    assert!(matches!(result, Err(Error::Invalid)));
+    spec.amount = oteryn_wallet::MAX_BALANCE;
+    db.service().generate(&staff(), &spec, 1).await.unwrap();
+    db.close().await;
+}

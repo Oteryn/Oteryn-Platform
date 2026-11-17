@@ -1880,3 +1880,20 @@ async fn purchase_observes_review_committed_while_waiting_for_delivery_lock() {
     assert_eq!(db.count("wallet_entries").await, entries);
     db.finish().await;
 }
+
+#[tokio::test]
+async fn r9_purchase_respects_reserved_intent_id() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    db.fund(ACCOUNT, 1250).await;
+    let id = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test','checkout',100,'PLN','pending')")
+        .bind(id).bind(uuid(ACCOUNT).unwrap()).execute(&db.pool).await.unwrap();
+    let raw = change(&request(&db.revision), "purchase_request_id", text(id));
+    let result = db.service(settings()).purchase(&raw).await;
+    assert!(matches!(result, Err(Error::Conflict)));
+    assert!(db.wallet().operation(id).await.unwrap().is_none());
+    db.finish().await;
+}

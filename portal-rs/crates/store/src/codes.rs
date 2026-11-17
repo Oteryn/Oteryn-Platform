@@ -240,6 +240,10 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
                 codes: Vec::new(),
             });
         }
+        // Preserve exact replays of batches issued before the denomination limit.
+        if batch.kind == Kind::Coins && batch.amount > oteryn_wallet::MAX_BALANCE {
+            return Err(Error::Invalid);
+        }
         let mut codes = Vec::with_capacity(count);
         for _ in 0..count {
             let mut random = [0u8; 16];
@@ -412,7 +416,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
                 self.wallet
                     .adjust_in(
                         tx,
-                        request.key,
+                        id,
                         request.account,
                         amount,
                         actor,
