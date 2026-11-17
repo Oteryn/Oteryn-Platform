@@ -917,6 +917,19 @@ impl CoinPurchases {
         IntentState::parse(current)?.transition(state)?;
         let mut review = false;
         if next == OrderState::Paid {
+            // A reversal records its purchase hold under this wallet lock.
+            // Take it before reading restrictions so a settlement that waits
+            // sees the committed hold in a fresh READ COMMITTED snapshot.
+            sqlx::query(
+                "INSERT INTO wallet_accounts (account_id) VALUES ($1) ON CONFLICT DO NOTHING",
+            )
+            .bind(order.payer)
+            .execute(&mut **tx)
+            .await?;
+            sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+                .bind(order.payer)
+                .fetch_one(&mut **tx)
+                .await?;
             let mut restriction = self
                 .restriction(tx, order.payer)
                 .await
