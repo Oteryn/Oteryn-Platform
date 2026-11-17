@@ -350,6 +350,52 @@ fn router_with(
     )
 }
 
+#[tokio::test]
+async fn malformed_requests_consume_peer_budget() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/unused")
+        .unwrap();
+    for (path, peer) in [
+        (http::AUTHORITY_PATH, B1_PEER),
+        (http::CHANGES_PATH, B2_PEER),
+    ] {
+        for content_type in ["application/json", "text/plain"] {
+            let mut config = settings(&[]);
+            config.authority_budget = Some(2);
+            config.changes_budget = Some(2);
+            let router = router_with(pool.clone(), Arc::new(TestEntitlements::default()), config);
+            for attempt in 0..3 {
+                let body: &[u8] = if content_type == "application/json" {
+                    b"not json"
+                } else {
+                    b"{}"
+                };
+                let mut malformed = request(path, body, Some(peer));
+                malformed
+                    .headers_mut()
+                    .insert("content-type", content_type.parse().unwrap());
+                let response = router.clone().oneshot(malformed).await.unwrap();
+                let expected = if attempt < 2 { 400 } else { 429 };
+                assert_eq!(
+                    response.status().as_u16(),
+                    expected,
+                    "{path} {content_type} attempt {attempt}"
+                );
+                assert_eq!(response.headers()["cache-control"], "no-store, private");
+                if attempt == 2 {
+                    assert_eq!(response.headers()["retry-after"], "60");
+                }
+                assert!(
+                    axum::body::to_bytes(response.into_body(), 256)
+                        .await
+                        .unwrap()
+                        .is_empty()
+                );
+            }
+        }
+    }
+}
+
 /// Guard order without a database: flag/configuration (503) before identity
 /// (401), identity and scope before the body (400).
 #[tokio::test]
