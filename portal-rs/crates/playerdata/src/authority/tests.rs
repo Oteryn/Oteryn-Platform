@@ -1913,3 +1913,114 @@ async fn postgres_a3_scrubbed_remove_publication() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn postgres_g9_returned_owner_honors_transfer_tombstone_cutoff() {
+    let db = Db::open().await.unwrap();
+    seller(&db).await;
+    db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", "1789999000"])
+        .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    let cut: String = sqlx::query_scalar(
+        "SELECT closed_revision::text FROM pd_deleted_scopes WHERE scope_digest=$1",
+    )
+    .bind(crate::store::scope_digest(SELLER, Some(CHARACTER)))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(cut, "10");
+    db.transfer(CHARACTER, BUYER, SELLER, ["11", "13", "12", "1789999100"])
+        .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    let generation = "019a5000-0000-7000-8000-000000000001";
+    db.exec("INSERT INTO pd_g9_streams(source_authority,account_id,stream_generation,admitted,recovery_generation) VALUES('game.test',$1::uuid,$2::uuid,true,3)", &[SELLER, generation]).await;
+    for key in ["vocation:knight", "place:cave", "item:ruby"] {
+        db.exec(
+            "INSERT INTO pd_g9_catalogue_keys VALUES('game.test','fixture.v1',$1)",
+            &[key],
+        )
+        .await;
+    }
+    let identities = Arc::new(
+        IdentityMap::new(vec![Binding {
+            identity: Identity::san("sessions.oteryn.internal").unwrap(),
+            group: crate::sessions::GROUP.into(),
+        }])
+        .unwrap(),
+    );
+    let app = crate::sessions::router(
+        db.pool.clone(),
+        crate::sessions::Settings {
+            ingest: true,
+            commands: false,
+            source: "game.test".into(),
+        },
+        identities,
+    );
+    let doc = fixture("..", "OTERYN_V2_GAME_JOURNAL_SESSIONS_CONTRACT_PROPOSAL.md");
+    let golden = doc
+        .lines()
+        .find(|line| {
+            line.starts_with(r#"{"contract_version":1,"operation":"PublishGameJournalRecordV1""#)
+                && line.contains(r#""record_kind":"HUNT_SEGMENT""#)
+        })
+        .unwrap();
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    let body = golden
+        .replace("019a5000-0000-7000-8000-000000000002", SELLER)
+        .replace("019a5000-0000-7000-8000-000000000005", CHARACTER)
+        .replace("019a5000-0000-7000-8000-000000000006", WORLD)
+        .replace(
+            r#""character_revision":"1""#,
+            r#""character_revision":"11""#,
+        )
+        .replace("1793836800", &(now - 60).to_string())
+        .replace("1793836860", &now.to_string());
+    let send = |body: String| {
+        let app = app.clone();
+        async move {
+            post(
+                &app,
+                "sessions.oteryn.internal",
+                crate::sessions::RECORDS,
+                &body,
+            )
+            .await
+            .0
+        }
+    };
+    assert_eq!(
+        send(body.clone()).await,
+        StatusCode::OK,
+        "returned owner must ingest beyond the transfer tombstone cutoff"
+    );
+    for revision in ["9", "10"] {
+        assert_eq!(
+            send(body.replace(
+                r#""character_revision":"11""#,
+                &format!(r#""character_revision":"{revision}""#)
+            ))
+            .await,
+            StatusCode::CONFLICT
+        );
+    }
+    sqlx::query(
+        "INSERT INTO pd_deleted_scopes(scope_digest,deleted_ms,expires_ms) VALUES($1,0,9223372036854775807)",
+    )
+    .bind(crate::store::scope_digest(SELLER, None))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(send(body).await, StatusCode::CONFLICT);
+    db.close().await;
+}

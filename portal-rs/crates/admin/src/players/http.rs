@@ -274,7 +274,9 @@ async fn detail<A: AccountStateReader, I: Accounts>(
     }
     match s.characters(context, id).await {
         Ok(rows) => page.characters = rows,
-        Err(Error::Unavailable | Error::NotFound) => page.characters_unavailable = true,
+        Err(Error::Unavailable | Error::NotFound | Error::Denied) => {
+            page.characters_unavailable = true;
+        }
         Err(e) => return Err(e),
     }
     match s.coin_hold(context, id).await {

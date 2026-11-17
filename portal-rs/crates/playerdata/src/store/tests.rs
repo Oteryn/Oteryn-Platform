@@ -1968,3 +1968,114 @@ async fn postgres_mig01_bank_repair_and_concurrent_legacy_write()
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_retention_keeps_live_login_digest_after_payload_expiry()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+            .fetch_one(&db.pool)
+            .await?;
+    let old = now as u64 - 62 * 86400000;
+    let time = TrustedTime {
+        unix_ms: old,
+        uncertainty_ms: 0,
+    };
+    let event = Uuid::now_v7();
+    let base = playerdata::progress(&progress(1))?;
+    let payload = canonical::encode(&base.payload)?;
+    let login_payload = format!(
+        "{{\"login_event_id\":\"{event}\",\"entered_at\":\"{old}\",\"left_at\":null,\"end_reason\":null}}"
+    );
+    let raw = String::from_utf8(base.bytes)?
+        .replace(&NOW.to_string(), &old.to_string())
+        .replace("\"family\":\"stamina\"", "\"family\":\"game_login\"")
+        .replace(
+            "\"entity_key\":\"stamina\"",
+            &format!("\"entity_key\":\"{event}\""),
+        )
+        .replace(std::str::from_utf8(&payload)?, &login_payload)
+        .into_bytes();
+    let login = playerdata::progress(&raw)?;
+    a.allow(login.scope.clone()).await;
+    let store = db.store(&a);
+    let accepted = store.ingest(login, time).await?;
+    let bank = playerdata::items(
+        String::from_utf8(bank(1, None, 0, 100))?
+            .replace(&(NOW / 1000).to_string(), &(old / 1000).to_string())
+            .as_bytes(),
+    )?;
+    a.allow(bank.scope.clone()).await;
+    store.ingest(bank, time).await?;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await?;
+    let state: (i64, i64) = sqlx::query_as(
+        "SELECT count(*),count(payload) FROM pd_records r JOIN pd_streams s USING(stream_key) WHERE s.progress"
+    ).fetch_one(&db.pool).await?;
+    assert_eq!(
+        state,
+        (1, 0),
+        "live login digest must survive payload expiry"
+    );
+    let floor: String =
+        sqlx::query_scalar("SELECT retention_floor::text FROM pd_streams WHERE NOT progress")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(floor, "1", "ordinary stream still advances its floor");
+    let identity = Identity::san("journal-test")?;
+    let identities = Arc::new(IdentityMap::new(vec![Binding {
+        identity: identity.clone(),
+        group: http::PROGRESS_GROUP.into(),
+    }])?);
+    let app = http::router(
+        http::HttpState::new(store, Arc::new(TestClock)).with_sources(sources(true)),
+        identities,
+    );
+    let mut request = Request::post("/internal/v1/playerdata/progress/record")
+        .header("content-type", "application/json")
+        .header("content-length", raw.len())
+        .body(Body::from(raw))?;
+    request
+        .extensions_mut()
+        .insert(VerifiedClient::from_verified_tls13_http11(identity));
+    let response = app.oneshot(request).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        to_bytes(response.into_body(), 4096).await?.as_ref(),
+        accepted
+    );
+    // Erased progress keeps its digest for 120 days, then releases it.
+    sqlx::query("UPDATE pd_streams SET erased=true,erased_ms=$1 WHERE progress")
+        .bind(now - 119 * 86400000_i64)
+        .execute(&db.pool)
+        .await?;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pd_records")
+            .fetch_one(&db.pool)
+            .await?,
+        1
+    );
+    sqlx::query("UPDATE pd_streams SET erased_ms=$1 WHERE progress")
+        .bind(now - 121 * 86400000_i64)
+        .execute(&db.pool)
+        .await?;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pd_records")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await?;
+    Ok(())
+}

@@ -392,7 +392,8 @@ impl CharacterEvidence for Authority {
             .map(|v| {
                 Ok(Skill {
                     key: text(v, "key").map_err(to_core)?.into(),
-                    level: number(v, "level").map_err(to_core)?,
+                    level: decimal(text(v, "level").map_err(to_core)?, true, u64::MAX)
+                        .map_err(to_core)?,
                     progress_bps: match v.get("progress_bps") {
                         Some(Value::Unsigned(n)) => *n as u16,
                         _ => return Err(crate::Error::Denied),

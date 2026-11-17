@@ -2842,6 +2842,15 @@ async fn committed_fact(
 }
 #[tokio::test]
 async fn postgres_browser_verified_character_snapshot_facts() {
+    character_snapshot_browser_scenario(false).await;
+}
+
+#[tokio::test]
+async fn postgres_browser_zero_magic_skill_snapshot() {
+    character_snapshot_browser_scenario(true).await;
+}
+
+async fn character_snapshot_browser_scenario(zero_magic: bool) {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let mut db = BrowserFixture::new().await;
@@ -2849,9 +2858,57 @@ async fn postgres_browser_verified_character_snapshot_facts() {
         .authority
         .config
         .escrow_account_id = Some(uid("40"));
+    let mut signed_snapshot = vector("locked_character_snapshot");
+    if zero_magic {
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        use ed25519_dalek::Signer;
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[9; 32]);
+        std::sync::Arc::make_mut(&mut db.runtime.config)
+            .authority
+            .config
+            .snapshot_keys = vec![("fixture-example-1".into(), signing.verifying_key())];
+        let original = decode(signed_snapshot.as_bytes(), 262144).unwrap();
+        let payload =
+            String::from_utf8(canonical::encode(original.get("snapshot").unwrap()).unwrap())
+                .unwrap();
+        let payload = payload.replace(
+            "\"progress_bps\":5000}]",
+            "\"progress_bps\":5000},{\"key\":\"magic\",\"level\":\"0\",\"progress_bps\":0}]",
+        );
+        let message = format!(
+            "oteryn-v2-bazaar-character-snapshot-v1.{}",
+            URL_SAFE_NO_PAD.encode(payload.as_bytes())
+        );
+        let signature = URL_SAFE_NO_PAD.encode(signing.sign(message.as_bytes()).to_bytes());
+        signed_snapshot = format!(
+            "{{\"snapshot\":{payload},\"snapshot_hash\":\"{}\",\"alg\":\"Ed25519\",\"kid\":\"fixture-example-1\",\"signature\":\"{signature}\"}}",
+            digest(payload.as_bytes())
+        );
+    }
     let a = db.runtime.authority();
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
+    assert!(
+        verify_snapshot(
+            signed_snapshot.as_bytes(),
+            &SnapshotBinding {
+                source_authority: &a.config.projection_authority,
+                listing: uid("30"),
+                seller: uid("11"),
+                character: uid("31"),
+                world: uid("12"),
+                lock: uid("32"),
+                lock_revision: 1,
+                character_revision: 7,
+                eligibility_revision: 4,
+                projection_epoch: 3,
+                now,
+            },
+            "fixture-example-1",
+            &a.config.snapshot_keys[0].1,
+        )
+        .is_ok()
+    );
     let listing = uid("30");
     sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'character','auction','coins',100,false,'active',now()+interval '1 day')").bind(listing).bind(uid("11")).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$3,7,$4,1,true,'character-browser')").bind(listing).bind(uid("12")).bind(uid("31")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
@@ -2871,7 +2928,7 @@ async fn postgres_browser_verified_character_snapshot_facts() {
         "{{\"character_id\":\"{}\",\"lock_id\":\"{}\",\"lock_revision\":\"1\",\"eligibility_revision\":\"4\",\"signed_snapshot\":{}}}",
         uid("31"),
         uid("32"),
-        vector("locked_character_snapshot")
+        signed_snapshot
     );
     committed_fact(a, &mut tx, &lock, &data, now).await;
     let operation = Uuid::now_v7();
@@ -2933,7 +2990,7 @@ async fn postgres_browser_verified_character_snapshot_facts() {
         digest(&raw)
     );
     committed_fact(a, &mut tx, &bind, &data, now).await;
-    let snapshot = decode(vector("locked_character_snapshot").as_bytes(), 262144).unwrap();
+    let snapshot = decode(signed_snapshot.as_bytes(), 262144).unwrap();
     let hash = text(&snapshot, "snapshot_hash").unwrap();
     let Value::Object(mut status) = decode(vector("delivered_status").as_bytes(), 4096).unwrap()
     else {
@@ -2967,7 +3024,34 @@ async fn postgres_browser_verified_character_snapshot_facts() {
     )
     .await
     .unwrap();
+    if zero_magic {
+        use crate::characters::CharacterEvidence;
+        let row: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
+            .bind(listing)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        let approved = a.approved(&mut tx, &row).await;
+        assert!(
+            approved.is_ok(),
+            "zero magic skill must be approved: {approved:?}"
+        );
+        assert_eq!(
+            approved
+                .unwrap()
+                .unwrap()
+                .skills
+                .iter()
+                .find(|s| s.key == "magic")
+                .unwrap()
+                .level,
+            0
+        );
+    }
     tx.commit().await.unwrap();
+    let (status, catalogue) = db.get("/en/bazaar").await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert!(catalogue.contains("Aldric"));
     let (status, body) = db.get(&format!("/en/bazaar/{listing}")).await;
     assert_eq!(status, axum::http::StatusCode::OK);
     for fact in [
@@ -2980,6 +3064,9 @@ async fn postgres_browser_verified_character_snapshot_facts() {
         "Deadline:",
     ] {
         assert!(body.contains(fact), "missing {fact}");
+    }
+    if zero_magic {
+        assert!(body.contains("magic: 0"));
     }
     db.end().await;
     eprintln!(
