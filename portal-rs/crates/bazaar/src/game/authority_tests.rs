@@ -3604,24 +3604,47 @@ async fn bind_refusal_scenario(currency: &str) {
         text(&returning.value, "purpose").unwrap(),
         "BAZAAR_ESCROW_RETURN"
     );
-    let retired: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM bazaar_authority_transfer_retirements WHERE operation_id=$1)",
+    // The return Bind is a fresh operation over a fresh transfer, so Game can
+    // never answer it with the refused settlement's OPERATION_CONFLICT.
+    assert_ne!(
+        text(&returning.value, "operation_id").unwrap(),
+        text(&settlement.value, "operation_id").unwrap()
+    );
+    assert_ne!(
+        text(&returning.value, "transfer_operation_id").unwrap(),
+        text(&settlement.value, "transfer_operation_id").unwrap()
+    );
+    // The retirement cites the refused Bind in the refusal's own recovery
+    // generation, the evidence Game requires before it replaces the lock.
+    let retired: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT evidence_operation_id,recovery_generation::text FROM bazaar_authority_transfer_retirements WHERE operation_id=$1",
     )
     .bind(id(text(&settlement.value, "transfer_operation_id").unwrap()).unwrap())
-    .fetch_one(&db.pool)
+    .fetch_optional(&db.pool)
     .await
     .unwrap();
-    assert!(retired);
+    assert_eq!(
+        retired,
+        Some((
+            id(text(&settlement.value, "operation_id").unwrap()).unwrap(),
+            "3".to_owned()
+        ))
+    );
     assert_eq!(listing_state(&db).await, crate::State::AwaitingDelivery);
     assert_eq!(outbox_count(&db, Command::Release).await, 0);
     if currency == "coins" {
         assert_eq!(coin_refunds(&db).await, (0, 0));
     }
+    // While Game has not decided the return Bind (Pending), the worker retries
+    // the same bytes: no new leg, no release, no failure.
     db.runtime.tick().await.unwrap();
     assert_eq!(
         newest_intent(&db, uid("30"), Command::Bind).await.bytes(),
         returning.bytes()
     );
+    assert_eq!(outbox_count(&db, Command::Bind).await, 3);
+    assert_eq!(outbox_count(&db, Command::Release).await, 0);
+    assert_eq!(listing_state(&db).await, crate::State::AwaitingDelivery);
     let transfer = id(text(&returning.value, "transfer_operation_id").unwrap()).unwrap();
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
