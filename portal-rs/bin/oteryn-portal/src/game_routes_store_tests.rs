@@ -965,6 +965,9 @@ async fn g9_goldens_case(regression: &str) {
             .await
             .unwrap();
         sqlx::query("UPDATE account_character_snapshots SET projection_revision='2' WHERE account_id=$1::uuid").bind(account).execute(&db.pool).await.unwrap();
+        // The seller's publication covers the transfer cut, so ownership is
+        // proven and the refusal below is the straddle, not missing evidence.
+        sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1::uuid,'test','1','1',0,decode(repeat('00',32),'hex'))").bind(MODERATOR).execute(&db.pool).await.unwrap();
         sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json,receipt_json,state) VALUES($1::uuid,$1::uuid,$1,'TransferCharacterOwnership',$2::uuid,$3::uuid,json_build_object('character_id',$4::text)::text,'',$5,'TERMINAL')")
         .bind(&transfer).bind(MODERATOR).bind(account).bind(character).bind(receipt).execute(&db.pool).await.unwrap();
         let straddling = String::from_utf8(segment.clone()).unwrap().replace(
