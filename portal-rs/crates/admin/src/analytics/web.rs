@@ -101,6 +101,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     host_config.admin_panel &= config.present;
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![format!("https://{}", panel.host)];
+    let admin_csrf = session.csrf.clone();
     let state = Arc::new(Context {
         pool: pool.clone(),
         config,
@@ -127,6 +128,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
             session,
             oteryn_web::session::middleware,
         ))
+        .route_layer(axum::Extension(admin_csrf))
         .layer(middleware::from_fn_with_state(pool, audit_boundary))
         .layer(middleware::from_fn_with_state(
             (host_config, true),
