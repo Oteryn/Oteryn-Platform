@@ -56,7 +56,6 @@ pub fn configured(app: Router, pool: PgPool) -> Result<Router, sqlx::Error> {
     Ok(compose(app, pool, mfa, sessions))
 }
 fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Router {
-    let audit = mfa.clone();
     let context = Context {
         mfa,
         limiter: RateLimiter::new(pool),
@@ -77,6 +76,10 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
     }
     let routes = routes
         .route_layer(axum::middleware::from_fn_with_state(
+            context.mfa.clone(),
+            audit_account_refusal,
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
             sessions,
             session::middleware,
         ))
@@ -85,9 +88,27 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
     // The outer fallback dispatches after rewriting, avoiding duplicate /login route ownership.
     Router::new()
         .fallback_service(app.merge(oteryn_web::ratelimit::finish_routes(routes)))
-        .layer(axum::middleware::from_fn_with_state(audit, rewrite_login))
+        .layer(axum::middleware::from_fn(rewrite_login))
 }
-async fn rewrite_login(State(mfa): State<Mfa>, mut request: Request, next: Next) -> Response {
+async fn audit_account_refusal(
+    State(mfa): State<Mfa>,
+    Extension(session): Extension<BrowserSession>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let account = session.account_id().await;
+    let response = next.run(request).await;
+    let status = response.status();
+    if let Some(account) = account
+        && status != StatusCode::TOO_MANY_REQUESTS
+        && (status.is_client_error() || status.is_server_error())
+    {
+        let _ = mfa.record_http_refusal(account).await;
+    }
+    response
+}
+
+async fn rewrite_login(mut request: Request, next: Next) -> Response {
     let security_request =
         request.uri().path().contains("/mfa") || request.uri().path().ends_with("/login");
     let path = request.uri().path();
@@ -98,11 +119,6 @@ async fn rewrite_login(State(mfa): State<Mfa>, mut request: Request, next: Next)
         }
     }
     let mut response = next.run(request).await;
-    if security_request
-        && (response.status().is_client_error() || response.status().is_server_error())
-    {
-        let _ = mfa.record_http_refusal().await;
-    }
     if security_request {
         response.headers_mut().insert(
             header::CACHE_CONTROL,
@@ -403,11 +419,6 @@ async fn login(
         return refusal(language, &session, "/login").await;
     };
     if !input.valid() {
-        context
-            .mfa
-            .record_http_refusal()
-            .await
-            .map_err(unavailable)?;
         return refusal(language, &session, "/login").await;
     }
     if let Err(r) = charge(

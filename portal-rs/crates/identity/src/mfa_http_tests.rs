@@ -80,6 +80,22 @@ async fn browser_flow(db: &database::Database) -> Result<(), Box<dyn std::error:
         )
         .fetch_one(&db.pool)
     };
+    for _ in 0..4 {
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::post("/en/login")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(axum::body::Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='mfa.http_refused'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(count, 0, "anonymous mfa audit rows");
     let refused = app.clone().oneshot(request("bad")?).await?;
     assert_eq!(refused.status(), StatusCode::FORBIDDEN);
     let response = app.clone().oneshot(request(csrf)?).await?;
@@ -145,6 +161,13 @@ async fn browser_flow(db: &database::Database) -> Result<(), Box<dyn std::error:
     let refused = app.clone().oneshot(challenge_request("bad")?).await?;
     assert_eq!(refused.status(), StatusCode::FOUND);
     assert_eq!(stored().await?.as_deref(), Some(target));
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE actor=$1 AND action='mfa.refused'",
+    )
+    .bind(id)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(audited, 1);
     let accepted = app.clone().oneshot(challenge_request(&codes[0])?).await?;
     assert_eq!(accepted.status(), StatusCode::FOUND);
     assert_eq!(
