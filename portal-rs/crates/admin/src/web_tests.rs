@@ -45,7 +45,10 @@ fn app(pool: PgPool, identity: Option<StaffIdentity>, enabled: bool) -> Router {
 /// A feature route wrapped in the panel guard, requiring `ManageRoles`.
 fn feature(pool: PgPool, identity: Option<StaffIdentity>, enabled: bool) -> Router {
     guarded(
-        Router::new().route("/admin/feature", get(|| async { "feature" })),
+        Router::new().route(
+            "/admin/feature",
+            get(|| async { "feature" }).post(|| async { "feature" }),
+        ),
         pool,
         PanelConfig {
             admin_panel: enabled,
@@ -293,6 +296,50 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .split('"')
         .next()
         .unwrap();
+    // Match register::configured's outer public-origin extension without changing
+    // process environment shared by concurrent tests.
+    for (routes, path, accepted) in [
+        (
+            app(pool.clone(), identity, true),
+            "/admin/roles",
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            feature(pool.clone(), identity, true),
+            "/admin/feature",
+            StatusCode::OK,
+        ),
+    ] {
+        for (origin, expected) in [
+            ("https://staff.test", accepted),
+            ("https://pub.test", StatusCode::FORBIDDEN),
+        ] {
+            let public_csrf = oteryn_web::csrf::CsrfConfig {
+                trusted_origins: vec!["https://pub.test".into()],
+                ..Default::default()
+            };
+            let response = routes
+                .clone()
+                .layer(Extension(public_csrf))
+                .oneshot(
+                    Request::post(path)
+                        .header("host", "staff.test")
+                        .header("origin", origin)
+                        .header("cookie", &cookie)
+                        .header("x-csrf-token", csrf)
+                        .header("content-type", "application/x-www-form-urlencoded")
+                        .body(Body::from("account=invalid&action=grant"))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                expected,
+                "admin CSRF {path} origin {origin}"
+            );
+        }
+    }
     let target = Uuid::now_v7();
     let ordinary: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='panel_test'")
         .fetch_one(&pool)

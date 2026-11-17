@@ -207,6 +207,7 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
 ) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![format!("https://{}", config.host)];
+    let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
         required: Some(permission),
@@ -223,6 +224,7 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
             session,
             oteryn_web::session::middleware,
         ))
+        .route_layer(axum::Extension(admin_csrf))
         .route_layer(middleware::from_fn_with_state(state, host::<I, A>))
 }
 /// Mount under `/admin`; host checks run before session or CSRF processing.
@@ -234,6 +236,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
 ) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![format!("https://{}", config.host)];
+    let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
         required: None,
@@ -252,6 +255,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
             session,
             oteryn_web::session::middleware,
         ))
+        .route_layer(axum::Extension(admin_csrf))
         .route_layer(middleware::from_fn_with_state(state.clone(), host::<I, A>))
         .with_state(state)
 }
