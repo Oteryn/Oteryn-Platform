@@ -60,6 +60,17 @@ serde_json_canonicalizer = "0.4.1"
 [profile.dev.package.oteryn-minigames]
 opt-level = 1
 
+# League ingest verifies an Ed25519 signature while holding its write fence;
+# unoptimized curve arithmetic made that hold approach the 100 ms lock bound.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+
+[profile.dev.package.ed25519-dalek]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
+
 [profile.dev.package.unicode-normalization]
 opt-level = 3
 
