@@ -43,6 +43,7 @@ chained email change after the 72 h block (partially covered by item 1).
 ```yaml
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-review5-fixes.md
+  - docs/agents/tasks/archive/OTERYN-20261117-refund-reconcile.md
   - portal-rs/crates/identity/src/accounts.rs
   - portal-rs/crates/identity/src/email_change_tests.rs
   - portal-rs/crates/identity/src/recovery_key.rs
@@ -72,6 +73,7 @@ status: ready
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-review5-fixes.md
+  - docs/agents/tasks/archive/OTERYN-20261117-refund-reconcile.md
   - portal-rs/crates/identity/src/accounts.rs
   - portal-rs/crates/identity/src/email_change_tests.rs
   - portal-rs/crates/identity/src/recovery_key.rs
@@ -94,6 +96,7 @@ rejected_hypotheses:
   - Requiring key created_at >= email_verified_at at recovery would revoke legitimate keys after every confirmed email change
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20261117-review5-fixes.md
+  - docs/agents/tasks/archive/OTERYN-20261117-refund-reconcile.md
   - portal-rs/crates/identity/src/accounts.rs
   - portal-rs/crates/identity/src/email_change_tests.rs
   - portal-rs/crates/identity/src/recovery_key.rs
@@ -102,8 +105,11 @@ changed_paths:
   - portal-rs/crates/characters/src/commands/tests.rs
 validation:
   - command: cargo test -p oteryn-identity --lib; cargo test -p oteryn-characters --lib; cargo test -p oteryn-admin --lib (PostgreSQL 18)
-    result: NOT_RUN
-    evidence: pending
+    result: PASS
+    evidence: identity 167 passed, characters 98 passed, admin 197 passed, 0 failed; each new test red on main afb4a8fd without its fix
+  - command: cargo fmt --all --check; cargo clippy -p oteryn-identity -p oteryn-characters --all-targets -- -D warnings
+    result: PASS
+    evidence: both exit 0
 blockers:
   - none
 next_action: Portal RS CI on the PR
