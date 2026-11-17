@@ -118,6 +118,7 @@ impl<P: Policy> Campaign<P> {
             return Err(Error::Disabled.into());
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let enabled: bool =
             sqlx::query_scalar("SELECT enabled FROM referral_campaign_settings WHERE singleton")
                 .fetch_one(&mut *tx)
