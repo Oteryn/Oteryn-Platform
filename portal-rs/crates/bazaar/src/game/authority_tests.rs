@@ -5018,3 +5018,6 @@ async fn r7_gold_delivery_requires_fresh_watermark() {
     tx.rollback().await.unwrap();
     db.end().await;
 }
+
+#[path = "invalidation_tests.rs"]
+mod invalidation_tests;
