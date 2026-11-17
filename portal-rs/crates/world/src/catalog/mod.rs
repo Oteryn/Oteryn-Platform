@@ -212,7 +212,11 @@ impl Source {
             return Err(Error::ProvenanceConflict);
         }
         let expected_sha256 = value(6)?.to_owned();
-        if !sha(&expected_sha256, 64) {
+        if !sha(&expected_sha256, 64)
+            || !value(5)?
+                .strip_prefix("sha256:")
+                .is_some_and(|id| sha(id, 64))
+        {
             return Err(Error::InvalidInput);
         }
         let url = url

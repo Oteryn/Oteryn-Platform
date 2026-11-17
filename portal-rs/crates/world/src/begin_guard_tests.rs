@@ -16,8 +16,8 @@ const EXEMPT: &[(&str, usize, &str)] = &[
     ),
     (
         "catalog/publication.rs",
-        2,
-        "operator publish/import, out of class B scope by decision: native catalog reservation and publish in the serve background refresh, never on a request",
+        1,
+        "operator publish/import, out of class B scope by decision: native catalog publish in the serve background refresh, never on a request",
     ),
     (
         "store.rs",

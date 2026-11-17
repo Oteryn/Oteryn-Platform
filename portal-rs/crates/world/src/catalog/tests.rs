@@ -406,3 +406,26 @@ fn loot_publication_key_collision_rejects_the_whole_artifact_before_persistence(
     let (raw, sidecar, fence) = artifact(value);
     assert!(verify(&raw, &sidecar, &fence).is_ok());
 }
+
+#[test]
+fn r7_reject_invalid_snapshot_pin() {
+    for pin in ["", "bad"] {
+        let mut values: Vec<_> = [
+            "catalog",
+            "rev",
+            "epoch",
+            "rules",
+            "profile",
+            pin,
+            &"a".repeat(64),
+        ]
+        .into_iter()
+        .map(|s| Ok(s.to_owned()))
+        .collect();
+        values.push(Err(std::env::VarError::NotPresent));
+        assert!(
+            Source::from_values(values).is_err(),
+            "accepted invalid snapshot pin"
+        );
+    }
+}

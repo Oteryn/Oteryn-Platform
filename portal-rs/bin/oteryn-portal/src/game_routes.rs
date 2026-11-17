@@ -79,6 +79,39 @@ const WATERMARK_BUFFER: usize = 4096;
 
 type Values = BTreeMap<String, String>;
 
+fn receipt_settings(
+    values: &Values,
+    valid: bool,
+    qualified: bool,
+    authority: String,
+) -> services::Settings {
+    let get = |key: &str| values.get(key).cloned();
+    let on = |key: &str| values.get(key).map(String::as_str) == Some("true");
+    let seconds = |key: &str| get(key).and_then(|value| value.parse::<u16>().ok());
+    services::Settings {
+        wallet_enabled: on("OTERYN_WALLET_ENABLED"),
+        exchange_enabled: valid && qualified && on("PORTAL_CHARACTER_SERVICES_EXCHANGE_ENABLED"),
+        command_authority: authority,
+        projection_enabled: valid
+            && qualified
+            && on("PORTAL_CHARACTER_SERVICES_PROJECTION_ENABLED"),
+        projection_authority: get("PORTAL_CHARACTER_SERVICES_PROJECTION_AUTHORITY")
+            .unwrap_or_default(),
+        clock_uncertainty_seconds: seconds("PORTAL_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS"),
+        freshness_seconds: seconds("PORTAL_CHARACTER_SERVICES_FRESHNESS_SECONDS"),
+        ..services::Settings::default()
+    }
+}
+#[test]
+fn r7_receipt_wallet_flag() {
+    for enabled in [false, true] {
+        let values = Values::from([("OTERYN_WALLET_ENABLED".into(), enabled.to_string())]);
+        assert_eq!(
+            receipt_settings(&values, true, true, String::new()).wallet_enabled,
+            enabled
+        );
+    }
+}
 /// One startup snapshot of every purpose on the shared internal listener.
 pub struct Configuration {
     values: Values,
@@ -184,23 +217,7 @@ impl Routes {
             source_authority: authority.clone(),
             ..commands::Settings::default()
         };
-        let seconds = |key: &str| get(key).and_then(|value| value.parse::<u16>().ok());
-        let service_settings = services::Settings {
-            exchange_enabled: valid
-                && qualified
-                && on("PORTAL_CHARACTER_SERVICES_EXCHANGE_ENABLED"),
-            command_authority: authority,
-            projection_enabled: valid
-                && qualified
-                && on("PORTAL_CHARACTER_SERVICES_PROJECTION_ENABLED"),
-            projection_authority: get("PORTAL_CHARACTER_SERVICES_PROJECTION_AUTHORITY")
-                .unwrap_or_default(),
-            clock_uncertainty_seconds: seconds(
-                "PORTAL_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS",
-            ),
-            freshness_seconds: seconds("PORTAL_CHARACTER_SERVICES_FRESHNESS_SECONDS"),
-            ..services::Settings::default()
-        };
+        let service_settings = receipt_settings(values, valid, qualified, authority);
         let restore_settings = restore::Settings {
             enabled: valid && on("PORTAL_GAME_RESTORE_NOTICE_ENABLED"),
             source_authority: get("PORTAL_GAME_RESTORE_NOTICE_SOURCE_AUTHORITY")
