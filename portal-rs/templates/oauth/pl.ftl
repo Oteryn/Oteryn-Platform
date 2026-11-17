@@ -1,5 +1,6 @@
 oauth-title = Autoryzuj logowanie do gry
-oauth-description = Czy zezwolić zarejestrowanemu klientowi gry na uzyskanie krótkotrwałego biletu logowania dla Twojego konta?
+oauth-description = Czy zezwolić zarejestrowanemu klientowi gry na uzyskanie krótkotrwałego biletu logowania dla Twojego konta (game:ticket)?
 oauth-approve = Zezwól
 oauth-deny = Anuluj
 oauth-skip = Przejdź do treści
+oauth-account-services = Czy zezwolić zarejestrowanemu klientowi gry na dostęp do usług konta, w tym zakup monet (game:account-services)?

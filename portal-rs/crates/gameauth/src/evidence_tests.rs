@@ -645,3 +645,24 @@ async fn db_evidence_persisted_status_vocabulary() -> TestResult {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn regression_witness_precedes_commit() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    sources(&db).await?;
+    let directory = Directory::new()?;
+    let options = settings(&directory);
+    let req = EvidenceRequest::decode(&account(FRESH_ACCOUNT))?;
+    sqlx::raw_sql("CREATE FUNCTION reject_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'abort commit'; END $$; CREATE CONSTRAINT TRIGGER reject_commit AFTER INSERT ON native_evidence DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_commit()").execute(&db.pool).await?;
+    assert_eq!(
+        observe(&db.pool, &options, &req).await,
+        req.failure("unavailable")
+    );
+    assert_eq!(
+        Witness::lock(&directory.0, &req.namespace)?.floor(&req.namespace)?,
+        Some(1)
+    );
+    db.close().await
+}
