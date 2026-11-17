@@ -54,7 +54,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T09:05:00Z
 head: 83c0255669c088c639b6e24234fadde5d65da337
 branch: claude/happy-davinci-ijz3wy-bazaar-setup-tx
-pr: none
+pr: 1920
 status: ready
 context_routes: []
 owned_paths:
