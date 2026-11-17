@@ -939,3 +939,16 @@ async fn postgres_payment_account_state_held_lock_sheds_within_read_budget() -> 
     );
     Ok(())
 }
+
+#[test]
+fn r8_package_wallet_ceiling() {
+    let mut package = Package {
+        key: "boundary".into(),
+        minor_units: 500,
+        currency: "JPY".into(),
+        coins: oteryn_wallet::MAX_BALANCE,
+    };
+    assert!(valid_packages(std::slice::from_ref(&package)));
+    package.coins += 1;
+    assert!(!valid_packages(&[package]));
+}
