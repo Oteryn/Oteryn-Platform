@@ -121,11 +121,13 @@ impl Fixture {
         let key = ring.generate_next("audit05")?;
         registry.publish(&key).await?;
         sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=trusted_at-interval '60 seconds'").execute(&db.pool).await?;
+        // Read the trust snapshot before the clock: trusted_key refuses now < observed_at.
+        let trust = registry.snapshot().await?;
         let now: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
                 .fetch_one(&db.pool)
                 .await?;
-        ring.activate("audit05", now as u64, &registry.snapshot().await?)?;
+        ring.activate("audit05", now as u64, &trust)?;
         let signer: Arc<dyn GrantSigner> = Arc::new(KeyringSigner::new(ring, registry));
         let authority = NativeTickets {
             projection_authority: "game".into(),
@@ -186,10 +188,11 @@ async fn audit05_01_real_admission_empty_cache_one_connection() -> TestResult {
     let key = ring.generate_next("single-slot")?;
     registry.publish(&key).await?;
     sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=trusted_at-interval '60 seconds'").execute(&pool).await?;
+    let trust = registry.snapshot().await?;
     let at: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
         .fetch_one(&pool)
         .await?;
-    ring.activate("single-slot", at as u64, &registry.snapshot().await?)?;
+    ring.activate("single-slot", at as u64, &trust)?;
     f.signer = Arc::new(KeyringSigner::new(ring, registry));
     f.authority.issuance.signer = Some(f.signer.clone());
     let result = tokio::time::timeout(
@@ -538,10 +541,11 @@ async fn lk_signing_cold_and_expired_cache_with_sixteen_held_transactions() -> T
     let key = ring.generate_next("sixteen-slot")?;
     registry.publish(&key).await?;
     sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=trusted_at-interval '60 seconds'").execute(&pool).await?;
+    let trust = registry.snapshot().await?;
     let at: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
         .fetch_one(&pool)
         .await?;
-    ring.activate("sixteen-slot", at as u64, &registry.snapshot().await?)?;
+    ring.activate("sixteen-slot", at as u64, &trust)?;
     let signer: Arc<dyn GrantSigner> = Arc::new(KeyringSigner::new(ring, registry));
     for expired in [false, true] {
         if expired {
@@ -718,8 +722,9 @@ async fn recovery_fixture(
     let key = ring.generate_next("recovery-wave2")?;
     registry.publish(&key).await?;
     sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=trusted_at-interval '60 seconds'").execute(&f.db.pool).await?;
+    let trust = registry.snapshot().await?;
     let now = runtime::now().map_err(runtime::tests::TestError::from)? as u64;
-    ring.activate("recovery-wave2", now, &registry.snapshot().await?)?;
+    ring.activate("recovery-wave2", now, &trust)?;
     Ok((
         request,
         RecoveryIssuer {
@@ -906,10 +911,11 @@ async fn wave2_05_stalled_custody_preserves_timer_and_request_deadline() -> Test
     let key = ring.generate_next("stalled-custody")?;
     registry.publish(&key).await?;
     sqlx::query("UPDATE native_game_signing_trust_key_versions SET trusted_at=trusted_at-interval '60 seconds'").execute(&f.db.pool).await?;
+    let trust = registry.snapshot().await?;
     ring.activate(
         "stalled-custody",
         runtime::now().map_err(runtime::tests::TestError::from)? as u64,
-        &registry.snapshot().await?,
+        &trust,
     )?;
     f.signer = Arc::new(KeyringSigner::new(ring, registry));
     f.authority.issuance.signer = Some(f.signer.clone());
