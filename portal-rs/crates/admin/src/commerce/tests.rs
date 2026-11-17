@@ -1850,8 +1850,8 @@ async fn postgres_refund_reconcile_revives_stale_refunding_row() {
     assert_eq!(dispatched_audits(&h).await, 1);
     h.close().await;
 }
-/// A settled row whose job is dead is neither revived nor audited and the
-/// provider is not called again.
+/// A settled row, or one whose intent the ledger shows refunded, with a dead
+/// job is neither revived nor audited and the provider is not called again.
 #[tokio::test]
 async fn postgres_refund_reconcile_leaves_settled_rows() {
     let _database_guard = oteryn_db::test_support::global_lock_guard()
@@ -1878,6 +1878,20 @@ async fn postgres_refund_reconcile_leaves_settled_rows() {
     assert_eq!(reconciled_audits(&h).await, 0);
     assert_eq!(stub.keys(), vec![payment]);
     assert_eq!(dispatched_audits(&h).await, 1);
+    let (ledger, refunded) = queued_refund(&h).await;
+    kill_refund_job(&h, refunded).await;
+    sqlx::query("UPDATE payment_intents SET state='refunded' WHERE id=$1")
+        .bind(refunded)
+        .execute(&h.pool)
+        .await
+        .expect("refund intent");
+    let revived = reconcile_dead_refunds(&h.pool, h.actor, false)
+        .await
+        .expect("reconcile ledger-refunded");
+    assert!(revived.is_empty());
+    assert_eq!(refund_row(&h, ledger).await, ("pending".into(), None, None));
+    assert_eq!(refund_job(&h, refunded).await.0, "dead");
+    assert_eq!(reconciled_audits(&h).await, 0);
     h.close().await;
 }
 /// A dry run reports the dead refund and writes nothing; a non-staff actor

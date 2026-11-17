@@ -56,7 +56,7 @@ Ownership comes from the character projection and a receipt chain: the committed
 
 Operators can run `oteryn-portal catalog import <file> --actor <account-uuid>` (prints the revision), then `oteryn-portal catalog activate <catalog_revision> --actor <account-uuid>`. The active account needs `store.catalog.import` or `store.catalog.activate`, respectively; the explicit command enables catalog operations and audits changes.
 
-Operators can run `oteryn-portal commerce-refunds-reconcile [--dry-run] --actor <account-uuid>` for refunds whose `commerce.refund` outbox job is dead: it returns that same job to pending (same key, so the provider sees the same intent-id refund key) for each unsettled refund whose claim is not live, prints one line per refund and audits each revival as `commerce.refund.reconciled`. `--dry-run` only lists them. The active account needs `admin.access` and `payments.reconcile`.
+Operators can run `oteryn-portal commerce-refunds-reconcile [--dry-run] --actor <account-uuid>` for refunds whose `commerce.refund` outbox job is dead: it returns that same job to pending (same key, so the provider sees the same intent-id refund key) for each unsettled refund whose claim is not live and whose intent the payment ledger does not already show refunded, prints one line per refund and audits each revival as `commerce.refund.reconciled`. `--dry-run` only lists them. The active account needs `admin.access` and `payments.reconcile`.
 
 G-9 revision 3 uses `PORTAL_PLAYERDATA_G9_INGEST_ENABLED` and
 `PORTAL_PLAYERDATA_G9_REPLAY_COMMANDS_ENABLED` (both default false), with

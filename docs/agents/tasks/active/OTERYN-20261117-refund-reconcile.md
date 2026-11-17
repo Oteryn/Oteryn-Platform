@@ -24,8 +24,8 @@ with `attempts=0` (same key and payload) and writes one
 transaction. The worker then runs the existing claim, call, finalize path;
 the provider idempotency key stays the intent id. The actor must be active
 and hold `admin.access` and `payments.reconcile`. A row whose intent the
-payment ledger already shows refunded is revived like any unsettled row and
-is settled by `claim_refund` from the ledger without a provider call.
+payment ledger already shows refunded (`payment_intents.state='refunded'`)
+is left untouched (owner decision 2026-11-17).
 Operator command: `oteryn-portal commerce-refunds-reconcile [--dry-run]
 --actor <uuid>`. No migration.
 
@@ -33,7 +33,7 @@ Operator command: `oteryn-portal commerce-refunds-reconcile [--dry-run]
 
 - [x] Dead job over a pending row is revived; delivery calls the provider with the intent id and settles with one dispatch audit
 - [x] Dead job over a stale refunding row is revived and settles; a fresh claim is untouched
-- [x] A settled row with a dead job is not revived or audited and the provider is not called
+- [x] A settled row, or one whose intent the ledger shows refunded, with a dead job is not revived or audited and the provider is not called
 - [x] `--dry-run` changes nothing; a non-staff actor is refused
 - [x] A second run revives nothing
 - [x] The command parses `--dry-run`/`--actor` and refuses a missing `--actor`
@@ -65,8 +65,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-17T14:00:00Z
-head: 20d4f17d
+updated_at: 2026-11-17T16:00:00Z
+head: b48ec08
 branch: claude/happy-davinci-ijz3wy-refund-reconcile
 pr: none
 status: ready
@@ -106,13 +106,16 @@ changed_paths:
 validation:
   - command: cargo test -p oteryn-admin --lib refund_reconcile (PostgreSQL 18.7)
     result: PASS
-    evidence: 5 passed; red without the function (E0425) and under mutations (no-op reconcile, settled filter, staleness clause, dead filter, dry-run rollback each turn the matching test red)
+    evidence: 5 passed; red without the function (E0425) and under mutations (no-op reconcile, settled filter, refunded-intent filter, staleness clause, dead filter, dry-run rollback each turn the matching test red)
   - command: cargo test -p oteryn-admin (PostgreSQL 18.7)
     result: PASS
     evidence: 197 passed, 0 failed, no Skipping line
   - command: cargo test -p oteryn-portal --bin oteryn-portal refund_reconcile_cli
     result: PASS
     evidence: 1 passed; red when a missing --actor is accepted
+  - command: cargo test -p oteryn-portal (PostgreSQL 18.7, default parallelism)
+    result: FAIL
+    evidence: 193 ok, 21 failed under load, run stopped after seed::tests::custody_deadline_bounds_locked_publication_and_releases_custody hung past 30 min; the 21 failed tests rerun with --test-threads=2 pass (21 passed, 0 failed); none touch the new command
   - command: cargo fmt --all --check; cargo clippy -p oteryn-admin -p oteryn-portal --all-targets -- -D warnings
     result: PASS
     evidence: both exit 0

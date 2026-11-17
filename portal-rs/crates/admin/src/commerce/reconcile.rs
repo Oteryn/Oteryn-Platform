@@ -18,7 +18,8 @@ pub struct DeadRefund {
 /// Finds unsettled refunds whose `commerce.refund` job is dead and, unless
 /// `dry_run`, returns that same job (same key and payload) to `pending` with
 /// its attempts reset, writing one `commerce.refund.reconciled` audit row per
-/// revival in the same transaction. A `refunding` row is skipped while its
+/// revival in the same transaction. A refund whose intent the payment ledger
+/// already shows refunded is left untouched. A `refunding` row is skipped while its
 /// claim is live under the delivery path's own staleness rule. The actor must
 /// be an active staff account holding payment reconciliation.
 pub async fn reconcile_dead_refunds(
@@ -41,7 +42,7 @@ pub async fn reconcile_dead_refunds(
     if !permitted {
         return Err(Error::Denied);
     }
-    let found: Vec<(Uuid, Uuid, String, Option<Uuid>)> = sqlx::query_as("SELECT r.operation_id,o.id,r.state,r.attempt_id FROM commerce_refunds r JOIN outbox o ON o.kind='commerce.refund' AND o.idempotency_key=r.intent_id::text AND o.payload->>'operation'=r.operation_id::text WHERE o.state='dead' AND r.provider_reference IS NULL AND NOT (r.state='refunding' AND r.claimed_at > now() - make_interval(secs => $1)) ORDER BY r.operation_id LIMIT $2 FOR UPDATE OF r,o")
+    let found: Vec<(Uuid, Uuid, String, Option<Uuid>)> = sqlx::query_as("SELECT r.operation_id,o.id,r.state,r.attempt_id FROM commerce_refunds r JOIN outbox o ON o.kind='commerce.refund' AND o.idempotency_key=r.intent_id::text AND o.payload->>'operation'=r.operation_id::text WHERE o.state='dead' AND r.provider_reference IS NULL AND NOT EXISTS(SELECT 1 FROM payment_intents i WHERE i.id=r.intent_id AND i.state='refunded') AND NOT (r.state='refunding' AND r.claimed_at > now() - make_interval(secs => $1)) ORDER BY r.operation_id LIMIT $2 FOR UPDATE OF r,o")
         .bind(REFUND_CLAIM_STALE_AFTER.as_secs_f64()).bind(RECONCILE_BATCH).fetch_all(&mut *tx).await?;
     let found: Vec<DeadRefund> = found
         .into_iter()
