@@ -103,6 +103,7 @@ test('character request reaches pending state without a game result',async({page
  try{world=(await db.query("INSERT INTO world_status(id,name) VALUES(uuidv7(),'Browser Test World') RETURNING id")).rows[0].id;}finally{await db.end();}
  await page.goto(`/${lang}/account/characters/new`);
  const form=page.locator('main form[method=post]').first();await form.locator('select[name=world]').selectOption(world);
+ await form.locator('input[name=sex]').first().check();await form.locator('input[name=vocation]').first().check();
  await submit(page,'main form[method=post]',{name:'Browser Tester'});
  await expect(page).toHaveURL(/characters\/requests\/[a-f0-9-]+/);
  await expect(page.locator('[role=status]')).toHaveText(lang==='pl'

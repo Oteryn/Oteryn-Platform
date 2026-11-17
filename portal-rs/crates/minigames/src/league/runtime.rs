@@ -210,6 +210,9 @@ async fn question(pool: &PgPool, s: &schema::Snapshot, c: &Config, m: &Meta) -> 
                 && !phase.is_empty()
                 && phase != record.state
                 && !super::store::nonterminal_transition(&phase, record)
+                && (nonterminal(s)
+                    || !matches!(record.state.as_str(), "SETTLED" | "VOID")
+                    || !record.correction_of.is_empty())
         {
             return Err(Error::Conflict);
         }
