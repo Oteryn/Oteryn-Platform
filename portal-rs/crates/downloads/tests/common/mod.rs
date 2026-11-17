@@ -148,12 +148,23 @@ impl SignerFixture {
         duplicate: bool,
         artifact_bytes: &[u8],
     ) -> Upload {
+        self.upload_with_policy_length(policy, expires, duplicate, artifact_bytes, None)
+    }
+
+    pub fn upload_with_policy_length(
+        &self,
+        policy: UpdaterPolicy,
+        expires: &str,
+        duplicate: bool,
+        artifact_bytes: &[u8],
+        policy_length: Option<usize>,
+    ) -> Upload {
         let revision = policy.policy_revision;
         let channel = policy.channel;
         let policy_bytes = serde_json::to_vec_pretty(&policy).unwrap();
         let mut target_entries = serde_json::Map::new();
         target_entries.insert(channel.policy_path(), json!({
-            "length":policy_bytes.len(),"hashes":{"sha256":hex::encode(Sha256::digest(&policy_bytes))}
+            "length":policy_length.unwrap_or(policy_bytes.len()),"hashes":{"sha256":hex::encode(Sha256::digest(&policy_bytes))}
         }));
         for artifact in &policy.artifacts {
             target_entries.insert(
