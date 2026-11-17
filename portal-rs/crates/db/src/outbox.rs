@@ -240,7 +240,9 @@ pub async fn schedule_with_deadline(
              SELECT floor(extract(epoch FROM statement_timestamp()) / $2)::bigint AS current_slot
          ), expired AS (
              SELECT id FROM outbox, slot
-             WHERE kind = $1 AND state = 'done' AND schedule_slot < current_slot
+             WHERE kind = $1 AND state = 'done' AND (schedule_slot < current_slot
+                 OR (schedule_slot IS NULL AND payload = '{}'::jsonb
+                     AND substring(idempotency_key FROM '^schedule:([0-9]+)$')::numeric < current_slot))
              ORDER BY schedule_slot LIMIT 1000 FOR UPDATE SKIP LOCKED
          ), pruned AS (
              DELETE FROM outbox USING expired WHERE outbox.id = expired.id
