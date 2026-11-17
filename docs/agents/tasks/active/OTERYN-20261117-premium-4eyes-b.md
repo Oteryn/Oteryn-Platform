@@ -35,10 +35,12 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-premium-4eyes-b.md
   - portal-rs/crates/admin/src/commerce/mod.rs
   - portal-rs/crates/admin/src/commerce/tests.rs
+  - docs/agents/tasks/archive/OTERYN-20261117-premium-4eyes.md
+  - docs/agents/tasks/active/OTERYN-20261117-premium-4eyes.md
 modules:
   - admin
 dependencies:
-  - OTERYN-20261117-premium-4eyes (PR 1933)
+  - none
 blockers:
   - none
 cross_repository_tasks:
@@ -49,8 +51,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-17T14:40:00Z
-head: f9c795bcb32745ed5bf8d93098ffb629271a1354
+updated_at: 2026-11-17T14:37:00Z
+head: 5510ab0a840a009eecdab01fd988823a258d1f30
 branch: claude/happy-davinci-ijz3wy-premium-4eyes-b
 pr: none
 status: validating
@@ -60,6 +62,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-premium-4eyes-b.md
   - portal-rs/crates/admin/src/commerce/mod.rs
   - portal-rs/crates/admin/src/commerce/tests.rs
+  - docs/agents/tasks/archive/OTERYN-20261117-premium-4eyes.md
+  - docs/agents/tasks/active/OTERYN-20261117-premium-4eyes.md
 proven:
   - The replay test fails on the D2 tree (Err(Denied) at the replay) and passes with the change (PostgreSQL 18)
   - No migration, contract, fixture, flag or workflow change
@@ -77,16 +81,17 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20261117-premium-4eyes-b.md
   - portal-rs/crates/admin/src/commerce/mod.rs
   - portal-rs/crates/admin/src/commerce/tests.rs
+  - docs/agents/tasks/archive/OTERYN-20261117-premium-4eyes.md
 validation:
   - command: cargo test -p oteryn-admin --lib commerce:: (PostgreSQL 18)
     result: PASS
-    evidence: 35 passed, 0 failed
+    evidence: 35 passed, 0 failed on main 5510ab0a plus this change
   - command: cargo fmt --check -p oteryn-admin; cargo clippy -p oteryn-admin --all-targets -- -D warnings
     result: PASS
     evidence: both exit 0
 blockers:
   - none
-next_action: Push after PR 1933 lands, then Portal RS CI on the PR head; archive this packet once the PR lands.
+next_action: Portal RS CI on the PR head; archive this packet once the PR lands.
 ```
 
 ## Source branch closeout

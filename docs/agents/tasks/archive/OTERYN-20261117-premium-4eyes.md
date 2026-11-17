@@ -33,7 +33,7 @@ second staff member's approval.
 - [x] A replayed approval is idempotent (`postgres_grant_approval_replay_is_idempotent`)
 - [x] A grant to a non-value-eligible account is refused and audited at submit (`postgres_grant_to_value_ineligible_account_refused_at_submit`)
 - [x] Stored reason hash decoding refuses bad hex and wrong length (`reason_digest_decodes_only_a_full_hex_sha256`)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -64,10 +64,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T13:57:19Z
-head: b2400627b46fd5995bd840623245ede837705032
+head: 5510ab0a840a009eecdab01fd988823a258d1f30
 branch: claude/happy-davinci-ijz3wy-premium-4eyes
 pr: 1933
-status: ready
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -118,13 +118,13 @@ validation:
     evidence: no live portal in this session; node --check passes
 blockers:
   - none
-next_action: Portal RS CI on the PR head; archive this packet once the PR lands.
+next_action: none; delivered by PR 1933 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1933 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1933 merged as 5510ab0a840a009eecdab01fd988823a258d1f30
 ```
