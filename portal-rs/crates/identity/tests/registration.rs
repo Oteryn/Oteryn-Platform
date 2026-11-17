@@ -398,7 +398,7 @@ async fn expired_unknown_and_malformed_tokens_have_identical_error() -> Result {
         .execute(&db.pool)
         .await?;
     for raw in [raw, "f".repeat(64), "bad".into()] {
-        assert!(!verify::consume(&db.pool, &raw).await?);
+        assert!(verify::consume(&db.pool, &raw).await?.is_none());
         let response = db
             .app()
             .oneshot(Request::get(format!("/pl/verify-email?token={raw}")).body(Body::empty())?)
@@ -455,10 +455,10 @@ async fn resend_invalidates_old_token_and_requires_authenticated_csrf() -> Resul
         )
         .await?;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert!(!verify::consume(&db.pool, &old).await?);
+    assert!(verify::consume(&db.pool, &old).await?.is_none());
     let new = token(&db).await?;
     assert_ne!(old, new);
-    assert!(verify::consume(&db.pool, &new).await?);
+    assert_eq!(verify::consume(&db.pool, &new).await?, Some(id));
     let (cookie, csrf, _) = credentials(&app).await?;
     let response = app
         .clone()
