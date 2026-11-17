@@ -183,14 +183,61 @@ impl Authority {
             .bind(listing).bind(self.fence.recovery_generation.to_string()).fetch_one(db).await?;
         Ok(refused)
     }
+    /// The newest Character settlement attempt is compensable only on audited
+    /// terminal no-effect evidence: its Bind was refused for a reason other than
+    /// expiry (an expiry is a retry) and its transfer never reached Game.
+    /// Returns the refused Bind and its never-published transfer operation.
+    pub(crate) async fn settlement_bind_refused(
+        &self,
+        db: &mut sqlx::PgConnection,
+        listing: Uuid,
+    ) -> Result<Option<(Uuid, Uuid)>, Error> {
+        let transfer: Option<Uuid> = sqlx::query_scalar("SELECT operation_id FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_SETTLEMENT' ORDER BY source_revision DESC LIMIT 1")
+            .bind(listing).fetch_optional(&mut *db).await?;
+        let Some(transfer) = transfer else {
+            return Ok(None);
+        };
+        let bind: Option<Uuid> = sqlx::query_scalar("SELECT operation_id FROM bazaar_game_outbox WHERE listing_id=$1 AND command='BindBazaarCharacterTransfer' AND intent::jsonb->>'transfer_operation_id'=$2 ORDER BY source_revision DESC LIMIT 1")
+            .bind(listing).bind(transfer.to_string()).fetch_optional(&mut *db).await?;
+        let Some(bind) = bind else {
+            return Ok(None);
+        };
+        let Some((intent, receipt)) = self.retained(db, bind).await? else {
+            return Ok(None);
+        };
+        if receipt.committed
+            || text(&receipt.value, "result_code")? == "CHAR_CMD_INTENT_EXPIRED"
+            || text(&intent.value, "purpose")? != "BAZAAR_SETTLEMENT"
+        {
+            return Ok(None);
+        }
+        let staged = super::runtime::characters::staged(self, db, transfer).await?;
+        let raw = oteryn_internal_api::canonical::encode(&staged).map_err(|_| Error::Invalid)?;
+        if text(&intent.value, "transfer_binding_digest")? != super::game_wire::digest(&raw) {
+            return Err(Error::Denied);
+        }
+        // No settlement leg of this listing may ever have been published or
+        // bound: a published transfer can still execute in Game.
+        let executable: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_all_transfers t JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND t.purpose='BAZAAR_SETTLEMENT') OR EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=$1 AND o.command='BindBazaarCharacterTransfer' AND o.intent::jsonb->>'purpose'='BAZAAR_SETTLEMENT' AND r.outcome='COMMITTED')")
+            .bind(listing).fetch_one(&mut *db).await?;
+        if executable {
+            return Ok(None);
+        }
+        Ok(Some((bind, transfer)))
+    }
     pub(crate) async fn compensation_ready(
         &self,
         db: &mut sqlx::PgConnection,
         listing: &crate::Listing,
     ) -> Result<bool, Error> {
-        Ok(listing.kind == crate::Kind::Item
-            && self.delivery_refused(db, listing.id).await?
-            && self.custody(db, listing, "RETURNED").await?.is_some())
+        let refused = match listing.kind {
+            crate::Kind::Item => self.delivery_refused(db, listing.id).await?,
+            crate::Kind::Character => self
+                .settlement_bind_refused(db, listing.id)
+                .await?
+                .is_some(),
+        };
+        Ok(refused && self.custody(db, listing, "RETURNED").await?.is_some())
     }
     /// Close only after the return and financial release are both durable in
     /// this transaction. The append-only record authorizes the terminal state.
