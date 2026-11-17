@@ -2271,3 +2271,43 @@ fn reason_digest_decodes_only_a_full_hex_sha256() {
         );
     }
 }
+
+#[tokio::test]
+async fn credited_topup_blocks_refund() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let (operation, payment) = queued_refund(&h).await;
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1) ON CONFLICT DO NOTHING")
+        .bind(h.target)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'top_up',$2,100)",
+    )
+    .bind(payment)
+    .bind(h.target)
+    .execute(&h.pool)
+    .await
+    .unwrap();
+    let adapter = h.effects().payments;
+    let stub = RefundStub::default();
+    assert!(
+        matches!(
+            adapter.deliver_refund_with(&stub, &h.pool, operation).await,
+            Err(Error::Conflict)
+        ),
+        "worker accepted credited intent"
+    );
+    assert!(stub.keys().is_empty());
+    let mut tx = h.pool.begin().await.unwrap();
+    let refund = request(payment, Command::Refund);
+    assert!(matches!(
+        adapter.inspect(&mut tx, &refund).await,
+        Err(Error::Conflict)
+    ));
+    tx.rollback().await.unwrap();
+    h.close().await;
+}
