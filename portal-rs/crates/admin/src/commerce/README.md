@@ -33,8 +33,15 @@ it does not manufacture payment settlement. Only full refunds are supported.
 Approved refunds atomically persist an intent-scoped unique refund and enqueue
 `commerce.refund`. `RefundDelivery` validates the outbox payload and rechecks the
 intent's account, currency, amount and eligible state before calling the
-provider with its stable per-intent refund identity. Its row lock serializes
-workers; a crash can retry the provider's idempotent request. The binary registers
+provider with its stable per-intent refund identity. A short transaction claims
+the row (`pending` to `refunding`, fresh attempt id); the provider call runs
+outside any transaction, and a second short transaction records the reference
+only while that attempt still owns the claim. A live claim makes other workers
+retry later; one older than `REFUND_CLAIM_STALE_AFTER` is re-claimed, and a
+provider error releases it, so a crash can retry the provider's idempotent
+request. A failure on the job's last attempt (`REFUND_MAX_ATTEMPTS`) logs at
+error level with the row's state and attempt id; reconciling such rows is issue
+#1922. The binary registers
 `Registry::commerce_refunds` when commerce and refunds are enabled and a provider
 is configured. No provider is installed by default. The dispatch receipt is separate
 from settlement: only T31's verified webhook may mark a payment refunded. This

@@ -15,11 +15,6 @@ const EXEMPT: &[(&str, usize, &str)] = &[
         "read: first statement sets statement_timeout 3s then try-lock only; denial: one audit_log INSERT",
     ),
     (
-        "commerce/effects.rs",
-        1,
-        "deliver_refund: outbox commerce.refund job spans the provider refund call; deferred to store/money PR",
-    ),
-    (
         "console/dashboard.rs",
         1,
         "metrics: READ ONLY snapshot of plain SELECTs, takes no row or advisory lock",

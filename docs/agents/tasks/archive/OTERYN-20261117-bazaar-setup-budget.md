@@ -29,7 +29,7 @@ Coordinator approved this variant on 2026-11-17.
 - [x] Under load (6 parallel copies + 8 CPU burners on 4 CPUs) the old layout fails 7/12 with 57014; the fixed test passes 12/12
 - [x] Idle: fixed test passes 3/3; the longest single receipt under load is 95 ms against the 3 s budget
 - [x] No production code, budget or assertion change
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -52,10 +52,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T09:05:00Z
-head: 83c0255669c088c639b6e24234fadde5d65da337
+head: 7a55010a970745e114d41c78f47c12a6b428ef9c
 branch: claude/happy-davinci-ijz3wy-bazaar-setup-tx
 pr: 1920
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-bazaar-setup-budget.md
@@ -89,13 +89,13 @@ validation:
     evidence: 117 passed, 0 failed
 blockers:
   - none
-next_action: open the PR and record CI on its head
+next_action: none; delivered by PR 1920 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: not yet merged
-source_branch_evidence: none
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1920 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1920 merged as 7a55010a970745e114d41c78f47c12a6b428ef9c
 ```
