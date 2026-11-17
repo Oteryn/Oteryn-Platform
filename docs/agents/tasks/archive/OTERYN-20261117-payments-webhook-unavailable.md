@@ -29,7 +29,7 @@ applies it once.
 - [x] Payments::webhook: failed account read on a settlement and on a refund gives Unavailable, writes no event, invoice or outbox row; redelivery applies once (red without the change)
 - [x] Coin webhook: failed restriction read, credit and reversal debit give Unavailable, change no order or balance; redelivery applies once (red without the change)
 - [x] Ok(Restricted/Unknown/Ambiguous) still gives AccountDenied
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -57,10 +57,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T09:10:00Z
-head: eb881d55af6fdc010ec520afd48871f15ac60fab
+head: 59df9bd855e3c5b95657e1838eee766b84c6d03e
 branch: claude/happy-davinci-ijz3wy-payments-webhook-unavailable
 pr: 1921
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-payments-webhook-unavailable.md
@@ -104,13 +104,13 @@ validation:
     evidence: both exit 0
 blockers:
   - none
-next_action: open the PR and record CI on its head
+next_action: none; delivered by PR 1921 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: not yet merged
-source_branch_evidence: none
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1921 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1921 merged as 59df9bd855e3c5b95657e1838eee766b84c6d03e
 ```
