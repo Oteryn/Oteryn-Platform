@@ -118,7 +118,7 @@ async fn handle(
     }
 }
 
-async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Value> {
+async fn dispatch(sessions: Sessions, request: Request) -> Result<wire::DeviceResponse> {
     sessions.settings.check()?;
     if request.extensions().get::<VerifiedHttps>().is_none() {
         return Err(Failure::Unavailable);
@@ -138,13 +138,12 @@ async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Va
     let (parts, body) = request.into_parts();
     let headers = &parts.headers;
     let length = if let Some(value) = headers.get(header::CONTENT_LENGTH) {
-        let raw = value.to_str().map_err(|_| Failure::TooLarge)?;
+        let raw = value.to_str().map_err(|_| Failure::Invalid)?;
         if raw.is_empty()
             || !raw.bytes().all(|b| b.is_ascii_digit())
             || (raw.len() > 1 && raw.starts_with('0'))
-            || raw.len() > 7
         {
-            return Err(Failure::TooLarge);
+            return Err(Failure::Invalid);
         }
         let n = raw.parse::<usize>().map_err(|_| Failure::TooLarge)?;
         if n > 1024 {
@@ -202,24 +201,23 @@ async fn dispatch(sessions: Sessions, request: Request) -> Result<serde_json::Va
         return sessions
             .enroll_class(secret, remembered, key)
             .await
-            .and_then(|c| c.payload());
+            .map(|c| wire::DeviceResponse::Enrollment(c.payload()));
     }
     let operation = wire::decode_operation(&body, parts.uri.query().is_some())?;
     let client = operation.client_id;
     if path == format!("{BASE}/revoke") {
         sessions.revoke(secret, client).await?;
-        return serde_json::to_value(wire::RevokeResponse {
+        return Ok(wire::DeviceResponse::Revoke(wire::RevokeResponse {
             protocol_version: 1,
             revoked: true,
-        })
-        .map_err(|_| Failure::Unavailable);
+        }));
     }
     let purpose = if path == format!("{BASE}/tickets") {
         Purpose::Ticket
     } else {
         Purpose::Characters
     };
-    sessions.rotate(secret, client, purpose).await
+    sessions.operate(secret, client, Some(purpose)).await
 }
 pub(super) async fn throttle(sessions: &Sessions, source: &str) -> Result<()> {
     sqlx::query("DELETE FROM device_session_source_limits WHERE source_hash IN (SELECT source_hash FROM device_session_source_limits WHERE window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1 LIMIT 128 FOR UPDATE SKIP LOCKED) AND window_start < floor(extract(epoch FROM clock_timestamp()))::bigint-$1")

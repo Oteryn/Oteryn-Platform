@@ -142,9 +142,8 @@ fn refusal_for(
     }
     result
 }
-/// Gateway service authentication shared by every route: the credential's
-/// SHA-256, or the refusal to send.
-fn authenticate(app: &App, request: &Request) -> Result<[u8; 32], Box<Response>> {
+/// Authenticate the gateway using either configured credential.
+fn authenticate(app: &App, request: &Request) -> Result<(), Box<Response>> {
     let Some(tokens) = &app.config.tokens else {
         return Err(Box::new(response(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -168,14 +167,13 @@ fn authenticate(app: &App, request: &Request) -> Result<[u8; 32], Box<Response>>
             br#"{"error":"unauthorized_service"}"#.to_vec(),
         )));
     }
-    Ok(hash)
+    Ok(())
 }
 async fn handle(State(app): State<App>, request: Request) -> Response {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    let hash = match authenticate(&app, &request) {
-        Ok(hash) => hash,
-        Err(refused) => return *refused,
-    };
+    if let Err(refused) = authenticate(&app, &request) {
+        return *refused;
+    }
     let raw = match tokio::time::timeout_at(deadline, to_bytes(request.into_body(), wire::MAX_BODY))
         .await
     {
@@ -195,7 +193,7 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
     }
     if let Err(error) = tokio::time::timeout_at(
         deadline,
-        store::budget(&app.db, &hash, app.config.requests_per_minute),
+        store::budget(&app.db, app.config.requests_per_minute),
     )
     .await
     .unwrap_or(Err(Error::Unavailable))
@@ -257,7 +255,7 @@ async fn recovery_front(
     attempt_of: fn(&[u8]) -> Option<String>,
     deadline: tokio::time::Instant,
 ) -> Result<(axum::body::Bytes, &Protocol3, Option<String>), Box<Response>> {
-    let hash = authenticate(app, &request)?;
+    authenticate(app, &request)?;
     let raw = tokio::time::timeout_at(deadline, to_bytes(request.into_body(), wire::MAX_BODY))
         .await
         .map_err(|_| Box::new(recovery_refusal(RecoveryError::Unavailable, None, 3, None)))?
@@ -281,7 +279,7 @@ async fn recovery_front(
     }
     if let Err(error) = tokio::time::timeout_at(
         deadline,
-        store::budget(&app.db, &hash, app.config.requests_per_minute),
+        store::budget(&app.db, app.config.requests_per_minute),
     )
     .await
     .unwrap_or(Err(Error::Unavailable))
