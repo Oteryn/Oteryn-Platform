@@ -308,7 +308,9 @@ async fn load(
             });
         }
     }
-    let mut fence = state.db.begin().await.map_err(|_| Unavailable::Database)?;
+    let mut fence = crate::privacy::read_fence(&state.db)
+        .await
+        .map_err(|_| Unavailable::Database)?;
     let epoch_now: Option<String> = sqlx::query_scalar(
         "SELECT highest_epoch::text FROM public_projection_state WHERE id=1 FOR SHARE",
     )

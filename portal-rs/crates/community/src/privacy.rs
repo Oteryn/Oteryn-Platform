@@ -270,6 +270,21 @@ impl rankings::PublicVisibility for Authority {
     }
 }
 
+/// Begin a public read fence. Ingest holds the projection row FOR UPDATE, so a
+/// fence's shared locks wait at most one second and the whole fence 2.5 seconds
+/// before the page answers unavailable.
+pub(crate) async fn read_fence(
+    db: &sqlx::PgPool,
+) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, sqlx::Error> {
+    let mut fence = db.begin().await?;
+    sqlx::query(
+        "SELECT set_config('lock_timeout','1s',true),set_config('statement_timeout','2500ms',true)",
+    )
+    .execute(&mut *fence)
+    .await?;
+    Ok(fence)
+}
+
 /// Revision evidence spans every asynchronous permission lookup in a response.
 /// Validation holds a shared revision fence until the caller's final commit.
 #[derive(Debug)]

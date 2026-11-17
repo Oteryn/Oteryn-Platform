@@ -476,3 +476,36 @@ async fn lk_referral_notification_uses_transaction_connection() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn referral_claim_lock_wait_is_bounded_by_mutation_budget() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let svc = service(db.pool.clone(), Checks::new(), true);
+    let request = invitation(Kind::New);
+    svc.invite(&request).await.unwrap();
+    let mut held = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM referral_invitations WHERE id=$1 FOR UPDATE")
+        .bind(request.id)
+        .execute(&mut *held)
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    // The holder is never released while the claim waits.
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        svc.claim(request.invitee, request.id),
+    )
+    .await
+    .expect("a held invitation lock must not stall the claim without bound");
+    assert!(result.is_err(), "a claim that never locks must not succeed");
+    assert!(started.elapsed() < std::time::Duration::from_secs(6));
+    held.rollback().await.unwrap();
+    assert_eq!(
+        svc.wallet.balance(request.inviter).await.unwrap().available,
+        0
+    );
+    db.close().await;
+}
