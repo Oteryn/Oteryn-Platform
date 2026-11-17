@@ -531,6 +531,8 @@ async fn db_release_identity_support_floor_and_revocations_cannot_be_rewritten()
     ));
     support.policy_revision = 3;
     support.artifacts[0].platform = "linux".into();
+    support.artifacts[0].target_path =
+        "channels/stable/releases/rel-b/linux/x86_64/client.zip".into();
     assert!(matches!(
         downloads
             .publish(&ALLOW, Uuid::now_v7(), signer.upload(support))
@@ -633,5 +635,47 @@ async fn audit_09_04_history_reads_are_bounded_and_oldest_identity_is_checked() 
     eprintln!(
         "PG audit_09_04_history_reads_are_bounded_and_oldest_identity_is_checked: {:.3}s",
         started.elapsed().as_secs_f64()
+    );
+}
+
+#[test]
+fn rejects_mismatched_artifact_path_variant() {
+    for (platform, architecture) in [("linux", "x86_64"), ("windows", "x86")] {
+        let mut policy: oteryn_downloads::UpdaterPolicy =
+            serde_json::from_slice(include_bytes!("fixtures/policy-v1.json")).unwrap();
+        policy.artifacts[0].platform = platform.into();
+        policy.artifacts[0].architecture = architecture.into();
+        assert!(
+            matches!(
+                policy.validate(Channel::Stable),
+                Err(Error::Invalid("artifact"))
+            ),
+            "accepted mismatched {platform}/{architecture}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn rejects_policy_shorter_than_signed_length() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let signer = SignerFixture::new();
+    let downloads = Downloads::new(db.pool.clone(), ON, signer.roots());
+    let policy = signer.policy(1, "rel-a", 1);
+    let length = serde_json::to_vec_pretty(&policy).unwrap().len() + 1;
+    let upload = signer.upload_with_policy_length(
+        policy,
+        "2099-01-01T00:00:00Z",
+        false,
+        b"package",
+        Some(length),
+    );
+    let result = downloads.publish(&ALLOW, Uuid::now_v7(), upload).await;
+    db.close().await;
+    assert!(
+        matches!(result, Err(Error::Verification)),
+        "short policy passed verification"
     );
 }

@@ -156,7 +156,11 @@ pub(crate) async fn verify(upload: Upload, trusted_root: &[u8]) -> Result<Verifi
         .into_vec()
         .await
         .map_err(|_| Error::Verification)?;
-    if bytes != upload.policy {
+    let policy_target = delegated
+        .targets
+        .get(&target_name)
+        .ok_or(Error::Verification)?;
+    if bytes.len() as u64 != policy_target.length || bytes != upload.policy {
         return Err(Error::Verification);
     }
     let mut artifacts = BTreeMap::new();

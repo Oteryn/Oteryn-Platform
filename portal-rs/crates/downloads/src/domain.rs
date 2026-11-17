@@ -137,14 +137,16 @@ impl UpdaterPolicy {
         {
             return Err(Error::Invalid("policy"));
         }
-        let prefix = format!(
-            "channels/{}/releases/{}/",
-            channel.as_str(),
-            self.current_release_id
-        );
         let mut variants = BTreeSet::new();
         let mut paths = BTreeSet::new();
         for artifact in &self.artifacts {
+            let prefix = format!(
+                "channels/{}/releases/{}/{}/{}/",
+                channel.as_str(),
+                self.current_release_id,
+                artifact.platform,
+                artifact.architecture,
+            );
             if !matches!(artifact.platform.as_str(), "windows" | "linux" | "macos")
                 || !matches!(artifact.architecture.as_str(), "x86_64" | "arm64" | "x86")
                 || !safe_path(&artifact.target_path)
