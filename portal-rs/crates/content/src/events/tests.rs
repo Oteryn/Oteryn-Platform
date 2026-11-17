@@ -540,3 +540,50 @@ async fn postgres_a3_events_refuse_session_revoked_after_authentication() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn manage_only_save_cannot_unpublish_event() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let (publisher, auth, _) = db.author().await;
+    let editor = Uuid::now_v7();
+    let role: Uuid =
+        sqlx::query_scalar("INSERT INTO roles(key) VALUES ('calendar_editor') RETURNING id")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.access'),($1,'events.manage')")
+        .bind(role).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(editor)
+        .bind(role)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let events = Events::new(db.pool.clone());
+    let content = draft("calendar-event");
+    let id = events
+        .save(&auth, context(editor), None, content.clone())
+        .await
+        .unwrap();
+    events
+        .transition(&auth, context(publisher), id, 1, "published")
+        .await
+        .unwrap();
+    let result = events
+        .save(&auth, context(editor), Some((id, 2)), content)
+        .await;
+    assert_eq!(
+        events
+            .public("en", Some("calendar-event"))
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "editor save removed the published event"
+    );
+    assert!(matches!(result, Err(Error::Authorization(_))));
+    db.close().await;
+}
