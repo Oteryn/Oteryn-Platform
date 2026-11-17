@@ -61,6 +61,7 @@ async fn postgres_payment_intent_replay_conflict_and_interrupted_claim() -> Test
         oteryn_store::web::Flags {
             shop: true,
             top_ups: true,
+            transfers: true,
             ..Default::default()
         },
         oteryn_store::web::configured_backend(pool.clone(), Some(topups.clone())),
@@ -89,6 +90,17 @@ async fn postgres_payment_intent_replay_conflict_and_interrupted_claim() -> Test
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         let location = response.headers()["location"].to_str()?.to_owned();
         let id = Uuid::parse_str(location.rsplit('/').next().ok_or("missing intent")?)?;
+        if action == "pay" {
+            let transfer = app
+                .clone()
+                .oneshot(browser_post(
+                    "/en/shop/transfer",
+                    &cookie,
+                    format!("_csrf={csrf}&operation={id}&recipient={other}&amount=1"),
+                )?)
+                .await?;
+            assert_eq!(transfer.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        }
         let page = app
             .clone()
             .oneshot(

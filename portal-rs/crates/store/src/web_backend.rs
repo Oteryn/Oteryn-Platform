@@ -136,7 +136,7 @@ where
     ) -> FutureResult<'_, Uuid> {
         Box::pin(async move {
             self.wallet
-                .transfer(operation, account, recipient, amount)
+                .browser_transfer(operation, account, recipient, amount)
                 .await
                 .map(|r| r.operation_id)
                 .map_err(Error::from)
