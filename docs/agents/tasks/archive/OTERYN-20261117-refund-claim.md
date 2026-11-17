@@ -39,7 +39,7 @@ leaves the crate begin guard's exempt list.
 - [x] Crate guard passes with the `commerce/effects.rs` exempt entry removed
 - [x] A stale attempt finishing under a live re-claim neither records its reference nor releases the claim (red with the attempt-id fence removed from finalize and release)
 - [x] The last failed outbox attempt of an unsettled refund logs at error level with operation, state and attempt id (decision tested on PostgreSQL); the reconciler is a separate task, issue #1922
-- [ ] Portal RS CI green on the PR head (no PR yet)
+- [x] Portal RS CI green on the PR head (no PR yet)
 
 ## Ownership
 
@@ -68,10 +68,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T09:30:00Z
-head: 83c0255669c088c639b6e24234fadde5d65da337
+head: 20d4f17d0945834f463193ff5d689f0fdcc932d2
 branch: claude/happy-davinci-ijz3wy-refund-claim
 pr: 1923
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-refund-claim.md
@@ -130,13 +130,13 @@ validation:
     evidence: 9 passed; with the attempt-id clauses removed from record_dispatch and release_refund, both stale-attempt tests fail (red) and the stale re-claim test still passes
 blockers:
   - none
-next_action: push after PR 1921 merges and main is merged in, then open the PR
+next_action: none; delivered by PR 1923 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Task branch for the refund claim PR; retained until merge
-source_branch_evidence: The PR records the published head
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1923 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1923 merged as 20d4f17d0945834f463193ff5d689f0fdcc932d2
 ```
