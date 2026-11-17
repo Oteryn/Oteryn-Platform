@@ -32,7 +32,7 @@ Claims pdsessions and lockref were checked and are not real; no change.
 
 - [x] Each fix has a test that fails without it (worker report) and passes with it (rerun here)
 - [x] Focused crate tests pass on the integrated tree
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -73,10 +73,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T02:40:00Z
-head: bb2f6c07f2aa9d2fa820750753aa7daba376b9e4
+head: d2453556bdcb8cc3b66d0c22d5c57e5b45adc8b9
 branch: claude/happy-davinci-ijz3wy-r4-fixes
 pr: 1898
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-r4-lock-order-fixes.md
@@ -146,5 +146,13 @@ validation:
     evidence: 28 of 28 rc=0 on the tree with main 08b3dace (PR 1895) merged; the later main merge of PR 1896 changed no Rust file
 blockers:
   - none
-next_action: wait for Portal RS CI on PR 1898
+next_action: none; delivered by PR 1898 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1898 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1898 merged as d2453556bdcb8cc3b66d0c22d5c57e5b45adc8b9
 ```
