@@ -52,7 +52,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T18:00:00Z
 head: 1bb15ad3af64a975dd01da79f5d210f5806d6077
 branch: claude/happy-davinci-ijz3wy-channel-probe
-pr: 1940
+pr: 1939
 status: validating
 context_routes: []
 owned_paths:
