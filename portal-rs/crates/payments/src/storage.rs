@@ -136,10 +136,16 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         let reference = self.provider.create_intent(id, &amount).await?;
         identifier(&reference)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
+        match self.accounts.state_in(&mut tx, account_id).await {
+            Ok(AccountState::Active) => {}
+            Ok(_) => return Err(Error::AccountDenied),
+            Err(_) => return Err(Error::Unavailable),
+        }
         let inserted = sqlx::query("INSERT INTO payment_intents (id, account_id, provider, provider_reference, amount, currency, state) VALUES ($1,$2,$3,$4,$5,$6,'created') ON CONFLICT DO NOTHING")
             .bind(id).bind(account_id).bind(self.provider.name()).bind(&reference)
             .bind(amount.minor_units).bind(&amount.currency).execute(&mut *tx).await?.rows_affected();
-        if inserted == 1 {
+        let intent = if inserted == 1 {
             IntentState::Created.transition(IntentState::Pending)?;
             sqlx::query(
                 "UPDATE payment_intents SET state = 'pending', updated_at = now() WHERE id = $1",
@@ -147,9 +153,18 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
             .bind(id)
             .execute(&mut *tx)
             .await?;
-        }
+            Intent {
+                id,
+                account_id,
+                amount,
+                state: IntentState::Pending,
+                provider_reference: reference,
+            }
+        } else {
+            existing(self.intent_in(&mut tx, id).await?)?
+        };
         tx.commit().await?;
-        existing(self.intent(id).await?)
+        Ok(intent)
     }
 
     pub async fn intent(&self, id: Uuid) -> Result<Intent, Error> {
@@ -274,6 +289,18 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
             Ok(_) => return Err(Error::AccountDenied),
             Err(_) => return Err(Error::Unavailable),
         }
+        if event.state == IntentState::Succeeded {
+            let coins: Option<i64> = sqlx::query_scalar(
+                "SELECT coins FROM store_web_topups WHERE payment_intent_id=$1 AND account_id=$2 FOR SHARE",
+            )
+            .bind(event.intent_id)
+            .bind(account_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(coins) = coins {
+                check_wallet_capacity(&mut tx, account_id, coins).await?;
+            }
+        }
         sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1")
             .bind(event.intent_id)
             .bind(event.state.as_str())
@@ -302,4 +329,34 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         tx.commit().await?;
         Ok(WebhookOutcome::Applied)
     }
+}
+
+/// Serialize the checkout decision with wallet mutations. Include reserved
+/// coins and capacity already promised to incoming payouts.
+async fn check_wallet_capacity(
+    tx: &mut sqlx::PgConnection,
+    account: Uuid,
+    coins: i64,
+) -> Result<(), Error> {
+    if !(1..=oteryn_wallet::MAX_BALANCE).contains(&coins) {
+        return Err(Error::InvalidInput);
+    }
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES ($1) ON CONFLICT DO NOTHING")
+        .bind(account)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+        .bind(account)
+        .fetch_one(&mut *tx)
+        .await?;
+    let incoming = oteryn_wallet::incoming_capacity_in(tx, account)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    let fits: bool = sqlx::query_scalar(
+        "SELECT COALESCE(sum(available_delta),0) + COALESCE(sum(reserved_delta),0) + $2::bigint + $3::bigint <= $4::bigint FROM wallet_entries WHERE account_id=$1",
+    ).bind(account).bind(incoming).bind(coins).bind(oteryn_wallet::MAX_BALANCE).fetch_one(tx).await?;
+    if !fits {
+        return Err(Error::InvalidInput);
+    }
+    Ok(())
 }

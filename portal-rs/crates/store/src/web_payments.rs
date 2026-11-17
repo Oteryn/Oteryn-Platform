@@ -125,7 +125,13 @@ impl TopUps for PaymentTopUps {
                     if outcome.is_err()
                         && matches!(intent.state, IntentState::Created | IntentState::Pending)
                     {
-                        return Err(Error::Unavailable);
+                        return Err(
+                            if matches!(outcome, Err(oteryn_payments::Error::InvalidInput)) {
+                                Error::Invalid
+                            } else {
+                                Error::Unavailable
+                            },
+                        );
                     }
                 }
             }
