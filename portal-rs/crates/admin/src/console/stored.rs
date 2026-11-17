@@ -321,8 +321,41 @@ impl StoredChannel {
         if !owns {
             return Err(Error::Unavailable);
         }
-        let request: Option<control::Request> = sqlx::query_as("SELECT r.* FROM admin_control_requests r JOIN audit_log a ON a.request_id=r.request_id AND a.action='console.query.admitted' JOIN admin_control_agents g ON g.agent_id=$6 AND g.owner_epoch::text=$7 AND g.last_seen_at>clock_timestamp()-interval '30 seconds' AND g.last_seen_at<=clock_timestamp() AND (r.target->>'world_id' IS NULL OR r.target->>'world_id'=ANY(g.served_worlds)) AND (r.target->>'node_id' IS NULL OR r.target->>'node_id'=ANY(g.served_nodes)) AND NOT EXISTS(SELECT 1 FROM admin_control_agents other WHERE other.agent_id<>g.agent_id AND other.owner_epoch>=g.owner_epoch AND (r.target->>'world_id'=ANY(other.served_worlds) OR r.target->>'node_id'=ANY(other.served_nodes))) WHERE r.actor=$1 AND r.operation=$2 AND r.target=$3 AND r.params=$4 AND ($5::uuid IS NULL OR r.request_id=$5) AND r.issued_at<=clock_timestamp() AND a.target=$6 AND a.after->>'owner_epoch'=$7 ORDER BY r.issued_at DESC LIMIT 1")
-            .bind(actor).bind(operation).bind(sqlx::types::Json(target)).bind(params).bind(request_id).bind(&agent.agent_id).bind(agent.owner_epoch.to_string()).fetch_optional(&self.pool).await?;
+        // Admission follows the request across owners. For successful results,
+        // check the recording epoch, falling back to admission for legacy
+        // transitions from the same agent.
+        let request = sqlx::query_as(
+            "SELECT r.* FROM admin_control_requests r
+             JOIN audit_log a ON a.request_id=r.request_id AND a.actor=r.actor
+                 AND a.action='console.query.admitted'
+             JOIN admin_control_agents g ON g.agent_id=$6 AND g.owner_epoch=$7
+                 AND g.last_seen_at>clock_timestamp()-interval '30 seconds'
+                 AND g.last_seen_at<=clock_timestamp()
+                 AND (r.target->>'world_id' IS NULL OR r.target->>'world_id'=ANY(g.served_worlds))
+                 AND (r.target->>'node_id' IS NULL OR r.target->>'node_id'=ANY(g.served_nodes))
+             WHERE r.actor=$1 AND r.operation=$2 AND r.target=$3 AND r.params=$4
+                 AND ($5::uuid IS NULL OR r.request_id=$5) AND r.issued_at<=clock_timestamp()
+                 AND NOT EXISTS (SELECT 1 FROM admin_control_agents other
+                     WHERE other.agent_id<>g.agent_id AND other.owner_epoch>=g.owner_epoch
+                         AND (r.target->>'world_id'=ANY(other.served_worlds)
+                             OR r.target->>'node_id'=ANY(other.served_nodes)))
+                 AND (r.status<>'succeeded' OR (r.agent_id=g.agent_id AND COALESCE(
+                     (SELECT t.after->>'owner_epoch' FROM audit_log t
+                      WHERE t.request_id=r.request_id AND t.action='admin.control.transition'
+                          AND t.after->>'status'='succeeded' LIMIT 1),
+                     CASE WHEN a.target=g.agent_id THEN a.after->>'owner_epoch'
+                          ELSE g.owner_epoch::text END) = g.owner_epoch::text))
+             ORDER BY r.issued_at DESC LIMIT 1",
+        )
+        .bind(actor)
+        .bind(operation)
+        .bind(sqlx::types::Json(target))
+        .bind(params)
+        .bind(request_id)
+        .bind(&agent.agent_id)
+        .bind(agent.owner_epoch)
+        .fetch_optional(&self.pool)
+        .await?;
         Ok(request)
     }
     async fn verified(

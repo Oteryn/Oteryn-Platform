@@ -382,6 +382,7 @@ impl Store {
                 Some(input.actor),
                 None,
                 Status::Queued,
+                None,
             )
             .await?;
             request
@@ -560,6 +561,7 @@ impl Store {
                 None,
                 Some(Status::Queued),
                 Status::Delivered,
+                None,
             )
             .await?;
         }
@@ -665,6 +667,7 @@ impl Store {
             None,
             Some(request.status),
             input.status,
+            Some(epoch),
         )
         .await?;
         Ok(result)
@@ -690,7 +693,7 @@ impl Store {
             let status: Status = row.try_get("status")?;
             sqlx::query("UPDATE admin_control_requests SET status='expired',updated_at=clock_timestamp() WHERE request_id=$1")
                 .bind(id).execute(&mut *tx).await?;
-            audit(&mut tx, id, None, Some(status), Status::Expired).await?;
+            audit(&mut tx, id, None, Some(status), Status::Expired, None).await?;
         }
         tx.commit().await?;
         Ok(rows.len() as u64)
@@ -810,7 +813,12 @@ async fn audit(
     actor: Option<Uuid>,
     before: Option<Status>,
     after: Status,
+    owner_epoch: Option<i64>,
 ) -> Result<(), Error> {
+    let mut state = serde_json::json!({"status":after.as_str()});
+    if let Some(epoch) = owner_epoch {
+        state["owner_epoch"] = epoch.into();
+    }
     sqlx::query(
         "INSERT INTO audit_log (actor,action,target,before,after,request_id)
         VALUES ($1,'admin.control.transition',$2,$3,$4,$5)",
@@ -818,7 +826,7 @@ async fn audit(
     .bind(actor)
     .bind(id.to_string())
     .bind(serde_json::json!({"status":before.map(Status::as_str)}))
-    .bind(serde_json::json!({"status":after.as_str()}))
+    .bind(state)
     .bind(id)
     .execute(&mut **tx)
     .await?;

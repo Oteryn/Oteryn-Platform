@@ -131,6 +131,8 @@ fn app(pool: PgPool, enabled: bool) -> Router {
         pool,
         enabled,
         vec![AgentBinding {
+            allowed_worlds: vec!["world-a".into()],
+            allowed_nodes: vec![],
             agent_id: "agent-a".into(),
             identity: Identity::san("urn:test:agent-a").unwrap(),
             result_key: Some((
@@ -219,6 +221,38 @@ async fn transport_refusals_and_closed_input() {
         StatusCode::PAYLOAD_TOO_LARGE
     );
 }
+#[test]
+fn binding_requires_both_scope_arrays() {
+    let mut binding =
+        json!({"cn":"oteryn-admin-agent/agent-a","identity":{"san":"agent-a.internal"}});
+    assert!(serde_json::from_value::<ConfiguredAgent>(binding.clone()).is_err());
+    binding["allowed_worlds"] = json!(["world-a"]);
+    assert!(serde_json::from_value::<ConfiguredAgent>(binding.clone()).is_err());
+    binding["allowed_nodes"] = json!([]);
+    assert!(serde_json::from_value::<ConfiguredAgent>(binding).is_ok());
+}
+
+#[tokio::test]
+async fn hello_refuses_out_of_scope_claims() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.unwrap();
+    let app = app(db.pool.clone(), true);
+    for field in ["served_worlds", "served_nodes"] {
+        let mut body = hello_body(9);
+        body[field] = json!(["outside"]);
+        assert_eq!(
+            post(app.clone(), "hello", body, true).await.status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM admin_control_agents")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    db.close().await;
+}
+
 #[tokio::test]
 async fn postgres_hello_channel_results_and_snapshots() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
@@ -368,6 +402,8 @@ async fn configured_result_key_refuses_tampering_before_storage() {
         pool,
         true,
         vec![AgentBinding {
+            allowed_worlds: vec!["world-a".into()],
+            allowed_nodes: vec![],
             agent_id: "agent-a".into(),
             identity: Identity::san("urn:test:agent-a").unwrap(),
             result_key: Some((
@@ -414,11 +450,15 @@ async fn configured_result_key_refuses_tampering_before_storage() {
 fn agent_identity_requires_flag_exact_cn_and_bound_san() {
     let bindings = [
         AgentBinding {
+            allowed_worlds: vec!["world-a".into()],
+            allowed_nodes: vec![],
             agent_id: "agent-a".into(),
             identity: Identity::san("agent-a.oteryn.internal").unwrap(),
             result_key: None,
         },
         AgentBinding {
+            allowed_worlds: vec!["world-a".into()],
+            allowed_nodes: vec![],
             agent_id: "agent-spki".into(),
             identity: Identity::spki_sha256([7; 32]),
             result_key: None,

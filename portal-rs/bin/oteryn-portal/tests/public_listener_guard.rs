@@ -393,7 +393,7 @@ fn environment(port: u16, evidence_dir: &std::path::Path) -> Vec<(&'static str, 
         (
             "PORTAL_ADMIN_CONTROL_AGENTS_JSON",
             format!(
-                "[{{\"cn\":\"oteryn-admin-agent/agent-1\",\"identity\":{{\"san\":\"{CONTROL_SAN}\"}},\"result_key\":null}}]"
+                "[{{\"cn\":\"oteryn-admin-agent/agent-1\",\"identity\":{{\"san\":\"{CONTROL_SAN}\"}},\"allowed_worlds\":[\"world-a\"],\"allowed_nodes\":[],\"result_key\":null}}]"
             ),
         ),
     ]
