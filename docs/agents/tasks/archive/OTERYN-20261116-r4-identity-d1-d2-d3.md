@@ -64,10 +64,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-16T23:25:00Z
-head: e9b0bcaaacf61d29593e38454fd77977d86335d2
+head: 8e16fc6da3eb9ea8caf11707a62b7c9bc4fc5b8d
 branch: claude/happy-davinci-ijz3wy-r4fix
 pr: 1893
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/crates/identity/
@@ -134,13 +134,13 @@ validation:
     evidence: exit 0 on the whole workspace
 blockers:
   - none
-next_action: PR CI on the exact head, merge, then archive this packet
+next_action: none; delivered by PR 1893 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1893 squash-merged; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1893 merged as 8e16fc6da3eb9ea8caf11707a62b7c9bc4fc5b8d
 ```

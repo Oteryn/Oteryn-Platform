@@ -50,3 +50,18 @@ oteryn-minigames = { path = "crates/minigames" }
 
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 serde_json_canonicalizer = "0.4.1"
+
+# Debug builds (local runs and every CI test shard) optimize the league snapshot validation
+# path. Without this, `oteryn-minigames` SeasonRow validation (per-character NFC and general
+# category checks) took about 93 ms per 1000-standing season in a debug build, so reading 14
+# full seasons came close to the 3 s league read bound and returned `Unavailable` on a loaded
+# runner (l5_league_fourteen_full_seasons_are_complete). Each override alone had no effect
+# (decode 92-93 ms per season); the three together bring it to about 17 ms.
+[profile.dev.package.oteryn-minigames]
+opt-level = 1
+
+[profile.dev.package.unicode-normalization]
+opt-level = 3
+
+[profile.dev.package.unicode-general-category]
+opt-level = 3
