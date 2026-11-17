@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Byte-exact proof of `docs/contracts/fixtures/native-oauth-ticket-v1` (token
 //! cases) through the real `/oauth/token` router, plus the manifest digests of
-//! both native client fixture directories.
+//! native client fixture directories, and the client directory vectors
+//! against their declared consumer outcome.
 use super::*;
 use axum::{
     Router,
@@ -40,7 +41,11 @@ fn text<'a>(value: &'a serde_json::Value, key: &str) -> &'a str {
 
 #[test]
 fn native_client_fixture_manifests_match_their_files() {
-    for dir in ["native-oauth-ticket-v1", "native-characters-v1"] {
+    for dir in [
+        "native-oauth-ticket-v1",
+        "native-characters-v1",
+        "client-directory-v1",
+    ] {
         let manifest = manifest(dir);
         let mut listed = BTreeSet::new();
         for entry in manifest["files"].as_array().unwrap() {
@@ -75,6 +80,111 @@ fn native_client_fixture_manifests_match_their_files() {
             }
         }
     }
+}
+/// The v1 consumer rules of `OTERYN_V2_CLIENT_DIRECTORY_CONTRACT.md`, applied
+/// to each `client-directory-v1` vector; the result must match `client_outcome`.
+fn directory_outcome(bytes: &[u8]) -> &'static str {
+    const FORBIDDEN: [&str; 12] = [
+        "host",
+        "port",
+        "endpoint",
+        "endpoint_uri",
+        "protocol",
+        "protocol_profile",
+        "ticket",
+        "credential",
+        "game_session",
+        "admission",
+        "route",
+        "address",
+    ];
+    fn forbidden(v: &serde_json::Value) -> bool {
+        match v {
+            serde_json::Value::Object(o) => o
+                .iter()
+                .any(|(k, c)| FORBIDDEN.contains(&k.as_str()) || forbidden(c)),
+            serde_json::Value::Array(a) => a.iter().any(forbidden),
+            _ => false,
+        }
+    }
+    fn bounded(v: &serde_json::Value, key: &str, max: usize) -> bool {
+        v[key]
+            .as_str()
+            .is_some_and(|s| !s.is_empty() && s.len() <= max && !s.chars().any(char::is_control))
+    }
+    fn list<'a>(
+        v: &'a serde_json::Value,
+        key: &str,
+        max: usize,
+    ) -> Option<&'a Vec<serde_json::Value>> {
+        v[key].as_array().filter(|a| a.len() <= max)
+    }
+    let valid = |root: &serde_json::Value| -> bool {
+        root["epoch"].is_u64()
+            && list(root, "worlds", 256).is_some_and(|worlds| {
+                worlds.iter().all(|w| {
+                    bounded(w, "id", 96)
+                        && bounded(w, "name", 96)
+                        && list(w, "channels", 128).is_some_and(|cs| {
+                            cs.iter().all(|c| {
+                                bounded(c, "id", 96)
+                                    && bounded(c, "name", 96)
+                                    && bounded(c, "region", 32)
+                                    && matches!(
+                                        c["pvp_type"].as_str(),
+                                        Some("OPTIONAL_PVP" | "OPEN_PVP")
+                                    )
+                            })
+                        })
+                        && list(w, "characters", 256).is_some_and(|cs| {
+                            cs.iter()
+                                .all(|c| bounded(c, "id", 96) && bounded(c, "name", 96))
+                        })
+                })
+            })
+    };
+    match serde_json::from_slice::<serde_json::Value>(bytes) {
+        _ if bytes.len() > 1_048_576 => "reject:ResponseTooLarge",
+        Err(_) => "reject:InvalidPayload",
+        Ok(v) if forbidden(&v) => "reject:ForbiddenGameplayField",
+        Ok(v) if valid(&v) => "accept",
+        Ok(_) => "reject:InvalidPayload",
+    }
+}
+
+#[test]
+fn client_directory_vectors_match_their_declared_outcome() {
+    const DIR: &str = "client-directory-v1";
+    let m = manifest(DIR);
+    let cases = m["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 4);
+    for c in cases {
+        let name = text(c, "case");
+        let body = file(DIR, text(c, "response"));
+        assert_eq!(
+            directory_outcome(&body),
+            text(c, "client_outcome"),
+            "{name}"
+        );
+        assert_eq!(text(c, "path"), "/v1/client/directory", "{name}");
+        let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let anonymous = c["headers"].get("authorization").is_none();
+        let characters = parsed["worlds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w["characters"].as_array().unwrap().len())
+            .sum::<usize>();
+        if anonymous {
+            assert_eq!(characters, 0, "{name}: anonymous bodies list no characters");
+        } else {
+            assert!(characters > 0, "{name}");
+        }
+    }
+    assert_eq!(
+        text(&case(&m, "directory-owner")["headers"], "authorization"),
+        format!("Bearer {}", text(&m, "synthetic_access_token"))
+    );
 }
 fn hash_bytes(bytes: &[u8]) -> Vec<u8> {
     Sha256::digest(bytes).to_vec()
