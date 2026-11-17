@@ -1088,3 +1088,76 @@ async fn db_transaction_authorization_observes_revocation_after_resource_wait() 
         started.elapsed()
     );
 }
+#[tokio::test]
+async fn db_role_managers_never_grant_or_widen_their_own_roles() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let auth = db.auth();
+    let manager = db.manager().await;
+    let role = auth
+        .change(
+            manager,
+            Uuid::now_v7(),
+            Change::CreateRole {
+                key: "self_held",
+                permissions: &[Permission::ViewAudit],
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let request = Uuid::now_v7();
+    assert!(matches!(
+        auth.change(
+            manager,
+            request,
+            Change::Grant {
+                account: manager.account,
+                role
+            }
+        )
+        .await,
+        Err(Error::Denied)
+    ));
+    assert_eq!(db.audit_count(request).await, 0);
+    // Held through another manager's grant, the role cannot be widened by its holder.
+    sqlx::query("INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2)")
+        .bind(manager.account)
+        .bind(role)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        auth.change(
+            manager,
+            Uuid::now_v7(),
+            Change::SetPermissions {
+                role,
+                permissions: &[Permission::ViewAudit, Permission::ManageNews],
+            },
+        )
+        .await,
+        Err(Error::Denied)
+    ));
+    // Narrowing a held role stays possible.
+    auth.change(
+        manager,
+        Uuid::now_v7(),
+        Change::SetPermissions {
+            role,
+            permissions: &[],
+        },
+    )
+    .await
+    .unwrap();
+    let held: Vec<String> =
+        sqlx::query_scalar("SELECT permission FROM role_permissions WHERE role_id=$1")
+            .bind(role)
+            .fetch_all(&db.pool)
+            .await
+            .unwrap();
+    assert!(held.is_empty());
+    db.close().await;
+}

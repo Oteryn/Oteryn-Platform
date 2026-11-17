@@ -132,6 +132,19 @@ impl<A: AccountStateReader> Authorizer<A> {
                     "SELECT permission FROM role_permissions WHERE role_id = $1 ORDER BY permission")
                     .bind(role).fetch_all(&mut *tx).await?;
                 let after = permission_ids(permissions);
+                // Nobody widens a role they hold themselves; narrowing stays allowed.
+                if after.iter().any(|p| !before.iter().any(|b| b == p)) {
+                    let held: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2)",
+                    )
+                    .bind(context.account)
+                    .bind(role)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    if held {
+                        return Err(Error::Denied);
+                    }
+                }
                 if before == after {
                     self.check_in(&mut tx, context, Permission::ManageRoles)
                         .await?;
@@ -164,6 +177,10 @@ impl<A: AccountStateReader> Authorizer<A> {
                 }
                 require_role(&mut tx, role).await?;
                 let grant = matches!(change, Change::Grant { .. });
+                // Nobody grants a role to themselves; another manager must.
+                if grant && account == context.account {
+                    return Err(Error::Denied);
+                }
                 // Revocation must remain possible even for a disabled or deleted account.
                 if grant
                     && !matches!(
