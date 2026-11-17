@@ -511,6 +511,13 @@ impl Runtime {
         purpose: &str,
         sale: Option<&Settlement>,
     ) -> Result<(), Error> {
+        if purpose == "BAZAAR_LISTING_ESCROW" {
+            let unlocking: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE listing_id=$1 AND command='UnlockBazaarCharacter')")
+                .bind(l.id).fetch_one(&mut **tx).await?;
+            if unlocking {
+                return Err(Error::Denied);
+            }
+        }
         let existing =
             super::characters::reconcile_transfer(self.authority(), tx, l.id, purpose).await?;
         let operation = if let Some(operation) = existing {

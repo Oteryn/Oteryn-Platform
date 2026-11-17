@@ -3547,6 +3547,70 @@ async fn character_transfer_receipt(
 }
 /// A sold Character in escrow (uid 40) awaiting its settlement leg, funded in
 /// `currency` by buyer uid 13 for 100 under sale uid 33.
+async fn escrow_character(
+    db: &BrowserFixture,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing: Uuid,
+    now: u64,
+) {
+    let a = db.runtime.authority();
+    let strval = |value: Uuid| Value::String(value.to_string());
+    let revision: i64 = sqlx::query_scalar(
+        "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .unwrap();
+    let operation = Uuid::now_v7();
+    let Value::Object(mut fields) = transfer_fixture(operation, revision, now) else {
+        panic!("transfer")
+    };
+    for (name, value) in &mut fields {
+        *value = match name.as_str() {
+            "expected_from_account_id" => strval(uid("11")),
+            "to_account_id" => strval(uid("40")),
+            "purpose" => Value::String("BAZAAR_LISTING_ESCROW".into()),
+            _ => value.clone(),
+        };
+    }
+    let transfer = Value::Object(fields);
+    stage_transfer_fixture(tx, listing, &transfer).await;
+    let raw = canonical::encode(&transfer).unwrap();
+    runtime::worker::publish_transfer(
+        tx,
+        listing,
+        "BAZAAR_LISTING_ESCROW",
+        operation,
+        &transfer,
+        &raw,
+    )
+    .await
+    .unwrap();
+    character_transfer_receipt(tx, operation, (uid("11"), uid("40")), now).await;
+    let bind = character_intent(
+        Command::Bind,
+        103,
+        now,
+        vec![
+            ("character_id", strval(uid("31"))),
+            ("lock_id", strval(uid("32"))),
+            ("expected_lock_revision", Value::String("1".into())),
+            ("transfer_operation_id", strval(operation)),
+            ("transfer_binding_digest", Value::String(digest(&raw))),
+            ("purpose", Value::String("BAZAAR_LISTING_ESCROW".into())),
+            ("sale_id", Value::Null),
+            ("funding", Value::Null),
+        ],
+    );
+    let data = format!(
+        "{{\"character_id\":\"{}\",\"lock_id\":\"{}\",\"lock_revision\":\"2\",\"transfer_operation_id\":\"{operation}\",\"transfer_binding_digest\":\"{}\"}}",
+        uid("31"),
+        uid("32"),
+        digest(&raw)
+    );
+    committed_fact(a, tx, &bind, &data, now).await;
+    character_status(db, tx, "locked", operation, ("2", "2"), now).await;
+}
 async fn settling_character_fixture(currency: &str) -> BrowserFixture {
     use crate::{Currency, Reservation, Reservations, Settlement};
     let mut db = BrowserFixture::new().await;
@@ -3583,61 +3647,7 @@ async fn settling_character_fixture(currency: &str) -> BrowserFixture {
         vector("locked_character_snapshot")
     );
     committed_fact(a, &mut tx, &lock, &data, now).await;
-    let revision: i64 = sqlx::query_scalar(
-        "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
-    let operation = Uuid::now_v7();
-    let Value::Object(mut fields) = transfer_fixture(operation, revision, now) else {
-        panic!("transfer")
-    };
-    for (name, value) in &mut fields {
-        *value = match name.as_str() {
-            "expected_from_account_id" => strval(uid("11")),
-            "to_account_id" => strval(uid("40")),
-            "purpose" => Value::String("BAZAAR_LISTING_ESCROW".into()),
-            _ => value.clone(),
-        };
-    }
-    let transfer = Value::Object(fields);
-    stage_transfer_fixture(&mut tx, listing, &transfer).await;
-    let raw = canonical::encode(&transfer).unwrap();
-    runtime::worker::publish_transfer(
-        &mut tx,
-        listing,
-        "BAZAAR_LISTING_ESCROW",
-        operation,
-        &transfer,
-        &raw,
-    )
-    .await
-    .unwrap();
-    character_transfer_receipt(&mut tx, operation, (uid("11"), uid("40")), now).await;
-    let bind = character_intent(
-        Command::Bind,
-        103,
-        now,
-        vec![
-            ("character_id", strval(uid("31"))),
-            ("lock_id", strval(uid("32"))),
-            ("expected_lock_revision", Value::String("1".into())),
-            ("transfer_operation_id", strval(operation)),
-            ("transfer_binding_digest", Value::String(digest(&raw))),
-            ("purpose", Value::String("BAZAAR_LISTING_ESCROW".into())),
-            ("sale_id", Value::Null),
-            ("funding", Value::Null),
-        ],
-    );
-    let data = format!(
-        "{{\"character_id\":\"{}\",\"lock_id\":\"{}\",\"lock_revision\":\"2\",\"transfer_operation_id\":\"{operation}\",\"transfer_binding_digest\":\"{}\"}}",
-        uid("31"),
-        uid("32"),
-        digest(&raw)
-    );
-    committed_fact(a, &mut tx, &bind, &data, now).await;
-    character_status(&db, &mut tx, "locked", operation, ("2", "2"), now).await;
+    escrow_character(&db, &mut tx, listing, now).await;
     let funds = CoinReservations {
         authority: a.clone(),
     };
