@@ -340,3 +340,30 @@ async fn postgres_account_rate_and_authority_backlog_are_serialized() -> TestRes
     assert_eq!(db.counts().await?, (40, 40));
     db.close().await
 }
+#[tokio::test]
+async fn postgres_held_sequence_lock_sheds_within_mutation_budget() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let service = db.service(Mode::Verified);
+    let mut holder = db.pool.begin().await?;
+    sqlx::query("SELECT revision FROM hireling_command_sequence WHERE singleton=true FOR UPDATE")
+        .execute(&mut *holder)
+        .await?;
+    let r = request(false)?;
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        service.enqueue(Uuid::now_v7(), &r),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    holder.rollback().await?;
+    let result = result.map_err(|_| {
+        "enqueue still waiting at 10 s on a held sequence lock; expected a refusal within the 3 s mutation budget"
+    })?;
+    assert!(matches!(result, Err(Error::Storage(_))), "{result:?}");
+    assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
+    assert_eq!(db.counts().await?, (0, 0));
+    db.close().await
+}

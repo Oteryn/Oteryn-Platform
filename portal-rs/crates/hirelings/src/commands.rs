@@ -440,7 +440,8 @@ impl<A: CommandAuthority> Commands<A> {
         }
         r.validate(account)?;
         let action_bytes = serde_json::to_string(r)?;
-        let mut tx = self.pool.begin().await?;
+        oteryn_db::transaction::run_transaction(&self.pool, async |tx| {
+        let tx = tx.connection().await?;
         // Issuer-wide allocation lock is held through commit. A fresh intent can
         // never commit behind the discovery cursor. Also serializes quota/key races.
         let revision: String = sqlx::query_scalar(
@@ -533,8 +534,8 @@ impl<A: CommandAuthority> Commands<A> {
         sqlx::query("INSERT INTO hireling_command_intents(operation_id,account_id,idempotency_key,hireling_id,source_authority,source_revision,action_bytes,intent_bytes,binding_digest) VALUES($1,$2,$3,$4,$5,$6::text::numeric,$7,$8,$9)")
             .bind(operation_id).bind(account).bind(r.idempotency_key).bind(r.hireling_id).bind(&self.source_authority)
             .bind(next.to_string()).bind(action_bytes).bind(&intent_bytes).bind(&binding_digest).execute(&mut *tx).await?;
-        outbox::enqueue(
-            &mut tx,
+        outbox::enqueue_on(
+            &mut *tx,
             "hirelings.command.v1",
             &serde_json::json!({"operation_id": operation_id}).to_string(),
             &operation_id.to_string(),
@@ -542,13 +543,14 @@ impl<A: CommandAuthority> Commands<A> {
             1,
         )
         .await?;
-        tx.commit().await?;
         Ok(QueuedCommand {
             operation_id,
             source_revision,
             intent_bytes,
             binding_digest,
         })
+        })
+        .await
     }
 }
 

@@ -25,6 +25,19 @@ pub async fn enqueue(
     run_after: OffsetDateTime,
     max_attempts: i32,
 ) -> Result<Uuid, Error> {
+    enqueue_on(tx, kind, payload, key, run_after, max_attempts).await
+}
+
+/// `enqueue` on the connection of a transaction the caller owns, such as a
+/// budgeted `transaction::BudgetTx`.
+pub async fn enqueue_on(
+    connection: &mut sqlx::PgConnection,
+    kind: &str,
+    payload: &str,
+    key: &str,
+    run_after: OffsetDateTime,
+    max_attempts: i32,
+) -> Result<Uuid, Error> {
     sqlx::query_scalar(
         "INSERT INTO outbox (kind, payload, idempotency_key, run_after, max_attempts)
          VALUES ($1, $2::text::jsonb, $3, $4, $5)
@@ -36,7 +49,7 @@ pub async fn enqueue(
     .bind(key)
     .bind(run_after)
     .bind(max_attempts)
-    .fetch_one(&mut **tx)
+    .fetch_one(connection)
     .await
 }
 
