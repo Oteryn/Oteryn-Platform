@@ -28,7 +28,7 @@ existing unicode overrides. No product code, timeout or test changes.
 - [x] Fence hold measured before the fix: max 42 ms locally with all cores busy, verify up to 31 ms of it
 - [x] Same load with the fix: max hold 11.5 ms, verify at most 0.12 ms
 - [x] No timeout, test, retry or product code change
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -53,10 +53,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T03:05:00Z
-head: bb2f6c07f2aa9d2fa820750753aa7daba376b9e4
+head: 0f8bd119b91e0d64103d9c87764906f56ce5076f
 branch: claude/happy-davinci-ijz3wy-leaguefence
 pr: 1899
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/Cargo.toml
@@ -88,5 +88,13 @@ validation:
     evidence: 74 passed each run
 blockers:
   - none
-next_action: wait for Portal RS CI on PR 1899
+next_action: none; delivered by PR 1899 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1899 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1899 merged as 0f8bd119b91e0d64103d9c87764906f56ce5076f
 ```

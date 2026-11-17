@@ -37,6 +37,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-trust-snapshot-race.md
   - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
   - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-league-fence-hold.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-league-fence-hold.md
 modules:
   - gameauth
 dependencies:
@@ -62,6 +64,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-trust-snapshot-race.md
   - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
   - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-league-fence-hold.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-league-fence-hold.md
 proven:
   - All .activate( sites in portal-rs enumerated on origin/main; only the five audit05 sites read the clock before the snapshot
   - Product signing paths refresh trust before reading the clock
@@ -79,6 +83,8 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-trust-snapshot-race.md
   - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
   - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-league-fence-hold.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-league-fence-hold.md
 validation:
   - command: cargo test --locked -p oteryn-gameauth --lib (PostgreSQL 18)
     result: PASS
