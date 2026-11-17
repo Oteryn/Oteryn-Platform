@@ -360,20 +360,26 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         }
         let mut tx = self.pool.begin().await?;
         crate::rbac::mutation_budget(&mut tx).await?;
-        let (original, target): (Uuid, Uuid) =
-            sqlx::query_as("SELECT actor_id,target_id FROM commerce_operations WHERE id=$1")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or(Error::Invalid)?;
-        rbac::lock_accounts_and_mutation(&mut tx, &[context.account, original, target]).await?;
+        let (original, target, saved): (Uuid, Uuid, Value) = sqlx::query_as(
+            "SELECT actor_id,target_id,command FROM commerce_operations WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::Invalid)?;
+        let saved: Command = serde_json::from_value(saved).map_err(|_| Error::Unavailable)?;
+        let owner = payment_owner(&mut tx, &saved, target).await?;
+        rbac::lock_accounts_and_mutation(&mut tx, &[context.account, original, owner]).await?;
         let row = sqlx::query("SELECT command,requires_approval,result,approved_by FROM commerce_operations WHERE id=$1 FOR UPDATE")
             .bind(id).fetch_one(&mut *tx).await?;
         let command: Command =
             serde_json::from_value(row.try_get("command")?).map_err(|_| Error::Unavailable)?;
         command.validate(self.flags)?;
         self.authorize_in(&mut tx, context, &command).await?;
-        if original == context.account || !row.try_get::<bool, _>("requires_approval")? {
+        if original == context.account
+            || owner == context.account
+            || !row.try_get::<bool, _>("requires_approval")?
+        {
             return Err(Error::Denied);
         }
         let cancelled = json!({"status":"cancelled"});

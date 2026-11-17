@@ -1172,41 +1172,6 @@ async fn a3_l6_02_staff_routes_refuse_restricted_acquisitions() {
             rbac::Permission::Access,
         )
     };
-    async fn login(app: axum::Router) -> (String, String) {
-        let response = app
-            .oneshot(
-                HttpRequest::get("/admin/commerce")
-                    .header("host", "staff.test")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let cookie = response.headers()["set-cookie"]
-            .to_str()
-            .unwrap()
-            .split(';')
-            .next()
-            .unwrap()
-            .to_owned();
-        let html = String::from_utf8(
-            to_bytes(response.into_body(), 200000)
-                .await
-                .unwrap()
-                .to_vec(),
-        )
-        .unwrap();
-        let csrf = html
-            .split("name=\"_csrf\" value=\"")
-            .nth(1)
-            .unwrap()
-            .split('"')
-            .next()
-            .unwrap()
-            .to_owned();
-        (cookie, csrf)
-    }
     let app = app_for(h.actor);
     let second = app_for(h.second);
     let (cookie, csrf) = login(app.clone()).await;
@@ -2270,4 +2235,84 @@ fn reason_digest_decodes_only_a_full_hex_sha256() {
             "{bad}"
         );
     }
+}
+
+async fn login(app: axum::Router) -> (String, String) {
+    let response = app
+        .oneshot(
+            HttpRequest::get("/admin/commerce")
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .to_owned();
+    (cookie, csrf)
+}
+
+#[tokio::test]
+async fn commerce_review_owner_cannot_cancel_refund() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let payment = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,250,'PLN','succeeded')")
+        .bind(payment).bind(h.second).bind(payment.to_string()).execute(&h.pool).await.unwrap();
+    let refund = h
+        .service()
+        .submit(
+            context(&h.pool, h.actor).await,
+            request(payment, Command::Refund),
+        )
+        .await
+        .unwrap();
+    let app = router(
+        h.pool.clone(),
+        crate::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Session(h.second, h.pool.clone()),
+        Authority(h.pool.clone()),
+        h.effects(),
+        flags(),
+    );
+    let id = refund.id;
+    let (cookie, csrf) = login(app.clone()).await;
+    let response = app
+        .oneshot(
+            HttpRequest::post(format!("/admin/commerce/cancellations/{id}"))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    h.close().await;
 }
