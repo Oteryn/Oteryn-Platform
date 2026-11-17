@@ -233,10 +233,13 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             }
         });
         // A pending grant must not wait on an account that cannot hold value;
-        // the approval applies the same check again under its own locks.
+        // the approval applies the same check again under its own locks. A
+        // replay of a recorded operation (row locked above) reports its
+        // recorded state instead of a fresh refusal.
         let authorization = match authorization {
             Ok(())
                 if matches!(request.command, Command::Grant { .. })
+                    && !recorded(&mut tx, request.request_id).await?
                     && !oteryn_wallet::value_eligible_in(&mut tx, request.target).await? =>
             {
                 Err(Error::Denied)
@@ -454,6 +457,14 @@ async fn record(
     )
     .await?;
     Ok(())
+}
+async fn recorded(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<bool, Error> {
+    Ok(
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM commerce_operations WHERE id=$1)")
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await?,
+    )
 }
 fn valid_id(id: Uuid) -> bool {
     id.get_version_num() == 7 && id.get_variant() == uuid::Variant::RFC4122
